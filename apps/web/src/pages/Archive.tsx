@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Trash2, Receipt, CheckCircle2, ClipboardList, BarChart3 } from "lucide-react";
 import { useCan } from "../lib/permissions";
-import { useExpenseArchive, useRestoreExpense } from "../hooks/useFinance";
+import { autoOverlapMessage, useExpenseArchive, useRestoreExpense } from "../hooks/useFinance";
 import {
   useProperties,
   usePropertyTrash,
@@ -38,6 +38,8 @@ import { initials } from "../lib/theme2026Person";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
 import { Pagination } from "../components/Pagination";
 import { SettingsTabs } from "../components/SectionTabs";
+import { CallClientButton } from "../components/CallClientButton";
+import { ClientTrashReviewSheet } from "../components/ClientTrashReviewSheet";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
 import { PropertyChangeRequestsInbox } from "../components/PropertyChangeRequestsInbox";
@@ -563,6 +565,9 @@ export function Archive() {
   const canPurgeClients = can("clients.purge");
   const canDeleteClients = can("clients.delete");
   const canDeleteProperties = can("properties.delete");
+  // Звонок удалённому клиенту и разбор «почему в Корзине» (владелец 16.11.2026, РОП).
+  const canCallArchived = can("clients.callArchived");
+  const [reviewing, setReviewing] = useState<{ id: string; phone: string } | null>(null);
 
   const [bin, setBin] = useState<Bin>("properties");
   const [from, setFrom] = useState("");
@@ -923,9 +928,14 @@ export function Archive() {
                     </span>
                     <div className="t">
                       <b>
-                        <Link className="lk" to={`/clients/${c.shortId}`}>
-                          {c.fullName}
-                        </Link>
+                        {canView ? (
+                          // Карточка удалённого клиента закрыта (404): имя открывает «Разбор».
+                          <button className="lk" type="button" onClick={() => setReviewing({ id: c.id, phone: c.phone })}>
+                            {c.fullName}
+                          </button>
+                        ) : (
+                          c.fullName
+                        )}
                       </b>
                       <span>
                         {c.phone}
@@ -934,14 +944,29 @@ export function Archive() {
                       </span>
                     </div>
                     <div className="act">
-                      <button
-                        className="pill ghost sm"
-                        type="button"
-                        disabled={restoreClient.isPending}
-                        onClick={() => restoreClient.mutate(c.id, { onSuccess: () => markGone(c.id) })}
-                      >
-                        Восстановить
+                      <button className="pill ghost sm" type="button" onClick={() => setReviewing({ id: c.id, phone: c.phone })}>
+                        Разбор
                       </button>
+                      {canCallArchived && (
+                        <CallClientButton
+                          clientId={c.id}
+                          phone={c.phone}
+                          variant="full"
+                          label="Позвонить"
+                          className="pill ghost sm"
+                          title="Звонок через АТС. Карточка останется в Корзине"
+                        />
+                      )}
+                      {canDeleteClients && (
+                        <button
+                          className="pill ghost sm"
+                          type="button"
+                          disabled={restoreClient.isPending}
+                          onClick={() => restoreClient.mutate(c.id, { onSuccess: () => markGone(c.id) })}
+                        >
+                          Восстановить
+                        </button>
+                      )}
                       {canPurgeClients && (
                         <button
                           className="pill ghost sm"
@@ -967,6 +992,10 @@ export function Archive() {
               />
             )}
           </section>
+        )}
+
+        {reviewing && (
+          <ClientTrashReviewSheet clientId={reviewing.id} phone={reviewing.phone} onClose={() => setReviewing(null)} />
         )}
 
         {bin === "expenses" && (
@@ -1033,7 +1062,15 @@ export function Archive() {
                         className="pill ghost sm"
                         type="button"
                         disabled={restoreExpense.isPending}
-                        onClick={() => restoreExpense.mutate(e.id)}
+                        onClick={() => restoreExpense.mutate(e.id, {
+                          // Пока строка лежала в корзине, CRM начала считать этот расход сама — спросить.
+                          onError: (err) => {
+                            const text = autoOverlapMessage(err);
+                            if (text && window.confirm(`${text}
+
+Всё равно вернуть?`)) restoreExpense.mutate({ id: e.id, confirmAutoOverlap: true });
+                          },
+                        })}
                       >
                         Восстановить
                       </button>

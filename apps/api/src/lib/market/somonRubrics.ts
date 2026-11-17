@@ -23,7 +23,8 @@ import type { Prisma } from "../../generated/prisma/client.js";
 
 export const SOMON_SOURCE = "somon.tj";
 
-export type SomonDealType = "SALE" | "RENT";
+/** Аренды в каталоге нет совсем (решение владельца 14.11.2026): сделка у нас только продажа. */
+export type SomonDealType = "SALE";
 export type SomonPropertyType = "APARTMENT" | "HOUSE" | "COMMERCIAL" | "LAND";
 
 export interface SomonRubric {
@@ -33,7 +34,10 @@ export interface SomonRubric {
   propertyType: SomonPropertyType;
 }
 
-/** Все рубрики недвижимости Somon, которые каталог признаёт своими. Новая рубрика — строкой сюда. */
+/**
+ * Все рубрики недвижимости Somon, которые каталог признаёт своими. Новая рубрика — строкой сюда.
+ * Рубрик аренды здесь нет НАМЕРЕННО: нет в списке — не пишется и не читается (`marketCatalogWhere`).
+ */
 export const SOMON_REAL_ESTATE_RUBRICS: readonly SomonRubric[] = [
   { id: 2829, label: "Продажа квартир: 1 комната", dealType: "SALE", propertyType: "APARTMENT" },
   { id: 2831, label: "Продажа квартир: 2 комнаты", dealType: "SALE", propertyType: "APARTMENT" },
@@ -44,15 +48,6 @@ export const SOMON_REAL_ESTATE_RUBRICS: readonly SomonRubric[] = [
   { id: 218, label: "Продажа домов (хавли) и дач", dealType: "SALE", propertyType: "HOUSE" },
   { id: 219, label: "Продажа земельных участков", dealType: "SALE", propertyType: "LAND" },
   { id: 326, label: "Продажа офисов и помещений", dealType: "SALE", propertyType: "COMMERCIAL" },
-  { id: 2843, label: "Аренда квартир: 1 комната", dealType: "RENT", propertyType: "APARTMENT" },
-  { id: 2845, label: "Аренда квартир: 2 комнаты", dealType: "RENT", propertyType: "APARTMENT" },
-  { id: 2847, label: "Аренда квартир: 3 комнаты", dealType: "RENT", propertyType: "APARTMENT" },
-  { id: 2849, label: "Аренда квартир: 4 комнаты", dealType: "RENT", propertyType: "APARTMENT" },
-  { id: 2851, label: "Аренда квартир: 5 и больше комнат", dealType: "RENT", propertyType: "APARTMENT" },
-  { id: 2394, label: "Аренда комнат", dealType: "RENT", propertyType: "APARTMENT" },
-  { id: 325, label: "Аренда домов", dealType: "RENT", propertyType: "HOUSE" },
-  { id: 3891, label: "Аренда дач", dealType: "RENT", propertyType: "HOUSE" },
-  { id: 220, label: "Аренда офисов", dealType: "RENT", propertyType: "COMMERCIAL" },
 ];
 
 const BY_ID = new Map(SOMON_REAL_ESTATE_RUBRICS.map((r) => [r.id, r]));
@@ -90,6 +85,8 @@ export interface CatalogRowLike {
  * записанный старым разбором «квартирой», в цены квартир не попадает, пока его не перепишет обход).
  */
 export function isReadableCatalogRow(row: CatalogRowLike): boolean {
+  // Аренды в каталоге нет ни у какой площадки: старая строка RENT не читается, даже если осталась в базе.
+  if (row.dealType !== "SALE") return false;
   if (row.source !== SOMON_SOURCE) return true;
   const rubric = somonRubricOf(row.raw);
   return rubric != null && rubric.dealType === row.dealType && rubric.propertyType === row.propertyType;
@@ -111,7 +108,7 @@ export function marketCatalogWhere(): Prisma.MarketListingWhereInput {
   }
   return {
     OR: [
-      { source: { not: SOMON_SOURCE } },
+      { source: { not: SOMON_SOURCE }, dealType: "SALE" },
       ...[...groups.values()].map((rubrics) => ({
         source: SOMON_SOURCE,
         dealType: rubrics[0].dealType,

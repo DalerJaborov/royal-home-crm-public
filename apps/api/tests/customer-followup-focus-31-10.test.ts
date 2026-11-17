@@ -111,7 +111,7 @@ describe("the repeat guard never swallows an answer to a fact question", () => {
     const first = render({ kind: "clarify", question: "property" }, "цена", [user("цена")], [unresolved], ["price"])!;
     expect(first).toContain("Какой объект");
     const again = render({ kind: "clarify", question: "property" }, "цена", [user("цена"), bot(first)], [unresolved], ["price"])!;
-    expect(again).toContain("Я уточнял, о каком объекте речь");
+    expect(again).toContain("Подскажите номер объекта или пришлите ссылку");
     expect(again).not.toMatch(/уже писал/u);
   });
 });
@@ -155,7 +155,7 @@ describe("an answer to the bot's district / rooms / budget question continues th
     expect(customerSearchPreRead(intent)?.args).toMatchObject({ type: "APARTMENT", rooms: 2, districtName: "Фирдавси" });
   });
   it("works in Tajik and after the 'I asked' repair wording", () => {
-    expect(customerSearchContinuation("дар Сино", turns(["user", "ду хона мехоҳам"], ["assistant", "Кадом ноҳия ба шумо мувофиқ аст?"])))
+    expect(customerSearchContinuation("дар Сино", turns(["user", "ду хона мехоҳам"], ["assistant", "Кадом тарафи шаҳрро мехоҳед?"])))
       .toMatchObject({ rooms: 2, districtName: "Сино" });
     expect(customerSearchContinuation("Сино", turns(["user", "трёшку"], ["assistant", "Я уточнял район для поиска. Какой район вам подходит?"])))
       .toMatchObject({ rooms: 3, districtName: "Сино" });

@@ -41,6 +41,7 @@
 
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { stripUntrusted } from "./untrustedContent.js";
+import { customerAskTextWithoutRefusals, customerAsksForCall, customerAsksForHuman } from "./customerAskSignals.js";
 
 const rx = (parts: string[]): RegExp => new RegExp(parts.join("|"), "iu");
 
@@ -81,9 +82,13 @@ const WANTS_CALL = rx([
   "занг\\s+кун(ед|ен|ӣ|и)",
 ]);
 
-/** Слова самого клиента — без врезок из присланных файлов и заметок CRM.
- *  Расшифровка голосового остаётся: ею человек и диктует просьбу. */
-const own = (text: string): string => stripUntrusted(text, ["document", "video", "crm_note"]).trim();
+/** Слова самого клиента — без врезок из присланных файлов и заметок CRM, без
+ *  цитат, отказов («не звоните», «оператор не нужен») и упоминаний роли («я
+ *  работаю оператором», «у меня оператор Билайн», «я менеджер по продажам»).
+ *  Расшифровка голосового остаётся: ею человек и диктует просьбу.
+ *  До 14.11.2026 само слово «оператор» в любом контексте поднимало дежурного,
+ *  а «не звоните мне» считалось просьбой о звонке (в нём есть «звоните»). */
+const own = (text: string): string => customerAskTextWithoutRefusals(stripUntrusted(text ?? "", ["document", "video", "crm_note"]));
 
 /** Клиент сам, своими словами, попросил звонок (или живого человека: кто просит
  *  человека, тот тем более согласен на звонок). */
@@ -91,7 +96,7 @@ export function clientAskedForCallback(clientMessages: string[]): boolean {
   return clientMessages.some((message) => {
     const text = own(message ?? "");
     if (!text) return false;
-    return WANTS_CALL.test(text) || WANTS_OPERATOR.test(text);
+    return WANTS_CALL.test(text) || WANTS_OPERATOR.test(text) || customerAsksForCall(message ?? "") || customerAsksForHuman(message ?? "");
   });
 }
 
@@ -100,6 +105,6 @@ export function clientAskedForOperator(clientMessages: string[]): boolean {
   return clientMessages.some((message) => {
     const text = own(message ?? "");
     if (!text) return false;
-    return WANTS_OPERATOR.test(text);
+    return WANTS_OPERATOR.test(text) || customerAsksForHuman(message ?? "");
   });
 }

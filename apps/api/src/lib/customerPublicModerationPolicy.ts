@@ -1,3 +1,4 @@
+import { brandize } from "../ai/brandPattern.js";
 import { detectSpam } from "./incomingSpam.js";
 import { detectHate } from "./commentHate.js";
 import { detectAgencyAd, detectListingAd } from "./listingAd.js";
@@ -27,8 +28,10 @@ export function customerPublicModerationPlan(text: string): CustomerPublicModera
 }
 
 /** Reuses the old seller approach, without unverified buyers or sales promises. */
-export function customerSellerPrivateReply(language: "ru" | "tg"): string {
-  return language === "tg"
+/** One bot, different brands: only the company name follows the account. */
+export function customerSellerPrivateReply(language: "ru" | "tg", brandName?: string | null): string {
+  const text = language === "tg"
     ? "Салом! Мо Royal Home, агентии амвол дар Душанбе ҳастем. Эълони фурӯши хонаи шуморо дидем. Агар хоҳед, дар фурӯш кӯмак мекунем. Шартҳои ҳамкориро фаҳмонем?"
     : "Здравствуйте! Это Royal Home, агентство недвижимости в Душанбе. Увидели ваше объявление о продаже. Если хотите, поможем с продажей. Рассказать об условиях сотрудничества?";
+  return brandName?.trim() ? brandize(text, brandName) : text;
 }

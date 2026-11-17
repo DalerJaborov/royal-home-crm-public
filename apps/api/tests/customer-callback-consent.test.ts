@@ -17,3 +17,23 @@ describe("server callback consent distinguishes refusal from a reported/correcte
     expect(customerCallbackConsentDecision(text)).toBe("none");
   });
 });
+
+// Аудит 14.11.2026: модель понимала эти просьбы, а прежний список из пяти фраз —
+// нет; клиент повторял, сторож исходящих ставил паузу на 6 часов, заявка терялась.
+describe("callback consent understands ordinary paraphrases (ru, tg, Latin, typos)", () => {
+  it.each(["позвони мне", "Можете позвонить?", "Пусть позвонят", "Свяжитесь со мной", "zang zaned", "Zang zanen iltimos",
+    "Ба ман занг занад", "Можете ли вы мне перезвонить завтра", "Жду звонка", "Хочу обратный звонок", "пазвоните мне пожалуйста",
+    "перизвоните", "Занг зада метавонед?", "tamos gired", "Я вам написал, позвоните мне"])("requested: %s", text => {
+    expect(customerCallbackConsentDecision(text)).toBe("requested");
+  });
+  it.each(["Мне никто не звонит", "Агент вчера звонил", "Я работаю оператором", "У меня оператор Билайн", "Спасибо, всё понятно",
+    "Хорошо", "Да, конечно"])("not a request by itself: %s", text => {
+    expect(customerCallbackConsentDecision(text)).toBe("none");
+  });
+  it.each(["Он написал: позвоните", "Она сказала, что позвоните завтра", "«Перезвоните мне»"])("reported or quoted call stays review: %s", text => {
+    expect(customerCallbackConsentDecision(text)).toBe("needs_review");
+  });
+  it.each(["Не пазвоните", "zang nazaned", "Занг накунед лутфан"])("typo/Latin refusal is never a request: %s", text => {
+    expect(customerCallbackConsentDecision(text)).not.toBe("requested");
+  });
+});

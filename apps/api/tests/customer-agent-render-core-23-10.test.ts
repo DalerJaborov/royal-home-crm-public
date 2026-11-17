@@ -53,7 +53,21 @@ describe("F10 company information: services, hours and address by word boundarie
     expect(customerCompanyInformationRequested("Ҳаққи хизмат чанд фоиз аст?")).toBe(false);
     expect(customerCompanyInformationRequested("Сколько стоят услуги риелтора?")).toBe(false);
   });
-  it.each(["До скольки вы работаете?", "Кай кор мекунед? Соат чанд?", "Часы работы подскажите"])("answers only the hours for %s", inputText => {
+  // Живой случай 13.11.2026 (Messenger и Instagram Arvan): старый бот принял «график
+  // работы» за вопрос о вакансии. Ядро читает сведения о компании само и отвечает часами.
+  it.each(["Здравствуйте, какой у вас график работы?", "Какой график работы?", "Режим работы вашего офиса?"])("reads company information automatically and is not a job question: %s", inputText => {
+    expect(customerCompanyInformationRequested(inputText)).toBe(true);
+    expect(customerRecruitmentRequested(inputText)).toBe(false);
+  });
+  it("«график работы» outside a job conversation prints the hours, never vacancy conditions read alongside", () => {
+    const evidence = [ev(company, "e0"), ev(vacancies(true, [position({ detailsRu: "График 5/2, офис" })]), "e1")];
+    const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" } as never,
+      evidence, language: "ru", requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm",
+      inputText: "Здравствуйте, какой у вас график работы?" }) ?? "";
+    expect(text).toContain("Сотрудники на связи с 09:30 до 18:00");
+    expect(text).not.toMatch(/SMM|ваканси/iu);
+  });
+  it.each(["До скольки вы работаете?", "Кай кор мекунед? Соат чанд?", "Часы работы подскажите", "Здравствуйте, какой у вас график работы?"])("answers only the hours for %s", inputText => {
     const text = render([ev(company)], { inputText }) ?? "";
     expect(text).toContain("Сотрудники на связи с 09:30 до 18:00"); expect(text).not.toContain("Офис Royal Home");
   });
@@ -138,7 +152,7 @@ describe("F07 the résumé is asked once", () => {
   });
   it("does not ask for it after a document or a photographed résumé", () => {
     const text = renderJob({ inputText: "", mediaPerception: perceived("document", "Резюме. Меня зовут Мадина. Опыт: три года ведения Instagram") });
-    expect(text).toContain("Сведения добавлены к отклику на вакансию."); expect(text).not.toContain("Пришлите резюме");
+    expect(text).toContain("Спасибо, записал."); expect(text).not.toContain("Пришлите резюме");
   });
   it("does not ask after the candidate described themselves in text", () => {
     const text = renderJob({ inputText: "Меня зовут Мадина, мне 26 лет, пять лет веду Instagram для магазинов и умею снимать Reels" });
@@ -186,7 +200,7 @@ ${question}`],
     const ask = (text: string) => customerBarePropertyAnswer("172", context([{ role: "assistant", text }]));
     expect(ask(rendered)).toBe(172);
     expect(ask(customerAgentPropertyQuestionTexts("ru")[1])).toBe(172);
-    expect(ask("Я уточнял, о каком объекте речь. Пришлёте номер объекта или ссылку?")).toBe(172);
+    expect(ask("Подскажите номер объекта или пришлите ссылку, и я всё расскажу.")).toBe(172);
     expect(ask("Спасибо")).toBeNull();
   });
   it("derives the reason from the held evidence only", () => {

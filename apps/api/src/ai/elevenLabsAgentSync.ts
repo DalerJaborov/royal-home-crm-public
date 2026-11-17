@@ -321,7 +321,7 @@ export function buildAgentPrivacyPatch(agent: unknown): Json {
  *  - tts.agent_output_audio_format / asr.user_input_audio_format: ulaw_8000 —
  *    родной формат телефонной линии, мост тогда не пересчитывает частоту;
  *  - tts.text_normalisation_type: elevenlabs (числа и даты читает сам сервис);
- *  - turn.turn_eagerness: eager, turn.turn_timeout (по умолчанию 7), turn.turn_model,
+ *  - turn.turn_eagerness: normal (до 16.11.2026 — eager), turn.turn_timeout (по умолчанию 7), turn.turn_model,
  *    turn.speculative_turn, turn.soft_timeout_config.timeout_seconds (-1 — выкл),
  *    turn.interruption_ignore_terms (точное совпадение без учёта регистра);
  *  - agent.prompt.max_tokens (-1 — без потолка), agent.prompt.timezone;
@@ -354,7 +354,14 @@ export const ELEVENLABS_PHONE_AGENT_TUNING = {
   turn: {
     turn_model: "turn_v3",
     speculative_turn: true,
-    turn_eagerness: "eager",
+    /**
+     * normal, а не eager (16.11.2026, разбор звонков голоса Anna, п. 5): eager начинал ответ в
+     * микропаузе, человек продолжал — робота оборвали 47 раз за 15 звонков, «говорят одновременно»
+     * дольше 5 с — 16 раз; звонок 14.11 13:48 — 5 из 9 реплик робота оборваны. Цена — пауза до ответа
+     * длиннее на ~0,3–0,7 с (ОЦЕНКА, замера нет). speculative_turn оставлен: он заранее готовит ответ,
+     * а не говорит раньше. Менять в кабинете ElevenLabs бесполезно — CRM перезаписывает поле на звонке.
+     */
+    turn_eagerness: "normal",
     turn_timeout: 5,
     soft_timeout_config: { timeout_seconds: -1 },
   },

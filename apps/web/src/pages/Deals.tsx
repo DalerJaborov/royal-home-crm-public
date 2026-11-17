@@ -242,7 +242,7 @@ export function Deals() {
   // теперь решает и видимость кнопки «Документы» в архивной строке ниже.
   const canPayout = showsArchivePayoutButton({
     financeManage: !readOnly && can("finance.manage"),
-    dealsSetCommission: !readOnly && can("deals.setCommission"),
+    dealsSetCommission: false, // выплату отмечает только директор (замок прав 16.11.2026)
   });
   /**
    * ПРАВО СТАВИТЬ СУММУ КОМИССИИ — ОТДЕЛЬНО ОТ ПРАВА ЗАКРЫВАТЬ СДЕЛКУ (24.09.2026,

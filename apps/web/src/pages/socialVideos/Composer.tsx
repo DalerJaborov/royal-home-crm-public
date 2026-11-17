@@ -7,6 +7,9 @@ import {
   SOCIAL_VIDEO_STATUS_LABELS,
   destinationKeyOf,
   evaluateVideoForChannels,
+  evaluatePhotoPostForChannel,
+  SOCIAL_PHOTO_POST_MAX_IMAGES,
+  type SocialPostMediaKind,
   type ChannelRuntimeLimits,
   type SocialVideoCaptionLanguage,
   type SocialVideoCaptionTone,
@@ -46,6 +49,7 @@ import { ChannelPicker } from "../../components/socialVideos/ChannelPicker";
 import { SchedulePicker } from "../../components/socialVideos/SchedulePicker";
 import { ChannelBadge } from "../../components/socialVideos/ChannelBadge";
 import { ComposerSummary } from "./ComposerSummary";
+import { PhotoPicker } from "./PhotoPicker";
 import {
   earliestScheduleMs,
   errorText,
@@ -79,6 +83,8 @@ export interface ComposerProps {
   onPublished: (id: string) => void;
   /** Открыть карточку другого ролика (предупреждение «этот файл уже загружали» → «Открыть прежний»). */
   onOpenVideo?: (id: string) => void;
+  /** С чего начать новый черновик: ролик или фото-пост. */
+  initialKind?: SocialPostMediaKind;
 }
 
 interface Snapshot {
@@ -121,8 +127,12 @@ function Step({
   );
 }
 
-export function Composer({ editId, onClose, onPublished, onOpenVideo }: ComposerProps) {
+export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKind = "VIDEO" }: ComposerProps) {
   const [draftId, setDraftId] = useState<string | null>(editId);
+  // Ролик или фото-пост (16.11.2026). У существующего черновика вид берётся с сервера и не меняется.
+  const [kindChoice, setKindChoice] = useState<SocialPostMediaKind>(initialKind);
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoReplace, setPhotoReplace] = useState<File[] | null>(null);
   const draft = useSocialVideo(draftId).data ?? null;
   const infos = useSocialVideoChannels().data ?? [];
   const liveQuery = useSocialVideoChannelsLive();
@@ -166,6 +176,9 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
   const uploadCover = useUploadSocialVideoCover();
   const generateCover = useGenerateSocialVideoCover();
   const clearCover = useClearSocialVideoCover();
+
+  const kind: SocialPostMediaKind = draft?.mediaKind ?? kindChoice;
+  const isPhoto = kind === "PHOTO";
 
   // ── что известно серверу и что сейчас в форме ──
   const savedRef = useRef<Snapshot | null>(null);
@@ -237,7 +250,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
 
   // ── загрузка файла ──
   const upload = useCallback(
-    async (f: File, nameForDraft: string) => {
+    async (f: File | File[], nameForDraft: string) => {
       setUploadError(null);
       setDuplicate(null);
       setProgress(0);
@@ -245,7 +258,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
       const cur = valuesRef.current;
       try {
         const item = await createAsync({
-          file: f,
+          ...(Array.isArray(f) ? { photos: f } : { file: f }),
           title: nameForDraft,
           caption: cur.caption,
           brief: cur.brief.trim(),
@@ -258,9 +271,10 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
         savedRef.current = { title: item.title, caption: item.caption, brief: item.brief ?? "", destinations: destinationsOfItem(item) };
         setDraftId(item.id);
         setFile(null);
+        setPhotos([]);
         setDuplicate(item.duplicateOf ?? null);
       } catch (err) {
-        setUploadError(errorText(err, "Не удалось загрузить ролик"));
+        setUploadError(errorText(err, Array.isArray(f) ? "Не удалось загрузить фото" : "Не удалось загрузить ролик"));
       } finally {
         setProgress(null);
         setProcessing(false);
@@ -316,12 +330,45 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
     }
   };
 
+  // ── фото-пост: выбор и замена набора фото ──
+  const startWithPhotos = (list: File[]) => {
+    const picked = list.slice(0, SOCIAL_PHOTO_POST_MAX_IMAGES);
+    setPhotos(picked);
+    const name = title.trim() || titleFromFileName(picked[0].name);
+    if (!title.trim()) setTitle(name);
+    void upload(picked, name);
+  };
+  const onPickPhotos = (list: File[]) => {
+    if (list.length === 0) return;
+    if (draftId) setPhotoReplace(list);
+    else startWithPhotos(list);
+  };
+  const confirmPhotoReplace = async () => {
+    const list = photoReplace;
+    setPhotoReplace(null);
+    if (!list || !draftId) return;
+    setUploadError(null);
+    try {
+      await flush().catch(() => undefined);
+      await deleteAsync(draftId);
+    } catch (err) {
+      setUploadError(errorText(err, "Не удалось убрать прежние фото"));
+      return;
+    }
+    hydrated.current = null;
+    savedRef.current = null;
+    setDraftId(null);
+    setSaveState("idle");
+    startWithPhotos(list);
+  };
+
   // ── факты и вердикты ──
   const facts = useMemo(
     () => mergeFacts(draft ? factsFromItem(draft) : null, browserFacts),
     [draft, browserFacts]
   );
   const verdicts = useMemo(() => {
+    if (isPhoto) return SOCIAL_VIDEO_CHANNELS.map((c) => evaluatePhotoPostForChannel(c, caption));
     if (!facts) return [];
     const runtime: Partial<Record<SocialVideoChannel, ChannelRuntimeLimits>> = {};
     for (const c of SOCIAL_VIDEO_CHANNELS) {
@@ -329,7 +376,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
       if (r) runtime[c] = r;
     }
     return evaluateVideoForChannels(SOCIAL_VIDEO_CHANNELS, facts, caption, runtime);
-  }, [facts, caption, live]);
+  }, [facts, caption, live, isPhoto]);
 
   // ── подписи от ИИ ──
   const runGenerate = (regenerate: boolean) => {
@@ -392,8 +439,8 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
 
   // ── что мешает опубликовать ──
   const blockReasons: string[] = [];
-  if (progress !== null) blockReasons.push("Ролик ещё загружается");
-  else if (!draftId) blockReasons.push("Сначала загрузите ролик");
+  if (progress !== null) blockReasons.push(isPhoto ? "Фото ещё загружаются" : "Ролик ещё загружается");
+  else if (!draftId) blockReasons.push(isPhoto ? "Сначала добавьте фото" : "Сначала загрузите ролик");
   if (destinations.length === 0) blockReasons.push("Выберите хотя бы один канал");
   blockReasons.push(...destinationBlockReasons(destinations, infos, verdicts));
   if (mode === "SCHEDULE") {
@@ -465,13 +512,28 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
         <div className="pg-h">
           <div>
             <button className="pill ghost sm" type="button" onClick={() => void leave()} disabled={uploading}>
-              <ArrowLeft className="i" aria-hidden />К списку роликов
+              <ArrowLeft className="i" aria-hidden />К списку публикаций
             </button>
-            <h1 style={{ marginTop: 12 }}>{editId ? "Редактирование ролика" : "Новый ролик"}</h1>
+            <h1 style={{ marginTop: 12 }}>
+              {editId ? (isPhoto ? "Редактирование фото-поста" : "Редактирование ролика") : "Новая публикация"}
+            </h1>
             <p className="sub">
-              Загрузите ролик, опишите его своими словами — ИИ напишет подписи. Выберите сети и время: сразу или по
-              расписанию. Публикация идёт в фоне, её ход виден в карточке ролика.
+              {isPhoto
+                ? "Добавьте до 10 фото и текст. В Instagram несколько фото уйдут каруселью, в Telegram альбомом, в Facebook одним постом."
+                : "Загрузите ролик, опишите его своими словами, ИИ напишет подписи. Выберите сети и время: сразу или по расписанию."}
             </p>
+            {!draftId && !editId && (
+              <div className="seg" role="tablist" aria-label="Что публикуем" style={{ marginTop: 12 }}>
+                <button type="button" role="tab" aria-selected={!isPhoto} onClick={() => setKindChoice("VIDEO")} disabled={uploading}>
+                  <Film className="i" aria-hidden />
+                  Ролик
+                </button>
+                <button type="button" role="tab" aria-selected={isPhoto} onClick={() => setKindChoice("PHOTO")} disabled={uploading}>
+                  <ImageIcon className="i" aria-hidden />
+                  Фото с текстом
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -506,6 +568,33 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
           <div className="flex min-w-0 flex-col gap-4">
+            {isPhoto ? (
+              <Step n={1} icon={<ImageIcon className="i" />} title="Фото" done={!!draftId && !uploading} hint={`до ${SOCIAL_PHOTO_POST_MAX_IMAGES} фото: JPEG, PNG, HEIC`}>
+                <PhotoPicker
+                  local={photos}
+                  existing={draft?.imagePaths ?? []}
+                  uploadProgress={progress}
+                  processing={processing}
+                  disabled={uploading}
+                  onPick={onPickPhotos}
+                />
+                {uploadError && (
+                  <div className="quiet crit" role="alert" style={{ marginTop: 12 }}>
+                    <span className="dot crit" />
+                    <span className="txt">{uploadError}</span>
+                    {photos.length > 0 && !uploading && (
+                      <button className="pill ghost sm" type="button" onClick={() => void upload(photos, title.trim() || titleFromFileName(photos[0].name))}>
+                        <RefreshCw className="i" aria-hidden />
+                        Загрузить ещё раз
+                      </button>
+                    )}
+                  </div>
+                )}
+                <p className="note" style={{ marginTop: 12 }}>
+                  Фото-пост уходит в Instagram, Facebook и Telegram. YouTube и TikTok принимают только ролики.
+                </p>
+              </Step>
+            ) : (
             <Step n={1} icon={<Film className="i" />} title="Ролик" done={!!draftId && !uploading} hint="MP4, MOV или M4V">
               <VideoDropzone
                 file={file}
@@ -536,6 +625,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
                 </div>
               )}
             </Step>
+            )}
 
             <Step n={2} icon={<PenLine className="i" />} title="Текст" done={caption.trim().length > 0}>
               <CaptionStudio
@@ -559,6 +649,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
               />
             </Step>
 
+            {!isPhoto && (
             <Step n={3} icon={<ImageIcon className="i" />} title="Обложка" hint="необязательно">
               {!draftId && (
                 <p className="state" style={{ paddingTop: 0 }}>
@@ -577,8 +668,9 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
                 coverMeta={draft?.coverMeta ?? null}
               />
             </Step>
+            )}
 
-            <Step n={4} icon={<Share2 className="i" />} title="Куда публиковать" done={destinations.length > 0}>
+            <Step n={isPhoto ? 3 : 4} icon={<Share2 className="i" />} title="Куда публиковать" done={destinations.length > 0}>
               <ChannelPicker
                 infos={infos}
                 live={live}
@@ -601,7 +693,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
               </div>
             </Step>
 
-            <Step n={5} icon={<CalendarClock className="i" />} title="Когда" done={mode === "NOW" || !!scheduledAt}>
+            <Step n={isPhoto ? 4 : 5} icon={<CalendarClock className="i" />} title="Когда" done={mode === "NOW" || !!scheduledAt}>
               <SchedulePicker
                 mode={mode}
                 onModeChange={setMode}
@@ -622,7 +714,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
               live={live}
               mode={mode}
               scheduledAt={scheduledAt}
-              hasCover={!!coverUrl}
+              hasCover={!!coverUrl || isPhoto}
               blockReasons={blockReasons}
               busy={busy}
               saveNote={saveNote}
@@ -637,11 +729,11 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
       {confirmPublish && (
         <ConfirmDialog
           danger={false}
-          title={mode === "NOW" ? "Опубликовать ролик?" : "Запланировать ролик?"}
+          title={mode === "NOW" ? (isPhoto ? "Опубликовать фото-пост?" : "Опубликовать ролик?") : isPhoto ? "Запланировать фото-пост?" : "Запланировать ролик?"}
           description={
             mode === "NOW"
-              ? `Ролик «${title.trim()}» уйдёт сразу по ${destinations.length} ${pluralizeRu(destinations.length, ["адресу", "адресам", "адресам"])}. Вышедшие посты потом убирают в самих соцсетях.`
-              : `Ролик «${title.trim()}» выйдет ${scheduledAt ? exactDateTime(scheduledAt) : ""} по Душанбе по ${destinations.length} ${pluralizeRu(destinations.length, ["адресу", "адресам", "адресам"])}. До этого времени его можно вернуть в черновик.`
+              ? `${isPhoto ? "Пост" : "Ролик"} «${title.trim()}» уйдёт сразу по ${destinations.length} ${pluralizeRu(destinations.length, ["адресу", "адресам", "адресам"])}. Вышедшие посты потом убирают в самих соцсетях.`
+              : `${isPhoto ? "Пост" : "Ролик"} «${title.trim()}» выйдет ${scheduledAt ? exactDateTime(scheduledAt) : ""} по Душанбе по ${destinations.length} ${pluralizeRu(destinations.length, ["адресу", "адресам", "адресам"])}. До этого времени его можно вернуть в черновик.`
           }
           confirmLabel={mode === "NOW" ? "Опубликовать" : "Запланировать"}
           onConfirm={() => void doPublish()}
@@ -659,6 +751,16 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo }: Composer
             ))}
           </div>
         </ConfirmDialog>
+      )}
+
+      {photoReplace && (
+        <ConfirmDialog
+          title="Заменить фото?"
+          description="Прежние фото удалятся, а текст и выбранные каналы останутся."
+          confirmLabel="Заменить"
+          onConfirm={() => void confirmPhotoReplace()}
+          onCancel={() => setPhotoReplace(null)}
+        />
       )}
 
       {replaceRequest && (

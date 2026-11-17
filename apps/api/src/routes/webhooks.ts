@@ -1,9 +1,12 @@
+import { mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME } from "../lib/serviceArea.js";
 import { customerDmRoutingForIncoming, inspectCustomerDmRouting } from "../lib/customerAgentIngressRouting.js";
 import { createHash } from "node:crypto";
 import type { CustomerPropertyAdmissionResult } from "@royal-home/shared";
 import { customerPropertyContextEnabled } from "../lib/customerPropertyContextFlag.js";
 import { admitCustomerPropertyInput } from "../lib/customerPropertyAdmission.js";
 import { persistVerifiedCustomerIngressBatch } from "../lib/customerIngressProducer.js";
+import { reportMetaWebhookNotSaved } from "../lib/customerRoutingHold.js";
+import { notifyHeldCustomerMessages } from "../lib/customerHeldMessage.js";
 import { persistVerifiedMetaPublicCommentBatch } from "../lib/customerPublicCommentProducer.js";
 import { captureAuthenticatedCustomerInput, registerAuthenticatedMetaCustomerRequest,
   registerAuthenticatedWebsiteCustomerRequest, initializeVerifiedCustomerEndpoint, verifyMetaCustomerReferralTarget, type AuthenticatedCustomerInput } from "../lib/customerIngressAuthority.js";
@@ -128,6 +131,7 @@ import { isReactionOnly } from "../ai/replyGuards.js";
 import { looksLikeMoneyRequest } from "../ai/moneyRequestGuard.js";
 import { screenIncomingText } from "../ai/inboundScreen.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
+import { isHandedToStaff, notifyLateDelivery, staffAnsweredLate } from "../lib/metaInboxReconcile.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
 import { leadMagnetSilencesBot, tryLeadMagnetMessage } from "../lib/leadMagnet.js";
 import { isWithinWorkingHours } from "../lib/workingHours.js";
@@ -137,6 +141,7 @@ import type { TelegramUpdate } from "../telegram/api.js";
 import { withTelegramUpdateRetry } from "../telegram/updateRetry.js";
 import { anyParams } from "../lib/routeParams.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
+import { requestAgentAttention } from "../lib/agentAttention.js";
 import { sendPushToAgents } from "../push.js";
 import { ensureMetaAdKnown } from "../lib/ads/syncMetaAds.js";
 
@@ -886,7 +891,8 @@ const siteListingUpsertSchema = z.object({
 export function resolveDistrict(location: string, districts: { id: string; name: string }[]): { id: string; matched: boolean } {
   const norm = location.toLowerCase();
   for (const d of districts) {
-    if (norm.includes(d.name.toLowerCase())) return { id: d.id, matched: true };
+    // «Сино, пр. Рудаки 45» — проспект, а не район Рудаки (зона с 15.11.2026, lib/serviceArea.ts).
+    if (d.name === RUDAKI_DISTRICT_NAME ? mentionsRudakiDistrict(location) : norm.includes(d.name.toLowerCase())) return { id: d.id, matched: true };
   }
   // «И. Сомони» на сайте = «Исмоили Сомони» в CRM
   if (norm.includes("сомони")) {
@@ -1646,6 +1652,18 @@ webhooksRouter.post("/telegram", requireTelegramSecret, telegramChatLimiter, asy
   );
 });
 
+/** Receiving account of a signed Meta body (first entry), for journal scoping only. */
+function metaWebhookAccount(body: unknown): string | undefined {
+  const id = (body as { entry?: Array<{ id?: unknown }> } | null)?.entry?.[0]?.id;
+  return typeof id === "string" && id.length <= 128 ? id : undefined;
+}
+
+/** В теле вебхука Meta есть поле changes (комментарии, статусы WhatsApp) — такое тело обрабатываем целиком. */
+function metaBodyHasChanges(body: unknown): boolean {
+  const entries = (body as { entry?: Array<{ changes?: unknown[] }> } | null)?.entry ?? [];
+  return entries.some((entry) => Array.isArray(entry?.changes) && entry.changes.length > 0);
+}
+
 webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, res) => {
   // Подпись уже сверена middleware'ом requireMetaSignature — и именно ДО
   // лимитера: его ключ строится из sender.id в теле, и неподписанные запросы не
@@ -1661,10 +1679,28 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // секретом — по подписи их не отличить.
   const waPhoneId = await getMetaWaPhoneId();
   const incoming = parseMetaIncoming(req.body, waPhoneId);
+  // ПОВТОР ПО СООБЩЕНИЮ, КОТОРОЕ УЖЕ ОТДАНО ЧЕЛОВЕКУ (15.11.2026, lib/metaInboxReconcile.ts):
+  // сверка Страниц не дождалась вебхука и сказала сотруднику «Ответьте вручную»; если Meta
+  // дошлёт это сообщение позже (после простоя сервера), бот ответил бы второй раз. Только
+  // если в запросе одни такие личные сообщения Messenger — без эха, статусов и комментариев.
+  // Ревью 199-1: молчим, ТОЛЬКО если человек уже ответил (живой ответ в Graph). Иначе сообщение идёт обычным
+  // путём — текст в CRM, бот отвечает (ночью клиент не ждёт утра), — а человеку уходит «дошло, бот отвечает».
+  let lateHanded: typeof incoming | null = null;
+  if (incoming.length > 0 && incoming.every((m) => (m.channel === "FACEBOOK" || m.channel === "INSTAGRAM") && !m.isEcho && m.messageId) &&
+      !metaBodyHasChanges(req.body) && await isHandedToStaff(incoming.map((m) => m.messageId!))) {
+    if (await staffAnsweredLate(incoming)) {
+      console.log(`[вебхук] ${incoming[0]!.channel}: повтор ${incoming.length} сообщ., сотрудник уже ответил по сверке — бот молчит`);
+      return res.json({ ok: true });
+    }
+    lateHanded = incoming;
+  }
   // Short durable intake precedes the provider ACK when the scoped rollout
   // is enabled. No model/provider call occurs here. OFF follows legacy intake.
   const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   if (durableIngress.status === "denied" || durableIngress.status === "unavailable") {
+    // Visible every time (deduplicated): a 503 that repeats ~15 min is a lost
+    // message, and until 13.11 it left no trace at all.
+    reportMetaWebhookNotSaved("dm", durableIngress.reason, metaWebhookAccount(req.body));
     return res.status(503).json({ error: "Входящее событие пока не сохранено" });
   }
   // Public inputs keep their actual publication/thread and immutable original
@@ -1672,6 +1708,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // old post-ACK comment funnel on a provider redelivery.
   const publicIngress = await persistVerifiedMetaPublicCommentBatch(req);
   if (publicIngress.status === "held") {
+    reportMetaWebhookNotSaved("public_comment", publicIngress.reason, metaWebhookAccount(req.body));
     return res.status(503).json({ error: "Комментарий пока не сохранён" });
   }
   const propertyAdmissions = new Map<(typeof incoming)[number], CustomerPropertyAdmissionResult>();
@@ -1688,6 +1725,12 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // полуслове при рестарте контейнера.
   void trackBackgroundTask(
     (async () => {
+      // Held DMs are already in their CRM chats; call a person only now, when
+      // the whole batch is durable and Meta has its 200 (13.11.2026).
+      if ((durableIngress.status === "persisted" || durableIngress.status === "bypass") && durableIngress.held?.length) {
+        await notifyHeldCustomerMessages(durableIngress.held);
+      }
+      if (lateHanded) await notifyLateDelivery(lateHanded);
       // Immutable admissions precede profile/media/ad enrichment. Scoped
       // pending payloads/jobs have already committed before the ACK above.
       {
@@ -1900,6 +1943,9 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         await handleOutgoingEcho(msg);
         continue;
       }
+      // A held DM was written into its CRM chat before the ACK and belongs to
+      // no bot: skip it BEFORE any account/Graph profile lookup (13.11.2026).
+      if (inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD") { traceOutcome("blocked"); continue; }
 
       // Чей это разговор: маркер найденного аккаунта уходит и в индикаторы
       // «прочитано/печатает», и в сам ответ, и в служебные запросы вроде
@@ -2303,7 +2349,9 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       const adPostTail = msg.adPostId?.includes("_") ? msg.adPostId.slice(msg.adPostId.lastIndexOf("_") + 1) : msg.adPostId;
       const ourCreative =
         (Boolean(msg.attachmentMediaId) && (msg.attachmentMediaId === msg.adPostId || msg.attachmentMediaId === adPostTail)) ||
-        isOurBrandCaption(msg.attachmentTitle, accountBrand);
+        isOurBrandCaption(msg.attachmentTitle, accountBrand) ||
+        // Подписи нет, но описание самого ролика называет наш бренд («рекламный ролик агентства «Arvan Estate»»), 16.11.2026.
+        isOurBrandCaption(cardRead?.text, accountBrand);
       const foreignShare =
         isSharedPost(msg.attachmentType) && !sharedPost.propertyId && !ownMedia && !vacancyPost && !ourCreative;
       if (foreignShare) rememberForeignShare(msg.channel, msg.senderId);
@@ -2717,6 +2765,8 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // другой по формулировке ответ на тот же вопрос («два похожих сообщения
       // подряд» из живой переписки).
       replySent = true;
+      // Обещание звонка доехало до клиента — теперь сигнал агенту (одна дверь, lib/agentAttention.ts).
+      if (providerAcceptedReply && result.agentSignal) void requestAgentAttention(result.agentSignal.clientId, result.agentSignal.reason);
       if (result.reply2) {
         // Между двумя сообщениями индикатор гаснет (отправка его сбрасывает) —
         // показываем «печатает…» заново, как человек, который дописывает мысль.

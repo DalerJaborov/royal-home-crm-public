@@ -134,9 +134,16 @@ describe("3. каналы по снимку самопроверки и день
       data: { source: "ai", message: `Обложка: На счёте OpenAI закончились деньги ${runId}` },
     });
     errorIds.push(e.id);
-    expect((await mc()).body.marketing.channels.openaiOutOfMoney).toBe(true);
-    await prisma.errorLog.update({ where: { id: e.id }, data: { resolvedAt: new Date() } });
-    expect((await mc()).body.marketing.channels.openaiOutOfMoney).toBe(false);
+    // «Кончились деньги» показывается только при включённом OpenAI (рубильник #187, по умолчанию выключен).
+    const saved = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { openaiEnabled: true } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { openaiEnabled: true } });
+    try {
+      expect((await mc()).body.marketing.channels.openaiOutOfMoney).toBe(true);
+      await prisma.errorLog.update({ where: { id: e.id }, data: { resolvedAt: new Date() } });
+      expect((await mc()).body.marketing.channels.openaiOutOfMoney).toBe(false);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: saved });
+    }
   });
 });
 

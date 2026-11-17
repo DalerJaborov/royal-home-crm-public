@@ -25,15 +25,16 @@ let blindToken = "";
 let seeingToken = "";
 
 beforeAll(async () => {
-  const mk = async (phone: string, permissions: unknown) =>
+  const mk = async (phone: string, permissions: unknown, role = "MANAGER") =>
     (await prisma.agent.create({
-      data: { fullName: `Аудит бота ${phone}`, phone, role: "MANAGER", passwordHash: "x", permissions: permissions as never },
+      data: { fullName: `Аудит бота ${phone}`, phone, role: role as never, passwordHash: "x", permissions: permissions as never },
     })).id;
   const blind = await mk(`+99281${tail}`, { granted: ["auditLog.view"], revoked: ["clients.viewPhone"] });
-  const seeing = await mk(`+99282${tail}`, { granted: ["auditLog.view", "clients.viewPhone"], revoked: [] });
+  // 16.11.2026 номера только директору: «видящий» — DIRECTOR.
+  const seeing = await mk(`+99282${tail}`, { granted: ["auditLog.view", "clients.viewPhone"], revoked: [] }, "DIRECTOR");
   agentIds.push(blind, seeing);
   blindToken = signAccessToken({ sub: blind, role: "MANAGER" });
-  seeingToken = signAccessToken({ sub: seeing, role: "MANAGER" });
+  seeingToken = signAccessToken({ sub: seeing, role: "DIRECTOR" });
   for (let i = 0; i < 5; i++) {
     const row = await prisma.botAuditFinding.create({
       data: {

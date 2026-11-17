@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Banknote, Building2, CalendarDays, Check, ChevronLeft, Megaphone, Repeat2, WalletCards } from "lucide-react";
 import { CLIENT_SOURCES, CLIENT_SOURCE_LABELS, EXPENSE_CATEGORIES, EXPENSE_CATEGORY_LABELS, type ClientSource, type ExpenseCategory } from "@royal-home/shared";
 import { useAgents } from "../../hooks/useAgents";
-import { useCreateExpense, useCreateRecurring } from "../../hooks/useFinance";
+import { autoOverlapMessage, useCreateExpense, useCreateRecurring } from "../../hooks/useFinance";
 import { CButton } from "../clean/ui";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { createCleanExpenseSubmitLock, prepareCleanExpense, type CleanExpenseDraft } from "./cleanExpenseDraft";
@@ -36,6 +36,10 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
   const [accountingMonth, setAccountingMonth] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** «Уже учтено автоматически» от сервера: следующее нажатие пишет с подтверждением. */
+  const [overlap, setOverlap] = useState<string | null>(null);
+  /** Черновик, для которого показано «уже учтено»: подтверждение не переносится на другой. */
+  const overlapFor = useRef<string | null>(null);
   const [errorField, setErrorField] = useState<keyof CleanExpenseDraft | null>(null);
   const fields = useRef<HTMLFieldSetElement>(null);
   useLayoutEffect(() => {
@@ -51,10 +55,11 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
     if (pending) return;
     setDraft((previous) => ({ ...previous, [key]: value }));
     setError(null);
+    setOverlap(null);
     setErrorField(null);
   }
   function close() { if (!lock.current.isBusy() && !pending) onClose(); }
-  function back() { if (!pending) { setStep((value) => Math.max(0, value - 1)); setError(null); } }
+  function back() { if (!pending) { setStep((value) => Math.max(0, value - 1)); setError(null); setOverlap(null); } }
 
   async function advance() {
     if (!canManage || pending || lock.current.isBusy()) return;
@@ -77,10 +82,12 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
       setWorking(true); setError(null);
       try {
         if (request.kind === "recurring") await recurring.mutateAsync(request.body);
-        else await create.mutateAsync(request.body);
-        setDraft(INITIAL); setAccountingMonth(null); setStep(0);
+        else await create.mutateAsync(overlap && overlapFor.current === JSON.stringify(request.body) ? { ...request.body, confirmAutoOverlap: true } : request.body);
+        setDraft(INITIAL); setAccountingMonth(null); setStep(0); setOverlap(null);
         onClose();
       } catch (reason) {
+        const repeated = autoOverlapMessage(reason);
+        if (repeated) { overlapFor.current = JSON.stringify(request.body); setOverlap(repeated); return; }
         setError(isReadOnlyRoleError(reason) ? "Режим просмотра: запись расходов недоступна для вашей роли. Данные формы не отправлены повторно." : reason instanceof Error ? reason.message : "Не удалось записать расход. Данные сохранены в форме — повторите.");
       } finally { setWorking(false); }
     });
@@ -92,7 +99,7 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
       <CButton variant="soft" disabled={pending} onClick={step > 0 ? back : close}>
         {step > 0 ? <><ChevronLeft size={20} aria-hidden="true" />Назад</> : "Закрыть"}
       </CButton>
-      <CButton type="submit" disabled={pending}>{pending ? "Сохраняем…" : step < 2 ? "Продолжить" : draft.repeat ? "Создать шаблон" : "Записать расход"}</CButton>
+      <CButton type="submit" disabled={pending}>{pending ? "Сохраняем…" : step < 2 ? "Продолжить" : draft.repeat ? "Создать шаблон" : overlap ? "Всё равно записать" : "Записать расход"}</CButton>
     </>}>
     <fieldset ref={fields} aria-busy={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
     <div data-clean-expense-wizard="" style={{ display: "grid", gap: 24 }}>
@@ -142,7 +149,7 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
         </>}
         <div><p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>Частые назначения</p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{PRESETS.map((preset) => <CButton key={preset.title} size="sm" variant="soft"
-            onClick={() => { if (pending) return; setDraft((previous) => ({ ...previous, note: preset.title, category: preset.category })); setError(null); setErrorField(null); }}>{preset.title}</CButton>)}</div>
+            onClick={() => { if (pending) return; setDraft((previous) => ({ ...previous, note: preset.title, category: preset.category })); setError(null); setOverlap(null); setErrorField(null); }}>{preset.title}</CButton>)}</div>
         </div>
       </>}
       {step === 2 && <>
@@ -157,7 +164,7 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
           <label className="field"><span className="lab">Название шаблона *</span><input className="inp" maxLength={200} data-expense-field="note" aria-required="true" aria-invalid={errorField === "note"} aria-describedby={errorField === "note" ? "clean-expense-error" : undefined} value={draft.note} placeholder="Например: аренда офиса" onChange={(event) => change("note", event.target.value)} style={{ maxWidth: "none" }} /></label>
           <p style={{ fontSize: 14, lineHeight: 1.6, color: "var(--muted)" }}>Создаётся ежемесячный шаблон. В указанное число CRM заведёт расход; банковское списание этот шаблон не выполняет.</p>
         </> : <>
-          <label className="field"><span className="lab">Месяц учёта</span><input className="inp" type="month" data-expense-field="month" aria-invalid={errorField === "month"} aria-describedby={errorField === "month" ? "clean-expense-error" : undefined} aria-required="true" value={current.month} onChange={(event) => { if (pending) return; setAccountingMonth(event.target.value); setError(null); setErrorField(null); }} style={{ maxWidth: "none" }} /></label>
+          <label className="field"><span className="lab">Месяц учёта</span><input className="inp" type="month" data-expense-field="month" aria-invalid={errorField === "month"} aria-describedby={errorField === "month" ? "clean-expense-error" : undefined} aria-required="true" value={current.month} onChange={(event) => { if (pending) return; setAccountingMonth(event.target.value); setError(null); setOverlap(null); setErrorField(null); }} style={{ maxWidth: "none" }} /></label>
           <p style={{ fontSize: 14, lineHeight: 1.6, color: "var(--muted)" }}>Расход попадёт в выбранный месяц. Точная дата оплаты пока не хранится.</p>
         </>}
         <div aria-label="Итог расхода" style={{ padding: 20, borderRadius: 18, background: "var(--track)", display: "grid", gap: 10 }}>
@@ -168,6 +175,7 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
         </div>
       </>}
       {error && <p id="clean-expense-error" className="state err" role="alert" style={{ fontSize: 15 }}>{error}</p>}
+      {overlap && <p className="state err" role="alert" data-expense-overlap="" style={{ fontSize: 15 }}>{overlap}</p>}
     </div>
     </fieldset>
   </Rh2Sheet>;

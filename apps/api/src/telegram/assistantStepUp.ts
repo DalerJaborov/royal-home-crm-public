@@ -16,7 +16,8 @@ import { notifyStaffChangeLater } from "../lib/staffSecurityNotify.js";
  * иначе раздавал бы права.
  *
  * ПРАВИЛА (каждое — тест в tests/assistant-staff-rights.test.ts):
- *  - только код Google Authenticator из 6 цифр (или «код 123456»), проверенный той
+ *  - только код Google Authenticator из 6 цифр в любой записи («123456», «123 456»,
+ *    «код: 12-34-56», цифры любой письменности — parseStepUpCode), проверенный той
  *    же функцией, что `/auth/step-up` (lib/totp.ts). ПАРОЛЬ И СМС-КОД ЗДЕСЬ НЕ
  *    ПРИНИМАЮТСЯ НИКОГДА; голосом код не принимается — просим цифрами;
  *  - нет Authenticator — честный отказ (брокер не создаёт карточку, TOTP_REQUIRED);
@@ -161,14 +162,42 @@ export async function cancelStepUpForBundle(bundleId: string, now = new Date()):
 }
 
 /**
- * Код — это сообщение ровно из 6 цифр или «код 123456». Всё остальное (пароль,
- * «123 456 и ещё…», цифры внутри фразы) — обычное сообщение, его разбирает модель.
+ * Цифра любой письменности (`\p{Nd}`: арабско-индийские «١٢٣», персидские «۱۲۳»,
+ * полноширинные «１２３») → ASCII. Десятичные цифры в Юникоде лежат подряд блоками
+ * по десять, начиная с нуля, поэтому значение — расстояние от начала блока по
+ * модулю 10. Нецифра возвращается как есть.
+ */
+function asciiDigit(char: string): string {
+  if (!/^\p{Nd}$/u.test(char)) return char;
+  const cp = char.codePointAt(0)!;
+  let start = cp;
+  while (start > 0 && /^\p{Nd}$/u.test(String.fromCodePoint(start - 1))) start--;
+  return String((cp - start) % 10);
+}
+
+/** Слова-подписи вокруг кода: «код», «мой код», «вот код», «коди ман», «code:». */
+const CODE_LABEL_WORDS = /(?<!\p{L})(?:коди|код|code|kodi|kod|рамз|otp|вот|мой|ман|ана|инак|ин)(?!\p{L})/giu;
+/** Разделители внутри и вокруг кода: пробелы (и неразрывные), тире, двоеточие, точки, кавычки. */
+const CODE_SEPARATORS = /[\s\p{Pd}:.,;!?'"`«»()[\]*_#№=]+/gu;
+
+/**
+ * Код — сообщение, которое после снятия разделителей (пробелы, тире, двоеточие,
+ * точки, кавычки) и слов-подписей («код», «мой код», «вот», «коди») становится
+ * РОВНО шестью цифрами любой письменности: «123456», «123 456», «12-34-56»,
+ * «код: 123 456», «１２３４５６», «۱۲۳۴۵۶». Всё остальное (пароль, «код 123456 и
+ * ещё…», номер объекта «ОБ-123456», цифры внутри фразы) — не код.
+ *
+ * Разбор сам по себе ничего не решает: кодом сообщение считается, только пока
+ * ждём код (handleAssistantStepUpMessage → findPendingStepUp). Без ожидания то
+ * же «123 456» идёт помощнице как обычный текст.
  */
 export function parseStepUpCode(text: string | undefined): string | null {
-  const flat = (text ?? "").trim();
-  if (/^\d{6}$/.test(flat)) return flat;
-  const labelled = /^(?:код|code|kod|рамз)\s*[:\-—]?\s*(\d{6})[.!]?$/iu.exec(flat);
-  return labelled ? labelled[1]! : null;
+  const raw = (text ?? "").trim();
+  // Длинное сообщение — уже фраза, а не код с подписью.
+  if (!raw || raw.length > 40) return null;
+  const digits = Array.from(raw, asciiDigit).join("");
+  const flat = digits.replace(CODE_LABEL_WORDS, " ").replace(CODE_SEPARATORS, "");
+  return /^\d{6}$/u.test(flat) ? flat : null;
 }
 
 export interface PendingStepUp {

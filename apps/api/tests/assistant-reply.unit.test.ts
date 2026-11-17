@@ -8,7 +8,9 @@ vi.mock("../src/telegram/api.js", () => ({ sendHtmlMessage: html, sendMessage: p
 vi.mock("../src/telegram/assistantVoice.js", () => ({ sendAssistantVoiceReply: voice, speechTextFromReply: (text: string) => text }));
 import { TelegramApiError } from "../src/telegram/api.js";
 import { sendAssistantReply } from "../src/telegram/assistantDelivery.js";
-import { decorateHtml, prepareAssistantReply, renderAssistantHtml, requestedAssistantReplyMode, sanitizeAssistantReply, splitHumanMessages, splitReaction } from "../src/telegram/assistantReply.js";
+import { decorateHtml, dropVoiceAvailabilityClaims, prepareAssistantReply, renderAssistantHtml, renderAssistantForTelegram, requestedAssistantReplyMode, requestedAssistantReplyPreference, sanitizeAssistantReply, splitHumanMessages, splitReaction, splitVoiceMarker } from "../src/telegram/assistantReply.js";
+import { assistantStyle } from "../src/ai/assistant/personaStyle.js";
+import { TAJIK_GLOSSARY } from "../src/ai/assistant/tajikGlossary.js";
 afterEach(() => vi.unstubAllEnvs());
 beforeEach(() => { vi.clearAllMocks(); html.mockReset().mockResolvedValue({}); plain.mockReset().mockResolvedValue({}); voice.mockReset().mockResolvedValue(true); vi.stubEnv("CRM_PUBLIC_URL", "https://crm.test"); });
 const ctx = { scope: "private" as const, fromVoice: true, written: [] };
@@ -210,4 +212,108 @@ it("empty reply still produces a text acknowledgement", async () => {
   await sendAssistantReply("test", " ||| ", ctx);
   expect(voice).not.toHaveBeenCalled();
   expect(plain).toHaveBeenCalledWith("test", "Готово.", undefined);
+});
+
+// Владелец, 14.11.2026: «Овозатро равон кун бо ханда :)» осталась без голоса, а модель
+// ответила «Ҳоло овоз кор намекунад», хотя голос работал. Приветствие на голосовое пришло
+// двумя абзацами и тоже ушло текстом. Главное — метка модели [голос]; разбор фраз — страховка.
+describe("voice requests and false voice claims (14.11.2026)", () => {
+  it("parses and strips the model voice marker in any position", () => {
+    expect(splitVoiceMarker("[голос]\nҲа, ман ҳастам!")).toEqual({ voice: true, text: "Ҳа, ман ҳастам!" });
+    expect(splitVoiceMarker("[реакция: 😁]\n[голос]\nХа-ха, слушаю!")).toEqual({ voice: true, text: "[реакция: 😁]\nХа-ха, слушаю!" });
+    expect(splitReaction(splitVoiceMarker("[Голос]\n[реакция: 😁]\nОтвет").text)).toEqual({ reaction: "😁", text: "Ответ" });
+    expect(splitVoiceMarker("[овоз] Салом!")).toEqual({ voice: true, text: "Салом!" });
+    expect(splitVoiceMarker("Голос клиента в записи")).toEqual({ voice: false, text: "Голос клиента в записи" });
+  });
+  it("never lets the marker reach the person through any renderer", async () => {
+    for (const maskPhones of [false, true]) {
+      expect(sanitizeAssistantReply("[голос]\nСалом!", maskPhones)).toBe("Салом!");
+      expect(renderAssistantHtml("Ответ [голос]", { maskPhones })).toBe("Ответ");
+      expect(renderAssistantForTelegram("[voice]\nОтвет", { maskPhones })).toBe("Ответ");
+    }
+    voice.mockResolvedValue(false);
+    await sendAssistantReply("test", "[голос]\nСалом!", { ...ctx, scope: "group", mode: "text" });
+    expect(html.mock.calls[0]?.[1]).toBe("Салом!");
+  });
+  it.each([
+    ["Овозатро равон кун бо ханда :)", "tg"], ["Бо овоз ҷавоб деҳ", "tg"], ["Санҷед, бо овоз ҷавоб деҳ", "tg"],
+    ["Бо овоз гап занед, илтимос", "tg"], ["Овоз фиристед", "tg"], ["Паёми овозӣ фирист", "tg"],
+    ["Овозатонро шунидан мехоҳам", "tg"], ["Ответь голосом", "ru"], ["Голосом скажи", "ru"],
+    ["Пришли голосовое 😊", "ru"], ["Запиши голосовое", "ru"], ["Озвучь", "ru"],
+    ["Скажи голосом, какие у меня задачи", "ru"], ["скажи голосом какие у меня задачи", "ru"],
+    ["Можешь ответить голосом?", "ru"], ["Ответь голосом с улыбкой :)", "ru"], ["Пожалуйста, голосом", "ru"],
+    ["Проверь и ответь голосом", "ru"],
+  ])("fallback voice request: %s", (text, language) => {
+    expect(requestedAssistantReplyPreference(text)).toEqual({ mode: "voice", voiceLanguage: language });
+  });
+  it.each([
+    "Овоз кор намекунад", "Овозат чаро намеояд?", "голос не работает?", "Голос работает?", "голосовое не слышно",
+    "Клиент ответил голосом", "почему ты не отвечаешь голосом?", "отправь голосовое клиенту Алишеру",
+    "Голосовое от клиента пришло", "Салом, чӣ хабар?",
+  ])("not a voice request: %s", text => {
+    expect(requestedAssistantReplyMode(text)).toBe("auto");
+  });
+  it.each(["ответь текстом", "не отвечай голосом", "голосом не надо", "бе овоз", "Бо матн нависед"])("text request: %s", text => {
+    expect(requestedAssistantReplyMode(text)).toBe("text");
+  });
+  it("the last clause wins", () => {
+    expect(requestedAssistantReplyMode("Ответь голосом. Нет, лучше ответь текстом")).toBe("text");
+    expect(requestedAssistantReplyMode("Не отвечай голосом. Хотя ладно, голосом")).toBe("voice");
+  });
+
+  it("removes a model claim that voice is unavailable and keeps the rest", () => {
+    expect(dropVoiceAvailabilityClaims("Ҳоло овоз кор намекунад, фақат менависам")).toBe("Ҳа, гӯш мекунам.");
+    expect(dropVoiceAvailabilityClaims("[реакция: 👍]\nҲоло овоз кор намекунад. Менависам")).toBe("[реакция: 👍]\nҲа, гӯш мекунам.");
+    expect(dropVoiceAvailabilityClaims("Ҳоло овоз кор намекунад. Менависам. Ягон хона лозим аст?")).toBe("Ягон хона лозим аст?");
+    expect(dropVoiceAvailabilityClaims("Голос сейчас недоступен. ||| Отвечу текстом. ||| Нашла клиента.")).toBe("Нашла клиента.");
+    expect(dropVoiceAvailabilityClaims("Я не могу отправить голосовое. Чем помочь?")).toBe("Чем помочь?");
+    expect(dropVoiceAvailabilityClaims("Голос сейчас недоступен.")).toBe("Да, слушаю.");
+  });
+  it.each(["Клиент прислал голосовое, я записала заметку.", "Ҳа, менависам.", "Салом! Чӣ хизмат?", "Голосовое клиента я прикрепила к карточке."])(
+    "leaves ordinary talk about voice alone: %s", text => {
+      expect(dropVoiceAvailabilityClaims(text)).toBe(text);
+    });
+  it("the Tajik glossary no longer teaches the false claim; the prompt explains the marker", () => {
+    expect(JSON.stringify(TAJIK_GLOSSARY)).not.toMatch(/овоз|голос/iu);
+    const style = assistantStyle("telegram");
+    expect(style).toContain("поставь первой строкой [голос]");
+    expect(style).toContain("Никогда не пиши, что голос не работает");
+    expect(style).toContain("без пустых строк между абзацами");
+    expect(assistantStyle("crm")).not.toContain("[голос]");
+  });
+
+  const greeting = "Салом! 👋 Бо ҷони дил! Биёед тоҷикӣ, оҳиста ва бо табассум гап мезанем. 😊\n\n"
+    + "Ман Шабнам, ёрдамчии шумо дар CRM Royal Home. Чӣ хизмат кунам? Ягон хона, мизоҷ ё ҳисоботи корӣ лозим аст?";
+  it("voices a two-paragraph greeting to a voice note, one voice per paragraph, no text", async () => {
+    await sendAssistantReply("test", greeting, ctx);
+    expect(voice).toHaveBeenCalledTimes(2);
+    expect(voice.mock.calls[0]?.[1]).toContain("Бо ҷони дил");
+    expect(voice.mock.calls[1]?.[1]).toContain("Чӣ хизмат кунам");
+    expect(html).not.toHaveBeenCalled();
+    expect(plain).not.toHaveBeenCalled();
+  });
+  it("keeps the same greeting as one text message when the request was typed", async () => {
+    await sendAssistantReply("test", greeting, { ...ctx, fromVoice: false });
+    expect(voice).not.toHaveBeenCalled();
+    expect(html).toHaveBeenCalledTimes(1);
+    expect(html.mock.calls[0]?.[1]).toContain("Чӣ хизмат кунам");
+  });
+  it.each([
+    ["numbers", "Нашла трёх клиентов.\n\nСамый новый пришёл 12 ноября."],
+    ["a list", "Вот что есть:\n\n- Алишер\n- Мадина"],
+    ["a card link", "Нашла клиента.\n\n[Алишер](/clients/12)"],
+  ])("still writes structured data with %s instead of voicing it", async (_kind, reply) => {
+    await sendAssistantReply("test", reply, ctx);
+    expect(voice).not.toHaveBeenCalled();
+    expect(html).toHaveBeenCalled();
+  });
+  it("one long paragraph is still written, not voiced", async () => {
+    await sendAssistantReply("test", "Салом! ".repeat(40).trim(), ctx);
+    expect(voice).not.toHaveBeenCalled();
+  });
+  it("a group reply to an unaddressed voice note does not split paragraphs", async () => {
+    await sendAssistantReply("test", "Салом!\n\nЧӣ хизмат кунам?", { ...ctx, scope: "group" });
+    expect(voice).not.toHaveBeenCalled();
+    expect(html).toHaveBeenCalledTimes(1);
+  });
 });

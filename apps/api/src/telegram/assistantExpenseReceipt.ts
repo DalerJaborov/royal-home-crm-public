@@ -60,6 +60,8 @@ const copy = {
     forbidden: "Записывать чек можно только из привязанной лички директора.",
     uncertain: "Не удалось показать результат. Нажмите кнопку ещё раз.",
     noRate: NO_USD_RATE_TEXT,
+    autoOverlapShort: "Уже учтено автоматически — не записала.",
+    autoOverlapHint: "Если это другой платёж, внесите его в CRM: Финансы → Расходы.",
   },
   tg: {
     unavailable: "Расидро хонда натавонистам. Боз фиристед.",
@@ -83,6 +85,8 @@ const copy = {
     forbidden: "Расидро фақат директор аз чати шахсии пайвастшуда сабт карда метавонад.",
     uncertain: "Натиҷаро нишон дода натавонистам. Тугмаро боз занед.",
     noRate: "Қурби доллар дар Танзимоти CRM нест — расиди долларӣ сабт намекунам. Қурбро дар Танзимот гузоред.",
+    autoOverlapShort: "Ин харҷ аллакай худкор ҳисоб шудааст — сабт накардам.",
+    autoOverlapHint: "Агар ин пардохти дигар бошад, онро дар CRM ворид кунед: Молия → Харҷҳо.",
   },
 } as const;
 type Language = keyof typeof copy;
@@ -324,8 +328,8 @@ export async function handleTelegramExpenseReceiptCallback(query: TelegramCallba
     const actor = await getExpenseDirector(String(query.from.id));
     if (!actor) { await ack(phrases.forbidden); return true; }
     const result = await decideExpensePhotoDraft(actor, validId.data, match[1] === "yes");
-    const text = phrases[result.kind];
-    await ack(text);
+    const text = result.kind === "autoOverlap" ? `${result.text} ${phrases.autoOverlapHint}` : phrases[result.kind];
+    await ack(result.kind === "autoOverlap" ? phrases.autoOverlapShort : text);
     if (result.kind !== "forbidden" && query.message.message_id) {
       await editMessageText(actor.chatId, query.message.message_id, text, null).catch(() => {});
     }

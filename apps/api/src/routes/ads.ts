@@ -1,3 +1,4 @@
+import { requireChannelAdmin } from "../lib/marketingRole.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -75,7 +76,7 @@ adsRouter.use(requireAuth);
 
 function requireAdsRead<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.agent) return res.status(401).json({ error: "Требуется авторизация" });
-  if (req.agent.role === "MARKETING" || req.agent.permissions.has("finance.view")) return next();
+  if (req.agent.role === "MARKETING" || req.agent.permissions.has("finance.view") || req.agent.permissions.has("marketing.access")) return next();
   return res.status(403).json({ error: "Недостаточно прав" });
 }
 
@@ -1021,7 +1022,7 @@ adsRouter.get("/property/:id", async (req, res) => {
     postUrl: ads.find((a) => a.postUrl)?.postUrl ?? null,
   };
   // Право то же, что у остальных ручек раздела: finance.view или роль MARKETING.
-  const canSeeMoney = req.agent!.role === "MARKETING" || req.agent!.permissions.has("finance.view");
+  const canSeeMoney = req.agent!.role === "MARKETING" || req.agent!.permissions.has("finance.view") || req.agent!.permissions.has("marketing.access");
   if (!canSeeMoney) return res.json(base);
 
   /**
@@ -1130,7 +1131,7 @@ adsRouter.get("/insights", requireAdsRead, async (req, res) => {
  * Адрес выдаётся только авторизованному сотруднику с правом вести финансы, вместе с
  * одноразовым `state`; сам обмен происходит в /callback, куда Facebook вернёт человека.
  */
-adsRouter.post("/connect", requireAdsWrite, async (req, res) => {
+adsRouter.post("/connect", requireAdsWrite, requireChannelAdmin, async (req, res) => {
   try {
     const url = await buildConnectUrl(req.agent!.id);
     logAudit(req, "CONNECT_START", "Ad", "meta-ads", {});
@@ -1149,7 +1150,7 @@ adsRouter.post("/connect", requireAdsWrite, async (req, res) => {
  * перестанет ходить в кабинет», а не «сотри мне историю расходов за полгода».
  * Захочет вернуть — снова нажмёт «Подключить», данные продолжатся с того же места.
  */
-adsRouter.post("/disconnect", requireAdsWrite, async (req, res) => {
+adsRouter.post("/disconnect", requireAdsWrite, requireChannelAdmin, async (req, res) => {
   await prisma.settings.updateMany({
     where: { id: "singleton" },
     data: { metaAdsToken: null, metaAdsTokenRefreshedAt: null, metaAdsEnabled: false },

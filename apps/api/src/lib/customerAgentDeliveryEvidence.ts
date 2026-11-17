@@ -15,6 +15,7 @@ import { renderCustomerAgentDecision, customerAgentRenderedQuestion, customerAge
 import type { CustomerAgentAttachmentInput } from "../ai/customerAgentAttachmentInput.js";
 import { readCustomerShownSearchProperties, readCustomerPublicShownProperties } from "./customerSearchHistory.js";
 import { readCustomerPublicPublicationSource } from "./customerPublicPublicationSource.js";
+import { accountBrandName } from "../messengers/accounts.js";
 export { decodeCustomerAgentStoredTextPayload } from "./customerOutboxCodec.js";
 
 type Preference = CustomerAgentDeliveryEvidence["linkPreference"];
@@ -85,8 +86,11 @@ async function read(binding: Binding | null, call: unknown): Promise<ReadResult>
       "args" in call && !!call.args && typeof call.args === "object" && "nextPage" in call.args && call.args.nextPage === true;
     const alreadyShownShortIds = !isNextSearch ? [] : binding.surface === "dm" ? await readCustomerShownSearchProperties(binding.principal)
       : await readCustomerPublicShownProperties(binding.principal);
+    // One bot, different brands: the company name comes from the account of the
+    // captured scope, never from the model or the caller.
+    const brandName = await accountBrandName(binding.surface === "dm" ? binding.principal.scope.accountId : binding.principal.installation.accountId);
     const result = await readCustomerAgentPublicData(call, { knowledgeSourceHash: binding.revision.knowledgeSourceHash,
-      linkPreference: binding.linkPreference, publication, alreadyShownShortIds });
+      linkPreference: binding.linkPreference, publication, alreadyShownShortIds, brandName });
     if (result.status !== "observed") return result;
     const observation = customerAgentDeliveryObservationSchema.parse(result.observation);
     if (!await current(binding)) return { status: "denied", reason: "original_context_changed" };

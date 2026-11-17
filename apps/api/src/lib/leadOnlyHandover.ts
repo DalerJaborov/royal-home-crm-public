@@ -21,6 +21,7 @@
  * В тексте пуша нет ни номера, ни слов клиента: экран открывается по правам сотрудника.
  */
 import { prisma } from "../db.js";
+import { markAgentAttention } from "./agentAttention.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { shouldAlert } from "./notifications.js";
@@ -70,9 +71,8 @@ export async function notifyLeadOnlyHandover(input: { conversationId: string; pr
 
   if (client?.assignedAgentId) {
     const agentId = client.assignedAgentId;
-    if (!client.agentAttentionRequestedAt) {
-      await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAttentionRequestedAt: new Date() } });
-    }
+    // Метка — одной дверью с «позовите человека» и обещанием звонка (lib/agentAttention.ts).
+    if (!client.agentAttentionRequestedAt) await markAgentAttention(client.id);
     await logTimeline({ clientId: client.id, actor: { kind: "client", source: "lead-only-handover", subjectAgentId: agentId },
       type: "SYSTEM", notes: `Бот передал клиента агенту: ${input.summary}` })
       .catch((err) => console.error("[режим только заявки] хронология:", describeError(err)));

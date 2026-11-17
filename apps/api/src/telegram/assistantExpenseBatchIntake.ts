@@ -91,10 +91,15 @@ export function decodeCsvBytes(bytes: Buffer): string {
   }
 }
 
+/** Первый лист файла как таблица ячеек: одна дверь для расходов и для мастера объекта. Бросает XlsxReadError/XlsReadError. */
+export function readSpreadsheetTable(kind: SpreadsheetKind, bytes: Buffer): string[][] {
+  return kind === "xlsx" ? readXlsxFirstSheet(bytes) : kind === "xls" ? readXlsFirstSheet(bytes) : parseCsv(decodeCsvBytes(bytes));
+}
+
 /** Таблица файла → строки с ключом источника. null — файл не прочитался. */
 export function rowsFromSpreadsheet(kind: SpreadsheetKind, bytes: Buffer) {
   try {
-    const table = kind === "xlsx" ? readXlsxFirstSheet(bytes) : kind === "xls" ? readXlsFirstSheet(bytes) : parseCsv(decodeCsvBytes(bytes));
+    const table = readSpreadsheetTable(kind, bytes);
     const parsed = expenseRowsFromTable(table);
     const sourceHash = sourceHashOf(bytes);
     return { ...parsed, rows: parsed.rows.map((row, i): IntakeRow => ({ ...row, sourceHash, sourceIndex: i })) };

@@ -57,6 +57,18 @@ export function splitReaction(text: string): {
   const emoji = m[1].trim().replace(/\uFE0F/g, "");
   return { text: text.slice(m[0].length), reaction: ASSISTANT_REACTIONS.has(emoji) ? emoji : null };
 }
+/**
+ * Просьбу ответить голосом понимает МОДЕЛЬ, а не список фраз (владелец, 14.11.2026: «бо овоз
+ * ҷавоб деҳ» и «Овозатро равон кун бо ханда» — одно и то же, ИИ должен понять любые слова).
+ * Модель ставит строку `[голос]` (промпт: personaStyle.ts), программа вырезает её и включает
+ * озвучку. Разбор фраз ниже (requestedAssistantReplyPreference) остаётся страховкой.
+ * Метка не должна дойти до человека ни в одном пути: её вырезает и sanitizeAssistantReply.
+ */
+const VOICE_MARKER = /[ \t]*\[(?:голос|овоз|voice)\][ \t]*(?:\r?\n)?/giu;
+export function splitVoiceMarker(text: string): { text: string; voice: boolean } {
+  const stripped = text.replace(VOICE_MARKER, "");
+  return { text: stripped, voice: stripped !== text };
+}
 const MD_LINK = /\[([^\]\n]+)\]\((\/[^)\s]*)\)/g;
 
 /** Links are vetted by the assistant core or produced by a CRM fast path. */
@@ -77,18 +89,114 @@ export function assistantCardLinks(text: string, maskPhones: boolean) {
 
 export type AssistantReplyMode = "auto" | "text" | "voice";
 
+/**
+ * Просьба о виде ответа (владелец, 14.11.2026). Прежний разбор знал только точные фразы
+ * («бо овоз ҷавоб деҳ»), и «Овозатро равон кун бо ханда :)» оставалась без голоса. Теперь
+ * реплика очищается от вежливости, обращения, эмодзи и настроения («бо ханда», «с улыбкой»),
+ * а затем сверяется ЦЕЛИКОМ с формами просьбы — поэтому рассказ («клиент ответил голосом»),
+ * жалоба («голос не работает?») и отрицание («овоз нафирист») голосом не становятся.
+ * Вопрос считается просьбой только в вежливой форме «можешь ответить голосом?».
+ * Язык голоса — язык самой просьбы. Последняя реплика сообщения важнее первых.
+ * `\b`/`\w` по кириллице не работают, поэтому граница слова — пробел после нормализации.
+ */
+const PREF_LEAD = /^(?:(?:пожалуйста|ну|а|нет|лучше|хотя|тогда|вс[её]-таки|давай(?:те)?|слушай(?:те)?|шабнам|мушовир|илтимос|лутфан|ҷон(?:ам)?|хайр|хуб|ҳа|ладно|окей|ок)\s+)+/u;
+const PREF_TAIL = /(?:\s+(?:пожалуйста|мне|ба\s+ман|илтимос|лутфан|ҷон(?:ам)?|шабнам|мушовир|(?:бо|аз)\s+(?:ханда|табассум|шодӣ|меҳр)|хандакунон|хандида|с\s+улыбкой|со?\s+смехом|смеясь|весело|с\s+юмором|тепло|ласково))+$/u;
+const RU_SAY = String.raw`(?:ответь|скажи|расскажи|говори|пришли|отправь|запиши|скинь|кинь|наговори|продиктуй)(?:те)?`;
+const RU_VOICE = String.raw`(?:голосом|голосовым|голосовое(?:\s+сообщение)?|голосовуху|аудио|войсом|войс)`;
+const RU_INF = String.raw`(?:ответить|сказать|рассказать|прислать|отправить|записать|скинуть|говорить)`;
+const VOICE_RU = new RegExp([
+  String.raw`^(?:${RU_SAY}\s+)?(?:(?:мне|это|ответ|его|е[её])\s+){0,3}${RU_VOICE}$`,
+  String.raw`^${RU_VOICE}\s+${RU_SAY}(?:\s+(?:мне|это|ответ))?$`,
+  // «Скажи голосом, какие у меня задачи» без запятой: просьба стоит первой. Только «голосом»
+  // (как ответить), не «голосовое» (что отправить): «отправь голосовое клиенту» — поручение.
+  String.raw`^${RU_SAY}\s+(?:мне\s+)?голосом\s+\p{L}`,
+  String.raw`^голосом\s+${RU_SAY}\s+\p{L}`,
+  String.raw`^озвучь(?:те)?(?:\s+(?:это|ответ|мне))*$`,
+  String.raw`^(?:хочу|хотелось\s+бы)\s+(?:услышать|послушать)\s+(?:тво[йе]|ваш)\s+голос$`,
+  String.raw`^(?:давай(?:те)?|можно)\s+голосом$`,
+].join("|"), "u");
+const VOICE_RU_QUESTION = new RegExp(String.raw`^(?:(?:ты|вы)\s+)?(?:можешь|можете|можно|сможешь|сможете)\s+(?:мне\s+)?(?:${RU_INF}\s+(?:мне\s+)?${RU_VOICE}|${RU_VOICE}\s+${RU_INF}|озвучить)(?:\s+(?:это|ответ|мне))?$`, "u");
+const TG_VOICE = String.raw`(?:(?:паёми\s+)?овоз(?:ат|атон|и|ӣ|ам)?(?:ро)?|голосовой|войс(?:ро)?)`;
+const TG_SEND = String.raw`(?:(?:равон|ирсол|сабт)\s+кун(?:ед|ӣ)?|(?:би)?фирист(?:ед|ӣ)?|парто(?:ед)?|(?:би)?деҳ(?:ед)?|(?:би)?диҳ(?:ед)?|(?:би)?шунавон(?:ед)?)`;
+const TG_SAY = String.raw`(?:ҷавоб\s+(?:би)?(?:деҳ|диҳ)(?:ед)?|(?:би)?гӯ(?:й|ед)?|гап\s+зан(?:ед)?|(?:би)?фирист(?:ед|ӣ)?|равон\s+кун(?:ед|ӣ)?)`;
+const VOICE_TG = new RegExp([
+  String.raw`^(?:${TG_SAY}\s+)?бо\s+овоз(?:\s+${TG_SAY})?$`,
+  String.raw`^бо\s+овоз\s+${TG_SAY}\s+\p{L}`,
+  String.raw`^${TG_VOICE}(?:\s+(?:ба\s+ман|як))?\s+${TG_SEND}$`,
+  String.raw`^${TG_SEND}\s+${TG_VOICE}$`,
+  String.raw`^${TG_VOICE}\s+(?:шунидан|шунавам)\s+мехоҳам$`,
+].join("|"), "u");
+const VOICE_TG_QUESTION = new RegExp(String.raw`^(?:метавон(?:ӣ|ед)|мешавад)\s+(?:бо\s+овоз\s+(?:ҷавоб\s+диҳ(?:ӣ|ед)|гӯ(?:ӣ|ед)|фирист(?:ӣ|ед))|${TG_VOICE}\s+(?:фирист(?:ӣ|ед)|равон\s+кун(?:ӣ|ед)))$`, "u");
+const TEXT_ONLY = new RegExp([
+  String.raw`^(?:(?:ответь(?:те)?|напиши(?:те)?|пришли(?:те)?|отправь(?:те)?)(?:\s+(?:мне|это|ответ)){0,3}\s+)?(?:только\s+)?текстом$`,
+  String.raw`^(?:матнӣ|бо\s+матн)\s+(?:ҷавоб\s+деҳ(?:ед)?|навис(?:ед)?)$`,
+  String.raw`^(?:без\s+голоса|(?:не\s+надо|не\s+нужно)\s+голосом|голосом\s+не\s+(?:надо|нужно)|не\s+(?:отвечай|присылай|отправляй)(?:те)?\s+голосом|голосовые\s+не\s+(?:надо|нужно|присылай(?:те)?))$`,
+  String.raw`^(?:бе\s+овоз|овоз\s+(?:лозим|даркор)\s+нест|овоз\s+на(?:фирист|фиристед|деҳ|диҳед))$`,
+].join("|"), "u");
+const PREF_CONJUNCTION = /\s+и\s+(?=(?:ответь|напиши|пришли|отправь|скажи|озвучь)(?!\p{L}))|\s+ва\s+(?=бо\s+овоз(?!\p{L}))/iu;
+
+function preferenceClause(raw: string): string {
+  return raw.toLocaleLowerCase("ru")
+    .replace(/[^\p{L}\s-]+/gu, " ").replace(/(?<!\p{L})-|-(?!\p{L})/gu, " ")
+    .replace(/\s+/gu, " ").trim()
+    .replace(PREF_LEAD, "").replace(PREF_TAIL, "").trim();
+}
+
 export function requestedAssistantReplyPreference(text: string): {
   mode: AssistantReplyMode;
   voiceLanguage?: AssistantSpeechLanguage;
 } {
-  for (const part of text.split(/[,.!?;\n]+|\s+и\s+(?=(?:ответь|напиши|пришли|отправь))/iu).reverse()) {
-    const clause = part.trim();
-    if (/^(?:пожалуйста\s+)?(?:(?:ответь(?:те)?|напиши(?:те)?|пришли(?:те)?|отправь(?:те)?)(?:\s+(?:мне|это|ответ)){0,3}\s+)?(?:только\s+)?текстом$/iu.test(clause) ||
-        /^(?:матнӣ ҷавоб деҳ|бо матн ҷавоб деҳ|бо матн навис)$/iu.test(clause)) return { mode: "text" };
-    if (/^(?:пожалуйста\s+)?(?:(?:ответь(?:те)?|пришли(?:те)?|отправь(?:те)?)(?:\s+(?:мне|это|ответ)){0,3}\s+)?(?:голосом|голосовым)$/iu.test(clause)) return { mode: "voice", voiceLanguage: "ru" };
-    if (/^(?:бо овоз ҷавоб деҳ|бо овоз фирист)$/iu.test(clause)) return { mode: "voice", voiceLanguage: "tg" };
+  const clauses = [...text.matchAll(/([^,.!?;\n]+)([,.!?;\n]*)/gu)].flatMap(([, body, end]) => {
+    const parts = body.split(PREF_CONJUNCTION);
+    return parts.map((part, i) => ({ clause: preferenceClause(part), question: i === parts.length - 1 && end.includes("?") }));
+  });
+  for (const { clause, question } of clauses.reverse()) {
+    if (!clause) continue;
+    if (TEXT_ONLY.test(clause)) return { mode: "text" };
+    if (question) {
+      if (VOICE_RU_QUESTION.test(clause)) return { mode: "voice", voiceLanguage: "ru" };
+      if (VOICE_TG_QUESTION.test(clause)) return { mode: "voice", voiceLanguage: "tg" };
+      continue;
+    }
+    if (VOICE_TG.test(clause)) return { mode: "voice", voiceLanguage: "tg" };
+    if (VOICE_RU.test(clause)) return { mode: "voice", voiceLanguage: "ru" };
   }
   return { mode: "auto" };
+}
+
+/**
+ * Голос включает и выключает программа, а не модель (владелец, 14.11.2026): модель не знает,
+ * работает ли озвучка, и на «Овозатро равон кун» ответила «Ҳоло овоз кор намекунад, фақат
+ * менависам», хотя голос работал. Запрет стоит дважды: строкой в промпте (personaStyle.ts) и
+ * здесь — такие фразы вырезаются из ответа до отправки и до записи в историю, чтобы модель
+ * не подхватила их следующим ходом. Отказ озвучки программа обрабатывает сама: тихо шлёт текст.
+ */
+const VOICE_UNAVAILABLE_CLAIM = new RegExp([
+  String.raw`(?<!\p{L})голос\p{L}*\s+(?:(?:сейчас|пока|у\s+меня|временно)\s+)*(?:недоступ\p{L}*|не\s+работа\p{L}*|отключ\p{L}*|не\s+поддержива\p{L}*)`,
+  String.raw`(?<!\p{L})(?:не\s+(?:могу|умею|получится|получается)|нет\s+возможности)\s+(?:(?:сейчас|пока|вам)\s+)*(?:ответить\s+|отправить\s+|прислать\s+|записать\s+|говорить\s+)?(?:голос\p{L}*|вслух|аудио)`,
+  String.raw`(?<!\p{L})(?:могу|умею)\s+только\s+(?:писать|текстом|печатать)`,
+  String.raw`(?<!\p{L})овоз\p{L}*\s+(?:(?:ҳоло|ҳозир|ҳанӯз|айни\s+замон)\s+)*(?:кор\s+на(?:мекунад|кард)|дастрас\s+нест|хомӯш\p{L}*|намешавад)`,
+  String.raw`(?<!\p{L})(?:бо\s+)?овоз\p{L}*\s+(?:(?:ҷавоб\s+)?(?:дода|фиристода|сабт\s+карда|гап\s+зада)\s+)?наметавонам`,
+  String.raw`(?<!\p{L})фақат\s+(?:менависам|навишта\s+метавонам|(?:бо\s+)?матн(?:\p{L}*)?\s+(?:менависам|метавонам|ҷавоб\s+медиҳам))`,
+].join("|"), "iu");
+const TEXT_ONLY_TAIL = /^\s*(?:(?:ҳозир|ҳоло|пас)\s+)?(?:(?:бо\s+)?матн(?:ӣ)?\s+)?(?:менависам|навиштам|отвечу\s+текстом|напишу(?:\s+текстом)?|пишу\s+текстом)[.!…]*\s*$/iu;
+const VOICE_CLAIM_FALLBACK = { ru: "Да, слушаю.", tg: "Ҳа, гӯш мекунам." } as const;
+
+export function dropVoiceAvailabilityClaims(reply: string): string {
+  if (!VOICE_UNAVAILABLE_CLAIM.test(reply)) return reply;
+  const reaction = REACTION_LINE.exec(reply)?.[0] ?? "";
+  const body = reply.slice(reaction.length);
+  // «…кор намекунад. Менависам.» — хвост «напишу текстом» сразу после вырезанной фразы уходит с ней.
+  let afterClaim = false;
+  const kept = body.split(/(\n|\|\|\|)/u).map(chunk => chunk === "\n" || chunk === "|||" ? chunk
+    : [...humanSentences.segment(chunk)].map(({ segment }) => segment).filter(sentence => {
+      const drop = VOICE_UNAVAILABLE_CLAIM.test(sentence) || (afterClaim && TEXT_ONLY_TAIL.test(sentence));
+      afterClaim = drop;
+      return !drop;
+    }).join("").trim()).join("");
+  const cleaned = kept.replace(/\s*\|\|\|\s*(?=\|\|\||$)/gu, "").replace(/^\s*\|\|\|\s*/u, "").replace(/\n{3,}/gu, "\n\n").trim();
+  if (cleaned.replace(/\|\|\|/gu, "").trim()) return reaction + cleaned;
+  return reaction + VOICE_CLAIM_FALLBACK[/[ғӣқӯҳҷ]/iu.test(body) ? "tg" : "ru"];
 }
 
 export function requestedAssistantReplyMode(text: string): AssistantReplyMode {
@@ -154,6 +262,7 @@ export function sanitizeAssistantReply(text: string, maskContacts: boolean): str
   // Strip internal placeholders supplied by the model before generating our own.
   // eslint-disable-next-line no-control-regex
   text = text.replace(/[\u0000\u0001]/g, "");
+  text = splitVoiceMarker(text).text;
   text = text.replace(TEMPERATURE_STATUS, "").replace(TEMPERATURE_TAG, "");
   text = text.replace(OBJECT_CODE_AFTER_LINK, (_m, label: string, path: string, parenthesized: string | undefined, inline: string | undefined) => {
     const code = parenthesized ?? inline;

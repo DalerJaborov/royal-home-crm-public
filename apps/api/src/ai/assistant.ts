@@ -51,7 +51,7 @@ import { UNTRUSTED_CONTENT_RULE, wrapUntrusted } from "./untrustedContent.js";
 import { logTimeline } from "../lib/timeline.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { assertClientWritable, assistantInvestigationRole, assistantToolAllowed, type AssistantActor } from "./assistant/actor.js";
-import { assistantSectionsGuide } from "./assistant/promptSections.js";
+import { assistantChannelGuide, assistantSectionsGuide } from "./assistant/promptSections.js";
 import { findAssistantToolPlugin, listAssistantToolPlugins } from "./assistant/tools/index.js";
 import { runAssistantToolPlugin, type RunPluginHooks } from "./assistant/tools/run.js";
 import { safeField } from "./assistant/tools/safeField.js";
@@ -200,7 +200,7 @@ function formatGroundedReply(result: GeminiGroundedResult): string {
  * Пишется в AiLog.promptVersion при каждом ответе ассистента (см. finally
  * runAssistant ниже) — по ней журнал говорит, какой текст промта отвечал.
  */
-export const SYSTEM_PROMPT_VERSION = "2026-11-10.2-expenses-review";
+export const SYSTEM_PROMPT_VERSION = "2026-11-14.1-capabilities-from-tools";
 
 const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM агентства недвижимости (Душанбе, Таджикистан).
 Отвечай кратко на языке сотрудника. Валюта по умолчанию — сомони (TJS).
@@ -221,23 +221,29 @@ find_properties_by_place с landmark словами человека; район
 заголовков (#), без _курсива_, кроме единственного формата ссылки [Текст](/путь) выше. Списки — обычным
 текстом, каждый пункт с новой строки через дефис или просто с переносом строки, без звёздочек и решёток.
 Создавать задачи и переносить встречи можно только после явной просьбы пользователя. Даты — ISO (YYYY-MM-DD).
-Изменения (цена, статус, агент клиента, показ, перемонтаж) делают инструменты записи: они только ГОТОВЯТ действие.
+ЧТО ТЫ УМЕЕШЬ — РЕШАЕТ СПИСОК ТВОИХ ИНСТРУМЕНТОВ, а не догадка. Изменения делают инструменты записи из этого списка
+(цена, статус, агент клиента, показ, перемонтаж, удаление объекта в Корзину, расходы, сделки, сотрудники и их права,
+отключение уведомлений — всё, что тебе объявлено): они только ГОТОВЯТ действие.
 Если инструмент вернул confirmRequired — действие ещё не выполнено: скажи одной короткой фразой, что подготовлено,
-и попроси нажать «Подтвердить» в карточке; сам ничего не подтверждай и не повторяй вызов. Если вернул done — скажи,
-что сделано, и что это можно отменить. Удаление, деньги, права, настройки, публикацию в соцсетях и сообщения
-клиентам ты не делаешь: на такую просьбу назови раздел CRM, где это делается руками. Исключение — расходы компании
-(ниже): записывать, менять, удалять и оплачивать их можно только инструментами расходов.
+и попроси нажать «Подтвердить» в карточке; сам ничего не подтверждай и не повторяй вызов. Сотрудники и права ещё
+спросят код Google Authenticator — его просит карточка, сама код не проси и не повторяй. Если вернул done — скажи,
+что сделано, и что это можно отменить.
+Есть подходящий инструмент — вызови его, а не отказывай: «не могу», «нет доступа», «нет права», «это делается только
+руками» о таком действии говорить НЕЛЬЗЯ, пока инструмент сам не вернул отказ (error) — тогда передай его смысл честно.
+Обратное тоже: НЕ обещай того, чего не сделала инструментом. «Выключила», «больше не пришлю», «записала», «удалила»,
+«поменяла» — только после ответа инструмента; без инструмента так не говори.
+Действие, для которого инструмента нет ни в одном виде (настройки CRM, публикация в соцсетях, сообщения клиентам), —
+назови раздел CRM, где это делается руками.
 РАСХОДЫ: «запиши/внеси расход…», «аренда 5000 за ноябрь», «интернет 400, бензин 122 вчера» — add_expenses, все названные
 траты одним вызовом; суммы, даты и строки не придумывай. Вопросы о тратах, сводке, прогнозе, подписках и корзине расходов —
 инструменты list_expenses, get_expense_summary, get_expense_forecast, get_expense_pivot, list_recurring_expenses,
 list_expense_archive; «откуда этот расход, почему такая сумма» — get_expense_history; изменить, удалить, вернуть,
-оплатить — по id из списка. Суммы называй как вернул инструмент, курс не
-придумывай. Нет у тебя инструментов расходов — значит у человека нет права на раздел «Финансы»: так и скажи.
+оплатить — по id из списка. Суммы называй как вернул инструмент, курс не придумывай.
 На вопросы «где найти…», «как сделать…», «куда нажать…» отвечай конкретным путём кликов по разделам CRM
 (меню слева, на мобильном — нижняя панель/бургер). Разделы, ОТКРЫТЫЕ ЭТОМУ пользователю (по его правам):
 {{SECTIONS}}
-Роль текущего пользователя: {{ROLE}}. Других разделов у него в меню нет — НЕ отправляй его туда; на просьбу
-о недоступном разделе или действии отвечай, что у него нет доступа, и предложи обратиться к руководителю.
+Роль текущего пользователя: {{ROLE}}. Других разделов у него в меню нет — НЕ отправляй его туда.
+{{CHANNEL}}
 Ты помогаешь ТОЛЬКО с работой в этой CRM (объекты, клиенты, сделки, расходы и финансы, статистика, задачи, навигация по разделам).
 Исключение — СПРАВОЧНЫЙ вопрос о рынке недвижимости, законах, налогах, ипотеке или процедурах покупки/продажи/аренды
 в Таджикистане (не про клиентов, объекты и сделки этой CRM): если у тебя есть инструмент ${WEB_REFERENCE_TOOL}, вызови
@@ -1548,7 +1554,8 @@ export async function runAssistantDetailed(
     const glossary = tajikTurn ? tajikGlossaryFor(userQuestion) : "";
     const system = SYSTEM_PROMPT.replace("{{TODAY}}", dushanbeWallClock().toISOString().slice(0, 10))
       .replace("{{ROLE}}", () => actor.role)
-      .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor)) + assistantStyle(options.channel ?? "crm") + languagePolicy.instruction + glossary + sharedKnowledge;
+      .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor))
+      .replace("{{CHANNEL}}", () => assistantChannelGuide(actor)) + assistantStyle(options.channel ?? "crm") + languagePolicy.instruction + glossary + sharedKnowledge;
     // Окно истории (задача 1.7): роут уже режет схемой, но runAssistant зовут и
     // напрямую — правило одно, в @royal-home/shared.
     const history = trimAssistantHistory(messages);

@@ -149,6 +149,8 @@ async function alertOnce(tag: string, text: { title: string; body: string }, thr
       kind: "oversight",
       // «Теряем клиента или деньги»: и 80% (успеть поднять потолок), и 100% (робот встал).
       level: "CRITICAL",
+      // Срочно и 80%: суточный потолок обнуляется в полночь, утром предупреждение бесполезно.
+      severity: "critical",
       tag,
       recipientRoles: ["DIRECTOR", "ADMIN"],
     });

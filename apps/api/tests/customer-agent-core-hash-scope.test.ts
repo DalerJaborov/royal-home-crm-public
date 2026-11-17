@@ -30,10 +30,19 @@ it.each(["customerAgentCore", "customerAgentRegistration", "customerPublicModera
     expect(after.coreHash).not.toBe(before.coreHash);
     expect({ ...after, coreHash: before.coreHash }).toEqual(before);
   });
-// The grounded free-phrase validator decides what the customer reads: editing it must change the renderer hash, and nothing else.
-it("editing customerAgentSay changes rendererHash only", async () => {
+// What the buyer already said (rooms / budget / district) decides both what the bot asks and what it searches by: the reader is in both groups.
+it("editing customerBuyerNeeds changes coreHash and rendererHash, and nothing else", async () => {
   const snapshot = createCustomerAgentProviderSnapshot(), before = await buildCurrentCustomerAgentManifest(snapshot);
-  artifact.changed = "customerAgentSay";
+  artifact.changed = "customerBuyerNeeds";
+  const after = await buildCurrentCustomerAgentManifest(snapshot);
+  expect(after.coreHash).not.toBe(before.coreHash);
+  expect(after.rendererHash).not.toBe(before.rendererHash);
+  expect({ ...after, coreHash: before.coreHash, rendererHash: before.rendererHash }).toEqual(before);
+});
+// The grounded free-phrase validator and the hand-off wording decide what the customer reads: editing them changes the renderer hash, and nothing else.
+it.each(["customerAgentSay", "customerAgentStaffFollowUp"])("editing %s changes rendererHash only", async name => {
+  const snapshot = createCustomerAgentProviderSnapshot(), before = await buildCurrentCustomerAgentManifest(snapshot);
+  artifact.changed = name;
   const after = await buildCurrentCustomerAgentManifest(snapshot);
   expect(after.rendererHash).not.toBe(before.rendererHash);
   expect({ ...after, rendererHash: before.rendererHash }).toEqual(before);

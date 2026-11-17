@@ -17,7 +17,7 @@ import { ensurePublicCommentInstallation } from "../src/lib/customerPublicCommen
 import { createMetaPublicCapture } from "../src/lib/metaPublicCommentCapture.js";
 import { persistVerifiedCustomerIngressBatch } from "../src/lib/customerIngressProducer.js";
 import { customerPropertyScopeKey } from "../src/lib/customerPropertyScope.js";
-import { BrandNameCoreConflictError, deleteAccount, resetAccountsCache, saveAccount } from "../src/messengers/accounts.js";
+import { deleteAccount, resetAccountsCache, saveAccount } from "../src/messengers/accounts.js";
 import { resetMetaAccountCredsCache } from "../src/messengers/meta.js";
 
 // Журнал: записи про запрет ядра для аккаунта с именем компании проверяем по вызовам.
@@ -133,61 +133,33 @@ it("five real first-enrollment transactions converge to one exact CORE assignmen
   expect(new Set(results.flatMap(row => row.lane === "CORE" && row.assignment ? [row.assignment.id] : [])).size).toBe(1);
   expect(await count(s.value)).toBe(1n);
 });
-it("an account with its own company name (brandName) never enters CORE: the core cannot rename the company", async () => {
+// ОДИН БОТ — РАЗНЫЕ БРЕНДЫ (владелец 13.11.2026): имя компании у аккаунта ничего не
+// меняет в зачислении — аккаунт идёт в ядро на тех же правах, что и Royal Home.
+it("an account with its own company name (brandName) enters CORE exactly like any other account", async () => {
   const s = await subject();
   await prisma.messengerAccount.update({ where: { id: s.installed.id }, data: { brandName: "Арван" } });
   await configure([s.value], 10_000);
-  const result = await enroll(s.value);
-  expect(result.lane).toBe("LEGACY");
+  expect((await enroll(s.value)).lane).toBe("CORE");
   expect(await count(s.value)).toBe(1n);
-  // Снятие имени возвращает прежнее правило: новый субъект того же аккаунта зачисляется в CORE.
-  await prisma.messengerAccount.update({ where: { id: s.installed.id }, data: { brandName: null } });
-  const fresh = await subject(Promise.resolve(s.installed));
-  await configure([fresh.value], 10_000);
-  expect((await enroll(fresh.value)).lane).toBe("CORE");
+  expect(brandBlockedCalls()).toBe(0);
 });
-it("saving a company name is refused (409 text) for an account already in CORE or in the rollout allow-list", async () => {
+it("saving a company name is allowed for an account already in CORE", async () => {
   const inCore = await subject(); await configure([inCore.value], 10_000);
   expect((await enroll(inCore.value)).lane).toBe("CORE");
-  await expect(saveAccount({ id: inCore.installed.id, channel: "INSTAGRAM", externalId: inCore.installed.externalId, title: "t", brandName: "Арван" }))
-    .rejects.toBeInstanceOf(BrandNameCoreConflictError);
-  expect((await prisma.messengerAccount.findUniqueOrThrow({ where: { id: inCore.installed.id } })).brandName).toBeNull();
-  // Только в списке раскатки, назначения ещё нет.
-  const listed = await subject(); await configure([listed.value], 0);
-  await expect(saveAccount({ id: listed.installed.id, channel: "INSTAGRAM", externalId: listed.installed.externalId, title: "t", brandName: "Арван" }))
-    .rejects.toBeInstanceOf(BrandNameCoreConflictError);
-  // Чужой аккаунт вне ядра и вне списка имя получает.
-  const free = await subject(); await configure([listed.value], 0);
-  await saveAccount({ id: free.installed.id, channel: "INSTAGRAM", externalId: free.installed.externalId, title: "t", brandName: "Арван" });
-  expect((await prisma.messengerAccount.findUniqueOrThrow({ where: { id: free.installed.id } })).brandName).toBe("Арван");
+  await saveAccount({ id: inCore.installed.id, channel: "INSTAGRAM", externalId: inCore.installed.externalId, title: "t", brandName: "Арван" });
+  expect((await prisma.messengerAccount.findUniqueOrThrow({ where: { id: inCore.installed.id } })).brandName).toBe("Арван");
+  expect((await enroll(inCore.value)).lane).toBe("CORE");
 });
-it("a subject already in CORE whose account got a name anyway is not silent: journal entry, no flip to LEGACY", async () => {
-  const s = await subject(); await configure([s.value], 10_000);
-  expect((await enroll(s.value)).lane).toBe("CORE");
-  await prisma.messengerAccount.update({ where: { id: s.installed.id }, data: { brandName: "Арван" } });
-  brandLog.mockClear();
-  expect((await enroll(s.value)).lane).toBe("CORE");
-  expect(brandBlockedCalls()).toBeGreaterThan(0);
-});
-it("the cut-over journal entry is written only after the allow-list and percent checks", async () => {
+it("legacy cut-over moves a branded account's subject to CORE like any other", async () => {
   vi.stubEnv("CUSTOMER_AGENT_LEGACY_CUTOVER", "on");
   try {
     const s = await subject(); await configure([s.value], 0);
-    expect((await enroll(s.value)).lane).toBe("LEGACY"); // назначение LEGACY создано
+    expect((await enroll(s.value)).lane).toBe("LEGACY");
     await prisma.messengerAccount.update({ where: { id: s.installed.id }, data: { brandName: "Арван" } });
-    brandLog.mockClear();
-    // В долю не попадает (0 %): шума быть не должно.
-    await prisma.$transaction(tx => enrollCustomerAgentSubjectTx(tx, s.value, { legacyCutover: true }));
-    expect(brandBlockedCalls()).toBe(0);
-    // Аккаунт вне списка раскатки: тоже тихо.
-    await configure([], 10_000);
-    await prisma.$transaction(tx => enrollCustomerAgentSubjectTx(tx, s.value, { legacyCutover: true }));
-    expect(brandBlockedCalls()).toBe(0);
-    // В списке и в доле: перевод был бы выполнен, поэтому запись нужна, а субъект остаётся на прежнем пути.
     await configure([s.value], 10_000);
     const result = await prisma.$transaction(tx => enrollCustomerAgentSubjectTx(tx, s.value, { legacyCutover: true }));
-    expect(result.lane).toBe("LEGACY");
-    expect(brandBlockedCalls()).toBe(1);
+    expect(result.lane).toBe("CORE");
+    expect(brandBlockedCalls()).toBe(0);
   } finally { vi.unstubAllEnvs(); }
 });
 it("persists an unconfigured OFF negative before a deferred legacy continuation and cannot flip during activation", async () => {

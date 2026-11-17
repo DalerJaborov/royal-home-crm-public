@@ -27,9 +27,22 @@ export interface OpenAiKey {
   source: OpenAiKeySource;
 }
 
-/** Ключ OpenAI: Настройки приоритетнее .env. null — не настроен нигде. */
+/**
+ * Рубильник OpenAI целиком (`Settings.openaiEnabled`, решение владельца 14.11.2026:
+ * «Опен ии полностью выключи, нам не нужны обложки больше от него»). Выключен —
+ * ни один путь не ходит в api.openai.com: ключ «не настроен», обложки только
+ * шаблоном без перерисовки фото, напоминаний об оплате OpenAI нет. Код не удалён —
+ * вернуть можно тем же тумблером в Настройках.
+ */
+export async function isOpenAiEnabled(): Promise<boolean> {
+  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { openaiEnabled: true } });
+  return settings?.openaiEnabled ?? false;
+}
+
+/** Ключ OpenAI: Настройки приоритетнее .env. null — не настроен нигде или OpenAI выключен рубильником. */
 export async function resolveOpenAiKey(): Promise<OpenAiKey | null> {
-  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { openaiApiKey: true } });
+  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { openaiApiKey: true, openaiEnabled: true } });
+  if (!(settings?.openaiEnabled ?? false)) return null;
   const fromSettings = decryptSecretSafe(settings?.openaiApiKey ?? null)?.trim();
   if (fromSettings) return { key: fromSettings, source: "settings" };
   const fromEnv = process.env.OPENAI_API_KEY?.trim();

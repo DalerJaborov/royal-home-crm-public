@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 752,
-  "forks": 4041,
-  "mounts": 83,
-  "cron": 130,
+  "endpoints": 763,
+  "forks": 4138,
+  "mounts": 85,
+  "cron": 143,
   "jobs": 33,
   "hidden": 0
  },
@@ -929,7 +929,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireAdsWrite"
+    "requireAdsWrite",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -1059,7 +1060,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireAdsWrite"
+    "requireAdsWrite",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -6654,7 +6656,7 @@
       },
       {
        "k": "if",
-       "t": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\")",
+       "t": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…",
        "a": [],
        "c": [
         {
@@ -12605,31 +12607,38 @@
      ]
     },
     {
-     "k": "do",
-     "t": "const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));",
-     "a": [
-      "зовёт foreignWriteDenied()"
-     ],
-     "c": []
-    },
-    {
      "k": "if",
-     "t": "denied",
+     "t": "!archiveReview",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: denied });",
+       "t": "const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));",
        "a": [
-        "ответ 403"
+        "зовёт foreignWriteDenied()"
        ],
        "c": []
+      },
+      {
+       "k": "if",
+       "t": "denied",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: denied });",
+         "a": [
+          "ответ 403"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
     {
      "k": "if",
-     "t": "client.deletedAt",
+     "t": "client.deletedAt && !archiveReview",
      "a": [],
      "c": [
       {
@@ -12706,7 +12715,7 @@
     },
     {
      "k": "if",
-     "t": "ownAgentIdForAccept && !client.acceptedAt && client.kind !== \"OTHER\" && client.assignedAgentId === ownAgentId…",
+     "t": "!archiveReview && ownAgentIdForAccept && !client.acceptedAt && client.kind !== \"OTHER\" && client.assignedAgen…",
      "a": [],
      "c": [
       {
@@ -12804,11 +12813,26 @@
     },
     {
      "k": "do",
-     "t": "const result = await originateCallToClient(req.agent!.id, client, { phoneOverride });",
+     "t": "const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });",
      "a": [
       "команда телефонии"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "archiveReview && (result.ok || result.status === 502)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "logAudit(req, \"ARCHIVE_REVIEW_CALL\", \"Client\", client.id, { shortId: client.shortId, fullName: client.fullNam…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -12817,7 +12841,7 @@
      "c": [
       {
        "k": "if",
-       "t": "result.status === 502",
+       "t": "result.status === 502 && !archiveReview",
        "a": [],
        "c": [
         {
@@ -14934,9 +14958,9 @@
     },
     {
      "k": "do",
-     "t": "const { total, totalIsLowerBound, listings } = await findBuyerListings(wants, parsed.data.limit);",
+     "t": "const [{ total, totalIsLowerBound, listings, ownersOnly }, market] = await Promise.all([ loadOwnersFilter().t…",
      "a": [
-      "зовёт findBuyerListings()"
+      "зовёт loadOwnersFilter()"
      ],
      "c": []
     },
@@ -15608,7 +15632,7 @@
      "t": "await prisma.$transaction(async (tx)",
      "a": [
       "всё внутри — одной транзакцией",
-      "меняет в базе: botConversation",
+      "обращается к базе своим SQL",
       "меняет в базе: telegramConversation",
       "удаляет в базе: dealReview",
       "удаляет в базе: deal",
@@ -15617,9 +15641,9 @@
      "c": [
       {
        "k": "do",
-       "t": "await tx.botConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });",
+       "t": "await tx.$executeRaw`UPDATE \"BotConversation\" SET \"clientId\"=NULL, \"leadDraft\"=(CASE WHEN jsonb_typeof(\"leadD…",
        "a": [
-        "меняет в базе: botConversation"
+        "обращается к базе своим SQL"
        ],
        "c": []
       },
@@ -16607,22 +16631,22 @@
    "tree": [
     {
      "k": "do",
-     "t": "const client = await prisma.client.findUnique({ where: { id: req.params.id } });",
+     "t": "const result = await restoreClientFromTrash(req.params.id, req.agent!.id);",
      "a": [
-      "читает в базе: client"
+      "зовёт restoreClientFromTrash()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "!client || !client.deletedAt",
+     "t": "!result.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден в корзине\" });",
+       "t": "return res.status(result.status).json({ error: result.error });",
        "a": [
-        "ответ 404 — «Клиент не найден в корзине»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -16630,199 +16654,9 @@
     },
     {
      "k": "do",
-     "t": "const owner = client.assignedAgentId ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId },…",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const historicalOwner = !eligible(owner) && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const restored = await prisma.$transaction(async (tx)",
-     "a": [
-      "пробрасывает ошибку дальше",
-      "всё внутри — одной транзакцией",
-      "обращается к базе своим SQL",
-      "читает в базе: client",
-      "читает в базе: agent",
-      "меняет в базе: client"
-     ],
-     "c": [
-      {
-       "k": "do",
-       "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${client.id} FOR UPDATE`;",
-       "a": [
-        "обращается к базе своим SQL"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const current = await tx.client.findUnique({ where: { id: client.id } });",
-       "a": [
-        "читает в базе: client"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return false;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "loop",
-       "t": "для каждого: const [id, expected] of [...checkedOwners].sort((a, b) => (a[0] ?? \"\").localeCompare(b[0] ?? \"\"))",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "id && !completedAssignment",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw`SELECT id FROM \"Agent\" WHERE id = ${id} FOR SHARE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true, frozenAt: true, role: true…",
-           "a": [
-            "читает в базе: agent"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "eligible(agent) !== expected",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return false;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "await tx.client.update({ where: { id: client.id }, data: { deletedAt: null, deletedById: null, ...(ownerGone …",
-       "a": [
-        "меняет в базе: client"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "ownerGone || restoredAgentId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const changed = await changeClientAgent({ clientId: client.id, toAgentId: restoredAgentId, reason: restoredAg…",
-         "a": [
-          "зовёт changeClientAgent()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!changed.ok",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw restoreConflict;",
-           "a": [
-            "пробрасывает ошибку дальше"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!restored",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Карточка изменилась. Обновите страницу\" });",
-       "a": [
-        "ответ 409 — «Карточка изменилась. Обновите страницу»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "toQueue",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const supervisors = (await findAgentsWithPermission(\"clients.assign\")).filter((id)",
-       "a": [
-        "зовёт findAgentsWithPermission()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "sendPushToAgents(supervisors, { title: \"♻️ Карточка восстановлена без агента\", body: `${client.fullName} — ве…",
-       "a": [
-        "push-уведомление"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"RESTORE\", \"Client\", client.id, { shortId: client.shortId, fullName: client.fullName, phone: cl…",
+     "t": "logAudit(req, \"RESTORE\", \"Client\", result.client.id, { shortId: result.client.shortId, fullName: result.clien…",
      "a": [
       "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId] });",
-     "a": [
-      "зовёт publishClientUpdated()"
      ],
      "c": []
     },
@@ -18252,7 +18086,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: await presentTimeline(req, client.assignedAgentId, page), total, hasMore });",
+     "t": "res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });",
      "a": [
       "ответ 200"
      ],
@@ -18343,6 +18177,21 @@
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "!can(req, \"clients.assign\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Передавать клиентов может только руководитель\" });",
+       "a": [
+        "ответ 403 — «Передавать клиентов может только руководитель»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const parsed = clientTransferSchema.safeParse(req.body);",
@@ -19011,6 +18860,14 @@
      "a": [
       "считает в базе: interaction",
       "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const withMessages = { ...client, hadConductedShowing: conductedShowing, callsCount, hadRealCall: realCalls >…",
+     "a": [
+      "зовёт presentClientTimeline()"
      ],
      "c": []
     },
@@ -20055,6 +19912,14 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p)",
+       "a": [
+        "зовёт canCallArchivedClient()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "!canAccessAssignedAgent(req, full.assignedAgentId)",
        "a": [],
@@ -20134,11 +19999,26 @@
     },
     {
      "k": "do",
-     "t": "const result = await originateCallToClient(req.agent!.id, client);",
+     "t": "const result = await originateCallToClient(req.agent!.id, client, { archiveReview });",
      "a": [
       "команда телефонии"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "archiveReview && (result.ok || result.status === 502)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "logAudit(req, \"ARCHIVE_REVIEW_CALL\", \"Client\", client.id, { shortId: client.shortId, fullName: client.fullNam…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -21062,6 +20942,14 @@
     },
     {
      "k": "do",
+     "t": "const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, \"clients.delete\") });",
+     "a": [
+      "зовёт pendingDeleteHideWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const today = dushanbeDayRange(now);",
      "a": [
       "зовёт dushanbeDayRange()"
@@ -21136,6 +21024,181 @@
     {
      "k": "do",
      "t": "res.json(summary);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/trash/:id/review/timeline",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/trash/:id/review/timeline",
+   "file": "apps/api/src/routes/clients/trashReview.ts",
+   "router": "trashReviewRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: archive.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = timelineQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой timelineQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "(before && !beforeId) || (!before && beforeId)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Курсор задаётся парой before и beforeId\" });",
+       "a": [
+        "ответ 400 — «Курсор задаётся парой before и beforeId»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Клиент не найден в Корзине\" });",
+       "a": [
+        "ответ 404 — «Клиент не найден в Корзине»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const baseWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ?…",
+     "a": [
+      "зовёт visibleInteractionWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: \"desc\" …",
+     "a": [
+      "читает в базе: interaction",
+      "считает в базе: interaction"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/trash/:id/review",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/trash/:id/review",
+   "file": "apps/api/src/routes/clients/trashReview.ts",
+   "router": "trashReviewRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: archive.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Клиент не найден в Корзине\" });",
+       "a": [
+        "ответ 404 — «Клиент не найден в Корзине»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const interactionWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id };",
+     "a": [
+      "зовёт visibleInteractionWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [request, audit, rows, total, manualTrash] = await Promise.all([ prisma.clientDeleteRequest.findFirst({…",
+     "a": [
+      "читает в базе: clientDeleteRequest",
+      "читает в базе: auditLog",
+      "читает в базе: interaction",
+      "считает в базе: interaction",
+      "считает в базе: auditLog"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ client: { id: client.id, shortId: client.shortId, fullName: clientNamePhoneSafe(client.fullName, p…",
      "a": [
       "ответ 200"
      ],
@@ -21240,29 +21303,6 @@
       "зовёт scopeToOwnAgent()"
      ],
      "c": []
-    },
-    {
-     "k": "do",
-     "t": "const idsToHide = await pendingDeleteHiddenClientIds({ ownAgentId, canDelete: can(req, \"clients.delete\") });",
-     "a": [
-      "зовёт pendingDeleteHiddenClientIds()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "idsToHide.length > 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.id = { notIn: idsToHide };",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
     },
     {
      "k": "if",
@@ -25315,6 +25355,29 @@
       },
       {
        "k": "do",
+       "t": "const annulTarget = await prisma.deal.findUnique({ where: { id: dealId }, select: { agentId: true } });",
+       "a": [
+        "читает в базе: deal"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "annulTarget && isOwnDealWithoutFinance(req, annulTarget)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Свою сделку аннулирует директор\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
        "t": "const parsed = dealAnnulSchema.safeParse(body);",
        "a": [
         "проверяет данные схемой dealAnnulSchema"
@@ -25739,7 +25802,7 @@
     },
     {
      "k": "if",
-     "t": "(deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && !can(req, \"deals.complete\")",
+     "t": "(deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && (!can(req, \"deals.complete\") || (deal.ag…",
      "a": [],
      "c": [
       {
@@ -26106,12 +26169,12 @@
      "c": [
       {
        "k": "if",
-       "t": "!can(req, \"finance.manage\") && !can(req, \"deals.setCommission\")",
+       "t": "!can(req, \"finance.manage\")",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return fail(403, { error: \"Недостаточно прав\" });",
+         "t": "return fail(403, { error: \"Отметить выплату может только директор\" });",
          "a": [
           "дословно из кода"
          ],
@@ -26483,6 +26546,21 @@
        ]
       },
       {
+       "k": "if",
+       "t": "data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && isOwnDealWithoutFinance(req, existing)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Свою сделку закрывает директор: вы продавец, второй человек должен подтвердить\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
        "t": "const commissionExceedsPrice = finalSoldPrice !== null && finalSoldPrice !== undefined && finalRealtorAmount …",
        "a": [
@@ -26812,6 +26890,36 @@
         {
          "k": "do",
          "t": "return fail(400, { error: \"Комиссия (риелтор + компания) не может превышать фактическую цену продажи\", });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "existing.stage === \"COMPLETED\" && !can(req, \"finance.manage\") && (data.commissionAmount !== undefined || data…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Деньги закрытой сделки меняет только директор\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRepricingClosed && !can(req, \"finance.manage\")",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Комиссию закрытой сделки меняет только директор\" });",
          "a": [
           "дословно из кода"
          ],
@@ -30101,7 +30209,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const expense = await restoreExpense(req.params.id);",
+       "t": "const expense = await restoreExpense(req.params.id, { confirmAutoOverlap: req.body?.confirmAutoOverlap === tr…",
        "a": [
         "зовёт restoreExpense()"
        ],
@@ -38753,6 +38861,63 @@
    ]
   },
   {
+   "method": "GET",
+   "path": "/history",
+   "mount": "/api/v1/market",
+   "full": "/api/v1/market/history",
+   "file": "apps/api/src/routes/market.ts",
+   "router": "marketRouter",
+   "top": "apps/api/src/routes/market.ts::marketRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = marketHistoryQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой marketHistoryQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const points = await readMedianHistory({ city: q.city, districtName: q.districtName, rooms: q.rooms ?? ANY_RO…",
+     "a": [
+      "зовёт readMedianHistory()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(body);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "POST",
    "path": "/listing-contact",
    "mount": "/api/v1/market",
@@ -39193,6 +39358,32 @@
   },
   {
    "method": "GET",
+   "path": "/overpriced",
+   "mount": "/api/v1/market",
+   "full": "/api/v1/market/overpriced",
+   "file": "apps/api/src/routes/market.ts",
+   "router": "marketRouter",
+   "top": "apps/api/src/routes/market.ts::marketRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json(await findOverpricedPropertiesCached());",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/property/:id/dynamics",
    "mount": "/api/v1/market",
    "full": "/api/v1/market/property/:id/dynamics",
@@ -39280,6 +39471,86 @@
   },
   {
    "method": "GET",
+   "path": "/property/:id/history",
+   "mount": "/api/v1/market",
+   "full": "/api/v1/market/property/:id/history",
+   "file": "apps/api/src/routes/market.ts",
+   "router": "marketRouter",
+   "top": "apps/api/src/routes/market.ts::marketRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const where = cardWhereFromParam(String(req.params.id));",
+     "a": [
+      "зовёт cardWhereFromParam()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!where",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, deletedAt: true, distr…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!p || (p.deletedAt && !can(req, \"archive.view\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const points = p.type === \"APARTMENT\" && districtName && rooms ? await readMedianHistory({ city: \"Душанбе\", d…",
+     "a": [
+      "зовёт readMedianHistory()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(body);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/property/:id",
    "mount": "/api/v1/market",
    "full": "/api/v1/market/property/:id",
@@ -39319,7 +39590,7 @@
     },
     {
      "k": "do",
-     "t": "const p = await prisma.property.findUnique({ where, select: { id: true, type: true, rooms: true, areaSqm: tru…",
+     "t": "const p = await prisma.property.findUnique({ where, select: PROPERTY_MARKET_SELECT });",
      "a": [
       "читает в базе: property"
      ],
@@ -39342,38 +39613,7 @@
     },
     {
      "k": "do",
-     "t": "const money = await loadMoneyContext();",
-     "a": [
-      "зовёт loadMoneyContext()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "(p.type !== \"APARTMENT\" && p.type !== \"HOUSE\") || !(subjectBase.areaSqm > 0)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.json({ subject: { ...subjectBase, propertyType: p.type }, ...emptyResult(\"для этого типа объекта р…",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const result = await findSimilar({ ...subjectBase, propertyType: p.type }, { propertyId: p.id });",
-     "a": [
-      "зовёт findSimilar()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === \"ok\" ?…",
+     "t": "res.json(await evaluatePropertyAgainstMarket(p, await loadMoneyContext()));",
      "a": [
       "ответ 200"
      ],
@@ -46036,7 +46276,23 @@
     },
     {
      "k": "do",
-     "t": "const result = await createPropertyChangeRequest({ propertyId: req.params.id, actor: { agentId: req.agent!.id…",
+     "t": "const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { status: true, ass…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const direct = property !== null && canApplyChangeDirectly(actor, property, parsed.data.kind, { removeFromSoc…",
+     "a": [
+      "зовёт canApplyChangeDirectly()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const result = await createPropertyChangeRequest({ propertyId: req.params.id, actor, body: parsed.data, apply…",
      "a": [
       "зовёт createPropertyChangeRequest()"
      ],
@@ -46052,6 +46308,44 @@
        "t": "return res.status(result.status).json({ error: result.error });",
        "a": [
         "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "direct",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const applied = await applyOwnChangeRequestNow(result.request.id, req.agent!.id);",
+       "a": [
+        "зовёт applyOwnChangeRequestNow()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!applied.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(applied.status).json({ error: applied.error });",
+         "a": [
+          "ответ (код зависит от условия)"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return res.status(201).json({ request: applied.request, applied: applied.request.status === \"APPROVED\", messa…",
+       "a": [
+        "ответ 201"
        ],
        "c": []
       }
@@ -46079,11 +46373,25 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: properties.moderate"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "!(await canDecideClipInCrm(req.agent!.id, can(req, \"properties.moderate\"), req.params.id))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const result = await approveClip(req.params.id, req.agent!.id, \"crm\");",
@@ -46129,11 +46437,25 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: properties.moderate"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "!(await canDecideClipInCrm(req.agent!.id, can(req, \"properties.moderate\"), req.params.id))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const parsed = sendBackToMontajerSchema.safeParse(req.body);",
@@ -48202,7 +48524,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -48446,7 +48768,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -48775,7 +49097,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49301,7 +49623,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49375,7 +49697,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49441,7 +49763,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49553,7 +49875,7 @@
     },
     {
      "k": "do",
-     "t": "const deliveries = manager(req.agent?.role) ? await prisma.propertyNarrationDelivery.findMany({ where: { prop…",
+     "t": "const deliveries = manager(req.agent) ? await prisma.propertyNarrationDelivery.findMany({ where: { propertyId…",
      "a": [
       "читает в базе: propertyNarrationDelivery"
      ],
@@ -49561,7 +49883,7 @@
     },
     {
      "k": "do",
-     "t": "const subscription = manager(req.agent?.role) ? await prisma.ownerReportSubscription.findUnique({ where: { pr…",
+     "t": "const subscription = manager(req.agent) ? await prisma.ownerReportSubscription.findUnique({ where: { property…",
      "a": [
       "читает в базе: ownerReportSubscription"
      ],
@@ -49569,7 +49891,7 @@
     },
     {
      "k": "do",
-     "t": "const reports = manager(req.agent?.role) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p…",
+     "t": "const reports = manager(req.agent) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p.id },…",
      "a": [
       "читает в базе: ownerReportDelivery"
      ],
@@ -49844,7 +50166,7 @@
       },
       {
        "k": "if",
-       "t": "latest?.approvedAt && !manager(req.agent?.role)",
+       "t": "latest?.approvedAt && !manager(req.agent)",
        "a": [],
        "c": [
         {
@@ -54745,8 +55067,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: properties.editForeign"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
@@ -54876,6 +55197,14 @@
        "t": "const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: actor.…",
        "a": [
         "зовёт transferPropertyWithSeller()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "void recordRopTransfer({ kind: \"PROPERTY\", targetId: property.id, fromAgentId: result.fromAgentId, toAgentId,…",
+       "a": [
+        "зовёт recordRopTransfer()"
        ],
        "c": []
       },
@@ -57708,6 +58037,21 @@
       "зовёт changedPropertyFields()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "(req.agent!.role === \"MARKETING\" || req.agent!.role === \"EDITOR\") && !ownsProperty(req.agent!.id, existing) &…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Цену и контакт собственника меняет агент объекта или руководитель\" });",
+       "a": [
+        "ответ 403 — «Цену и контакт собственника меняет агент объекта или руководитель»"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -61599,7 +61943,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -63181,6 +63525,29 @@
      ]
     },
     {
+     "k": "if",
+     "t": "!propertyVideoFileExists(property.videoHandoffFinalPath)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"storage\", `Публичный ролик объекта №${shortId}: файла нет на диске, ссылка отдаёт 404`, …",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "res.setHeader(\"Content-Type\", \"video/mp4\");",
      "a": [
@@ -63203,7 +63570,7 @@
        "c": [
         {
          "k": "do",
-         "t": "void logSystemError(\"storage\", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`);",
+         "t": "void logSystemError(\"storage\", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`, { dedupKey: PU…",
          "a": [
           "запись в журнал ошибок"
          ],
@@ -63758,6 +64125,225 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/:kind/telegram",
+   "mount": "/api/v1/report-pdf",
+   "full": "/api/v1/report-pdf/:kind/telegram",
+   "file": "apps/api/src/routes/reportPdf.ts",
+   "router": "reportPdfRouter",
+   "top": "apps/api/src/routes/reportPdf.ts::reportPdfRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!kind",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!viewer.telegramChatId",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Привяжите свой Telegram в профиле — туда придёт отчёт\" });",
+       "a": [
+        "ответ 409 — «Привяжите свой Telegram в профиле — туда придёт отчёт»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await sendDocumentFile(viewer.telegramChatId, pdf.buffer, pdf.filename, `${REPORT_PDF_TITLES[kind]} · ${pdf.p…",
+         "a": [
+          "зовёт sendDocumentFile()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"telegram\", `PDF «${REPORT_PDF_TITLES[kind]}» не отправлен в Telegram: ${describeError(er…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return res.status(503).json({ error: \"Telegram не принял файл. Повторите позже или скачайте PDF\" });",
+         "a": [
+          "ответ 503 — «Telegram не принял файл. Повторите позже или скачайте PDF»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"REPORT_PDF_EXPORT\", \"Report\", kind, { destination: \"ownTelegram\", period: pdf.periodKey, bytes…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ ok: true });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "failed(res, kind, err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:kind",
+   "mount": "/api/v1/report-pdf",
+   "full": "/api/v1/report-pdf/:kind",
+   "file": "apps/api/src/routes/reportPdf.ts",
+   "router": "reportPdfRouter",
+   "top": "apps/api/src/routes/reportPdf.ts::reportPdfRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!kind",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "logAudit(req, \"REPORT_PDF_EXPORT\", \"Report\", kind, { destination: \"download\", period: pdf.periodKey, bytes: p…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Content-Type\", \"application/pdf\");",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Content-Disposition\", `attachment; filename=\"${pdf.filename}\"`);",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Cache-Control\", \"no-store\");",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.send(pdf.buffer);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "failed(res, kind, err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/agents",
    "mount": "/api/v1/reports",
@@ -63776,61 +64362,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const agents = await prisma.agent.findMany({ where: { OR: [{ isActive: true }, { deals: { some: { stage: \"COM…",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const [showingCounts, showingCountsBySubject, deals, money] = await Promise.all([ prisma.interaction.groupBy(…",
-     "a": [
-      "считает в базе: interaction",
-      "считает в базе: deal"
-     ],
-     "c": []
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const s of showingCountsBySubject",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "!s.subjectAgentId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "continue;",
-         "a": [
-          "переходит к следующему"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const row of deals",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "entry.commission += toTjs(row._sum.commissionAmount, row.currency, money);",
-       "a": [
-        "зовёт toTjs()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.json(rows);",
+     "t": "res.json(await buildAgentsReport(parseReportRange(req.query), reportViewer(req)));",
      "a": [
       "ответ 200"
      ],
@@ -63945,17 +64477,15 @@
    "tree": [
     {
      "k": "do",
-     "t": "const [newLeads, contactedClientIds, showings, negotiations, completedDeals, money] = await Promise.all([ pri…",
+     "t": "const range = parseReportRange(req.query);",
      "a": [
-      "считает в базе: client",
-      "считает в базе: interaction",
-      "считает в базе: deal"
+      "зовёт parseReportRange()"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "res.json({ from, to, funnel: [ { key: \"leads\", label: \"Новые лиды\", count: newLeads }, { key: \"contacted\", la…",
+     "t": "res.json({ ...range, funnel: await buildFunnelReport(range, reportViewer(req)) });",
      "a": [
       "ответ 200"
      ],
@@ -64922,99 +65452,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const clientCounts = await prisma.client.groupBy({ by: [\"source\", \"status\"], where: { createdAt: { gte: from,…",
-     "a": [
-      "считает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const row of clientCounts",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "row.status === \"DEAL_CLOSED\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "entry.closed += row._count._all;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const [botConversations, telegramConversations] = await Promise.all([ prisma.botConversation.groupBy({ by: [\"…",
-     "a": [
-      "считает в базе: botConversation",
-      "считает в базе: telegramConversation"
-     ],
-     "c": []
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const row of botConversations",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "wroteBySource.set(row.channel, (wroteBySource.get(row.channel) ?? 0) + row._count._all);",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "telegramConversations > 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "wroteBySource.set(\"TELEGRAM\", (wroteBySource.get(\"TELEGRAM\") ?? 0) + telegramConversations);",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const closedDeals = await prisma.deal.findMany({ where: { stage: \"COMPLETED\", closedAt: { gte: from, lte: to …",
-     "a": [
-      "читает в базе: deal"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "closedDeals.length >= REPORTS_ROW_LIMIT",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "void logSystemError( \"api\", `Отчёт «Источники»: закрытых сделок за период больше потолка ${REPORTS_ROW_LIMIT}…",
-       "a": [
-        "запись в журнал ошибок"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.json({ sources: Array.from(new Set([...bySource.keys(), ...wroteBySource.keys()])) .map((source)",
+     "t": "res.json(await buildSourcesReport(parseReportRange(req.query)));",
      "a": [
       "ответ 200"
      ],
@@ -65338,7 +65776,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -65583,7 +66022,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -65699,7 +66139,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -65773,7 +66214,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -66026,7 +66468,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -68870,7 +69313,7 @@
     },
     {
      "k": "do",
-     "t": "logAudit(req, \"COVER_OPENAI_SETTINGS\", \"Settings\", \"singleton\", { keyChanged: apiKey !== undefined, ...(enabl…",
+     "t": "logAudit(req, \"COVER_OPENAI_SETTINGS\", \"Settings\", \"singleton\", { keyChanged: apiKey !== undefined, ...(opena…",
      "a": [
       "зовёт logAudit()"
      ],
@@ -71000,21 +71443,6 @@
      "t": "если сорвалось",
      "a": [],
      "c": [
-      {
-       "k": "if",
-       "t": "err instanceof BrandNameCoreConflictError",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: err.message });",
-         "a": [
-          "ответ 409"
-         ],
-         "c": []
-        }
-       ]
-      },
       {
        "k": "if",
        "t": "(err as { code?: string }).code === \"P2002\"",
@@ -76673,6 +77101,141 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/photos",
+   "mount": "/api/v1/social-videos",
+   "full": "/api/v1/social-videos/photos",
+   "file": "apps/api/src/routes/socialVideos.ts",
+   "router": "socialVideosRouter",
+   "top": "apps/api/src/routes/socialVideos.ts::socialVideosRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireMarketingRole",
+    "socialPhotoPostUpload.array(\"photos\", SOCIAL_PHOTO_POST_MAX_IMAGES)"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "files.length === 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(400).json({ error: \"Приложите хотя бы одно фото (поле photos)\" });",
+         "a": [
+          "ответ 400 — «Приложите хотя бы одно фото (поле photos)»"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const fields = socialVideoCreateFieldsSchema.safeParse(req.body);",
+       "a": [
+        "проверяет данные схемой socialVideoCreateFieldsSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!fields.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(400).json({ error: fields.error.issues[0]?.message ?? \"Неверные поля формы\" });",
+         "a": [
+          "ответ 400"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const item = await createSocialPhotoPostFromUpload({ files: files.map((f)",
+       "a": [
+        "зовёт createSocialPhotoPostFromUpload()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SOCIAL_VIDEO_CREATED\", \"SocialVideoPost\", item.id, { kind: \"PHOTO\", photos: files.length, size…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.status(201).json(item);",
+       "a": [
+        "ответ 201"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "err instanceof SocialVideoError",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(err.status).json({ error: err.message });",
+         "a": [
+          "ответ (код зависит от условия)"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/trends",
    "mount": "/api/v1/social-videos",
@@ -77586,7 +78149,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -77845,7 +78409,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -78140,7 +78705,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -78519,7 +79085,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -78608,7 +79175,15 @@
     },
     {
      "k": "do",
-     "t": "const text = await transcribeAudio(req.file.buffer, req.file.originalname || \"voice.webm\", req.file.mimetype);",
+     "t": "const mediaType = normalizeDictationMime(req.file.mimetype) ?? \"audio/webm\";",
+     "a": [
+      "зовёт normalizeDictationMime()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const text = await transcribeAudio(req.file.buffer, req.file.originalname || \"voice.webm\", mediaType);",
      "a": [
       "зовёт transcribeAudio()"
      ],
@@ -78647,6 +79222,93 @@
     {
      "k": "do",
      "t": "res.json({ text: text.trim() });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/respond",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/:id/respond",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const outcome = await reviewRopTransfer(who(req), req.params.id, req.body);",
+     "a": [
+      "зовёт reviewRopTransfer()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.status(outcome.status).json(outcome.body);",
+     "a": [
+      "ответ (код зависит от условия)"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/outgoing",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/outgoing",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: transfers.request"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json({ items: await listOutgoingTransferRequests(who(req)) });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/pending",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/pending",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json({ items: await listPendingTransferReviews(who(req)) });",
      "a": [
       "ответ 200"
      ],
@@ -81848,6 +82510,36 @@
      ]
     },
     {
+     "k": "if",
+     "t": "incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "await staffAnsweredLate(incoming)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[вебхук] ${incoming[0]!.channel}: повтор ${incoming.length} сообщ., сотрудник уже ответил по све…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return res.json({ ok: true });",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const durableIngress = await persistVerifiedCustomerIngressBatch(req);",
      "a": [
@@ -81860,6 +82552,14 @@
      "t": "durableIngress.status === \"denied\" || durableIngress.status === \"unavailable\"",
      "a": [],
      "c": [
+      {
+       "k": "do",
+       "t": "reportMetaWebhookNotSaved(\"dm\", durableIngress.reason, metaWebhookAccount(req.body));",
+       "a": [
+        "зовёт reportMetaWebhookNotSaved()"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "return res.status(503).json({ error: \"Входящее событие пока не сохранено\" });",
@@ -81883,6 +82583,14 @@
      "t": "publicIngress.status === \"held\"",
      "a": [],
      "c": [
+      {
+       "k": "do",
+       "t": "reportMetaWebhookNotSaved(\"public_comment\", publicIngress.reason, metaWebhookAccount(req.body));",
+       "a": [
+        "зовёт reportMetaWebhookNotSaved()"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "return res.status(503).json({ error: \"Комментарий пока не сохранён\" });",
@@ -81911,6 +82619,36 @@
       "запись в журнал ошибок"
      ],
      "c": [
+      {
+       "k": "if",
+       "t": "(durableIngress.status === \"persisted\" || durableIngress.status === \"bypass\") && durableIngress.held?.length",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await notifyHeldCustomerMessages(durableIngress.held);",
+         "a": [
+          "зовёт notifyHeldCustomerMessages()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "lateHanded",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await notifyLateDelivery(lateHanded);",
+         "a": [
+          "зовёт notifyLateDelivery()"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "loop",
        "t": "для каждого: const message of incoming",
@@ -82361,6 +83099,29 @@
                   {
                    "k": "do",
                    "t": "await handleOutgoingEcho(msg);",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  },
+                  {
+                   "k": "do",
+                   "t": "continue;",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
+                {
+                 "k": "if",
+                 "t": "inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === \"HELD\"",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "traceOutcome(\"blocked\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -83039,6 +83800,21 @@
                   "зовёт stampOutgoingMid()"
                  ],
                  "c": []
+                },
+                {
+                 "k": "if",
+                 "t": "providerAcceptedReply && result.agentSignal",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "void requestAgentAttention(result.agentSignal.clientId, result.agentSignal.reason);",
+                   "a": [
+                    "зовёт requestAgentAttention()"
+                   ],
+                   "c": []
+                  }
+                 ]
                 },
                 {
                  "k": "if",
@@ -85478,6 +86254,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "touchesLive && !req.agent?.permissions.has(\"finance.manage\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Боевой режим автопродвижения включает только директор\" });",
+       "a": [
+        "ответ 403 — «Боевой режим автопродвижения включает только директор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "await prisma.settings.update({ where: { id: \"singleton\" }, data: { ...(patch.enabled !== undefined && { reels…",
      "a": [
@@ -87074,6 +87865,285 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "backup-freshness",
+   "when": "17 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const alerts = await checkBackupFreshness();",
+       "a": [
+        "зовёт checkBackupFreshness()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const lastOffsiteOk = await prisma.backupRun.findFirst({ where: { kind: \"OFFSITE\", success: true }, orderBy: …",
+         "a": [
+          "читает в базе: backupRun"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!lastOffsiteOk || lastOffsiteOk.finishedAt < since",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await logSystemError(\"api\", `Копия данных наружу не создавалась больше 26 часов (${when}). Проверьте таймер и…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const { alerted } = await raiseCriticalAlarm({ tag: \"backup:OFFSITE\", title: \"Копия данных не создаётся\", bod…",
+           "a": [
+            "зовёт raiseCriticalAlarm()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "alerted",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "alerts++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const latestPerKind = await prisma.backupRun.findMany({ where: { finishedAt: { gte: since } }, distinct: [\"ki…",
+         "a": [
+          "читает в базе: backupRun"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const run of latestPerKind",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "run.success",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await logSystemError(\"api\", `Копия ${label} (${run.kind}) не удалась: ${detail}`, { dedupKey: `backup-failed:…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const { alerted } = await raiseCriticalAlarm({ tag: `backup:${run.kind}`, title: \"Копия данных не удалась\", b…",
+           "a": [
+            "зовёт raiseCriticalAlarm()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "alerted",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "alerts++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "checkBackupFreshness() — apps/api/src/lib/backupFreshness.ts"
+      },
+      {
+       "k": "if",
+       "t": "alerts",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Сторож копий: тревог поднято ${alerts}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа свежести копий\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "balance-watch",
+   "when": "20 9 * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const alerts = await runBalanceWatch();",
+       "a": [
+        "зовёт runBalanceWatch()"
+       ],
+       "c": [
+        {
+         "k": "loop",
+         "t": "для каждого: const run of [() => checkElevenLabsBalances(deps), () => checkSmsBalance(deps)]",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": []
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"cron\", `Проверка остатка платных сервисов не выполнена: ${describeError(err)}`, { dedupK…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runBalanceWatch() — apps/api/src/lib/balanceWatch.ts"
+      },
+      {
+       "k": "if",
+       "t": "alerts",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Остатки платных сервисов: тревог поднято ${alerts}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка суточной проверки остатков\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "bot-audit",
    "when": "15 3 * * *",
    "tree": [
@@ -87495,6 +88565,14 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "const lastCallByClient = await fetchLastCallContactByClient(clientIds);",
+         "a": [
+          "зовёт fetchLastCallContactByClient()"
+         ],
+         "c": []
         },
         {
          "k": "loop",
@@ -88157,7 +89235,7 @@
         },
         {
          "k": "do",
-         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", clientId: { in: withClient.map((r)",
+         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", archiveReview: false, clientId: { in…",
          "a": [
           "читает в базе: interaction"
          ],
@@ -89819,6 +90897,279 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "client-silence-sweep",
+   "when": "*/10 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alerted } = await runClientSilenceSweep();",
+       "a": [
+        "зовёт runClientSilenceSweep()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await isWithinWorkingHours(now))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: 0, alerted: 0, skippedOffHours: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runClientSilenceSweep() — apps/api/src/lib/clientWaitingAlert.ts"
+      },
+      {
+       "k": "if",
+       "t": "alerted > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «клиент ждёт ответа»\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "clip-owner-autopublish",
+   "when": "*/5 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { published } = await runClipOwnerAutoPublishTick();",
+       "a": [
+        "зовёт runClipOwnerAutoPublishTick()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "isClipOwnerNight(now)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { published: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { clipOwnerApproveEnabled: t…",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!s?.clipOwnerApproveEnabled && s?.clipReviewEnabled",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { published: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const candidates = await prisma.property.findMany({ where: { ...CLIP_REVIEW_PENDING_WHERE, clipOwnerDueAt: { …",
+         "a": [
+          "читает в базе: property"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "candidates.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { published: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const dialogs = await prisma.telegramDialogState.findMany({ where: { kind: CLIP_REJECT_DIALOG_KIND, expiresAt…",
+         "a": [
+          "читает в базе: telegramDialogState"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const p of candidates",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "rejecting.has(p.shortId)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const result = await approveClip(p.id, null, \"auto\", now);",
+           "a": [
+            "зовёт approveClip()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "result.ok",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "published++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runClipOwnerAutoPublishTick() — apps/api/src/lib/clipReview.ts"
+      },
+      {
+       "k": "if",
+       "t": "published > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Автопубликация роликов без ответа хозяина: ${published}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка автопубликации ролика без ответа хозяина\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "clip-review-resend",
    "when": "*/5 * * * *",
    "tree": [
@@ -90003,6 +91354,276 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка напоминания «ролик ждёт проверки»\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "comment-needs-human-sweep",
+   "when": "6-59/10 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alerted } = await runCommentNeedsHumanSweep();",
+       "a": [
+        "зовёт runCommentNeedsHumanSweep()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const technicalOn = await isCommentFailureWatchEnabled();",
+         "a": [
+          "зовёт isCommentFailureWatchEnabled()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const queueRuns = technicalOn && (await loadBotCapabilities()).comments;",
+         "a": [
+          "зовёт loadBotCapabilities()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!rows.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: 0, alerted: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const claim = (commentId: string)",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of rows",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const need = commentNeed(row.status, row.note);",
+           "a": [
+            "зовёт commentNeed()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "need === \"technical\" && !technicalOn",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "need === \"no\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!due.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: rows.length, alerted: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const recipients = await findAgentsWithPermission(\"messages.view\");",
+         "a": [
+          "зовёт findAgentsWithPermission()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!recipients.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Комментарии ждут человека (${due.length}), но в CRM нет никого с правом «Сообщен…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of due",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "if ((await claim(row.commentId)) === 1) claimed.push(row);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!claimed.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: rows.length, alerted: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await sendPushToAgents(recipients, { kind: \"message\", title: claimed.length === 1 ? `💬 ${places}: ответьте н…",
+           "a": [
+            "push-уведомление"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: claimed.map((r)",
+           "a": [
+            "удаляет в базе: processedMessage"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Сводка «комментарии ждут человека» не отправлена: ${err instanceof Error ? err.m…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runCommentNeedsHumanSweep() — apps/api/src/lib/commentWaitingAlert.ts"
+      },
+      {
+       "k": "if",
+       "t": "alerted > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа комментариев без ответа\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -90482,6 +92103,265 @@
       }
      ],
      "from": "runCustomerJobsTick() — apps/api/src/jobs/runner.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "customer-unrecorded-summary",
+   "when": "*/2 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { people } = await runUnrecordedCustomerSummary();",
+       "a": [
+        "зовёт runUnrecordedCustomerSummary()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const recipients = await findAgentsWithPermission(\"messages.view\");",
+         "a": [
+          "зовёт findAgentsWithPermission()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!recipients.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const waiting = await prisma.processedMessage.count({ where: { channel: UNRECORDED_PENDING } });",
+           "a": [
+            "считает в базе: processedMessage"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "waiting",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", `Сообщения клиентов (${waiting}) не попали в чат CRM, а сказать некому: нет никог…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const taken = await prisma.$queryRaw<Array<{ messageId: string; createdAt: Date }>>`DELETE FROM \"ProcessedMes…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!taken.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { people: 0, sent: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of taken",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": []
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", \"Запись сводки «Ответьте вручную» не расшифровалась и пропущена.\", { dedupKey: \"c…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!people.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { people: 0, sent: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const p of people",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!p.accountExternalId || titles.has(`${p.channel}:${p.accountExternalId}`)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const row = await prisma.messengerAccount.findFirst({ where: { channel: p.channel, externalId: p.accountExter…",
+           "a": [
+            "читает в базе: messengerAccount"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "row?.title",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "titles.set(`${p.channel}:${p.accountExternalId}`, row.title);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await sendPushToAgents(recipients, { kind: \"message\", level: \"CRITICAL\", title: people.length === 1 ? `Ответь…",
+           "a": [
+            "push-уведомление"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.processedMessage.createMany({ data: taken.map(r",
+           "a": [
+            "создаёт в базе: processedMessage"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Сводка «Ответьте вручную» по сообщениям вне чата CRM не отправлена, повторим: ${…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runUnrecordedCustomerSummary() — apps/api/src/lib/customerHeldMessage.ts"
+      },
+      {
+       "k": "if",
+       "t": "people > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Вне чата CRM: сводка «Ответьте вручную» по ${people} чел.`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сводки «сообщения вне чата CRM»\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
     }
    ],
    "file": "apps/api/src/cron.ts"
@@ -91147,7 +93027,7 @@
   },
   {
    "id": "director-alert-queue-flush",
-   "when": "*/10 * * * *",
+   "when": "* * * * *",
    "tree": [
     {
      "k": "try",
@@ -91162,23 +93042,16 @@
        ],
        "c": [
         {
-         "k": "if",
-         "t": "!(await isWithinAlarmHours(now))",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return 0;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
+         "k": "do",
+         "t": "const inWindow = await isWithinAlarmHours(now);",
+         "a": [
+          "зовёт isWithinAlarmHours()"
+         ],
+         "c": []
         },
         {
          "k": "do",
-         "t": "const pending = await prisma.pendingDirectorAlert.findMany({ where: { sentAt: null }, orderBy: { createdAt: \"…",
+         "t": "const pending = await prisma.pendingDirectorAlert.findMany({ where: inWindow ? { sentAt: null } : { sentAt: n…",
          "a": [
           "читает в базе: pendingDirectorAlert"
          ],
@@ -91254,26 +93127,40 @@
              "a": [],
              "c": [
               {
-               "k": "do",
-               "t": "await createNotifications(recipients, { kind: item.kind ?? \"oversight\", level: notificationLevelOf(item.kind,…",
-               "a": [
-                "зовёт createNotifications()"
-               ],
-               "c": []
+               "k": "if",
+               "t": "!item.feedAt",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await createNotifications(recipients, { kind: item.kind ?? \"oversight\", level: notificationLevelOf(item.kind,…",
+                 "a": [
+                  "зовёт createNotifications()"
+                 ],
+                 "c": []
+                }
+               ]
               },
               {
-               "k": "do",
-               "t": "void sendPushToAgents(recipients, { kind: pushKind, title: item.title, body: item.body, url: item.url ?? unde…",
-               "a": [
-                "push-уведомление"
-               ],
-               "c": []
+               "k": "if",
+               "t": "pushNow",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "void (item.feedAt ? sendDevicePushToAgents(recipients, payload) : sendPushToAgents(recipients, payload)).catc…",
+                 "a": [
+                  "push-уведомление"
+                 ],
+                 "c": []
+                }
+               ]
               }
              ]
             },
             {
              "k": "do",
-             "t": "await prisma.pendingDirectorAlert.update({ where: { id: item.id }, data: { sentAt: now } });",
+             "t": "await prisma.pendingDirectorAlert.update({ where: { id: item.id }, data: pushNow ? { feedAt: item.feedAt ?? n…",
              "a": [
               "меняет в базе: pendingDirectorAlert"
              ],
@@ -92721,6 +94608,260 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "finance-pdf-monthly",
+   "when": "10 9 1-3 * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const result = await sendMonthlyFinancePdf();",
+       "a": [
+        "зовёт sendMonthlyFinancePdf()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const month = previousMonthKey(now);",
+         "a": [
+          "зовёт previousMonthKey()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const claimed = await prisma.settings.updateMany({ where: { id: \"singleton\", financePdfMonthlyEnabled: true, …",
+         "a": [
+          "меняет в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "claimed.count === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { financePdfMonthlyEn…",
+           "a": [
+            "читает в базе: settings"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const release = ()",
+         "a": [
+          "меняет в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const candidates = await prisma.agent.findMany({ where: { role: \"DIRECTOR\", isActive: true, telegramChatId: {…",
+           "a": [
+            "читает в базе: agent"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const c of candidates",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const access = await loadAgentAccess(c.id);",
+             "a": [
+              "зовёт loadAgentAccess()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "access?.isActive && access.permissions.has(\"finance.view\") && c.telegramChatId",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "recipients.push({ id: c.id, chatId: String(c.telegramChatId) });",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "recipients.length === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const r of recipients",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await sendDocumentFile(r.chatId, pdf.buffer, pdf.filename, `Финансовый отчёт · ${pdf.periodLabel}`);",
+               "a": [
+                "зовёт sendDocumentFile()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "logAgentAudit(r.id, \"REPORT_PDF_EXPORT\", \"Report\", \"finance\", { destination: \"monthlyTelegram\", period: pdf.p…",
+               "a": [
+                "зовёт logAgentAudit()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "delivered === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await release();",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return { month, status: \"failed\", delivered, failed };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "throw err;",
+           "a": [
+            "пробрасывает ошибку дальше"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "sendMonthlyFinancePdf() — apps/api/src/lib/reportPdf/monthlyFinance.ts"
+      },
+      {
+       "k": "if",
+       "t": "result.status === \"sent\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Финансовый PDF за ${result.month}: доставлено ${result.delivered}, не доставлено ${result…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Финансовый PDF за месяц не разослан\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "geo-match-nightly-sweep",
    "when": "5 8 * * *",
    "tree": [
@@ -93073,7 +95214,7 @@
           },
           {
            "k": "if",
-           "t": "now <= limit",
+           "t": "!silent && !unfinished",
            "a": [],
            "c": [
             {
@@ -93088,7 +95229,22 @@
           },
           {
            "k": "if",
-           "t": "alertedAt > lastSeen && now - alertedAt < REALERT_MS",
+           "t": "silent && alertedAt > lastSeen && now - alertedAt < REALERT_MS",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "unfinished && alertedAt > startedAt",
            "a": [],
            "c": [
             {
@@ -93103,11 +95259,34 @@
           },
           {
            "k": "do",
-           "t": "await logSystemError( isPrivateCron(name) ? \"investigation\" : \"cron\", `Крон-тик «${name}» молчит ${silentMin}…",
+           "t": "const privateCron = isPrivateCron(name);",
+           "a": [
+            "зовёт isPrivateCron()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await logSystemError(privateCron ? \"investigation\" : \"cron\", message);",
            "a": [
             "запись в журнал ошибок"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!privateCron",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await raiseCriticalAlarm({ tag: `cron-silent:${name}`, title: silent ? \"Фоновая задача замолчала\" : \"Фоновая …",
+             "a": [
+              "зовёт raiseCriticalAlarm()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "do",
@@ -99704,6 +101883,662 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "market-buyer-alerts",
+   "when": "12,27,42,57 * * * *",
+   "tree": [
+    {
+     "k": "if",
+     "t": "process.env.MARKET_CRAWL_ENABLED !== \"1\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await runBuyerMarketAlerts();",
+       "a": [
+        "зовёт runBuyerMarketAlerts()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "running",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return stats;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { marketBuyerAlertsEn…",
+           "a": [
+            "читает в базе: settings"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!settings?.marketBuyerAlertsEnabled",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "settings?.marketBuyerAlertsEnabledAt",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await prisma.settings.updateMany({ where: { id: \"singleton\", marketBuyerAlertsEnabledAt: { not: null } }, dat…",
+               "a": [
+                "меняет в базе: settings"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!settings.marketBuyerAlertsEnabledAt",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await prisma.settings.updateMany({ where: { id: \"singleton\", marketBuyerAlertsEnabledAt: null }, data: { mark…",
+             "a": [
+              "меняет в базе: settings"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const rawListings = await prisma.marketListing.findMany({ where: { dealType: \"SALE\", isActive: true, firstSee…",
+           "a": [
+            "читает в базе: marketListing"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "rawListings.length === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return stats;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const realtors = await loadOwnersFilter();",
+           "a": [
+            "зовёт loadOwnersFilter()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "listings.length === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return stats;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const policy = await loadMatchPolicy();",
+           "a": [
+            "зовёт loadMatchPolicy()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const clients = await prisma.client.findMany({ where: { ...waitingBuyerWhere(policy, now), assignedAgentId: {…",
+           "a": [
+            "читает в базе: client"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "clients.length === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return stats;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const [districts, money] = await Promise.all([ districtIds.length ? prisma.district.findMany({ where: { id: {…",
+           "a": [
+            "читает в базе: district"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const buyers: AlertBuyer[] = clients.flatMap((c)",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "!c.assignedAgentId",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return [];",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const criteria = currentBuyerMatchingCriteria(c);",
+             "a": [
+              "зовёт currentBuyerMatchingCriteria()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "const wants = buildBuyerWants(criteria, criteria.desiredDistrictId ? districtById.get(criteria.desiredDistric…",
+             "a": [
+              "зовёт buildBuyerWants()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return hasBuyerCriteria(wants) ? [{ clientId: c.id, shortId: c.shortId, kind: c.kind, agentId: c.assignedAgen…",
+             "a": [
+              "зовёт hasBuyerCriteria()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "buyers.length === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return stats;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const dayStart = dushanbeStartOfToday(now);",
+           "a": [
+            "зовёт dushanbeStartOfToday()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const [pairs, recent, todayByAgent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where: { clientI…",
+           "a": [
+            "читает в базе: buyerMarketAlert"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const r of recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "previousByClient.set(r.clientId, [...(previousByClient.get(r.clientId) ?? []), toAlertListing(r.listing)]);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const r of todayByAgent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "pushKeysByAgent.set(r.agentId, (pushKeysByAgent.get(r.agentId) ?? new Set()).add(`${r.clientId}|${r.notifiedA…",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const plan = planBuyerAlerts({ buyers, listings, alreadyAlerted: new Set(pairs.map((p)",
+           "a": [
+            "зовёт planBuyerAlerts()"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const item of plan",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const claimed = await prisma.buyerMarketAlert.createMany({ data: item.listings.map((l)",
+             "a": [
+              "создаёт в базе: buyerMarketAlert"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "claimed.count === 0",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const owned = claimed.count === item.listings.length ? new Set(item.listings.map((l)",
+             "a": [
+              "читает в базе: buyerMarketAlert"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "toTell.length === 0",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const text = buyerAlertText(item.buyer, toTell);",
+             "a": [
+              "зовёт buyerAlertText()"
+             ],
+             "c": []
+            },
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await sendPushToAgent(item.buyer.agentId, { kind: \"market_buyer\", title: text.title, body: text.body, url: `/…",
+               "a": [
+                "push-уведомление"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await prisma.buyerMarketAlert.deleteMany({ where: { clientId: item.buyer.clientId, notifiedAt: at } });",
+               "a": [
+                "удаляет в базе: buyerMarketAlert"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "void logSystemError(\"api\", `Пуш о новом объявлении под покупателя не ушёл: ${err instanceof Error ? err.name …",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "stats.failed > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"api\", `Оповещение о новых объявлениях: не ушло пушей ${stats.failed} из ${stats.failed +…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "running = false;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runBuyerMarketAlerts() — apps/api/src/lib/market/buyerAlerts.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "markCronTickFailed(\"Ошибка оповещения о новых объявлениях под покупателей\", err);",
+       "a": [
+        "зовёт markCronTickFailed()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.error(`[cron] ${label}:`, reason);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "tick",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "tick.failure = `${label}: ${reason}`.slice(0, 500);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "markCronTickFailed() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "market-median-history",
+   "when": "30 6 * * *",
+   "tree": [
+    {
+     "k": "if",
+     "t": "process.env.MARKET_CRAWL_ENABLED !== \"1\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await recordMedianHistory();",
+       "a": [
+        "зовёт recordMedianHistory()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const day = dushanbeDateString(now);",
+         "a": [
+          "зовёт dushanbeDateString()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const listings = await prisma.marketListing.findMany({ where: { AND: [segmentsWhere({ city }, now.getTime()),…",
+         "a": [
+          "читает в базе: marketListing"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const [byId, byPhone] = await Promise.all([ ids.length ? prisma.marketListing.groupBy({ by: [\"source\", \"selle…",
+         "a": [
+          "считает в базе: marketListing"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const g of byId",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "if (g.sellerId) counts.set(`${g.source}:${g.sellerId}`, g._count._all);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const g of byPhone",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "if (g.sellerPhone) counts.set(`ph:${g.sellerPhone}`, g._count._all);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const rows: HistoryInputRow[] = listings.map((r)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const key = sellerKey(r);",
+           "a": [
+            "зовёт sellerKey()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const built = buildMedianHistory(rows);",
+         "a": [
+          "зовёт buildMedianHistory()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "built.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { day, fetched: listings.length, written: 0, skipped: \"no-data\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await prisma.$transaction([ prisma.marketMedianDaily.deleteMany({ where: { day, city } }), prisma.marketMedia…",
+         "a": [
+          "всё внутри — одной транзакцией",
+          "удаляет в базе: marketMedianDaily",
+          "создаёт в базе: marketMedianDaily"
+         ],
+         "c": []
+        }
+       ],
+       "from": "recordMedianHistory() — apps/api/src/lib/market/medianHistory.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "markCronTickFailed(\"Ошибка ночной записи истории медиан рынка\", err);",
+       "a": [
+        "зовёт markCronTickFailed()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.error(`[cron] ${label}:`, reason);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "tick",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "tick.failure = `${label}: ${reason}`.slice(0, 500);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "markCronTickFailed() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "market-own-match",
    "when": "*/30 * * * *",
    "tree": [
@@ -101513,6 +104348,381 @@
         "дословно из кода"
        ],
        "c": []
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "meta-inbox-reconcile",
+   "when": "3-59/10 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { people, missed } = await runMetaInboxReconcile();",
+       "a": [
+        "зовёт runMetaInboxReconcile()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!(await isMetaEnabled())",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { ...result, skipped: \"meta_disabled\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const switches = await inboxReconcileSwitches();",
+           "a": [
+            "зовёт inboxReconcileSwitches()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!switches.FACEBOOK && !switches.INSTAGRAM",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { ...result, skipped: \"switched_off\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "pages = [ ...(switches.FACEBOOK ? await listFacebookPageInboxes() : []), ...(switches.INSTAGRAM && (await isM…",
+           "a": [
+            "зовёт listFacebookPageInboxes()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Сверка переписок Страниц не запустилась: ${withoutToken(err)}`, { dedupKey: \"met…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const page of pages",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const body = await fetchPageInbox(page, fetchImpl);",
+             "a": [
+              "зовёт fetchPageInbox()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "body.error",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"meta\", `Сверка переписок: Meta не отдала переписки Страницы «${page.title}» ` + `(код ${…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const incoming = incomingFromGraph(page.ownIds?.length ? page.ownIds : page.pageId, body, now, { graceMs: GRA…",
+             "a": [
+              "зовёт incomingFromGraph()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "const known = await knownMessageIds(incoming, channel);",
+             "a": [
+              "зовёт knownMessageIds()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!missed.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "loop",
+             "t": "для каждого: const m of missed",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "byPerson.set(m.fromId, [...(byPerson.get(m.fromId) ?? []), m]);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "recipients ??= await findAgentsWithPermission(\"messages.view\");",
+             "a": [
+              "зовёт findAgentsWithPermission()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!recipients.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"meta\", `Страница «${page.title}»: ${byPerson.size} чел. не дошли до CRM, но в CRM нет ни…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "loop",
+             "t": "для каждого: const [fromId, list] of byPerson",
+             "a": [],
+             "c": [
+              {
+               "k": "loop",
+               "t": "для каждого: const m of list",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "if (await claimMissed(m.mid)) fresh.push(m);",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "!fresh.length",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "try",
+               "t": "пробует",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await sendPushToAgents(recipients, { kind: \"message\", level: \"CRITICAL\", title: `Ответьте вручную: ${name} ($…",
+                 "a": [
+                  "push-уведомление"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "catch",
+               "t": "если сорвалось",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: fresh.map((m)",
+                 "a": [
+                  "удаляет в базе: processedMessage"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "void logSystemError(\"meta\", `Пуш «Ответьте вручную» по Странице «${page.title}» не ушёл, повторим: ${withoutT…",
+                 "a": [
+                  "запись в журнал ошибок"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!told",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", `${channel === \"INSTAGRAM\" ? \"Instagram\" : \"Страница\"} «${page.title}»: ${told} ч…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", `Сверка переписок Страницы «${page.title}» оборвалась: ${withoutToken(err)}`, { d…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runMetaInboxReconcile() — apps/api/src/lib/metaInboxReconcile.ts"
+      },
+      {
+       "k": "if",
+       "t": "people > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Сверка Страниц: не дошло до CRM ${missed} сообщ. от ${people} чел. — сотрудникам пуш`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сверки переписок Страниц\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
     }
@@ -111285,6 +114495,168 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "telegram-delivery-watch",
+   "when": "4-59/10 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alarmed } = await runTelegramDeliveryWatch();",
+       "a": [
+        "зовёт runTelegramDeliveryWatch()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { telegramDeliveryWatchEnabl…",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!(s?.telegramDeliveryWatchEnabled ?? true)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { skipped: \"off\", alarmed: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!isTelegramEnabled()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { skipped: \"not_configured\", alarmed: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": []
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { skipped: \"read_failed\", alarmed: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const problem = telegramDeliveryProblem(info, now, previousPending, telegramUpdatesMode());",
+         "a": [
+          "зовёт telegramDeliveryProblem()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!problem",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { skipped: null, alarmed: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"telegram\", `Telegram → CRM: ${problem.text}. Клиенты могут писать боту, а CRM их не види…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "runTelegramDeliveryWatch() — apps/api/src/lib/telegramDeliveryWatch.ts"
+      },
+      {
+       "k": "if",
+       "t": "alarmed",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(\"[cron] Telegram не доставляет сообщения в CRM — тревога руководству\");",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «Telegram не доставляет»\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "telegram-group-comments",
    "when": "* * * * *",
    "tree": [
@@ -112676,6 +116048,106 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "await alertOnIntegrationBreakage(checks);",
+       "a": [
+        "зовёт alertOnIntegrationBreakage()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "broken.length === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return 0;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const previous = await prisma.integrationHealthSnapshot.findMany({ where: { name: { in: broken.map((c)",
+           "a": [
+            "читает в базе: integrationHealthSnapshot"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const check of broken",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "wasBroken.has(check.name)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const { alerted } = await raiseCriticalAlarm({ tag: `integration:${check.name}`, title: \"Доступ к сервису пер…",
+             "a": [
+              "зовёт raiseCriticalAlarm()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "alerted",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "raised++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(\"[integrationHealth] тревога о переходе в «сломан» не поставлена:\", describeError(err));",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "alertOnIntegrationBreakage() — apps/api/src/lib/integrationHealth.ts"
+      },
+      {
        "k": "try",
        "t": "пробует",
        "a": [],
@@ -112758,54 +116230,7 @@
        "a": [
         "зовёт refreshMetaUserTokensIfDue()"
        ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { metaIgManageToken: …",
-         "a": [
-          "читает в базе: settings"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!settings",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return summary;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const field of [\"metaIgManageToken\", \"metaPageToken\"] as const",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "stored",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await refreshField(field, stored, summary);",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "refreshMetaUserTokensIfDue() — apps/api/src/lib/metaUserTokenRefresh.ts"
+       "c": []
       },
       {
        "k": "if",
@@ -113051,6 +116476,162 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка сводки на завтра\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "transfer-request-tick",
+   "when": "*/5 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { stuck, reminded } = await runTransferRequestTick();",
+       "a": [
+        "зовёт runTransferRequestTick()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: \"DECLINED\", resultNote: EXECU…",
+         "a": [
+          "читает в базе: ownershipTransferRequest"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of stuck",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"DECLINED\", res…",
+           "a": [
+            "меняет в базе: ownershipTransferRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "claim.count",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "publishTransferChanged([row.requestedById], row.id);",
+             "a": [
+              "зовёт publishTransferChanged()"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const due = await prisma.ownershipTransferRequest.findMany({ where: { status: \"PENDING\", remindCount: { lt: T…",
+         "a": [
+          "читает в базе: ownershipTransferRequest"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of due",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"PENDING\", remi…",
+           "a": [
+            "меняет в базе: ownershipTransferRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "claim.count === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await notifyReviewers(row);",
+           "a": [
+            "зовёт notifyReviewers()"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runTransferRequestTick() — apps/api/src/lib/ownershipTransferRequest.ts"
+      },
+      {
+       "k": "if",
+       "t": "stuck + reminded > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка тика запросов передачи\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -115195,6 +118776,224 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка недельной сводки СБ\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "whatsapp-webhook-watch",
+   "when": "8-59/20 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alarmed, silenceMs } = await runWhatsappWebhookWatch();",
+       "a": [
+        "зовёт runWhatsappWebhookWatch()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { whatsappWebhookWatchEnable…",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!(s?.whatsappWebhookWatchEnabled ?? true)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"off\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!(await isMetaChannelEnabled(\"WHATSAPP\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"channel_off\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const creds = await loadCredentials();",
+         "a": [
+          "зовёт loadCredentials()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const token = creds.waPhoneId ? (await resolveIncomingAccount(\"WHATSAPP\", creds.waPhoneId)).token || creds.wa…",
+         "a": [
+          "зовёт resolveIncomingAccount()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!creds.waPhoneId || !token",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"not_configured\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!isWithinDushanbeWindow(window.start, window.end, now)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"off_hours\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "times.length < WA_MIN_HISTORY_MESSAGES",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"little_history\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "result.thresholdMs = silenceThresholdMs(longestWorkGapMs(times, window));",
+         "a": [
+          "зовёт silenceThresholdMs()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "result.silenceMs = workSilenceMs(last, now, window);",
+         "a": [
+          "зовёт workSilenceMs()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "result.silenceMs < result.thresholdMs",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return result;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const cause = await diagnoseWhatsappNumber({ phoneId: creds.waPhoneId, token, businessAccountId: s?.metaWaBus…",
+         "a": [
+          "зовёт diagnoseWhatsappNumber()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"meta\", `WhatsApp молчит: в рабочие часы нет ни одного входящего уже ${hours(result.silen…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "runWhatsappWebhookWatch() — apps/api/src/lib/whatsappWebhookWatch.ts"
+      },
+      {
+       "k": "if",
+       "t": "alarmed",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководств…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «вебхук WhatsApp замолчал»\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -120138,53 +123937,7 @@
      "c": [
       {
        "k": "do",
-       "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
-       "a": [
-        "зовёт filterInvestigationRecipients()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "agentIds.length === 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return 0;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const { granted, denied } = await partitionByPermission(agentIds, \"clients.viewPhone\");",
-       "a": [
-        "зовёт partitionByPermission()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "granted.length > 0 && denied.length > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…",
-         "a": [
-          "push-уведомление"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));",
+       "t": "return sendPushToAgentsMasked(agentIds, payload, true);",
        "a": [
         "push-уведомление"
        ],
@@ -121182,9 +124935,24 @@
            "c": [
             {
              "k": "do",
-             "t": "await resumeDeferredCustomerInbox(eventKey);",
+             "t": "rearmed = await resumeDeferredCustomerInbox(eventKey);",
              "a": [
               "зовёт resumeDeferredCustomerInbox()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!rearmed",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void reportUnansweredCustomerTurn(eventKey, result.reason);",
+             "a": [
+              "зовёт reportUnansweredCustomerTurn()"
              ],
              "c": []
             }
@@ -121260,9 +125028,17 @@
            "c": [
             {
              "k": "do",
-             "t": "decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: row.scopeKey, en…",
+             "t": "const payload = decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: …",
              "a": [
               "зовёт decryptCustomerIngressPayload()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "reason = customerNonInputCode(payload) ?? reason;",
+             "a": [
+              "зовёт customerNonInputCode()"
              ],
              "c": []
             }
@@ -121460,6 +125236,130 @@
         }
        ],
        "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      },
+      {
+       "k": "do",
+       "t": "void reportUnansweredCustomerTurn(payload.eventKey, \"consume_job_gave_up\", { gaveUp: true });",
+       "a": [
+        "зовёт reportUnansweredCustomerTurn()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "customerTurnSilenceIsIntended(reason)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: str…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!row || row.answered",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "row.chatDeleted",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", `Бот не ответил клиенту (причина «${reason}»): чат этого человека удалён сотрудни…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!row.conversationId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await notifyUnansweredCustomerTurn({ reason, channel: input?.channel ?? \"\", peer: input?.peer ?? \"\", conversa…",
+             "a": [
+              "зовёт notifyUnansweredCustomerTurn()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await notifyUnansweredCustomerTurn({ reason, channel: row.channel ?? \"\", peer: row.peer ?? \"\", conversationId…",
+           "a": [
+            "зовёт notifyUnansweredCustomerTurn()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Не удалось сообщить о неотвеченном ходе бота (${reason}): ${error instanceof Err…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "reportUnansweredCustomerTurn() — apps/api/src/lib/customerTurnSilence.ts"
       }
      ]
     }
@@ -121701,53 +125601,7 @@
        "c": [
         {
          "k": "do",
-         "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
-         "a": [
-          "зовёт filterInvestigationRecipients()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "agentIds.length === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return 0;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const { granted, denied } = await partitionByPermission(agentIds, \"clients.viewPhone\");",
-         "a": [
-          "зовёт partitionByPermission()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "granted.length > 0 && denied.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…",
-           "a": [
-            "push-уведомление"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));",
+         "t": "return sendPushToAgentsMasked(agentIds, payload, true);",
          "a": [
           "push-уведомление"
          ],
@@ -123863,9 +127717,9 @@
              "c": [
               {
                "k": "do",
-               "t": "await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…",
+               "t": "await markAgentAttention(client.id);",
                "a": [
-                "меняет в базе: client"
+                "зовёт markAgentAttention()"
                ],
                "c": []
               }
@@ -124142,53 +127996,7 @@
      "c": [
       {
        "k": "do",
-       "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
-       "a": [
-        "зовёт filterInvestigationRecipients()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "agentIds.length === 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return 0;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const { granted, denied } = await partitionByPermission(agentIds, \"clients.viewPhone\");",
-       "a": [
-        "зовёт partitionByPermission()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "granted.length > 0 && denied.length > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…",
-         "a": [
-          "push-уведомление"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));",
+       "t": "return sendPushToAgentsMasked(agentIds, payload, true);",
        "a": [
         "push-уведомление"
        ],
@@ -127968,6 +131776,14 @@
        ]
       },
       {
+       "k": "do",
+       "t": "const pickedDistrict = typeof extract.districtName === \"string\" && districtPickAllowed(extract.districtName.t…",
+       "a": [
+        "зовёт districtPickAllowed()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "next.address && next.address !== base.address",
        "a": [],
@@ -130000,11 +133816,49 @@
          "c": [
           {
            "k": "do",
-           "t": "const claims = findOffCatalogClaims({ text: result.reply.join(\"\\n\"), allowedText: propsBlock + \"\\n\" + history…",
+           "t": "const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…",
            "a": [
-            "зовёт findOffCatalogClaims()"
+            "зовёт applyObjectFactGuards()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "facts.streets.length > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.afterPlace.join(\"\\n\"), \"place\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "facts.renovationRemoved > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.reply.join(\"\\n\"), \"renovation\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError(\"ai\", \"Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -130801,11 +134655,49 @@
          "c": [
           {
            "k": "do",
-           "t": "const claims = findOffCatalogClaims({ text: result.reply.join(\"\\n\"), allowedText: propsBlock + \"\\n\" + history…",
+           "t": "const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…",
            "a": [
-            "зовёт findOffCatalogClaims()"
+            "зовёт applyObjectFactGuards()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "facts.streets.length > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.afterPlace.join(\"\\n\"), \"place\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "facts.renovationRemoved > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.reply.join(\"\\n\"), \"renovation\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError(\"ai\", \"Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -131162,53 +135054,7 @@
          "c": [
           {
            "k": "do",
-           "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
-           "a": [
-            "зовёт filterInvestigationRecipients()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "agentIds.length === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const { granted, denied } = await partitionByPermission(agentIds, \"clients.viewPhone\");",
-           "a": [
-            "зовёт partitionByPermission()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "granted.length > 0 && denied.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…",
-             "a": [
-              "push-уведомление"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));",
+           "t": "return sendPushToAgentsMasked(agentIds, payload, true);",
            "a": [
             "push-уведомление"
            ],

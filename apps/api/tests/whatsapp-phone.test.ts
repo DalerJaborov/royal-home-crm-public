@@ -60,7 +60,7 @@ beforeAll(async () => {
   });
   agentId = agent.id;
   const admin = await prisma.agent.create({
-    data: { fullName: `Админ WA ${runId}`, phone: `+992901${tail}`, role: "ADMIN", passwordHash },
+    data: { fullName: `Админ WA ${runId}`, phone: `+992901${tail}`, role: "DIRECTOR", passwordHash },
   });
   adminId = admin.id;
   agentToken = await login(agent.phone);

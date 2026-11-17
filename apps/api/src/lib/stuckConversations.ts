@@ -120,6 +120,9 @@ function stuckWhere(): Prisma.Sql {
           -- минут, повтор «зависших» принимал её за неотвеченное сообщение и бот слал
           -- клиенту «Ташаккур, рақаматонро қабул кардам…» каждые полчаса, по всем чатам.
           AND COALESCE(bc.messages -> (jsonb_array_length(bc.messages) - 1) ->> 'silentCapture', 'false') <> 'true'
+          -- Реплика, задержанная маршрутизацией (13.11.2026): лежит для сотрудника,
+          -- ни один бот на неё не отвечает — это решение, а не зависание.
+          AND COALESCE(bc.messages -> (jsonb_array_length(bc.messages) - 1) ->> 'heldRouting', 'false') <> 'true'
           -- ЖИВОЙ ХОД ЕЩЁ ИДЁТ — ЭТО НЕ «ЗАВИС» (28.09.2026, жалоба владельца: три
           -- реплики бота подряд на одно «Ман сохибхона»). Реплика клиента пишется в
           -- историю ДО вызова модели, а ответ бота — после: окно склейки (до 90 с) и
@@ -193,6 +196,7 @@ async function retryStuckConversationImpl(row: StuckRow): Promise<"sent" | "no-r
   let last = history.length - 1;
   while (last >= 0 && history[last].role === "assistant" && history[last].deliveryStatus === "failed") last--;
   const original = history[last];
+  if (original?.heldRouting === true) return "no-reply"; // held by routing: no bot answers it (13.11.2026)
   if (!stored || stored.channel !== row.channel || stored.subscriberId !== row.subscriberId || stored.accountId !== row.accountId ||
     stored.lastMessageAt?.getTime() !== row.lastMessageAt.getTime() || original?.role !== "user" ||
     original.content !== row.lastText || (original.mid ?? null) !== (row.lastMid ?? null)) return "no-reply";

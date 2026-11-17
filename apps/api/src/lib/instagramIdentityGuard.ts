@@ -108,6 +108,7 @@ export async function reportHeldOwnIdentityTickets(
     body: `У аккаунта Instagram пуст ник (${names}). Настройки → Каналы.`,
     url: "/settings?tab=channels",
     level: "CRITICAL",
+    severity: "critical",
     tag: OWN_IDENTITY_ALERT_TAG,
     recipientRoles: ["DIRECTOR", "ADMIN"],
   });

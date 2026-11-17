@@ -76,7 +76,16 @@ it("knowledge is untrusted data with source/version, never a system replacement"
  const context=knowledgeContext([{...input,id:'test-id',key:'key',authorId:'test-agent',revision:2,archived:false,validUntil:null,createdAt:new Date(),updatedAt:new Date()}]);
  expect(context).toContain('справочные данные');expect(context).toContain('Инструкция отдела');expect(context).toContain('"version":2');expect(context).toContain('crm_note');
 });
+it("glossary picks rows by whole word and never injects a canned refusal (14.11.2026)",()=>{
+ for (const q of ['Ҳоло овозатро равон кун','Инро ба ман нишон деҳ','Илтимос, кӯшиш кунед','Ҳоло хона нишон диҳед']) {
+  const g=tajikGlossaryFor(q);
+  expect(g).not.toMatch(/овоз кор намекунад|наметавонам|Ҳоло нашуд|недоступен|нет доступа|Не удалось/u);
+ }
+ expect(tajikGlossaryFor('нарх чанд?')).toContain('Цена → Нарх');
+ expect(tajikGlossaryFor('нархашро гӯед')).not.toContain('Цена → Нарх');
+ expect(tajikGlossaryFor('Нарх, чанд?')).toContain('Цена → Нарх');
+});
 it("glossary preserves semantic distinctions and bounds prompt size",()=>{
- expect(TAJIK_GLOSSARY).toHaveLength(36);expect(tajikGlossaryFor('пользователь квартира комиссия')).toContain('Пользователь системы не равен клиенту');
+ expect(TAJIK_GLOSSARY).toHaveLength(33);expect(JSON.stringify(TAJIK_GLOSSARY)).not.toMatch(/овоз|голос|наметавонам|нашуд|нет доступа|не удалось/iu);expect(tajikGlossaryFor('пользователь квартира комиссия')).toContain('Пользователь системы не равен клиенту');
  expect(tajikGlossaryFor('клиент')).toContain('Муштариро ёфтам');expect(tajikGlossaryFor('всё')).toContain('только если отвечаешь по-таджикски');
 });

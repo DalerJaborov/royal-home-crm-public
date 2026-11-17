@@ -63,7 +63,8 @@ describe("A. реклама без объекта: один живой вопр�
   const unresolved: CustomerAgentEvidence = { ref: "e0", value: { kind: "property_unresolved", status: "missing", reason: "ad_unmapped" } };
   it("первый раз спрашивает, что интересует", () => {
     const text = render("Здравствуйте", context([]), [unresolved], { kind: "clarify", question: "property" });
-    expect(text).toBe("Подскажите, пожалуйста, что вас интересует?");
+    // 16.11.2026 (audit): nothing of the customer's own yet — the live opening question names the three topics.
+    expect(text).toBe("Подскажите, что вас интересует: купить, продать недвижимость или работа у нас?");
   });
   it("второй раз тот же вопрос не задаётся", () => {
     const first = render("Здравствуйте", context([]), [unresolved], { kind: "clarify", question: "property" })!;
@@ -91,11 +92,13 @@ describe("B. блок, уже отправленный в разговоре, н
   it("без памяти строк тот же блок при новом разговоре уходит как есть", () => {
     expect(render("расскажите", context([user("привет"), bot("Здравствуйте!")]), all)).toBe(block());
   });
-  it("вопрос, который ещё не задавали, остаётся после короткой строки", () => {
+  // 15.11.2026: the short line is the hand-off to a person; without a phone it already asks for the phone, so no second question.
+  it("без номера короткая строка — передача агенту с просьбой номера, второго вопроса нет", () => {
     const a = block();
     const again = render("расскажите", context([user("расскажите"), bot(a)]), all, { question: "budget" })!;
-    expect(again.split(NL)).toHaveLength(2);
-    expect(again.endsWith("Какой бюджет вы рассматриваете?")).toBe(true);
+    expect(again.split(NL)).toHaveLength(1);
+    expect(again).toMatch(/номер телефона/u);
+    expect(again).not.toMatch(/выше|Повторю/u);
   });
   it("короткая строка во второй раз другая, третьей копии нет", () => {
     const a = block();
@@ -121,7 +124,9 @@ describe("B. список вакансий показывается один р�
     const text = render(question, context([user("какие есть вакансии?"), bot(listed)], {}, "job"), [catalog])!;
     expect(text).not.toContain("Сейчас открыты вакансии:");
     expect(text).not.toContain(second.titleRu);
-    expect(text).toContain(recruitmentPhoneLine("ru"));
+    // 16.11.2026 (audit): Noza's number is given once per chat; a follow-up question is pointed to her without repeating it.
+    expect(text).not.toContain(recruitmentPhoneLine("ru"));
+    expect(text).toContain("Ноза");
   });
   it("список ловится и по памяти строк, когда ход со списком выпал из шести последних", () => {
     const digests = listed.split(NL).map(customerAgentLineDigest);

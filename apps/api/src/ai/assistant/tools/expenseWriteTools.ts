@@ -236,7 +236,7 @@ const deleteExpenseTool = makeTool({
     const row = await deleteExpense(args.expenseId, Number(snapshot.version));
     return { result: { expenseId: row.id }, entityType: "Expense", entityId: row.id };
   },
-  undo: async (args) => { await restoreExpense(args.expenseId); },
+  undo: async (args) => { await restoreExpense(args.expenseId, { confirmAutoOverlap: true }); },
 });
 
 const restoreExpenseTool = makeTool({

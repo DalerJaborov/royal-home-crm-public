@@ -5,10 +5,11 @@ import { api, ApiError } from "../lib/api";
 import { keepWhilePaging, keepWhilePagingAt, keepWhilePagingIndexed } from "../lib/keepWhilePaging";
 import { OfflineQueuedError } from "../lib/offlineQueue";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
-import type { Client, Paginated, Property } from "../types";
+import type { Client, Interaction, Paginated, Property } from "../types";
 import { useProperties } from "./useProperties";
 import { withRetryKey, type RetryKey } from "./useRetryKey";
 import { useAccumulatedPages } from "./useAccumulatedPages";
+import { audioFileNameFor } from "../lib/audioRecording";
 
 /** Оптимистично правит открытую карточку клиента в кэше (кэш по shortId из URL,
  *  значение — Client с .id=uuid). Возвращает снимок для отката при реальной ошибке. */
@@ -268,6 +269,47 @@ export function useClientTrash(page: number, enabled = true) {
     queryFn: () => api<Paginated<Client>>(`/clients/trash?page=${page}`),
     placeholderData: keepWhilePagingIndexed<Paginated<Client>>(["clients-trash", page]),
     enabled,
+  });
+}
+
+/** «Разбор удалённого клиента» (GET /clients/trash/:id/review): кто удалил, причина, журнал, история. */
+export interface ClientTrashReview {
+  client: {
+    id: string;
+    shortId: number;
+    fullName: string;
+    kind: ClientKind;
+    status: string;
+    createdAt: string;
+    deletedAt: string | null;
+    deletedBy: { id: string; fullName: string } | null;
+    deletedAutomatically: boolean;
+    owner: { id: string; fullName: string } | null;
+  };
+  deleteRequest: {
+    reason: string;
+    reasonLabel: string;
+    comment: string | null;
+    status: string;
+    requestedBy: { id: string; fullName: string };
+    createdAt: string;
+    decidedBy: { id: string; fullName: string } | null;
+    decidedAt: string | null;
+    decisionNote: string | null;
+  } | null;
+  audit: { id: string; action: string; label: string; agentName: string; createdAt: string }[];
+  interactions: Interaction[];
+  interactionsTotal: number;
+  /** Есть записи старше показанных. */
+  hasMore?: boolean;
+  canCall: boolean;
+}
+
+export function useClientTrashReview(clientId: string | null) {
+  return useQuery({
+    queryKey: ["clients-trash-review", clientId],
+    queryFn: () => api<ClientTrashReview>(`/clients/trash/${clientId}/review`),
+    enabled: !!clientId,
   });
 }
 
@@ -591,7 +633,7 @@ export function useSendClientVoiceMessage(clientId: string, conversationId?: str
   return useMutation({
     mutationFn: (blob: Blob) => {
       const form = new FormData();
-      form.append("audio", blob, "voice.webm");
+      form.append("audio", blob, audioFileNameFor(blob.type));
       if (conversationId) form.append("conversationId", conversationId);
       return api<{ ok: boolean }>(`/clients/${clientId}/message-voice`, { method: "POST", body: form });
     },

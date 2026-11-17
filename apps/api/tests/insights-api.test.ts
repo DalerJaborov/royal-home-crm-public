@@ -248,7 +248,8 @@ describe("находка №156 (ночная проверка 24.09.2026): им
       data: {
         fullName: "Test Agent Phone Insights",
         phone: `+99200002${Date.now().toString().slice(-6)}`,
-        role: "AGENT",
+        // 16.11.2026 номера только директору: «видящий» — DIRECTOR (clients.viewPhone стало directorOnly).
+        role: "DIRECTOR",
         passwordHash,
         permissions: { granted: ["insights.view", "clients.viewPhone"], revoked: [] },
       },
