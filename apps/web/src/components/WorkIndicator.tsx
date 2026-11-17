@@ -1,4 +1,5 @@
-import { lazy, Suspense, useSyncExternalStore } from "react";
+import { Suspense, useSyncExternalStore } from "react";
+import { lazyWithReload } from "../lib/lazyWithReload";
 import { getDraftReminder, subscribeDraftReminder } from "../lib/draftReminder";
 import { isBusy, subscribe } from "../lib/workGuard";
 
@@ -12,7 +13,7 @@ import { isBusy, subscribe } from "../lib/workGuard";
  * (lib/draftReminder.ts). Тело — с очередью мастера, сжатием снимков и пр. —
  * подгружается лениво, ровно когда есть что показать.
  */
-const WorkIndicatorBody = lazy(() => import("./WorkIndicatorBody"));
+const WorkIndicatorBody = lazyWithReload(() => import("./WorkIndicatorBody"));
 
 export function WorkIndicator() {
   const busy = useSyncExternalStore(subscribe, isBusy, () => false);
