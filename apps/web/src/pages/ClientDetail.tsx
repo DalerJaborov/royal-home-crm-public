@@ -41,8 +41,6 @@ import { useCan, useIsReadOnly, useCanCreateProperty } from "../lib/permissions"
 import { canTransferClientToCandidates } from "../lib/vacanciesView";
 import {
   useSecurityReview,
-  useClientLossEvent,
-  useOverrideClientLossEvent,
   useClientMatch,
 } from "../hooks/useClients";
 import { pluralizeRu, relativeTime } from "../lib/format";
@@ -1147,10 +1145,6 @@ function ClientDetailCard() {
       {client.assignmentCompletedAt && !canViewInvestigations(me?.role) && (
         <div className="card tight"><p className="state">Работа с клиентом завершена. Карточка и история доступны для просмотра.</p></div>
       )}
-      {/* Право `score.clientLossOverride` существовало с лета без единой кнопки в
-          интерфейсе (разведка по мёртвому коду 08.09.2026) — панель сама решает,
-          показываться ли: проверяет право (directorOnly) и есть ли вообще событие. */}
-      {client.status === "LOST" && <ClientLossOverridePanel clientId={client.id} />}
 
       {/* Редкие действия: в прототипе шторка «Другие действия», здесь тот же список на месте.
           На телефоне moreActions никогда не становится true (переключатель — кнопка
@@ -2205,64 +2199,6 @@ function SecurityReviewPanel({ client }: { client: Client }) {
       ) : (
         <p className="state">Решение принимает служба безопасности.</p>
       )}
-    </div>
-  );
-}
-
-/**
- * Вина агента в потере клиента — автоматическая классификация с ручным
- * переопределением (docs/spec-compliance, Этап 1). Автоматика смотрит на
- * просрочки на момент потери (lib/clientLossFault.ts); директор видит здесь её
- * вывод и может поправить, если знает то, чего в датах не видно.
- *
- * НЕ рисует ничего, пока не выяснит, что рисовать: нет права — нет и намёка на
- * то, что кнопка вообще существует; нет события — клиент мог уйти без
- * назначенного агента (kind=OTHER, например), и это норма, а не пропуск.
- */
-function ClientLossOverridePanel({ clientId }: { clientId: string }) {
-  const can = useCan();
-  const hasAccess = can("score.clientLossOverride");
-  const { data, isLoading } = useClientLossEvent(clientId, hasAccess);
-  const event = data?.event;
-  const override = useOverrideClientLossEvent(event?.id ?? "");
-  const [comment, setComment] = useState("");
-
-  if (!hasAccess || isLoading || !event || event.overridden) return null;
-
-  const otherKind = event.currentKind === "client_lost_agent_fault" ? "client_lost_no_fault" : "client_lost_agent_fault";
-  const currentLabel =
-    event.currentKind === "client_lost_agent_fault" ? "есть просрочки со стороны агента" : "без просрочек со стороны агента";
-  const otherLabel =
-    otherKind === "client_lost_agent_fault" ? "есть просрочки со стороны агента" : "без просрочек со стороны агента";
-
-  return (
-    <div className="card tight">
-      <div className="quiet">
-        <ShieldAlert className="i" />
-        <span className="txt">
-          <b>Royal Score: вина агента в потере клиента.</b> Автоматика определила: «{currentLabel}». Если это
-          не так — переопределите вручную, старое начисление отменится, новое запишется, обе записи
-          останутся в журнале.
-        </span>
-      </div>
-      <label className="fld" style={{ marginTop: 12 }}>
-        <textarea
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          rows={2}
-          placeholder="Почему автоматика ошиблась (необязательно, попадёт в журнал)"
-        />
-      </label>
-      <button
-        className="pill ghost"
-        style={{ marginTop: 12 }}
-        type="button"
-        disabled={override.isPending}
-        onClick={() => override.mutate({ override: otherKind, comment: comment.trim() || undefined })}
-      >
-        Переопределить: {otherLabel}
-      </button>
-      <MutationError mutation={override} fallback="Не удалось переопределить" className="mt-2" />
     </div>
   );
 }

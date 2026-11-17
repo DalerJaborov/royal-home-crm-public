@@ -1374,14 +1374,6 @@
       "usedBy": 1
     },
     {
-      "mount": "/api/v1/royal-score-events",
-      "router": "royalScoreEventsRouter",
-      "file": "apps/api/src/routes/royalScoreEvents.ts",
-      "endpoints": 2,
-      "label": "Начисления и списания баллов агентам",
-      "usedBy": 1
-    },
-    {
       "mount": "/api/v1/morning-report",
       "router": "morningReportRouter",
       "file": "apps/api/src/routes/morningReport.ts",
@@ -1796,11 +1788,6 @@
       "id": "heartbeat-watchdog",
       "expr": "*/15 * * * *",
       "label": "Сторож: поднимает тревогу о любой задаче, замолчавшей дольше нормы"
-    },
-    {
-      "id": "inactivity-check",
-      "expr": "20 9 * * *",
-      "label": "Предупреждает и штрафует агентов за бездействие по принятым клиентам"
     },
     {
       "id": "incoming-call-lead-sweep",

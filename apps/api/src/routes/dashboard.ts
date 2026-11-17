@@ -734,7 +734,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
    *
    * ТА ЖЕ ФУНКЦИЯ, ЧТО У КРОНА, ОДНИМ ПАКЕТНЫМ ЗАПРОСОМ (firstCallStatus →
    * collectFirstCallFacts, один Interaction.findMany на всех кандидатов сразу,
-   * не по одному на карточку) — иначе экран агента и penalizeMissedFirstCalls
+   * не по одному на карточку) — иначе экран агента и handleMissedFirstCalls
    * рано или поздно разошлись бы в том, что считать «дозвонился».
    *
    * Тот же круг условий, что и у candidates в firstCall.ts: принят, не «Прочее

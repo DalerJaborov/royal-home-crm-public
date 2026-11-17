@@ -263,7 +263,6 @@ const mcZones = {
     jobsGivenUp: 0,
     jobsGivenUpLast24h: 0,
     newApplications: 2,
-    teamRequestsPending: 3,
     errorsToday: 12,
   },
   leaderboard: { agents: [{ place: 1, id: "a-2", fullName: "Собир Назаров", avatarUrl: null, score: 96 }] },

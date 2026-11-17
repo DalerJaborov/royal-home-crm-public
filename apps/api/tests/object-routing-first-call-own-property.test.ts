@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
-import { penalizeMissedFirstCalls } from "../src/services/leads/firstCall.js";
+import { handleMissedFirstCalls } from "../src/services/leads/firstCall.js";
 import { dushanbeInputToDate } from "../src/lib/dushanbeTime.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 
@@ -56,7 +56,7 @@ async function tick() {
     return row ? { ...row, ...PINNED } : row;
   }) as never);
   try {
-    await penalizeMissedFirstCalls(NOW);
+    await handleMissedFirstCalls(NOW);
   } finally {
     spy.mockRestore();
   }

@@ -14,14 +14,24 @@ vi.mock("../src/lib/workingHours.js", async (importOriginal) => ({
 
 const { prisma } = await import("../src/db.js");
 const { notifyOverdueMaterials } = await import("../src/lib/propertyPipeline.js");
-const { DEFAULT_EVENT_POINTS } = await import("../src/lib/scoreJournal.js");
 const { flushDirectorAlertQueue } = await import("../src/lib/directorAlertQueue.js");
 
 /**
- * Штраф Royal Score за просроченные фото/видео объекта (таблица владельца,
- * п. 21-22) — конвейер уже красит этап просроченным, здесь только проверяем,
- * что он же пишет событие и не дублирует его на следующем тике.
+ * Просроченные фото/видео объекта — сигнал руководству. До 16.11.2026 ещё и штраф
+ * Royal Score (photos_overdue / video_overdue); штраф снят владельцем, и отметкой
+ * «уже сказали» стало само уведомление (одно на попадание объекта на этап).
  */
+
+/** Новое правило «один сигнал на просрочку» считаем действующим всегда — иначе
+ *  тест зависел бы от даты прогона относительно MATERIALS_ALERT_RULE_SINCE. */
+const EPOCH = new Date(0);
+
+/** Строки журнала по объекту — после снятия штрафа их быть не должно. */
+const scoreRows = (propertyId: string) =>
+  waitForSettled(() => prisma.royalScoreEvent.count({ where: { sourceId: propertyId } }));
+/** Сколько раз о просрочке объекта поставили сигнал руководству. */
+const alertsQueued = (propertyId: string) =>
+  prisma.pendingDirectorAlert.count({ where: { tag: `materials-overdue-${propertyId}` } });
 
 const runId = Date.now();
 let districtId: string;
@@ -79,17 +89,11 @@ afterAll(async () => {
 });
 
 describe("Просроченные фото/видео объекта", () => {
-  it("фото просрочены (умолчание 2 дня) — photos_overdue ответственному", async () => {
+  it("фото просрочены (умолчание 2 дня) — сигнал руководству, баллов не списано", async () => {
     const property = await makeProperty("AWAITING_PHOTOS", 3);
-    expect(await notifyOverdueMaterials()).toBeGreaterThan(0);
-    // recordScoreEvent не ждётся внутри конвейера (fire-and-forget, как и в
-    // остальных overdue-джобах) — ждём запись помощником, а не фиксированным сном.
-    const event = await waitFor(
-      () => prisma.royalScoreEvent.findFirst({ where: { agentId, sourceId: property.id } }),
-      { label: "балл Royal Score" }
-    ).catch(() => null);
-    expect(event?.kind).toBe("photos_overdue");
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.photos_overdue);
+    expect(await notifyOverdueMaterials(new Date(), EPOCH)).toBeGreaterThan(0);
+    expect(await scoreRows(property.id)).toBe(0);
+    expect(await alertsQueued(property.id)).toBe(1);
     await flushDirectorAlertQueue();
     /**
      * ПРОВЕРЯЕМ ЛЕНТУ В БАЗЕ, А НЕ ПОДМЕНУ ПУША. Очередь алармов
@@ -108,44 +112,67 @@ describe("Просроченные фото/видео объекта", () => {
     expect(delivered).toBeTruthy();
   });
 
-  it("видео просрочено — video_overdue", async () => {
+  it("видео просрочено — сигнал руководству, баллов не списано", async () => {
     const property = await makeProperty("AWAITING_VIDEO", 3);
-    expect(await notifyOverdueMaterials()).toBeGreaterThan(0);
-    const event = await waitFor(
-      () => prisma.royalScoreEvent.findFirst({ where: { agentId, sourceId: property.id } }),
-      { label: "балл Royal Score" }
-    ).catch(() => null);
-    expect(event?.kind).toBe("video_overdue");
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.video_overdue);
+    expect(await notifyOverdueMaterials(new Date(), EPOCH)).toBeGreaterThan(0);
+    expect(await scoreRows(property.id)).toBe(0);
+    expect(await alertsQueued(property.id)).toBe(1);
   });
 
-  it("ровно отведённый срок — ещё не просрочка, событие не пишется", async () => {
+  it("ровно отведённый срок — ещё не просрочка, сигнала нет", async () => {
     const property = await makeProperty("AWAITING_PHOTOS", 2);
-    await notifyOverdueMaterials();
-    const event = await prisma.royalScoreEvent.findFirst({ where: { agentId, sourceId: property.id } });
-    expect(event).toBeNull();
+    await notifyOverdueMaterials(new Date(), EPOCH);
+    expect(await alertsQueued(property.id)).toBe(0);
   });
 
-  it("второй тик по той же просрочке не начисляет штраф дважды", async () => {
+  it("второй тик по той же просрочке второй сигнал не ставит (без штрафа-отметки)", async () => {
     const property = await makeProperty("AWAITING_PHOTOS", 3);
-    await notifyOverdueMaterials();
-    const before = await waitForSettled(() =>
-      prisma.royalScoreEvent.count({ where: { agentId, sourceId: property.id } })
-    );
-    await notifyOverdueMaterials();
-    const after = await waitForSettled(() =>
-      prisma.royalScoreEvent.count({ where: { agentId, sourceId: property.id } })
-    );
-    expect(after).toBe(before);
+    await notifyOverdueMaterials(new Date(), EPOCH);
+    await notifyOverdueMaterials(new Date(), EPOCH);
+    expect(await alertsQueued(property.id)).toBe(1);
+  });
+
+  it("объект без ответственного агента — руководству всё равно говорим", async () => {
+    // Проверка «есть ли ответственный» стояла ради штрафа; штрафа нет с 16.11.2026.
+    const property = await makeProperty("AWAITING_PHOTOS", 3);
+    await prisma.property.update({ where: { id: property.id }, data: { intakeAgentId: null, assignedAgentId: null, createdById: null } });
+    await notifyOverdueMaterials(new Date(), EPOCH);
+    expect(await alertsQueued(property.id)).toBe(1);
+  });
+
+  it("просрочка, наступившая до нового правила, сигнала не даёт — без залпа после выката", async () => {
+    const property = await makeProperty("AWAITING_PHOTOS", 10);
+    await prisma.property.update({ where: { id: property.id }, data: { intakeAgentId: null, assignedAgentId: null, createdById: null } });
+    // Правило «вступило» сутки назад, а этап просрочен уже 8 дней — это старая просрочка.
+    await notifyOverdueMaterials(new Date(), new Date(Date.now() - 24 * 3600_000));
+    expect(await alertsQueued(property.id)).toBe(0);
+  });
+
+  it("вернулся на этап заново и снова просрочил — новый сигнал", async () => {
+    const property = await makeProperty("AWAITING_PHOTOS", 3);
+    await notifyOverdueMaterials(new Date(), EPOCH);
+    expect(await alertsQueued(property.id)).toBe(1);
+    // Повторное попадание на этап: stageEnteredAt сдвигается вперёд, но снова просрочен.
+    // Прошлый сигнал — раньше нового stageEnteredAt (так и бывает в жизни: дни назад).
+    await prisma.pendingDirectorAlert.updateMany({
+      where: { tag: `materials-overdue-${property.id}` },
+      data: { createdAt: new Date(Date.now() - 5 * 24 * 3600_000) },
+    });
+    await prisma.notification.updateMany({
+      where: { tag: `materials-overdue-${property.id}` },
+      data: { createdAt: new Date(Date.now() - 5 * 24 * 3600_000) },
+    });
+    await notifyOverdueMaterials(new Date(), EPOCH);
+    expect(await alertsQueued(property.id)).toBe(2);
   });
 
   it("второй тик по той же просрочке НЕ шлёт повторный push руководству", async () => {
     const property = await makeProperty("AWAITING_VIDEO", 3);
-    await notifyOverdueMaterials();
+    await notifyOverdueMaterials(new Date(), EPOCH);
     await new Promise((r) => setTimeout(r, 200));
     await flushDirectorAlertQueue();
     sendPushToAgents.mockClear();
-    await notifyOverdueMaterials();
+    await notifyOverdueMaterials(new Date(), EPOCH);
     await flushDirectorAlertQueue();
     const call = sendPushToAgents.mock.calls.find(
       ([, payload]) => (payload as Record<string, string>).tag === `materials-overdue-${property.id}`
@@ -163,7 +190,7 @@ describe("Просроченные фото/видео объекта", () => {
 describe("Объект стоит на монтаже", () => {
   it("просрочка монтажа доходит до руководства", async () => {
     const p = await makeProperty("EDITING", 5);
-    const notified = await notifyOverdueMaterials();
+    const notified = await notifyOverdueMaterials(new Date(), EPOCH);
     expect(notified).toBeGreaterThanOrEqual(1);
     const alert = await prisma.pendingDirectorAlert.findFirst({ where: { tag: `editing-overdue-${p.id}` } });
     expect(alert).not.toBeNull();
@@ -176,14 +203,14 @@ describe("Объект стоит на монтаже", () => {
    */
   it("штрафа агенту за монтаж нет", async () => {
     const p = await makeProperty("EDITING", 5);
-    await notifyOverdueMaterials();
+    await notifyOverdueMaterials(new Date(), EPOCH);
     const events = await prisma.royalScoreEvent.findMany({ where: { sourceId: p.id } });
     expect(events).toHaveLength(0);
   });
 
   it("срок ещё не вышел — молчим", async () => {
     const p = await makeProperty("EDITING", 1);
-    await notifyOverdueMaterials();
+    await notifyOverdueMaterials(new Date(), EPOCH);
     const alert = await prisma.pendingDirectorAlert.findFirst({ where: { tag: `editing-overdue-${p.id}` } });
     expect(alert).toBeNull();
   });

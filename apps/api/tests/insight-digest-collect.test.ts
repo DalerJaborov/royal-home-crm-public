@@ -9,7 +9,7 @@ const { collectCandidates, rankAndPick, snapshotTimeline } = await import(
  * Тесты серверной логики отбора кейсов для «Инсайтов от ИИ» (аудит 02.09 §4.2).
  *
  * Проверяем:
- *   1. collectCandidates возвращает кандидатов из всех четырёх источников
+ *   1. collectCandidates возвращает кандидатов из трёх источников (штрафы сняты 16.11.2026)
  *   2. rankAndPick соблюдает квоты (≤3 на агента, ≥3 голосовых, ≥1 положительный)
  *   3. snapshotTimeline маскирует телефоны в тексте и метаданных
  */
@@ -224,7 +224,7 @@ afterAll(async () => {
 });
 
 describe("collectCandidates", () => {
-  it("возвращает кандидатов из всех четырёх источников", async () => {
+  it("возвращает кандидатов из трёх источников; штрафы Royal Score больше не источник", async () => {
     const periodStart = new Date(Date.now() - 86400_000);
     const periodEnd = new Date(Date.now() + 86400_000);
 
@@ -232,7 +232,9 @@ describe("collectCandidates", () => {
 
     const kinds = new Set(candidates.map((c) => c.kind));
     expect(kinds.has("call_low_score")).toBe(true);
-    expect(kinds.has("score_penalty")).toBe(true);
+    // Источник «штраф Royal Score» снят 16.11.2026 вместе со штрафами: даже при
+    // старых строках со знаком минус в журнале кандидатов из них нет.
+    expect(kinds.has("score_penalty")).toBe(false);
     expect(kinds.has("positive")).toBe(true);
     // Кейс обхода CRM: клиент берётся из BotConversation.clientId (HELPER-FINAL01).
     expect(kinds.has("agent_bypass")).toBe(true);
@@ -244,8 +246,7 @@ describe("collectCandidates", () => {
     }
     expect(byKind.get("call_low_score") ?? 0).toBeGreaterThanOrEqual(5);
     expect(byKind.get("positive") ?? 0).toBeGreaterThanOrEqual(2);
-    expect(byKind.get("score_penalty") ?? 0).toBeGreaterThanOrEqual(1);
-    expect(candidates.length).toBeGreaterThanOrEqual(8);
+    expect(candidates.length).toBeGreaterThanOrEqual(7);
   });
 
   it("каждый кандидат имеет обязательные поля", async () => {
@@ -374,117 +375,10 @@ describe("snapshotTimeline", () => {
     expect(metaQuote).not.toMatch(/\+992\d{9}/);
     expect(metaQuote).toMatch(/•/);
   });
-
-  it("возвращает корректную структуру для score_penalty", async () => {
-    const periodStart = new Date(Date.now() - 86400_000);
-    const periodEnd = new Date(Date.now() + 86400_000);
-
-    const candidates = await collectCandidates(periodStart, periodEnd);
-    const penaltyCandidate = candidates.find(
-      (c) => c.kind === "score_penalty",
-    );
-    expect(penaltyCandidate).toBeDefined();
-
-    const snapshot = await snapshotTimeline(penaltyCandidate!);
-
-    expect(snapshot.kind).toBe("score_penalty");
-    expect(typeof snapshot.content).toBe("string");
-    expect((snapshot.meta as Record<string, unknown>).delta).toBeLessThan(0);
-    expect((snapshot.meta as Record<string, unknown>).eventKind).toBeTruthy();
-  });
 });
 
-/**
- * sourceId клиента-потери НЕ равен id клиента (08.09.2026, разведка по мёртвому
- * коду) — обособленный блок, свои фикстуры, чтобы не задевать общие данные выше.
- *
- * Обратный контроль: без починки в insightDigest.ts `client.findUnique({ where:
- * { id: e.sourceId } })` сравнивал `client-lost-<uuid>` (составной sourceId) с
- * id клиента напрямую — не совпадало никогда, и штрафы за потерю клиента (самые
- * тяжёлые кандидаты, вес ×3) не попадали в «Инсайты от ИИ» ни разу с момента
- * внедрения функции. Второй тест — на второй, более тонкий кусок починки:
- * префикс `client-lost-traffic-light-` длиннее и начинается с той же строки,
- * что `client-lost-`, и наивная проверка «покороче» забрала бы совпадение первой,
- * обрезав id неверно.
- */
-describe("collectCandidates: sourceId штрафа за потерю клиента — составной ключ, не id", () => {
-  const runId2 = Date.now() + 1;
-  let agentId: string;
-  let clientId: string;
-  let clientTrafficLightId: string;
-  const eventIds: string[] = [];
-
-  beforeAll(async () => {
-    const agent = await prisma.agent.create({
-      data: { fullName: `Агент sourceId ${runId2}`, phone: `+99298${runId2.toString().slice(-7)}`, role: "AGENT", passwordHash: "x" },
-    });
-    agentId = agent.id;
-
-    const client = await prisma.client.create({
-      data: {
-        fullName: `Клиент sourceId ${runId2}`,
-        phone: `+992964${runId2}`,
-        source: "PHONE_CALL",
-        kind: "BUYER",
-        assignedAgentId: agentId,
-      },
-    });
-    clientId = client.id;
-
-    const clientTL = await prisma.client.create({
-      data: {
-        fullName: `Клиент светофора ${runId2}`,
-        phone: `+992965${runId2}`,
-        source: "PHONE_CALL",
-        kind: "BUYER",
-        assignedAgentId: agentId,
-      },
-    });
-    clientTrafficLightId = clientTL.id;
-
-    const ev1 = await prisma.royalScoreEvent.create({
-      data: {
-        agentId,
-        kind: "client_lost_agent_fault",
-        delta: -5,
-        reason: "тест: обычная потеря",
-        sourceId: `client-lost-${clientId}`,
-      },
-    });
-    // Тот же вид события, другая схема sourceId — через светофор неактивных
-    // (lib/inactiveTrafficLight.ts), а не через ручную эскалацию.
-    const ev2 = await prisma.royalScoreEvent.create({
-      data: {
-        agentId,
-        kind: "client_lost_agent_fault",
-        delta: -5,
-        reason: "тест: потеря через светофор",
-        sourceId: `client-lost-traffic-light-${clientTrafficLightId}`,
-      },
-    });
-    eventIds.push(ev1.id, ev2.id);
-  });
-
-  afterAll(async () => {
-    await prisma.royalScoreEvent.deleteMany({ where: { id: { in: eventIds } } });
-    await prisma.client.deleteMany({ where: { id: { in: [clientId, clientTrafficLightId] } } });
-    await prisma.agent.deleteMany({ where: { id: agentId } });
-  });
-
-  it("обычная потеря (client-lost-<id>) находит правильного клиента", async () => {
-    const candidates = await collectCandidates(new Date(Date.now() - 86400_000), new Date(Date.now() + 86400_000));
-    const found = candidates.find((c) => c.kind === "score_penalty" && c.clientId === clientId);
-    expect(found).toBeDefined();
-  });
-
-  it("потеря через светофор (префикс длиннее и начинается с той же строки) не путает клиента", async () => {
-    const candidates = await collectCandidates(new Date(Date.now() - 86400_000), new Date(Date.now() + 86400_000));
-    const found = candidates.find((c) => c.kind === "score_penalty" && c.clientId === clientTrafficLightId);
-    expect(found).toBeDefined();
-    // Главная проверка: обрезка НЕ короче правильного id (не "traffic-light-<id>").
-    expect(found!.clientId).toBe(clientTrafficLightId);
-  });
-});
+// «sourceId штрафа за потерю клиента — составной ключ» (извлечение клиента из
+// client-lost-<id>) удалено 16.11.2026 вместе с источником score_penalty.
 
 describe("collectAgentBypasses: реальная форма сообщений (HELPER-FINAL01)", () => {
   const range = () => [new Date(Date.now() - 86400_000), new Date(Date.now() + 86400_000)] as const;

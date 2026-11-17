@@ -16,7 +16,7 @@ import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { SwitchRow } from "../../components/Switch";
 import { useCan } from "../../lib/permissions";
 import { ROLE_LABELS } from "../../lib/roles";
-import { EDITABLE_ROYAL_SCORE_EVENT_GROUPS, daysOffSentenceRu } from "@royal-home/shared";
+import { EDITABLE_ROYAL_SCORE_EVENT_GROUPS, daysOffSentenceRu, minScoreEventPoints } from "@royal-home/shared";
 import { DaysOffPicker } from "../../components/DaysOffPicker";
 import { PhoneInput } from "../../components/FormField";
 import { AgentPermissionsModal } from "../../components/AgentPermissionsModal";
@@ -660,7 +660,7 @@ export function AgentsSection() {
                       />
                       <span className="msg">
                         {profileForm.weeklyDaysOff.length
-                          ? `Сейчас: ${daysOffSentenceRu(profileForm.weeklyDaysOff)}. В эти дни новые заявки уходят коллегам, штрафы и счётчики тишины не идут, робот не назначает на эти дни показы. Свои клиенты остаются за ним, их сообщения и звонки доходят как обычно.`
+                          ? `Сейчас: ${daysOffSentenceRu(profileForm.weeklyDaysOff)}. В эти дни новые заявки уходят коллегам, счётчики тишины не идут, робот не назначает на эти дни показы. Свои клиенты остаются за ним, их сообщения и звонки доходят как обычно.`
                           : "Выходных нет — работает каждый день. Отметьте дни, в которые сотрудник не получает новые заявки."}
                       </span>
                     </div>
@@ -1097,7 +1097,9 @@ export function RoyalScoreEventsSection() {
       Object.fromEntries(
         EDITABLE_ROYAL_SCORE_EVENT_GROUPS.flatMap((g) => g.events).map(({ key, points }) => [
           key,
-          pointsFromServer?.[key] ?? points,
+          // Старое отрицательное значение (до 16.11.2026) поднимаем до нижней
+          // границы, иначе сохранение формы упёрлось бы в отказ сервера.
+          Math.max(minScoreEventPoints(key), pointsFromServer?.[key] ?? points),
         ])
       ),
     points,
@@ -1142,9 +1144,9 @@ export function RoyalScoreEventsSection() {
       <div className="quiet">
         <span className="dot" />
         <span className="txt">
-          Счёт агента — стартовое значение плюс сумма событий за скользящее окно, от 0 до 100. Цену события можно
-          поставить и отрицательной (штраф), и положительной (начисление); ноль — событие фиксируется в журнале, но на
-          счёт не влияет.
+          Счёт агента — стартовое значение плюс сумма событий за скользящее окно, от 0 до 100. Баллы только
+          начисляются; минус бывает лишь у отмены уже начисленного (сделку аннулировали). Ноль — событие
+          фиксируется в журнале, но на счёт не влияет.
         </span>
       </div>
 
@@ -1196,12 +1198,14 @@ export function RoyalScoreEventsSection() {
                 key={key}
                 label={label}
                 unit="баллов"
-                min={-100}
+                min={minScoreEventPoints(key)}
                 max={100}
                 step={0.1}
                 value={points[key] ?? 0}
                 disabled={!royalScoreOn}
-                onChange={(v) => setPoints((p) => ({ ...p, [key]: Math.max(-100, Math.min(100, Number(v) || 0)) }))}
+                onChange={(v) =>
+                  setPoints((p) => ({ ...p, [key]: Math.max(minScoreEventPoints(key), Math.min(100, Number(v) || 0)) }))
+                }
               />
             ))}
           </div>
@@ -1240,7 +1244,7 @@ function CompanyDaysOffBlock() {
         <b>Выходные компании</b>
         <span>
           По умолчанию выходных нет: робот, телефон и агенты работают каждый день. Отмеченный день — общий выходной:
-          в этот день не начисляются штрафы и не идут счётчики тишины, робот не обещает звонок агента и не назначает
+          в этот день не идут счётчики тишины, робот не обещает звонок агента и не назначает
           показы, а бот называет клиенту выходные. Личный выходной сотрудника задаётся при правке сотрудника.
         </span>
         <span>{`Сейчас: ${daysOffSentenceRu(days)}.`}</span>
