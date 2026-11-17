@@ -36,7 +36,7 @@ const { actorFor, cleanupAssistantActionAgents } = await import("./helpers/assis
 const { waitFor, waitForSettled } = await import("./helpers/waitFor.js");
 const { pluginDeclarations } = await import("../src/ai/assistant.js");
 const { actorFromAccess } = await import("../src/ai/assistant/actor.js");
-const { loadAgentAccess } = await import("../src/auth/middleware.js");
+const { loadAgentAccess, invalidateAgentAccess } = await import("../src/auth/middleware.js");
 const { groupHiddenToolsForTests } = await import("../src/telegram/assistantBot.js");
 
 const runId = String(Date.now()).slice(-7);
@@ -440,6 +440,8 @@ describe("restore_client: клиент из Корзины — карточко�
     const actor = actorFor(temp.id, ["clients.delete"]);
     const pending = await createPendingAssistantAction(actor, "restore_client", { clientId: client.id });
     await prisma.agent.update({ where: { id: temp.id }, data: { role: "AGENT" } });
+    // Штатная смена роли (lib/staffAdmin.ts) сбрасывает кэш доступа; прямая запись в базу — нет.
+    invalidateAgentAccess(temp.id);
     await expect(confirmAssistantAction(pending.id, actor)).rejects.toBeInstanceOf(AssistantActionError);
     expect((await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).deletedAt).not.toBeNull();
   });
