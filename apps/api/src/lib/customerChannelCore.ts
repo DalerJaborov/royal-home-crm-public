@@ -160,7 +160,7 @@ export async function claimChannelCoreRun(turn: Pick<ChannelCoreTurn, "channel" 
   }
 }
 
-export const CHANNEL_CORE_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
+export const CUSTOMER_AGENT_CHANNEL_CORE_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
 const MAX_DEADLINE_MS = 60_000;
 
 /** Markers the channels write instead of a file they did not read («[📷]», «[🎤 не расслышал]», «[📎 …]»): not words. */
@@ -292,7 +292,7 @@ async function runChannelCoreTurnOnce(turn: ChannelCoreTurn, options: ChannelCor
         const knownPhoneSource = turn.phoneKnown ? "scoped_contact" as const
           : extractTypedPhone(inputText) || extractVolunteeredPhone(inputText) ? "current_input" as const : "none" as const;
         const result = await runCustomerAgentTurn({ surface, language, inputText, knownPhoneSource, requestedFacts: [], revision, startedAt,
-          operation: runtime.operation, tools: customerAgentToolDefinitions([...CHANNEL_CORE_TOOLS]),
+          operation: runtime.operation, tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_CHANNEL_CORE_TOOLS]),
           ...(context.success ? { verifiedContext: context.data } : {}), ...(brand ? { brand } : {}),
           sayMode: options.mode === "shadow" ? "shadow" : customerAgentSayMode(),
           // Same answer switch as Meta DMs (#211): in shadow the model's own words are only counted.
@@ -304,7 +304,7 @@ async function runChannelCoreTurnOnce(turn: ChannelCoreTurn, options: ChannelCor
           observeLateToolResult: () => {}, // Read-only tools: nothing to replay.
         });
         traceCustomerCoreResult(result);
-        options.afterCore?.(result, { historyTurns: context.success ? context.data.turns.length : 0, toolsOffered: CHANNEL_CORE_TOOLS.length });
+        options.afterCore?.(result, { historyTurns: context.success ? context.data.turns.length : 0, toolsOffered: CUSTOMER_AGENT_CHANNEL_CORE_TOOLS.length });
         const outcome = channelCoreOutcome(result, intake, surface, language);
         // HELD stays HELD in the trace whether it is repeated or handed to a person (the reason tells which).
         if (result.status !== "ready") traceCustomerCoreDisposition("held", result.reason, result.cause);
@@ -325,7 +325,7 @@ async function runChannelCoreTurnOnce(turn: ChannelCoreTurn, options: ChannelCor
 async function channelCoreTool(call: CustomerAgentToolCall, options: { knowledgeSourceHash: string; linkPreference: "site" | "social"; brandName: string | null }): Promise<CustomerAgentToolResult> {
   if (call.name === "get_agency_contact") return { status: "observed", observation: {
     kind: "agency_contact", contact: { phone: PUBLIC_AGENCY_CONTACT.phone, digits: PUBLIC_AGENCY_CONTACT.digits, channel: "telephone" } } };
-  if (!(CHANNEL_CORE_TOOLS as readonly string[]).includes(call.name)) return { status: "denied", reason: "channel_read_only" };
+  if (!(CUSTOMER_AGENT_CHANNEL_CORE_TOOLS as readonly string[]).includes(call.name)) return { status: "denied", reason: "channel_read_only" };
   const read = await readCustomerAgentPublicData(call, { knowledgeSourceHash: options.knowledgeSourceHash,
     linkPreference: options.linkPreference, brandName: options.brandName });
   return read.status === "observed" ? { status: "observed", observation: read.observation } : read;
