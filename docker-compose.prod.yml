@@ -190,6 +190,11 @@ services:
       CUSTOMER_AGENT_BRAND_VOICE: "${CUSTOMER_AGENT_BRAND_VOICE:-}"
       CUSTOMER_AGENT_INTAKE_LOCATION: "${CUSTOMER_AGENT_INTAKE_LOCATION:-}"
       TELEGRAM_DIRECT_BOT_REPLY: "${TELEGRAM_DIRECT_BOT_REPLY:-}"
+      # Emergency kill switch (18.11.2026, lib/customerAgentChannelOff.ts): comma list of
+      # whatsapp,instagram,facebook,website,telegram,telegram_direct,youtube,arvan | all (arvan = brand accounts only,
+      # MessengerAccount.brandName). Listed channels make no model call:
+      # the customer gets one handover line, a person gets «client is waiting». Empty = off (the bot answers as usual).
+      CUSTOMER_AGENT_CHANNEL_OFF: "${CUSTOMER_AGENT_CHANNEL_OFF:-}"
       # Сбор объявлений Somon/Paydo по расписанию (lib/market/nightly.ts, cron.ts). Без этой
       # строки значение из .env.production в контейнер не попадало: на 11.11.2026 каталог был
       # пуст, хотя переключатель описан в журнале 02.11. По умолчанию выключен.
