@@ -101012,6 +101012,29 @@
            ]
           },
           {
+           "k": "if",
+           "t": "!isWithinDushanbeWindow(settings.workHoursStart, settings.workHoursEnd, now)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "stats.outsideWorkHours = true;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return stats;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "do",
            "t": "const rawListings = await prisma.marketListing.findMany({ where: { dealType: \"SALE\", isActive: true, firstSee…",
            "a": [
@@ -101059,7 +101082,7 @@
           },
           {
            "k": "do",
-           "t": "const policy = await loadMatchPolicy();",
+           "t": "const [policy, rules] = await Promise.all([loadMatchPolicy(), loadMarketBuyerRules()]);",
            "a": [
             "зовёт loadMatchPolicy()"
            ],
@@ -101167,7 +101190,7 @@
           },
           {
            "k": "do",
-           "t": "const [pairs, recent, todayByAgent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where: { clientI…",
+           "t": "const [pairs, recent, todayByAgent, toldAgent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where…",
            "a": [
             "читает в базе: buyerMarketAlert"
            ],

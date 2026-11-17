@@ -7298,6 +7298,15 @@ model Settings {
   marketBuyerAlertsEnabledAt        DateTime?
   /// Подбор покупателю с площадок только от собственников: без агентств и продавцов с 3+ объявлениями. По умолчанию ВКЛ.
   marketOwnersOnly                  Boolean   @default(true)
+  /// УЗКИЙ ПОДБОР С ПЛОЩАДОК (17.11.2026, lib/market/buyerMatch.ts loadMarketBuyerRules). Объявление, которое сбор
+  /// не видел дольше стольких суток, под клиентов не предлагается и в пуш не идёт.
+  marketBuyerFreshDays              Int       @default(3)
+  /// Цена объявления в пределах ±N% бюджета клиента (свой допуск, не общий matchBudgetTolerancePct наших объектов).
+  marketBuyerBudgetTolerancePct     Int       @default(10)
+  /// Разница в комнатах с запросом клиента: 0 — ровно столько, сколько он просит.
+  marketBuyerRoomsTolerance         Int       @default(0)
+  /// Не больше стольких пушей «объявление под вашего покупателя» агенту за сутки по Душанбе.
+  marketBuyerAlertsPerDay           Int       @default(3)
   /// ЯВНОЕ КЭШИРОВАНИЕ СИСТЕМНОГО ПРОМТА GEMINI (30.08.2026). Неявный кэш Google
   /// (по умолчанию, без этого тумблера) срабатывает где-то в половине случаев —
   /// задокументированное поведение самого Google, не наша недоработка. Явный кэш

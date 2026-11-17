@@ -270,7 +270,8 @@ describe("сторож: правило совпадения живёт в одн
         // Своя проверка бюджета пары = своя копия правила (так жил автопуш до 10.11).
         // Поиск ботом по просьбе в чате (lib/propertyMatch.ts) — другая задача, не пара клиент↔объект.
         // Объявления с площадок под покупателя (lib/market/buyerMatch.ts, #138) — тоже не наш объект;
-        // бюджет, комнаты и площадь там — те же общие формулы (budgetWindowTjs, roomsWithinTolerance, areaMeetsMinimum).
+        // комнаты и площадь там — те же общие формулы (roomsWithinTolerance, areaMeetsMinimum), а окно бюджета с 17.11.2026
+        // своё (marketBudgetWindowTjs, ±N% из Настроек «Подбор с площадок» — решение владельца про узкий подбор).
         if (/budgetWindowTjs\(/.test(text) && !["lib/matchPolicy.ts", "lib/propertyMatch.ts", "lib/market/buyerMatch.ts"].includes(rel)) offenders.push(`${rel} (своя проверка бюджета пары)`);
         if (/desiredDistrictId\s*==\s*null\s*\|\|/.test(text)) offenders.push(`${rel} (своя проверка района пары)`);
       }

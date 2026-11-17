@@ -22647,6 +22647,11 @@
       - если !settings.marketBuyerAlertsEnabledAt
         - await prisma.settings.updateMany({ where: { id: "singleton", marketBuyerAlertsEnabledAt: null }, data: { mark…
           · меняет в базе: settings
+      - если !isWithinDushanbeWindow(settings.workHoursStart, settings.workHoursEnd, now)
+        - stats.outsideWorkHours = true;
+          · дословно из кода
+        - return stats;
+          · дословно из кода
       - const rawListings = await prisma.marketListing.findMany({ where: { dealType: "SALE", isActive: true, firstSee…
         · читает в базе: marketListing
       - если rawListings.length === 0
@@ -22657,7 +22662,7 @@
       - если listings.length === 0
         - return stats;
           · дословно из кода
-      - const policy = await loadMatchPolicy();
+      - const [policy, rules] = await Promise.all([loadMatchPolicy(), loadMarketBuyerRules()]);
         · зовёт loadMatchPolicy()
       - const clients = await prisma.client.findMany({ where: { ...waitingBuyerWhere(policy, now), assignedAgentId: {…
         · читает в базе: client
@@ -22681,7 +22686,7 @@
           · дословно из кода
       - const dayStart = dushanbeStartOfToday(now);
         · зовёт dushanbeStartOfToday()
-      - const [pairs, recent, todayByAgent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where: { clientI…
+      - const [pairs, recent, todayByAgent, toldAgent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where…
         · читает в базе: buyerMarketAlert
       - для каждого: const r of recent
         - previousByClient.set(r.clientId, [...(previousByClient.get(r.clientId) ?? []), toAlertListing(r.listing)]);
