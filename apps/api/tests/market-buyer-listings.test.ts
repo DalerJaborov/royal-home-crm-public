@@ -22,6 +22,11 @@ import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 const runId = `${Date.now()}`.slice(-8);
 const password = "testpass123";
 const DISTRICT = `Тест-площадки-${runId}`;
+/**
+ * Свой город: подбор берёт и объявления без района (они идут ниже), а такие лежат и у соседних файлов
+ * при параллельном прогоне. В своём городе чужие строки в выборку не попадают.
+ */
+const CITY = `Тест-город-${runId}`;
 const agentIds: string[] = [];
 const clientIds: string[] = [];
 const listingIds: string[] = [];
@@ -46,7 +51,7 @@ async function makeListing(key: string, over: Record<string, unknown> = {}) {
       sourceUrl: `https://somon.tj/adv/${runId}-${key}`,
       dealType: "SALE",
       propertyType: "APARTMENT",
-      city: "Душанбе",
+      city: CITY,
       districtName: DISTRICT,
       rooms: 2,
       areaSqm,
@@ -71,7 +76,7 @@ const get = (id: string, token = agentToken, qs = "") =>
 
 beforeAll(async () => {
   const passwordHash = await bcrypt.hash(password, 10);
-  districtId = (await prisma.district.create({ data: { name: DISTRICT } })).id;
+  districtId = (await prisma.district.create({ data: { name: DISTRICT, city: CITY } })).id;
   const agent = await prisma.agent.create({
     data: { fullName: `Агент площадок ${runId}`, phone: `+992981${runId.slice(-7)}`, role: "AGENT", passwordHash },
   });
@@ -210,6 +215,26 @@ describe("GET /clients/:id/market-listings", () => {
       expect(urls).toContain(`https://somon.tj/adv/${runId}-seen4d`);
     } finally {
       await prisma.settings.update({ where: { id: "singleton" }, data: before });
+    }
+  });
+
+  it("отметка «уже связывались»: чужой агент брал номер — видно имя и действие; сам — «byMe»; поиск собственников — OWNER_LEAD", async () => {
+    await prisma.marketListingContact.create({ data: { listingId: ids.dismissed, agentId: agentIds[1], action: "PHONE", clientId: buyerId } });
+    await prisma.somonDelivery.upsert({
+      where: { advertId: `${runId}-withinTolerance` },
+      create: { advertId: `${runId}-withinTolerance`, agentId: agentIds[0], status: "DISPATCHED" },
+      update: { agentId: agentIds[0], status: "DISPATCHED" },
+    });
+    try {
+      const rows = (await get(buyerId)).body.listings as { sourceUrl: string; contact: Record<string, unknown> | null }[];
+      const by = (key: string) => rows.find((r) => r.sourceUrl === `https://somon.tj/adv/${runId}-${key}`)?.contact;
+      expect(by("dismissed")).toMatchObject({ action: "PHONE", agentName: `Чужой агент ${runId}`, byMe: false });
+      expect(by("withinTolerance")).toMatchObject({ action: "OWNER_LEAD", byMe: true });
+      expect(by("seen2d")).toBeNull();
+      expect(JSON.stringify(rows)).not.toContain("+992");
+    } finally {
+      await prisma.marketListingContact.deleteMany({ where: { listingId: ids.dismissed } });
+      await prisma.somonDelivery.deleteMany({ where: { advertId: `${runId}-withinTolerance` } });
     }
   });
 

@@ -38,6 +38,7 @@ import { phoneSafeText } from "../../lib/clientPhone.js";
 import { buyerWantsFromCriteria, describeBuyerCriteria, findBuyerListings, hasBuyerCriteria } from "../../lib/market/buyerMatch.js";
 import { findBuyerMarketSummary } from "../../lib/market/buyerMarket.js";
 import { loadOwnersFilter } from "../../lib/market/ownerFilter.js";
+import { loadListingContacts } from "../../lib/market/listingContacts.js";
 
 export const matchingRouter = Router();
 
@@ -423,6 +424,8 @@ matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
     findBuyerMarketSummary(wants),
   ]);
   const seesPhone = can(req, "clients.viewPhone");
+  // Кто уже связывался с продавцом (номер, WhatsApp, поиск собственников) — одним запросом на страницу.
+  const contacts = await loadListingContacts(listings.map((l) => l.sourceUrl), req.agent!.id);
   const body: MarketBuyerListingsResponse = {
     status: "ok",
     criteria,
@@ -434,7 +437,7 @@ matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
     offset: parsed.data.offset,
     freshDays: wants.rules.freshDays,
     clientDistrictMissing: wants.districtName == null,
-    listings: listings.map(l => ({ ...l, title: phoneSafeText(l.title, seesPhone) })),
+    listings: listings.map(l => ({ ...l, title: phoneSafeText(l.title, seesPhone), contact: contacts.get(l.sourceUrl) ?? null })),
   };
   return res.json(body);
 });
