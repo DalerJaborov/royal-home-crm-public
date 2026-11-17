@@ -3,12 +3,13 @@ import type { ClientSource } from "@royal-home/shared";
 import type { ChatMessage } from "../ai/client.js";
 import { prisma } from "../db.js";
 import { logSystemError } from "../lib/systemError.js";
-import { extractAllPhones, extractVolunteeredPhone } from "../lib/shared/phoneText.js";
+import { extractAllPhones } from "../lib/shared/phoneText.js";
 import { findPhoneOwners } from "../lib/clientPhones.js";
 import { isWithinWorkingHours } from "../lib/workingHours.js";
 import { watchdogLeadDraft } from "../lib/phoneLeadWatchdog.js";
 import { looksLikeRentRequest } from "../ai/rentGuard.js";
 import { mentionsJobSeeking } from "../ai/jobSeekerCall.js";
+import { isPublicAgencyPhone, isRetiredPublicAgencyPhone } from "../lib/publicAgencyContact.js";
 import { classifyInbound } from "../services/leads/intakePolicy.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 
@@ -61,6 +62,17 @@ export interface CommentPhoneResult {
   recordedInHistory: boolean;
 }
 
+/**
+ * Номер самой компании (публичный и снятый с использования, lib/publicAgencyContact.ts) — не клиент:
+ * люди цитируют «звоните 44 650 14 14» под постом. Первый номер комментария, не принадлежащий компании.
+ */
+function clientPhonesOf(text: string): string[] {
+  return extractAllPhones(text).filter((p) => {
+    const digits = p.replace(/\D/g, "");
+    return !isPublicAgencyPhone(digits) && !isRetiredPublicAgencyPhone(digits);
+  });
+}
+
 const NOTHING: CommentPhoneResult = { outcome: "no_phone", recordedInHistory: false };
 
 /**
@@ -72,7 +84,7 @@ export async function captureCommentPhoneIntoConversation(
   conversationId: string
 ): Promise<CommentPhoneResult> {
   // Дешёвая проверка текста — до любого запроса в базу: у большинства комментариев номера нет.
-  const phone = extractVolunteeredPhone(row.text);
+  const phone = clientPhonesOf(row.text)[0];
   if (!phone) return NOTHING;
   try {
     const conversation = await prisma.botConversation.findUnique({
@@ -106,7 +118,7 @@ export async function captureCommentPhoneIntoConversation(
       {
         deferAssignment: !(await isWithinWorkingHours()),
         clientText: marked,
-        extraPhones: extractAllPhones(row.text),
+        extraPhones: clientPhonesOf(row.text).filter((p) => p !== phone),
         silent: true,
       }
     );
@@ -138,12 +150,12 @@ export async function captureCommentPhoneIntoConversation(
 export async function createLeadFromCommentPhone(
   row: CommentPhoneRow & { channel: "TELEGRAM" | "INSTAGRAM" | "FACEBOOK" | "YOUTUBE" }
 ): Promise<CommentPhoneOutcome> {
-  const phones = extractAllPhones(row.text);
-  const phone = extractVolunteeredPhone(row.text);
+  const phones = clientPhonesOf(row.text);
+  const phone = phones[0];
   if (!phone) return "no_phone";
   try {
     if (looksLikeRentRequest(row.text) || mentionsJobSeeking(row.text)) return "declined";
-    const [known] = await findPhoneOwners(phones.length ? phones : [phone], { includeDeleted: true, limit: 1 });
+    const [known] = await findPhoneOwners(phones, { includeDeleted: true, limit: 1 });
     if (known) return "already";
     const decision = classifyInbound({ clientText: row.text, channel: "chat" });
     if (decision.reason === "работа") return "declined";
