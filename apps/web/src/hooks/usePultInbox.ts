@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { useQueries, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { PermissionId, SocialVideoItem, SocialVideoListResponse } from "@royal-home/shared";
 import { api } from "../lib/api";
+import { sendToClient } from "../lib/clientSend";
+import { useSendIntent } from "./useSendIntent";
 import { SAFETY_REFETCH_MS } from "../lib/refetchIntervals";
 import { useCan } from "../lib/permissions";
 import { useAuthStore } from "../store/auth";
@@ -522,9 +524,11 @@ function settle(qc: QueryClient, keys: string[][]) {
 /** Все действия бросают Error с понятным текстом при отказе (его покажет строка). */
 export function usePultInboxActions() {
   const qc = useQueryClient();
+  // Отправки клиенту — с ключом повтора (lib/clientSend.ts): обрыв и второе нажатие не дают дубль.
+  const intent = useSendIntent();
   return useMemo(() => ({
     replyDialog: async (id: string, text: string) => {
-      await api(`/conversations/${encodeURIComponent(id)}/reply`, { method: "POST", body: { text } });
+      await sendToClient(intent, `/conversations/${encodeURIComponent(id)}/reply`, { text });
       settle(qc, [["conversations"], ["counters"], ["mission-control"]]);
     },
     resumeBot: async (id: string) => {
@@ -532,7 +536,7 @@ export function usePultInboxActions() {
       settle(qc, [["conversations"], ["counters"], ["mission-control"]]);
     },
     replyComment: async (id: string, text: string) => {
-      await api(`/instagram-comments/${id}/reply`, { method: "POST", body: { text } });
+      await sendToClient(intent, `/instagram-comments/${id}/reply`, { text });
       settle(qc, [["instagram-comments"]]);
     },
     hideComment: async (id: string) => {
@@ -592,7 +596,7 @@ export function usePultInboxActions() {
       await api(`/site-notifications/${id}/resolve`, { method: "POST", body: { resolution: "ACCEPTED" } });
       settle(qc, [["site-notifications"]]);
     },
-  }), [qc]);
+  }), [qc, intent]);
 }
 
 export type PultInboxActions = ReturnType<typeof usePultInboxActions>;

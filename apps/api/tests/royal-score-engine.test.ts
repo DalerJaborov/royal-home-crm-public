@@ -71,12 +71,26 @@ describe("Цена события из настроек", () => {
   it("директор переопределил часть — остальные остаются зашитыми", async () => {
     await prisma.settings.update({
       where: { id: "singleton" },
-      data: { royalScoreEventPoints: { deal_closed: 20, showing_missed: -1 } },
+      data: { royalScoreEventPoints: { deal_closed: 20, task_on_time: 4 } },
     });
     const points = await loadEventPoints();
     expect(points.deal_closed).toBe(20);
-    expect(points.showing_missed).toBe(-1);
+    expect(points.task_on_time).toBe(4);
     expect(points.call_on_time).toBe(DEFAULT_EVENT_POINTS.call_on_time);
+  });
+
+  it("цена снятого штрафа из старых Настроек не действует (16.11.2026)", async () => {
+    // На проде в Settings.royalScoreEventPoints могли остаться цены штрафов,
+    // заданные до их снятия: −5 за пропущенный показ и т.п. Они обязаны молча
+    // стать нулём, иначе старые строки журнала в окне продолжали бы тянуть счёт.
+    await prisma.settings.update({
+      where: { id: "singleton" },
+      data: { royalScoreEventPoints: { showing_missed: -7, call_15min_missed: -9, deal_closed: 12 } },
+    });
+    const points = await loadEventPoints();
+    expect(points.showing_missed).toBe(0);
+    expect(points.call_15min_missed).toBe(0);
+    expect(points.deal_closed).toBe(12);
   });
 
   it("мусор в колонке не долетает до расчёта", async () => {
@@ -117,18 +131,19 @@ describe("Скользящее окно снимает риск потолка",
 
   it("счёт никогда не опускается ниже 0", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { royalScoreStartingScore: 3 } });
-    recordScoreEvent({ agentId, kind: "showing_missed", delta: -5, reason: "Пропущен показ", sourceId: `miss-${runId}` });
+    // Минус остался только у компенсации плюса — аннулированная сделка (−10).
+    recordScoreEvent({ agentId, kind: "deal_closed_reversed", delta: -10, reason: "Сделка аннулирована", sourceId: `miss-${runId}` });
     await waitForEvent(`miss-${runId}`);
     expect(await computeRoyalScore(agentId)).toBe(0);
   });
 
-  it("событие вне окна не считается — старый штраф сам выходит из расчёта", async () => {
+  it("событие вне окна не считается — старое списание само выходит из расчёта", async () => {
     await prisma.settings.update({
       where: { id: "singleton" },
       data: { royalScoreStartingScore: 100, royalScoreWindowDays: 30 },
     });
     const old = await prisma.royalScoreEvent.create({
-      data: { agentId, kind: "showing_missed", delta: -5, reason: "Старый штраф", sourceId: `old-${runId}` },
+      data: { agentId, kind: "deal_closed_reversed", delta: -10, reason: "Старое списание", sourceId: `old-${runId}` },
     });
     // Событие «случилось» 40 дней назад — за пределами 30-дневного окна.
     await prisma.royalScoreEvent.update({
@@ -144,13 +159,26 @@ describe("Скользящее окно снимает риск потолка",
       data: { royalScoreStartingScore: 100, royalScoreWindowDays: 30 },
     });
     const recent = await prisma.royalScoreEvent.create({
-      data: { agentId, kind: "showing_missed", delta: -5, reason: "Свежий штраф", sourceId: `recent-${runId}` },
+      data: { agentId, kind: "deal_closed_reversed", delta: -10, reason: "Свежее списание", sourceId: `recent-${runId}` },
     });
     await prisma.royalScoreEvent.update({
       where: { id: recent.id },
       data: { at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000) },
     });
-    expect(await computeRoyalScore(agentId)).toBe(95);
+    expect(await computeRoyalScore(agentId)).toBe(90);
+  });
+
+  it("строка снятого штрафа внутри окна счёт больше не тянет (16.11.2026)", async () => {
+    await prisma.settings.update({
+      where: { id: "singleton" },
+      data: { royalScoreStartingScore: 100, royalScoreWindowDays: 30, royalScoreEventPoints: null },
+    });
+    // Штрафы, записанные до снятия, лежат в журнале с delta −5. Цена вида теперь
+    // 0 — счёт обязан о них забыть, а не дожидаться выхода из окна.
+    await prisma.royalScoreEvent.create({
+      data: { agentId: agentId, kind: "showing_missed", delta: -5, reason: "Старый штраф", sourceId: `retired-${runId}` },
+    });
+    expect(await computeRoyalScore(agentId)).toBe(100);
   });
 
   it("правка цены события в настройках действует и на уже записанные события в окне", async () => {
@@ -165,13 +193,15 @@ describe("Скользящее окно снимает риск потолка",
 });
 
 describe("Дробные баллы не теряются", () => {
-  it("+2.7 за исправленный объект сохраняется без округления до целого", async () => {
+  it("дробный балл (+2.7) сохраняется без округления до целого", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { royalScoreStartingScore: 50 } });
+    // Раньше пример — «объект исправлен после возврата» (+2.7); вид снят 16.11.2026
+    // вместе со штрафом за доработку, а округление проверяется на любом виде.
     recordScoreEvent({
       agentId,
-      kind: "property_rework_fixed",
+      kind: "call_on_time",
       delta: 2.7,
-      reason: "Объект исправлен после возврата",
+      reason: "Дробная цена",
       sourceId: `fix-${runId}`,
     });
     await waitForEvent(`fix-${runId}`);

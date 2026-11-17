@@ -72,6 +72,7 @@ import { logAiCall } from "./shared.js";
 // резервной, пока до сервера не доходили руки. Теперь владелец меняет имя с экрана,
 // и следующее же голосовое идёт к новой модели. Дефолты — в ai/geminiTransport.ts.
 import { describeError } from "../lib/describeError.js";
+import { maskPhonesInFreeText } from "../lib/clientPhone.js";
 
 /**
  * СРОК ОЖИДАНИЯ СЧИТАЕТСЯ ОТ РАЗМЕРА ЗАПИСИ, А НЕ ОДИН НА ВСЁ (15.08.2026).
@@ -795,9 +796,9 @@ export async function transcribeAudioResult(
           // чтобы было по чему разбирать; в журнал — только у голосового клиента и
           // одной строкой за десять минут (noteVoiceNotUnderstood, 25.09.2026).
           if (looksLikeModelRefusal(text)) {
-            console.warn(`[transcribe] ${filename}: модель ответила про файл, а не расшифровкой — «${text.slice(0, 120)}»`);
+            console.warn(`[transcribe] ${filename}: модель ответила про файл, а не расшифровкой — «${maskPhonesInFreeText(text).slice(0, 60)}»`);
             rememberQuotaPauses();
-            noteVoiceNotUnderstood(context, VOICE_REFUSAL_LOG_PREFIX, `${filename}, модель ${model}: «${text.slice(0, 120)}»`);
+            noteVoiceNotUnderstood(context, VOICE_REFUSAL_LOG_PREFIX, `${filename}, модель ${model}: «${maskPhonesInFreeText(text).slice(0, 60)}»`);
             return { text: null, failed: false };
           }
           /**

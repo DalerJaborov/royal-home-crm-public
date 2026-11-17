@@ -51,4 +51,17 @@ describe("SECRET_SETTINGS_FIELDS", () => {
     const missing = secretLike.filter((f) => !(SECRET_SETTINGS_FIELDS as readonly string[]).includes(f));
     expect(missing).toEqual([]);
   });
+
+  /**
+   * Файл-склад (CLAUDE.md, «три слепых пятна», п. 3): страж выше краснеет у всех
+   * открытых веток разом, и каждая дописывала недостающее от себя — к 16.11.2026
+   * `openaiApiKey` стоял здесь четыре раза. Повтор безвреден для Set, но список
+   * перестаёт читаться, и следующий автор не видит, есть ли поле. Проверено
+   * поломкой: с возвращённым повтором тест красный.
+   */
+  it("без повторов", () => {
+    const seen = new Set<string>();
+    const repeated = SECRET_SETTINGS_FIELDS.filter((f) => (seen.has(f) ? true : (seen.add(f), false)));
+    expect(repeated).toEqual([]);
+  });
 });

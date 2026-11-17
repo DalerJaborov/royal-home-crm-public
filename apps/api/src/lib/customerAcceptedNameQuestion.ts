@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { customerAgentStoredTextPayloadSchema, type CustomerFence, type CustomerPropertyAdmission } from "@royal-home/shared";
 import type { TxClient } from "../db.js";
 import { decryptSecret } from "../crypto.js";
-import { customerAgentNameQuestionText } from "../ai/customerAgentRenderer.js";
+import { customerAgentNameQuestionText, customerSealedQuestionLast } from "../ai/customerAgentRenderer.js";
 import { customerDeliveryFenceSchema } from "./customerDeliveryContracts.js";
 import { decryptCustomerFinalOrigin } from "./customerOriginPayload.js";
 import { isActiveTransactionClient } from "./transactionScope.js";
@@ -56,7 +56,7 @@ export async function hasAcceptedCustomerNameQuestionTx(tx: TxClient, fence: Cus
     if (createHash("sha256").update(plain).digest("hex") !== row.payloadHash) return false;
     const stored = customerAgentStoredTextPayloadSchema.parse(JSON.parse(plain)), question = stored.publicData?.nameQuestion;
     if (!question || stored.publicData?.agentRevisionId !== row.agentRevisionId ||
-        !stored.text.endsWith(customerAgentNameQuestionText(question.language))) return false;
+        !customerSealedQuestionLast(stored.text, customerAgentNameQuestionText(question.language))) return false;
     const old = customerDeliveryFenceSchema.parse(row.fenceJson), origin = decryptCustomerFinalOrigin(row.originCiphertext);
     const original = origin.input.acceptedFence;
     return !!original && origin.eventKey === row.questionEventKey && origin.order === row.questionOrder.toString() &&

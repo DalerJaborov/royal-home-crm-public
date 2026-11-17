@@ -8,7 +8,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { MutationError } from "./MutationError";
 import { Rh2Portal } from "./rh2/Rh2Scope";
 import { ApiError } from "../lib/api";
-import { isRequiresRelease, useAcceptLead, useClients, useDeclineLead } from "../hooks/useClients";
+import { useAcceptLead, useClients, useDeclineLead } from "../hooks/useClients";
 import { useSettings } from "../hooks/useSettings";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useAuthStore } from "../store/auth";
@@ -289,14 +289,6 @@ function IncomingLeadDialog({
         hapticSuccess();
         onClose();
         if (shortId !== undefined) navigate(`/clients/${shortId}`);
-      },
-      onError: (err) => {
-        // Портфель полон — сервер спрашивает, кого освободить. Выбор есть только
-        // в карточке: уходим туда и закрываем окно, чтобы оно не висело поверх.
-        if (isRequiresRelease(err)) {
-          onClose();
-          if (shortId !== undefined) navigate(`/clients/${shortId}`);
-        }
       },
     });
   }, [acceptLead, acceptedRef, lead, navigate, onClose]);

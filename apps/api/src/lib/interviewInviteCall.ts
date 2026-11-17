@@ -101,7 +101,7 @@ export function invitePhoneKey(phone: string | null | undefined): string | null 
 /**
  * Немые звонки (28.09–03.10.2026: канал звука до станции был мёртв, кандидат
  * слышал тишину). Такая строка помечается этой причиной разовым скриптом
- * (scripts/recall-silent-invite-calls.ts) и НЕ считается звонком: защита «один
+ * (scripts/recall-silent-invite-calls.ts, удалён 16.11.2026 — окно прошло) и НЕ считается звонком: защита «один
  * звонок» её пропускает, и робот может позвонить снова.
  */
 export const AUDIO_DEAD_REASON = "audio_dead";

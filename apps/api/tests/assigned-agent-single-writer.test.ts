@@ -297,7 +297,7 @@ describe("assignedAgentId — единственная точка записи",
         .join("\n");
       throw new Error(
         `Найдена прямая запись Client.assignedAgentId в обход lib/changeClientAgent.ts:\n${report}\n\n` +
-          `Каждая смена assignedAgentId обязана идти через changeClientAgent()/markClientLost() ` +
+          `Каждая смена assignedAgentId обязана идти через changeClientAgent() ` +
           `(docs/ownership-audit-11-09.md) — иначе клиент может уйти от агента без строки в истории.`
       );
     }

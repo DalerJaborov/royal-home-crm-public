@@ -173,6 +173,31 @@ describe("grouped conversation inbox", () => {
     expect(response.body.items[0].sourceConversationIds).toEqual([botIds[0]]);
   });
 
+  // Журнал прода 17.11.2026: 42804 «UNION types ClientKind and text». Любой
+  // фильтр, выключающий часть источников, подставлял заглушку с text-столбцами
+  // рядом с enum-столбцами настоящей ветки, и экран «Чаты» отдавал 500.
+  it.each(["TELEGRAM", "TELEGRAM_DIRECT", "WHATSAPP", "INSTAGRAM"])("answers 200 when the channel filter is %s", async (channel) => {
+    const response = await get(adminToken, `/conversations?grouped=1&channel=${channel}`);
+    expect(response.status).toBe(200);
+    expect(Array.isArray(response.body.items)).toBe(true);
+    for (const item of response.body.items as { channels: string[] }[]) {
+      expect(item.channels).toEqual([channel]);
+    }
+  });
+
+  it("answers 200 with the linked client's kind when filtered by Telegram", async () => {
+    const response = await get(adminToken, `/conversations?grouped=1&channel=TELEGRAM&q=unrelated`);
+    expect(response.status).toBe(200);
+    expect(response.body.items.map((item: { id: string }) => item.id)).toContain(`client:${clientIds[0]}`);
+  });
+
+  it("answers 200 when filtered by one of our accounts", async () => {
+    const response = await get(adminToken, `/conversations?grouped=1&accountId=no-such-account-${runId}`);
+    expect(response.status).toBe(200);
+    expect(response.body.items).toEqual([]);
+    expect(response.body.total).toBe(0);
+  });
+
   it("pages grouped clients before pagination and returns exact full-set totals", async () => {
     const first = await get(adminToken, "/conversations?grouped=1&page=1");
     const second = await get(adminToken, "/conversations?grouped=1&page=2");

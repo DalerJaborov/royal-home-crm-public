@@ -103,6 +103,9 @@ describe("PATCH /reports/monthly/:id", () => {
     expect(res.body.metrics.commission).toBeNull();
     expect(res.body.metrics.expenses).toBeNull();
     expect(res.body.metrics.agents[0].commission).toBeNull();
+    // Снимок денег «при закрытии» (17.11.2026, живые деньги отчёта) закрыт так же.
+    expect(res.body.metrics.commissionAtClose ?? null).toBeNull();
+    expect(res.body.metrics.expensesAtClose ?? null).toBeNull();
     expect(res.body.metrics.dealsCompleted).toBe(2);
   });
 
@@ -112,7 +115,10 @@ describe("PATCH /reports/monthly/:id", () => {
       .set("Authorization", `Bearer ${seeingToken}`)
       .send({ notes: "заметка с деньгами" });
     expect(res.status).toBe(200);
-    expect(res.body.metrics.commission).toBe(123456);
+    // С 17.11.2026 деньги отчёта живые (lib/monthlyReport.ts, withLiveMoney): снимок 1-го числа
+    // отдаётся справкой commissionAtClose, а commission — то, что сейчас в «Финансах».
+    expect(res.body.metrics.commissionAtClose).toBe(123456);
+    expect(typeof res.body.metrics.commission).toBe("number");
   });
 });
 

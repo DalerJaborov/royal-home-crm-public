@@ -94,6 +94,18 @@ export function firstOwnSiteLink(text: string): string | null {
   return null;
 }
 
+/**
+ * Для журнала — только хост присланной ссылки (аудит 17.11.2026, S3): в пути и
+ * параметрах клиентских ссылок бывают номера, токены и личные метки.
+ */
+function linkHostForLog(url: string): string {
+  try {
+    return new URL(url).host.slice(0, 120);
+  } catch {
+    return "(не адрес)";
+  }
+}
+
 export async function linkPreview(url: string): Promise<LinkPreview | null> {
   const cached = cache.get(url);
   if (cached && Date.now() - cached.at < (cached.value ? OK_TTL_MS : FAIL_TTL_MS)) {
@@ -116,7 +128,7 @@ export async function linkPreview(url: string): Promise<LinkPreview | null> {
     // Запрещённый адрес — это не поломка, а сработавшая защита: пишем в журнал и
     // молча продолжаем разговор. Клиенту про наши внутренние правила знать незачем.
     if (err instanceof UnsafeUrlError) {
-      void logSystemError("meta", `Ссылка клиента не открыта (${err.message}): ${url.slice(0, 120)}`);
+      void logSystemError("meta", `Ссылка клиента не открыта (${err.message}): ${linkHostForLog(url)}`);
     } else {
       void logSystemError("meta", `Ссылка клиента не прочиталась: ${describeError(err)}`);
     }

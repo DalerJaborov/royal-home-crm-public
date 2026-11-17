@@ -65,8 +65,9 @@ vi.mock("../src/lib/clientPhones.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/clientPhones.js")>()),
   pickFreeExtraPhones: (found: string[]) => Promise.resolve(found),
 }));
-vi.mock("../src/ai/leadQualifier.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/ai/leadQualifier.js")>()),
+// The script takes normalizeDigits from its own module (one-brain step 2: no file but the door imports leadQualifier).
+vi.mock("../src/lib/shared/phoneText.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/shared/phoneText.js")>()),
   normalizeDigits: (d: string) => d,
 }));
 

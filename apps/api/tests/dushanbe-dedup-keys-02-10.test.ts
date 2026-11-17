@@ -15,11 +15,9 @@ import { describe, expect, it } from "vitest";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
 const FILES = [
-  "lib/inactiveTrafficLight.ts",
   "lib/duplicateReview.ts",
   "lib/clientTrashAnomalyAlarm.ts",
   "lib/absenceReturn.ts",
-  "lib/lostInactiveTrashSweep.ts",
 ];
 const UTC_KEY = [/now\.toISOString\(\)\.slice\(0,\s*(?:7|10)\)/, /now\.getUTC(?:FullYear|Month|Date)\(\)/, /now\.toDateString\(\)/];
 

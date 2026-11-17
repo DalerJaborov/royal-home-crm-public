@@ -177,16 +177,18 @@ function stuckWhere(): Prisma.Sql {
  * «последнее сообщение без ответа»); без флага processMessengerTurn записал бы
  * её в BotConversation.messages второй раз (см. conversation.ts).
  */
-export function retryStuckConversation(row: StuckRow, source: "ai_retry" | "manual_retry" = "manual_retry"): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
+export function retryStuckConversation(row: StuckRow, source: "ai_retry" | "manual_retry" = "manual_retry",
+  /** Which run of this customer turn (the live turn was 1): a fallback bound on the core's runs (CHANNEL_CORE_MAX_ATTEMPTS). */
+  attempt?: number): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
   return withBotTurnTrace({ channel: row.channel, peer: row.subscriberId, conversation: row.id, event: null, source, text: row.lastText,
     knownContacts: row.name ? [row.name] : [] }, async () => {
-    const result = await retryStuckConversationImpl(row);
+    const result = await retryStuckConversationImpl(row, attempt);
     if (result === "failed" || result === "ai-down") traceOutcome("failed");
     else if (result === "no-reply") traceNoReply();
     return result;
   });
 }
-async function retryStuckConversationImpl(row: StuckRow): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
+async function retryStuckConversationImpl(row: StuckRow, attempt?: number): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
   if (await currentTurnHasCustomerOutbox(row.id)) return "no-reply";
   const stored = await prisma.botConversation.findUnique({ where: { id: row.id }, select: {
     messages: true, lastMessageAt: true, channel: true, subscriberId: true, accountId: true,
@@ -200,9 +202,9 @@ async function retryStuckConversationImpl(row: StuckRow): Promise<"sent" | "no-r
   if (!stored || stored.channel !== row.channel || stored.subscriberId !== row.subscriberId || stored.accountId !== row.accountId ||
     stored.lastMessageAt?.getTime() !== row.lastMessageAt.getTime() || original?.role !== "user" ||
     original.content !== row.lastText || (original.mid ?? null) !== (row.lastMid ?? null)) return "no-reply";
-  return withLegacyMetaDmSource(row.lastMid, () => retryStuckConversationBody(row, row.lastMid ?? undefined));
+  return withLegacyMetaDmSource(row.lastMid, () => retryStuckConversationBody(row, row.lastMid ?? undefined, attempt));
 }
-async function retryStuckConversationBody(row: StuckRow, originalMid?: string): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
+async function retryStuckConversationBody(row: StuckRow, originalMid?: string, attempt?: number): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
   const metaChannel = asMetaChannel(row.channel);
   /**
    * ЧАТ НА САЙТЕ ТОЖЕ ЗАВИСАЕТ (11.09.2026).
@@ -245,6 +247,7 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string): 
       skipSaveIncoming: true,
       // Повтор оплаченного хода: суточный бюджет ИИ не списывается второй раз.
       retryOfPaidTurn: true,
+      ...(attempt ? { retryAttempt: attempt } : {}),
     });
     // «Модель всё ещё лежит» и «отвечать не нужно по правилам» — разные исходы:
     // первый ретраит задание ai-reply-retry, второй завершает его как успех.

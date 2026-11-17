@@ -59,20 +59,32 @@ describe("Что попадает в журнал", () => {
     expect(events[0].initiator).toBeNull();
   });
 
-  it("ручная правка счёта показывает, КТО её сделал", async () => {
+  it("событие, начатое человеком, показывает, КТО его сделал", async () => {
+    // Раньше пример — ручная правка счёта (kpi_override, запрещена с 03.08.2026);
+    // с 16.11.2026 снятые и устаревшие виды в списке агента не показываются вовсе,
+    // а имя инициатора по-прежнему обязано быть видно у любого события.
     recordScoreEvent({
       agentId,
-      kind: "kpi_override",
-      delta: -5,
-      reason: "Счёт изменён вручную: 90 → 85",
+      kind: "deal_closed",
+      delta: 10,
+      reason: "Сделка закрыта директором",
       initiatorId: directorId,
+      sourceId: `by-director-${runId}`,
     });
     await waitForEvents(2);
 
     const events = await loadScoreEvents(agentId);
     // Молчаливая правка сверху обесценивает весь рейтинг — имя обязано быть видно.
     expect(events[0].initiator).toBe("Директор журнала");
-    expect(events[0].delta).toBe(-5);
+  });
+
+  it("строки снятых штрафов агенту не показываются (16.11.2026)", async () => {
+    // Старая строка −5 в списке читалась бы как минус, которого в счёте уже нет.
+    await prisma.royalScoreEvent.create({
+      data: { agentId, kind: "showing_missed", delta: -5, reason: "Старый штраф", sourceId: `retired-${runId}` },
+    });
+    const events = await loadScoreEvents(agentId);
+    expect(events.some((e) => e.kind === "showing_missed")).toBe(false);
   });
 
   it("свежие события идут первыми", async () => {
@@ -109,54 +121,21 @@ describe("Двойное начисление невозможно", () => {
     expect(count).toBe(1);
   });
 
-  /** Ручная правка счёта, наоборот, повторяться ДОЛЖНА: каждая обязана остаться в
-   *  журнале отдельной строкой, иначе вторая правка окажется невидимой. */
+  /** Событие без источника, наоборот, повторяться ДОЛЖНО: каждое обязано остаться в
+   *  журнале отдельной строкой, иначе второе окажется невидимым. */
   it("события без источника повторяются свободно", async () => {
-    const before = await prisma.royalScoreEvent.count({ where: { agentId, kind: "kpi_override" } });
-    recordScoreEvent({ agentId, kind: "kpi_override", delta: -1, reason: "Правка 1", initiatorId: directorId });
-    recordScoreEvent({ agentId, kind: "kpi_override", delta: -2, reason: "Правка 2", initiatorId: directorId });
+    const before = await prisma.royalScoreEvent.count({ where: { agentId, kind: "call_on_time" } });
+    recordScoreEvent({ agentId, kind: "call_on_time", delta: 2, reason: "Звонок 1", initiatorId: directorId });
+    recordScoreEvent({ agentId, kind: "call_on_time", delta: 2, reason: "Звонок 2", initiatorId: directorId });
 
     await new Promise((r) => setTimeout(r, 300));
-    const after = await prisma.royalScoreEvent.count({ where: { agentId, kind: "kpi_override" } });
+    const after = await prisma.royalScoreEvent.count({ where: { agentId, kind: "call_on_time" } });
     expect(after).toBe(before + 2);
   });
 });
 
-/**
- * Штраф за бездействие — ПОСЛЕ предупреждения.
- *
- * Последний пункт Fair Play, и порядок здесь принципиален: штрафовать за то, о чём
- * человека не предупредили, — это ровно то, от чего Fair Play должен защищать.
- * Проверяем, что предупреждение стоит нулём (это ещё не наказание, а «мы
- * заметили») и что повтор прохода не начисляет штраф второй раз за ту же карточку.
- */
-describe("Бездействие: сначала предупреждение, потом штраф", () => {
-  it("предупреждение записывается с нулевой ценой", async () => {
-    recordScoreEvent({
-      agentId,
-      kind: "inactivity_warning",
-      delta: 0,
-      reason: "Предупреждение: по клиенту нет записей",
-      sourceId: `warn-${runId}`,
-    });
-    await new Promise((r) => setTimeout(r, 200));
-
-    const events = await loadScoreEvents(agentId);
-    const warning = events.find((e) => e.kind === "inactivity_warning");
-    expect(warning).toBeDefined();
-    expect(warning!.delta).toBe(0);
-  });
-
-  it("штраф за одну и ту же карточку не начисляется дважды", async () => {
-    const sourceId = `penalty-${runId}`;
-    recordScoreEvent({ agentId, kind: "inactivity_penalty", delta: -5, reason: "Штраф", sourceId });
-    recordScoreEvent({ agentId, kind: "inactivity_penalty", delta: -5, reason: "Штраф", sourceId });
-    await new Promise((r) => setTimeout(r, 300));
-
-    const count = await prisma.royalScoreEvent.count({ where: { agentId, sourceId } });
-    expect(count).toBe(1);
-  });
-});
+// «Бездействие: сначала предупреждение, потом штраф» удалено 16.11.2026 вместе с
+// lib/inactivityPenalty.ts — автоматические штрафы сняты владельцем.
 
 /**
  * Дашборд считает «слабое звено недели» по всем активным агентам сразу. Раньше это

@@ -138,9 +138,9 @@
     },
     {
       "path": "/clients/all-mine",
-      "component": "Clients",
-      "file": "apps/web/src/pages/Clients.tsx",
-      "redirect": null,
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/clients",
       "nav": null
     },
     {
@@ -169,15 +169,10 @@
     },
     {
       "path": "/deferred-clients",
-      "component": "DeferredClients",
-      "file": "apps/web/src/pages/DeferredClients.tsx",
-      "redirect": null,
-      "nav": {
-        "to": "/deferred-clients",
-        "label": "Отложенные",
-        "group": "people",
-        "gate": ""
-      }
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/clients",
+      "nav": null
     },
     {
       "path": "/dev/ask-panel",
@@ -287,9 +282,9 @@
     },
     {
       "path": "/inactive-clients",
-      "component": "Clients",
-      "file": "apps/web/src/pages/Clients.tsx",
-      "redirect": null,
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/clients",
       "nav": null
     },
     {
@@ -332,15 +327,10 @@
     },
     {
       "path": "/lead-funnel",
-      "component": "LeadFunnel",
-      "file": "apps/web/src/pages/LeadFunnel.tsx",
-      "redirect": null,
-      "nav": {
-        "to": "/lead-funnel",
-        "label": "Воронка лидов",
-        "group": "people",
-        "gate": ""
-      }
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/clients",
+      "nav": null
     },
     {
       "path": "/login",
@@ -351,15 +341,10 @@
     },
     {
       "path": "/lost-clients",
-      "component": "LostClients",
-      "file": "apps/web/src/pages/LostClients.tsx",
-      "redirect": null,
-      "nav": {
-        "to": "/lost-clients",
-        "label": "Потерянные",
-        "group": "people",
-        "gate": ""
-      }
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/clients",
+      "nav": null
     },
     {
       "path": "/market",
@@ -559,6 +544,13 @@
       }
     },
     {
+      "path": "/settings/functions",
+      "component": "FunctionStatus",
+      "file": "apps/web/src/pages/settings/FunctionStatus.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
       "path": "/settings/roles",
       "component": "RolesMatrix",
       "file": "apps/web/src/pages/settings/RolesMatrix.tsx",
@@ -704,24 +696,6 @@
     {
       "to": "/clients",
       "label": "Клиенты",
-      "group": "people",
-      "gate": ""
-    },
-    {
-      "to": "/lead-funnel",
-      "label": "Воронка лидов",
-      "group": "people",
-      "gate": ""
-    },
-    {
-      "to": "/deferred-clients",
-      "label": "Отложенные",
-      "group": "people",
-      "gate": ""
-    },
-    {
-      "to": "/lost-clients",
-      "label": "Потерянные",
       "group": "people",
       "gate": ""
     },
@@ -989,7 +963,7 @@
       "file": "apps/api/src/routes/properties.ts",
       "endpoints": 132,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 35
+      "usedBy": 36
     },
     {
       "mount": "/api/v1/transfer-requests",
@@ -1003,7 +977,7 @@
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 65,
+      "endpoints": 61,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
       "usedBy": 13
     },
@@ -1155,7 +1129,7 @@
       "mount": "/api/v1/settings",
       "router": "settingsRouter",
       "file": "apps/api/src/routes/settings.ts",
-      "endpoints": 58,
+      "endpoints": 61,
       "label": "Настройки CRM и точки возврата",
       "usedBy": 11
     },
@@ -1214,6 +1188,14 @@
       "endpoints": 32,
       "label": "Расходы агентства",
       "usedBy": 3
+    },
+    {
+      "mount": "/api/v1/founders",
+      "router": "foundersRouter",
+      "file": "apps/api/src/routes/founders.ts",
+      "endpoints": 11,
+      "label": null,
+      "usedBy": 1
     },
     {
       "mount": "/api/v1/finance",
@@ -1392,14 +1374,6 @@
       "usedBy": 1
     },
     {
-      "mount": "/api/v1/royal-score-events",
-      "router": "royalScoreEventsRouter",
-      "file": "apps/api/src/routes/royalScoreEvents.ts",
-      "endpoints": 2,
-      "label": "Начисления и списания баллов агентам",
-      "usedBy": 1
-    },
-    {
       "mount": "/api/v1/morning-report",
       "router": "morningReportRouter",
       "file": "apps/api/src/routes/morningReport.ts",
@@ -1523,9 +1497,17 @@
       "mount": "/api/v1/oversight",
       "router": "oversightRouter",
       "file": "apps/api/src/routes/oversight.ts",
-      "endpoints": 19,
+      "endpoints": 16,
       "label": "Контроль руководителя",
       "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/function-status",
+      "router": "functionStatusRouter",
+      "file": "apps/api/src/routes/functionStatus.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 1
     },
     {
       "mount": "/api/v1/insights",
@@ -1673,11 +1655,6 @@
       "label": "Просит у кандидатов на вакансию телефон, как откроется окно Meta"
     },
     {
-      "id": "client-auto-statuses",
-      "expr": "40 4 * * *",
-      "label": "Пересчитывает статусы клиентов, зависящие от времени"
-    },
-    {
       "id": "client-follow-ups",
       "expr": "*/10 * * * *",
       "label": "Напоминания клиентам, переставшим отвечать в переписке"
@@ -1763,11 +1740,6 @@
       "label": "Застой сделки дольше нормы — пуш руководству и задача агенту"
     },
     {
-      "id": "deferred-clients-return",
-      "expr": "*/30 * * * *",
-      "label": "Возвращает в работу клиентов, отложенных до наступившей даты"
-    },
-    {
       "id": "director-alert-queue-flush",
       "expr": "* * * * *",
       "label": "Доставляет руководству накопленные тревоги в разрешённые часы"
@@ -1821,16 +1793,6 @@
       "id": "heartbeat-watchdog",
       "expr": "*/15 * * * *",
       "label": "Сторож: поднимает тревогу о любой задаче, замолчавшей дольше нормы"
-    },
-    {
-      "id": "inactive-traffic-light",
-      "expr": "*/30 * * * *",
-      "label": "Светофор неактивных: напоминает по остывающим, переводит заглохших в потерянные"
-    },
-    {
-      "id": "inactivity-check",
-      "expr": "20 9 * * *",
-      "label": "Предупреждает и штрафует агентов за бездействие по принятым клиентам"
     },
     {
       "id": "incoming-call-lead-sweep",
@@ -1901,11 +1863,6 @@
       "id": "lost-conversations",
       "expr": "45 2 * * *",
       "label": "Разбирает переписки, кончившиеся ничем: на каком шаге теряются люди"
-    },
-    {
-      "id": "lost-inactive-trash-sweep",
-      "expr": "30 0 * * *",
-      "label": "Убирает в корзину потерянных и неактивных старше трёх месяцев"
     },
     {
       "id": "market-buyer-alerts",
@@ -1986,11 +1943,6 @@
       "id": "narration-version-delivery",
       "expr": "* * * * *",
       "label": null
-    },
-    {
-      "id": "no-answer-tail",
-      "expr": "*/30 * * * *",
-      "label": "Хвост дозвона: задачи по клиентам, до которых не дозвонились"
     },
     {
       "id": "operator-queue-presence",
@@ -2098,11 +2050,6 @@
       "label": "Просит клиента подтвердить показ, сигналит агенту о неподтверждённых"
     },
     {
-      "id": "silent-client-auto-deactivate",
-      "expr": "25 0 * * *",
-      "label": "Переводит в неактивные тех, кому мы писали последними и кто молчит"
-    },
-    {
       "id": "site-stats",
       "expr": "7 * * * *",
       "label": null
@@ -2125,6 +2072,11 @@
     {
       "id": "somon-owner-leads",
       "expr": "* * * * *",
+      "label": null
+    },
+    {
+      "id": "somon-owner-leads-silence",
+      "expr": "47 * * * *",
       "label": null
     },
     {
@@ -2376,7 +2328,7 @@
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
       "keys": 9,
-      "files": 14
+      "files": 16
     },
     {
       "name": "Бюджет Google Cloud",

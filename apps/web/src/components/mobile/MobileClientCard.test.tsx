@@ -8,10 +8,17 @@ vi.mock("../../hooks/useDuplicates", () => ({ useDismissSimilarClient: () => ({ 
 vi.mock("../rh2/ShellOwnHeader", () => ({ ShellOwnHeader: () => null }));
 vi.mock("../ClientDesiredPlacesMap", () => ({ ClientDesiredPlacesMap: () => null }));
 vi.mock("../ClientInsight", () => ({ ClientInsight: () => null }));
+// «Написать в WhatsApp первыми» (аудит F1-1, 17.11.2026): статус «готово к отправке».
+vi.mock("../../hooks/useWhatsAppFirstContact", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../hooks/useWhatsAppFirstContact")>()),
+  useWaFirstContactStatus: () => ({ data: { state: "ready", hint: "Клиент сам ещё не писал", agentName: "Агент", propertyTextReady: false, last: null } }),
+  useSendWaFirstContact: () => ({ isPending: false, error: null, mutate: vi.fn() }),
+}));
 
-const base = { id: "mobile-state-test", fullName: "Клиент", status: "CONTACTED", workStatus: "ACTIVE",
-  kind: "BUYER", pendingAcceptance: false, inactiveLevel: null, hiddenReason: null } as Client;
-function render(client: Client) {
+// workStatus и inactiveLevel убраны из клиента правкой #220 — их здесь больше нет.
+const base = { id: "mobile-state-test", fullName: "Клиент", status: "CONTACTED",
+  kind: "BUYER", pendingAcceptance: false, hiddenReason: null } as Client;
+function render(client: Client, overrides: Partial<MobileClientCardProps> = {}) {
   const noop = () => {};
   const props: MobileClientCardProps = {
     client, locked: true, pending: !!client.pendingAcceptance, isSeller: false, canBuy: client.kind === "BUYER",
@@ -22,7 +29,7 @@ function render(client: Client) {
     onCancelEditName: noop, onSubmitName: noop, phoneOptions: [], conversations: [], interactions: [],
     lastPropertiesSent: null, onOpenMatch: noop, matchTotal: undefined, canMerge: false, similarNotes: [],
     onOpenChat: noop, onShowInteraction: noop, onMerge: noop, moreGroups: [], moreError: null,
-    showMoreSheet: false, onShowMoreSheet: noop,
+    showMoreSheet: false, onShowMoreSheet: noop, ...overrides,
   };
   return renderToStaticMarkup(<MobileClientCard {...props} />);
 }
@@ -39,5 +46,16 @@ describe("mobile client overview lifecycle integration", () => {
     expect(html.match(/Прочее обращение/g)).toHaveLength(1);
     expect(html).toContain("Объекты в обзоре");
     expect(html).toContain("Журнал объектов");
+  });
+});
+
+describe("mobile client card: «Написать в WhatsApp первыми» как на ПК", () => {
+  it("показывает кнопку агенту, который ведёт клиента", () => {
+    const html = render(base, { locked: false });
+    expect(html).toContain("Написать в WhatsApp первыми");
+    expect(html).toContain("Написать в WhatsApp");
+  });
+  it("не показывает чужому (карточка закрыта)", () => {
+    expect(render(base, { locked: true })).not.toContain("Написать в WhatsApp первыми");
   });
 });

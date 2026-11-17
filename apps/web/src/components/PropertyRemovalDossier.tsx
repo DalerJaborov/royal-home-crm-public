@@ -21,7 +21,7 @@ export function PropertyRemovalDossier({ propertyIds }: { propertyIds: string[] 
   if (!allowed || !ids.length) return null;
   return <section className="rounded-xl border border-neutral-200 p-3 space-y-2" aria-label="Факты перед снятием">
     <p className="font-medium">Факты перед решением</p>
-    <p className="text-xs text-neutral-500">Наблюдения CRM. Отсутствие ответа само по себе не доказывает нарушение.</p>
+    <p className="text-[13px] text-neutral-500">Наблюдения CRM. Отсутствие ответа само по себе не доказывает нарушение.</p>
     {query.isFetching && <p role="status">Загружаем историю…</p>}
     {query.isError && <p role="alert">История сейчас недоступна. Не считайте отсутствие данных отсутствием событий.</p>}
     {query.data?.map((row, index) => <div key={row.propertyId} className="text-sm space-y-1">

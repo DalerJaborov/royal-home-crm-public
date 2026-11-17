@@ -34,7 +34,6 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
   const [acceptMinutes, setAcceptMinutes] = useState("");
   const [callMinutes, setCallMinutes] = useState("");
   const [callMinSeconds, setCallMinSeconds] = useState("");
-  const [activeLimit, setActiveLimit] = useState("");
   const [propertyLimit, setPropertyLimit] = useState("");
   const [scoreThreshold, setScoreThreshold] = useState("");
   const [reviewDays, setReviewDays] = useState("");
@@ -53,7 +52,6 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
       acceptMinutes: String(settings.leadAcceptMinutes ?? 15),
       callMinutes: String(settings.leadCallMinutes ?? 15),
       callMinSeconds: String(settings.leadCallMinSeconds ?? 30),
-      activeLimit: String(settings.leadActiveLimit ?? 6),
       propertyLimit: String(settings.propertyActiveLimit ?? 0),
       scoreThreshold: String(settings.hotScoreThreshold ?? 70),
       reviewDays: String(settings.propertyReviewDays ?? 1),
@@ -71,7 +69,6 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
       acceptMinutes: [acceptMinutes, setAcceptMinutes],
       callMinutes: [callMinutes, setCallMinutes],
       callMinSeconds: [callMinSeconds, setCallMinSeconds],
-      activeLimit: [activeLimit, setActiveLimit],
       propertyLimit: [propertyLimit, setPropertyLimit],
       scoreThreshold: [scoreThreshold, setScoreThreshold],
       reviewDays: [reviewDays, setReviewDays],
@@ -97,7 +94,6 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
       leadAcceptMinutes: Number(acceptMinutes),
       leadCallMinutes: Number(callMinutes),
       leadCallMinSeconds: Number(callMinSeconds),
-      leadActiveLimit: Number(activeLimit),
       propertyActiveLimit: Number(propertyLimit),
       hotScoreThreshold: Number(scoreThreshold),
       propertyReviewDays: Number(reviewDays),
@@ -180,8 +176,8 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
               onChange={(e) => setCallMinutes(e.target.value)}
             />
             <span className="msg" style={{ color: "var(--faint)" }}>
-              За это время после принятия агент обязан поговорить с клиентом, иначе штраф Royal Score
-              (передача дальше — только если включена ниже).
+              За это время после принятия агент обязан поговорить с клиентом, иначе руководитель получит
+              сигнал (передача дальше — только если включена ниже).
             </span>
           </label>
           <label className="fld">
@@ -196,20 +192,6 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
             <span className="msg" style={{ color: "var(--faint)" }}>
               Короче этого звонок не засчитывается: гудки и «алло, перезвоню» разговором не считаются.
               0 — засчитывать любой ответ.
-            </span>
-          </label>
-          <label className="fld">
-            <span className="lab">Лимит активных лидов</span>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={activeLimit}
-              onChange={(e) => setActiveLimit(e.target.value)}
-            />
-            <span className="msg" style={{ color: "var(--faint)" }}>
-              Предел смешанного портфеля: заполненный агент новых не получает. Лиды по его собственным
-              объектам за этот предел выходят — правила во вкладке «Лиды». 0 — без лимита.
             </span>
           </label>
           <label className="fld">
@@ -250,7 +232,7 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
               onChange={(e) => setMaxTransfers(e.target.value)}
             />
             <span className="msg" style={{ color: "var(--faint)" }}>
-              Дальше карточка становится «Потерянной»; 0 — без предела. Считаются и отказы агентов, и
+              Дальше кому отдать клиента, решает руководитель; 0 — без предела. Считаются и отказы агентов, и
               автоматические передачи горячего клиента: трое уже не смогли, четвёртому её выдавать
               бессмысленно. Руководитель по-прежнему может назначить агента вручную.
             </span>
@@ -262,8 +244,8 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
             <b>Забирать лид у агента, который не позвонил</b>
             <span>
               По умолчанию выключено (решение от 18.08.2026, чтобы принятый лид не уходил от агента без
-              объяснений) — принявший, но не позвонивший вовремя агент получает штраф, а лид остаётся у него.
-              Включите — и лид сразу снимается и уходит следующему по очереди агенту вместо штрафа-без-передачи.
+              объяснений) — если принявший агент не позвонил вовремя, руководитель получает сигнал, а лид
+              остаётся у агента. Включите — и лид сразу снимается и уходит следующему по очереди агенту.
               Щиток занятости («Лиды» → «Занятость агента в раздаче») по-прежнему не даёт новому лиду прийти
               агенту, который прямо сейчас на показе или в звонке.
             </span>

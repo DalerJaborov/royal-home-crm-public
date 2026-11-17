@@ -129,32 +129,7 @@ describe("Разбор проблемных мест", () => {
 
   it("в отчёт попадают события своего периода, соседние — нет", async () => {
     const before = await buildProblemMetrics("week");
-    const windowsBefore = value(before, "agents", "windows");
     const escalatedBefore = value(before, "clients", "escalated");
-
-    await prisma.royalScoreEvent.createMany({
-      data: [
-        // Два просроченных окна внутри недели…
-        { agentId, kind: "mandatory_window_overdue", delta: -2, reason: "Тест: внутри периода", at: insidePeriod },
-        {
-          agentId,
-          kind: "mandatory_window_overdue",
-          delta: -2,
-          reason: "Тест: внутри периода 2",
-          at: new Date(insidePeriod.getTime() + 60_000),
-          sourceId: `problem-report-${runId}-a`,
-        },
-        // …и одно ДО неё: оно обязано остаться за границей отчёта.
-        {
-          agentId,
-          kind: "mandatory_window_overdue",
-          delta: -2,
-          reason: "Тест: прошлый период",
-          at: beforePeriod,
-          sourceId: `problem-report-${runId}-b`,
-        },
-      ],
-    });
 
     insideClientId = (
       await prisma.client.create({
@@ -179,12 +154,7 @@ describe("Разбор проблемных мест", () => {
 
     const after = await buildProblemMetrics("week");
     // Прирост ровно на свои записи: абсолютные числа зависят от общей базы.
-    expect(value(after, "agents", "windows") - windowsBefore).toBe(2);
     expect(value(after, "clients", "escalated") - escalatedBefore).toBe(1);
-
-    const agentsSection = after.sections.find((s) => s.key === "agents")!;
-    const mine = agentsSection.links.find((l) => l.href === `/team?agent=${agentId}`);
-    expect(mine?.hint).toContain("просрочено окон: 2");
 
     const clientsSection = after.sections.find((s) => s.key === "clients")!;
     const hrefs = clientsSection.links.map((l) => l.href);
@@ -192,6 +162,19 @@ describe("Разбор проблемных мест", () => {
     const outside = await shortIdOf(outsideClientId);
     expect(hrefs).toContain(`/clients/${inside}`);
     expect(hrefs).not.toContain(`/clients/${outside}`);
+  });
+
+  /**
+   * Показатели, которые считались по штрафам Royal Score, сняты 16.11.2026 вместе
+   * со штрафами: без новых строк они навсегда стояли бы на нуле с пометкой
+   * «лучше прошлого периода» — пустое число, выдающее себя за хорошую новость.
+   */
+  it("показателей из снятых штрафов в отчёте нет", async () => {
+    const m = await buildProblemMetrics("week");
+    const keys = m.sections.flatMap((s) => s.metrics.map((x) => `${s.key}.${x.key}`));
+    for (const gone of ["clients.missedCalls", "clients.lost", "agents.windows", "agents.tasks", "agents.declines", "agents.missedCalls"]) {
+      expect(keys).not.toContain(gone);
+    }
   });
 
   it("выключенный в Настройках отчёт не собирается вовсе", async () => {

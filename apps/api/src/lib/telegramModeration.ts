@@ -38,7 +38,7 @@ import {
   resolvePermissions,
   type Role,
 } from "@royal-home/shared";
-import { prisma } from "../db.js";
+import { prisma, type PropertyDefaultOmit } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { uploadsDir } from "../upload.js";
 import {
@@ -156,7 +156,7 @@ const propertyInclude = {
     select: { storageKey: true, sizeBytes: true, filename: true, hasAudio: true, durationSec: true },
   },
 };
-type CardProperty = Prisma.PropertyGetPayload<{ include: typeof propertyInclude }>;
+type CardProperty = Prisma.PropertyGetPayload<{ include: typeof propertyInclude; omit: PropertyDefaultOmit }>;
 
 async function loadCardProperty(where: { id: string } | { shortId: number }): Promise<CardProperty | null> {
   return prisma.property.findUnique({ where, include: propertyInclude }) as Promise<CardProperty | null>;

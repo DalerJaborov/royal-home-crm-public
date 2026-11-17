@@ -5,7 +5,7 @@ import { describeError } from "../lib/describeError.js";
 import { logTimeline } from "../lib/timeline.js";
 import { dushanbeInputToDate, dushanbeStartOfToday } from "../lib/dushanbeTime.js";
 import { findClientDeliveryTarget, deliverToConversation } from "../lib/conversationDelivery.js";
-import { resolveReactivationTaskAgentId, fillReactivationTemplate } from "../lib/reactivationCampaign.js";
+import { resolveReactivationTaskAgentId, fillReactivationTemplate, reactivationCandidateWhere, reactivationCutoff } from "../lib/reactivationCampaign.js";
 import type { JobHandler } from "./registry.js";
 
 /**
@@ -41,7 +41,7 @@ const schema = z.object({
   weekKey: z.string(),
 });
 
-const REACTIVATION_ELIGIBLE_STATUSES = new Set(["COLD", "LOST"]);
+
 
 export const clientReactivationJob: JobHandler<z.infer<typeof schema>> = {
   type: "client-reactivation",
@@ -68,8 +68,14 @@ export const clientReactivationJob: JobHandler<z.infer<typeof schema>> = {
     });
     if (!client || client.deletedAt) return; // ушёл в Корзину между постановкой и исполнением
     if (client.reactivationOfferedToAgentId) return; // подхвачен своей реактивацией к прежнему агенту
-    const stillEligible = REACTIVATION_ELIGIBLE_STATUSES.has(client.status) || client.workStatus === "INACTIVE";
-    if (!stillEligible) return; // агент или клиент сами сдвинули карточку с места — сообщение больше не нужно
+    // Тем же правилом, что и отбор (lib/reactivationCampaign.ts): с постановки в
+    // очередь агент мог поговорить с клиентом, а клиент — написать сам.
+    const eligibilitySettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { reactivationAfterDays: true } });
+    const stillEligible =
+      (await prisma.client.count({
+        where: { AND: [{ id: client.id }, reactivationCandidateWhere(reactivationCutoff(eligibilitySettings?.reactivationAfterDays))] },
+      })) > 0;
+    if (!stillEligible) return; // агент или клиент сами вышли на связь — сообщение больше не нужно
 
     // Сообщение этой недели уже ушло (прошлая попытка того же задания дослала
     // после таймаута) — второе не шлём, вторую задачу не заводим. См. шапку.
