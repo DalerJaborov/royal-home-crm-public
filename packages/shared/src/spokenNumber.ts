@@ -196,6 +196,9 @@ const RU_ORD_TEENS = [
 ];
 const RU_ORD_TENS = ["", "", "двадцатый", "тридцатый", "сороковой", "пятидесятый", "шестидесятый", "семидесятый", "восьмидесятый", "девяностый"];
 
+/** «пятый», «двадцать первый» (мужской род, именительный): этаж в озвучке. */
+export function russianOrdinal(n: number): string { return ruOrdinal(n); }
+
 function ruOrdinal(n: number): string {
   if (n < 1 || n > 99) return `${ruInteger(n)}-й`;
   if (n < 10) return RU_ORD_UNITS[n];
@@ -219,6 +222,9 @@ const RU_GEN_TEENS = [
   "девятнадцати",
 ];
 const RU_GEN_TENS = ["", "", "двадцати", "тридцати", "сорока", "пятидесяти", "шестидесяти", "семидесяти", "восьмидесяти", "девяноста"];
+
+/** «из девяти» — для {этажей} в русской озвучке (17.11.2026). */
+export function russianGenitive(n: number): string { return ruGenitive(n); }
 
 /** «из девяти», «из двадцати пяти» — родительный падеж для этажности. */
 function ruGenitive(n: number): string {
