@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **760**. Развилок в самих путях: **2495**; вместе с задачами по расписанию и фоновыми заданиями — **4128**. Модулей: **85**.
+Путей: **760**. Развилок в самих путях: **2492**; вместе с задачами по расписанию и фоновыми заданиями — **4125**. Модулей: **85**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2972,20 +2972,22 @@
 - если !Number.isInteger(shortId)
   - return res.status(404).json({ error: "Клиент не найден" });
     · ответ 404 — «Клиент не найден»
-- const ownAgentId = scopeToOwnAgent(req);
-  · зовёт scopeToOwnAgent()
 - const client = await prisma.client.findUnique({ where: { shortId }, select: { id: true, shortId: true, fullNa…
   · читает в базе: client
 - если !client || client.deletedAt
   - return res.status(404).json({ error: "Клиент не найден" });
     · ответ 404 — «Клиент не найден»
-- если ownAgentId && client.assignedAgentId !== ownAgentId
-  - если !hasDeal && !wasMine
-    - return res.status(403).json({ error: "Недостаточно прав" });
-      · ответ 403 — «Недостаточно прав»
-- если ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt
+- const access = await resolveClientCardAccess(req, client);
+  · зовёт resolveClientCardAccess()
+- если access === "denied"
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- если access === "nameOnly"
   - return res.status(403).json({ error: "Лид ещё не принят — переписка не открыта" });
     · ответ 403 — «Лид ещё не принят — переписка не открыта»
+- если access === "transferred"
+  - return res.status(403).json({ error: "Клиент передан другому агенту — переписка закрыта" });
+    · ответ 403 — «Клиент передан другому агенту — переписка закрыта»
 - const toRows = (channel: string, messages: unknown): ExportRow[]
   · зовёт presentMessages()
 - const shownName = client.fullName ? clientNamePhoneSafe(client.fullName, phonesAllowed) : "без имени";
@@ -3605,17 +3607,17 @@
 - если !client || client.deletedAt
   - return res.status(404).json({ error: "Клиент не найден" });
     · ответ 404 — «Клиент не найден»
-- const ownAgentId = scopeToOwnAgent(req);
-  · зовёт scopeToOwnAgent()
-- если !canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId
-  - const hasDeal = ownAgentId && await prisma.deal.count({ where: { clientId: id.data, agentId: ownAgentId } });
-    · считает в базе: deal
-  - если !hasDeal
-    - return res.status(403).json({ error: "Недостаточно прав" });
-      · ответ 403 — «Недостаточно прав»
-- если ownAgentId === client.assignedAgentId && !client.acceptedAt
+- const access = await resolveClientCardAccess(req, { ...client, id: id.data });
+  · зовёт resolveClientCardAccess()
+- если access === "denied"
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- если access === "nameOnly"
   - return res.status(403).json({ error: "Сначала примите лид" });
     · ответ 403 — «Сначала примите лид»
+- если access === "transferred"
+  - return res.json({ items: [], total: 0, page: query.data.page, pageSize } satisfies ClientPropertyActivity);
+    · ответ 200
 - const selection = propertySelection(req.agent!.id);
   · зовёт propertySelection()
 - если section === "sent"
@@ -3781,7 +3783,7 @@
 - если !client || !client.deletedAt
   - return res.status(404).json({ error: "Карточка не найдена в Корзине" });
     · ответ 404 — «Карточка не найдена в Корзине»
-- если !isHolder && !can(req, "clients.viewAll")
+- если decideClientCardAccess(scopeToOwnAgent(req), { ...client, acceptedAt: null }, false) === "denied"
   - return res.status(403).json({ error: "Попросить восстановить может только тот, кто вёл эту карточку" });
     · ответ 403 — «Попросить восстановить может только тот, кто вёл эту карточку»
 - const already = await prisma.pendingDirectorAlert.findFirst({ where: { tag, createdAt: { gte: client.deletedA…
@@ -4111,20 +4113,17 @@
 - если (before && !beforeId) || (!before && beforeId)
   - return res.status(400).json({ error: "Курсор задаётся парой before и beforeId" });
     · ответ 400 — «Курсор задаётся парой before и beforeId»
-- const ownAgentId = scopeToOwnAgent(req);
-  · зовёт scopeToOwnAgent()
 - const client = await prisma.client.findUnique({ where: cardWhere, select: { id: true, deletedAt: true, assign…
   · читает в базе: client
 - если !client || client.deletedAt
   - return res.status(404).json({ error: "Клиент не найден" });
     · ответ 404 — «Клиент не найден»
-- если ownAgentId && client.assignedAgentId !== ownAgentId
-  - const hasDeal = (await prisma.deal.count({ where: { clientId: client.id, agentId: ownAgentId } })) > 0;
-    · считает в базе: deal
-  - если !hasDeal && client.lastAgentId !== ownAgentId
-    - return res.status(403).json({ error: "Недостаточно прав" });
-      · ответ 403 — «Недостаточно прав»
-- если ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt
+- const access = await resolveClientCardAccess(req, client);
+  · зовёт resolveClientCardAccess()
+- если access === "denied"
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- если access !== "full"
   - return res.json({ items: [], total: 0, hasMore: false });
     · ответ 200
 - const baseWhere: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(investigationViewerRole(req)), c…
@@ -4267,13 +4266,11 @@
 - если !client || client.deletedAt
   - return res.status(404).json({ error: "Клиент не найден" });
     · ответ 404 — «Клиент не найден»
-- если ownAgentId && client.assignedAgentId !== ownAgentId
-  - если !hasDeal && !wasMine
-    - return res.status(403).json({ error: "Недостаточно прав" });
-      · ответ 403 — «Недостаточно прав»
-  - если !hasDeal && wasMine
-    - transferAccess = await loadTransferAccess(client.id, ownAgentId);
-      · дословно из кода
+- const access = await resolveClientCardAccess(req, client);
+  · зовёт resolveClientCardAccess()
+- если access === "denied"
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
 - если ownAgentId && client.assignedAgentId === ownAgentId && client.acceptedAt
   - await Promise.all([ prisma.botConversation.updateMany({ where: { clientId: client.id }, data: { readAt: new D…
     · меняет в базе: botConversation
@@ -4310,7 +4307,7 @@
   · читает в базе: settings
 - const withMessages = { ...client, hadConductedShowing: conductedShowing, callsCount, hadRealCall: realCalls >…
   · зовёт presentClientTimeline()
-- const sellerPropertyAddress = client.kind === "SELLER" ? await loadSellerPropertyAddress(client.id) : null;
+- const sellerPropertyAddress = client.kind === "SELLER" && access !== "transferred" ? await loadSellerProperty…
   · зовёт loadSellerPropertyAddress()
 - const presentedClient = presentClient( responseClient, can(req, "clients.viewPhone") && !gateUntilAccepted, c…
   · зовёт presentClient()
@@ -4952,6 +4949,8 @@
     · зовёт phoneSafeText()
 - res.json({ items: items.map((c)
   · ответ 200
+  - const rowAccess = decideClientCardAccess(ownAgentId, c, false);
+    · зовёт decideClientCardAccess()
   - const presented = presentClient( gated, canSeePhone && !gateUntilAccepted, can(req, "clients.viewOrigin"), in…
     · зовёт presentClient()
 
@@ -19742,6 +19741,8 @@
         · дословно из кода
   - void logSystemError("background-jobs", `Тик очереди заданий упал: ${err instanceof Error ? err.message : Stri…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -21113,6 +21114,8 @@
           · дословно из кода
     - void logSystemError("exchange-rate", `Курс USD→TJS не обновлён: ${result.error}`);
       · запись в журнал ошибок
+      - message = maskPhoneNumbersInText(String(message));
+        · зовёт maskPhoneNumbersInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -21153,6 +21156,8 @@
         · дословно из кода
   - void logSystemError("exchange-rate", `Курс USD→TJS не обновлён: ${reason}`);
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -21721,6 +21726,8 @@
         · дословно из кода
   - void logSystemError("api", `Insight digest cron failed: ${err instanceof Error ? err.message : String(err)}`);
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -21851,6 +21858,8 @@
   - иначе
     - void logSystemError("meta", `Сбор «подписчики Instagram в сети» не удался: ${result.error}`, { dedupKey: "ins…
       · запись в журнал ошибок
+      - message = maskPhoneNumbersInText(String(message));
+        · зовёт maskPhoneNumbersInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -21886,6 +21895,8 @@
     · пишет строку в журнал сервера
   - void logSystemError("meta", `Сбор «подписчики Instagram в сети» упал: ${reason}`, { dedupKey: "instagram-onli…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -24758,6 +24769,8 @@
     - если сорвалось
       - void logSystemError("api", `«Объект загорелся» не разослан: ${err instanceof Error ? err.message : String(err…
         · запись в журнал ошибок
+        - message = maskPhoneNumbersInText(String(message));
+          · зовёт maskPhoneNumbersInText()
         - если isPrivateOperation()
           - source = "investigation";
             · дословно из кода
@@ -24791,6 +24804,8 @@
   - иначе если !result.notConfigured
     - void logSystemError("site-sync", `Статистика сайта не собрана: ${result.error}`, { dedupKey: result.siteNotDe…
       · запись в журнал ошибок
+      - message = maskPhoneNumbersInText(String(message));
+        · зовёт maskPhoneNumbersInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -26208,6 +26223,8 @@
         · дословно из кода
   - void logSystemError("ai", `Еженедельный пуш с разбором маркетинга не отправлен: ${err instanceof Error ? err.…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -26592,6 +26609,8 @@
         · дословно из кода
   - void logSystemError("api", `Прогноз перерасхода не посчитан: ${err instanceof Error ? err.message : String(er…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -26675,6 +26694,8 @@
         · дословно из кода
   - void logSystemError("meta", `Сигналы рекламы не проверены: ${err instanceof Error ? err.message : String(err)…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -26858,6 +26879,8 @@
   - если giveUps < PERMANENT_AFTER_GIVE_UPS
     - await logSystemError( "ai", `Ход (${payload.conversationId}) не дождался ИИ за всё окно фонового повтора — кл…
       · запись в журнал ошибок
+      - message = maskPhoneNumbersInText(String(message));
+        · зовёт maskPhoneNumbersInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -26921,6 +26944,8 @@
           · меняет в базе: backgroundJob
   - await logSystemError( "ai", `Ход (${payload.conversationId}) не проходит через ИИ ${giveUps}-й раз подряд (бо…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -26974,6 +26999,8 @@
     · дальше не идёт, ничего не меняя
 - void logSystemError( "ai", `Диалог (${payload.conversationId}, ${conversation.channel}) не проходит через ИИ …
   · запись в журнал ошибок
+  - message = maskPhoneNumbersInText(String(message));
+    · зовёт maskPhoneNumbersInText()
   - если isPrivateOperation()
     - source = "investigation";
       · дословно из кода
@@ -27185,6 +27212,8 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Откат цены Шабнам требует проверки в CRM", { dedupKey: `assistant-pr…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27283,6 +27312,8 @@
 - если !taskAgentId
   - await logSystemError( "background-jobs", `Реактивация клиента ${payload.clientId}: не нашлось ни владельца, н…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27336,6 +27367,8 @@
 - когда попытки кончились
   - await logSystemError( "background-jobs", `Реактивационное сообщение клиенту ${payload.clientId} (неделя ${pay…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27400,6 +27433,8 @@
 - когда попытки кончились
   - await logSystemError( "storage", `Сжатие видео объекта ${payload.propertyId} не удалось после всех попыток — …
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27479,6 +27514,8 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление о записанной просьбе клиента не подтверждено; задача ост…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27597,6 +27634,8 @@
   - пробует
     - await logSystemError("background-jobs", "Не подтверждено сохранение новой заявки после хода; проверьте журнал…
       · запись в журнал ошибок
+      - message = maskPhoneNumbersInText(String(message));
+        · зовёт maskPhoneNumbersInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -27633,6 +27672,8 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Обработка контакта после ответа требует проверки; автоматической пер…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27717,6 +27758,8 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Сохранённое входящее сообщение требует проверки обработки", { dedupK…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27842,6 +27885,8 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление о сохранённой новой заявке не подтверждено; карточка ост…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27910,6 +27955,8 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Новая заявка сохранена, но её правило назначения не завершилось; про…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27997,6 +28044,8 @@
 - если result.status === "unknown" || result.status === "not_sent"
   - await logSystemError("background-jobs", "Площадка не подтвердила сохранённую отправку; автоматический повтор …
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28030,6 +28079,8 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Сохранённая отправка требует проверки квитанции или локальной истори…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28110,6 +28161,8 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление сотруднику о сохранённом показе не подтверждено; показ о…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28235,6 +28288,8 @@
   - если сорвалось
     - await logSystemError("background-jobs", `[alarm] Режим «только заявки»: заявка из переписки не оформлена (диа…
       · запись в журнал ошибок
+      - message = maskPhoneNumbersInText(String(message));
+        · зовёт maskPhoneNumbersInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -28346,6 +28401,8 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление о вопросе собственнику не подтверждено; вопрос остаётся …
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28474,6 +28531,8 @@
 - когда попытки кончились
   - await logSystemError( "site-sync", `Пост-закрытие сделки (${payload.dealId}) не выполнено после всех попыток …
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28523,6 +28582,8 @@
 - когда попытки кончились
   - await logSystemError( "background-jobs", `Вопрос об отзыве по сделке ${payload.dealId} не отправлен после все…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28570,6 +28631,8 @@
 - когда попытки кончились
   - await logSystemError( "background-jobs", `Отложенное на утро уведомление «${payload.payload.title}» не ушло п…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28690,6 +28753,8 @@
 - когда попытки кончились
   - await logSystemError( "background-jobs", `Ночной гео-подбор (${payload.dayKey}): объект ${payload.propertyId}…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28770,6 +28835,8 @@
 - если !result
   - await logSystemError( "geocode", `Адрес объекта №${property.shortId} не найден ни в справочнике домов, ни в N…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28833,6 +28900,8 @@
     · читает в базе: property
   - await logSystemError( "geocode", `Координаты объекта ${payload.propertyId} не получены после всех попыток (ад…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28958,6 +29027,8 @@
       · меняет в базе: propertyPhotoPost
   - void logSystemError("meta", `Фото-пост объекта ${payload.propertyId} не запущен: ${summary.reason}`, { dedupK…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29029,6 +29100,8 @@
 - когда попытки кончились
   - await logSystemError( "telephony", `Разговор ${payload.interactionId} был отвечен, но запись так и не нашлась…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29179,6 +29252,8 @@
 - когда попытки кончились
   - await logSystemError("ai", `Факты объекта продавца ${payload.clientId} не обновлены: сбой базы на обеих попыт…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29252,6 +29327,8 @@
 - когда попытки кончились
   - void logSystemError("ai", `Оценка фото продавца не удалась после всех попыток (клиент ${payload.clientId})`);
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29309,6 +29386,8 @@
 - когда попытки кончились
   - await logSystemError( "site-sync", `Объект не дошёл до сайта (${payload.context}) — витрина разъехалась с CRM…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29438,6 +29517,8 @@
       · меняет в базе: propertySocialRepost
   - void logSystemError("meta", `Повтор объекта ${payload.propertyId} (круг ${payload.round}) не запущен: ${summa…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29645,6 +29726,8 @@
       · дальше не идёт, ничего не меняя
   - await logSystemError( "ai", `Ход (${payload.conversationId}, личные сообщения Telegram-канала) не дождался ИИ…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29830,6 +29913,8 @@
     · меняет в базе: telegramConversation
   - await logSystemError( "ai", `Ход (${payload.conversationId}, TELEGRAM) не дождался ИИ за всё окно фонового по…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29872,6 +29957,8 @@
   - если сорвалось
     - void logSystemError( "ai", `Не удалось позвать человека на непроходимый диалог Telegram ${payload.conversatio…
       · запись в журнал ошибок
+      - message = maskPhoneNumbersInText(String(message));
+        · зовёт maskPhoneNumbersInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -29926,6 +30013,8 @@
 - если blocked
   - void logSystemError("tiktok", `Объект №${property.shortId}: отложенный повтор TikTok отменён — ${blocked}`);
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30218,6 +30307,8 @@
 - когда попытки кончились
   - await logSystemError( "ai", `Разговор ${payload.interactionId} так и не расшифрован после всех попыток — запи…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30267,6 +30358,8 @@
 - если !PUBLISHABLE_STATUSES.includes(property.status)
   - void logSystemError( "video-handoff", `Объект ${property.id}: ролик принят, но публикация пропущена — объект …
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30333,6 +30426,8 @@
 - если !diskPath || !(await fileExists(diskPath))
   - void logSystemError( "video-handoff", `Объект ${property.id}: задание публикации запущено, но файла ролика на…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30449,6 +30544,8 @@
 - когда попытки кончились
   - void logSystemError("api", `Первые секунды ролика: разбор не удался (объект ${payload.propertyId})`, { dedupK…
     · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
