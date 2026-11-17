@@ -81,19 +81,23 @@ describe("п.1 the class: question mark, question word, imperative, request word
   });
 });
 
-describe("п.1 agreement stays where it is honest: a plain statement and no fact line", () => {
+// Round 5 (17.11): no agreement phrase goes out at all, a plain statement included («Беру за 900» is a statement too). These inputs
+// used to expect «Хорошо/Хуб/Майлаш» to pass; now the agreement is refused and a thanks / acknowledgement lead goes out instead.
+describe("п.1 round 5: no agreement even after a plain statement and no fact line (was: it goes out)", () => {
   it.each([
     ["ru", "Ищу квартиру", "rooms", "Хорошо."], ["ru", "Ищу квартиру в Сино", "rooms", "Хорошо, понял вас."], ["ru", "3 комнаты", "budget", "Хорошо, спасибо."],
     ["ru", "Бюджет до 60 тысяч", "location", "Хорошо."], ["ru", "Спасибо, жду звонка", "name", "Хорошо."], ["ru", "Здравствуйте, ищу квартиру", "rooms", "Хорошо, понимаю вас."],
     ["ru", "Извините, я в Сино ищу", "rooms", "Хорошо."], ["ru", "Видел ваше объявление на сайте", "rooms", "Хорошо, понял вас."],
     ["tg", "Хона мехарам", "rooms", "Хуб."], ["tg", "Се ҳуҷра", "budget", "Майлаш."], ["tg", "Дар Сино", "rooms", "Хеле хуб."],
     ["tg", "Раҳмат, интизорам", "name", "Хуб, фаҳмидам."], ["tg", "Бубахшед, хона мехарам", "rooms", "Хуб."],
-  ] as const)("%s «%s» → «%s» goes out", (language, inputText, question, lead) => {
-    expect(ok({ language, inputText, d: cl(question) }, { lead })).toBe(true);
+  ] as const)("%s «%s» → «%s» is refused", (language, inputText, question, lead) => {
+    expect(ok({ language, inputText, d: cl(question) }, { lead })).toBe(false);
+    expect(ok({ language, inputText, d: cl(question) }, { lead: language === "ru" ? "Спасибо, что написали!" : "Раҳмат, ки навиштед!" })).toBe(true);
   });
   it("after a plain previous message too («Ищу квартиру», then «3 комнаты»)", () => {
     const turns: Turn[] = [{ role: "user", text: "Ищу квартиру" }, { role: "assistant", text: "Сколько комнат вам нужно?" }];
-    expect(ok({ inputText: "3 комнаты", d: cl("budget"), turns }, { lead: "Хорошо." })).toBe(true);
+    expect(ok({ inputText: "3 комнаты", d: cl("budget"), turns }, { lead: "Хорошо." })).toBe(false);
+    expect(ok({ inputText: "3 комнаты", d: cl("budget"), turns }, { lead: "Понял, спасибо." })).toBe(true);
   });
 });
 
@@ -106,9 +110,9 @@ describe("п.1 detector and the phrase list stay one class", () => {
     "В бюджете до 60", "Видел на сайте", "Хона мехарам", "Се ҳуҷра", "Раҳмат, ки навиштед", "Шумо гуфтед, ман интизорам", "Дар Сино", "Бубахшед", ""])("states: %s", text => {
     expect(customerAsksOrRequests(text)).toBe(false);
   });
-  it("every vetted phrase with an agreement word is tagged «agree», and every «agree» carries one (a new «Конечно.» cannot slip in untagged)", () => {
+  it("round 5: no vetted phrase carries an agreement word (was: each one is tagged «agree»)", () => {
     for (const language of ["ru", "tg"] as const) for (const role of ["lead", "close"] as const) {
-      for (const [text, kind] of HUMAN_PHRASES[language][role]) expect(humanPhraseAgrees(text), `${language} ${role} ${text}`).toBe(kind === "agree");
+      for (const [text] of HUMAN_PHRASES[language][role]) expect(humanPhraseAgrees(text), `${language} ${role} ${text}`).toBe(false);
     }
   });
   it.each(["Конечно.", "Ладно.", "Договорились.", "Да.", "Бале.", "Албатта.", "Ҳа.", "Хорошо, договорились."])("unlisted agreement «%s» is refused anyway", lead => {
@@ -119,12 +123,16 @@ describe("п.1 detector and the phrase list stay one class", () => {
 describe("п.2 the vetted phrase goes out, never the model's casing or punctuation", () => {
   const rooms: Case = { inputText: "Ищу квартиру", d: cl("rooms") };
   const ask = "Сколько комнат вам нужно?";
-  it.each([["ХОРОШО.", "Хорошо."], ["хорошо", "Хорошо."], ["«Хорошо».", "Хорошо."], ["Хорошо понял вас", "Хорошо, понял вас."],
-    ["Хорошо; понял вас.", "Хорошо, понял вас."], ["Хорошо, понял вас!!!", "Хорошо, понял вас."], ["понимаю вас", "Понимаю вас."],
-    ["СПАСИБО ЗА ТЕРПЕНИЕ", "Спасибо за терпение."], ["Хорошо. Понял вас", "Хорошо. Понял вас."]] as const)("lead «%s» → «%s»", (lead, sent) => {
+  // Round 5: the «Хорошо…» spellings of this list are refused now (no agreement phrase); the same normalization is checked on others.
+  it.each([["ПОНЯЛ ВАС.", "Понял вас."], ["понял вас", "Понял вас."], ["«Понял вас».", "Понял вас."], ["Понял вас спасибо", "Понял вас, спасибо."],
+    ["Понял вас; спасибо.", "Понял вас, спасибо."], ["Понял вас, спасибо!!!", "Понял вас, спасибо."], ["понимаю вас", "Понимаю вас."],
+    ["СПАСИБО ЗА ТЕРПЕНИЕ", "Спасибо за терпение."], ["Спасибо! Понял вас", "Спасибо! Понял вас."]] as const)("lead «%s» → «%s»", (lead, sent) => {
     const v = verdict(rooms, { lead });
     expect(v?.ok).toBe(true);
     expect(v?.text).toBe(`${sent}\n${ask}`);
+  });
+  it.each(["ХОРОШО.", "хорошо", "«Хорошо».", "Хорошо понял вас", "Хорошо; понял вас.", "Хорошо, понял вас!!!", "Хорошо. Понял вас"])("round 5: «%s» is refused", lead => {
+    expect(ok(rooms, { lead })).toBe(false);
   });
   it("Tajik: «ФАҲМИДАМ» → «Фаҳмидам.», «раҳмат ки навиштед» → «Раҳмат, ки навиштед!»", () => {
     const c: Case = { language: "tg", inputText: "Хона мехарам", d: cl("rooms") };
