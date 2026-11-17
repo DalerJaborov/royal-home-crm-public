@@ -19,7 +19,7 @@ import {
 import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { dushanbeEndOfDay, dushanbeDayRange } from "../lib/dushanbeTime.js";
-import { generateMonthlyReport, liveMonthlyMoney, monthKeyLabel, withLiveMoney } from "../lib/monthlyReport.js";
+import { generateMonthlyReport, liveMonthlyMoney, liveMonthlyMoneyMap, monthKeyLabel, withLiveMoney, type LiveMonthlyMoney } from "../lib/monthlyReport.js";
 import { collectPostShowingCohort } from "../lib/postShowingCohort.js";
 import { projectMonthlyPublicInteractions } from "../lib/monthlyPublicProjection.js";
 import { generateProblemReport } from "../lib/problemReport.js";
@@ -307,7 +307,9 @@ reportsRouter.get("/marketing-insights", async (req, res) => {
 /**
  * Месячные отчёты руководству (примечание владельца от 30.07).
  *
- * Цифры — снапшот на момент составления, заметки владелец правит когда угодно.
+ * Цифры — снапшот на момент составления, кроме денег: комиссия, расходы и прибыль считаются
+ * живыми той же функцией, что «Финансы» (снимок — справкой *AtClose, аудит денег 17.11).
+ * Заметки владелец правит когда угодно.
  * Отдельное право не заводим: отчёты и так под reports.view, а видеть месячный
  * итог должны те же люди, что и остальную аналитику.
  */
@@ -336,13 +338,15 @@ reportsRouter.get("/monthly", async (req, res) => {
     include: { updatedBy: { select: { fullName: true } } },
   });
   // Комиссия и расходы месяца — только с правом на финансы (аудит 23.09.2026, №44).
-  res.json(await Promise.all(reports.map((r) => presentMonthlyReport(req, r))));
+  // Живые деньги всех отчётов — одной сводкой (ревью 17.11: не 12 сводок на открытие экрана).
+  const live = can(req, "finance.view") ? await liveMonthlyMoneyMap(reports.map((r) => monthKeyLabel(r.periodStart))) : undefined;
+  res.json(await Promise.all(reports.map((r) => presentMonthlyReport(req, r, live))));
 });
 
 /** Комиссия и расходы месяца — только с правом на финансы. Одна функция и для
  *  GET, и для PATCH заметок: ответ записи отдавал строку целиком, и аналитик без
  *  finance.view получал деньги, закрытые в списке (аудит Codex 04.10.2026, ACCESS-04). */
-async function presentMonthlyReport<T extends { metrics: unknown; periodStart: Date }>(req: Request, report: T): Promise<T> {
+async function presentMonthlyReport<T extends { metrics: unknown; periodStart: Date }>(req: Request, report: T, liveMap?: Map<string, LiveMonthlyMoney>): Promise<T> {
   let metrics = report.metrics;
   // Historical snapshots retain their source evidence. Strip it at every read boundary,
   // independently from finance grants and without hiding the ordinary monthly figures.
@@ -380,7 +384,8 @@ async function presentMonthlyReport<T extends { metrics: unknown; periodStart: D
   if (!can(req, "finance.view")) return { ...report, metrics: withoutMoney(metrics) };
   // Деньги месяца — живые, той же функцией, что «Финансы»; снимок — справкой (аудит денег 17.11, D1).
   if (metrics && typeof metrics === "object" && !Array.isArray(metrics)) {
-    metrics = withLiveMoney(metrics as Record<string, unknown>, await liveMonthlyMoney(monthKeyLabel(report.periodStart)));
+    const month = monthKeyLabel(report.periodStart);
+    metrics = withLiveMoney(metrics as Record<string, unknown>, liveMap ? liveMap.get(month) ?? null : await liveMonthlyMoney(month));
   }
   return { ...report, metrics };
 }

@@ -14,10 +14,10 @@ import { collectPostShowingCohort } from "./postShowingCohort.js";
  * Месячный отчёт директору и админу (примечание владельца от 30.07: «сделать формулу
  * отчёта, чтобы каждый месяц они мне приходили и я имел возможность добавлять инфу»).
  *
- * Цифры СОХРАНЯЮТСЯ снапшотом, а не считаются заново при каждом открытии: отчёт за
- * март, открытый в декабре, обязан показывать март таким, каким он был. Сделки
- * отменяют, клиентов удаляют, курс доллара меняется — пересчёт задним числом
- * превратил бы отчётность в движущуюся мишень.
+ * Цифры СОХРАНЯЮТСЯ снапшотом 1-го числа: воронка, агенты, источники — каким месяц был.
+ * ДЕНЬГИ (комиссия, расходы, прибыль) с 17.11.2026 показываются живыми — той же функцией,
+ * что «Финансы» (liveMonthlyMoney ниже), а снимок денег отдаётся справкой «*AtClose»:
+ * расходы, внесённые задним числом, иначе не попадали в отчёт вовсе (аудит денег 17.11).
  *
  * Заметки владельца живут отдельным полем поверх цифр и правятся когда угодно.
  */
@@ -85,8 +85,6 @@ function expenseMonthKey(periodStart: Date): Date {
   return new Date(Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), 1));
 }
 
-/** Метка месяца «2026-07» — по настенному календарю Душанбе, а не по periodStart:
- *  срез ISO-строки от 19:00 30 июня давал «2026-06», то есть чужой месяц. */
 /**
  * ДЕНЬГИ ОТЧЁТА — ЖИВЫЕ (аудит денег 17.11.2026, D1).
  *
@@ -97,12 +95,25 @@ function expenseMonthKey(periodStart: Date): Date {
  * (buildExpenseSummary), а снимок отдаётся справкой `*AtClose` — «было при закрытии месяца».
  */
 export interface LiveMonthlyMoney { commission: number; expenses: number; profit: number }
-export async function liveMonthlyMoney(month: string): Promise<LiveMonthlyMoney | null> {
+const VALID_MONTH = /^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/;
+
+/** Живые деньги нескольких месяцев ОДНОЙ сводкой (список отчётов — 12 месяцев, не 12 сводок). */
+export async function liveMonthlyMoneyMap(months: string[]): Promise<Map<string, LiveMonthlyMoney>> {
   // Месяц вне диапазона «Финансов» (1900–2199) живых денег не имеет — отчёт показывает снимок.
-  if (!/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(month)) return null;
-  const summary = await buildExpenseSummary({ months: 1, through: month });
-  const live = summary.months.find((m) => m.month === month);
-  return live ? { commission: live.revenue, expenses: live.totalExpenses, profit: live.profit } : null;
+  const valid = [...new Set(months.filter((m) => VALID_MONTH.test(m)))].sort();
+  const out = new Map<string, LiveMonthlyMoney>();
+  if (!valid.length) return out;
+  const first = valid[0]!, last = valid[valid.length - 1]!;
+  const span = (Number(last.slice(0, 4)) - Number(first.slice(0, 4))) * 12 + Number(last.slice(5)) - Number(first.slice(5)) + 1;
+  const summary = await buildExpenseSummary({ months: Math.min(span, 60), through: last });
+  for (const m of summary.months) {
+    if (valid.includes(m.month)) out.set(m.month, { commission: m.revenue, expenses: m.totalExpenses, profit: m.profit });
+  }
+  return out;
+}
+
+export async function liveMonthlyMoney(month: string): Promise<LiveMonthlyMoney | null> {
+  return (await liveMonthlyMoneyMap([month])).get(month) ?? null;
 }
 
 export function withLiveMoney(metrics: Record<string, unknown>, live: LiveMonthlyMoney | null): Record<string, unknown> {
@@ -118,6 +129,8 @@ export function withLiveMoney(metrics: Record<string, unknown>, live: LiveMonthl
   };
 }
 
+/** Метка месяца «2026-07» — по настенному календарю Душанбе, а не по periodStart:
+ *  срез ISO-строки от 19:00 30 июня давал «2026-06», то есть чужой месяц. */
 export function monthKeyLabel(periodStart: Date): string {
   const wall = new Date(periodStart.getTime() + 5 * 60 * 60 * 1000);
   return `${wall.getUTCFullYear()}-${String(wall.getUTCMonth() + 1).padStart(2, "0")}`;

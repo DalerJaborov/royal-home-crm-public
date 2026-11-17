@@ -425,15 +425,15 @@ export async function freezeClosedAutoExpenseRates(now = new Date()): Promise<nu
   const edge = new Date(Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate() - 8));
   const closedBefore = new Date(Date.UTC(edge.getUTCFullYear(), edge.getUTCMonth(), 1));
   const previous = new Date(Date.UTC(closedBefore.getUTCFullYear(), closedBefore.getUTCMonth() - 1, 1));
-  // Только последний закрытый месяц и только в дни сразу после выхода из окна (9–11 число): тик
-  // идёт каждую ночь, а месяцы, закрытые до этой правки (по октябрь 2026 включительно), ждут решения
-  // владельца — выкат правки их не трогает.
-  if (wall.getUTCDate() < 9 || wall.getUTCDate() > 11 || previous < FIRST_FROZEN_MONTH) return 0;
+  // Все закрытые месяцы с ноября 2026 без курса (повтор безопасен: фильтр exchangeRate null) — сервер
+  // мог лежать в день закрытия, строку могла завести поздняя полная сверка (ревью 17.11). Месяцы,
+  // закрытые до этой правки (по октябрь 2026 включительно), ждут решения владельца — выкат их не трогает.
+  if (previous < FIRST_FROZEN_MONTH) return 0;
   const rate = await usdRateForWrite();
   if (!rate) return 0;
   const result = await prisma.expense.updateMany({
     where: {
-      month: previous, currency: "USD", exchangeRate: null, deletedAt: null,
+      month: { gte: FIRST_FROZEN_MONTH, lte: previous }, currency: "USD", exchangeRate: null, deletedAt: null,
       OR: [{ autoKey: { startsWith: "ads:" } }, { autoKey: { startsWith: "ai:" } }],
     },
     data: { exchangeRate: rate, rateCapturedAt: new Date() },

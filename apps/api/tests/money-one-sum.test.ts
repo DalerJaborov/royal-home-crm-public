@@ -10,6 +10,7 @@ import { loadMoneyContext, expenseCentsToTjs, fromCents } from "../src/lib/money
 import { dushanbeDateString, dushanbeMonthRange } from "../src/lib/dushanbeTime.js";
 import { upsertAiExpenses } from "../src/lib/ads/adExpenseSync.js";
 import { fullMonthKeysWithin } from "../src/lib/expenseAccounting.js";
+import { freezeClosedAutoExpenseRates } from "../src/lib/financeAutomation.js";
 
 /**
  * ОДНА СУММА НА ВСЕХ ЭКРАНАХ (аудит денег 17.11.2026). Один и тот же месяц расходов в «Финансах»
@@ -49,6 +50,9 @@ afterAll(async () => {
   if (adId) await prisma.ad.deleteMany({ where: { id: adId } });
   await prisma.expense.deleteMany({ where: { autoKey: `ads:META:test-pulse-${stamp}` } });
   await prisma.agent.deleteMany({ where: { id: directorId } });
+  // Вернуть строку месяца, которую тест «Пульса» отодвигал.
+  const parked = `ads:META:${dushanbeDateString().slice(0, 7)}-parked-${stamp}`;
+  await prisma.expense.updateMany({ where: { autoKey: parked }, data: { autoKey: parked.replace(`-parked-${stamp}`, "") } }).catch(() => undefined);
 });
 
 describe("одна сумма расходов месяца", () => {
@@ -65,9 +69,10 @@ describe("одна сумма расходов месяца", () => {
     const live = await liveMonthlyMoney(M);
     expect(live?.expenses).toBe(expected);
 
-    const res = await request(app).get("/api/v1/reports/monthly").set("Authorization", `Bearer ${token}`);
+    // Тот же ответ, что список отчётов (presentMonthlyReport), — по номеру: в списке только 12 свежих.
+    const res = await request(app).patch(`/api/v1/reports/monthly/${reportId}`).set("Authorization", `Bearer ${token}`).send({ notes: "сверка" });
     expect(res.status).toBe(200);
-    const report = (res.body as { id: string; metrics: { expenses: number; expensesAtClose: number } }[]).find((r) => r.id === reportId)!;
+    const report = res.body as { id: string; metrics: { expenses: number; expensesAtClose: number } };
     expect(report.metrics.expenses).toBe(expected);
     expect(report.metrics.expensesAtClose).toBe(8786.32);
   });
@@ -83,6 +88,10 @@ describe("одна сумма расходов месяца", () => {
 describe("«Пульс» за неделю — реклама по дням, не вся строка месяца", () => {
   it("строка рекламы месяца не падает целиком на день заведения; дневной расход кабинета — падает", async () => {
     const money = await loadMoneyContext();
+    // Строку рекламы этого месяца, удалённую или правленую другим тестом, на время убираем из учёта:
+    // тест про дневной расход кабинета, а не про ручные правки.
+    const monthKeyNow = `ads:META:${dushanbeDateString().slice(0, 7)}`;
+    await prisma.expense.updateMany({ where: { autoKey: monthKeyNow, OR: [{ deletedAt: { not: null } }, { manualEditedAt: { not: null } }] }, data: { autoKey: `${monthKeyNow}-parked-${stamp}` } });
     const before = await buildFinancePulse();
     adId = (await prisma.ad.create({ data: { externalId: `test-pulse-${stamp}`, name: "Тест пульса" } })).id;
     await prisma.adSpendDaily.create({ data: { adId, date: new Date(`${dushanbeDateString()}T00:00:00.000Z`), spend: 10, currency: "USD" } });
@@ -94,6 +103,49 @@ describe("«Пульс» за неделю — реклама по дням, н�
     expect(Math.round((week(after).expenseTjs - week(before).expenseTjs) * 100) / 100).toBe(fromCents(Math.round(1000 * money.usdToTjs)));
     expect(Math.round((month(after).expenseTjs - month(before).expenseTjs) * 100) / 100).toBe(fromCents(Math.round(30000 * money.usdToTjs)));
     expect(Number.isInteger(Math.round(week(after).balanceTjs * 100))).toBe(true);
+  });
+
+  it("удалённая строка рекламы месяца выключает дневной расход кабинета в неделе", async () => {
+    const month = dushanbeDateString().slice(0, 7);
+    const key = `ads:META:${month}`;
+    const existing = await prisma.expense.findUnique({ where: { autoKey: key } });
+    const before = (await buildFinancePulse()).find((x) => x.period === "week")!.expenseTjs;
+    if (existing) await prisma.expense.update({ where: { id: existing.id }, data: { deletedAt: new Date() } });
+    else await prisma.expense.create({ data: { category: "ADVERTISING", source: "INSTAGRAM", amount: 1, currency: "USD", month: new Date(`${month}-01T00:00:00.000Z`), autoKey: key, note: "авто", deletedAt: new Date() } });
+    try {
+      const after = (await buildFinancePulse()).find((x) => x.period === "week")!.expenseTjs;
+      expect(after).toBeLessThan(before);
+    } finally {
+      if (existing) await prisma.expense.update({ where: { id: existing.id }, data: { deletedAt: existing.deletedAt } });
+      else await prisma.expense.deleteMany({ where: { autoKey: key } });
+    }
+  });
+});
+
+describe("курс закрытого месяца", () => {
+  it("октябрь 2026 и раньше не трогаются; закрытый ноябрь и позже получают курс; повтор ничего не меняет", async () => {
+    const keys = [`ads:META:frz-oct-${stamp}`, `ai:frz-nov-${stamp}`, `ai:frz-dec-open-${stamp}`];
+    await prisma.expense.createMany({ data: [
+      { category: "ADVERTISING", source: "INSTAGRAM", amount: 5, currency: "USD", month: new Date("2026-10-01T00:00:00.000Z"), autoKey: keys[0], note: "авто" },
+      { category: "OTHER", amount: 5, currency: "USD", month: new Date("2026-11-01T00:00:00.000Z"), autoKey: keys[1], note: "авто" },
+      { category: "OTHER", amount: 5, currency: "USD", month: new Date("2026-12-01T00:00:00.000Z"), autoKey: keys[2], note: "авто" },
+    ] });
+    const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true } });
+    if (!settings?.usdToTjsRate) await prisma.settings.update({ where: { id: "singleton" }, data: { usdToTjsRate: 9.24 } });
+    try {
+      // 20 декабря по Душанбе: ноябрь вышел из окна пересчёта, декабрь ещё идёт.
+      const at = new Date("2026-12-20T06:00:00.000Z");
+      expect(await freezeClosedAutoExpenseRates(new Date("2026-11-17T06:00:00.000Z"))).toBe(0);
+      await freezeClosedAutoExpenseRates(at);
+      const rows = await prisma.expense.findMany({ where: { autoKey: { in: keys } }, orderBy: { month: "asc" } });
+      expect(rows.map((r) => r.exchangeRate === null)).toEqual([true, false, true]);
+      const again = await prisma.expense.findMany({ where: { autoKey: { in: keys } }, select: { rateCapturedAt: true }, orderBy: { month: "asc" } });
+      await freezeClosedAutoExpenseRates(at);
+      const third = await prisma.expense.findMany({ where: { autoKey: { in: keys } }, select: { rateCapturedAt: true }, orderBy: { month: "asc" } });
+      expect(third).toEqual(again);
+    } finally {
+      await prisma.expense.deleteMany({ where: { autoKey: { in: keys } } });
+    }
   });
 });
 

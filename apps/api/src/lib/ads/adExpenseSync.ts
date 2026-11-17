@@ -56,6 +56,8 @@ const PLATFORM_LABEL: Record<AdPlatform, string> = {
  * лидов, своя стоимость лида) заработает само.
  */
 const SYNCED_PLATFORMS: AdPlatform[] = ["META"];
+/** Тот же список для «Пульса» (дневной расход по площадкам). */
+export const SYNCED_AD_PLATFORMS: readonly AdPlatform[] = SYNCED_PLATFORMS;
 
 /** «2026-08» → первый день месяца (UTC) — так месяц хранит Expense (см. routes/expenses.ts). */
 function monthToDate(month: string): Date {

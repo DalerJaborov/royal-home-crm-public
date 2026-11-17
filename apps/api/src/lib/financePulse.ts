@@ -3,7 +3,8 @@ import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
 import { isDealSalaryExpense } from "./companyProfit.js";
 import { adSpendToTjsCents, centsToTjs, fromCents, loadMoneyContext, roundMoney, splitCents, toCents, toTjs } from "./money.js";
 import { AI_ESTIMATE_VENDORS, splitAiEstimate } from "@royal-home/shared";
-import { dushanbeDateString } from "./dushanbeTime.js";
+import { dushanbeDateString, dushanbeMonthRange } from "./dushanbeTime.js";
+import { SYNCED_AD_PLATFORMS } from "./ads/adExpenseSync.js";
 import { monthKey } from "./expenseQueries.js";
 import { expenseCentsToTjs } from "./money.js";
 
@@ -117,18 +118,41 @@ const isMonthlyAutoRow = (e: { autoKey: string | null }) => !!e.autoKey && (e.au
  * Месяц и год по-прежнему считаются по строкам месяца — как «Финансы».
  */
 async function dailyAutoSpendTjs(from: Date, to: Date, money: Awaited<ReturnType<typeof loadMoneyContext>>): Promise<number> {
+  // Окно режется по месяцам (неделя на стыке): у каждого месяца свои счета поставщиков ИИ и свои
+  // строки месяца. Строку месяца удалили или поправили руками — по этому источнику дневной расход
+  // не считаем: «Финансы» её не видят (удалена) или держат ручную сумму, а ручной счёт с днём
+  // оплаты уже лежит в выборке «Пульса» (ревью 17.11: иначе реклама считалась дважды).
+  let total = 0;
+  let cursor = from;
+  while (cursor < to) {
+    const month = monthKey(cursor);
+    const range = dushanbeMonthRange(month);
+    const segEnd = range.to < to ? range.to : to;
+    total += await monthSegmentAutoSpendTjs(month, cursor, segEnd, money);
+    cursor = segEnd;
+  }
+  return total;
+}
+
+async function monthSegmentAutoSpendTjs(month: string, from: Date, to: Date, money: Awaited<ReturnType<typeof loadMoneyContext>>): Promise<number> {
+  const monthDate = new Date(`${month}-01T00:00:00.000Z`);
   const dayFrom = new Date(`${dushanbeDateString(from)}T00:00:00.000Z`);
   const dayTo = new Date(`${dushanbeDateString(to)}T00:00:00.000Z`);
-  const months = [...new Set([monthKey(from), monthKey(new Date(to.getTime() - 1))])].map((m) => new Date(`${m}-01T00:00:00.000Z`));
+  const autoRows = await prisma.expense.findMany({
+    where: { month: monthDate, OR: [{ autoKey: { startsWith: "ads:" } }, { autoKey: { startsWith: "ai:" } }] },
+    select: { autoKey: true, deletedAt: true, manualEditedAt: true },
+  });
+  const skip = (key: string) => autoRows.some((r) => r.autoKey === key && (r.deletedAt || r.manualEditedAt));
+  const platforms = SYNCED_AD_PLATFORMS.filter((p) => !skip(`ads:${p}:${month}`));
   const [ads, ai, bills] = await Promise.all([
-    prisma.adSpendDaily.findMany({
-      where: { date: { gte: dayFrom, lt: dayTo }, ad: { excluded: false, platform: "META" } },
+    platforms.length ? prisma.adSpendDaily.findMany({
+      where: { date: { gte: dayFrom, lt: dayTo }, ad: { excluded: false, platform: { in: [...platforms] } } },
       select: { spend: true, currency: true },
       take: 50_000,
-    }),
-    prisma.aiLog.groupBy({ by: ["provider", "model"], where: { createdAt: { gte: from, lt: to }, costUsd: { not: null } }, _sum: { costUsd: true } }),
+    }) : Promise.resolve([]),
+    skip(`ai:${month}`) ? Promise.resolve([]) : prisma.aiLog.groupBy({ by: ["provider", "model"], where: { createdAt: { gte: from, lt: to }, costUsd: { not: null } }, _sum: { costUsd: true } }),
     prisma.expense.findMany({
-      where: { month: { in: months }, deletedAt: null, status: "PAID", coversAiUsage: true, vendor: { in: [...AI_ESTIMATE_VENDORS] } },
+      where: { month: monthDate, deletedAt: null, status: "PAID", coversAiUsage: true, vendor: { in: [...AI_ESTIMATE_VENDORS] } },
       select: { vendor: true }, distinct: ["vendor"],
     }),
   ]);
