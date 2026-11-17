@@ -33,16 +33,19 @@ import { prisma } from "../db.js";
  */
 export async function closeStaleNextActions(
   clientId: string | null | undefined,
-  excludeInteractionId?: string | null,
+  /** Одна запись или список: пропущенный звонок оставляет открытой и свою новую запись, и уже
+   *  существующую задачу «перезвонить», которую только что продлил (18.11.2026). */
+  excludeInteractionId?: string | null | ReadonlyArray<string | null | undefined>,
   now: Date = new Date()
 ): Promise<number> {
   if (!clientId) return 0;
+  const excluded = (Array.isArray(excludeInteractionId) ? excludeInteractionId : [excludeInteractionId]).filter((id): id is string => !!id);
   const result = await prisma.interaction.updateMany({
     where: {
       clientId,
       nextAction: { not: null },
       completedAt: null, taskCancelledAt: null,
-      ...(excludeInteractionId ? { id: { not: excludeInteractionId } } : {}),
+      ...(excluded.length > 0 ? { id: { notIn: excluded } } : {}),
     },
     data: { completedAt: now },
   });

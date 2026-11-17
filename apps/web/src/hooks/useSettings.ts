@@ -520,6 +520,12 @@ export interface Settings {
   incomingRouteToAssignedAgent: boolean;
   /** Перезвон клиента из Корзины тому, кто ему звонил для разбора (17.11.2026). */
   incomingArchiveCallbackEnabled: boolean;
+  /** Пропущенный звонок не теряется (18.11.2026): СМС со ссылкой на WhatsApp сразу после неотвеченного. */
+  missedCallSmsEnabled: boolean;
+  /** Текст этой СМС: таджикский, потом русский, одна голая ссылка. */
+  missedCallSmsText: string;
+  /** Незнакомый пропущенный: карточка и общая задача «Перезвонить». */
+  missedCallCallbackTaskEnabled: boolean;
   /** Сколько секунд станция звонит агенту, прежде чем вернуть звонок в очередь. */
   incomingRouteRingSeconds: number;
   /** ПОДСКАЗКА АГЕНТУ О ЗВОНЯЩЕМ: станция играет её агенту в ухо перед соединением,
