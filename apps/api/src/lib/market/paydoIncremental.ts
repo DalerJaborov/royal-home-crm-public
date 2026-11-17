@@ -22,7 +22,7 @@ import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
 import { withMarketCrawlLock, type CrawlLock } from "./nightly.js";
 import { saveListings } from "./marketStore.js";
-import { PaydoBlockedError, PaydoClient } from "./paydoClient.js";
+import { PaydoBlockedError, PaydoClient, paydoFailureText } from "./paydoClient.js";
 import { crawlPaydoSection, PAYDO_SECTIONS, type PaydoStop } from "./paydoCrawler.js";
 import { PAYDO_SOURCE } from "./paydoParser.js";
 import type { ParsedListing } from "./somonParser.js";
@@ -122,7 +122,7 @@ async function incrementalPass(lock: CrawlLock, options: IncrementalOptions): Pr
       const stopReason: IncrementalStop | undefined = flag.interrupted ?? (result.complete ? undefined : result.stopReason);
       stats.sections.push({ section: section.label, pages: result.pagesFetched, ...(stopReason ? { stopReason } : {}) });
       if (result.stopReason === "page_failed") {
-        await logSystemError("api", `Инкремент Paydo: «${section.label}» не отдал страницу после повторов`, { dedupKey: "market-paydo-incremental-failed" });
+        await logSystemError("api", `Инкремент Paydo: «${section.label}» не отдал страницу после повторов (${paydoFailureText(client.lastFailure)})`, { dedupKey: "market-paydo-incremental-failed" });
         break;
       }
       if (flag.interrupted) break;
