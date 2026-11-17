@@ -15,8 +15,9 @@ vi.mock("../../hooks/useWhatsAppFirstContact", async (importOriginal) => ({
   useSendWaFirstContact: () => ({ isPending: false, error: null, mutate: vi.fn() }),
 }));
 
-const base = { id: "mobile-state-test", fullName: "Клиент", status: "CONTACTED", workStatus: "ACTIVE",
-  kind: "BUYER", pendingAcceptance: false, inactiveLevel: null, hiddenReason: null } as Client;
+// workStatus и inactiveLevel убраны из клиента правкой #220 — их здесь больше нет.
+const base = { id: "mobile-state-test", fullName: "Клиент", status: "CONTACTED",
+  kind: "BUYER", pendingAcceptance: false, hiddenReason: null } as Client;
 function render(client: Client, overrides: Partial<MobileClientCardProps> = {}) {
   const noop = () => {};
   const props: MobileClientCardProps = {

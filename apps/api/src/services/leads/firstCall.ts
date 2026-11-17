@@ -1,5 +1,4 @@
 import { prisma } from "../../db.js";
-import { inactiveLevelFields } from "../../lib/inactiveTrafficLight.js";
 import { TERMINAL_CLIENT_STATUSES } from "../../lib/clientContact.js";
 import { changeClientAgent } from "../../lib/changeClientAgent.js";
 import { logTimeline } from "../../lib/timeline.js";
@@ -7,7 +6,6 @@ import { sendPushToAgents } from "../../push.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { notifyFeedOnly } from "../../lib/notifications.js";
 import { sendLeadPush } from "../../lib/pushLeadActions.js";
-import { loadMaxTransfers, transfersExhausted } from "../../lib/leadTransfers.js";
 import { loadEventPoints, recordScoreEvent, type ScoreEventKind } from "../../lib/scoreJournal.js";
 import { incomingInteractionIds } from "../../lib/telephony/incomingInteractions.js";
 import { isStationDownLongerThan } from "../../lib/telephony/ariEvents.js";
@@ -153,7 +151,6 @@ export async function penalizeMissedFirstCalls(now: Date = new Date()): Promise<
   // у ветки, которую он включает.
   const reassignOnMissedCall = settings?.leadReassignOnMissedCallEnabled ?? false;
   const escalateAfter = settings?.leadEscalateAfter ?? 3;
-  const maxTransfers = reassignOnMissedCall ? await loadMaxTransfers() : 0;
 
   const candidates = await prisma.client.findMany({
     where: {
@@ -376,9 +373,6 @@ export async function penalizeMissedFirstCalls(now: Date = new Date()): Promise<
       const escalationReason = limitExhausted
         ? `лимит передач исчерпан (${client.reassignCount} из ${escalateAfter})`
         : "свободных исполнителей не осталось";
-      // «Неактивный», не «Потерянный» — см. разбор у первого becameInactive выше в файле.
-      const becameInactive = transfersExhausted(client.reassignCount, maxTransfers);
-      const trafficFields = becameInactive ? await inactiveLevelFields(client.id, client.kind, "OTHER", undefined, now) : {};
       /**
        * ЖЁСТКАЯ ИНТЕГРАЦИЯ ЗАКОНА (17.09.2026) — раньше здесь стоял прямой
        * `prisma.$transaction([client.update, interaction.create])` мимо
@@ -409,16 +403,13 @@ export async function penalizeMissedFirstCalls(now: Date = new Date()): Promise<
         const changed = await changeClientAgent({
           clientId: client.id,
           toAgentId: client.assignedAgentId, // агент не меняется — только эскалация
-          reason: `Первый звонок не совершён за ${minutes} мин — ${escalationReason}, эскалация руководителю${becameInactive ? `. Предел передач (${maxTransfers}) исчерпан — карточка переведена в Неактивные` : ""}`,
+          reason: `Первый звонок не совершён за ${minutes} мин — ${escalationReason}, эскалация руководителю`,
           actorId: null,
           source: "firstCall.escalate",
           skipInteraction: true,
           data: {
             escalatedAt: now,
             triedAgentIds: triedNow,
-            ...(becameInactive
-              ? { workStatus: "INACTIVE" as const, ...trafficFields, ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}) }
-              : {}),
           },
           guardWhere: { assignedAgentId: agentId, acceptedAt: client.acceptedAt, escalatedAt: null,
             workStatus: "ACTIVE", status: { notIn: [...TERMINAL_CLIENT_STATUSES] } },
@@ -430,7 +421,7 @@ export async function penalizeMissedFirstCalls(now: Date = new Date()): Promise<
             clientId: client.id,
             actor: { kind: "system", source: "first-call-escalation", subjectAgentId: agentId },
             type: "SYSTEM",
-            notes: `Первый звонок не совершён за ${minutes} мин — ${escalationReason}, эскалация руководителю${becameInactive ? `. Предел передач (${maxTransfers}) исчерпан — карточка переведена в Неактивные` : ""}`,
+            notes: `Первый звонок не совершён за ${minutes} мин — ${escalationReason}, эскалация руководителю`,
             tx,
           });
         }

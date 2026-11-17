@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { CallClientButton } from "../../CallClientButton";
 import { ConfirmDialog } from "../../ConfirmDialog";
@@ -9,7 +8,6 @@ import { ApiError } from "../../../lib/api";
 import { toast } from "../../../store/toast";
 import { useMobileUx } from "../../../hooks/useMobileUx";
 import {
-  isRequiresRelease,
   useAcceptLead,
   useAcceptReactivationOffer,
   useConfirmDuplicateReview,
@@ -68,7 +66,6 @@ export function CallWide({ clientId, phone }: { clientId: string | null | undefi
 
 /** Принять / Отклонить лид. Отказ спрашивает подтверждение: первый подряд бесплатный, дальше минус к счёту. */
 export function PendingLeadActions({ client, compact }: { client: Client; compact?: boolean }) {
-  const navigate = useNavigate();
   const qc = useQueryClient();
   const accept = useAcceptLead(client.id);
   const decline = useDeclineLead(client.id);
@@ -83,14 +80,7 @@ export function PendingLeadActions({ client, compact }: { client: Client; compac
         loading={accept.isPending}
         {...lock(decline.isPending, "Отклоняем лид")}
         data-endpoint="POST /api/v1/clients/:id/accept"
-        onClick={() =>
-          accept.mutate(undefined, {
-            onError: (err) => {
-              // Портфель полон: сервер просит выбрать, кого освободить, а выбор есть только в карточке.
-              if (isRequiresRelease(err)) navigate(`/clients/${client.shortId}`);
-            },
-          })
-        }
+        onClick={() => accept.mutate()}
       >
         {accept.isPending ? "Принятие…" : "Принять"}
       </Button>

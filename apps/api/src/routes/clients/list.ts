@@ -1,15 +1,13 @@
 import { investigationViewerRole } from "../../auth/investigations.js";
-/** Списки клиентов: GET /, GET /trash, GET /lost (Г2, §1.2). Перенос verbatim. */
+/** Списки клиентов: GET /, GET /trash (Г2, §1.2). */
 import { Router } from "express";
 import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
-import { z } from "zod";
 import { Prisma } from "../../generated/prisma/client.js";
 import {
   clientDisplayName,
   clientQuerySchema,
   type ClientSort,
   parseShortCode,
-  REFUSAL_REASON_LABELS,
   type RefusalReason,
 } from "@royal-home/shared";
 import { prisma } from "../../db.js";
@@ -27,11 +25,11 @@ import {
 import { fuzzyClientIds } from "../../lib/fuzzySearch.js";
 import { loadSellerPropertyAddresses } from "../../lib/sellerPropertyAnchor.js";
 import { loadLeadReasons } from "../../lib/leadReason.js";
-import { budgetSortKey, computeHiddenReason, maskPhone, presentClient } from "./shared.js";
-import { TERMINAL_CLIENT_STATUSES } from "../../lib/clientContact.js";
-import { clientNamePhoneSafe, phoneSafeText } from "../../lib/clientPhone.js";
+import { budgetSortKey, computeHiddenReason, presentClient } from "./shared.js";
+import { phoneSafeText } from "../../lib/clientPhone.js";
 import { dushanbeStartOfToday } from "../../lib/dushanbeTime.js";
 import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
+import { noContactWhere } from "../../lib/noContact.js";
 
 export const listRouter = Router();
 
@@ -50,8 +48,6 @@ const CLIENT_ORDER_BY: Partial<Record<ClientSort | "name", Prisma.ClientOrderByW
   // «Мой вид» (артефакт, экран «Клиенты»): сначала непринятые, затем по давности контакта.
   attention_desc: [{ acceptedAt: { sort: "asc", nulls: "first" } }, { lastContactAt: "asc" }, { id: "asc" }],
   name_desc: [{ fullName: "desc" }, { id: "asc" }],
-  status_asc: [{ status: "asc" }, { id: "asc" }],
-  status_desc: [{ status: "desc" }, { id: "asc" }],
   // Оценка ИИ есть не у каждой карточки. Пустая — это «не оценено», а не «ноль»:
   // в обоих направлениях такие уходят вниз, иначе «сначала лучшие» открывалось бы
   // списком карточек вообще без оценки.
@@ -90,20 +86,19 @@ listRouter.get("/", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
   }
   const {
-    status,
     kind,
     districtId,
     agentId,
     source,
-    workStatus,
-    inactiveLevel,
     q,
     sort,
     page: pageNum,
     pageSize: requestedSize,
     hot,
     pendingAcceptance,
+    archived,
     noFirstContactYesterday,
+    noContact,
     scope,
   } = parsed.data;
   // «Прочие обращения» — отдельный раздел меню и отдельное право. Раньше вкладка
@@ -190,23 +185,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
   // Разделяем вкладки: «Клиенты» (BUYER) и «Продавцы» (SELLER). Без фильтра — все.
   // kind/status/source/район/«горячие» — один набор простых фильтров с помощником
   // (lib/clientSearchWhere.ts::clientFieldFilters); `hot` ниже по файлу убран туда же.
-  Object.assign(where, clientFieldFilters({ kind, status, source, districtId, hot: Boolean(hot) }));
-  // «Светофор неактивных» (routes/oversight.ts, /traffic-light-summary) — клик
-  // по числу матрицы агент×цвет ведёт сюда с этими двумя фильтрами. inactiveLevel
-  // без workStatus не имеет смысла (поле хранит ПОСЛЕДНИЙ цвет и после возврата
-  // в ACTIVE — см. комментарий у Client.inactiveLevel в schema.prisma), поэтому
-  // фильтруется только вместе, а не отдельным условием.
-  if (workStatus) where.workStatus = workStatus;
-  /**
-   * «Неактивные» — это те, с кем ещё работают, а не потерянные (23.09.2026).
-   * Предел попыток светофора переводит в LOST, но workStatus=INACTIVE остаётся
-   * (lib/clientLifecycle.ts::markClientLost), и без этого условия число в
-   * матрице светофора и список по клику по нему расходились бы. Явно заданный
-   * фильтр status сильнее: его выбрал человек.
-   */
-  if (workStatus === "INACTIVE" && !status) where.status = { notIn: [...TERMINAL_CLIENT_STATUSES] };
-  if (workStatus === "INACTIVE" && !kind) where.kind = { in: ["BUYER", "SELLER"] };
-  if (inactiveLevel) where.inactiveLevel = inactiveLevel;
+  Object.assign(where, clientFieldFilters({ kind, source, districtId, hot: Boolean(hot) }));
   /**
    * СРЕЗ «ЖДУТ ПРИНЯТИЯ» — ЧЕСТНО НА СЕРВЕРЕ (07.09.2026, «дашборд агента против ТЗ»).
    *
@@ -230,13 +209,15 @@ listRouter.get("/", requireAuth, async (req, res) => {
    * же ключ кэша) показывали эскалированный лид агенту как свежий полноэкранный
    * оффер — с уже нулевым таймером и без единого шанса, что «Принять» сработает.
    */
+  // Экран «Архив»: только карточки Архива (их владелец не трогал, 16.11.2026).
+  if (archived) where.status = "ARCHIVED";
   if (pendingAcceptance) {
     where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), { workStatus: "ACTIVE" }];
     where.acceptedAt = null;
     where.escalatedAt = null;
     // Те же границы, что у числа «Ждут принятия» (routes/clients/summary.ts,
     // awaitingWhere; 24.09.2026, пункт 25): закрытые и «Прочие» принимать некому.
-    if (!status) where.status = { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] };
+    where.status = { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] };
     if (!kind && !ownAgentId) where.kind = { in: ["BUYER", "SELLER"] };
   }
 
@@ -269,6 +250,9 @@ listRouter.get("/", requireAuth, async (req, res) => {
     canSearchByOrigin: can(req, "clients.viewOrigin"),
   });
   if (textSearchAnd) where.AND = textSearchAnd;
+  // «Без контакта» — то же правило, что у счётчика сводки и «Контроля» (lib/noContact.ts). После
+  // текстового поиска: тот заменяет where.AND целиком.
+  if (noContact) where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Date())];
   // Keep the scope outside the text-search AND, which fuzzy search replaces.
   if (scope === "inWork") Object.assign(where, CLIENT_IN_WORK_WHERE);
 
@@ -562,226 +546,5 @@ listRouter.get("/trash", requireAuth, requirePermission("archive.view"), async (
   });
 });
 
-/**
- * GET /clients/lost — раздел «Потерянные клиенты» (решение владельца 11.08.2026,
- * свой раздел рядом с «Горячими»). Зарегистрирован ДО `GET /:id` ниже: иначе
- * Express принял бы «lost» за id и отдавал бы 404 вместо списка.
- *
- * Клиент попадает сюда, когда предел передач (Settings.leadMaxTransfers) исчерпан:
- * несколько агентов подряд не смогли его закрыть, и автоматика прекращает
- * назначать его дальше — это не оценка клиента, а факт про нас.
- *
- * Цепочка отказов строится по записям SYSTEM/NEGATIVE в хронологии: их же создают
- * POST /clients/:id/refuse и «Итог объекта: Неактивный» (routes/me.ts) — оба пути
- * закрытия карточки сведены к одному маркеру, чтобы раздел видел обоих. Отдельных
- * полей для истории заводить не пришлось: то, что уже пишется в хронологию,
- * оказалось достаточно.
- */
-/**
- * СТРАНИЦЫ ВМЕСТО ОБРЕЗА (02.10.2026). «Потерянные» и «Отложенные» молча
- * кончались на двухстах: экран писал «Показаны последние 200 из N», а увидеть
- * остальных было нечем. Теперь экран дочитывает страницы кнопкой «Показать
- * ещё»; потолок страницы — прежние двести, так что ответ не толще, чем был.
- */
-const sectionPageSchema = z.object({
-  page: z.coerce.number().int().min(1).max(10_000).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
-});
-/** Потолок на СТРОКИ цепочки SYSTEM-событий по клиентам «Потерянные» (22.09.2026,
- *  класс «Пагинация»): клиентов не больше страницы (≤ 200), но событий на
- *  одного — передач, отказов — формально сколько угодно. 30 на клиента с запасом. */
-const LOST_CLIENTS_CHAIN_PER_CLIENT_CAP = 30;
-
-listRouter.get("/lost", requireAuth, requirePermission("clients.assign"), async (req, res) => {
-  /**
-   * `?kind=SELLER|BUYER` — срез «Потерянные» ВНУТРИ раздела (21.09.2026).
-   *
-   * Владелец: «должно быть всего 2 раздела — Продавцы, Покупатели, — а когда в
-   * них заходишь, потом уже неактивные, потерянные». До этого «Потерянные»
-   * были отдельной вкладкой верхнего уровня и показывали оба вида вперемешку;
-   * разделить их на клиенте нельзя — список обрезан двумя сотнями свежих, и
-   * отбор по уже полученной странице соврал бы ровно тогда, когда потерянных
-   * много.
-   *
-   * Значение читаем сами, без zod-схемы всего запроса: параметр один, и любая
-   * посторонняя строка просто игнорируется — срез не сужает права (право
-   * clients.assign проверено выше), а только выборку.
-   */
-  const paging = sectionPageSchema.safeParse(req.query);
-  if (!paging.success) {
-    return res.status(400).json({ error: "Неверные параметры", details: paging.error.flatten() });
-  }
-  const { page, pageSize } = paging.data;
-  const kindParam = req.query.kind;
-  const kind: "SELLER" | "BUYER" | null = kindParam === "SELLER" ? "SELLER" : kindParam === "BUYER" ? "BUYER" : null;
-  const lostWhere = { status: "LOST" as const, deletedAt: null, ...(kind ? { kind } : {}) };
-  // Сколько их всего — чтобы экран честно сказал, что показывает не весь список.
-  // Обрезка была молчаливой: двести первых выглядели как «все потерянные», и по
-  // такому экрану директор делал вывод о масштабе потерь.
-  const total = await prisma.client.count({ where: lostWhere });
-  const clients = await prisma.client.findMany({
-    where: lostWhere,
-    // По моменту потери (lostAt), а не эскалации (аудит 23.09.2026, №51):
-    // escalatedAt пуст у потерянных после отказа агента и после «светофора»
-    // неактивных, и такие карточки падали в конец списка, а «двести свежих»
-    // оказывались не свежими. Старые карточки без lostAt — по escalatedAt.
-    // id — добивка порядка: без неё строки с одинаковыми датами (и старые без
-    // обеих) перескакивали бы между страницами «Показать ещё».
-    orderBy: [
-      { lostAt: { sort: "desc", nulls: "last" } },
-      { escalatedAt: { sort: "desc", nulls: "last" } },
-      { id: "desc" },
-    ],
-    /**
-     * Предел выборки — как у соседней «Корзины» в этом же файле.
-     *
-     * Статус LOST терминальный: записи оттуда не уходят и не чистятся. Без
-     * потолка через год работы этот экран тянул бы всю накопленную историю
-     * потерянных клиентов ОДНИМ ответом, да ещё с цепочкой отказов по каждому
-     * (запрос ниже). Поэтому — страницами (sectionPageSchema выше).
-     */
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-    select: {
-      id: true,
-      shortId: true,
-      fullName: true,
-      kind: true,
-      phone: true,
-      refusalCount: true,
-      refusalReason: true,
-      escalatedAt: true,
-      lostAt: true,
-    },
-  });
-  if (clients.length === 0) return res.json({ items: [], total, page, pageSize });
-
-  // Один запрос на всех, а не по клиенту — список руководства открывается сразу
-  // целиком, N+1 здесь означал бы N обращений к базе на одном экране.
-  /**
-   * Цепочка — ВСЕ служебные события карточки, а не только помеченные
-   * outcome="NEGATIVE".
-   *
-   * Признак outcome ставит только «Завершить сделку → Без сделки»
-   * (POST /clients/:id/refuse). Передачи (lib/clientTransfer.ts) пишут такую же
-   * запись SYSTEM без него — и клиент, потерянный ровно после трёх передач,
-   * открывался в «Потерянных» с ПУСТОЙ цепочкой, то есть без того единственного,
-   * ради чего раздел делался: «через кого именно и почему». Все SYSTEM-записи и
-   * есть история переходов между агентами — передачи, отказы, перевод в
-   * Неактивные и возврат.
-   */
-  const chain = await prisma.interaction.findMany({
-    where: { clientId: { in: clients.map((c) => c.id) }, type: "SYSTEM", ...visibleInteractionWhere(investigationViewerRole(req)) },
-    orderBy: { createdAt: "asc" },
-    // Потолок — строки, а не id клиентов (клиентов не больше страницы).
-    take: clients.length * LOST_CLIENTS_CHAIN_PER_CLIENT_CAP,
-    select: {
-      clientId: true,
-      notes: true,
-      createdAt: true,
-      agent: { select: { fullName: true } },
-    },
-  });
-  const chainByClient = new Map<string, typeof chain>();
-  for (const hop of chain) {
-    chainByClient.set(hop.clientId, [...(chainByClient.get(hop.clientId) ?? []), hop]);
-  }
-
-  const canSeePhone = can(req, "clients.viewPhone");
-  res.json({
-    items: clients.map((c) => ({
-      id: c.id,
-      shortId: c.shortId,
-      // Имя карточки незнакомого звонившего CRM составляет из номера — правило
-      // то же, что в presentClient (routes/clients/shared.ts), список «Потерянные»
-      // его просто не звал.
-      fullName: clientNamePhoneSafe(c.fullName, canSeePhone),
-      kind: c.kind,
-      phone: canSeePhone ? c.phone : maskPhone(c.phone),
-      refusalCount: c.refusalCount,
-      lastReason: c.refusalReason ? REFUSAL_REASON_LABELS[c.refusalReason as RefusalReason] ?? c.refusalReason : null,
-      lostAt: c.lostAt ?? c.escalatedAt,
-      // Каждый шаг — кто вёл и что записал при закрытии. Именно это владелец
-      // просил видеть в разделе: «через кого именно, причина и комментарий
-      // каждого отказа», не открывая карточку по одной.
-      chain: (chainByClient.get(c.id) ?? []).map((hop) => ({
-        agentName: hop.agent?.fullName ?? "—",
-        // Комментарий при отказе — свободный текст, куда номер попадает и руками
-        // («звонить на 900001016»), и автоматикой из расшифровки. Закрыт тем же
-        // правом, что и `phone` строкой выше (владелец 30.08.2026).
-        notes: phoneSafeText(hop.notes, canSeePhone),
-        at: hop.createdAt,
-      })),
-    })),
-    total,
-    page,
-    pageSize,
-  });
-});
-
-/**
- * GET /clients/deferred — раздел «Отложенные» (задача G, план 03-04.09.2026,
- * решение владельца). Зарегистрирован ДО `GET /:id` ниже — та же причина, что
- * у "lost"/"trash" выше: иначе Express принял бы "deferred" за id.
- *
- * ВИДИМОСТЬ — не clients.assign, как у «Потерянных»: агенту нужно видеть СВОИ
- * отложенные (task G5, «агенту — свои отложенные с датой возврата»), поэтому
- * requireAuth + scopeToOwnAgent (кто без clients.viewAll — видит только свои,
- * управленец с clients.viewAll — всех), тот же приём, что и у обычного списка
- * клиентов (GET /) чуть ниже, а не отдельная проверка права.
- */
-listRouter.get("/deferred", requireAuth, async (req, res) => {
-  // Страницами, как «Потерянные» выше (sectionPageSchema): раньше молча 200.
-  const paging = sectionPageSchema.safeParse(req.query);
-  if (!paging.success) {
-    return res.status(400).json({ error: "Неверные параметры", details: paging.error.flatten() });
-  }
-  const { page, pageSize } = paging.data;
-  const ownAgentId = scopeToOwnAgent(req);
-  const where: Prisma.ClientWhereInput = {
-    workStatus: "DEFERRED",
-    status: { notIn: [...TERMINAL_CLIENT_STATUSES] },
-    deletedAt: null,
-    ...(ownAgentId ? { assignedAgentId: ownAgentId } : {}),
-  };
-  const total = await prisma.client.count({ where });
-  const clients = await prisma.client.findMany({
-    where,
-    // Ближе к возврату — выше: это и есть то, что нужно проверить в первую
-    // очередь (уже почти истёк срок), а не самые свежие отсрочки.
-    orderBy: [{ deferredUntil: "asc" }, { id: "asc" }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-    select: {
-      id: true,
-      shortId: true,
-      fullName: true,
-      kind: true,
-      phone: true,
-      deferredAt: true,
-      deferredReason: true,
-      deferredUntil: true,
-      assignedAgent: { select: { id: true, fullName: true } },
-    },
-  });
-
-  const canSeePhone = can(req, "clients.viewPhone");
-  res.json({
-    items: clients.map((c) => ({
-      id: c.id,
-      shortId: c.shortId,
-      fullName: clientNamePhoneSafe(c.fullName, canSeePhone),
-      kind: c.kind,
-      phone: canSeePhone ? c.phone : maskPhone(c.phone),
-      deferredAt: c.deferredAt,
-      deferredReason: c.deferredReason
-        ? REFUSAL_REASON_LABELS[c.deferredReason as RefusalReason] ?? c.deferredReason
-        : null,
-      deferredUntil: c.deferredUntil,
-      agentName: c.assignedAgent?.fullName ?? null,
-    })),
-    total,
-    page,
-    pageSize,
-  });
-});
+// «Потерянные» (GET /lost) и «Отложенные» (GET /deferred) удалены 16.11.2026
+// вместе с этими состояниями (владелец: «ничего лишнего»).

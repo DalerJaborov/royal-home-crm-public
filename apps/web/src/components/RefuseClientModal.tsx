@@ -176,7 +176,7 @@ export function RefuseClientModal({ client, onClose }: { client: Client; onClose
         <CommentWithVoice
           value={comment}
           onChange={setComment}
-          placeholder="Что именно произошло, если есть что добавить, увидит руководство в «Потерянных клиентах»"
+          placeholder="Что именно произошло, если есть что добавить, увидит руководство в хронологии карточки"
         />
         <VoiceNoteButton uploadUrl="/me/voice-notes" value={voiceNote} onChange={setVoiceNote} />
       </div>

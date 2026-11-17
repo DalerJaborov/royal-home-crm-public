@@ -103,7 +103,7 @@ describe("GET /agents/:id/overview — problems", () => {
     expect(res.status).toBe(200);
     const p = res.body.problems;
     expect(p.overdueTasks.total).toBe(0);
-    expect(p.stalledClients.total).toBe(0);
+    expect(p.noContactClients.total).toBe(0);
     expect(p.silentAfterShowing.total).toBe(0);
     expect(p.refusedHighScore.total).toBe(0);
     expect(p.endlessNegotiations.total).toBe(0);

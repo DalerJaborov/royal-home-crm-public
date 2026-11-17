@@ -93,7 +93,8 @@ describe("одна пара — один ответ с обеих сторон",
 });
 
 describe("купившие не ждут объект", () => {
-  it("LOST «купил сам» / «через другое агентство» — вне подбора; «передумал/отложил», «дорого» и без причины — в подборе", async () => {
+  // 16-17.11.2026: «Потерянных» нет — решает причина последнего отказа, статус не важен.
+  it("отказ «купил сам» / «через другое агентство» — вне подбора; «передумал/отложил», «дорого» и без причины — в подборе", async () => {
     const boughtSelf = await makeClient("Купил-сам", { status: "LOST", refusalReason: "BOUGHT_SELF" });
     const boughtOther = await makeClient("Купил-у-других", { status: "LOST", refusalReason: "BOUGHT_VIA_OTHER_AGENCY" });
     const changedMind = await makeClient("Передумал", { status: "LOST", refusalReason: "CHANGED_MIND" });
@@ -112,7 +113,7 @@ describe("купившие не ждут объект", () => {
     expect(clientDoneBuying({ status: "LOST", refusalReason: "BOUGHT_SELF" })).toBe(true);
     expect(clientDoneBuying({ status: "LOST", refusalReason: "EXPENSIVE" })).toBe(false);
     expect(clientDoneBuying({ status: "DEAL_CLOSED" })).toBe(true);
-    expect(clientDoneBuying({ status: "HOT", refusalReason: "BOUGHT_SELF" })).toBe(false);
+    expect(clientDoneBuying({ status: "NEW", refusalReason: "BOUGHT_SELF" })).toBe(true);
   });
 });
 

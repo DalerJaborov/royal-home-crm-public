@@ -41,7 +41,6 @@ import { revokeElevation } from "./stepUp.js";
 import { handoverAgentWork } from "./agentHandover.js";
 import { revertAgentHandover } from "./agentHandoverRevert.js";
 import { releaseReactivationOffersOfAgent } from "./reactivationOffers.js";
-import { shiftInactiveClockAfterAbsence } from "./inactiveTrafficLight.js";
 import { findUnacceptedLeadsOfAgent, releaseLeadsToQueue, type ReleasableLead } from "./agentLeadRelease.js";
 import { clearAgentFromSettingsReferences } from "./agentSettingsCleanup.js";
 import { alertNoMontajerIfWorkWaits } from "./montajerHandover.js";
@@ -1001,7 +1000,6 @@ export async function unfreezeStaffMember(actor: StaffActor, targetId: string, o
   if (await forbiddenPrivilegedTarget(actor, agent.id)) return fail(403, PRIVILEGED_TARGET_ERROR);
   if (!agent.frozenAt) return fail(409, "Сотрудник не заморожен");
 
-  // Разморозка и сдвиг часов светофора — одной транзакцией (shiftInactiveClockAfterAbsence).
   await prisma.$transaction(async (tx) => {
     await tx.agent.update({
       where: { id: agent.id },
@@ -1016,7 +1014,6 @@ export async function unfreezeStaffMember(actor: StaffActor, targetId: string, o
         absenceUntil: null,
       },
     });
-    await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);
   });
   audit(actor, opts, "AGENT_UNFREEZE", agent.id, {});
   void syncAgentQueuePresence(agent.id).catch(() => {});

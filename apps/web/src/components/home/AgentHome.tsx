@@ -9,7 +9,7 @@ import { Button, Card, PageHeader, Rh2Screen, Skeleton, Tile, Tiles } from "../r
 import { Rh2ErrorState } from "../rh2/Rh2ErrorState";
 import { dushanbeTime } from "../../lib/date";
 import { pluralizeRu, todayLabel } from "../../lib/format";
-import { buildNoContact, buildPortfolio, buildShowings } from "../../lib/agentDay";
+import { buildPortfolio, buildShowings } from "../../lib/agentDay";
 import { buildAgentTodo, type SupervisorAssignedItem } from "../../lib/agentFocus";
 import { AgentFocusCard } from "./agent/AgentFocusCard";
 import { AgentQueue } from "./agent/AgentQueue";
@@ -57,6 +57,8 @@ export function AgentHome() {
   });
   // Тот же серверный фильтр и ключ кэша, что у IncomingLeadWindow: общий список, не второй.
   const { data: pendingPage, isLoading: pendingLoading, isError: pendingError, refetch: refetchPending } = useClients({ pageSize: 20, pendingAcceptance: true });
+  // «Без контакта» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
+  const { data: noContactPage } = useClients({ pageSize: 20, noContact: true });
   const { data: offers, isLoading: offersLoading, isError: offersError, refetch: refetchOffers } = useReactivationOffers();
   const { data: duplicates, isLoading: duplicatesLoading, isError: duplicatesError, refetch: refetchDuplicates } = useDuplicateReviews();
 
@@ -77,7 +79,7 @@ export function AgentHome() {
   const pending = useMemo(() => pendingPage?.items ?? [], [pendingPage]);
   const pendingTotal = pendingPage?.total ?? pending.length;
   const portfolio = useMemo(() => buildPortfolio(clientsPage?.items ?? [], Date.now()), [clientsPage]);
-  const noContact = useMemo(() => buildNoContact(portfolio, Date.now()), [portfolio]);
+  const noContact = useMemo(() => noContactPage?.items ?? [], [noContactPage]);
   const showings = useMemo(() => buildShowings(tasks), [tasks]);
 
   const todo = useMemo(
@@ -90,9 +92,10 @@ export function AgentHome() {
         firstCall,
         tasks,
         portfolio,
+        noContact,
         now: Date.now(),
       }),
-    [pending, duplicates, offers, supervisor, firstCall, tasks, portfolio],
+    [pending, duplicates, offers, supervisor, firstCall, tasks, portfolio, noContact],
   );
 
   const sub = [
@@ -140,8 +143,6 @@ export function AgentHome() {
   };
   const summaryError = !data && isError;
   const nextShowing = showings.find((s) => Date.parse(s.nextActionDate!) > Date.now());
-  const limit = data?.activeLeadLoad;
-  const atLimit = !!limit && limit.limit > 0 && limit.count >= limit.limit;
 
   return (
     <Rh2Screen title={title} actions={shellActions}>
@@ -195,22 +196,6 @@ export function AgentHome() {
             )}
           </div>
 
-          {atLimit && limit && (
-            <Card tight className="rh-home-o1">
-              <p className="quiet warn">
-                <span className="dot warn" />
-                <span className="txt">
-                  Новые лиды не назначаются: у вас {limit.count} из {limit.limit}{" "}
-                  {pluralizeRu(limit.count, ["активный лид", "активных лида", "активных лидов"])}, это лимит. Доведите
-                  текущих до показа или отказа, и очередь откроется сама.{" "}
-                  <Link className="lk" to="/clients">
-                    К списку клиентов
-                  </Link>
-                </span>
-              </p>
-            </Card>
-          )}
-
           <div className="rh-home-o4">
             <AgentQueue queue={todo.queue} loading={clientsLoading && todo.queue.length === 0} />
           </div>
@@ -228,7 +213,7 @@ export function AgentHome() {
                 <>
                   <Tile tone="lime" value={showings.length} label="показов сегодня" href="/calendar" />
                   <Tile tone="aqua" value={data.funnel[0]?.count ?? 0} label="лидов за месяц" href="/clients" />
-                  <Tile tone="lav" value={noContact.length} label="ждут звонка" href="/clients" />
+                  <Tile tone="lav" value={noContactPage?.total ?? noContact.length} label="без контакта" href="/clients" />
                 </>
               ) : (
                 <>

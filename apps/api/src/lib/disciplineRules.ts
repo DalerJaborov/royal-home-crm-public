@@ -24,9 +24,6 @@ const FALLBACK = {
   windowEnd: "15:00",
   noAnswerRetryMinutes: 15,
   noAnswerMaxAttempts: 3,
-  noAnswerTailEnabled: false,
-  noAnswerTailDay1: 2,
-  noAnswerTailDay2: 5,
   meetingSummaryAfterShowingMinutes: 90,
   sellerPropertyMissingWarnDays: 3,
   buyerThinkingFirstPingHours: 48,
@@ -41,12 +38,6 @@ export interface DisciplineRules {
   noAnswerRetryMinutes: number;
   /** Сколько попыток подряд, прежде чем поставить руководителю задачу «Проверить контакт». */
   noAnswerMaxAttempts: number;
-  /** «Хвост» дозвона (01.09.2026, Settings.noAnswerTail*): после эскалации — ещё две
-   *  отложенные попытки самому агенту, через noAnswerTailDay1/Day2 дней. Выключено,
-   *  пока noAnswerTailEnabled=false (см. lib/noAnswerStreak.ts). */
-  noAnswerTailEnabled: boolean;
-  noAnswerTailDay1: number;
-  noAnswerTailDay2: number;
   /** Через сколько минут после НАЗНАЧЕННОГО времени показа показ считается
    *  состоявшимся. Раньше этим сроком открывалось окно «Итог показа»; окна
    *  удалены 13.09.2026, срок остался — по нему живут напоминания и подстраховки. */
@@ -77,9 +68,6 @@ export async function loadDisciplineRules(): Promise<DisciplineRules> {
         propertySummaryWindowEnd: true,
         noAnswerRetryMinutes: true,
         noAnswerMaxAttempts: true,
-        noAnswerTailEnabled: true,
-        noAnswerTailDay1: true,
-        noAnswerTailDay2: true,
         meetingSummaryAfterShowingMinutes: true,
         sellerPropertyMissingWarnDays: true,
         buyerThinkingFirstPingHours: true,
@@ -92,9 +80,6 @@ export async function loadDisciplineRules(): Promise<DisciplineRules> {
       windowEnd: s?.propertySummaryWindowEnd ?? FALLBACK.windowEnd,
       noAnswerRetryMinutes: s?.noAnswerRetryMinutes ?? FALLBACK.noAnswerRetryMinutes,
       noAnswerMaxAttempts: s?.noAnswerMaxAttempts ?? FALLBACK.noAnswerMaxAttempts,
-      noAnswerTailEnabled: s?.noAnswerTailEnabled ?? FALLBACK.noAnswerTailEnabled,
-      noAnswerTailDay1: s?.noAnswerTailDay1 ?? FALLBACK.noAnswerTailDay1,
-      noAnswerTailDay2: s?.noAnswerTailDay2 ?? FALLBACK.noAnswerTailDay2,
       meetingSummaryAfterShowingMinutes: s?.meetingSummaryAfterShowingMinutes ?? FALLBACK.meetingSummaryAfterShowingMinutes,
       sellerPropertyMissingWarnDays: s?.sellerPropertyMissingWarnDays ?? FALLBACK.sellerPropertyMissingWarnDays,
       buyerThinkingFirstPingHours: s?.buyerThinkingFirstPingHours ?? FALLBACK.buyerThinkingFirstPingHours,
