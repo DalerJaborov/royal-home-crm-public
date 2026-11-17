@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4058**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2482**; вместе с задачами по расписанию и фоновыми заданиями — **4059**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10525,10 +10525,13 @@
 
 `apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
+- если !body.success
+  - return res.status(400).json({ error: "Неверные данные: поле withoutInstagram — да или нет" });
+    · ответ 400 — «Неверные данные: поле withoutInstagram — да или нет»
 - const outcome = await completeEditing({ propertyId: req.params.id, actor: { agentId: req.agent!.id, can: (per…
   · зовёт completeEditing()
 - если !outcome.ok
-  - return res.status(outcome.status).json({ error: outcome.error });
+  - return res.status(outcome.status).json({ error: outcome.error, code: outcome.code, ...(outcome.blockers ? { b…
     · ответ (код зависит от условия)
 - если outcome.siteSyncError
   - return res.status(207).json({ ...presentProperty(outcome.property, req), siteSyncError: outcome.siteSyncError…

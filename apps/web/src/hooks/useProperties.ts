@@ -273,7 +273,13 @@ export function useRegenerateReelsCaption(id: string) {
 export function useCompleteEditing(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api<Property & { siteSyncError?: string }>(`/properties/${id}/complete-editing`, { method: "POST" }),
+    // `withoutInstagram` — явное «вывести без Instagram» (директор/админ, 17.11.2026); без него — обычное «Готово».
+    // Аргумент всегда объект (`{}` — обычное нажатие), чтобы типы мутации не зависели от «пустого» вызова.
+    mutationFn: (opts: { withoutInstagram?: boolean }) =>
+      api<Property & { siteSyncError?: string }>(`/properties/${id}/complete-editing`, {
+        method: "POST",
+        ...(opts.withoutInstagram ? { body: { withoutInstagram: true } } : {}),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["properties"] });
       qc.invalidateQueries({ queryKey: ["property"] });

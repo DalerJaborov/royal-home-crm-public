@@ -77,6 +77,12 @@ export function summarizePropertyWork(row: WorkRow, now: Date, publishJobStatus?
     return { phase: "WITH_EDITOR", elapsed: since(row.videoHandoffDeliveredAt, now), remake: Boolean(row.videoHandoffRemakeReason) };
   }
   if (row.status !== "EDITING") return { phase: row.status, elapsed: since(row.stageEnteredAt, now) };
+  // Принятый ролик на проверке (17.11.2026, волна 2): раньше ветка RECEIVED ниже стояла первой и
+  // называла такой ролик «принят, публикация не завершена», а «ждёт решения» не достигалось никогда —
+  // при включённой проверке задания публикации нет, пока ролик не одобрят (lib/clipReview.ts).
+  if (row.clipReviewStatus === "PENDING" && manual === "RECEIVED") {
+    return { phase: "FINAL_VIDEO_UNDER_REVIEW", elapsed: since(row.clipReviewRequestedAt ?? row.videoHandoffReceivedAt, now) };
+  }
   if (manual === "RECEIVED" && row.videoHandoffReceivedAt && row.videoHandoffFinalPath) {
     const phases = {
       PENDING: "PUBLICATION_PENDING",

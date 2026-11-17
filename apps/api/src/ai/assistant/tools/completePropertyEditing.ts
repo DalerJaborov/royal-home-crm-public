@@ -8,12 +8,15 @@ import {
 } from "../../../lib/assistantActions.js";
 import { PROPERTY_STATUS_LABEL_RU } from "../../../lib/propertyAutoStatus.js";
 import {
+  channelsSentence,
   checkCompleteEditing,
   completeEditing,
+  publishedVideoChannelLabels,
   saleBlockerAdvice,
   type CompleteEditingCandidate,
   type CompleteEditingFailure,
 } from "../../../lib/propertyCompleteEditing.js";
+import { saleBlockerCodes } from "../../../lib/propertyPipeline.js";
 import { propertyHref } from "./propertyPresenter.js";
 import { loadWriterRole, resolveRefOrThrow } from "./propertyToolSupport.js";
 import { plainField } from "./safeField.js";
@@ -33,7 +36,11 @@ import type { AssistantWriteToolPlugin } from "./types.js";
  * НЕ создаётся: модель получает причины и что сделать, а человек — внятный ответ вместо
  * кнопки, которая всё равно отказала бы.
  */
-const argsSchema = z.object({ ref: z.string().trim().min(1).max(200) });
+const argsSchema = z.object({
+  ref: z.string().trim().min(1).max(200),
+  /** Явно вывести без ссылки на Instagram (директор/админ, ролик принят и вышел в сети) — волна 2, 17.11.2026. */
+  withoutInstagram: z.boolean().optional(),
+});
 type Args = z.infer<typeof argsSchema>;
 
 interface Snap {
@@ -42,6 +49,10 @@ interface Snap {
   status: string;
   photoCount: number;
   hasInstagramLink: boolean;
+  /** Выводим именно без Instagram (просили и ссылки действительно нет). */
+  withoutInstagram?: boolean;
+  /** Где ролик уже вышел — для строки карточки «без Instagram». */
+  channels?: string[];
   [extra: string]: unknown;
 }
 
@@ -85,15 +96,42 @@ function refusal(failure: CompleteEditingFailure, property: LoadedProperty | nul
     }
     return new AssistantActionError(409, "NOT_EDITING", message);
   }
+  const hint = failure.withoutInstagram;
+  const hintExtra = hint ? { withoutInstagram: hint } : {};
+  if (failure.code === "WITHOUT_INSTAGRAM_FORBIDDEN") {
+    return new AssistantActionError(
+      403,
+      "WITHOUT_INSTAGRAM_FORBIDDEN",
+      `${code}: ${failure.error} Скажи сотруднику, что без Instagram объект выводит директор или администратор, и предложи попросить директора. ` +
+        "Заявку «Другое» не подавай.",
+      hintExtra,
+    );
+  }
+  if (failure.code === "WITHOUT_INSTAGRAM_NOT_ALLOWED") {
+    return new AssistantActionError(409, "WITHOUT_INSTAGRAM_NOT_ALLOWED", `${code}: ${failure.error}`, hintExtra);
+  }
   // NOT_READY: причины и что сделать, чтобы объект вышел в продажу.
   const advice = property ? saleBlockerAdvice(property) : [];
   const reasons = advice.length > 0 ? advice.map((a) => a.problem) : (failure.blockers ?? []);
   const fixes = advice.map((a) => a.fix).join(" ");
+  // Единственная причина — нет Instagram, а ролик уже вышел в других сетях: модель должна сама предложить
+  // директору вывести без Instagram, а рядовому — попросить директора (а не молча отказать).
+  let bypass = "";
+  if (hint?.allowed) {
+    bypass =
+      ` Но ${channelsSentence(hint.channels)}, и ты можешь вывести объект в продажу БЕЗ Instagram: предложи это человеку ` +
+      "одной фразой и, если он согласен, вызови complete_property_editing ещё раз с withoutInstagram: true — появится карточка подтверждения.";
+  } else if (hint?.needsDirector) {
+    bypass = ` При этом ${channelsSentence(hint.channels)}: директор или администратор может вывести объект в продажу без Instagram — предложи попросить директора.`;
+  } else if (hint?.reason && hint.channels.length > 0) {
+    bypass = ` Без Instagram тоже пока нельзя: ${hint.reason}.`;
+  }
   return new AssistantActionError(
     409,
     "NOT_READY_FOR_SALE",
-    `${code} пока не может выйти в продажу: ${reasons.join("; ")}.` + (fixes ? ` Что сделать: ${fixes}` : "") +
+    `${code} пока не может выйти в продажу: ${reasons.join("; ")}.` + (fixes ? ` Что сделать: ${fixes}` : "") + bypass +
       " Карточку подтверждения не создаю: как только это исправлено, повторите просьбу.",
+    hintExtra,
   );
 }
 
@@ -114,14 +152,19 @@ export const completePropertyEditingExecutor: AssistantActionExecutor<Args> = {
     await loadWriterRole(actor.agentId);
     const { id } = await resolveRefOrThrow(args.ref);
     const property = await loadProperty(id);
-    const failure = checkCompleteEditing(property, { agentId: actor.agentId, can: actor.can });
+    const failure = checkCompleteEditing(property, { agentId: actor.agentId, can: actor.can }, { withoutInstagram: args.withoutInstagram });
     if (failure) throw refusal(failure, property);
+    // «Без Instagram» действует, только если ссылки действительно нет: есть ссылка — обычное «Готово».
+    const withoutInstagram =
+      args.withoutInstagram === true &&
+      saleBlockerCodes({ instagramUrl: property!.instagramUrl, photoCount: property!.photoCount }).includes("NO_INSTAGRAM_LINK");
     return {
       propertyId: property!.id,
       shortId: property!.shortId,
       status: property!.status,
       photoCount: property!.photoCount,
       hasInstagramLink: Boolean(property!.instagramUrl?.trim()),
+      ...(withoutInstagram ? { withoutInstagram: true, channels: publishedVideoChannelLabels(property!.publishedChannels) } : {}),
     };
   },
 
@@ -130,8 +173,9 @@ export const completePropertyEditingExecutor: AssistantActionExecutor<Args> = {
     const property = await loadProperty(snap.propertyId);
     if (!property) throw new AssistantActionError(404, "ENTITY_NOT_FOUND", "Объект не найден");
     const code = formatPropertyCode(snap.shortId);
+    const bypass = snap.withoutInstagram === true;
     return {
-      title: `Вывести объект ${code} из монтажа в продажу`,
+      title: bypass ? `Вывести объект ${code} в продажу без Instagram` : `Вывести объект ${code} из монтажа в продажу`,
       was: {
         Объект: whereLine(property),
         Статус: PROPERTY_STATUS_LABEL_RU.EDITING,
@@ -140,12 +184,16 @@ export const completePropertyEditingExecutor: AssistantActionExecutor<Args> = {
       },
       becomes: {
         Статус: PROPERTY_STATUS_LABEL_RU.AVAILABLE,
+        // Явная строка: человек подтверждает именно выход БЕЗ Instagram, а не обычное «Готово».
+        ...(bypass ? { "Без Instagram": channelsSentence(snap.channels ?? []) } : {}),
         "На сайте": "опубликуется сразу",
         Агент: "получит уведомление, что объект в продаже",
       },
-      risk:
-        "Объект сразу станет «В продаже» и уйдёт на сайт — как кнопкой «Готово» в карточке. " +
-        "Вернуть его на монтаж можно только через маркетинг.",
+      risk: bypass
+        ? "Объект выйдет в продажу без ролика в Instagram — в журнал запишется, кто вывел и почему. " +
+          "Ссылку на Instagram можно вписать в карточку позже. Вернуть объект на монтаж можно только через маркетинг."
+        : "Объект сразу станет «В продаже» и уйдёт на сайт — как кнопкой «Готово» в карточке. " +
+          "Вернуть его на монтаж можно только через маркетинг.",
     };
   },
 
@@ -157,6 +205,8 @@ export const completePropertyEditingExecutor: AssistantActionExecutor<Args> = {
       actor: { agentId: actor.agentId, can: actor.can },
       // Автор в журнале — тот, кто нажал «Подтвердить»; источник — помощник.
       audit: { agentId: actor.agentId, meta: { source: "assistant", actionId: ctx.actionId, tool: "complete_property_editing" } },
+      // Ровно то, что человек видел в карточке: «без Instagram» только если так стояло в превью.
+      withoutInstagram: snap.withoutInstagram === true,
     });
     if (!outcome.ok) throw refusal(outcome, await loadProperty(snap.propertyId));
     const code = formatPropertyCode(snap.shortId);
@@ -170,9 +220,12 @@ export const completePropertyEditingExecutor: AssistantActionExecutor<Args> = {
         to: outcome.property.status,
         propertyShortId: snap.shortId,
         href: propertyHref(snap.shortId),
-        message: partial
-          ? `${code} вышел в продажу в CRM, но сайт его пока не принял (${outcome.siteSyncError}). Опубликуйте повторно кнопкой в карточке, когда сайт ответит.`
-          : `${code} вышел из монтажа в продажу и опубликован на сайте.`,
+        ...(outcome.withoutInstagram ? { withoutInstagram: true, channels: outcome.withoutInstagram.channels } : {}),
+        message:
+          (partial
+            ? `${code} вышел в продажу в CRM, но сайт его пока не принял (${outcome.siteSyncError}). Опубликуйте повторно кнопкой в карточке, когда сайт ответит.`
+            : `${code} вышел из монтажа в продажу и опубликован на сайте.`) +
+          (outcome.withoutInstagram ? ` Вывели без Instagram (${channelsSentence(outcome.withoutInstagram.channels)}); это записано в журнал.` : ""),
       },
       audit: { entityType: "Property", entityId: snap.propertyId },
     };
@@ -190,11 +243,20 @@ export const completePropertyEditingPlugin: AssistantWriteToolPlugin = {
     "Если объекту чего-то не хватает (мало фото, нет ссылки на ролик в Instagram), карточка подтверждения не создаётся, " +
     "а в ответе придут причины и что сделать — перескажи их человеку своими словами, заявку «Другое» не подавай. " +
     "Нажать «Готово» может тот, кто ведёт объект, или руководитель. Объект сразу выйдет в продажу и опубликуется на сайте. " +
+    "БЕЗ INSTAGRAM: если единственная причина — нет ссылки на ролик в Instagram, а ролик принят и уже вышел в других сетях, " +
+    "директор или администратор может вывести объект без Instagram — вызови с withoutInstagram: true, только когда человек " +
+    "явно согласился («да, выведи без инстаграма», «бе Instagram барор»). Сам withoutInstagram без согласия не ставь; " +
+    "если в ответе сказано, что это может директор, — предложи попросить директора. " +
     "После вызова ответь одной фразой: «Подтвердите».",
   parameters: {
     type: "object",
     properties: {
       ref: { type: "string", description: "Номер объекта: «ОБ-000193», «193» или id" },
+      withoutInstagram: {
+        type: "boolean",
+        description:
+          "true — вывести в продажу без ссылки на Instagram (только директор/админ, ролик принят и вышел в других сетях, человек явно согласился). Обычно не передавай.",
+      },
     },
     required: ["ref"],
   },
