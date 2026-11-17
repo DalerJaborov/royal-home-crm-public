@@ -95,7 +95,11 @@ afterAll(async () => {
 
 describe("сторож класса: инструмент чтения со ссылкой или номером карточки известен cardLinkEvidence", () => {
   // Инструменты, чьи ссылки ведут НЕ в карточки клиентов/объектов (/deals, /team/...) и номеров карточек не отдают.
-  const NOT_CARD_LINKS = new Set(["get_deal_card", "get_my_commission", "get_payouts_due", "list_staff", "get_staff_card", "staff_now"]);
+  const NOT_CARD_LINKS = new Set([
+    "get_deal_card", "get_my_commission", "get_payouts_due", "list_staff", "get_staff_card", "staff_now",
+    // «Режим директора» (17.11.2026): журнал ошибок, здоровье и рубильники ведут в /health, /stuck-work, /settings.
+    "get_error_log", "get_system_health", "list_switches",
+  ]);
   const CARD_MARKER = /propertyHref\(|\/clients\/\$\{|\/properties\/\$\{|\bshortId:\s*(?!true)/;
 
   it("каждый такой инструмент обработан в observe (иначе ответ со ссылкой подменяется отказом)", () => {

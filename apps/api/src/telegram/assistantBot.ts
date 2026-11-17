@@ -182,6 +182,10 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "list_expense_archive", "list_expense_categories", "add_expenses", "update_expense", "delete_expense", "restore_expense",
   "pay_expense", "undo_expense_payment", "create_recurring_expense", "update_recurring_expense", "delete_recurring_expense",
   "recurring_expense_payment", "create_expense_category", "update_expense_category", "get_expense_history",
+  // «Режим директора» (17.11.2026, ai/assistant/tools/directorTools.ts): заявки, журнал ошибок, здоровье,
+  // рубильники — только в личке. Буквами (не импортом): сверку с DIRECTOR_TOOL_NAMES держит
+  // tests/ai-assistant-director-tools.test.ts.
+  "list_pending_requests", "decide_request", "get_error_log", "resolve_error", "get_system_health", "list_switches", "set_switch",
 ]);
 
 /** Для теста-сторожа: что закрыто в общей группе. */

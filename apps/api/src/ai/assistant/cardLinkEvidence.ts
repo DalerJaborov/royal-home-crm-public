@@ -71,6 +71,13 @@ export function createCardLinkEvidence() {
           card(result, "properties");
           for (const item of rows(value?.items)) card(item, "properties");
           break;
+        // «Режим директора» (17.11.2026, tools/directorTools.ts): ссылки на объекты и клиентов из заявок.
+        case "list_pending_requests":
+          for (const section of ["changeRequests", "propertyDeleteRequests", "awaitingModeration"]) {
+            for (const item of rows(record(value?.[section])?.items)) add(record(item)?.propertyHref, "properties");
+          }
+          for (const item of rows(record(value?.clientDeleteRequests)?.items)) add(record(item)?.clientHref, "clients");
+          break;
         case "list_my_tasks":
           for (const item of [...rows(value?.tasks), ...rows(value?.overdue)].slice(0, MAX_ROWS)) task(item);
           break;
