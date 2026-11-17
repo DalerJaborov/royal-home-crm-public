@@ -11654,6 +11654,27 @@ enum RobotCallStopSource {
   STATION
 }
 
+/// One-brain live check (17.11.2026): the model's words beside the template for one customer turn, kept 72 hours (lib/customerAgentAnswerSamples.ts).
+/// Phones and links masked; read only by the director through scripts/export-answer-samples.ts. No API route.
+model CustomerAgentAnswerSample {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+  channel        String
+  conversationId String?
+  eventKey       String?
+  answerMode     String
+  status         String
+  reason         String?
+  customerText   String
+  modelText      String
+  templateText   String
+
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@index([eventKey])
+}
+
 // Ключевой хеш номера + объявление: один номер в 3+ разных объявлениях за 30 дней — агентство.
 model SomonPhoneSighting {
   phoneHash String

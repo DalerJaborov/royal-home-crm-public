@@ -288,6 +288,19 @@ describe("core: lifted before the strict parse, shadow by default, its own switc
     expect(result.answer).toEqual({ status: "dropped", reason: "shadow" });
     expect(result.decision).not.toHaveProperty("answer");
   });
+  it("sample pair (17.11): shadow keeps the composed model words beside the template that went out; the trace verdict has no text", async () => {
+    const { result } = await run({ lead: LEAD });
+    expect(result.answerSample).toEqual({ modelText: `${LEAD}\n${TEMPLATE}`, templateText: TEMPLATE });
+    expect(result.answer).not.toHaveProperty("text");
+  });
+  it("sample pair (17.11): live keeps the template without the words; a refused answer keeps the model's raw parts", async () => {
+    const live = await run({ lead: LEAD }, { answerMode: "live" });
+    expect(live.result.answerSample).toEqual({ modelText: `${LEAD}\n${TEMPLATE}`, templateText: TEMPLATE });
+    const refused = await run({ lead: "Объект №123 стоит 900 000 сомони." }, { answerMode: "live" });
+    expect(refused.result.answerSample).toEqual({ modelText: "Объект №123 стоит 900 000 сомони.", templateText: TEMPLATE });
+    const none = await run(undefined);
+    expect(none.result.answerSample).toBeUndefined();
+  });
   it("CUSTOMER_AGENT_SAY_MODE=live alone never sends the model's answer", async () => {
     const { result } = await run({ lead: LEAD }, { sayMode: "live" });
     expect(result.text).toBe(TEMPLATE);
