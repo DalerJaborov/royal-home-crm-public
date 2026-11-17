@@ -16,10 +16,10 @@
   "paths": 771,
   "cron": 143,
   "jobs": 33,
-  "conditions": 4122,
+  "conditions": 4123,
   "untranslatedUnique": 469,
   "untranslatedTotal": 610,
-  "partialUnique": 1121,
+  "partialUnique": 1122,
   "translatedShare": 85
  },
  "untranslated": [
@@ -77468,6 +77468,19 @@
      "c": [
       {
        "t": "если есть salaries",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если есть frozen",
        "k": "if",
        "a": [],
        "c": []

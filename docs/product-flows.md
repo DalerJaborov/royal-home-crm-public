@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **771**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4138**. Модулей: **86**.
+Путей: **771**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4139**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -14820,6 +14820,8 @@
 
 - const reports = await prisma.monthlyReport.findMany({ orderBy: { periodStart: "desc" }, take: 12, include: { …
   · читает в базе: monthlyReport
+- const live = can(req, "finance.view") ? await liveMonthlyMoneyMap(reports.map((r)
+  · зовёт liveMonthlyMoneyMap()
 - res.json(await Promise.all(reports.map((r)
   · ответ 200
 
@@ -26000,6 +26002,12 @@
     · зовёт upsertSalaryExpenses()
   - если salaries
     - console.log(`[cron] Зарплатных строк обновлено: ${salaries}`);
+      · пишет строку в журнал сервера
+- await step("Курс закрытого месяца не закреплён", "api", async ()
+  - const frozen = await freezeClosedAutoExpenseRates();
+    · зовёт freezeClosedAutoExpenseRates()
+  - если frozen
+    - console.log(`[cron] Курс закреплён у ${frozen} строк закрытого месяца`);
       · пишет строку в журнал сервера
 
 ### tomorrow-digest — 0 18 * * *
