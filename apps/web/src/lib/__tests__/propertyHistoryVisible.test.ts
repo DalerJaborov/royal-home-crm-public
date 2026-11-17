@@ -25,4 +25,8 @@ describe("canViewPropertyHistory", () => {
   it("рядовой сотрудник без ответственности и без этих прав — не видит", () => {
     expect(canViewPropertyHistory(has("clients.viewAll"), false)).toBe(false);
   });
+
+  it("РОП с модерацией объектов видит историю чужого объекта — как и сервер (17.11.2026)", () => {
+    expect(canViewPropertyHistory(has("properties.moderate"), false)).toBe(true);
+  });
 });
