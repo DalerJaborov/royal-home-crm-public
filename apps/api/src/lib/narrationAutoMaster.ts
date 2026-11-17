@@ -72,6 +72,10 @@ async function need(propertyId: string): Promise<Need | null> {
   const voiced = await voicedVersionId(propertyId);
   // В ролике уже эта озвучка (монтажёр вклеил её) — менять нечего.
   if (voiced === latest.id) return null;
+  // Голос CRM в ролик монтажёру не передавался (прод 17.11, №204: озвучка одобрена, а ролик вышел без
+  // неё) — это не «смена цены», а вышедший ролик без голоса CRM. По решению владельца 12.11 такой ролик
+  // сам не перевыпускается (волна перемонтажа — только его решение): машина его не трогает.
+  if (!voiced) return null;
   return { id: p.id, shortId: p.shortId, finalPath: p.videoHandoffFinalPath, latestId: latest.id, voicedVersionId: voiced, retryAt: p.videoMasterAutoRetryAt, attempts: p.videoMasterAutoAttempts };
 }
 
