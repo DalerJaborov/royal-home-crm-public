@@ -17,3 +17,6 @@
 # Test fixture: fake literal sk_abcdefgh12345678 checks that redact() hides key-like strings.
 # No credential is present; ignore only this reviewed finding, not the rule or file.
 04ced9b117a792048e358deb48a3ac33b0cc2417:scripts/elevenlabs/elevenlabs-scripts.test.mjs:generic-api-key:32
+
+# 17.11.2026: выдуманный ключ в тесте вычистки секретов (apps/api/tests/redact-secrets.test.ts), ветка claude/shabnam-brain-17-11; настоящих ключей нет.
+e59d850a038c44aca9fb0e0ecd5e6dacbc5020f7:apps/api/tests/redact-secrets.test.ts:gcp-api-key:38

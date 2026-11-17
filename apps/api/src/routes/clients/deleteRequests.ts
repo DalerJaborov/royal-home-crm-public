@@ -31,15 +31,11 @@ import { prisma } from "../../db.js";
 import { can, requireAuth, requirePermission, scopeToOwnAgent } from "../../auth/middleware.js";
 import { decideClientCardAccess } from "../../lib/clientCardAccess.js";
 import { logAudit } from "../../lib/audit.js";
-import { findAgentsWithPermission } from "../../lib/recipients.js";
-import { sendPushToAgent, closeLeadPushNotifications } from "../../push.js";
-import { trashClient } from "../../lib/trashClient.js";
 import { maskPhone } from "./shared.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../../lib/clientPhone.js";
 import { enqueueDirectorAlert } from "../../lib/directorAlertQueue.js";
 import { fileClientDeleteRequest } from "../../lib/clientDeleteRequest.js";
-
-import { publishRequestUpdated } from "../../lib/livePublish.js";
+import { approveClientDeleteRequest, rejectClientDeleteRequest } from "../../lib/managerRequestDecisions.js";
 
 export const deleteRequestsRouter = Router();
 
@@ -236,36 +232,12 @@ deleteRequestsRouter.post(
   }
 );
 
-/** Заявка вместе с клиентом — общий пролог решений. */
-async function loadPendingRequest(id: string) {
-  return prisma.clientDeleteRequest.findUnique({
-    where: { id },
-    include: {
-      client: { select: { id: true, shortId: true, fullName: true, kind: true, deletedAt: true } },
-    },
-  });
-}
-
-/**
- * Заявку решил один из тех, у кого есть `clients.delete` — у ОСТАЛЬНЫХ
- * согласующих «🗑️ Заявка на удаление» по ней без этого висела бы в шторке
- * вечно (найдено 07.09.2026, тот же класс, что и `lead-escalated-*`: рассылка
- * всем согласующим сразу, закрытие — только заявителю через замену того же
- * тега). Кража тут невозможна — оба маршрута защищены 409-гейтом по
- * `status !== "PENDING"` — это чистка мусорного уведомления.
- */
-export async function closeDeleteRequestForOtherReviewers(requestId: string): Promise<void> {
-  const recipients = await findAgentsWithPermission("clients.delete");
-  await closeLeadPushNotifications(recipients.map((id) => ({ agentId: id, tag: `delete-request-${requestId}` })));
-}
-
 /**
  * POST /clients/delete-requests/:id/approve — руководство соглашается.
  *
- * Удаление идёт ровно тем же путём, что прямое DELETE /clients/:id — общей
- * функцией trashClient (проверка активной сделки, deletedAt, гашение требований
- * и просьб о звонке). Своя копия этой логики здесь однажды забыла бы погасить
- * требования, и по удалённому клиенту снова всплывали бы окна (баг 27.08.2026).
+ * Тело решения — lib/managerRequestDecisions.ts (17.11.2026): тем же путём одобряет
+ * и Шабнам в режиме директора. Удаление идёт общей функцией trashClient — тем же
+ * путём, что прямое DELETE /clients/:id; решение берётся атомарно ДО удаления.
  */
 deleteRequestsRouter.post(
   "/delete-requests/:id/approve",
@@ -275,104 +247,13 @@ deleteRequestsRouter.post(
     const parsed = clientDeleteRequestApproveSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Неверные данные" });
 
-    const request = await loadPendingRequest(req.params.id);
-    if (!request) return res.status(404).json({ error: "Заявка не найдена" });
-    if (request.status !== "PENDING") {
-      return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    }
-
-    /**
-     * КАРТОЧКА УЖЕ В КОРЗИНЕ — ЗАЯВКА ИСПОЛНЕНА, А НЕ СЛОМАНА (07.09.2026).
-     *
-     * Живой случай: агент отправил Продавца №0127 на удаление, админ к этому
-     * моменту удалил карточку сам. trashClient честно отвечал 404 «Клиент не
-     * найден», заявка оставалась PENDING и висела в Корзине красной строкой,
-     * которую нечем было разобрать: «Удалить в корзину» упиралась в тот же отказ,
-     * «Отклонить» соврала бы агенту — он просил удалить, и карточка удалена.
-     *
-     * Новые такие заявки закрывает сам trashClient (см. его конец), это ветка для
-     * уже повисших. Проверяем deletedAt, а не текст ошибки: 404 у trashClient
-     * означает и «нет вовсе», и «уже в Корзине», а это разные исходы.
-     */
-    const alreadyTrashed = !!request.client.deletedAt;
-
-    /**
-     * РЕШЕНИЕ БЕРЁТСЯ АТОМАРНО, ДО УДАЛЕНИЯ (аудит 04.10.2026, CRM-06). Раньше заявка
-     * читалась как PENDING, карточка уходила в Корзину (необратимо), и только потом шла
-     * безусловная запись «APPROVED»: параллельный «отклонить» давал клиента в Корзине
-     * при заявке REJECTED. Теперь заявку занимает условный переход PENDING → APPROVED;
-     * проигравший получает 409 и ничего не удаляет. Отказ trashClient (активная сделка
-     * и т. п.) возвращает заявку в PENDING: она остаётся на столе руководства.
-     */
-    const claimed = await prisma.clientDeleteRequest.updateMany({
-      where: { id: request.id, status: "PENDING" },
-      data: {
-        status: "APPROVED",
-        decidedById: req.agent!.id,
-        decidedAt: new Date(),
-        decisionNote: parsed.data.decisionNote?.trim() || null,
-      },
-    });
-    if (claimed.count === 0) {
-      return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    }
-    const releaseClaim = () =>
-      prisma.clientDeleteRequest.updateMany({
-        where: { id: request.id, status: "APPROVED", decidedById: req.agent!.id },
-        data: { status: "PENDING", decidedById: null, decidedAt: null, decisionNote: null },
-      });
-
-    let result: Awaited<ReturnType<typeof trashClient>> | null = null;
-    if (!alreadyTrashed) {
-      try {
-        result = await trashClient(request.clientId, req.agent!.id);
-      } catch (err) {
-        await releaseClaim().catch(() => undefined);
-        throw err;
-      }
-      if (!result.ok) {
-        // Заявку НЕ закрываем: активная сделка — временное препятствие, руководство
-        // вернётся к ней после отмены сделки, и заводить заявку заново незачем.
-        await releaseClaim();
-        return res.status(result.status).json({ error: result.error });
-      }
-    }
-
-    // Записи об удалении нет, когда удалять было уже нечего: карточка уехала в
-    // Корзину раньше и своей записью в журнале уже отмечена.
-    if (result?.ok) {
-      logAudit(req, "TRASH", "Client", result.client.id, {
-        shortId: result.client.shortId,
-        fullName: result.client.fullName,
-        phone: result.client.phone,
-        kind: result.client.kind,
-        deleteRequestId: request.id,
-      });
-    }
-
-    // Пуш «удалено по вашей заявке» убран (владелец 17.09.2026): карточка уже
-    // пропала у агента из списка в момент подачи заявки (см. routes/clients/list.ts) —
-    // уведомление об одобрении сообщало бы о том, что он не видит и так, лишнее.
-    // Отклонение — другое дело, там push остаётся: карточка возвращается в
-    // список, и без объяснения агент не поймёт, почему.
-    void closeDeleteRequestForOtherReviewers(request.id).catch((err) =>
-      console.error("[push] закрытие заявки на удаление у остальных согласующих:", err)
-    );
-
-    publishRequestUpdated({
-      requestId: request.id,
-      clientId: request.clientId,
-      agentIds: [request.requestedById],
-      stage: "APPROVED",
+    const outcome = await approveClientDeleteRequest({
+      requestId: req.params.id,
       actorId: req.agent!.id,
+      decisionNote: parsed.data.decisionNote?.trim() || null,
     });
-
-    res.json({
-      ok: true,
-      message: alreadyTrashed
-        ? "Карточка уже была в Корзине — заявка закрыта, агенту отправлено уведомление"
-        : "Клиент удалён в Корзину, агенту отправлено уведомление",
-    });
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json({ ok: true, message: outcome.message });
   }
 );
 
@@ -381,7 +262,7 @@ deleteRequestsRouter.post(
  *
  * Причина ОБЯЗАТЕЛЬНА (проверяется схемой): «отклонено» без объяснения агенту
  * ничего не говорит — он либо заведёт такую же заявку завтра, либо перестанет
- * заводить их вовсе, и база снова зарастёт пустышками.
+ * заводить их вовсе, и база снова зарастёт пустышками. Тело — lib/managerRequestDecisions.ts.
  */
 deleteRequestsRouter.post(
   "/delete-requests/:id/reject",
@@ -393,53 +274,13 @@ deleteRequestsRouter.post(
       return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Напишите, почему заявка отклонена" });
     }
 
-    const request = await loadPendingRequest(req.params.id);
-    if (!request) return res.status(404).json({ error: "Заявка не найдена" });
-    if (request.status !== "PENDING") {
-      return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    }
-
-    // Условный переход PENDING → REJECTED (CRM-06): параллельное «одобрить» уже могло
-    // удалить карточку и закрыть заявку, безусловная запись переписала бы его решение.
-    const decided = await prisma.clientDeleteRequest.updateMany({
-      where: { id: request.id, status: "PENDING" },
-      data: {
-        status: "REJECTED",
-        decidedById: req.agent!.id,
-        decidedAt: new Date(),
-        decisionNote: parsed.data.decisionNote,
-      },
-    });
-    if (decided.count === 0) {
-      return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    }
-
-    logAudit(req, "DELETE_REQUEST_REJECT", "Client", request.clientId, {
-      requestId: request.id,
-      shortId: request.client.shortId,
-      fullName: request.client.fullName,
+    const outcome = await rejectClientDeleteRequest({
+      requestId: req.params.id,
+      actorId: req.agent!.id,
       decisionNote: parsed.data.decisionNote,
     });
-
-    void sendPushToAgent(request.requestedById, {
-      title: "Заявка на удаление отклонена",
-      body: `${request.client.fullName}: ${parsed.data.decisionNote}`,
-      url: `/clients/${request.client.shortId}`,
-      tag: `delete-request-${request.id}`,
-    });
-    void closeDeleteRequestForOtherReviewers(request.id).catch((err) =>
-      console.error("[push] закрытие заявки на удаление у остальных согласующих:", err)
-    );
-
-    publishRequestUpdated({
-      requestId: request.id,
-      clientId: request.clientId,
-      agentIds: [request.requestedById],
-      stage: "REJECTED",
-      actorId: req.agent!.id,
-    });
-
-    res.json({ ok: true, message: "Заявка отклонена, агенту отправлено объяснение" });
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json({ ok: true, message: outcome.message });
   }
 );
 

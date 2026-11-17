@@ -13,6 +13,7 @@ import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "../jobs/aiReplyRetryPolicy.js";
 import { classifyErrorLog, errorLogPriorityWhere, type ErrorLogPriority } from "../lib/errorLogClassify.js";
 import { checkGeminiHealth } from "../lib/integrationHealth.js";
 import { dushanbeStartOfToday } from "../lib/dushanbeTime.js";
+import { reopenErrorLogEntry, resolveErrorLogEntry } from "../lib/errorLogActions.js";
 
 export const errorLogRouter = Router();
 
@@ -141,34 +142,25 @@ errorLogRouter.post("/gemini-health-check", requireAuth, requirePermission("audi
 
 /** Отметить ошибку разобранной — она уходит из счётчиков и из утреннего уведомления. */
 errorLogRouter.post("/:id/resolve", requireAuth, requirePermission("auditLog.view"), async (req, res) => {
-  try {
-    await visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).update({
-      where: { ...visibleSystemErrorWhere(req.agent?.role), id: req.params.id },
-      data: { resolvedAt: new Date(), resolvedById: req.agent!.id },
-    });
-    res.status(204).end();
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
-      return res.status(404).json({ error: "Запись не найдена" });
-    }
-    throw err;
-  }
+  // Тело — lib/errorLogActions.ts: той же функцией отмечает разобранной Шабнам (режим директора).
+  const outcome = await resolveErrorLogEntry(req.params.id, {
+    agentId: req.agent!.id,
+    role: req.agent?.role,
+    securityRole: can(req, "clients.securityReview") ? req.agent?.role : undefined,
+  });
+  if (outcome === "not-found") return res.status(404).json({ error: "Запись не найдена" });
+  res.status(204).end();
 });
 
 /** Вернуть ошибку в работу, если отметили разобранной по ошибке. */
 errorLogRouter.post("/:id/reopen", requireAuth, requirePermission("auditLog.view"), async (req, res) => {
-  try {
-    await visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).update({
-      where: { ...visibleSystemErrorWhere(req.agent?.role), id: req.params.id },
-      data: { resolvedAt: null, resolvedById: null },
-    });
-    res.status(204).end();
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
-      return res.status(404).json({ error: "Запись не найдена" });
-    }
-    throw err;
-  }
+  const outcome = await reopenErrorLogEntry(req.params.id, {
+    agentId: req.agent!.id,
+    role: req.agent?.role,
+    securityRole: can(req, "clients.securityReview") ? req.agent?.role : undefined,
+  });
+  if (outcome === "not-found") return res.status(404).json({ error: "Запись не найдена" });
+  res.status(204).end();
 });
 
 /** `scope: "today"` — только ошибки сегодняшнего дня по Душанбе: пульт

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2518**; вместе с задачами по расписанию и фоновыми заданиями — **4092**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4057**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2591,10 +2591,8 @@
   - where.AND = [unqualifiedWhere];
     · дословно из кода
 - если noCallbackOnly
-  - const candidates = await prisma.incomingCall.findMany({ where: { startedAt: { gte: since }, answered: false, …
-    · читает в базе: incomingCall
-  - const calledBack = await findCallbackContacts( candidates.flatMap((c)
-    · зовёт findCallbackContacts()
+  - where.id = { in: await missedWithoutCallbackIds(since) };
+    · зовёт missedWithoutCallbackIds()
 - const [items, total, missed, unqualified, periodTotal] = await Promise.all([ prisma.incomingCall.findMany({ w…
   · читает в базе: incomingCall
   · считает в базе: incomingCall
@@ -4355,37 +4353,12 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- если !request
-  - return res.status(404).json({ error: "Заявка не найдена" });
-    · ответ 404 — «Заявка не найдена»
-- если request.status !== "PENDING"
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- const claimed = await prisma.clientDeleteRequest.updateMany({ where: { id: request.id, status: "PENDING" }, d…
-  · меняет в базе: clientDeleteRequest
-- если claimed.count === 0
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- const releaseClaim = ()
-  · меняет в базе: clientDeleteRequest
-- если !alreadyTrashed
-  - пробует
-    - result = await trashClient(request.clientId, req.agent!.id);
-      · зовёт trashClient()
-  - если сорвалось
-    - throw err;
-      · пробрасывает ошибку дальше
-  - если !result.ok
-    - return res.status(result.status).json({ error: result.error });
-      · ответ (код зависит от условия)
-- если result?.ok
-  - logAudit(req, "TRASH", "Client", result.client.id, { shortId: result.client.shortId, fullName: result.client.…
-    · зовёт logAudit()
-- void closeDeleteRequestForOtherReviewers(request.id).catch((err)
-  · зовёт closeDeleteRequestForOtherReviewers()
-- publishRequestUpdated({ requestId: request.id, clientId: request.clientId, agentIds: [request.requestedById],…
-  · зовёт publishRequestUpdated()
-- res.json({ ok: true, message: alreadyTrashed ? "Карточка уже была в Корзине — заявка закрыта, агенту отправле…
+- const outcome = await approveClientDeleteRequest({ requestId: req.params.id, actorId: req.agent!.id, decision…
+  · зовёт approveClientDeleteRequest()
+- если !outcome.ok
+  - return res.status(outcome.status).json({ error: outcome.error });
+    · ответ (код зависит от условия)
+- res.json({ ok: true, message: outcome.message });
   · ответ 200
 
 ### POST /api/v1/clients/delete-requests/:id/reject
@@ -4397,26 +4370,12 @@
 - если !parsed.success
   - return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Напишите, почему заявка отклонена" }…
     · ответ 400
-- если !request
-  - return res.status(404).json({ error: "Заявка не найдена" });
-    · ответ 404 — «Заявка не найдена»
-- если request.status !== "PENDING"
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- const decided = await prisma.clientDeleteRequest.updateMany({ where: { id: request.id, status: "PENDING" }, d…
-  · меняет в базе: clientDeleteRequest
-- если decided.count === 0
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- logAudit(req, "DELETE_REQUEST_REJECT", "Client", request.clientId, { requestId: request.id, shortId: request.…
-  · зовёт logAudit()
-- void sendPushToAgent(request.requestedById, { title: "Заявка на удаление отклонена", body: `${request.client.…
-  · push-уведомление
-- void closeDeleteRequestForOtherReviewers(request.id).catch((err)
-  · зовёт closeDeleteRequestForOtherReviewers()
-- publishRequestUpdated({ requestId: request.id, clientId: request.clientId, agentIds: [request.requestedById],…
-  · зовёт publishRequestUpdated()
-- res.json({ ok: true, message: "Заявка отклонена, агенту отправлено объяснение" });
+- const outcome = await rejectClientDeleteRequest({ requestId: req.params.id, actorId: req.agent!.id, decisionN…
+  · зовёт rejectClientDeleteRequest()
+- если !outcome.ok
+  - return res.status(outcome.status).json({ error: outcome.error });
+    · ответ (код зависит от условия)
+- res.json({ ok: true, message: outcome.message });
   · ответ 200
 
 ### GET /api/v1/clients/delete-requests
@@ -6460,33 +6419,25 @@
 
 `apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
-- пробует
-  - await visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).update({ where: { ..…
-    · зовёт visibleErrorLogs()
-  - res.status(204).end();
-    · ответ 204
-- если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Запись не найдена" });
-      · ответ 404 — «Запись не найдена»
-  - throw err;
-    · пробрасывает ошибку дальше
+- const outcome = await reopenErrorLogEntry(req.params.id, { agentId: req.agent!.id, role: req.agent?.role, sec…
+  · зовёт reopenErrorLogEntry()
+- если outcome === "not-found"
+  - return res.status(404).json({ error: "Запись не найдена" });
+    · ответ 404 — «Запись не найдена»
+- res.status(204).end();
+  · ответ 204
 
 ### POST /api/v1/errors/:id/resolve
 
 `apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
-- пробует
-  - await visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).update({ where: { ..…
-    · зовёт visibleErrorLogs()
-  - res.status(204).end();
-    · ответ 204
-- если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Запись не найдена" });
-      · ответ 404 — «Запись не найдена»
-  - throw err;
-    · пробрасывает ошибку дальше
+- const outcome = await resolveErrorLogEntry(req.params.id, { agentId: req.agent!.id, role: req.agent?.role, se…
+  · зовёт resolveErrorLogEntry()
+- если outcome === "not-found"
+  - return res.status(404).json({ error: "Запись не найдена" });
+    · ответ 404 — «Запись не найдена»
+- res.status(204).end();
+  · ответ 204
 
 ### POST /api/v1/errors/gemini-health-check
 
@@ -7851,8 +7802,8 @@
 
 `apps/api/src/routes/integrations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
-- const rows = await prisma.integrationHealthSnapshot.findMany({ orderBy: { name: "asc" } });
-  · читает в базе: integrationHealthSnapshot
+- const rows = await loadIntegrationHealthSnapshot();
+  · зовёт loadIntegrationHealthSnapshot()
 - res.json({ channels: rows.map((r)
   · ответ 200
 
@@ -10572,34 +10523,15 @@
 
 `apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- const property = await prisma.property.findUnique({ where: { id: req.params.id }, include: { district: true, …
-  · читает в базе: property
-- если !property || property.deletedAt
-  - return res.status(404).json({ error: "Объект не найден" });
-    · ответ 404 — «Объект не найден»
-- если !canManageProperty(req, property)
-  - return res.status(403).json({ error: "Недостаточно прав" });
-    · ответ 403 — «Недостаточно прав»
-- если property.status !== "EDITING"
-  - return res.status(409).json({ error: "Кнопка «Готово» доступна только на этапе «Монтаж»" });
-    · ответ 409 — «Кнопка «Готово» доступна только на этапе «Монтаж»»
-- const blockers = blockersForSale({ instagramUrl: property.instagramUrl, photoCount: property.photos.length });
-  · зовёт blockersForSale()
-- если blockers.length > 0
-  - return res.status(409).json({ error: `Объект не готов: ${blockers.join(", ")}` });
-    · ответ 409 — «Объект не готов: ${blockers.join(»
-- const updated = await prisma.property.update({ where: { id: property.id }, data: { status: "AVAILABLE", stage…
-  · меняет в базе: property
-- const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
-  · зовёт publishAfterEditingComplete()
-- void skipVideoHandoffOnManualPublish(published.id).catch((err)
-  · зовёт skipVideoHandoffOnManualPublish()
-- publishPropertyUpdated({ propertyId: published.id, agentId: published.assignedAgentId, stage: published.statu…
-  · зовёт publishPropertyUpdated()
-- если siteSyncError
-  - return res.status(207).json({ ...presentProperty(published, req), siteSyncError });
+- const outcome = await completeEditing({ propertyId: req.params.id, actor: { agentId: req.agent!.id, can: (per…
+  · зовёт completeEditing()
+- если !outcome.ok
+  - return res.status(outcome.status).json({ error: outcome.error });
+    · ответ (код зависит от условия)
+- если outcome.siteSyncError
+  - return res.status(207).json({ ...presentProperty(outcome.property, req), siteSyncError: outcome.siteSyncError…
     · ответ 207
-- res.json(presentProperty(published, req));
+- res.json(presentProperty(outcome.property, req));
   · ответ 200
 
 ### GET /api/v1/properties/:id/cover-poster.jpg
@@ -13156,26 +13088,11 @@
 - если changedFields.includes("instagramUrl") && agentReelLinkClosed(existing.status, can(req, "properties.editForei…
   - return res.status(403).json({ error: "Ссылку на ролик можно вставить после одобрения объекта.", });
     · ответ 403 — «Ссылку на ролик можно вставить после одобрения объекта.»
-- если parsed.data.status !== undefined && parsed.data.status !== existing.status
-  - const block = await manualStatusChangeBlock(existing, parsed.data.status, can(req, "properties.moderate"));
-    · зовёт manualStatusChangeBlock()
+- если parsed.data.status !== undefined
+  - const block = await propertyStatusChangeBlock(existing, parsed.data.status, { canModerate: can(req, "properti…
+    · зовёт propertyStatusChangeBlock()
   - если block
     - return res.status(block.status).json({ error: block.error });
-      · ответ (код зависит от условия)
-- если parsed.data.status !== undefined && requiresPropertyModeration(existing.status, parsed.data.status) && !can(r…
-  - return res.status(403).json({ error: PROPERTY_MODERATION_REQUIRED_MESSAGE });
-    · ответ 403
-- если parsed.data.status === "AVAILABLE" && (isPipelineStatus(existing.status) || existing.status === "WITHDRAWN")
-  - const notReady = await saleReadinessBlock(existing, instagramUrl);
-    · зовёт saleReadinessBlock()
-  - если notReady
-    - return res.status(notReady.status).json({ error: notReady.error });
-      · ответ (код зависит от условия)
-- если parsed.data.status !== undefined
-  - const revert = await completedDealRevertBlock(existing, parsed.data.status);
-    · зовёт completedDealRevertBlock()
-  - если revert
-    - return res.status(revert.status).json({ error: revert.error });
       · ответ (код зависит от условия)
 - если data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, "properties.viewOwners…
   - delete data.ownerContact;
@@ -13257,9 +13174,9 @@
     - если clientVersion !== undefined && result.count === 0
       - throw new PropertyConflictError();
         · ошибка PropertyConflictError
-    - если result.count && data.status === "WITHDRAWN" && existing.status !== "WITHDRAWN"
-      - await recordPropertyRemoval(tx, { ...removal.data, propertyId: existing.id, actorId: req.agent!.id, operation…
-        · зовёт recordPropertyRemoval()
+    - если result.count
+      - await recordStatusRemovalInTx(tx, { propertyId: existing.id, from: existing.status, to: data.status, removal:…
+        · зовёт recordStatusRemovalInTx()
     - const after = await tx.property.findUniqueOrThrow({ where: { id: req.params.id } });
       · читает в базе: property
     - если !writesPrice || (!amountChanged && !currencyChanged)
@@ -13291,9 +13208,8 @@
 - если EMBEDDING_RELEVANT_FIELDS.some((f) => data[f] !== undefined)
   - void embedAndSaveProperty(updated.id);
     · зовёт embedAndSaveProperty()
-- если data.status !== undefined && data.status !== existing.status
-  - logAudit(req, "PROPERTY_STATUS_CHANGED", "Property", existing.id, { was: existing.status, becomes: data.statu…
-    · зовёт logAudit()
+- const statusFx = await runPropertyStatusEffects({ actorId: req.agent!.id, before: existing, updated, to: data…
+  · зовёт runPropertyStatusEffects()
 - const fieldChanges = describePropertyChanges( changedFields, data as unknown as Record<string, unknown>, exis…
   · читает в базе: district
 - если fieldChanges.length > 0
@@ -13302,55 +13218,12 @@
 - если data.assignedAgentId !== undefined && data.assignedAgentId !== existing.assignedAgentId
   - logAudit(req, "PROPERTY_ASSIGNED_AGENT_CHANGED", "Property", existing.id, { was: existing.assignedAgentId, be…
     · зовёт logAudit()
-- если data.status !== undefined && data.status !== existing.status && data.status === "PENDING_REVIEW"
-  - void notifyPendingReview(updated.id, updated.shortId, updated.title).catch((err)
-    · зовёт notifyPendingReview()
-- если data.status !== undefined && data.status !== existing.status && data.status === "EDITING"
-  - void notifyEditingStarted(updated.id, updated.shortId, updated.title).catch((err)
-    · зовёт notifyEditingStarted()
-- если data.status !== undefined && data.status !== existing.status && existing.status === "PENDING_REVIEW"
-  - void closePendingReviewPush(existing.id).catch((err)
-    · зовёт closePendingReviewPush()
-- если data.status !== undefined && data.status !== existing.status && existing.status === "EDITING"
-  - void closeEditingPush(existing.id).catch((err)
-    · зовёт closeEditingPush()
 - если fieldChanges.length > 0 && (data.status === undefined || data.status === existing.status)
   - void notifyPropertyEditedBeforePublish({ before: { id: existing.id, shortId: existing.shortId, title: existin…
     · зовёт notifyPropertyEditedBeforePublish()
-- если data.status !== undefined && data.status !== existing.status && data.status === "AVAILABLE" && !willAutoPubli…
-  - void notifyWaitingBuyersOfNewProperty(updated).catch((err)
-    · зовёт notifyWaitingBuyersOfNewProperty()
 - если addressChanged && !hasManualCoords && updated.address
   - geocodeInBackground(updated.id);
     · зовёт geocodeInBackground()
-- если becameWithdrawn && updated.sellerClientId
-  - await recomputeSellerCardState({ sellerClientId: updated.sellerClientId, lostReason: removal.data.removalReas…
-    · зовёт recomputeSellerCardState()
-- const enteredPipeline = data.status !== undefined && isPipelineStatus(data.status) && existing.status === "AV…
-  · зовёт isPipelineStatus()
-- если existing.status === "EDITING" && data.status !== undefined && data.status !== "EDITING" && isPipelineStatus(d…
-  - void closeVideoHandoff(updated.id, { holdQueue: false, reason: "возвращён на доработку" }).catch((err)
-    · запись в журнал ошибок
-- если becameSold || becameWithdrawn || becameReserved
-  - closeWorkAfterLeavingSale(updated.id, becameSold ? "sold" : becameWithdrawn ? "withdrawn" : "reserved");
-    · зовёт closeWorkAfterLeavingSale()
-- если existing.publishedOnSite && (becameSold || becameUnsold || becameWithdrawn || enteredPipeline)
-  - const withRelations = await prisma.property.findUnique({ where: { id: updated.id }, include: { district: true…
-    · читает в базе: property
-  - если withRelations
-    - void syncPropertiesToSite([withRelations], action) .then((result)
-      · меняет в базе: property
-      · запись в журнал ошибок
-      - если !problem
-        - если action === "unpublish"
-          - return prisma.property .update({ where: { id: updated.id }, data: { publishedOnSite: false } }) .then(()
-            · меняет в базе: property
-        - return;
-          · дальше не идёт, ничего не меняя
-      - console.error(`[siteSync] Статус объекта ${updated.id} не дошёл до сайта: ${problem}`);
-        · пишет строку в журнал сервера
-      - void logSystemError("site-sync", `Статус объекта ${updated.id} не дошёл до сайта: ${problem}`, { url: `/prope…
-        · запись в журнал ошибок
 - await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
 - если willAutoPublish
@@ -13478,32 +13351,12 @@
 - если !parsed.success
   - return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Напишите причину отказа" });
     · ответ 400
-- const request = await prisma.propertyChangeRequest.findUnique({ where: { id: req.params.rid }, include: { pro…
-  · читает в базе: propertyChangeRequest
-- если !request
-  - return res.status(404).json({ error: "Заявка не найдена" });
-    · ответ 404 — «Заявка не найдена»
-- если request.status !== "PENDING"
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- const decided = await prisma.propertyChangeRequest.updateMany({ where: { id: request.id, status: "PENDING" },…
-  · меняет в базе: propertyChangeRequest
-- если decided.count === 0
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- const summary = summarizeChangeRequest(request.kind, request.payload, request.property);
-  · зовёт summarizeChangeRequest()
-- logAudit(req, "PROPERTY_CHANGE_REQUEST_DECIDED", "Property", request.propertyId, { requestId: request.id, kin…
-  · зовёт logAudit()
-- void sendPushToAgent(request.authorId, { title: "Заявка отклонена", body: `${request.property.title}: ${summa…
-  · push-уведомление
-- void closeForOtherReviewers(request.id, req.agent!.id);
-  · зовёт closeForOtherReviewers()
-- publishRequestUpdated({ requestId: request.id, propertyId: request.propertyId, agentIds: [request.authorId], …
-  · зовёт publishRequestUpdated()
-- const row = await prisma.propertyChangeRequest.findUniqueOrThrow({ where: { id: request.id }, include: CHANGE…
-  · читает в базе: propertyChangeRequest
-- res.json({ request: toChangeRequestDto(row), message: "Заявка отклонена, агенту отправлена причина" });
+- const outcome = await rejectPropertyChangeRequest({ requestId: req.params.rid, actorId: req.agent!.id, note: …
+  · зовёт rejectPropertyChangeRequest()
+- если !outcome.ok
+  - return res.status(outcome.status).json({ error: outcome.error });
+    · ответ (код зависит от условия)
+- res.json({ request: outcome.request, message: outcome.message });
   · ответ 200
 
 ### GET /api/v1/properties/change-requests
@@ -13541,41 +13394,12 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- если !request
-  - return res.status(404).json({ error: "Заявка не найдена" });
-    · ответ 404 — «Заявка не найдена»
-- если request.status !== "PENDING"
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- const claimed = await prisma.propertyDeleteRequest.updateMany({ where: { id: request.id, status: "PENDING" },…
-  · меняет в базе: propertyDeleteRequest
-- если claimed.count === 0
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- const releaseClaim = ()
-  · меняет в базе: propertyDeleteRequest
-- если !alreadyTrashed
-  - пробует
-    - result = await trashProperty(request.propertyId, req.agent!.id, { removalReason: request.reason as PropertyDe…
-      · зовёт trashProperty()
-  - если сорвалось
-    - throw err;
-      · пробрасывает ошибку дальше
-  - если !result.ok
-    - return res.status(result.status).json({ error: result.error });
-      · ответ (код зависит от условия)
-- если result?.ok
-  - logAudit(req, "TRASH", "Property", result.property.id, { shortId: result.property.shortId, title: result.prop…
-    · зовёт logAudit()
-- void applySellerRefusal({ propertyId: request.propertyId, reason: request.reason, comment: request.comment, r…
-  · зовёт applySellerRefusal()
-- void closeDeleteRequestForOtherReviewers(request.id).catch((err)
-  · зовёт closeDeleteRequestForOtherReviewers()
-- publishRequestUpdated({ requestId: request.id, propertyId: request.propertyId, agentIds: [request.requestedBy…
-  · зовёт publishRequestUpdated()
-- publishPropertyUpdated({ propertyId: request.propertyId, actorId: req.agent!.id, stage: "TRASHED" });
-  · зовёт publishPropertyUpdated()
-- res.json({ ok: true, message: alreadyTrashed ? "Объект уже был в Корзине — заявка закрыта" : "Объект удалён в…
+- const outcome = await approvePropertyDeleteRequest({ requestId: req.params.id, actorId: req.agent!.id, decisi…
+  · зовёт approvePropertyDeleteRequest()
+- если !outcome.ok
+  - return res.status(outcome.status).json({ error: outcome.error });
+    · ответ (код зависит от условия)
+- res.json({ ok: true, message: outcome.message });
   · ответ 200
 
 ### POST /api/v1/properties/delete-requests/:id/reject
@@ -13587,26 +13411,12 @@
 - если !parsed.success
   - return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Напишите, почему заявка отклонена" }…
     · ответ 400
-- если !request
-  - return res.status(404).json({ error: "Заявка не найдена" });
-    · ответ 404 — «Заявка не найдена»
-- если request.status !== "PENDING"
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- const decided = await prisma.propertyDeleteRequest.updateMany({ where: { id: request.id, status: "PENDING" },…
-  · меняет в базе: propertyDeleteRequest
-- если decided.count === 0
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- logAudit(req, "DELETE_REQUEST_REJECT", "Property", request.propertyId, { requestId: request.id, shortId: requ…
-  · зовёт logAudit()
-- void sendPushToAgent(request.requestedById, { title: "Заявка на удаление отклонена", body: `${request.propert…
-  · push-уведомление
-- void closeDeleteRequestForOtherReviewers(request.id).catch((err)
-  · зовёт closeDeleteRequestForOtherReviewers()
-- publishRequestUpdated({ requestId: request.id, propertyId: request.propertyId, agentIds: [request.requestedBy…
-  · зовёт publishRequestUpdated()
-- res.json({ ok: true, message: "Заявка отклонена, агенту отправлено объяснение" });
+- const outcome = await rejectPropertyDeleteRequest({ requestId: req.params.id, actorId: req.agent!.id, decisio…
+  · зовёт rejectPropertyDeleteRequest()
+- если !outcome.ok
+  - return res.status(outcome.status).json({ error: outcome.error });
+    · ответ (код зависит от условия)
+- res.json({ ok: true, message: outcome.message });
   · ответ 200
 
 ### GET /api/v1/properties/delete-requests
@@ -27121,6 +26931,16 @@
           - break;
             · прекращает перебор
         - вариант case "OTHER"
+          - const statusChange = readStatusChangeRequest(pre.payload);
+            · зовёт readStatusChangeRequest()
+          - если statusChange
+            - error = await executeStatusChange({ requestId, propertyId: property.id, actorId, statusChange, result });
+              · дословно из кода
+          - иначе
+            - result.applied.push(OTHER_MANUAL_RESULT);
+              · дословно из кода
+            - manualOnly = true;
+              · дословно из кода
           - break;
             · прекращает перебор
   - если сорвалось
@@ -27138,6 +26958,9 @@
     - если changes.length > 0
       - logAgentAudit(actorId, "PROPERTY_FIELDS_CHANGED", "Property", property.id, { shortId: property.shortId, chang…
         · зовёт logAgentAudit()
+  - если claim.write && !isPropertyPublished(claim.write.before.status)
+    - void notifyPropertyEditedBeforePublish({ before: { id: w.before.id, shortId: w.before.shortId, title: w.befor…
+      · зовёт notifyPropertyEditedBeforePublish()
   - publishRequestUpdated({ requestId, propertyId: property.id, agentIds: [pre.authorId], stage: status, actorId,…
     · зовёт publishRequestUpdated()
   - если claim.write
