@@ -117,11 +117,13 @@ export function normalizeAuthenticatedCustomerIngress(request: VerifiedRequest):
       kind: mediaKind(message.attachmentType), ...(message.attachmentUrl ? { url: message.attachmentUrl } : {}),
       ...(message.mediaId ? { assetRef: message.mediaId } : {}), ...(message.attachmentMediaId ? { publicationId: message.attachmentMediaId } : {}),
     });
-    if (media.length) mediaKinds.push(observedMediaKind(message.attachmentType));
+    const captions: string[] = [];
+    if (media.length) { mediaKinds.push(observedMediaKind(message.attachmentType)); captions.push(message.attachmentTitle?.slice(0, 2200) ?? ""); }
     for (const extra of message.extraAttachments ?? []) {
       media.push({ kind: mediaKind(extra.type), ...(extra.url ? { url: extra.url } : {}),
         ...(extra.attachmentMediaId ? { publicationId: extra.attachmentMediaId } : {}) });
       mediaKinds.push(observedMediaKind(extra.type));
+      captions.push(extra.attachmentTitle?.slice(0, 2200) ?? "");
     }
     const withAd = withRememberedAdReferral(message);
     return customerNormalizedIngressSchema.parse({ version: 1, channel: message.channel, peer: message.senderId,
@@ -133,6 +135,8 @@ export function normalizeAuthenticatedCustomerIngress(request: VerifiedRequest):
       observations: { providerEcho: !!message.isEcho, referralOnly: !!message.referralOnly,
         classifier: { version: 1, bareTemplateEcho: !message.text && message.attachmentType === "template",
           ...(mediaKinds.length ? { mediaKinds } : {}),
+          // Only when Meta sent a caption: envelopes of every other event stay byte-identical to before.
+          ...(captions.some(Boolean) ? { mediaCaptions: captions } : {}),
           ...(source.recipientPhoneDigits ? { recipientPhoneDigits: source.recipientPhoneDigits } : {}) } }, media,
       propertyEvidence: customerPropertyEvidenceFromMeta(withAd),
       ...adContextOf(withAd),

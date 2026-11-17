@@ -19,6 +19,8 @@ vi.mock("../PropertyCoverStatus", () => ({ PropertyCoverStatus: () => <span>Prop
 vi.mock("../PropertyStatsCard", () => ({ PropertyStatsCard: () => <span>PropertyStatsCard</span> }));
 vi.mock("../PropertyVoiceCard", () => ({ PropertyVoiceDisclosure: () => <span>PropertyVoiceDisclosure</span> }));
 vi.mock("../PropertyPriceDemandCard", () => ({ PropertyPriceDemandCard: () => <span>PropertyPriceDemandCard</span> }));
+vi.mock("../OwnerReportCard", () => ({ OwnerReportCard: () => <span>OwnerReportCard</span> }));
+vi.mock("../ShowingQuickForm", () => ({ ShowingQuickForm: () => <span>ShowingQuickForm</span> }));
 
 type Props = ComponentProps<typeof LegacyAgentPropertyView>;
 const noop = () => {};
@@ -71,7 +73,11 @@ describe("legacy agent property acceptance", () => {
   it("preserves pre-extraction markup for shared blocks and overlays", () => {
     const html = render(fixture({ can: () => true, canEdit: true, matchOpen: true, deleteOpen: true, requestDeleteOpen: true }));
     // Captured from the original phone renderer before moving these leaves.
-    expect(createHash("sha256").update(html).digest("hex")).toBe("2c64c3be9ec585c5da02e39421346429a02f03838c24e22ba291a7420331749c");
+    // 17.11.2026 (аудит F1-2) к телефону добавлен «Отчёт владельцу» — единственная
+    // разница с прежней разметкой; без него отпечаток обязан совпасть как был.
+    expect(html).toContain("<span>OwnerReportCard</span>");
+    const before = html.replace("<span>OwnerReportCard</span>", "");
+    expect(createHash("sha256").update(before).digest("hex")).toBe("2c64c3be9ec585c5da02e39421346429a02f03838c24e22ba291a7420331749c");
     expect(html).toContain("PropertyShareOpensCard");
   });
   it("preserves the phone block order and includes every shared working block once", () => {
@@ -102,5 +108,29 @@ describe("legacy agent property acceptance", () => {
     expect(html).toContain("PropertyPhotoManager");
     expect(html).toContain("MatchPanel");
     expect(html).toContain("RequestDeletePropertyModal");
+  });
+});
+
+/**
+ * F1-2 аудита 17.11.2026: на телефоне агента у карточки объекта не было
+ * «Поделиться ссылкой», «Назначить показ» и «Отчёта владельцу», хотя на ПК
+ * всё это есть. Условия — те же, что на ПК (siteUrl, canSchedule,
+ * ведущий объект и не корзина).
+ */
+describe("legacy agent property: действия как на ПК", () => {
+  const withSite = (extra: Partial<Props> = {}) =>
+    fixture({ property: { ...fixture().property, siteUrl: "https://royalhome.tj/p/42" } as Props["property"], ...extra });
+  it("показывает «Поделиться ссылкой» только у объекта со страницей на сайте", () => {
+    expect(render(withSite())).toContain("Поделиться ссылкой");
+    expect(render(fixture())).not.toContain("Поделиться ссылкой");
+  });
+  it("показывает «Назначить показ» только с правом назначать показ", () => {
+    expect(render(fixture({ canSchedule: true }))).toContain("Назначить показ");
+    expect(render(fixture({ canSchedule: false }))).not.toContain("Назначить показ");
+  });
+  it("показывает «Отчёт владельцу» ведущему объект и прячет в корзине и чужому", () => {
+    expect(render(fixture())).toContain("OwnerReportCard");
+    expect(render(fixture({ isTrashed: true }))).not.toContain("OwnerReportCard");
+    expect(render(fixture({ isResponsibleForProperty: false }))).not.toContain("OwnerReportCard");
   });
 });

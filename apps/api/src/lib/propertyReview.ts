@@ -14,8 +14,7 @@
  * текущее состояние; проигравший получает `count: 0` и честный ответ «уже решил
  * такой-то в такое-то время» (whoDecided).
  */
-import { prisma } from "../db.js";
-import type { Property } from "../generated/prisma/client.js";
+import { prisma, type PropertyRecord } from "../db.js";
 import {
   closePendingReviewPush,
   isRawReviewRequired,
@@ -25,7 +24,7 @@ import {
 } from "./propertyPipeline.js";
 import { logAgentAudit, logSystemAudit } from "./audit.js";
 import { queueVideoHandoff } from "./videoHandoff.js";
-import { loadEventPoints, recordScoreEvent, type ScoreEventKind } from "./scoreJournal.js";
+import { loadEventPoints, recordScoreEvent, type ActiveScoreEventKind } from "./scoreJournal.js";
 import { sendPushToAgent } from "../push.js";
 import { publishPropertyUpdated } from "./livePublish.js";
 import { runAsActor, runAsSystem } from "./requestActor.js";
@@ -52,7 +51,7 @@ function asActor<T>(actor: ReviewActor, fn: () => Promise<T>): Promise<T> {
 }
 
 export type ReviewFailure = { ok: false; status: 404 | 409; code: "not_found" | "not_pending" | "already" | "no_material"; error: string };
-export type ReviewResult = { ok: true; property: Property; movedToEditing: boolean } | ReviewFailure;
+export type ReviewResult = { ok: true; property: PropertyRecord; movedToEditing: boolean } | ReviewFailure;
 
 export const REVIEW_AUDIT_ACTIONS = [
   "PROPERTY_PHOTOS_APPROVED",
@@ -139,9 +138,9 @@ export async function approveReviewMaterial(
 
 /** Последствия одобрения — общие для «одного материала» (CRM) и «целиком» (Telegram). */
 async function afterApproval(
-  before: Property,
+  before: PropertyRecord,
   materials: ReviewMaterial[],
-  updated: Property,
+  updated: PropertyRecord,
   movedToEditing: boolean,
   actor: ReviewActor
 ): Promise<void> {
@@ -150,7 +149,7 @@ async function afterApproval(
   for (const material of materials) {
     const rejectedBefore = material === "photos" ? before.photosRejectionCount > 0 : before.videoRejectionCount > 0;
     if (!rejectedBefore && responsibleId && points) {
-      const kind: ScoreEventKind = material === "photos" ? "photos_approved_first_try" : "video_approved_first_try";
+      const kind: ActiveScoreEventKind = material === "photos" ? "photos_approved_first_try" : "video_approved_first_try";
       recordScoreEvent({
         agentId: responsibleId,
         kind,
@@ -255,18 +254,11 @@ export async function rejectReview(propertyId: string, input: RejectInput, actor
     });
     if (claimed.count === 0) return fail(409, "not_pending", "Объект сейчас не на проверке");
     const updated = (await prisma.property.findUnique({ where: { id: propertyId } }))!;
-    const newCount = material === "photos" ? updated.photosRejectionCount : updated.videoRejectionCount;
 
     const responsibleId = property.intakeAgentId ?? property.assignedAgentId ?? property.createdById;
+    // Штраф property_reworked снят 16.11.2026 (владелец: автоматических штрафов
+    // больше нет) — агент получает только пуш с причиной возврата.
     if (responsibleId) {
-      const points = await loadEventPoints();
-      recordScoreEvent({
-        agentId: responsibleId,
-        kind: "property_reworked",
-        delta: points.property_reworked,
-        reason: `Возврат на доработку (${material === "photos" ? "фото" : "видео"}): ${reason}`,
-        sourceId: `reject-${property.id}-${material}-${newCount}`,
-      });
       sendPushToAgent(responsibleId, {
         title: material === "photos" ? "🏠 Нужны новые фото" : "🏠 Нужно новое видео",
         body: `${property.title}: ${reason}`,

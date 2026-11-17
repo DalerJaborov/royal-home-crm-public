@@ -23,10 +23,12 @@ describe("Mobile client request matches working and historical list semantics", 
   it.each(["BUYER", "SELLER"] as const)("normal %s list excludes completed/historical clients", kind => {
     expect(queryFor(kind === "BUYER" ? "/clients" : "/sellers", kind)).toMatchObject({ kind, scope: "inWork" });
   });
-  it("keeps inactive lists and all-mine history separate", () => {
-    expect(queryFor("/inactive-clients")).toMatchObject({ workStatus: "INACTIVE" });
-    expect(state.query?.scope).toBeUndefined();
+  it("keeps all-mine history separate; no status filters in the request (16.11.2026)", () => {
     expect(queryFor("/clients/all-mine").scope).toBe("allMine");
+    const q = queryFor("/clients?workStatus=INACTIVE&status=LOST");
+    expect(q).not.toHaveProperty("workStatus");
+    expect(q).not.toHaveProperty("status");
+    expect(q.scope).toBe("inWork");
   });
   it("deep-link search retains text and searches both kinds including history", () => {
     expect(queryFor("/clients?q=QA")).toMatchObject({ q: "QA" });

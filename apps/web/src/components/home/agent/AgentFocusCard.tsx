@@ -6,7 +6,7 @@ import { useNow } from "../../../hooks/useNow";
 import { mmss } from "../../../lib/countdown";
 import { clientDisplayName } from "../../../lib/clientFormat";
 import { focusReason } from "../../../lib/focusReason";
-import { pluralizeRu, relativeTime } from "../../../lib/format";
+import { relativeTime } from "../../../lib/format";
 import { leadHint, nextStepLine, type AgentTodoItem } from "../../../lib/agentFocus";
 import {
   CallWide,
@@ -172,7 +172,7 @@ function describe(todo: AgentTodoItem): FocusView {
       const c = todo.client;
       const to = `/clients/${c.shortId}`;
       return {
-        title: `${clientDisplayName(c.fullName)}: ${todo.days} ${pluralizeRu(todo.days, ["день", "дня", "дней"])} без контакта`,
+        title: `${clientDisplayName(c.fullName)}: без контакта больше суток`,
         to,
         line: `${nextStepLine(c)}. Последний контакт ${relativeTime(c.lastContactAt)}`,
         actions: <CallAndOpen clientId={c.id} phone={c.phone} to={to} />,

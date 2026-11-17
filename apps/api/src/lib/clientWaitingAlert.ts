@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { TG_PREFIX, TG_DIRECT_PREFIX } from "./conversationId.js";
-import { silentTurnReason } from "../messengers/replyChain.js";
+import { silentTurnReason } from "../messengers/silentTurn.js";
 import type { ChatMessage } from "../ai/client.js";
 import { sendPushToAgent } from "../push.js";
 import { customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
@@ -111,7 +111,9 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
  *  сбой, очередь сдалась); silence — сторож увидел молчание через 30 минут. */
 /** follow_up — бот ответил клиенту «это скажет агент» / «агент позвонит» (15.11.2026): обещание правдиво, только
  *  если ответственный узнал. Эпизод — эта реплика клиента (`since`), а не окно в 6 ч: каждое обещание доходит. */
-export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up";
+/** handover — канал без своего ядра (сайт): бот не ответил по существу и сказал клиенту, что передал сообщение
+ *  сотруднику (lib/channelStaffAlert.ts); `why` — готовая фраза с причиной. */
+export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up" | "handover";
 
 /** A person (an agent in the CRM or staff from the messenger app) answered in the chat after `since`. Pure. */
 export function humanRepliedSince(messages: unknown, since: Date): boolean {
@@ -123,7 +125,11 @@ export function humanRepliedSince(messages: unknown, since: Date): boolean {
     return (kind === "agent" || kind === "manual") && new Date(m.at).getTime() > since.getTime();
   });
 }
-export type ClientWaitingOutcome = "agent" | "director" | "skipped";
+/**
+ * `already` — this silence episode was claimed before (the watchdog, the core, an earlier tick): a person has been told, and a
+ * caller that answers the customer with «передал сотруднику» may do so (review #223 R1-2). `skipped` — nobody was told.
+ */
+export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped";
 
 const CHANNEL_NAME: Record<string, string> = {
   INSTAGRAM: "Instagram",
@@ -230,7 +236,7 @@ export async function alertClientWaiting(input: {
   /** По умолчанию — `BotConversation` (Meta и чат сайта). */
   source?: WaitingChatSource;
   trigger: ClientWaitingTrigger;
-  /** Для failed: почему бот не ответил, простыми словами (без служебных кодов). */
+  /** Для failed и handover: почему бот не ответил, простыми словами (без служебных кодов). */
   why?: string;
   /** Для follow_up: время реплики клиента, на которую бот пообещал агента (ключ эпизода). */
   since?: Date;
@@ -253,8 +259,8 @@ export async function alertClientWaiting(input: {
     if (!called || called.getTime() <= chat.lastAlertAt.getTime()) return "skipped";
   }
 
-  // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба.
-  if (!(await chat.claim(since))) return "skipped";
+  // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба. Проигравший — «уже сказали» (R1-2).
+  if (!(await chat.claim(since))) return "already";
 
   const name = chat.name;
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
@@ -264,6 +270,10 @@ export async function alertClientWaiting(input: {
       ? `${name}: бот ответил клиенту, что это уточнит агент. ${chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint}`
       : input.trigger === "escalate"
       ? `${name}: бот решил, что нужен сотрудник, и не ответил. ${chat.replyHint}`
+      : input.trigger === "handover"
+      // Клиент уже услышал «передал сотруднику» (ревью #223 N8): не «бот не ответил», а «ответьте вы».
+      ? `${name}: ${input.why ?? "бот передал разговор сотруднику: ответьте клиенту сами."}` +
+        (chat.replyHint === "Ответьте клиенту." ? "" : ` ${chat.replyHint}`)
       : input.trigger === "failed"
         // Правда о причине (ревью 193-3, 15.11): бот сломался, а не «решил».
         ? `${name}: ${input.why ?? "бот не смог подготовить ответ"} — клиент без ответа. ${chat.replyHint}`
@@ -378,7 +388,7 @@ async function sweepTelegramConversations(now: Date): Promise<{ checked: number;
       const called = d.clientId ? lastCall.get(d.clientId) : undefined;
       if (called && called.getTime() > d.since.getTime()) continue;
       const outcome = await alertClientWaiting({ conversationId: d.id, source: d.source, trigger: "silence", now });
-      if (outcome !== "skipped") alerted++;
+      if (outcome === "agent" || outcome === "director") alerted++;
     } catch (err) {
       reportCronRowError("Сторож «клиент ждёт ответа» (Telegram)", d.id, err);
     }
@@ -465,7 +475,7 @@ async function sweepBotConversations(now: Date): Promise<{ checked: number; aler
       const called = d.clientId ? lastCall.get(d.clientId) : undefined;
       if (called && called.getTime() > d.episode.since.getTime()) continue;
       const outcome = await alertClientWaiting({ conversationId: d.id, trigger: "silence", now });
-      if (outcome !== "skipped") alerted++;
+      if (outcome === "agent" || outcome === "director") alerted++;
     } catch (err) {
       reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
     }

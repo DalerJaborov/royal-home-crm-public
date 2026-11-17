@@ -13,7 +13,6 @@ import { CalendarClock, UserRound } from "lucide-react";
 import { relativeTime } from "../../lib/format";
 import {
   CLIENT_SOURCE_LABELS,
-  CLIENT_STATUS_LABELS,
   formatClientCode,
 } from "../../lib/clientFormat";
 import { ReturnedBadge } from "../ReturnedBadge";
@@ -55,7 +54,6 @@ export function MobileInquiries() {
   // Открытие раздела гасит красный счётчик в меню — до ранних возвратов.
   useMarkSectionSeen("otherInquiries");
 
-  const [status, setStatus] = useState<string | undefined>(undefined);
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   // Дебаунс поиска — тот же приём, что в списках клиентов и объектов.
@@ -63,7 +61,6 @@ export function MobileInquiries() {
 
   const filters: ClientFilters = {
     kind: "OTHER",
-    status,
     q: debouncedQ?.trim() || undefined,
     sort: SORT,
     page,
@@ -77,7 +74,7 @@ export function MobileInquiries() {
   // правило хуков это запрещает, и сборка падает.
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...filters, page: 1 }, canView && page > 1);
-  const items = useAccumulatedPages(data?.items, page, `${status}:${debouncedQ}`, headPage?.items);
+  const items = useAccumulatedPages(data?.items, page, debouncedQ, headPage?.items);
 
   // Агентам сюда доступа нет (API и так не вернёт им записей, но сообщение
   // понятнее пустого списка) — тот же текст, что на десктопе, и тем же тихим
@@ -100,7 +97,7 @@ export function MobileInquiries() {
     );
   }
 
-  const filtered = !!q || !!status;
+  const filtered = !!q;
 
   return (
     <div className="rh2 screens">
@@ -125,32 +122,6 @@ export function MobileInquiries() {
                 setPage(1);
               }}
             />
-          </div>
-
-          {/* Фильтр по статусу — лента `.seg` в `.hscroll`, как срезы списка клиентов. */}
-          <div className="hscroll" style={{ marginTop: 12 }}>
-            <div className="seg" role="tablist" aria-label="Фильтр по статусу">
-              {[
-                { value: "", label: "Все" },
-                ...Object.entries(CLIENT_STATUS_LABELS).map(([value, label]) => ({ value, label })),
-              ].map((chip) => {
-                const active = (status ?? "") === chip.value;
-                return (
-                  <button
-                    key={chip.value || "all"}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => {
-                      setStatus(chip.value || undefined);
-                      setPage(1);
-                    }}
-                  >
-                    {chip.label}
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           {/* Состояния блока — тихими строками (договор §6.12), как в списке клиентов. */}

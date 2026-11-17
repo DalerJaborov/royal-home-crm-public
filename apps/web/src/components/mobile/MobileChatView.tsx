@@ -65,7 +65,7 @@ import { conversationBotState } from "../../lib/conversationBotState";
 import { useCan, useIsReadOnly } from "../../lib/permissions";
 import { useAuthStore } from "../../store/auth";
 import { useConversationSearch } from "../../hooks/useConversationSearch";
-import { useDraftBeforeUpdate } from "../../hooks/useDraftBeforeUpdate";
+import { useCleanChatDraft } from "../../hooks/useCleanChatDraft";
 import { highlightText } from "../../lib/highlightText";
 import { rh2AvatarTone } from "../../lib/rh2Avatar";
 import { ChannelIcon } from "../ChannelIcon";
@@ -416,10 +416,11 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
   const pause = usePauseConversationBot(botState.controlId);
   const navigate = useNavigate();
   const [text, setText] = useState("");
-  // Черновик ответа переживает принудительную перезагрузку при автообновлении
-  // (находка ночной проверки 24.09.2026, №246/К2-4) — тот же приём, что в
-  // десктопном ConversationView (Messages.tsx), ключ id разговора.
-  useDraftBeforeUpdate(id, text, setText);
+  // Черновик ответа по диалогу (17.11.2026, аудит F2-5): переживает и уход с
+  // экрана (агент открыл карточку клиента и вернулся), и перезагрузку при
+  // автообновлении. Тот же хук и то же хранилище, что в ConversationView
+  // (Messages.tsx); компонент смонтирован с key={id}.
+  useCleanChatDraft({ enabled: true, conversationId: id, text, restore: setText });
   const [showInfo, setShowInfo] = useState(false);
   // Меню «⋯» (10.09.2026): лупа, карточка, данные диалога и пауза бота живут в
   // нём, а не четырьмя разнокалиберными контролами в шапке — шапка стала одной

@@ -75,60 +75,6 @@ afterAll(async () => {
   await prisma.agent.deleteMany({ where: { id: { in: [directorId, agentId] } } });
 });
 
-describe("Потерянные и Отложенные клиенты: страницы вместо потолка 200", () => {
-  it("GET /clients/lost: страница 2 — следующие, без повторов", async () => {
-    for (let i = 0; i < 3; i++) {
-      const c = await prisma.client.create({
-        data: {
-          fullName: `Потерянный страниц ${runId}-${i}`,
-          phone: `+99291${tag.slice(-6)}${i}`,
-          source: "PHONE_CALL",
-          status: "LOST",
-          lostAt: new Date(FUTURE + i * 1000),
-        },
-      });
-      clientIds.push(c.id);
-    }
-    const p1 = await get("/clients/lost?page=1&pageSize=2");
-    const p2 = await get("/clients/lost?page=2&pageSize=2");
-    expect(p1.status).toBe(200);
-    expect(p1.body.page).toBe(1);
-    expect(p1.body.pageSize).toBe(2);
-    // Не точным равенством: соседние файлы в том же прогоне тоже заводят потерянных.
-    expect(p1.body.total).toBeGreaterThanOrEqual(3);
-    expect(p1.body.total).toBeGreaterThan(p1.body.items.length);
-    // Свои — с датой потери в будущем, значит самые свежие: 2, 1 на первой, 0 вверху второй.
-    expect(p1.body.items.map((c: { id: string }) => c.id)).toEqual([clientIds[2], clientIds[1]]);
-    expect(p2.body.items[0].id).toBe(clientIds[0]);
-  });
-
-  it("GET /clients/deferred: агент листает свои, total — их число", async () => {
-    const mine: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      const c = await prisma.client.create({
-        data: {
-          fullName: `Отложенный страниц ${runId}-${i}`,
-          phone: `+99292${tag.slice(-6)}${i}`,
-          source: "PHONE_CALL",
-          assignedAgentId: agentId,
-          workStatus: "DEFERRED",
-          deferredAt: new Date(),
-          deferredUntil: new Date(FUTURE + i * 1000),
-        },
-      });
-      clientIds.push(c.id);
-      mine.push(c.id);
-    }
-    const p1 = await get("/clients/deferred?page=1&pageSize=2", agentToken);
-    const p2 = await get("/clients/deferred?page=2&pageSize=2", agentToken);
-    expect(p1.body.total).toBe(3);
-    expect(p2.body.total).toBe(3);
-    // Ближе к возврату — выше.
-    expect([...p1.body.items, ...p2.body.items].map((c: { id: string }) => c.id)).toEqual(mine);
-    expect((await get("/clients/deferred?pageSize=0", agentToken)).status).toBe(400);
-  });
-});
-
 describe("Журнал ошибок: отбор в выборке, а не в памяти", () => {
   const OPERATIONAL_SAMPLES = [
     `Gemini ответил на РЕЗЕРВНОЙ модели m — основная недоступна ${runId}`,

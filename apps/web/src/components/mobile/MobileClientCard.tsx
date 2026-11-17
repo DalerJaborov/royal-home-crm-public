@@ -9,6 +9,7 @@ import type { ClientConversation } from "../ClientChatPanel";
 import { ClientInsight } from "../ClientInsight";
 import { ClientDesiredPlacesMap } from "../ClientDesiredPlacesMap";
 import { InteractionTimeline } from "../InteractionTimeline";
+import { WhatsAppFirstContact } from "../WhatsAppFirstContact";
 import { useDismissSimilarClient, type SimilarNotesClient } from "../../hooks/useDuplicates";
 import { relativeTime } from "../../lib/format";
 import type { Client } from "../../types";
@@ -220,6 +221,12 @@ export function MobileClientCard({
       </div>
 
       {commonMiddle}
+
+      {/* «Написать в WhatsApp первыми» — тот же компонент, что в разделе
+          «Переписка» на ПК (17.11.2026, аудит F1-1: агент на телефоне кнопки не
+          видел — она стояла только в десктопной ветке ClientDetail). Набор
+          действий двух карточек сверяет сторож lib/__tests__/cardActionParity.test.ts. */}
+      {!locked && <WhatsAppFirstContact clientId={client.id} frame="section" />}
 
       {pending && locked ? (
         <section className="sec">

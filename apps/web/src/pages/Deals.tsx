@@ -1,7 +1,8 @@
 import { useCan, useIsReadOnly } from "../lib/permissions";
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { DndContext, MouseSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core";
+import { useTouchSafeDragSensors } from "../hooks/useTouchSafeDragSensors";
 import { ChevronLeft, ChevronRight, Send } from "lucide-react";
 import type { DealStage } from "@royal-home/shared";
 import { useAnnulDeal, useDeals, useUpdateDeal } from "../hooks/useDeals";
@@ -128,6 +129,9 @@ export function Deals() {
   // просьба владельца) — не обязан гонять её через «на доработку» агенту и обратно.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  // «Одобрить» — денежное событие (доли начисляются сразу): только через окно
+  // подтверждения, одно касание мимо не закрывает сделку (аудит F3-2, 17.11.2026).
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   // «Аннулировать» закрытую сделку (C10, 02.10.2026) — из архива «Завершённые»,
   // общего для телефона и компьютера.
   const [annullingId, setAnnullingId] = useState<string | null>(null);
@@ -145,10 +149,7 @@ export function Deals() {
    * 8 точек: пролистывание уходит странице, перетаскивание начинается только
    * после осознанного удержания.
    */
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
-  );
+  const sensors = useTouchSafeDragSensors({ mouseDistance: 5 });
 
   const board = (deals ?? []).filter((d) => d.stage !== "CANCELLED" && d.stage !== "COMPLETED" && d.stage !== "PENDING_APPROVAL");
   // «Ждут одобрения» — сделки, которые агент уже отправил на закрытие (указал
@@ -343,7 +344,7 @@ export function Deals() {
           <span className="acts" style={clean ? { flexWrap: "wrap", gap: 12 } : undefined}>
             {canComplete ? (
               <>
-                <button className="pill sm" type="button" onClick={() => updateDeal.mutate({ id: d.id, body: { stage: "COMPLETED" } })}>
+                <button className="pill sm" type="button" disabled={updateDeal.isPending} onClick={() => setApprovingId(d.id)}>
                   Одобрить
                 </button>
                 {/* «Изменить» ведёт в форму с суммами (PATCH commissionRealtorAmount/
@@ -623,6 +624,19 @@ export function Deals() {
     </Rh2Sheet>
   );
 
+  // Одно окно на обе раскладки: кнопка «Одобрить» есть и в полосе решений
+  // (её рисует и мобильная доска), и в колонке «Ждут одобрения» на ПК.
+  const approveDialog = approvingId && canComplete && (
+    <DealStageConfirm
+      action="approve"
+      onConfirm={() => {
+        updateDeal.mutate({ id: approvingId, body: { stage: "COMPLETED" } });
+        setApprovingId(null);
+      }}
+      onCancel={() => setApprovingId(null)}
+    />
+  );
+
   // Мобильная доска — тот же язык эталона, но строками (screens/deals.html,
   // блок .only-narrow). Данные и обработчики — те же, что у десктопной доски.
   if (mobile && !clean) {
@@ -653,6 +667,7 @@ export function Deals() {
           <>
             {filtersSheet}
             {showNewDeal && writesForeign && <NewDealSheet onClose={() => setShowNewDeal(false)} />}
+            {approveDialog}
           </>
         }
       />
@@ -696,9 +711,7 @@ export function Deals() {
           <div className="quiet">
             <span className="dot" />
             <span className="txt">
-              Статус клиента (Новый, Горячий и так далее) это его «температура» интереса. Сделка появляется здесь
-              только тогда, когда с клиентом уже договорились о конкретном объекте: статус клиента и этап сделки
-              меняются независимо друг от друга.
+              Сделка появляется здесь только тогда, когда с клиентом уже договорились о конкретном объекте.
             </span>
           </div>
           <div className="acts">
@@ -773,9 +786,10 @@ export function Deals() {
                           <button
                             className="pill ghost sm"
                             type="button"
+                            disabled={updateDeal.isPending}
                             onClick={(e) => {
                               e.stopPropagation();
-                              updateDeal.mutate({ id: d.id, body: { stage: "COMPLETED" } });
+                              setApprovingId(d.id);
                             }}
                           >
                             Одобрить
@@ -798,6 +812,7 @@ export function Deals() {
         {archive}
         {filtersSheet}
         {showNewDeal && writesForeign && <NewDealSheet onClose={() => setShowNewDeal(false)} />}
+        {approveDialog}
       </div>
     </div>
   );

@@ -1,13 +1,12 @@
 import { ownsProperty, OWNER_OPEN_AFTER_PUBLISH_FIELDS } from "../../lib/propertyAccess.js";
 import { scheduleManualOwnerVerification } from "../../lib/ownerVerificationSources.js";
-import { refreshSellerAfterPropertyChange } from "../../lib/clientAutoStatus.js";
 /** Жизненный цикл карточки объекта: POST /, PATCH /:id, POST /:id/complete-editing,
  * DELETE /:id, POST /:id/restore, DELETE /:id/permanent (Г3, §1.3). Перенос verbatim. */
 import { Router, type Request } from "express";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
-import type { Prisma, Property } from "../../generated/prisma/client.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import {
   bulkTrashPropertiesSchema,
   propertyCreateSchema,
@@ -23,7 +22,7 @@ import {
   MIN_PROPERTY_PHOTOS,
   isInstagramLink,
 } from "@royal-home/shared";
-import { prisma } from "../../db.js";
+import { prisma, type PropertyRecord } from "../../db.js";
 import { can, canBindClient, requireAuth, requirePermission } from "../../auth/middleware.js";
 import { uploadsDir } from "../../upload.js";
 import {
@@ -720,7 +719,6 @@ async function createPropertyImpl(req: PropertyCreateInput) {
     await scheduleManualOwnerVerification(tx, createdProperty.id, req.agent.id);
     return createdProperty;
   });
-  await refreshSellerAfterPropertyChange(property.sellerClientId);
 
   /**
    * ПОДВАЛ ПОДПИСИ — ПОСЛЕ СОЗДАНИЯ, А НЕ ДО (23.09.2026). Номер объекта
@@ -1289,8 +1287,8 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
    */
   const { version: clientVersion, ...dataWithoutVersion } = data;
 
-  let updated: Property;
-  let priceBefore: Property;
+  let updated: PropertyRecord;
+  let priceBefore: PropertyRecord;
   let priceDelivery: PropertyPriceDelivery | null;
   try {
     ({ updated, priceBefore, priceDelivery } = await prisma.$transaction(async (tx) => {

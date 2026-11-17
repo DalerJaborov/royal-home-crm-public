@@ -11,7 +11,7 @@ import { inspectPublicCommentPrincipal, revalidatePublicCommentPrincipal, type P
 import { readPublicSourceRow, publicCommentOrigin } from "./customerPublicCommentStore.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { readCustomerAgentPublicData, customerAgentPublicDataCurrent } from "./customerAgentPublicReads.js";
-import { renderCustomerAgentDecision, customerAgentRenderedQuestion, customerAgentCallbackQuestionText, customerAgentNameQuestionText, customerBuyerGuideFollowText, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
+import { renderCustomerAgentDecision, customerAgentSentQuestion, customerBuyerGuideFollowText, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import type { CustomerAgentAttachmentInput } from "../ai/customerAgentAttachmentInput.js";
 import { readCustomerShownSearchProperties, readCustomerPublicShownProperties } from "./customerSearchHistory.js";
 import { readCustomerPublicPublicationSource } from "./customerPublicPublicationSource.js";
@@ -125,8 +125,9 @@ async function seal(binding: Binding | null, render: CustomerAgentDeliveryRender
       return { status: "held", reason: "original_context_changed" };
     }
     const decision = customerAgentDecisionSchema.parse(render.decision);
-    const text = renderCustomerAgentDecision({ ...render, decision, verifiedContext: context, surface: binding.surface,
-      maxOutputChars: binding.revision.limits.maxOutputChars, knowledgeSourceHash: binding.revision.knowledgeSourceHash });
+    const renderInput = { ...render, decision, verifiedContext: context, surface: binding.surface,
+      maxOutputChars: binding.revision.limits.maxOutputChars, knowledgeSourceHash: binding.revision.knowledgeSourceHash };
+    const text = renderCustomerAgentDecision(renderInput);
     if (!text || text !== render.text) return { status: "held", reason: "render_changed" };
     const refs = decision.kind === "propose" ? [decision.ref] :
       decision.kind === "reply" || decision.kind === "clarify" ? decision.refs : [];
@@ -135,11 +136,12 @@ async function seal(binding: Binding | null, render: CustomerAgentDeliveryRender
       render.requestedFacts.length > 0 && e.value.kind === "publication_properties") &&
       (e.value.kind === "company_policy" || e.value.kind === "property_search" || e.value.kind === "publication_properties" || e.value.kind === "company_information" || e.value.kind === "open_vacancies"))
       .map(e => customerAgentDeliveryObservationSchema.parse(e.value));
-    const callbackQuestion = binding.surface === "dm" && customerAgentRenderedQuestion({ ...render, surface: "dm" }) === "callback_consent" &&
-      text.endsWith(customerAgentCallbackQuestionText(render.language))
+    // The question this text asks is recorded STRUCTURALLY from the decision (review #211, п.4): the fixed template sentence or the
+    // model's own wording of the same question accepted by the answer verifier. Never by matching the ending text alone.
+    const sentQuestion = binding.surface === "dm" ? customerAgentSentQuestion(renderInput, text) : "none";
+    const callbackQuestion = sentQuestion === "callback_consent"
       ? { version: 1 as const, kind: "callback_consent" as const, language: render.language } : undefined;
-    const nameQuestion = binding.surface === "dm" && customerAgentRenderedQuestion({ ...render, surface: "dm" }) === "name" &&
-      text.endsWith(customerAgentNameQuestionText(render.language))
+    const nameQuestion = sentQuestion === "name"
       ? { version: 1 as const, kind: "name" as const, language: render.language } : undefined;
     const guideFollow = binding.surface === "dm" && decision.kind === "reply" && decision.attachment === "buyer_guide" &&
       render.approvedFileState === "needs_follow" && text.split("\n").includes(customerBuyerGuideFollowText(render.language))

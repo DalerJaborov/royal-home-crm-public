@@ -24,8 +24,16 @@ export function toLocalDialDigits(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   if (digits.length >= 12 && digits.startsWith("992")) return digits.slice(3, 3 + LOCAL_NUMBER_LENGTH);
   if (digits.length === 10 && digits.startsWith("0")) return digits.slice(1);
-  if (digits.length <= 5) return digits;
-  return digits.slice(0, LOCAL_NUMBER_LENGTH);
+  /**
+   * ИНОСТРАННЫЙ НОМЕР НЕ ОБРЕЗАЕТСЯ (17.11.2026). Раньше здесь было
+   * `slice(0, 9)`: вставленный `+7 992 299 ••••` превращался в девять
+   * «таджикских» цифр `799229•••` — кнопка звонка оживала, и станция набирала
+   * совершенно постороннего человека в Таджикистане. Длиннее девяти и без 992 —
+   * отдаём как есть: isDialable такой набор не пропустит, наборщик подскажет,
+   * что станция не звонит за границу. Короткие наборы (внутренние, служебные)
+   * тоже остаются как есть.
+   */
+  return digits;
 }
 
 /**

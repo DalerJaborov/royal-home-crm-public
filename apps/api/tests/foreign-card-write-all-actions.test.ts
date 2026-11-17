@@ -105,15 +105,6 @@ describe("Служба безопасности не меняет чужую к�
     expect(conv?.pausedUntil).toBeNull();
   });
 
-  it("возврат из «Отложенных»", async () => {
-    const res = await request(app)
-      .post(`/api/v1/clients/${clientId}/deferred/return`)
-      .set("Authorization", `Bearer ${securityToken}`);
-    expect(res.status).toBe(403);
-    const c = await prisma.client.findUnique({ where: { id: clientId }, select: { workStatus: true } });
-    expect(c?.workStatus).toBe("DEFERRED");
-  });
-
   it("«выполнено» у задачи агента", async () => {
     const res = await request(app)
       .patch(`/api/v1/interactions/${taskId}/complete`)

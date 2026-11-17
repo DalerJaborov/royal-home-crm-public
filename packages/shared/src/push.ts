@@ -169,7 +169,7 @@ export const PUSH_KINDS: { key: PushKind; label: string; hint: string }[] = [
   { key: "message", label: "Сообщения клиентов", hint: "Клиент написал в WhatsApp, Instagram или Telegram" },
   { key: "showing", label: "Показы и встречи", hint: "Напоминания, подтверждения, неявки" },
   { key: "task", label: "Задачи", hint: "Сводка на завтра и просроченные задачи" },
-  { key: "score", label: "Royal Score", hint: "Начисления и штрафы с причиной" },
+  { key: "score", label: "Royal Score", hint: "Начисления с причиной" },
   {
     key: "oversight",
     label: "Контроль руководителя",

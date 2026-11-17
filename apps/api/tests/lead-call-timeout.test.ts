@@ -2,8 +2,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { waitForSettled } from "./helpers/waitFor.js";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
-import { penalizeMissedFirstCalls } from "../src/leads.js";
-import { DEFAULT_EVENT_POINTS } from "../src/lib/scoreJournal.js";
+import { handleMissedFirstCalls } from "../src/leads.js";
+import { missedFirstCallMarks } from "./helpers/missedFirstCall.js";
 
 /**
  * «Не позвонил за 15 минут» (спецификация, часть 3) — без телефонии заменён на
@@ -115,29 +115,28 @@ describe("Не позвонил за 15 минут", () => {
     // Не привязываемся к глобальному счётчику penalized — в базе теста могут быть
     // и другие просроченные кандидаты из соседних файлов; важно только, что ЭТОТ
     // клиент и этот агент не пострадали.
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).toBe(agentAId);
-    const event = await prisma.royalScoreEvent.findFirst({ where: { agentId: agentAId, kind: "call_15min_missed" } });
-    expect(event).toBeNull();
+    expect(await missedFirstCallMarks(lead.id)).toBe(0);
   });
 
-  it("звонок не записан — штраф, но лид остаётся у того же агента", async () => {
+  it("звонок не записан — срыв в хронологии, баллов не списано, лид остаётся у того же агента", async () => {
     const lead = await makeAcceptedLead("Не позвонил", 20);
 
-    const { penalized } = await penalizeMissedFirstCalls();
-    expect(penalized).toBeGreaterThanOrEqual(1);
+    const { handled } = await handleMissedFirstCalls();
+    expect(handled).toBeGreaterThanOrEqual(1);
 
-    const event = await prisma.royalScoreEvent.findFirst({
-      where: { agentId: agentAId, sourceId: { startsWith: `call-missed-${lead.id}-` } },
-    });
-    expect(event).not.toBeNull();
-    expect(event?.kind).toBe("call_15min_missed");
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.call_15min_missed);
+    expect(await missedFirstCallMarks(lead.id)).toBe(1);
+    // Штраф call_15min_missed снят 16.11.2026 (решение владельца).
+    const fines = await waitForSettled(() =>
+      prisma.royalScoreEvent.count({ where: { sourceId: { startsWith: `call-missed-${lead.id}-` } } })
+    );
+    expect(fines).toBe(0);
 
     // Принятый лид больше НИКОГДА не переназначается автоматически (решение
-    // владельца 18.08.2026) — штраф остаётся, но карточка не уходит другому
-    // агенту и acceptedAt не сбрасывается.
+    // владельца 18.08.2026) — карточка не уходит другому агенту и acceptedAt не
+    // сбрасывается.
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).toBe(agentAId);
     expect(after?.acceptedAt).not.toBeNull();
@@ -147,14 +146,11 @@ describe("Не позвонил за 15 минут", () => {
     const lead = await makeAcceptedLead("Заморожен до звонка", 20);
     await prisma.agent.update({ where: { id: agentAId }, data: { frozenAt: new Date(), frozenReason: "Отпуск" } });
     try {
-      await penalizeMissedFirstCalls();
+      await handleMissedFirstCalls();
       const after = await prisma.client.findUnique({ where: { id: lead.id } });
       expect(after?.assignedAgentId).toBe(agentAId);
       expect(after?.escalatedAt).toBeNull();
-      const event = await prisma.royalScoreEvent.findFirst({
-        where: { agentId: agentAId, sourceId: { startsWith: `call-missed-${lead.id}-` } },
-      });
-      expect(event).toBeNull();
+      expect(await missedFirstCallMarks(lead.id)).toBe(0);
     } finally {
       await prisma.agent.update({ where: { id: agentAId }, data: { frozenAt: null, frozenReason: null } });
       // Лид остаётся просроченным — следующие тесты файла его не ждут.
@@ -165,7 +161,7 @@ describe("Не позвонил за 15 минут", () => {
   it("принят меньше 15 минут назад — ещё рано, штрафа нет", async () => {
     const lead = await makeAcceptedLead("Только что принял", 5);
 
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).toBe(agentAId);
   });
@@ -175,15 +171,15 @@ describe("Не позвонил за 15 минут", () => {
      * Живой случай 13.08.2026: эскалация повторялась на КАЖДОМ тике крона (раз в
      * пять минут), и хронология клиента забивалась часами одинаковых записей.
      * После 18.08.2026 (принятый лид больше не переназначается и не эскалируется
-     * автоматически — см. penalizeMissedFirstCalls) кандидат остаётся в выборке
-     * на каждом тике бесконечно, так что дедуп теперь держится на sourceId балла:
-     * если он уже записан, второй раз ни балл, ни SYSTEM-запись, ни пуш не идут.
+     * автоматически — см. handleMissedFirstCalls) кандидат остаётся в выборке
+     * на каждом тике бесконечно. Дедуп держался на sourceId штрафа; штраф снят
+     * 16.11.2026, и отметкой стала сама SYSTEM-запись о срыве после этого приёма.
      */
     const lead = await makeAcceptedLead("Не звонит долго", 20);
 
-    await penalizeMissedFirstCalls();
-    await penalizeMissedFirstCalls();
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
+    await handleMissedFirstCalls();
+    await handleMissedFirstCalls();
 
     const notes = await prisma.interaction.count({
       where: { clientId: lead.id, type: "SYSTEM", notes: { contains: "автоматической передачи больше нет" } },
@@ -207,12 +203,9 @@ describe("Не позвонил за 15 минут", () => {
      */
     const lead = await makeAcceptedLead("Очень старая карточка", 2 * 24 * 60);
 
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
 
-    const event = await prisma.royalScoreEvent.findFirst({
-      where: { agentId: agentAId, sourceId: { startsWith: `call-missed-${lead.id}-` } },
-    });
-    expect(event).toBeNull();
+    expect(await missedFirstCallMarks(lead.id)).toBe(0);
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).toBe(agentAId);
     expect(after?.escalatedAt).toBeNull();
@@ -243,26 +236,35 @@ describe("Не позвонил за 15 минут", () => {
       data: { createdAt: new Date(Date.now() - 80 * 60_000) },
     });
 
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
 
-    const event = await prisma.royalScoreEvent.findFirst({
-      where: { agentId: agentAId, sourceId: { startsWith: `call-missed-${lead.id}-` } },
-    });
-    expect(event).toBeNull();
+    expect(await missedFirstCallMarks(lead.id)).toBe(0);
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).toBe(agentAId);
     expect(after?.escalatedAt).toBeNull();
   });
 
-  it("повторный тик по уже снятому лиду не штрафует второй раз", async () => {
+  it("повторный тик по уже разобранному лиду второй раз ничего не пишет", async () => {
     const lead = await makeAcceptedLead("Снят один раз", 20);
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
+    expect(await missedFirstCallMarks(lead.id)).toBe(1);
+    await handleMissedFirstCalls();
+    expect(await missedFirstCallMarks(lead.id)).toBe(1);
+  });
 
-    const before = await waitForSettled(() => prisma.royalScoreEvent.count({ where: { agentId: agentAId, kind: "call_15min_missed" } }));
-    // Штраф уже записан — sourceId (call-missed-<id>-<acceptedAt>) не меняется,
-    // раз acceptedAt больше не сбрасывается, поэтому повторный тик не платит второй раз.
-    await penalizeMissedFirstCalls();
-    const after = await waitForSettled(() => prisma.royalScoreEvent.count({ where: { agentId: agentAId, kind: "call_15min_missed" } }));
-    expect(after).toBe(before);
+  it("рубильник Royal Score выключен — срыв всё равно разбирается ровно один раз", async () => {
+    // До 16.11.2026 отметкой «уже разобрано» служила строка штрафа, а при
+    // выключенном рубильнике она не писалась — хронология и сигнал руководству
+    // повторялись на каждом тике. Теперь отметка не зависит от рубильника.
+    const saved = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { royalScoreEnabled: true } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { royalScoreEnabled: false } });
+    try {
+      const lead = await makeAcceptedLead("Рубильник выключен", 20);
+      await handleMissedFirstCalls();
+      await handleMissedFirstCalls();
+      expect(await missedFirstCallMarks(lead.id)).toBe(1);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { royalScoreEnabled: saved?.royalScoreEnabled ?? true } });
+    }
   });
 });

@@ -42,12 +42,22 @@ const MAP = "docs/product-map-simple.json";
 const argv = process.argv.slice(2);
 const baseArg = argv.find((a) => a.startsWith("--base="));
 const BASE = baseArg ? baseArg.slice("--base=".length) : "origin/main";
-const ALLOWED = process.env.MAP_GATE_ALLOW_REMOVALS === "1";
-
 function capture(cmd, args) {
   const r = spawnSync(cmd, args, { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return r.status === 0 ? r.stdout : null;
 }
+
+/**
+ * Облачная проверка `npm run ship` (ship-tests.yml) не видит меток PR, поэтому
+ * пропажу можно объявить и строкой в сообщении коммита ветки:
+ *   Map-Gate-Allow-Removals: <причина>
+ * Причина обязательна — пустая строка не считается.
+ */
+export function commitsDeclareRemovals(log) {
+  return /^Map-Gate-Allow-Removals:[ \t]*\S/m.test(log ?? "");
+}
+const declaredInCommits = commitsDeclareRemovals(capture("git", ["log", "--format=%B", `${BASE}..HEAD`]));
+const ALLOWED = process.env.MAP_GATE_ALLOW_REMOVALS === "1" || declaredInCommits;
 
 /**
  * Карта базы читается из git, а не с диска: сравнивать надо с тем, что лежит в
