@@ -26,8 +26,10 @@ async function main() {
   for (const [index, row] of rows.entries()) {
     console.log(`## ${index + 1}. ${row.channel}, ${row.createdAt.toISOString()} — ${row.answerMode}, ${row.status}${row.reason ? ` (${row.reason})` : ""}`);
     console.log(`**Клиент:** ${row.customerText.replace(/\n/g, " / ")}\n`);
-    console.log(`**Ушло шаблоном:**\n> ${row.templateText.replace(/\n/g, "\n> ")}\n`);
-    console.log(`**Модель сказала бы:**\n> ${row.modelText.replace(/\n/g, "\n> ")}\n`);
+    // Written when the reply was prepared (before delivery). Live + used: the model's words went, the template is what they replaced.
+    const sentWords = row.answerMode === "live" && row.status === "used";
+    console.log(`**${sentWords ? "Шаблон (заменён словами модели)" : "Шаблон (ответ клиенту)"}:**\n> ${row.templateText.replace(/\n/g, "\n> ")}\n`);
+    console.log(`**${sentWords ? "Слова модели (ответ клиенту)" : "Модель сказала бы"}:**\n> ${row.modelText.replace(/\n/g, "\n> ")}\n`);
   }
 }
 

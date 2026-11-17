@@ -16,7 +16,13 @@ describe("customer agent answer samples", () => {
 
   it("masks phones and links, bounds the length", () => {
     const text = sampleSafeText("Мой номер +992 900 12 34 56, смотрите https://royalhome.tj/p/123?x=1 и wa.me/992900123456");
-    expect(text).not.toMatch(/900 12 34 56|992900123456/u);
+    expect(text).not.toMatch(/900 12 34 56|992900123456|\d{4}/u);
+    // Whole number hidden (the shared mask keeps first/last digits), e-mails too; prices stay.
+    for (const phone of ["900-12-34-56", "+992900123456", "900123456", "2 21 45 67", "(37) 221-45-67"]) {
+      expect(sampleSafeText(`Звоните ${phone}`)).toBe("Звоните [номер]");
+    }
+    expect(sampleSafeText("пишите ali.k@mail.ru")).toBe("пишите [почта]");
+    expect(sampleSafeText("Цена 1 200 000 сомони, 3 комнаты")).toBe("Цена 1 200 000 сомони, 3 комнаты");
     expect(text).not.toContain("royalhome.tj/p/123");
     expect(text).toContain("[ссылка]");
     expect(sampleSafeText("а".repeat(SAMPLE_TEXT_MAX + 50))).toHaveLength(SAMPLE_TEXT_MAX);
@@ -37,9 +43,18 @@ describe("customer agent answer samples", () => {
     expect(row).toMatchObject({ status: "dropped", reason: "shadow", answerMode: "shadow", modelText: base.modelText, templateText: base.templateText });
   });
 
-  it("off writes nothing", async () => {
-    expect(await recordCustomerAgentAnswerSample(base, new Date(), { CUSTOMER_AGENT_ANSWER_SAMPLES: "off" })).toBe("off");
+  it("off writes nothing but still removes expired rows", async () => {
+    const now = new Date("2026-11-20T09:00:00.000Z");
+    await prisma.customerAgentAnswerSample.create({ data: { ...base, createdAt: new Date(now.getTime() - SAMPLE_TTL_MS - 60_000),
+      expiresAt: new Date(now.getTime() - 60_000) } });
+    expect(await recordCustomerAgentAnswerSample(base, now, { CUSTOMER_AGENT_ANSWER_SAMPLES: "off" })).toBe("off");
     expect(await prisma.customerAgentAnswerSample.count()).toBe(0);
+  });
+
+  it("one row per customer turn: a retried turn with the same eventKey is not written twice", async () => {
+    expect(await recordCustomerAgentAnswerSample(base, new Date(), {})).toBe("written");
+    expect(await recordCustomerAgentAnswerSample(base, new Date(), {})).toBe("duplicate");
+    expect(await prisma.customerAgentAnswerSample.count()).toBe(1);
   });
 
   it("expired rows are removed on the next write", async () => {
@@ -52,10 +67,12 @@ describe("customer agent answer samples", () => {
 
   it("the daily cap stops writes for the rest of the Dushanbe day", async () => {
     const now = new Date("2026-11-17T10:00:00.000Z");
-    await prisma.customerAgentAnswerSample.createMany({ data: Array.from({ length: SAMPLE_DAILY_CAP }, () => ({ ...base,
+    await prisma.customerAgentAnswerSample.createMany({ data: Array.from({ length: SAMPLE_DAILY_CAP }, (_, i) => ({ ...base, eventKey: `cap-${i}`,
       createdAt: new Date(now.getTime() - 60_000), expiresAt: new Date(now.getTime() + SAMPLE_TTL_MS) })) });
-    expect(await recordCustomerAgentAnswerSample(base, now, {})).toBe("capped");
+    expect(await recordCustomerAgentAnswerSample({ ...base, eventKey: "cap-new" }, now, {})).toBe("capped");
     expect(await prisma.customerAgentAnswerSample.count()).toBe(SAMPLE_DAILY_CAP);
+    // The cap is per channel: another channel still writes.
+    expect(await recordCustomerAgentAnswerSample({ ...base, channel: `${CHANNEL}_B`, eventKey: "cap-other" }, now, {})).toBe("written");
   });
 
   it("a failed write goes to the error journal and never throws", async () => {
@@ -63,6 +80,7 @@ describe("customer agent answer samples", () => {
     const result = await recordCustomerAgentAnswerSample({ ...base, modelText: undefined as never }, new Date(), {});
     expect(result).toBe("failed");
     expect(log).toHaveBeenCalledWith("ai", expect.stringContaining("не записан"), { dedupKey: "customer-agent-answer-sample-write" });
+    expect(String(log.mock.calls[0][1])).not.toContain("Цена");
     log.mockRestore();
   });
 });

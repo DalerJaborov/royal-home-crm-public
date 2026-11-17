@@ -11664,4 +11664,5 @@ model CustomerAgentAnswerSample {
 
   @@index([createdAt])
   @@index([expiresAt])
+  @@index([eventKey])
 }

@@ -16,3 +16,4 @@ CREATE TABLE "CustomerAgentAnswerSample" (
 );
 CREATE INDEX "CustomerAgentAnswerSample_createdAt_idx" ON "CustomerAgentAnswerSample"("createdAt");
 CREATE INDEX "CustomerAgentAnswerSample_expiresAt_idx" ON "CustomerAgentAnswerSample"("expiresAt");
+CREATE INDEX "CustomerAgentAnswerSample_eventKey_idx" ON "CustomerAgentAnswerSample"("eventKey");
