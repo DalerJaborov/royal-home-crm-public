@@ -203,7 +203,10 @@ describe("published price caption delivery", () => {
 
     });
 
-    it("объект НЕ опубликован на сайте — описание не трогаем, досылка не идёт", async () => {
+    // До 15.11.2026 здесь было «не трогаем»: объект, цену которого правили до выхода
+    // на сайт, потом выходил туда со старой ценой в тексте (объект 164). Цена в
+    // описании теперь всегда равна цене карточки.
+    it("объект НЕ опубликован на сайте — цена в описании всё равно новая", async () => {
       const property = await seedProperty({
         publishedChannels: [],
         publishedPostIds: null,
@@ -213,8 +216,8 @@ describe("published price caption delivery", () => {
       await changeAndDeliver(property.id, 250000);
 
       const after = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
-      expect(after.description).toContain(formatPrice(300000, "TJS"));
-
+      expect(after.description).toContain(formatPrice(250000, "TJS"));
+      expect(after.description).not.toContain(formatPrice(300000, "TJS"));
     });
 
     it("описание правили руками, старой цены в нём дословно нет — не трогаем, не досылаем", async () => {
