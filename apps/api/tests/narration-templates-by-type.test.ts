@@ -5,7 +5,7 @@ import { z } from "zod";
 vi.mock("../src/db.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/db.js")>(), prisma: { $disconnect: async () => {} } }));
 import {
   chooseNarration, narrationConfigSchema, narrationDraftText, narrationEndingSchema, narrationFitsType, narrationTemplateError, narrationTemplateSchema,
-  narrationVariants, renderNarrationTemplate, type NarrationConfig, type NarrationFacts, type NarrationRandom,
+  narrationLandAreaWords, narrationVariants, renderNarrationTemplate, type NarrationConfig, type NarrationFacts, type NarrationRandom,
 } from "@royal-home/shared";
 import { narrationScriptError } from "../src/lib/propertyNarration.js";
 
@@ -275,5 +275,33 @@ describe("библиотека владельца из данных: слово 
   });
   it("подготовленная настройка целиком проходит схему настроек, как её сохранил бы экран", () => {
     expect(narrationConfigSchema.safeParse({ modelId: "eleven_v4", voices: [], defaultTemplateId: "tg-short", templates: config.templates, endings: config.endings }).success).toBe(true);
+  });
+});
+
+/** 17.11.2026, владелец: участок в озвучке называем в сотках, а не в метрах («да» на «сотки»). */
+describe("{сотки}: площадь участка в сотках", () => {
+  const land = (areaSqm: string): NarrationFacts => ({ type: "LAND", rooms: null, areaSqm, floor: null, totalFloors: null, district: "Сино", price: "50000", currency: "USD" });
+  it("целые сотки словами по-таджикски и цифрами по-русски, с правильным окончанием", () => {
+    expect(narrationLandAreaWords("LAND", 600, "tg")).toBe("шаш сотиқ");
+    expect(narrationLandAreaWords("LAND", 100, "ru")).toBe("1 сотка");
+    expect(narrationLandAreaWords("LAND", 300, "ru")).toBe("3 сотки");
+    expect(narrationLandAreaWords("LAND", 1200, "ru")).toBe("12 соток");
+  });
+  it("дробные сотки не округляются: говорим метры", () => {
+    expect(narrationLandAreaWords("LAND", 650, "tg")).toBe("шашсаду панҷоҳ метри мураббаъ");
+    expect(narrationLandAreaWords("LAND", 650, "ru")).toBe("650 квадратных метров");
+  });
+  it("не участок или нет площади — пусто, и фраза в скобках выпадает", () => {
+    expect(narrationLandAreaWords("HOUSE", 600, "tg")).toBe("");
+    expect(narrationLandAreaWords("LAND", null, "tg")).toBe("");
+    expect(renderNarrationTemplate({ text: "Замин. [Масоҳаташ {сотки} аст.]", lang: "tg" }, { ...land("600"), type: "APARTMENT" })).toBe("Замин.");
+  });
+  it("все пять шаблонов участка из библиотеки говорят сотки, а не метры", () => {
+    for (const template of library.templates.filter((t) => t.id.startsWith("tg-land-"))) {
+      expect(template.text, template.id).toContain("{сотки}");
+      const text = renderNarrationTemplate(template, land("600"));
+      expect(text, template.id).toContain("шаш сотиқ");
+      expect(text, template.id).not.toContain("метри мураббаъ");
+    }
   });
 });
