@@ -163,6 +163,9 @@ services:
       # shadow. Empty or only unknown names = live NOWHERE (an error is logged).
       # Rollback = the mode back to empty (or off).
       CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "${CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS:-}"
+      # The model's words beside the template, 72 h, for the owner to read before live
+      # (lib/customerAgentAnswerSamples.ts, #240). Empty = writes (shadow and live); off = no writes.
+      CUSTOMER_AGENT_ANSWER_SAMPLES: "${CUSTOMER_AGENT_ANSWER_SAMPLES:-}"
       # Customer core switches (31.10.2026). Without these lines a value in
       # .env.production never reaches the container. Both are off by default:
       # legacy-subject cutover (PR #82, owner decision 31.10) and the `say`
