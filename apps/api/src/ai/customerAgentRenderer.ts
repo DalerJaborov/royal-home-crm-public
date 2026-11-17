@@ -35,7 +35,7 @@ import { customerReplyLink } from "../lib/customerReplyLink.js";
 import { serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
 import { customerRecruitmentFollowUp, recruitmentFollowUpLine, recruitmentFollowUpFixedLines, RETIRED_TEMPLATE_LINES, AD_OPEN_QUESTION,
-  customerAdOpening, customerGreetingLine, customerAlreadyGreeted, customerLegalAsked, customerRentalAsked, customerInputHasLink,
+  customerAdOpening, customerGreetingLine, customerAlreadyGreeted, customerLegalAsked, customerRentalAskedRecently, customerInputHasLink,
   customerSubstantiveInput, GREETING_REPLY_LINES, RECEIPT_AGAIN } from "./customerAgentLiveWording.js";
 
 export type CustomerReceiptOutcome = CustomerMutationReceipt["outcome"];
@@ -733,7 +733,8 @@ function renderDecisionCore(input: {
       // word that is not about rent: these lines answer only their own question (audit 16.11.2026).
       // Only against the customer's actual words: a render without input (the memory allow-list) keeps every line.
       if (input.surface === "dm" && input.inputText !== undefined && (item.value.topic === "legal" && !customerLegalAsked(input.inputText) ||
-          item.value.topic === "rental" && !item.value.knowledge.rent && !customerRentalAsked(input.inputText))) { scopeAlreadySaid = true; continue; }
+          item.value.topic === "rental" && !item.value.knowledge.rent && !customerRentalAskedRecently(input.inputText,
+            (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "user").map(turn => turn.text)))) { scopeAlreadySaid = true; continue; }
       if (item.value.topic === "service_scope" && input.surface === "dm") {
         const scope = serviceScopeLines(item.value, lang, input, line => lineSentBefore(input.verifiedContext, line));
         lines.push(...scope.lines);
