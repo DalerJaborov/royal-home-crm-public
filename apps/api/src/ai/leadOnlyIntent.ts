@@ -107,18 +107,24 @@ export const LEAD_ONLY_INTENT_SYSTEM = [
 ].join("\n");
 
 /** Порт модели: тесты подставляют свою, без живых вызовов. */
-export type LeadOnlyIntentModel = (request: { system: string; user: string; conversationId?: string | null }) => Promise<unknown>;
+export type LeadOnlyIntentModel = (request: { system: string; user: string; conversationId?: string | null; signal?: AbortSignal }) =>
+  Promise<unknown>;
 
 /** Ответ модели не ждём дольше: клиент в мессенджере ждёт короткий ответ, запасной путь есть всегда. */
 export const LEAD_ONLY_INTENT_TIMEOUT_MS = 6_000;
 const MAX_EARLIER = 6;
 
 const geminiIntentModel: LeadOnlyIntentModel = request => callAiText<unknown>({ endpoint: "lead-only-intent", simple: true, maxTokens: 300,
-  system: request.system, user: request.user, schema: INTENT_SCHEMA, conversationId: request.conversationId ?? null });
+  system: request.system, user: request.user, schema: INTENT_SCHEMA, conversationId: request.conversationId ?? null,
+  ...(request.signal ? { signal: request.signal } : {}) });
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+/** Срок вышел — вызов не только бросаем, но и прерываем (сигнал), иначе он дожил бы и ещё раз повторился бы. */
+function withTimeout<T>(start: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T | null> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([promise, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), ms); })])
+  const call = start(controller.signal);
+  call.catch(() => {}); // прерванный вызов может упасть позже срока: гонку уже проиграл, ошибка не нужна
+  return Promise.race([call, new Promise<null>(resolve => { timer = setTimeout(() => { controller.abort(); resolve(null); }, ms); })])
     .finally(() => clearTimeout(timer));
 }
 
@@ -135,7 +141,7 @@ export async function classifyLeadOnlyIntent(input: { current: string; earlier?:
   if ((current.match(/\p{L}/gu)?.length ?? 0) < 2) return leadOnlyIntentFallback(current, "no_letters");
   let raw: unknown = null;
   try {
-    raw = await withTimeout(model({ system: LEAD_ONLY_INTENT_SYSTEM, conversationId: input.conversationId ?? null,
+    raw = await withTimeout(signal => model({ system: LEAD_ONLY_INTENT_SYSTEM, conversationId: input.conversationId ?? null, signal,
       user: JSON.stringify({ earlierClientMessages: earlier.map(text => text.slice(0, 300)), currentClientMessage: current.slice(0, 800) }) }), timeoutMs);
   } catch {
     raw = null;
