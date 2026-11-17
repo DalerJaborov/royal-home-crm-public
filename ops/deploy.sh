@@ -240,6 +240,20 @@ esac
 say "перезапуск: $UP_TARGETS"
 $COMPOSE up -d $UP_TARGETS || die "контейнеры не поднялись"
 guard_postgres_not_exposed
+# ── 3.1. Сервис «убрать старый голос из ролика» (16.11.2026) ─────────────────
+# Отдельный образ на Python (apps/voice-separator): torch и модели — ~1,8 ГБ и ~15 минут сборки.
+# Выкат его НЕ собирает (ревью 16.11: сборка внутри выката упиралась бы в предел службы 900 с,
+# а ночная чистка кэша заставляла бы собирать заново). Образ собирают один раз руками:
+#   docker compose --env-file .env.production -f docker-compose.prod.yml build voice-separator
+# Здесь — только поднять уже собранный, и без права уронить выкат: нет образа или не поднялся —
+# worker живёт без него, новая озвучка на вышедший ролик уходит монтажёру (lib/voiceSeparator.ts).
+if [ "$WHAT" != "web" ]; then
+  if docker image inspect royalhome-voice-separator >/dev/null 2>&1; then
+    $COMPOSE up -d --no-build voice-separator || say "ВНИМАНИЕ: voice-separator не поднялся — старый голос из роликов убирает монтажёр"
+  else
+    say "образа voice-separator нет — старый голос из роликов убирает монтажёр (собрать: docker compose … build voice-separator)"
+  fi
+fi
 
 # ── 4. Проверки ──────────────────────────────────────────────────────────────
 say "ждём health"

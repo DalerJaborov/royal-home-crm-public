@@ -1233,7 +1233,7 @@
       "mount": "/api/v1/social-videos",
       "router": "socialVideosRouter",
       "file": "apps/api/src/routes/socialVideos.ts",
-      "endpoints": 21,
+      "endpoints": 24,
       "label": null,
       "usedBy": 2
     },
@@ -1936,6 +1936,11 @@
     },
     {
       "id": "narration-auto-flow",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
+      "id": "narration-auto-master",
       "expr": "* * * * *",
       "label": null
     },

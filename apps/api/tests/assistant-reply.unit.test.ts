@@ -21,11 +21,23 @@ describe("privacy and content", () => {
     expect(p.speech).not.toContain(contact);
     expect(renderAssistantHtml(p.text, { maskPhones: true })).not.toContain(contact);
   });
-  it.each(["1 200 000 сомони", "120000000 сомони", "03-11-2026"])("preserves %s", (value) => {
+  // 17.11.2026, владелец: «цифры всегда буквами, ИИ не справляется» — и в русской речи тоже.
+  it.each([["1 200 000 сомони", "один миллион двести тысяч сомони"], ["120000000 сомони", "сто двадцать миллионов сомони"]])("keeps %s in text and speaks it in words", (value, words) => {
     const p = prepareAssistantReply(`Данные: ${value}`, true);
     expect(p.text).toContain(value);
-    expect(p.speech).toContain(value);
+    expect(p.speech).toContain(words);
+    expect(p.speech).not.toMatch(/\p{N}/u);
     expect(renderAssistantHtml(p.text, { maskPhones: true })).toContain(value);
+  });
+  it("Russian date stays text only: no voice with digits", () => {
+    const p = prepareAssistantReply("Данные: 03-11-2026", true);
+    expect(p.text).toContain("03-11-2026");
+    expect(p.speech).toBe("");
+    expect(p.needsText).toBe(true);
+  });
+  it("Russian dollar amount is spoken in words with the right form", () => {
+    expect(prepareAssistantReply("Готово, бюджет $2 000.", true).speech).toBe("Готово, бюджет две тысячи долларов.");
+    expect(prepareAssistantReply("Готово, бюджет $1.", true).speech).toBe("Готово, бюджет один доллар.");
   });
   it("strips link parameters, rejects non-card paths and escapes markup", () => {
     expect(renderAssistantHtml('[<b>Имя</b>](/clients/112?phone=992901234567#x)', { maskPhones: true })).toBe('<a href="https://crm.test/clients/112">&lt;b&gt;Имя&lt;/b&gt;</a>');
@@ -46,10 +58,9 @@ describe("privacy and content", () => {
     expect(voice).toHaveBeenCalledWith("test", speech, undefined);
     expect(html.mock.calls[0][1]).toContain(area);
   });
-  it("keeps a decimal area and ambiguous number ranges in text", () => {
-    for (const text of ["Ҳоло майдонаш 68,5 м².", "Рақами объект 60-70."]) {
-      expect(prepareAssistantReply(text)).toMatchObject({ text, speech: "", language: "tg", needsText: true });
-    }
+  it("keeps ambiguous number ranges in text; a decimal area is spoken rounded (17.11.2026)", () => {
+    expect(prepareAssistantReply("Рақами объект 60-70.")).toMatchObject({ text: "Рақами объект 60-70.", speech: "", language: "tg", needsText: true });
+    expect(prepareAssistantReply("Ҳоло майдонаш 68,5 м².")).toMatchObject({ text: "Ҳоло майдонаш 68,5 м².", speech: "Ҳоло майдонаш шасту нӯҳ метри мураббаъ.", language: "tg" });
   });
   it("retains authorised private text, never recites contact", () => {
     const p = prepareAssistantReply('Телефон +992901234567');

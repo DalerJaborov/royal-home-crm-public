@@ -130,8 +130,171 @@ function sendOnce(input: SocialVideoUploadInput, token: string | null): Promise<
   });
 }
 
-/** Создаёт черновик ролика: POST /social-videos (multipart). */
+/**
+ * РОЛИК ЧАСТЯМИ (17.11.2026). Одним запросом файл 87 МБ получал 413 «Файл слишком большой»
+ * ещё до сервера: Cloudflare перед CRM не пропускает тело больше 100 МБ, прокси на сервере —
+ * и меньше. Поэтому ролик режется на части (размер задаёт сервер, 8 МБ), каждая часть идёт
+ * своим запросом и при сбое повторяется, а сервер склеивает их и делает черновик
+ * (apps/api/src/lib/socialVideoUploadSessions.ts). Фото-пост лёгкий и идёт одним запросом.
+ */
+export const PART_ATTEMPTS = 4;
+const START_WAIT_MS = 60_000;
+
+interface XhrSendOptions {
+  method: string;
+  url: string;
+  body: Blob | string;
+  token: string | null;
+  /** Прогресс отправки тела: байт ушло. */
+  onSent?: (loaded: number) => void;
+  /** Сколько ждать ответ после того, как тело ушло. */
+  waitMs: number;
+  /** Текст, если ответ не пришёл за waitMs после отправки тела. */
+  waitMessage?: string;
+}
+
+function xhrSend<T>(o: XhrSendOptions): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    let uploaded = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const arm = (ms: number) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!settled) xhr.abort();
+      }, ms);
+    };
+    const done = () => {
+      settled = true;
+      if (timer) clearTimeout(timer);
+    };
+    xhr.open(o.method, o.url);
+    xhr.withCredentials = true;
+    if (o.token) xhr.setRequestHeader("Authorization", `Bearer ${o.token}`);
+    xhr.setRequestHeader("X-Device-Id", getOrCreateDeviceId());
+    xhr.setRequestHeader("Content-Type", typeof o.body === "string" ? "application/json" : "application/octet-stream");
+    // Пока тело едет — сторож тишины; когда ушло — один длинный предел ожидания ответа.
+    xhr.upload.onprogress = (e) => {
+      if (!uploaded) arm(STALL_MS);
+      o.onSent?.(e.loaded);
+    };
+    xhr.upload.onload = () => {
+      uploaded = true;
+      arm(o.waitMs);
+    };
+    xhr.onload = () => {
+      done();
+      let data: unknown;
+      try {
+        data = xhr.responseText ? JSON.parse(xhr.responseText) : undefined;
+      } catch {
+        data = undefined;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data as T);
+        return;
+      }
+      const message = (data as { error?: string } | undefined)?.error || httpStatusMessage(xhr.status);
+      reject(new ApiError(message, xhr.status, data));
+    };
+    xhr.onerror = () => {
+      done();
+      reject(new Error("Сеть недоступна — ролик не загружен"));
+    };
+    xhr.onabort = () => {
+      done();
+      reject(new Error(uploaded && o.waitMessage ? o.waitMessage : "Связь пропала — ролик не загружен"));
+    };
+    arm(typeof o.body === "string" ? o.waitMs + STALL_MS : STALL_MS);
+    xhr.send(o.body);
+  });
+}
+
+/** Один раз обновить токен на 401 — загрузка длинная, токен мог истечь по дороге. */
+async function withAuth<T>(fn: (token: string | null) => Promise<T>): Promise<T> {
+  try {
+    return await fn(useAuthStore.getState().accessToken);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401 && useAuthStore.getState().hasSession) {
+      const token = await refreshAccessToken();
+      if (token) return fn(token);
+    }
+    throw err;
+  }
+}
+
+/** Часть стоит повторить при сбое сети, таймауте, перегрузке и 5xx; отказ по смыслу (4xx) — нет. */
+function retryablePartError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return true;
+  return err.status >= 500 || err.status === 408 || err.status === 429;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function uploadVideoInParts(input: SocialVideoUploadInput, file: File): Promise<SocialVideoItem> {
+  const base = "/api/v1/social-videos/upload-sessions";
+  const session = await withAuth((token) =>
+    xhrSend<{ sessionId: string; partSize: number; totalParts: number }>({
+      method: "POST",
+      url: base,
+      body: JSON.stringify({ filename: file.name, sizeBytes: file.size }),
+      token,
+      waitMs: START_WAIT_MS,
+    })
+  );
+
+  const total = Math.max(1, file.size);
+  let sentBefore = 0;
+  for (let n = 1; n <= session.totalParts; n++) {
+    const part = file.slice((n - 1) * session.partSize, Math.min(n * session.partSize, file.size));
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await withAuth((token) =>
+          xhrSend({
+            method: "PUT",
+            url: `${base}/${session.sessionId}/parts/${n}`,
+            body: part,
+            token,
+            waitMs: STALL_MS,
+            onSent: (loaded) => input.onProgress(Math.min(99, Math.round(((sentBefore + loaded) / total) * 100))),
+          })
+        );
+        break;
+      } catch (err) {
+        if (attempt >= PART_ATTEMPTS || !retryablePartError(err)) throw err;
+        await sleep(1000 * 2 ** (attempt - 1));
+      }
+    }
+    sentBefore += part.size;
+  }
+
+  input.onProgress(100);
+  input.onUploaded?.();
+  const fields: Record<string, string> = {
+    title: input.title,
+    caption: input.caption,
+    channels: JSON.stringify(input.channels),
+  };
+  if (input.brief) fields.brief = input.brief;
+  if (input.destinations) fields.destinations = JSON.stringify(input.destinations);
+  // Сборку сами НЕ повторяем: сервер мог успеть сделать черновик, повтор дал бы дубль.
+  return withAuth((token) =>
+    xhrSend<SocialVideoItem>({
+      method: "POST",
+      url: `${base}/${session.sessionId}/complete`,
+      body: JSON.stringify(fields),
+      token,
+      waitMs: RESPONSE_WAIT_MS,
+      waitMessage:
+        "Сервер слишком долго обрабатывает ролик. Проверьте список роликов — черновик мог создаться, тогда откройте его, а не загружайте файл заново.",
+    })
+  );
+}
+
+/** Создаёт черновик: ролик — частями (см. выше), фото-пост — POST /social-videos/photos. */
 export async function uploadSocialVideo(input: SocialVideoUploadInput): Promise<SocialVideoItem> {
+  if (input.file) return uploadVideoInParts(input, input.file);
   try {
     return await sendOnce(input, useAuthStore.getState().accessToken);
   } catch (err) {

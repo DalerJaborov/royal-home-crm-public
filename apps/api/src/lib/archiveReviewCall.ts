@@ -45,11 +45,13 @@ export const ARCHIVE_REVIEW_START_NOTE = "Звонок инициирован и
  * продлевается записью самого перезвона (см. ARCHIVE_REVIEW_CALLBACK_NOTE).
  */
 export const ARCHIVE_REVIEW_CALLBACK_WINDOW_HOURS = 72;
-/** Сколько секунд звонит аппарат звонившего, прежде чем звонок уйдёт оператору (запасной путь «queue»). */
-export const ARCHIVE_REVIEW_CALLBACK_RING_SECONDS = 15;
-/** Сколько секунд звонит аппарат звонившему на самом деле: настройка перевода, но не дольше потолка (0 = «без ограничения» тоже потолок). */
+/**
+ * Окно, в котором мост после перевода считается ответом звонившего (когда номер аппарата не назван — мобильный).
+ * С 17.11.2026 перезвон звонит РОПу полное время перевода, а оператору не уходит вовсе: 0 («без ограничения»)
+ * — сутки, то есть любой мост.
+ */
 export function archiveCallbackRingSeconds(routeRingSeconds: number): number {
-  return routeRingSeconds > 0 ? Math.min(routeRingSeconds, ARCHIVE_REVIEW_CALLBACK_RING_SECONDS) : ARCHIVE_REVIEW_CALLBACK_RING_SECONDS;
+  return routeRingSeconds > 0 ? routeRingSeconds : 24 * 3600;
 }
 /** Часть текста записи «клиент перезвонил»: по ней такие записи отличают от исходящих звонков разбора. */
 export const ARCHIVE_REVIEW_CALLBACK_NOTE = "клиент перезвонил";

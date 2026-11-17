@@ -130,7 +130,7 @@ describe("auto narration after property creation", () => {
   });
   it("keeps the agent's wizard choice, including a price the agent typed (spoken price, owner 11.11.2026)", async () => {
     await startNarrationForNewProperty(propertyId, "agent", { templateId: "ru-short", voiceId: "voiceB" });
-    expect(s.versions[0]).toMatchObject({ templateId: "ru-short", voiceId: "voiceB", language: "ru", script: "В продаже квартира. Площадь 62 метров." });
+    expect(s.versions[0]).toMatchObject({ templateId: "ru-short", voiceId: "voiceB", language: "ru", script: "В продаже квартира. Площадь шестьдесят два метров." });
     s.versions = [];
     await startNarrationForNewProperty(propertyId, "agent", { script: "Квартира за 90 000 сомони, звоните." });
     expect(s.versions[0].script).toBe("Квартира за 90 000 сомони, звоните.");
@@ -318,8 +318,18 @@ describe("spoken price (owner 11.11.2026): new version on price change, sound-on
     s.mode = "LIVE";
     s.property = { ...s.property, status: "AVAILABLE", publishedChannels: ["FACEBOOK"], videoHandoffStatus: "RECEIVED" };
     const v = await approveNewPrice();
+    // Машина «CRM сама убирает голос» выключена — тогда монтажёра просят и о ролике без голоса.
+    s.config = { ...s.config, autoSeparateVoice: false };
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("SOUND_REMAKE");
     expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringMatching(/только голос.*музыку и монтаж не трогайте.*без голоса/su), null, { removeFromSocial: "on-new-video" });
+  });
+  it("16.11.2026 by default: the editor gets ONE task — replace the voice; no second clip without voice is asked", async () => {
+    s.mode = "LIVE";
+    s.property = { ...s.property, status: "AVAILABLE", publishedChannels: ["FACEBOOK"], videoHandoffStatus: "RECEIVED" };
+    const v = await approveNewPrice();
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("SOUND_REMAKE");
+    expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringMatching(/только голос/u), null, { removeFromSocial: "on-new-video" });
+    expect(s.sendBack).not.toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringMatching(/без голоса/iu), null, expect.anything());
   });
   it("same template and voice after a price change: approves itself, nothing to the agent", async () => {
     s.property = { ...s.property, status: "AVAILABLE", videoHandoffStatus: "NONE" };

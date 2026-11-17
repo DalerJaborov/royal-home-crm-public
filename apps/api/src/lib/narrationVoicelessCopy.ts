@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { narrationConfigSchema, narrationMixByCrm } from "@royal-home/shared";
+import { narrationAutoSeparate, narrationConfigSchema, narrationMixByCrm } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { probeMediaInfo } from "./ffmpeg.js";
@@ -38,10 +38,12 @@ async function editorVoicedDelivery(propertyId: string): Promise<{ versionId: st
   return row ? { versionId: row.versionId } : null;
 }
 
+/** Второй файл не просим: голос кладёт CRM (mixByCrm) или CRM сама убирает старый голос из готового
+ *  ролика (autoSeparateVoice, 16.11.2026: «монтажёр присылает один файл, дальше мы сами»). */
 async function crmMixesFirstVoice(): Promise<boolean> {
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { propertyNarrationConfig: true } });
   const parsed = narrationConfigSchema.safeParse(settings?.propertyNarrationConfig ?? {});
-  return parsed.success && narrationMixByCrm(parsed.data);
+  return parsed.success && (narrationMixByCrm(parsed.data) || narrationAutoSeparate(parsed.data));
 }
 
 export type VoicelessAsk = { text: string; buttons: Array<Array<{ text: string; callback_data: string }>> };
@@ -123,7 +125,7 @@ export async function storeVoicelessCopy(propertyId: string, filePath: string, o
   const key = await storeNarrationMaster(propertyId, filePath);
   const written = await prisma.property.updateMany({
     where: { id: propertyId, deletedAt: null, videoHandoffStatus: "RECEIVED", videoHandoffFinalPath: p.videoHandoffFinalPath },
-    data: { videoMasterStorageKey: key, videoMasterNarrationVersionId: delivery.versionId, videoMasterMixError: null, videoMasterMixErrorVersionId: null },
+    data: { videoMasterStorageKey: key, videoMasterSource: "EDITOR", videoMasterNarrationVersionId: delivery.versionId, videoMasterMixError: null, videoMasterMixErrorVersionId: null },
   });
   if (!written.count) {
     await dropNarrationMaster(key);

@@ -19,6 +19,7 @@ import { PropertyNarrationService } from "./PropertyNarrationService";
  * блок PropertyNarrationService, его видят только маркетинг и руководство.
  */
 function approvedMessage(delivery: string | undefined): string {
+  if (delivery === "CRM_SEPARATE") return "Озвучка одобрена. Ролик уже вышел: CRM сама уберёт из него старый голос, наложит новый и заменит ролик. Обычно несколько минут.";
   if (delivery === "CRM_REMIX") return "Озвучка одобрена. Ролик уже вышел: CRM сама наложит новую озвучку и заменит его.";
   if (delivery === "SOUND_REMAKE") return "Озвучка одобрена. Ролик уже вышел: монтажёр заменит в нём только звук.";
   if (delivery === "ADD_VOICE") return "Озвучка одобрена. Ролик уже смонтирован: монтажёр вклеит в него голос, потом ролик выйдет.";
@@ -148,6 +149,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
             <p className="font-medium">✓ Озвучка одобрена</p>
             <p className="text-sm text-[var(--muted)]">{data.mix?.hasMaster ? "Озвучку на ролик накладывает CRM: поменяется цена, звук обновится сам." : "Монтажёр получает её вместе с заданием на ролик."}</p>
             {data.mix?.problem === "VOICE_LONGER" && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Новая озвучка длиннее ролика, обрезать голос CRM не стала. Ролик ушёл монтажёру: он удлинит его под голос. Быстрее — сократить текст и озвучить заново.</p>}
+            {data.mix?.note && <p className="text-sm" role="status">{data.mix.note}</p>}
             {data.mix?.problem === "FAILED" && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Наложить новую озвучку на ролик не получилось, в соцсетях пока прежний ролик. Руководство видит ошибку.</p>}
             <div className="flex flex-wrap items-center gap-2">
               {player(latest.id, false)}

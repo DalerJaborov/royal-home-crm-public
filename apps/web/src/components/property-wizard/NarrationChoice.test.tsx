@@ -30,7 +30,7 @@ describe("wizard narration choice", () => {
     expect(html).toContain("придёт вам на прослушивание");
   });
   it("switches language with the template and keeps the agent's own text", () => {
-    expect(render({ templateId: "ru-short" })).toContain("В продаже квартира. Площадь 62 метров.");
+    expect(render({ templateId: "ru-short" })).toContain("В продаже квартира. Площадь шестьдесят два метров.");
     expect(render({ script: "Свой текст агента про квартиру" })).toContain("Свой текст агента про квартиру");
   });
   it("sends only meaningful choices with the create request", () => {
@@ -49,7 +49,7 @@ describe("wizard narration choice", () => {
     client.setQueryData(["narration-options"], { ...options, lastChoice: { voiceId: "f1", templateId: "ru-short" } });
     const html = renderToStaticMarkup(<QueryClientProvider client={client}><NarrationChoice facts={facts} value={{}} onChange={() => {}} /></QueryClientProvider>);
     expect(html).toContain("последний раз выбран");
-    expect(html).toContain("В продаже квартира. Площадь 62 метров.");
+    expect(html).toContain("В продаже квартира. Площадь шестьдесят два метров.");
     expect(html).toMatch(/value="f1"[^>]*checked|checked[^>]*value="f1"/);
   });
   it("шаблон и концовка по типу объекта (16.11.2026): квартире — квартирные, участку — участковые; концовка стоит в конце текста", () => {
