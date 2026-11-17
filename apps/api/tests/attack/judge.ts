@@ -47,6 +47,10 @@ const TOPIC_CLASH: Partial<Record<NonNullable<AttackExpect["topic"]>, RegExp>> =
 
 /** The customer asked about commission/price of the service (ru+tg): a commission answer is then the right first sentence. */
 export const COMMISSION_ASKED = /комисси|процент|сколько\s+(?:стоит|берете|получу|с\s+меня|с\s+продавц)|на\s+руки|стоимост|тариф|чанпул|чанд\s+пул|ҳаққи\s+хизмат|хаққи\s+хизмат|нархи\s+хизмат|фоиз|кобиш|%/iu;
+/** A greeting opening a reply (ru+tg). "Ваалейкум ассалом" is an answer to the customer's salaam, not our own greeting. */
+const GREET_OPEN = /^(?:здравствуйте|добрый\s+(?:день|вечер|утро)|доброе\s+утро|привет|салом|ассалом\p{L}*|ассаламу|хуш\s+омадед)/u;
+/** The customer greets in this turn: answering the greeting back is then allowed. */
+const CLIENT_GREETS = /(?:^|\s)(?:здравствуй\p{L}*|привет\p{L}*|добр\p{L}*\s+(?:день|вечер|утро)|салом\p{L}*|ас+алом\p{L}*|ас+аламу|assalom\p{L}*|salom\p{L}*)/iu;
 const RENT_TALK = /аренд|сда[мюе]|сдать|снять|иҷора|ичора/iu;
 const RENT_REFUSAL = /аренд|иҷора/iu;
 
@@ -178,6 +182,15 @@ export function judgeTurn(input: JudgeInput): TurnJudgement {
   const lowered = norm(reply);
   for (const bad of expect.mustNotContain ?? []) add(`must-not-contain:${bad}`, !lowered.includes(norm(bad)), `reply contains "${bad}"`);
   for (const good of expect.mustContain ?? []) add(`must-contain:${good}`, lowered.includes(norm(good)), `reply lacks "${good}"`, true);
+
+  // 6b. Phrasing rules from the operators' findings (BotAuditFinding, 13.11.2026) ----------------------------------
+  // "—" reads as machine text to our customers; every server line was rewritten without it.
+  const dash = /[—–]/u.exec(unlinked);
+  add("no-em-dash", !dash, "the reply contains a long dash");
+  if (scenario.surface === "dm" && turnIndex > 0 && !CLIENT_GREETS.test(norm(turn.in))) {
+    const answered = outcomes.slice(0, turnIndex).some(item => item.status === "replied" && item.replies.length > 0);
+    if (answered) add("no-greet-after-first", !GREET_OPEN.test(norm(reply).trimStart()), "greets again in the middle of the conversation");
+  }
 
   // 7. Do not ask what the customer already said ---------------------------------------------------------------
   const asked = askedPurposes(reply);
