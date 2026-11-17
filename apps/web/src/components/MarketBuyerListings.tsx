@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { ExternalLink, Search } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { marketContactText, type MarketBuyerListing, type MarketBuyerListingsResponse, type MarketBuyerSummary } from "@royal-home/shared";
@@ -119,7 +120,8 @@ export function MarketBuyerListingsView({
         <>
           <div className="list">
             {listings.map((l) => (
-              <div className="row wrapt" key={l.sourceUrl}>
+              <Fragment key={l.sourceUrl}>
+              <div className="row wrapt">
                 <div className="t">
                   <b>
                     <a
@@ -139,16 +141,8 @@ export function MarketBuyerListingsView({
                       .join(" · ")}
                   </span>
                   {l.contact && (
-                    <span className="warn" data-testid="market-contact-mark">{marketContactText(l.contact, dushanbeDate(l.contact.at))}</span>
+                    <span style={{ color: "var(--warn)" }} data-testid="market-contact-mark">{marketContactText(l.contact, dushanbeDate(l.contact.at))}</span>
                   )}
-                  <span className="wrap" style={{ gap: 8, marginTop: 8 }}>
-                    <MarketWhatsAppButton sourceUrl={l.sourceUrl} source={l.source} title={l.title} clientId={clientId} onDone={onContacted} />
-                    <MarketShowPhoneButton sourceUrl={l.sourceUrl} source={l.source} clientId={clientId} onDone={onContacted} />
-                    <a className="pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]!" href={l.sourceUrl} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="w-3.5 h-3.5" aria-hidden />
-                      Объявление
-                    </a>
-                  </span>
                 </div>
                 <span className="chip">Чужое</span>
                 <span className="meta">
@@ -156,6 +150,16 @@ export function MarketBuyerListingsView({
                   {l.pricePerSqmTjs != null && <small> · {formatMoney(l.pricePerSqmTjs, "TJS")}/м²</small>}
                 </span>
               </div>
+              {/* Действия — отдельной строкой во всю ширину: на телефоне три кнопки не влезают рядом с ценой. */}
+              <div className="wrap" style={{ gap: 8, padding: "0 4px 14px" }}>
+                <MarketWhatsAppButton sourceUrl={l.sourceUrl} source={l.source} title={l.title} clientId={clientId} onDone={onContacted} />
+                <MarketShowPhoneButton sourceUrl={l.sourceUrl} source={l.source} clientId={clientId} onDone={onContacted} />
+                <a className="pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]!" href={l.sourceUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="w-3.5 h-3.5" aria-hidden />
+                  Объявление
+                </a>
+              </div>
+              </Fragment>
             ))}
           </div>
           {data.total > listings.length && (
