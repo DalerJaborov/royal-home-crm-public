@@ -3008,6 +3008,8 @@ model PropertyNarrationVersion {
   /// MANUAL — прежний путь маркетинга; WIZARD / AUTO / AGENT — автоозвучка (11.11.2026).
   source String @default("MANUAL")
   templateId String?
+  /// Концовка (призыв) из списка endings настроек озвучки, выбранная вместе с шаблоном (16.11.2026): текст собирается по кодам.
+  endingId String?
   language String?
   /// Автоозвучка: не раньше этого времени (пауза после последней правки). null — не ставить в очередь.
   generateAfter DateTime?
