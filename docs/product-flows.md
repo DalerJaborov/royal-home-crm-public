@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4064**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4066**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20601,13 +20601,15 @@
         · дословно из кода
     - const claim = (commentId: string)
       · обращается к базе своим SQL
+    - const selfAnswer = await loadBotAnswersItself();
+      · зовёт loadBotAnswersItself()
     - для каждого: const row of rows
       - const need = commentNeed(row.status, row.note);
         · зовёт commentNeed()
       - если need === "technical" && !technicalOn
         - continue;
           · переходит к следующему
-      - если need === "no"
+      - если need === "no" || (need === "human" && !staffSignalAllowed({ on: selfAnswer, kind: "bot_choice" }))
         - continue;
           · переходит к следующему
     - если !due.length
@@ -22061,6 +22063,34 @@
   - return;
     · дальше не идёт, ничего не меняя
 - пробует
+  - const held = await releaseCommentPhoneHolds();
+    · зовёт releaseCommentPhoneHolds()
+    - const held = await prisma.client.findMany({ where: { commentPhoneHoldUntil: { not: null }, deletedAt: null },…
+      · читает в базе: client
+    - для каждого: const card of held
+      - const conversations = await prisma.botConversation.findMany({ where: { clientId: card.id }, select: { message…
+        · читает в базе: botConversation
+      - const reply = conversations.map((c)
+        · зовёт commentPhoneReplyOf()
+      - если reply
+        - если await releaseCommentPhoneHold(card.id, `Номер из комментария: клиент ответил боту в личных — «${reply}»`, car…
+          - answered++;
+            · дословно из кода
+      - иначе если card.commentPhoneHoldUntil && card.commentPhoneHoldUntil.getTime() <= now.getTime()
+        - если await releaseCommentPhoneHold(card.id, "Номер из комментария, боту не ответил: позвоните и узнайте, что нужно…
+          - expired++;
+            · дословно из кода
+  - если held.answered + held.expired > 0
+    - console.log(`[cron] Номер из комментария → в раздачу: ответили ${held.answered}, молчат ${held.expired}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка снятия придержки номера из комментария", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+- пробует
   - const assigned = await assignPendingLeads();
     · зовёт assignPendingLeads()
     - const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
@@ -22200,47 +22230,12 @@
 - пробует
   - const { reminded: callReminders } = await remindDueFirstCalls();
     · зовёт remindDueFirstCalls()
-    - const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
-      · читает в базе: settings
-    - const recentOutageMs = telephonyOn ? outageOverlapMs(lookback, now, await outagesBetween(lookback, now)) : 0;
-      · зовёт outageOverlapMs()
-    - const windowStart = widenAfterNight( new Date(now.getTime() - minutes * 60_000 - recentOutageMs), leadHoursOf…
-      · зовёт widenAfterNight()
-    - const candidates = await prisma.client.findMany({ where: { acceptedAt: { gte: windowStart, lte: windowEnd }, …
-      · читает в базе: client
-    - если candidates.length === 0
-      - return { reminded: 0 };
-        · дословно из кода
-    - const status = await firstCallStatus(candidates, { leadCallMinutes: settings?.leadCallMinutes ?? null, leadCa…
-      · зовёт firstCallStatus()
-    - для каждого: const client of candidates
-      - если !s || s.done
-        - continue;
-          · переходит к следующему
-      - если leftMs > 5 * 60_000 || leftMs < 0
-        - continue;
-          · переходит к следующему
-      - const already = await prisma.interaction.findFirst({ where: { clientId: client.id, type: "SYSTEM", notes: { s…
-        · читает в базе: interaction
-      - если already
-        - continue;
-          · переходит к следующему
-      - const after = holdsOwnPropertyLead(client) ? "потом минус к Royal Score" : afterDue;
-        · зовёт holdsOwnPropertyLead()
-      - await logTimeline({ clientId: client.id, actor: { kind: "system", source: "first-call-reminder", subjectAgent…
-        · зовёт logTimeline()
-      - sendPushToAgents([agentId], { title: "⏱ Позвонить клиенту", body: `${client.fullName}: осталось ${minutesLeft…
-        · push-уведомление
   - если callReminders > 0
     - console.log(`[cron] Напоминаний о первом звонке отправлено: ${callReminders}`);
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка напоминания о первом звонке", err);
     · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
 - пробует
   - const { reminded: returnsReminded, escalated: returnsEscalated } = await reassignStaleReturns();
     · зовёт reassignStaleReturns()
@@ -29409,6 +29404,11 @@
         · читает в базе: telegramConversation
       - если !chat || chat.client?.deletedAt
         - return "excluded";
+          · дословно из кода
+      - const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId };
+        · зовёт channelStaffSignalKind()
+      - если !staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...si…
+        - return "self";
           · дословно из кода
       - const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
         · зовёт findAgentsWithPermission()

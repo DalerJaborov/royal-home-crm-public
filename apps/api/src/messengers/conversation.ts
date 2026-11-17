@@ -56,6 +56,7 @@ import {
   topicStateUpdate,
 } from "../ai/topicLock.js";
 import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
+import { isCustomerAgentTurnOff } from "../lib/customerAgentChannelOff.js";
 import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadablePhoneAttempt, type UnreadablePhone } from "../lib/shared/phoneText.js";
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
@@ -83,6 +84,7 @@ import { extractPostAcceptFacts } from "../ai/postAcceptFacts.js";
 import { countNoContactComplaints, looksLikeNoContactComplaint, looksLikeWantsHumanAgent } from "../ai/complaintGuard.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
+import { loadBotAnswersItself, staffSignalAllowed } from "../lib/botAnswersItself.js";
 import { requestAgentAttention } from "../lib/agentAttention.js";
 import { newerClientMessagePending } from "./turnSupersede.js";
 import { detectAgencyPitch } from "../ai/agencyPitchGuard.js";
@@ -863,6 +865,8 @@ export async function acceptLead(
      * (ai/leadOnlyMode.ts) вместо закрывающей реплики модели. Модель не зовётся.
      */
     fixedReply?: string;
+    /** Номер из комментария (18.11.2026): новая карточка ждёт ответа клиента в личных до этого срока (intake.ts). */
+    commentPhoneHoldUntil?: Date;
   }
 ): Promise<MessengerTurnResult> {
   // Без учёта регистра, общим правилом на все каналы (ночная проверка
@@ -1394,6 +1398,7 @@ export async function acceptLead(
     requirementsNotes,
     // An agent already replying is available, including outside office hours.
     deferAssignment: handledPropertyId ? false : options?.deferAssignment,
+    commentPhoneHoldUntil: handledPropertyId ? undefined : options?.commentPhoneHoldUntil,
     /**
      * «МНЕ НУЖЕН УМЕД» — клиент сам назвал сотрудника, и лид идёт прямо к нему,
      * мимо очереди по KPI (решение владельца 18.08.2026). Имя распознал код на
@@ -2749,7 +2754,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * заявки (решение владельца 13.11.2026, пятое ревью №5). Бот не снимается с диалога (иначе молчал бы и на
      * следующее сообщение по делу, а позвать человека нельзя), счётчик растёт как при обычной отсечке.
      */
-    const offTopicQuiet = !conversation.clientId && (await leadOnlyQuietBeforeLead(channel));
+    // «Бот отвечает сам» (владелец 18.11.2026, lib/botAnswersItself.ts): тот же тихий путь — не снимаем бота и не зовём людей.
+    const offTopicQuiet = (!conversation.clientId && (await leadOnlyQuietBeforeLead(channel))) ||
+      !staffSignalAllowed({ on: await loadBotAnswersItself(), kind: "bot_choice" });
     if (hitCount >= OFF_TOPIC_HANDOVER_AFTER && !offTopicQuiet) {
       await prisma.botConversation
         .update({
@@ -3296,6 +3303,13 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * ради промта, который никто не отправит.
    */
   if (budget.turnsLeft <= 0) return await aiBudgetHandover(merged, true);
+  /**
+   * АВАРИЙНЫЙ РУБИЛЬНИК КАНАЛА (CUSTOMER_AGENT_CHANNEL_OFF, остаток #266, 18.11.2026): готовые ответы этого файла ДО двери
+   * старого бота (режим «только заявки», факты объекта, быстрое приветствие, «не разобрал номер») — тоже голос бота. На
+   * выключенном канале их нет: ход доходит до двери (ai/legacyQualifyDoor.ts), и клиент получает одну строку передачи,
+   * человек — сигнал. Пустой рубильник — ни одного лишнего запроса (isCustomerAgentTurnOff).
+   */
+  const channelOff = await isCustomerAgentTurnOff({ channel, accountId: account.id, conversationId: conversation.id });
 
   /**
    * РЕПЛИКУ КЛИЕНТА СОХРАНЯЕМ СРАЗУ, ДО ОБРАЩЕНИЯ К МОДЕЛИ.
@@ -3385,7 +3399,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         .catch((err) => console.error("[messenger] режим «только заявки» → карточка:", err));
     }
   };
-  if (leadOnlyChannel && merged.trim()) {
+  if (leadOnlyChannel && merged.trim() && !channelOff) {
     const plan = await planLeadOnlyTurn();
     if (plan) {
       await settleLeadOnlyPlan(plan);
@@ -3412,7 +3426,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     }
   }
 
-  if (propertyAdmission && customerPropertyContextEnabled()) {
+  if (propertyAdmission && customerPropertyContextEnabled() && !channelOff) {
     const propertyContext = await resolveCustomerPropertyTurnContext(propertyAdmission, propertyTickets);
     const factKinds = classifyCustomerPropertyFactIntent(merged, { hasPropertyContext: !!propertyContext &&
       ["resolved", "ambiguous"].includes(propertyContext.snapshot.focus.status) });
@@ -3486,7 +3500,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   // Короткое окно приветствия истекло, и в пачке по-прежнему только оно — никто
   // ничего не дописал за 3-8 секунд. Отвечаем заготовленной фразой без обращения
   // к модели: быстрее и дешевле, а разговор дальше идёт обычным путём.
-  if (greetingFast && isPureGreeting(merged)) {
+  if (greetingFast && isPureGreeting(merged) && !channelOff) {
     await appendConversationMessages(conversation.id, [
       {
         role: "assistant",
@@ -3518,7 +3532,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   const unreadablePhone = conversation.clientId ? null : unreadablePhoneAttempt(merged);
   // Предел переспросов считает claimUnreadablePhoneAsk — атомарно и по свежему
   // значению в базе; разбор прежней поломки в её докстринге.
-  if (unreadablePhone && (await claimUnreadablePhoneAsk(conversation.id, MAX_PHONE_RETRY_ASKS))) {
+  if (unreadablePhone && !channelOff && (await claimUnreadablePhoneAsk(conversation.id, MAX_PHONE_RETRY_ASKS))) {
     const mergedLanguage = detectClientLanguage(merged);
     const reply = unreadablePhoneReply(
       unreadablePhone,

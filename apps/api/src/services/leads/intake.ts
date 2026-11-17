@@ -96,6 +96,12 @@ export interface ChannelLeadInput {
   /// (assignPendingLeads, вызывается кроном при входе в рабочее окно). Молча,
   /// без пуша руководству — это ожидаемая ночная норма, а не сбой.
   deferAssignment?: boolean;
+  /**
+   * НОМЕР ИЗ КОММЕНТАРИЯ (18.11.2026, messengers/commentPhoneLead.ts): новая карточка ждёт ответа клиента боту в личных
+   * до этого срока и лишь потом идёт в раздачу (снимает lib/commentPhoneHold.ts). Только вместе с deferAssignment;
+   * существующую карточку не трогает.
+   */
+  commentPhoneHoldUntil?: Date;
 }
 
 /**
@@ -1329,6 +1335,7 @@ function channelLeadCreateData(input: ChannelLeadInput, kind: ClientKind, extraP
     requirementsNotes: input.requirementsNotes, telegramChatId: input.telegramChatId,
     telegramUsername: input.telegramUsername, whatsappPhone: input.whatsappPhone,
     socialUsername: input.socialUsername, socialChannel: input.socialChannel, extraPhones,
+    ...(input.commentPhoneHoldUntil && input.deferAssignment ? { commentPhoneHoldUntil: input.commentPhoneHoldUntil } : {}),
     ...(includeCriteria ? { budgetMin: input.budgetMin, budgetMax: input.budgetMax,
       desiredDistrictId: input.desiredDistrictId, desiredRooms: input.desiredRooms, desiredType: input.desiredType as never,
       ...(kind === "BUYER" ? { requirementsFieldsKind: "BUYER" as const } : {}),

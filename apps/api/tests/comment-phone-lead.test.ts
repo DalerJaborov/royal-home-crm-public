@@ -72,7 +72,7 @@ beforeEach(() => {
 describe("captureCommentPhoneIntoConversation (Instagram/Facebook/YouTube)", () => {
   it("номер в комментарии уходит в тихий приём заявки, комментарий ложится в переписку приёмом", async () => {
     const result = await captureCommentPhoneIntoConversation(row(), "conv-1");
-    expect(result).toEqual({ outcome: "accepted", recordedInHistory: true });
+    expect(result).toMatchObject({ outcome: "accepted", recordedInHistory: true, dmAlreadySent: false });
     expect(mocks.acceptLead).toHaveBeenCalledTimes(1);
     const [conversationId, channel, , phone, , , options] = mocks.acceptLead.mock.calls[0]!;
     expect(conversationId).toBe("conv-1");
@@ -101,7 +101,7 @@ describe("captureCommentPhoneIntoConversation (Instagram/Facebook/YouTube)", () 
       conversation({ messages: [{ role: "user", content: `${COMMENT_HISTORY_PREFIX}${PHONE_TEXT}` }] })
     );
     const result = await captureCommentPhoneIntoConversation(row(), "conv-1");
-    expect(result).toEqual({ outcome: "already", recordedInHistory: true });
+    expect(result).toMatchObject({ outcome: "already", recordedInHistory: true, clientId: null });
     expect(mocks.acceptLead).not.toHaveBeenCalled();
   });
 

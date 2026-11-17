@@ -3995,6 +3995,10 @@ model Client {
   /// таймером duplicateReviewDueAt (lib/duplicateReview.ts::sweepExpiredDuplicateReviews,
   /// тот же принцип, что у lostReturnAcceptMinutes/returnAcceptDueAt).
   duplicateReviewOfClientId   String?
+  /// НОМЕР ИЗ КОММЕНТАРИЯ (18.11.2026, messengers/commentPhoneLead.ts): карточка заведена сразу, но в раздачу идёт после
+  /// ответа клиента боту в личных или по истечении этого срока (20 мин рабочего окна). Пусто — обычная раздача.
+  /// Снимает ТОЛЬКО lib/commentPhoneHold.ts (тик раздачи); утренняя волна такие карточки до срока не берёт.
+  commentPhoneHoldUntil       DateTime?
   duplicateReviewOfClient     Client?   @relation("ClientDuplicateReview", fields: [duplicateReviewOfClientId], references: [id], onDelete: SetNull)
   /// Обратная сторона self-relation выше — карточки, которые сочли похожими НА эту.
   duplicateReviewCandidateOf  Client[]  @relation("ClientDuplicateReview")
@@ -7292,6 +7296,12 @@ model Settings {
   /// Только в режиме «только заявки»: «хотим посмотреть», «куда ехать», «адрес»
   /// и таджикские равные — заявка агенту сразу, с объектом, если он известен.
   botHotIntentHandover              Boolean   @default(true)
+  /// «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026: «бот никак не вызывал администратора, директора… полностью сам все
+  /// отвечает… и в комментариях»). ВКЛ — бот не зовёт руководство («клиент ждёт», «передаю сотруднику», «комментарий
+  /// требует человека»), а сам отвечает безопасной фразой и ведёт к номеру. Остаются всегда: агенту — о его клиенте,
+  /// заявка с номером, назначающим — заявка без агента, техсбой. Одна дверь чтения — lib/botAnswersItself.ts.
+  /// ВЫКЛЮЧЕН по умолчанию.
+  botAnswersItself                  Boolean   @default(false)
   /// Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026). По умолчанию ВЫКЛ.
   marketBuyerAlertsEnabled          Boolean   @default(false)
   /// Когда рубильник пуша «объявление под покупателя» включили (ставит первый прогон; null при выключенном). «Новое» считается от неё.

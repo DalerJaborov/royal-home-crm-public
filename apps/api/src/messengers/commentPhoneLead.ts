@@ -19,6 +19,21 @@ import { classifyInbound } from "../services/leads/intakePolicy.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 
 /**
+ * НОМЕР ИЗ КОММЕНТАРИЯ: СНАЧАЛА РАЗГОВОР, ПОТОМ РАЗДАЧА (решения владельца и диспетчера 18.11.2026).
+ *
+ * Владелец: «неправильно, ИИ должен поговорить, чтобы узнать, что он хочет»; про комментарий с номером: «скрой, это
+ * возможно спам». Порядок (messengers/comments.ts::handleCommentPhone):
+ *  1. номер сразу в карточку (идемпотентно; номер чужой карточки или повтор — к ней, без новой и без второго личного);
+ *  2. Instagram/Facebook: ОДИН личный ответ Meta (верхний уровень, не старше 7 суток, 1 на автора за 24 ч, аккаунт не
+ *     заблокирован) — приветствие, «увидели ваш номер», один вопрос о цели (ai/botSelfAnswerText.ts::COMMENT_PHONE_DM);
+ *  3. затем комментарий СКРЫТЬ. Личный ушёл — публичного ответа нет; личный невозможен — короткий публичный ответ без
+ *     номера (по очереди из 4), скрыть, карточка СРАЗУ в раздачу с пометкой «боту не удалось написать в личные»;
+ *  4. ответ клиента в личных (по recipient_id ответа Meta, иначе по автору) — та же карточка; ответ — в карточку, в раздачу;
+ *  5. молчит — в раздачу через 20 минут (тик раздачи в рабочее окно, lib/commentPhoneHold.ts) с пометкой;
+ *  6. YouTube: ответ под комментарием + заявка с пометкой + «на проверку» (heldForReview); Telegram-группа — заявка;
+ *  7. на номер из комментария в WhatsApp не пишем.
+ * Прежнее поведение #270 (17.11, «тихо в раздачу без разговора», журнал на каждую заявку) заменено этим.
+ *
  * НОМЕР, ОСТАВЛЕННЫЙ В КОММЕНТАРИИ, НЕ ТЕРЯЕТСЯ (17.11.2026).
  *
  * Прежде карточку по номеру из комментария заводили только ветки «конкурент» и
@@ -65,13 +80,25 @@ export interface CommentPhoneResult {
   outcome: CommentPhoneOutcome;
   /** Комментарий уже лёг в переписку (приём записал реплику): повторно его дописывать нельзя. */
   recordedInHistory: boolean;
+  /** Карточка диалога после приёма (accepted/already). */
+  clientId?: string | null;
+  /** Бот уже писал этому автору личное по номеру из комментария: второго не будет. */
+  dmAlreadySent?: boolean;
+}
+
+/** Сколько карточка по номеру из комментария ждёт ответа клиента боту в личных, прежде чем уйти в раздачу. */
+export const COMMENT_PHONE_HOLD_MS = 20 * 60_000;
+
+/** Чистая: бот уже писал в этой переписке личное по номеру из комментария (любой язык). */
+export function commentPhoneDmInHistory(history: readonly { role?: unknown; content?: unknown }[], dmTexts: readonly string[]): boolean {
+  return history.some((m) => m.role === "assistant" && typeof m.content === "string" && dmTexts.includes(m.content.trim()));
 }
 
 /**
  * Номер самой компании (публичный и снятый с использования, lib/publicAgencyContact.ts) — не клиент:
  * люди цитируют «звоните 44 650 14 14» под постом. Первый номер комментария, не принадлежащий компании.
  */
-function clientPhonesOf(text: string): string[] {
+export function clientPhonesOf(text: string): string[] {
   return extractAllPhones(text).filter((p) => {
     const digits = p.replace(/\D/g, "");
     return !isPublicAgencyPhone(digits) && !isRetiredPublicAgencyPhone(digits);
@@ -101,7 +128,9 @@ const NOTHING: CommentPhoneResult = { outcome: "no_phone", recordedInHistory: fa
  */
 export async function captureCommentPhoneIntoConversation(
   row: CommentPhoneRow,
-  conversationId: string
+  conversationId: string,
+  /** Новая карточка ждёт ответа в личных до этого срока (только если личное будет отправлено). */
+  opts: { holdUntil?: Date; dmTexts?: readonly string[] } = {}
 ): Promise<CommentPhoneResult> {
   // Дешёвая проверка текста — до любого запроса в базу: у большинства комментариев номера нет.
   const phone = clientPhonesOf(row.text)[0];
@@ -113,16 +142,15 @@ export async function captureCommentPhoneIntoConversation(
       select: { clientId: true, leadDraft: true, messages: true, name: true, spamFlaggedAt: true },
     });
     if (!conversation) return NOTHING;
-    if (conversation.clientId) return { outcome: "already", recordedInHistory: false };
+    const history = (conversation.messages as unknown as ConversationMessage[]) ?? [];
+    const dmAlreadySent = commentPhoneDmInHistory(history as unknown as { role?: unknown; content?: unknown }[], opts.dmTexts ?? []);
+    const marked = `${COMMENT_HISTORY_PREFIX}${row.text}`;
+    const recorded = history.some((m) => m.role === "user" && m.content === marked);
+    if (conversation.clientId) return { outcome: "already", recordedInHistory: recorded, clientId: conversation.clientId, dmAlreadySent };
     // Помеченный как рассылка заявкой не становится (та же защита, что в captureLeadWhileSilent).
     if (conversation.spamFlaggedAt) return { outcome: "spam", recordedInHistory: false };
-
-    const history = (conversation.messages as unknown as ConversationMessage[]) ?? [];
-    const marked = `${COMMENT_HISTORY_PREFIX}${row.text}`;
     // Этот комментарий уже в переписке — разбирали раньше (или человек уже решил его судьбу).
-    if (history.some((m) => m.role === "user" && m.content === marked)) {
-      return { outcome: "already", recordedInHistory: true };
-    }
+    if (recorded) return { outcome: "already", recordedInHistory: true, clientId: null, dmAlreadySent };
 
     const { acceptLead } = await import("./conversation.js");
     const result = await acceptLead(
@@ -137,19 +165,19 @@ export async function captureCommentPhoneIntoConversation(
       }),
       history as unknown as ChatMessage[],
       {
-        deferAssignment: !(await isWithinWorkingHours()),
+        // Карточка ждёт ответа в личных — назначение откладывается до ответа или срока (lib/commentPhoneHold.ts).
+        deferAssignment: opts.holdUntil ? true : !(await isWithinWorkingHours()),
+        ...(opts.holdUntil ? { commentPhoneHoldUntil: opts.holdUntil } : {}),
         clientText: marked,
         extraPhones: clientPhonesOf(row.text).filter((p) => p !== phone),
         silent: true,
       }
     );
     if (!result.accepted) return { outcome: "declined", recordedInHistory: false };
-    void logSystemError(
-      "ai",
-      `Номер из комментария под публикацией (${row.channel}, диалог ${conversationId}) оформлен заявкой без ` +
-        `ответа клиенту: комментарий ${row.commentId}.`
-    );
-    return { outcome: "accepted", recordedInHistory: true };
+    // Заявка — штатное событие, не ошибка: след в логе контейнера, без строки «Здоровья системы» (18.11.2026).
+    console.info(`[comment-phone] номер из комментария ${row.commentId} (${row.channel}) → заявка, диалог ${conversationId}`);
+    const linked = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { clientId: true } });
+    return { outcome: "accepted", recordedInHistory: true, clientId: linked?.clientId ?? null, dmAlreadySent };
   } catch (err) {
     // Номер сотрудника — не потеря, а отказ по правилу: тревоги «заведите карточку руками» нет.
     if (err instanceof StaffPhoneLeadError) return { outcome: "declined", recordedInHistory: false };
@@ -171,7 +199,9 @@ export async function captureCommentPhoneIntoConversation(
  * второй раз не обрабатывается: повтор разбора комментария дубля не даёт.
  */
 export async function createLeadFromCommentPhone(
-  row: CommentPhoneRow & { channel: "TELEGRAM" | "INSTAGRAM" | "FACEBOOK" | "YOUTUBE" }
+  row: CommentPhoneRow & { channel: "TELEGRAM" | "INSTAGRAM" | "FACEBOOK" | "YOUTUBE" },
+  /** Пометка для агента (почему без разговора): «личных сообщений нет», «боту не удалось написать в личные». */
+  note?: string
 ): Promise<CommentPhoneOutcome> {
   const phones = clientPhonesOf(row.text);
   const phone = phones[0];
@@ -195,7 +225,7 @@ export async function createLeadFromCommentPhone(
       extraPhones: phones.filter((p) => p !== phone),
       source,
       kind: decision.kind,
-      requirementsNotes: [decision.label, `Оставил номер в комментарии под нашим постом: «${row.text.slice(0, 500)}»`]
+      requirementsNotes: [decision.label, `Оставил номер в комментарии под нашим постом: «${row.text.slice(0, 500)}»`, note]
         .filter(Boolean)
         .join("\n"),
       socialUsername: row.authorName ?? undefined,

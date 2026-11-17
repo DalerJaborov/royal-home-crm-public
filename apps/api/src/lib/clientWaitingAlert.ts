@@ -12,6 +12,7 @@ import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
 import { reportCronRowError } from "./cronHeartbeat.js";
 import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
+import { journalInstead, loadBotAnswersItself, staffSignalAllowed, type StaffSignalKind } from "./botAnswersItself.js";
 
 /**
  * «КЛИЕНТ НАПИСАЛ — ЕМУ НИКТО НЕ ОТВЕТИЛ» (14.11.2026, аудит скрытых механизмов №4).
@@ -132,7 +133,17 @@ export function humanRepliedSince(messages: unknown, since: Date): boolean {
  * IT writes the per-chat error log below (review 0e463b02 N4). `skipped` — nobody was told. `excluded` — this chat gets no
  * staff signal by design: the customer opted out, the client is in the trash, or the chat is gone (review 0e463b02 N5).
  */
-export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped" | "excluded";
+/** `self` — «Бот отвечает сам» (lib/botAnswersItself.ts): руководство не зовём, клиенту отвечает бот (без «передал сотруднику»). */
+export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped" | "excluded" | "self";
+
+/**
+ * Вид сигнала для двери «Бот отвечает сам». follow_up/handover — клиент уже услышал «это скажет агент / передал»;
+ * escalate/silence — клиент не получил НИЧЕГО; failed — ход сломался (техсбой). `alwaysTell` — аварийный рубильник канала.
+ */
+export function clientWaitingSignalKind(trigger: ClientWaitingTrigger, alwaysTell = false): StaffSignalKind {
+  if (alwaysTell || trigger === "failed") return "technical";
+  return trigger === "follow_up" || trigger === "handover" ? "answered_handover" : "unanswered";
+}
 
 const CHANNEL_NAME: Record<string, string> = {
   INSTAGRAM: "Instagram",
@@ -168,6 +179,8 @@ interface WaitingChat {
   lastAlertAt: Date | null;
   /** Клиент CRM — чтобы звонок после сигнала считался ответом (ревью #205, С-4). */
   clientId: string | null;
+  /** У чата есть карточка (заявка уже есть) — для двери «Бот отвечает сам». */
+  hasCard: boolean;
 }
 
 const activeAgent = (client: { assignedAgent: { id: string; isActive: boolean } | null } | null | undefined) =>
@@ -204,6 +217,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: C
       replyHint: "Ответьте клиенту.",
       lastAlertAt: previous,
       clientId: chat.clientId,
+      hasCard: !!chat.clientId,
       async claim(since) {
         if (previous && previous.getTime() >= since.getTime()) return false;
         const claimed = await prisma.botConversation.updateMany({
@@ -232,6 +246,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: C
     lastAlertAt: null,
     // follow_up по звонку проверяется только при lastAlertAt — у Telegram-таблиц его нет.
     clientId: null,
+    hasCard: !!chat.client,
     async claim(since) {
       const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
         VALUES (${randomUUID()},${TELEGRAM_EPISODE_CLAIM},${key(since)},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
@@ -259,16 +274,35 @@ export async function alertClientWaiting(input: {
   since?: Date;
   /** Разговор о вакансии: режим «только заявки» его сигналы не глушит (ведёт рекрутер). */
   jobTopic?: boolean;
+  /** Аварийный рубильник канала (CUSTOMER_AGENT_CHANNEL_OFF): бот молчит, человек обязан узнать при любой настройке. */
+  alwaysTell?: boolean;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
   const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId, input.trigger, input.jobTopic === true);
   if (!chat) return "excluded";
+  /**
+   * «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026): руководство про чат без карточки и без своего агента не зовём — ни «агент
+   * уточнит», ни «передал сотруднику». Клиент без ответа (escalate/silence) — строка журнала на чат вместо пуша. Агент
+   * своего клиента, карточка без агента, техсбой и аварийный рубильник — как раньше. Вакансию ведёт рекрутер — как раньше.
+   */
+  const signal = { kind: clientWaitingSignalKind(input.trigger, input.alwaysTell === true), ownAgent: !!chat.agentId, hasCard: chat.hasCard };
+  // Настройку читаем, только когда она может что-то решить (техсбой, свой агент и карточка проходят при любом положении).
+  const selfAnswer = !input.jobTopic && staffSignalAllowed({ on: true, ...signal }) === false &&
+    !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal });
+  if (selfAnswer && !journalInstead({ on: true, ...signal })) return "self";
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
   // истории; нет её (или нет времени) — для эскалации начало эпизода «сейчас».
   const since = input.since ?? episode?.since ?? (input.trigger !== "silence" ? now : null);
   if (!since) return "skipped";
+  if (selfAnswer) {
+    // Клиент без ответа: одна строка журнала на эпизод (метка эпизода та же — сторож молчания не повторит её каждый тик).
+    if (!(await chat.claim(since))) return "already";
+    void logSystemError("ai", `Бот отвечает сам: клиенту не ушёл ответ (${input.trigger}), руководство по настройке не звали. ` +
+      `Откройте переписку ${chat.openId}.`, { dedupKey: "self-answer-unanswered", url: `/messages?open=${chat.openId}` });
+    return "self";
+  }
   // «Агент уточнит» — one CRITICAL per chat until a person answers in the chat (re-review #201, Н-нов-3; owner: rarely
   // disturb people): three empty searches in a row are one signal, not three.
   // A completed CALL after the previous signal is an answer too (review #205, С-4): the agent who phoned the customer learns

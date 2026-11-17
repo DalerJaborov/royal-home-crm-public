@@ -3,7 +3,7 @@ import { openAsBlob } from "node:fs";
 import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
+import { admitOutbound, noteOutboundUndelivered, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
@@ -230,7 +230,23 @@ export async function sendMessage(
   let last: unknown;
   let first = true;
   for (const part of splitTelegramText(text)) {
-    last = await call("sendMessage", {
+    // Только доставленные в счёт щита «подряд» (18.11.2026): явный отказ Telegram на первом куске — ничего не ушло.
+    if (first) {
+      try {
+        last = await sendTextPart(part);
+      } catch (err) {
+        if (err instanceof TelegramApiError) void noteOutboundUndelivered(verdict);
+        throw err;
+      }
+      first = false;
+      continue;
+    }
+    last = await sendTextPart(part);
+  }
+  return last;
+
+  async function sendTextPart(part: string): Promise<unknown> {
+    return call("sendMessage", {
       chat_id: chatId,
       text: part,
       ...(outbound?.messageThreadId ? { message_thread_id: outbound.messageThreadId } : {}),
@@ -240,9 +256,7 @@ export async function sendMessage(
       if (status < 200 || status >= 300 || !data || typeof data !== "object" || !("ok" in data) || data.ok !== true || ("success" in data && data.success === false) || "error_code" in data || !("result" in data)) throw new Error("Telegram public reply unconfirmed");
       return (data as TelegramApiResponse<unknown>).result;
     } : undefined, outbound?.beforePost, outbound?.singleAttempt);
-    first = false;
   }
-  return last;
 }
 
 /** Кнопка инлайн-клавиатуры: либо действие внутри бота (callback_data,

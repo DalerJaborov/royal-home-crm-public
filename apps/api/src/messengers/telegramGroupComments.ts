@@ -29,6 +29,11 @@ import { detectSpam } from "../lib/incomingSpam.js";
 import { detectAgencyAd, detectListingAd } from "../lib/listingAd.js";
 import { detectHate } from "../lib/commentHate.js";
 import { createLeadFromCommentPhone } from "./commentPhoneLead.js";
+
+/** Пометка карточке по номеру из обсуждения Telegram (18.11.2026): личного разговора бот не ведёт, комментарий не удаляем. */
+const TG_COMMENT_PHONE_NOTE = "Номер из комментария в обсуждении Telegram: бот не спросил, что нужно — позвоните и узнайте.";
+import { loadBotAnswersItself } from "../lib/botAnswersItself.js";
+import { COMMENT_SELF_REPLY, selfLanguageOf } from "../ai/botSelfAnswerText.js";
 import { resolveTelegramCommentProperty } from "../lib/propertyVoice/commentProperty.js";
 import { commentDecisionProviderSchema, type CommentDecision } from "@royal-home/shared";
 import { commentDecisionCapabilities, validateCommentDecision } from "../ai/commentDecision.js";
@@ -441,7 +446,7 @@ export async function handleTelegramComment(
    * молчание номер не уносило, а здесь уносило.
    */
   if (screen.action === "silent") {
-    await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" });
+    await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
     await finish(row.id, { status: "SKIPPED", note: screen.reason.slice(0, 120) });
     return "skipped";
   }
@@ -453,7 +458,7 @@ export async function handleTelegramComment(
       `Комментатор ${row.authorName ? `@${row.authorName}` : row.authorId} упёрся в суточный потолок ходов ИИ ` +
         `под постами Telegram — бот больше не отвечает ему сегодня.`
     );
-    await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" });
+    await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
     await finish(row.id, { status: "SKIPPED", note: "ai_budget" });
     return "skipped";
   }
@@ -477,7 +482,7 @@ export async function handleTelegramComment(
    * колонки. Отдельной задачей с миграцией — см. docs/TASKS.md.
    */
   await spendAiTurns(budgetRow.id, budget.dayKey, 1, "peer");
-  const decision = await decideOnComment(row.text, "", answered);
+  let decision = await decideOnComment(row.text, "", answered);
   if (!decision) throw new AiUnavailableError("Модель не вернула решение по комментарию Telegram");
 
   if (decision.action === "owner") {
@@ -503,13 +508,17 @@ export async function handleTelegramComment(
 
   // Живой человек (не спам, не конкурент, не собственник): номер из комментария — заявкой,
   // что бы ни решила модель дальше (ответить, промолчать, позвать человека), 17.11.2026.
-  await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" });
+  await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
 
-  if (decision.action === "escalate") {
+  // «Бот отвечает сам» (владелец 18.11.2026, lib/botAnswersItself.ts): человека не зовём, отвечаем в обсуждении сами —
+  // ответ модели, если он есть, иначе шаг к номеру (ai/botSelfAnswerText.ts).
+  const selfAnswer = decision.action === "escalate" && await loadBotAnswersItself();
+  if (decision.action === "escalate" && !selfAnswer) {
     await escalate(row, decision.reason);
     await finish(row.id, { status: "ESCALATED", note: decision.reason?.slice(0, 200) });
     return "escalated";
   }
+  if (selfAnswer && !decision.reply?.trim()) decision = { ...decision, reply: COMMENT_SELF_REPLY[selfLanguageOf(row.text)] };
 
   if (decision.action === "ignore" || !decision.reply?.trim()) {
     await finish(row.id, { status: "SKIPPED", note: "ignore" });

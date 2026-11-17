@@ -918,6 +918,17 @@ function BotPowerSection() {
       </div>
 
       <LeadOnlyModeFields onToggle={toggle} />
+      {/* «Бот отвечает сам» (владелец 18.11.2026): поведение — apps/api/src/lib/botAnswersItself.ts. */}
+      <SwitchRow
+        title="Бот отвечает сам, не зовёт руководство"
+        on={settings?.botAnswersItself ?? false}
+        hint={
+          settings?.botAnswersItself
+            ? "На трудный вопрос бот сам отвечает коротко и просит номер, в переписке и под постами. Директору и администратору уведомлений «нужен человек» нет. Агенту по-прежнему приходят сообщения его клиентов и заявки с номером, руководству — сбои бота."
+            : "Если бот не знает ответа, он пишет клиенту «передал сотруднику» и присылает уведомление руководству."
+        }
+        onToggle={() => toggle("botAnswersItself", !(settings?.botAnswersItself ?? false))}
+      />
 
       <div className="grp-lab">Что бот умеет</div>
       <div className="quiet">

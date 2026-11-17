@@ -1448,15 +1448,17 @@ describe("частное объявление под постом (24.09.2026)",
     expect(saved?.note ?? "").toContain("cant_hide");
   });
 
-  it("вопрос покупателя с номером не принимается за объявление и не скрывается (02.10.2026)", async () => {
+  it("вопрос покупателя с номером не принимается за объявление: не удаляется, а скрывается после личного (владелец 18.11.2026)", async () => {
     decide.mockResolvedValue({ action: "reply", reply: "Салом! Ҳозир аниқ мекунем." });
     const row = await queueComment("buyer-question-phone", {
       authorId: `author-buyer-question-${runId}`,
       text: "Есть 2 комнатные до 50 000$? мой номер 935551122",
     });
-    expect(await handleComment(row)).toBe("replied");
-    expect(graphCalls.find((c) => c.body && "hide" in c.body)).toBeUndefined();
+    // Номер из комментария (messengers/commentPhoneLead.ts): карточка, ОДНО личное с вопросом о цели, скрыть. Не объявление:
+    // ни удаления, ни письма собственнику, ни публичного ответа.
+    expect(await handleComment(row)).toBe("hidden");
     expect(graphCalls.find((c) => c.method === "DELETE")).toBeUndefined();
+    expect(graphHit("/replies")).toHaveLength(0);
   });
 
   it("модель узнала собственника, который спросил нас, — короткий ответ под постом и письмо в личку", async () => {
@@ -1472,18 +1474,19 @@ describe("частное объявление под постом (24.09.2026)",
     expect(dmText).toContain("Как к вам обращаться?");
   });
 
-  it("покупатель, оставивший номер под нашим постом, не прячется — решает модель", async () => {
+  it("покупатель, оставивший номер под нашим постом: личное с вопросом о цели и скрыть (владелец 18.11.2026)", async () => {
     decide.mockResolvedValue({ action: "reply", reply: "Салом! Нархаш 41 000$." });
     const row = await queueComment("buyer-with-phone", {
       authorId: `author-buyer-phone-${runId}`,
       text: "Нархаш чанд? 900123456 занг занед",
     });
-    expect(await handleComment(row)).toBe("replied");
-    // Решение по комментарию — один вызов модели. Номер в комментарии теперь ещё и заявка
-    // (messengers/commentPhoneLead.ts), а её карточку заполняет та же модель в фоне, поэтому
-    // считаем именно вызовы комментатора, а не все.
+    expect(await handleComment(row)).toBe("hidden");
+    // Модель — одно решение (модерация: не реклама и не спам), дальше ведёт дверь номера (messengers/commentPhoneLead.ts),
+    // её публичный ответ не уходит.
     expect(decide.mock.calls.filter(([p]) => p?.endpoint === "instagram-comment")).toHaveLength(1);
-    expect(graphCalls.find((c) => c.body && "hide" in c.body)).toBeUndefined();
+    expect(graphHit("/replies")).toHaveLength(0);
+    expect(graphHit("/me/messages")).toHaveLength(1);
+    expect(graphCalls.find((c) => c.body && "hide" in c.body)).toBeDefined();
   });
 
   /**

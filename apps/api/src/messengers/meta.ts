@@ -6,7 +6,7 @@ import { decryptSecretSafe } from "../crypto.js";
 import { describeError } from "../lib/describeError.js";
 import { GEMINI_RETRY_DELAYS_MS, sleep } from "../ai/geminiTransport.js";
 import { rememberOutgoingMid } from "./outgoingMids.js";
-import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
+import { admitOutbound, noteOutboundUndelivered, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import type { AttachmentSource } from "./attachments.js";
 import type { BotIngressShape } from "@royal-home/shared";
 import { traceObserveSend, traceProviderAccepted, traceKnownSecrets } from "../lib/botTurnTrace.js";
@@ -2030,7 +2030,10 @@ async function sendMessageImpl(
   const c = bound?.credentials ?? loaded;
   const { token: fallbackToken, url, body } = buildSendRequest(c, channel, recipientId, text);
   const token = bound?.token || tokenOverride || fallbackToken;
-  if (!token) throw new Error(`Маркер доступа для ${channel} не задан в Настройках`);
+  if (!token) {
+    void noteOutboundUndelivered(verdict); // не ушло вовсе: в счёт щита «подряд» не идёт (18.11.2026)
+    throw new Error(`Маркер доступа для ${channel} не задан в Настройках`);
+  }
 
   const principal = outbound?.customerReplyPrincipal;
   try {
@@ -2045,8 +2048,18 @@ async function sendMessageImpl(
     // Отказ отправки = клиент не получил ответ. Это обязано быть видно на
     // экране здоровья, а не только в логе контейнера.
     if (!(err instanceof CustomerReplyHeldError)) logMetaSendError(`Сообщение в ${channel} не отправлено`, err);
+    // В счёт щита «бот написал N подряд» идут только доставленные (18.11.2026, Арван 17.11: три отказа Meta 368 дали
+    // паузу и ложную тревогу «4 раза подряд»). Явный отказ провайдера или запрет до отправки — счёт возвращается;
+    // таймаут/обрыв (могло уйти) — нет.
+    if (isDefinitiveSendRejection(err)) void noteOutboundUndelivered(verdict);
     throw err;
   }
+}
+
+/** Сообщение точно НЕ ушло: Meta ответила ошибкой (HTTP-ответ с телом error) или отправку остановили до запроса. */
+export function isDefinitiveSendRejection(err: unknown): boolean {
+  if (err instanceof CustomerReplyHeldError) return true;
+  return /^Graph API HTTP \d{3}:/.test(err instanceof Error ? err.message : "");
 }
 
 /**

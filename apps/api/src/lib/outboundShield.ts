@@ -161,8 +161,14 @@ export function isOutboundBlockedError(err: unknown): err is OutboundBlockedErro
   return err instanceof OutboundBlockedError;
 }
 
+/**
+ * Что щит засчитал этой отправке (18.11.2026): если провайдер её ОТКЛОНИЛ, счёт возвращается
+ * (`noteOutboundUndelivered`). Нет у руки сотрудника и у пропуска без состояния (Telegram-служебные, сбой базы).
+ */
+export interface OutboundReceipt { stateId: string; kind: OutboundKind; hash: string; atMs: number }
+
 export type OutboundVerdict =
-  | { allowed: true; kind: OutboundKind }
+  | { allowed: true; kind: OutboundKind; receipt?: OutboundReceipt }
   | { allowed: false; kind: OutboundKind; reason: ShieldReason; reasonText: string };
 
 export interface OutboundRequest {
@@ -804,8 +810,8 @@ export async function admitOutbound(req: OutboundRequest): Promise<OutboundVerdi
     // Ответ живому человеку дальше не проверяется ничем: остальные правила —
     // про инициативу бота, и глушить ими разговор запрещено.
     if (isReply) {
-      await bumpSent(state?.id ?? null, now, kind, state, req.text, key);
-      return { allowed: true, kind };
+      const counted = await bumpSent(state?.id ?? null, now, kind, state, req.text, key);
+      return { allowed: true, kind, receipt: receiptOf(counted, kind, req.text, now) };
     }
 
     // Пауза щита глушит ТОЛЬКО инициативу (ответы сюда не доходят — они выше).
@@ -834,7 +840,7 @@ export async function admitOutbound(req: OutboundRequest): Promise<OutboundVerdi
       return block(kind, "rate_day");
     }
 
-    await bumpSent(state?.id ?? null, now, kind, state, req.text, key);
+    const counted = await bumpSent(state?.id ?? null, now, kind, state, req.text, key);
     await notePulse(now);
 
     // Порог общего пульса проверяем ПОСЛЕ записи: всплеск должен быть виден на
@@ -843,7 +849,7 @@ export async function admitOutbound(req: OutboundRequest): Promise<OutboundVerdi
     const threshold = await pulseThreshold(now);
     if (inWindow > threshold) await raiseGlobalPause(now, inWindow, threshold);
 
-    return { allowed: true, kind };
+    return { allowed: true, kind, receipt: receiptOf(counted, kind, req.text, now) };
   } catch (err) {
     if (err instanceof CustomerScopeDenied) return block(origin === "staff" ? "staff" : "initiative", "scope_unknown");
     console.error("[щит] проверка не выполнена, сообщение пропущено:", err instanceof Error ? err.message : err);
@@ -952,7 +958,7 @@ async function bumpSent(
   state: ShieldState | null,
   text: string,
   key?: ShieldKey
-): Promise<void> {
+): Promise<string | null> {
   const prints = withPrint(readPrints(state?.recentTexts, now.getTime()), fingerprint(text), now.getTime());
   // Рука сотрудника в счётчики темпа не идёт: её щит не ограничивает, и
   // засчитывать её боту значило бы глушить бота за чужую работу.
@@ -982,11 +988,55 @@ async function bumpSent(
 
   if (id) {
     await prisma.outboundShieldState.update({ where: { id }, data });
-    return;
+    return id;
   }
-  if (!key) return;
+  if (!key) return null;
   const created = await ensureShieldState(key);
   await prisma.outboundShieldState.update({ where: { id: created.id }, data });
+  return created.id;
+}
+
+const receiptOf = (stateId: string | null, kind: OutboundKind, text: string, now: Date): OutboundReceipt | undefined =>
+  stateId ? { stateId, kind, hash: fingerprint(text), atMs: now.getTime() } : undefined;
+
+/**
+ * В СЧЁТ «БОТ НАПИСАЛ N ПОДРЯД» — ТОЛЬКО ДОСТАВЛЕННЫЕ (18.11.2026, шаг 1b).
+ *
+ * Живой случай: Арван, Instagram, чат 69c1276c, 17.11 — Meta трижды отказала (код 368, «временно запрещено»), щит
+ * засчитал все три отказа как «бот написал», на четвёртой попытке поставил паузу и послал директору «бот написал 4 раза
+ * подряд, а человек не отвечал» — ни одно из этих сообщений клиент не видел. Щит считает в момент допуска (второго шага
+ * «подтвердите доставку» нет намеренно), поэтому транспорт, получивший ЯВНЫЙ отказ провайдера, возвращает счёт сюда:
+ * минус одно сообщение подряд (если с тех пор не было входящего), минус темп инициативы, минус отпечаток текста (недошедшее
+ * не «уже сказано»). Сомнительный исход (таймаут, обрыв — сообщение могло уйти) счёт НЕ возвращает: щит на стороне защиты.
+ * Никогда не бросает: возврат счёта не должен стоить отправителю его ошибки.
+ */
+export async function noteOutboundUndelivered(verdict: OutboundVerdict): Promise<void> {
+  if (!verdict.allowed || !verdict.receipt || verdict.kind === "staff") return;
+  const r = verdict.receipt;
+  const at = new Date(r.atMs);
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "OutboundShieldState" WHERE "id"=${r.stateId} FOR UPDATE`;
+      const state = await tx.outboundShieldState.findUnique({ where: { id: r.stateId }, select: STATE_SELECT });
+      if (!state) return;
+      // Входящее после допуска уже обнулило счёт подряд: вычитать из нового счёта нечего.
+      const sinceInboundCounted = !state.lastInboundAt || state.lastInboundAt.getTime() <= r.atMs;
+      const initiative = r.kind === "initiative";
+      const hourCounted = initiative && !!state.hourWindowStart && state.hourWindowStart.getTime() <= r.atMs;
+      const dayCounted = initiative && !!state.dayWindowStart && state.dayWindowStart.getTime() <= r.atMs;
+      const prints = readPrints(state.recentTexts, Date.now());
+      const print = prints.find((p) => p.h === r.hash);
+      if (print) print.n -= 1;
+      await tx.outboundShieldState.update({ where: { id: r.stateId }, data: {
+        ...(sinceInboundCounted ? { botSentSinceInbound: Math.max(0, state.botSentSinceInbound - 1) } : {}),
+        ...(hourCounted ? { hourCount: Math.max(0, state.hourCount - 1) } : {}),
+        ...(dayCounted ? { dayCount: Math.max(0, state.dayCount - 1) } : {}),
+        recentTexts: prints.filter((p) => p.n > 0) as unknown as object,
+      } });
+    });
+  } catch (err) {
+    console.error("[щит] счёт недоставленного не возвращён:", err instanceof Error ? err.message : err, at.toISOString());
+  }
 }
 
 /**

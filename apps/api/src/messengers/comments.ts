@@ -54,8 +54,14 @@ import { SALES_FACTS } from "../ai/salesPlaybook.js";
 import { MANDATORY_BOT_RULES, propertyGeographyBlock } from "../ai/dushanbeGeography.js";
 import { folkGeographyBlock } from "../ai/folkPlaces.js";
 import { AGENCY_COMPANY_INFO } from "../ai/agencyVoice.js";
-import { extractAllPhones, extractVolunteeredPhone } from "../lib/shared/phoneText.js";
-import { captureCommentPhoneIntoConversation, COMMENT_HISTORY_PREFIX, createLeadFromCommentPhone } from "./commentPhoneLead.js";
+import { extractAllPhones } from "../lib/shared/phoneText.js";
+import { loadBotAnswersItself } from "../lib/botAnswersItself.js";
+import { isCustomerAgentCommentOff } from "../lib/customerAgentChannelOff.js";
+import { COMMENT_PHONE_DM, COMMENT_SELF_REPLY, commentPhonePublicReply, selfLanguageOf } from "../ai/botSelfAnswerText.js";
+import { captureCommentPhoneIntoConversation, clientPhonesOf, COMMENT_HISTORY_PREFIX, COMMENT_PHONE_HOLD_MS, commentLeadBlocked,
+  createLeadFromCommentPhone } from "./commentPhoneLead.js";
+import { releaseCommentPhoneHold } from "../lib/commentPhoneHold.js";
+import { accountSendBlocked, isSendBlockError } from "../lib/metaSendBlockSeam.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 import { findPhoneOwners } from "../lib/clientPhones.js";
 import { commentDecisionProviderSchema, type ClientSource, type CommentDecision } from "@royal-home/shared";
@@ -75,6 +81,7 @@ export { ingestInstagramComments, ingestManagedMetaPublicComments, parseIncoming
 import {
   deleteYouTubeComment,
   fetchYouTubeVideoInfo,
+  holdYouTubeCommentForReview,
 } from "./youtubeComments.js";
 
 /**
@@ -1273,7 +1280,9 @@ async function processClaimedComment(row: QueuedComment, stats: CommentRunStats)
       // насовсем — тем же «bot_off», что ставит приём (ingestInstagramComments):
       // иначе выключенный канал оставлял бы свои комментарии вечно висеть в
       // очереди, и они вытесняли бы из выборки живые.
-      if (!(await isCommentsBotEnabled(row.channel as MessengerChannel))) {
+      // Аварийный рубильник по аккаунту (`arvan`, остаток #266): общий isCommentsBotEnabled аккаунта не знает.
+      if (!(await isCommentsBotEnabled(row.channel as MessengerChannel)) ||
+          await isCustomerAgentCommentOff({ channel: row.channel, accountExternalId: row.accountExternalId })) {
         await finish(row.id, { status: "SKIPPED", note: "bot_off" });
         stats.skipped++;
         return;
@@ -1309,7 +1318,9 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
        * по номеру; модерацию (спам/агентство) не трогаем: там номер конкурента.
        */
       if (draft.status !== "moderate" && draft.status !== "moderation_proposal") {
-        await createLeadFromCommentPhone({ ...row, channel: row.channel as "INSTAGRAM" | "FACEBOOK" | "YOUTUBE" });
+        // Личное и скрытие на этой полосе делает только ядро (P12): разговора от этого файла нет — заявка сразу в раздачу.
+        await createLeadFromCommentPhone({ ...row, channel: row.channel as "INSTAGRAM" | "FACEBOOK" | "YOUTUBE" },
+          "Номер из комментария: боту не удалось написать в личные (комментарий ведёт ядро), позвоните и узнайте, что нужно.");
       }
       if (draft.status === "moderate") {
         const outcome = await executeCustomerPublicModeration(draft.principal);
@@ -1364,33 +1375,18 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // guessed запись досье/истории, сохраняя прежнюю привязку и карантин legacy.
   // Флаг не даёт permission на запись или перенос переписки в другой аккаунт.
   const accountGuess = "certain" in account && account.certain === false;
-  /**
-   * НОМЕР В КОММЕНТАРИИ НЕ ТЕРЯЕТСЯ, КАКОЕ БЫ РЕШЕНИЕ НИ ПРИНЯЛИ (17.11.2026, см.
-   * messengers/commentPhoneLead.ts). Раньше карточку заводили только ветки «конкурент»
-   * и «собственник», а у обычного человека номер жил лишь в ленте комментариев:
-   * ответ в ветке, комментарий старше 7 суток, предел личных, YouTube, `ignore`,
-   * отсечка «не по теме» и предел ходов ИИ его теряли. Возвращает true, если комментарий
-   * уже лёг в переписку приёмом (тогда recordPrivateReply его второй раз не пишет).
-   * Не бросает: разбор комментария из-за этого не обрывается.
-   */
-  const capturePhone = async (knownConversationId?: string): Promise<boolean> => {
-    if (!extractVolunteeredPhone(row.text)) return false;
-    try {
-      let conversationId = knownConversationId;
-      if (!conversationId) {
-        const scope = await commentAuthorScope(row, account.id);
-        conversationId = await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, scope.accountId, accountGuess, scope.transport);
-      }
-      return (await captureCommentPhoneIntoConversation(row, conversationId)).recordedInHistory;
-    } catch (err) {
-      void logSystemError("meta", `[alarm] Номер в комментарии ${row.commentId}: досье не заведено, заявка не оформлена: ${describeError(err)}`);
-      return false;
-    }
-  };
   // Имя компании этого аккаунта (ai/brandName.ts): в промте и в готовых текстах ниже.
   const brand = await brandForAccount(account.id);
   /** Страховка на выходе: прежнее имя в готовом ответе заменяется и пишется в журнал. */
   const leakSafe = (t: string): string => guardBrandLeak([t], brand, { where: "комментарий", conversationId: row.id })[0]!;
+  /**
+   * НОМЕР ИЗ КОММЕНТАРИЯ — ОДНА ДВЕРЬ (18.11.2026, messengers/commentPhoneLead.ts): карточка, ОДНО личное с вопросом о
+   * цели, скрытие комментария. Зовётся (а) на каждом раннем выходе без модели (ограничитель круга, отсечка сторожа,
+   * предел ходов ИИ) — номер не теряется; (б) после решения модели, если она не узнала рекламу/спам/собственника
+   * (hide/delete/owner ведут свои ветки: номер конкурента клиентом не становится). Просьба о деньгах, рассылка, мат,
+   * реклама агентства и объявление собственника сюда не попадают (commentLeadBlocked).
+   */
+  const phoneDoor = () => handleCommentPhone(row, account, accountGuess, leakSafe);
   /** Цена под постом — только из карточки (messengers/commentPriceGuard.ts, 16.11.2026). */
   const priceSafe = async (t: string, ctx: MediaContext): Promise<string> => {
     if (!t) return t;
@@ -1447,6 +1443,8 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     },
   });
   if (answered >= MAX_REPLIES_PER_AUTHOR_PER_MEDIA) {
+    const phoneOutcome = await phoneDoor();
+    if (phoneOutcome) return phoneOutcome;
     await finish(row.id, { status: "SKIPPED", note: "loop_guard" });
     return "skipped";
   }
@@ -1754,7 +1752,8 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
    * и объявление собственника разобраны выше своими ветками, сюда доходит обычный человек.
    */
   if (screen.action === "silent") {
-    await capturePhone();
+    const phoneOutcome = await phoneDoor();
+    if (phoneOutcome) return phoneOutcome;
     await finish(row.id, { status: "SKIPPED", note: screen.reason.slice(0, 120) });
     return "skipped";
   }
@@ -1797,8 +1796,8 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
         `ходов ИИ — бот больше не отвечает ему сегодня под публикациями. Похоже на автоматический перебор; ` +
         `если это живой человек, ответьте ему сами.`
     );
-    // Ход модели не нужен, а номер человека — нужен (17.11.2026).
-    await capturePhone();
+    const phoneOutcome = await phoneDoor();
+    if (phoneOutcome) return phoneOutcome;
     await finish(row.id, { status: "SKIPPED", note: "ai_budget" });
     return "skipped";
   }
@@ -1873,6 +1872,11 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     return finishModeration(row, result, "competitor_ad", context.property?.id);
   }
 
+  // Модель не узнала в комментарии рекламу/спам/собственника — номер живого человека: личное с вопросом о цели и скрыть,
+  // публичный ответ модели не нужен (решение владельца 18.11.2026).
+  const phoneOutcome = await phoneDoor();
+  if (phoneOutcome) return phoneOutcome;
+
   /**
    * ДОСЬЕ КОММЕНТАТОРА — НЕЗАВИСИМО ОТ ТОГО, УШЛО ЛИ ЛИЧНОЕ (находка ночной
    * проверки 24.09.2026, Б8, решение владельца — да).
@@ -1900,13 +1904,10 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
    * зависит.
    */
   let authorTransport: CustomerTransportReference | undefined;
-  let commentInHistory = false;
   try {
     const scope = await commentAuthorScope(row, account.id);
     authorTransport = scope.transport;
-    const authorConversationId = await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, scope.accountId, accountGuess, scope.transport);
-    // Номер в комментарии — заявкой СРАЗУ, не завися от того, ушло ли личное (17.11.2026).
-    commentInHistory = await capturePhone(authorConversationId);
+    await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, scope.accountId, accountGuess, scope.transport);
   } catch (err) {
     void logSystemError("meta", `Досье комментатора ${row.commentId} не заведено: ${describeError(err)}`);
   }
@@ -1976,7 +1977,14 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // смайликом — норма и прямо предписан промтом (в личке эмодзи запрещены). Поэтому
   // ответ, состоящий только из реакции, оставляем как есть; чистим лишь текст.
   const rawReply = stripShowingInvite(decision.reply?.trim() ?? "");
-  const replyText = await priceSafe(leakSafe(cleanPublicCommentReply(rawReply, row.text)), context);
+  /**
+   * «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026, lib/botAnswersItself.ts): модель решила позвать человека — при включённой
+   * настройке руководство не зовём, а отвечаем под постом сами: ответ модели, если он есть, иначе шаг к номеру
+   * (ai/botSelfAnswerText.ts). Номер, оставленный в ответ, разберёт дверь номера из комментария (личное + скрытие).
+   */
+  const selfAnswer = decision.action === "escalate" && await loadBotAnswersItself();
+  const modelReply = await priceSafe(leakSafe(cleanPublicCommentReply(rawReply, row.text)), context);
+  const replyText = modelReply || (selfAnswer ? leakSafe(COMMENT_SELF_REPLY[selfLanguageOf(row.text)]) : modelReply);
   if (replyText) await humanReplyDelay();
   const replyCommentId = replyText ? await postCommentReply(row, replyText, account.token) : null;
 
@@ -1995,9 +2003,9 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // «в инстаграме у меня полная переписка есть, как бот отправляет ссылку, а тут
   // в CRM нет». Тот же шаг давно делает воронка лид-магнита (recordInConversation
   // в lib/leadMagnet.ts) — здесь его просто не было.
-  if (dm.sent && dmText) await recordPrivateReply(row, dmText, dm.mid ?? null, account.id, accountGuess, commentInHistory);
+  if (dm.sent && dmText) await recordPrivateReply(row, dmText, dm.mid ?? null, account.id, accountGuess);
 
-  if (decision.action === "escalate") {
+  if (decision.action === "escalate" && !selfAnswer) {
     await escalate(row, decision.reason);
     await finish(row.id, {
       status: "ESCALATED",
@@ -2023,7 +2031,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     replyCommentId,
     repliedAt: new Date(),
     propertyId: context.property?.id,
-    note: dm.note ?? null,
+    note: selfAnswer ? `self_answer: ${(decision.reason ?? "escalate").slice(0, 160)}` : dm.note ?? null,
     ...(dm.sent ? { dmSentAt: new Date(), dmText: dmText ?? null } : {}),
   });
   return "replied";
@@ -2176,8 +2184,9 @@ async function recordOwnerConversation(
 async function maybeSendPrivateReply(
   row: QueuedComment,
   text: string | undefined,
-  tokenOverride?: string
-): Promise<{ sent: boolean; note?: string; mid?: string | null }> {
+  tokenOverride?: string,
+  accountId: string | null = null
+): Promise<{ sent: boolean; note?: string; mid?: string | null; recipientId?: string | null }> {
   if (!text) return { sent: false };
   // YouTube не имеет личных сообщений вовсе — buildCommentSystem/YOUTUBE_NO_DM_LINE
   // уже просит модель не звать в директ, но если она всё равно вернула dm (не
@@ -2193,12 +2202,18 @@ async function maybeSendPrivateReply(
     select: { id: true },
   });
   if (recent) return { sent: false, note: "dm_limit" };
+  // Meta запретила аккаунту личные (368 и родня; метка — дверь отправки, #273): не пробуем — отказ продлил бы блок.
+  if (await accountSendBlocked({ accountId, channel: row.channel }, "dm")) return { sent: false, note: "dm_blocked" };
 
   try {
-    // Канал решает, куда уйдёт личное: Instagram Direct или Messenger страницы.
-    const mid = await sendPrivateReply(row.commentId, text, [], tokenOverride, row.channel as "INSTAGRAM" | "FACEBOOK");
-    return { sent: true, mid };
+    // Канал решает, куда уйдёт личное: Instagram Direct или Messenger страницы. recipient_id ответа Meta — адрес, с
+    // которого человек ответит в личных (у страницы Facebook он может отличаться от автора комментария).
+    let recipientId: string | null = null;
+    const mid = await sendPrivateReply(row.commentId, text, [], tokenOverride, row.channel as "INSTAGRAM" | "FACEBOOK",
+      undefined, (seen) => { recipientId = seen.recipientId; });
+    return { sent: true, mid, recipientId };
   } catch (err) {
+    if (isSendBlockError(err)) return { sent: false, note: "dm_blocked" };
     // Личное — приятное дополнение к публичному ответу. Его отказ (человек закрыл
     // личку, окно истекло) не должен отменять уже опубликованный ответ.
     void logSystemError("meta", `Личное сообщение по комментарию ${row.commentId} не ушло: ${describeError(err)}`);
@@ -2234,6 +2249,141 @@ export function linkAsLastLine(text: string, property: MediaContext["property"] 
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   return withoutLink ? `${withoutLink}\n\n${link}` : link;
+}
+
+const PHONE_DM_TEXTS = [COMMENT_PHONE_DM.ru, COMMENT_PHONE_DM.tg];
+/** Пометка карточке, когда личного не будет: разговора нет, звонит агент. */
+const NO_DM_NOTE: Record<string, string> = {
+  dm_thread: "комментарий внутри ветки",
+  dm_window: "комментарию больше 7 суток",
+  dm_limit: "личное этому человеку сегодня уже уходило",
+  dm_failed: "Meta не приняла личное",
+  dm_blocked: "Meta временно запретила аккаунту личные",
+  dm_unsupported: "в YouTube личных сообщений нет",
+};
+
+/**
+ * Дверь номера из комментария (шапка messengers/commentPhoneLead.ts). null — не наш случай (номера нет, ветка
+ * модерации, отказ приёма: аренда, вакансия, номер сотрудника), разбор идёт дальше прежним путём.
+ */
+async function handleCommentPhone(
+  row: QueuedComment,
+  account: { id: string | null; token?: string },
+  accountGuess: boolean,
+  leakSafe: (t: string) => string
+): Promise<keyof CommentRunStats | null> {
+  if (!clientPhonesOf(row.text).length || commentLeadBlocked(row.text)) return null;
+  const channel = row.channel as MessengerChannel;
+  const language = selfLanguageOf(row.text);
+  const commentBlocked = channel !== "YOUTUBE" && await accountSendBlocked({ accountId: account.id, channel }, "comment");
+
+  // YouTube: личных нет. Ответ под комментарием, заявка с пометкой сразу в раздачу, комментарий «на проверку».
+  if (channel === "YOUTUBE") {
+    const outcome = await createLeadFromCommentPhone({ ...row, channel: "YOUTUBE" },
+      "Номер из комментария YouTube: личных сообщений там нет, бот не спросил, что нужно — позвоните и узнайте.");
+    if (outcome !== "accepted" && outcome !== "already") return null;
+    return finishCommentPhone(row, { dm: { sent: false, note: "dm_unsupported" }, language, leakSafe, account, commentBlocked: false,
+      hide: () => holdYouTubeCommentForReview(row.commentId) });
+  }
+  if (channel !== "INSTAGRAM" && channel !== "FACEBOOK") return null;
+
+  let conversationId: string;
+  let scope: Awaited<ReturnType<typeof commentAuthorScope>>;
+  try {
+    scope = await commentAuthorScope(row, account.id);
+    conversationId = await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, scope.accountId, accountGuess, scope.transport);
+  } catch (err) {
+    // Досье не заведено: номер — прямым приёмом без диалога, сразу в раздачу.
+    void logSystemError("meta", `Номер в комментарии ${row.commentId}: досье не заведено (${describeError(err)}), заявка без разговора.`, { silent: true });
+    const outcome = await createLeadFromCommentPhone({ ...row, channel },
+      "Номер из комментария: боту не удалось написать в личные, позвоните и узнайте, что нужно.");
+    if (outcome !== "accepted" && outcome !== "already") return null;
+    return finishCommentPhone(row, { dm: { sent: false, note: "dm_failed" }, language, leakSafe, account, commentBlocked });
+  }
+
+  // Можно ли личное — решаем ДО приёма: от этого зависит, ждёт ли карточка ответа или сразу идёт в раздачу.
+  const dmPossible = !row.parentId && Date.now() - row.createdAt.getTime() <= PRIVATE_REPLY_WINDOW_MS;
+  const capture = await captureCommentPhoneIntoConversation(row, conversationId, {
+    ...(dmPossible ? { holdUntil: new Date(Date.now() + COMMENT_PHONE_HOLD_MS) } : {}), dmTexts: PHONE_DM_TEXTS });
+  if (capture.outcome !== "accepted" && capture.outcome !== "already") return null;
+
+  // Второго личного по номеру из комментария этому человеку не будет (повтор разбора, второй комментарий с номером).
+  const dmText = leakSafe(COMMENT_PHONE_DM[language]);
+  const dm = capture.dmAlreadySent ? { sent: false, note: "dm_already" }
+    : await maybeSendPrivateReply(row, dmText, account.token, account.id);
+  if (dm.sent) {
+    await recordPrivateReply(row, dmText, dm.mid ?? null, account.id, accountGuess, capture.recordedInHistory);
+    await prisma.instagramComment.update({ where: { id: row.id }, data: { dmSentAt: new Date(), dmText } });
+    // Ответ человека придёт с адреса recipient_id (ответ Meta): он — та же карточка (иначе ответ ушёл бы в новую).
+    const recipientId = "recipientId" in dm ? dm.recipientId : null;
+    if (recipientId && recipientId !== row.authorId && capture.clientId) {
+      await bindCommentPhoneRecipient(row, recipientId, capture.clientId, account.id, accountGuess);
+    }
+  } else if (capture.clientId) {
+    // Разговора не будет — карточка сразу в раздачу, агенту пометка.
+    const why = NO_DM_NOTE[dm.note ?? ""] ?? (dm.note === "dm_already" ? "" : "личное не ушло");
+    if (why) await releaseCommentPhoneHold(capture.clientId, `Номер из комментария: боту не удалось написать в личные (${why}), позвоните и узнайте, что нужно.`,
+      null, true);
+  }
+  return finishCommentPhone(row, { dm: { ...dm, text: dm.sent ? dmText : undefined }, language, leakSafe, account, commentBlocked,
+    clientId: capture.clientId ?? null });
+}
+
+/** Личное ушло — публичного ответа нет; не ушло — короткий публичный ответ (по очереди). Затем скрыть. */
+async function finishCommentPhone(
+  row: QueuedComment,
+  input: { dm: { sent: boolean; note?: string; text?: string }; language: "ru" | "tg"; leakSafe: (t: string) => string;
+    account: { id: string | null; token?: string }; commentBlocked: boolean; clientId?: string | null; hide?: () => Promise<void> }
+): Promise<keyof CommentRunStats> {
+  let replyText: string | null = null, replyCommentId: string | null = null;
+  // Аккаунту запрещены и комментарии — только заявка (уже в раздаче), ни ответа, ни скрытия.
+  if (!input.dm.sent && !input.commentBlocked && input.dm.note !== "dm_already") {
+    const turn = await prisma.instagramComment.count({ where: { channel: row.channel, note: { startsWith: "comment_phone" }, replyText: { not: null } } })
+      .catch(() => 0);
+    replyText = input.leakSafe(commentPhonePublicReply(input.language, turn));
+    await humanReplyDelay();
+    replyCommentId = await postCommentReply(row, replyText, input.account.token).catch((err) => {
+      void logSystemError("meta", `Номер из комментария ${row.commentId}: публичный ответ не ушёл: ${describeError(err)}`, { silent: true });
+      return null;
+    });
+    if (!replyCommentId) replyText = null;
+  }
+  let hidden = false, hideNote = "";
+  if (!input.commentBlocked) {
+    const result = await moderateOrNote(row, "hide", input.hide ?? (() => hideComment(row.channel, row.commentId, input.account.token)), true);
+    hidden = result.outcome === "accepted";
+    if (!hidden) {
+      hideNote = moderationFailureNote(result);
+      if (input.clientId) {
+        await logTimeline({ clientId: input.clientId, type: "SYSTEM", actor: { kind: "system", source: "comment-phone" },
+          notes: `Комментарий с номером не удалось скрыть (${hideNote}) — он виден под постом.` }).catch(() => {});
+      }
+    }
+  } else hideNote = "аккаунту временно запрещены комментарии";
+  const note = `comment_phone: ${input.dm.sent ? "личное ушло" : `личного нет (${input.dm.note ?? "—"})`}` +
+    `${replyText ? "; публичный ответ" : ""}; ${hidden ? "скрыт" : `не скрыт: ${hideNote}`}`;
+  await finish(row.id, {
+    status: hidden ? "HIDDEN" : replyText ? "REPLIED" : "SKIPPED",
+    note: note.slice(0, 200),
+    ...(hidden ? { hiddenAt: new Date() } : {}),
+    ...(replyText ? { replyText, replyCommentId, repliedAt: new Date() } : {}),
+    ...(input.dm.sent ? { dmSentAt: new Date(), dmText: input.dm.text ?? null } : {}),
+  });
+  return hidden ? "hidden" : replyText ? "replied" : "skipped";
+}
+
+/** Адрес ответа в личных (recipient_id) ≠ автор комментария: его переписка — к той же карточке. Не бросает. */
+async function bindCommentPhoneRecipient(row: QueuedComment, recipientId: string, clientId: string, accountId: string | null,
+  accountGuess: boolean): Promise<void> {
+  try {
+    const scope = await commentAuthorScope({ ...row, authorId: recipientId }, accountId);
+    const id = await ensureConversationId(row.channel as MessengerChannel, recipientId, row.authorName ?? undefined, scope.accountId,
+      accountGuess, scope.transport);
+    await prisma.botConversation.updateMany({ where: { id, clientId: null }, data: { clientId } });
+  } catch (err) {
+    void logSystemError("meta", `Номер из комментария ${row.commentId}: переписка адресата личного не привязана к карточке: ${describeError(err)}`,
+      { silent: true });
+  }
 }
 
 /**
@@ -2445,7 +2595,9 @@ async function commentStillExists(row: QueuedComment): Promise<boolean> {
 async function moderateOrNote(
   row: QueuedComment,
   action: "hide" | "delete",
-  run: () => Promise<void>
+  run: () => Promise<void>,
+  /** Без тревоги директору — только строка журнала (номер из комментария: заявка уже есть, 18.11.2026). */
+  quiet = false
 ): Promise<ModerationOutcome> {
   const provider = row.channel as ModerationProvider;
   const effect = provider === "YOUTUBE" ? "reject" : action;
@@ -2458,7 +2610,7 @@ async function moderateOrNote(
       provider === "YOUTUBE" ? "youtube" : "meta",
       `Площадка не подтвердила модерацию комментария ${row.channel} ${row.commentId}: ${result.outcome}/${result.reason}. ` +
         `Независимая обработка обращения продолжается; проверьте комментарий на площадке.`,
-      { dedupKey: `comment-moderation:${row.channel}:${action}` }
+      { dedupKey: `comment-moderation:${row.channel}:${action}`, ...(quiet ? { silent: true } : {}) }
     );
     return result;
   }

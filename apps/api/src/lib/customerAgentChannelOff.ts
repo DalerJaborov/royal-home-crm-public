@@ -125,8 +125,38 @@ export async function isCustomerAgentTurnOff(input: { channel: string | null | u
       brandName = (await prisma.botConversation.findUnique({ where: { id: input.conversationId },
         select: { account: { select: { brandName: true } } } }))?.account?.brandName ?? null;
     }
-  } catch { brandName = null; }
+  } catch (error) {
+    // Остаток #266 (18.11.2026): бренд не прочитан, а `arvan` в списке — считаем выключенным (аварийная кнопка нажата
+    // именно затем, чтобы бот молчал) и пишем в журнал. Прежде сбой молча включал бота на аккаунте Арвана.
+    return brandReadFailedOff(input.channel, error);
+  }
   return isCustomerAgentChannelOff(input.channel, env, brandName);
+}
+
+function brandReadFailedOff(channel: string | null | undefined, error: unknown): true {
+  void logSystemError("ai", `CUSTOMER_AGENT_CHANNEL_OFF: имя компании аккаунта (${channel ?? "канал неизвестен"}) не прочитано — ` +
+    `бот на этом ходе считается выключенным: ${error instanceof Error ? error.message : String(error)}`,
+    { dedupKey: `customer-agent-channel-off-brand-read:${channel ?? "unknown"}` }).catch(() => {});
+  return true;
+}
+
+/**
+ * Комментарий под постом (остаток #266, 18.11.2026): вход знает только внешний id нашего аккаунта (`accountExternalId`),
+ * поэтому `arvan` раньше под постами Арвана не срабатывал. Пусто — false без чтений; аккаунт читается только при `arvan` в
+ * списке и Meta-канале; сбой чтения — выключено + журнал.
+ */
+export async function isCustomerAgentCommentOff(input: { channel: string | null | undefined; accountExternalId?: string | null },
+  env: Env = process.env): Promise<boolean> {
+  if (!env.CUSTOMER_AGENT_CHANNEL_OFF?.trim()) return false;
+  if (isCustomerAgentChannelOff(input.channel, env)) return true;
+  if (!arvanMayApply(input.channel, env) || !input.accountExternalId) return false;
+  try {
+    const account = await prisma.messengerAccount.findFirst({ where: { channel: String(input.channel), externalId: input.accountExternalId },
+      select: { brandName: true } });
+    return isCustomerAgentChannelOff(input.channel, env, account?.brandName ?? null);
+  } catch (error) {
+    return brandReadFailedOff(input.channel, error);
+  }
 }
 
 /** Выключен ли рубильником хоть один канал (дешёвая проверка до похода в базу). */
@@ -207,11 +237,12 @@ export async function handOverChannelOffTurn(input: { channel: string; conversat
   try {
     if (conversationId && channelOffHandoverAlreadySent(await storedMessages(input.channel, conversationId), input.handoverLines)) return "silent";
   } catch { /* the customer still gets the line below */ }
-  let outcome: "agent" | "director" | "already" | "skipped" | "excluded" = "skipped";
+  let outcome: "agent" | "director" | "already" | "skipped" | "excluded" | "self" = "skipped";
   if (conversationId) {
     try {
       const { alertClientWaiting } = await import("./clientWaitingAlert.js");
-      outcome = await alertClientWaiting({ conversationId, trigger: "handover", why: STAFF_WHY,
+      // Аварийный рубильник — не «бот отвечает сам»: бот молчит, человек обязан узнать при любой настройке.
+      outcome = await alertClientWaiting({ conversationId, trigger: "handover", why: STAFF_WHY, alwaysTell: true,
         source: input.channel === "TELEGRAM" ? "telegram" : input.channel === "TELEGRAM_DIRECT" ? "telegramDirect" : "bot" });
     } catch { outcome = "skipped"; }
   }

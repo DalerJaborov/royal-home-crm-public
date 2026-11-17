@@ -47,6 +47,9 @@ import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } f
 import { logSystemError } from "./systemError.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
+import { loadBotAnswersItself } from "./botAnswersItself.js";
+import { accountSendBlocked, META_SEND_BLOCKED_REASON } from "./metaSendBlockSeam.js";
+import { selfAnswerLine, selfAnswerLines } from "../ai/botSelfAnswerText.js";
 import { enqueueRecruitmentCandidateAlertTx } from "./customerRecruitmentAlert.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
@@ -107,6 +110,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   if (prepared.status === "already_planned") return { status: "unchanged", reason: "already_planned" };
   if (prepared.status !== "prepared") return { status: "held", reason: prepared.reason };
   const lane = prepared.lane;
+  // Meta запретила этому аккаунту личные (368 и родня; метку ставит дверь отправки, #273): модель не зовём, клиенту ничего
+  // не уходит — отказ продлил бы блок. Входящее уже в чате CRM; одну тревогу шлёт сама дверь отправки, не каждый ход.
+  if (await accountSendBlocked({ accountId: lane.principal.scope.accountId ?? null, channel: lane.principal.scope.channel }, "dm")) {
+    return { status: "held", reason: META_SEND_BLOCKED_REASON };
+  }
   return withBotTurnTrace({ channel: lane.principal.scope.channel, account: lane.principal.scope.endpointScopeId,
     peer: lane.principal.scope.peer, conversation: lane.principal.scope.conversationId,
     event: lane.principal.admission.eventKey, kind: prepared.attachmentInput ? "media" : "text",
@@ -337,8 +345,13 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
           if (plan) return await planLeadOnly(plan);
         }
         const assistantTexts = remembered.context.turns.filter(turn => turn.role === "assistant").map(turn => turn.text);
-        const blocked = await customerReplyRepeatBlocked(mutations.principal, customerSafetyCandidateLines());
-        const line = customerSafetyLine(language, lane.context.knownPhoneSource, customerSafetyMemory(assistantTexts, l => blocked.has(l)));
+        const blocked = await customerReplyRepeatBlocked(mutations.principal, [...customerSafetyCandidateLines(), ...selfAnswerLines()]);
+        const memory = customerSafetyMemory(assistantTexts, l => blocked.has(l));
+        // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): без карточки человека не зовут — фраза «это скажет агент»
+        // стала бы обещанием, которое некому выполнить. Выход из тупика — один шаг к номеру (номер есть — телефон офиса).
+        const selfAnswer = !jobTopicTurn && await loadBotAnswersItself() && !(await customerConversationHasCard(lane.ticket.conversationId));
+        const line = selfAnswer ? selfAnswerLine(language, memory.phoneAsked, lane.context.knownPhoneSource !== "none")
+          : customerSafetyLine(language, lane.context.knownPhoneSource, memory);
         if (blocked.has(line) || !await current(linkWait)) return null;
         const partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
           parts: [{ payload: { kind: "text" as const, text: line } }] }));
@@ -621,7 +634,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
           // «Передать сотруднику»: the person still gets the customer's own words (review #205, С-3), as before this change.
           if (result.status === "ready" && result.decision.kind === "escalate") {
             await notifyEscalatedCustomerTurn({ conversationId: lane.ticket.conversationId, channel: lane.principal.scope.channel,
-              text: fullInput(), jobTopic: remembered.context.publicState.topic === "job" });
+              text: fullInput(), jobTopic: remembered.context.publicState.topic === "job", answered: true });
           }
           return planned;
         }
@@ -830,12 +843,23 @@ export async function customerReplyRepeatBlocked(principal: CustomerAgentMutatio
   }
 }
 
+/** The chat already has a client card (a lead exists). A read failure counts as «has a card»: the old path (signal) is safer. */
+async function customerConversationHasCard(conversationId: string | null | undefined): Promise<boolean> {
+  if (!conversationId) return false;
+  try {
+    return !!(await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { clientId: true } }))?.clientId;
+  } catch {
+    return true;
+  }
+}
+
 /** The follow-up signal of a reply that promised an agent (15.11.2026). Exported for the class test; never throws. */
 export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number, jobTopic = false): Promise<"agent" | "director" | "already" | "skipped"> {
   try {
     const { alertClientWaiting } = await import("./clientWaitingAlert.js");
     const outcome = await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs), jobTopic });
-    return outcome === "excluded" ? "skipped" : outcome; // Meta keeps its four outcomes (review 0e463b02 N5 is the channel door's)
+    // Meta keeps its four outcomes (review 0e463b02 N5 is the channel door's); «бот отвечает сам» (`self`) — никого не звали.
+    return outcome === "excluded" || outcome === "self" ? "skipped" : outcome;
   } catch (error) {
     console.error("[client-waiting]", error instanceof Error ? error.message : "UnknownError");
     return "skipped";
