@@ -12,7 +12,8 @@ import { withoutAgreementOpenings, informalAddress, foreignLanguageWord } from "
  * данные из базы, не формулировка: перед проверкой языка вырезаются.
  */
 const LANGUAGES = ["ru", "tg"] as const;
-const DATA = /\d[\d  ]*(?:\s(?:USD|сомони|сомонӣ))?/gu;
+// Data from the database, not wording: «№112» (NFKC folds «№» to the Latin «No»), «520 000 сомони», «40 000 USD».
+const DATA = /№\d+|\d(?:[\d\u00a0 ]*\d)?(?:\s(?:USD|сомони|сомонӣ))?/gu;
 
 function check(text: string, language: "ru" | "tg"): string[] {
   const problems: string[] = [];
@@ -35,7 +36,10 @@ const markets = [null, { districtName: "Сино", minPrice: "350000", currency:
 
 function* composedReplies(language: "ru" | "tg"): Generator<string> {
   for (const scenario of ["hot", "property", "seller", "buyer", "escalate"] as const)
-    for (const phone of phoneStates) for (const when of whens) for (const property of properties) for (const market of markets)
+    // Facts vary only where the scenario reads them (property: object and hot; market: buyer): the same texts, far fewer runs.
+    for (const phone of phoneStates) for (const when of whens)
+      for (const property of scenario === "property" || scenario === "hot" ? properties : [null])
+      for (const market of scenario === "buyer" ? markets : [null])
       for (const agentInformed of [undefined, true, false]) {
         const input: LeadOnlyReplyInput = { scenario, language, phone, when, property, market, sellerCommissionPercent: 2,
           ...(agentInformed === undefined ? {} : { agentInformed }) };
@@ -63,16 +67,23 @@ describe("формулировки режима «только заявки»: �
     expect(catalog.flatMap(text => check(text, language))).toEqual([]);
   });
   it.each(LANGUAGES)("все сценарии × состояния номера × объект × рынок (%s)", language => {
-    const problems = new Set<string>();
-    let count = 0;
-    for (const text of composedReplies(language)) { count++; for (const problem of check(text, language)) problems.add(problem); }
-    expect(count).toBeGreaterThan(1000);
-    expect([...problems]).toEqual([]);
+    const texts = new Set(composedReplies(language));
+    expect(texts.size).toBeGreaterThan(50);
+    expect([...texts].flatMap(text => check(text, language))).toEqual([]);
   });
   it.each(LANGUAGES)("варианты без повтора: передача, время звонка, «не звоните», без агента, «номер получил» (%s)", language => {
     const problems = new Set<string>();
     for (const text of sequentialVariants(language)) for (const problem of check(text, language)) problems.add(problem);
     expect([...problems]).toEqual([]);
+  });
+});
+
+describe("сводка рынка покупателю без «да» в начале (ревью 17.11.2026)", () => {
+  it.each(LANGUAGES)("«Ипотека есть? Ищу двушку в Сино» — ответ не начинается с «Да» / «Бале» (%s)", language => {
+    for (const market of markets.filter(Boolean)) for (const phone of phoneStates) {
+      const text = leadOnlyReply({ scenario: "buyer", language, phone, when: { kind: "soon" }, market, sellerCommissionPercent: 2 });
+      expect(text).not.toMatch(/^(?:Да|Бале)[,.!\s]/u);
+    }
   });
 });
 

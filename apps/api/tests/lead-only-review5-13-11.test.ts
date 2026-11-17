@@ -41,7 +41,7 @@ describe("№3: горячие слова и вопрос к агенту без
     expect(text).toBe(`Понял вас. Показ назначает агент. Если захотите, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);
   });
   it("номер есть (WhatsApp) — прежнее «передаю агенту», режим офиса не включается", () => {
-    expect(leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "whatsapp" } })).toMatch(/^Передаю агенту ваш запрос\./u);
+    expect(leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "whatsapp" } })).toMatch(/^Ваш запрос передаю агенту\./u);
   });
 });
 

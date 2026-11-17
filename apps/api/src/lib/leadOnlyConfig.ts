@@ -35,3 +35,15 @@ export async function leadOnlyQuietBeforeLead(channel: string | null | undefined
   if (!leadOnlyAppliesTo(channel)) return false;
   return (await loadLeadOnlyConfig()).enabled;
 }
+
+/**
+ * The same rule for one conversation: quiet only BEFORE the lead (owner 13.11.2026). Once the conversation has a card, the core
+ * may hand over, request a callback, ask the owner or book a showing again (review 17.11.2026). A conversation that cannot be
+ * read counts as «no card»: before a lead silence is the safe side of this rule.
+ */
+export async function leadOnlyQuietForConversation(channel: string | null | undefined, conversationId: string | null | undefined): Promise<boolean> {
+  if (!(await leadOnlyQuietBeforeLead(channel))) return false;
+  if (!conversationId) return true;
+  const row = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { clientId: true } }).catch(() => null);
+  return !row?.clientId;
+}

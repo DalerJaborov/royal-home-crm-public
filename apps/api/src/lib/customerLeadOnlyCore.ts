@@ -115,6 +115,12 @@ export interface CustomerLeadOnlyTurnPlan {
   remember: LeadOnlyPending | null;
   /** Тема или объект сменились, а номер бот больше не просит: память о прежней просьбе стереть (третье ревью 13.11, №2). */
   forget: boolean;
+  /**
+   * Who learns now, AFTER the lead only (review 17.11.2026). `attention`: the card's live agent gets the red «просит агента» mark
+   * and the urgent push, the same door as the legacy path (lib/agentAttention.ts). `follow_up`: the card has no live agent and the
+   * customer heard «Записали, с вами свяжутся…» — the one «client is waiting» door tells management. Before a card: never.
+   */
+  signal?: { kind: "attention"; clientId: string; reason: "wants_human" | "call_promised" } | { kind: "follow_up" };
 }
 
 const SENT_WINDOW_MS = 7 * 24 * 60 * 60_000;
@@ -197,6 +203,7 @@ async function planCustomerLeadOnlyTurnText(input: CustomerLeadOnlyTurnInput, no
   // Клиент с карточкой назвал, когда ему звонить: короткое «передам агенту» и пометка агенту, а не ответ модели невпопад.
   if (linked && scenario !== "hot" && !input.forced && !volunteered && leadOnlyCallbackTime(own)) {
     return { text: noAgent ? await noAgentLine(sent) : leadOnlyCallbackNotedLine(input.language, sent), scenario: "callback", remember: null, forget: false,
+      ...(noAgent ? { signal: { kind: "follow_up" as const } } : {}),
       intake: sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId, scenario: "callback", propertyId: null },
         { phone: null, whatsappPhone: null, clientText: own.slice(0, 1500), promised: "call", lead: false, callbackWhen }) };
   }
@@ -207,6 +214,7 @@ async function planCustomerLeadOnlyTurnText(input: CustomerLeadOnlyTurnInput, no
   // Клиент с карточкой просит не звонить: «агент ответит вам здесь», агенту — пометка «писать в чат» (четвёртое ревью, №1).
   if (linked && refusedNow && scenario !== "hot" && !input.forced && !volunteered) {
     return { text: noAgent ? await noAgentLine(sent) : leadOnlyNoCallNotedLine(input.language, sent), scenario: "no_call", remember: null, forget: false,
+      ...(noAgent ? { signal: { kind: "follow_up" as const } } : {}),
       intake: sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId, scenario: "no_call", propertyId: null },
         { phone: null, whatsappPhone: null, clientText: own.slice(0, 1500), promised: "chat", lead: false, callbackWhen: null, noCall: true }) };
   }
@@ -286,20 +294,27 @@ async function planCustomerLeadOnlyTurnText(input: CustomerLeadOnlyTurnInput, no
   // Бот просит номер (или клиент отказал) — запомнить тему и объект: следующий ход с одним номером возьмёт их отсюда.
   // Номер уже есть (WhatsApp, клиент просил не звонить) — помнить нечего.
   const remember = phoneState.kind === "ask" && !phone && scenario !== "escalate" ? leadOnlyPendingOf(scenario, intakePropertyId) : null;
-  return { text, scenario, intake, remember, forget: !remember && topicNow && !fromPending && !!pending };
+  const signal: CustomerLeadOnlyTurnPlan["signal"] = noAgent ? { kind: "follow_up" }
+    : linked && scenario === "escalate" ? { kind: "attention", clientId: conversation!.clientId!, reason: customerAsksForStaff(own) ? "wants_human" : "call_promised" }
+    : undefined;
+  return { text, scenario, intake, remember, forget: !remember && topicNow && !fromPending && !!pending, ...(signal ? { signal } : {}) };
 }
 
 /** Ставится в той же транзакции, что и ответ хода: ответ без заявки или заявка без ответа не остаются. */
 export async function enqueueCustomerLeadOnlyIntakeTx(tx: TxClient, intake: CustomerLeadOnlyIntake): Promise<void> {
-  const dedupeKey = customerLeadOnlyIntakeDedupeKey(intake);
-  // «Bot failed» leads: at most one per conversation (owner 17.11.2026). An earlier one, pending or done, is enough.
-  if (intake.modelFailed && await tx.backgroundJob.findUnique({ where: { dedupeKey }, select: { id: true } })) return;
+  // «Bot failed» leads: one per conversation (owner 17.11.2026). The planner already asked «no card on the conversation»;
+  // here: no such job still waiting or running. A finished one does not block: its card exists (then no new lead is planned)
+  // or it failed / the card was deleted, and the next failure must make the lead again, not promise a call into nothing.
+  if (intake.modelFailed && await customerLeadOnlyModelFailedPendingTx(tx, intake.conversationId)) return;
   await tx.backgroundJob.create({ data: { type: CUSTOMER_LEAD_ONLY_INTAKE_JOB, payload: intake, maxAttempts: CUSTOMER_LEAD_ONLY_INTAKE_ATTEMPTS,
-    dedupeKey } });
+    dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${intake.eventKey}` } });
 }
-/** One job per turn; a «bot failed» lead — one per conversation. */
-export function customerLeadOnlyIntakeDedupeKey(intake: Pick<CustomerLeadOnlyIntake, "eventKey" | "conversationId" | "modelFailed">): string {
-  return intake.modelFailed ? `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:model-failed:${intake.conversationId}` : `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${intake.eventKey}`;
+/** A «bot failed» lead of this conversation is still queued or running. */
+export async function customerLeadOnlyModelFailedPendingTx(tx: TxClient, conversationId: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ n: bigint }>>`SELECT count(*) AS n FROM "BackgroundJob"
+    WHERE "type"=${CUSTOMER_LEAD_ONLY_INTAKE_JOB} AND "status" IN ('PENDING','RUNNING')
+      AND "payload"->>'conversationId'=${conversationId} AND "payload"->>'modelFailed'='true'`;
+  return Number(rows[0]?.n ?? 0) > 0;
 }
 /** С лесенкой задания (10, 20, затем по 30 с) это около 11 минут: дольше всех повторов отправки (≈2,5 мин). */
 export const CUSTOMER_LEAD_ONLY_INTAKE_ATTEMPTS = 24;

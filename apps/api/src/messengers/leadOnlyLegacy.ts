@@ -48,6 +48,8 @@ export interface LegacyLeadOnlyPlan {
   callbackTime: string | null;
   /** Клиент с карточкой прислал номер: вызывающий ставит пометку «просит звонить на …», если номер другой (пятое ревью 13.11, №5). */
   notePhone: string | null;
+  /** The card has no live agent and the customer heard «Записали, с вами свяжутся…»: management must learn (review 17.11.2026). */
+  staffFollowUp?: boolean;
 }
 
 type LegacyScenario = LeadOnlyScenario | "escalate";
@@ -91,7 +93,7 @@ type LegacyLeadOnlyTurnInput = Parameters<typeof planLegacyLeadOnlyTurnText>[0];
 export async function planLegacyLeadOnlyTurn(input: LegacyLeadOnlyTurnInput): Promise<LegacyLeadOnlyPlan | null> {
   const plan = await planLegacyLeadOnlyTurnText(input);
   // The last door of the reply text (ai/leadOnlyMode.ts::leadOnlyOutgoing): no consent opening ever leaves this mode.
-  return plan ? { ...plan, reply: leadOnlyOutgoing(plan.reply, input.language) } : null;
+  return plan ? { ...plan, reply: leadOnlyOutgoing(plan.reply, input.language), staffFollowUp: input.linked && input.cardAgent === false } : null;
 }
 async function planLegacyLeadOnlyTurnText(input: {
   config: LeadOnlyConfig;

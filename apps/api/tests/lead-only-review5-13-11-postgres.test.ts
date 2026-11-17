@@ -136,3 +136,43 @@ describe("№5: другой номер у клиента с карточкой 
     expect(await runCustomerLeadOnlyIntake(plan!.intake!, { force: true })).toEqual({ status: "skipped", reason: "card_exists" });
   });
 });
+
+// ── Ревью 17.11.2026, №1: тишина режима — только ДО заявки. После карточки люди снова узнают (как старый путь). ──
+describe("после заявки (карточка есть): сигнал людям возвращается", () => {
+  it("«соедините с менеджером» у карточки с агентом — ответ режима и красная метка «просит агента» с пушем агенту", async () => {
+    const clientId = await client(agentId);
+    const id = await conversation("INSTAGRAM", `review17-attention-${runId}`, clientId);
+    const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Соедините меня с менеджером, пожалуйста" }));
+    expect(plan?.scenario).toBe("escalate");
+    expect(plan?.signal).toEqual({ kind: "attention", clientId, reason: "wants_human" });
+  });
+  it("карточка без живого агента: «Записали, свяжутся» — сигнал руководству через дверь «клиент ждёт»", async () => {
+    const id = await conversation("INSTAGRAM", `review17-noagent-${runId}`, await client(null));
+    for (const text of ["Хотим посмотреть, куда ехать?", "Позвоните завтра после шести", "Не звоните мне, пишите здесь"]) {
+      const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: text }));
+      expect(plan?.text).toMatch(/^Записали, с вами свяжутся /u);
+      expect(plan?.signal).toEqual({ kind: "follow_up" });
+    }
+  });
+  it("до карточки — никакого сигнала в плане", async () => {
+    const id = await conversation("INSTAGRAM", `review17-nocard-${runId}`);
+    const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Соедините меня с менеджером, пожалуйста" }));
+    expect(plan?.signal).toBeUndefined();
+  });
+  it("одна проверка «тихо до заявки» на диалог: без карточки — тихо, с карточкой — нет, режим выключен — нет", async () => {
+    const { leadOnlyQuietForConversation } = await import("../src/lib/leadOnlyConfig.js");
+    const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botLeadOnlyMode: true } });
+    try {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: true } });
+      const bare = await conversation("INSTAGRAM", `review17-q1-${runId}`);
+      const carded = await conversation("INSTAGRAM", `review17-q2-${runId}`, await client(agentId));
+      expect(await leadOnlyQuietForConversation("INSTAGRAM", bare)).toBe(true);
+      expect(await leadOnlyQuietForConversation("INSTAGRAM", carded)).toBe(false);
+      expect(await leadOnlyQuietForConversation("WEBSITE", bare)).toBe(false);
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false } });
+      expect(await leadOnlyQuietForConversation("INSTAGRAM", bare)).toBe(false);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: before });
+    }
+  });
+});

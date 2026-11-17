@@ -14,7 +14,7 @@ import { customerMutationDigest, customerMutationKind } from "./customerActionCo
 import { executeCustomerAction, loadCustomerActionReceipt, reconcileCustomerAction } from "./customerActionJournal.js";
 import { continueCustomerAgentAfterLocalAuthority } from "./customerAgentContinuation.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
-import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
+import { leadOnlyQuietForConversation } from "./leadOnlyConfig.js";
 import { leadOnlyWithholdsCustomerWrite } from "../ai/leadOnlyMode.js";
 
 type SessionState = "current" | "held" | "unknown" | "handover_committed";
@@ -70,8 +70,9 @@ export async function createCustomerAgentMutationSession(raw: {
   // executed when the current receipt issuer cannot later authorize its ACK.
   const features = await loadCustomerAgentFeaturePolicy(original.scope.channel);
   // Режим «только заявки» (пятое ревью 13.11, №1): передачи, звонка, вопроса собственнику и показа модель не видит вовсе —
-  // они зовут людей до заявки. Второй слой — проверка в execute ниже (режим включили посреди хода).
-  const leadOnlyQuiet = await leadOnlyQuietBeforeLead(original.scope.channel);
+  // они зовут людей до заявки. Второй слой — проверка в execute ниже (режим включили посреди хода). Только ДО заявки: у диалога
+  // с карточкой всё это снова доступно (ревью 17.11.2026, как у старого пути).
+  const leadOnlyQuiet = await leadOnlyQuietForConversation(original.scope.channel, original.scope.conversationId);
   const available = strong ? (Object.keys(kinds) as WriteName[]).filter(name => !(leadOnlyQuiet && leadOnlyWithholdsCustomerWrite(name)) &&
     customerActionCapability(initial.snapshot.state, kinds[name]) && (name !== "book_showing" || features.showings) &&
     (name !== "request_callback" || features.callbacks) && (name !== "ask_owner" || features.ownerQuestions) &&
@@ -148,7 +149,7 @@ export async function createCustomerAgentMutationSession(raw: {
       const parsedCommand = customerMutationCommandSchema.safeParse(rawCommand);
       if (!parsedCommand.success) return { status: "denied", reason: "unsupported_mutation" };
       // Второй слой режима «только заявки»: что бы ни прислала модель, людей до заявки эти действия не зовут.
-      if (leadOnlyWithholdsCustomerWrite(parsedCommand.data.name) && await leadOnlyQuietBeforeLead(original.scope.channel)) {
+      if (leadOnlyWithholdsCustomerWrite(parsedCommand.data.name) && await leadOnlyQuietForConversation(original.scope.channel, original.scope.conversationId)) {
         return { status: "denied", reason: "lead_only_mode" };
       }
       if (!available.includes(parsedCommand.data.name)) return { status: "denied", reason: "unsupported_mutation" };

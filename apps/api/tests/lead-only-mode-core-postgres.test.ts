@@ -165,8 +165,7 @@ afterAll(async () => {
     const linked = await prisma.botConversation.findMany({ where: { id: { in: nativeIds } }, select: { clientId: true } });
     clientIds.push(...linked.flatMap(row => row.clientId ? [row.clientId] : []));
     await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: [...events.map(key => `customer-inbox-consume:${key}`),
-      ...events.map(key => `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${key}`), ...parts.map(row => `customer-outbox-dispatch:${row.id}`),
-      ...nativeIds.map(id => `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:model-failed:${id}`)] } } });
+      ...events.map(key => `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${key}`), ...parts.map(row => `customer-outbox-dispatch:${row.id}`)] } } });
     await prisma.customerDeliveryAttempt.deleteMany({ where: { partId: { in: parts.map(row => row.id) } } });
     await prisma.customerOutboxPart.deleteMany({ where: { id: { in: parts.map(row => row.id) } } });
     await prisma.customerPropertyIngressTicket.deleteMany({ where: { eventKey: { in: events } } });
@@ -427,8 +426,8 @@ describe("пятое ревью, ядро", () => {
     const text = await plannedText(f.eventKey);
     expect(text).not.toMatch(/номер телефона|оставьте/i);
     const id = await conversationOf(f.eventKey);
-    const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:model-failed:${id}` } });
-    expect(job.payload).toMatchObject({ scenario: "escalate", modelFailed: true });
+    const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } });
+    expect(job.payload).toMatchObject({ scenario: "escalate", modelFailed: true, conversationId: id });
     await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date() } });
     expect(await runCustomerLeadOnlyIntake(job.payload)).toEqual({ status: "accepted" });
     const conv = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
@@ -446,8 +445,22 @@ describe("пятое ревью, ядро", () => {
     const second = await f.receive("А сколько стоит услуга нотариуса?");
     f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none" }) }]]);
     await runCustomerDmAgentTurn(second);
-    expect(await prisma.backgroundJob.count({ where: { dedupeKey: { startsWith: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:model-failed:${id}` } } })).toBe(1);
+    // The first job still waits (the card is not made yet): no second lead.
+    expect(await prisma.backgroundJob.count({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}`, status: "PENDING" } })).toBe(1);
     expect(await prisma.backgroundJob.count({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${second}` } })).toBe(0);
+  });
+
+  it("№4 (ревью 17.11): первая заявка не оформилась (задание сдалось, карточки нет) — следующая неудача заводит её снова", async () => {
+    const f = await coreFixture("Какие документы нужны у нотариуса?", "WHATSAPP");
+    f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none" }) }]]);
+    await plannedText(f.eventKey);
+    await prisma.backgroundJob.update({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` }, data: { status: "GIVEN_UP" } });
+    await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date(), acceptedAt: new Date() } });
+    const second = await f.receive("А сколько стоит услуга нотариуса?");
+    f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none" }) }]]);
+    await plannedText(second);
+    const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${second}` } });
+    expect(job.payload).toMatchObject({ modelFailed: true });
   });
 
   it("№4: WhatsApp — пустой ответ модели на то, что вопросом не является, остаётся обычным held, заявки нет", async () => {
@@ -456,8 +469,8 @@ describe("пятое ревью, ядро", () => {
     const result = await runCustomerDmAgentTurn(f.eventKey);
     expect(result.status).toBe("held");
     const id = await conversationOf(f.eventKey);
-    expect(await prisma.backgroundJob.count({ where: { dedupeKey: { in: [`${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}`,
-      `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:model-failed:${id}`] } } })).toBe(0);
+    expect(await prisma.backgroundJob.count({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } })).toBe(0);
+    expect(id).toBeTruthy();
   });
 
   it("№5: сбой записи памяти просьбы номера не откатывает ответ клиенту (точка сохранения)", async () => {
@@ -553,5 +566,44 @@ describe("один мозг, ядро в режиме", () => {
     expect(declared(f)).not.toContain("search_public_properties");
     expect(JSON.stringify(f.bodies)).not.toContain("property_search");
     expect(text).not.toMatch(/https?:|№\d+.*\n.*№\d+/su);
+  });
+});
+
+// ── Ревью 17.11.2026 №1: тишина режима только ДО заявки — у диалога с карточкой действия ядра и сигнал агенту снова есть ──
+describe("после заявки, ядро", () => {
+  const writesOn = () => prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: { publicRead: true,
+    contactWrite: true, callbackWrite: true, handoverWrite: true, showingWrite: true, ownerQuestionWrite: true } } });
+  const writesOff = () => prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: { publicRead: true } } });
+  const declared = (f: { bodies: Array<{ tools?: Array<{ functionDeclarations?: Array<{ name: string }> }> }> }) =>
+    f.bodies.flatMap(body => body.tools?.flatMap(tool => tool.functionDeclarations?.map(d => d.name) ?? []) ?? []);
+  beforeEach(async () => {
+    await writesOn();
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botCanRequestCallback: true, botCanAskOwner: true, botCanBookShowings: true } });
+  });
+  afterAll(async () => { await writesOff(); });
+
+  it("карточка с агентом: модель снова видит передачу; «соедините с менеджером» — красная метка «просит агента»", async () => {
+    const f = await coreFixture("Нужна двухкомнатная квартира", "INSTAGRAM");
+    expect(await plannedText(f.eventKey)).toContain("Оставьте, пожалуйста, номер телефона");
+    await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date(), acceptedAt: new Date() } });
+    const id = (await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey }, select: { conversationId: true } })).conversationId!;
+    const card = await prisma.client.create({ data: { fullName: "Клиент после заявки", phone: `+99293${String(Math.floor(Math.random() * 1e7)).padStart(7, "0")}`,
+      source: "INSTAGRAM", assignedAgentId: ownerId } });
+    clientIds.push(card.id);
+    await prisma.botConversation.update({ where: { id }, data: { clientId: card.id } });
+
+    const question = await f.receive("У меня вопрос по документам на собственность");
+    f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    await runCustomerDmAgentTurn(question);
+    expect(declared(f)).toContain("request_handover");
+
+    const staff = await f.receive("Соедините меня с менеджером, пожалуйста");
+    await plannedText(staff);
+    let marked: Date | null = null;
+    for (let i = 0; i < 20 && !marked; i++) {
+      marked = (await prisma.client.findUniqueOrThrow({ where: { id: card.id }, select: { agentAttentionRequestedAt: true } })).agentAttentionRequestedAt;
+      if (!marked) await new Promise(resolve => setTimeout(resolve, 150));
+    }
+    expect(marked).not.toBeNull();
   });
 });

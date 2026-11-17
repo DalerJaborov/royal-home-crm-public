@@ -3388,6 +3388,12 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     const plan = await planLeadOnlyTurn();
     if (plan) {
       await settleLeadOnlyPlan(plan);
+      // A card without a live agent: «Записали, с вами свяжутся» must reach someone (the one «client is waiting» door).
+      if (plan.staffFollowUp) {
+        void import("../lib/clientWaitingAlert.js").then(({ alertClientWaiting }) =>
+          alertClientWaiting({ conversationId: conversation.id, trigger: "follow_up", since: new Date() }))
+          .catch((err) => console.error("[messenger] режим «только заявки» → сигнал:", err instanceof Error ? err.message : err));
+      }
       // Бот просит номер — запомнить, о чём (ход с одним номером возьмёт сценарий и объект отсюда); тема сменилась —
       // забыть. В одной транзакции с ответом, как в ядре: память без просьбы не остаётся. Сбой памяти ответ не откатывает
       // (четвёртое ревью 13.11, №5): клиент получит ответ, голый номер следующим ходом возьмёт тему из прежних слов.

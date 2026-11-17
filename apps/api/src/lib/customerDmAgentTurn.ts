@@ -72,6 +72,7 @@ import { customerHeldForChangedContext, customerSafetyCandidateLines, customerSa
   customerSafetyLineAllowed, customerSafetyLineFits, customerSafetyMemory } from "./customerNoSilence.js";
 import { clientTalksBusiness } from "../messengers/sharedMedia.js";
 import { applyLeadOnlyPendingIsolatedTx } from "./leadOnlyPending.js";
+import { requestAgentAttention } from "./agentAttention.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -314,6 +315,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         void logSystemError("ai", `Режим «только заявки» (ядро): память просьбы номера не записана (диалог ${lane.ticket.conversationId}): ` +
           `${pendingError instanceof Error ? pendingError.message : String(pendingError)}`.slice(0, 500), { dedupKey: "lead-only-pending-write" });
       }
+      // After the lead only (the plan never carries a signal before a card): the reply is committed, the signal never blocks it.
+      if (plan.signal?.kind === "attention") void requestAgentAttention(plan.signal.clientId, plan.signal.reason);
+      else if (plan.signal?.kind === "follow_up") void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn);
       return { status: "planned", partIds };
     };
     // The safety door (lib/customerNoSilence.ts): one hand-off line instead of silence, never a repeat the shield would
