@@ -37,6 +37,7 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   logSystemError: mocks.log,
 }));
 
+import { StaffPhoneLeadError } from "../src/lib/staffPhoneGuard.js";
 import {
   captureCommentPhoneIntoConversation,
   COMMENT_HISTORY_PREFIX,
@@ -167,5 +168,38 @@ describe("номер самой компании не клиент", () => {
   it("свой номер рядом с номером компании: берётся клиентский", async () => {
     await captureCommentPhoneIntoConversation(row("Ваш 446501414, мой 900000001"), "conv-1");
     expect(mocks.acceptLead.mock.calls[0]![3]).toBe("+992900000001");
+  });
+});
+
+describe("ревью 17.11: кому заявка не полагается", () => {
+  const MONEY = "Помогите деньгами на лечение ребёнка, 900000001";
+  it("просьба о деньгах с номером — заявки нет ни с диалогом, ни без (полное молчание, как в личке)", async () => {
+    expect((await captureCommentPhoneIntoConversation(row(MONEY), "conv-1")).outcome).toBe("declined");
+    expect(await createLeadFromCommentPhone({ ...row(MONEY), channel: "TELEGRAM" })).toBe("declined");
+    expect(mocks.acceptLead).not.toHaveBeenCalled();
+    expect(mocks.createLead).not.toHaveBeenCalled();
+  });
+
+  it("объявление собственника и реклама агентства не становятся клиентом (ветка managed их не разбирает)", async () => {
+    const ad = "Продаю 3-комн. квартиру, 58 кв, 15 этаж, тел 900000001";
+    expect(await createLeadFromCommentPhone({ ...row(ad), channel: "INSTAGRAM" })).toBe("declined");
+    expect((await captureCommentPhoneIntoConversation(row(ad), "conv-1")).outcome).toBe("declined");
+    expect(mocks.createLead).not.toHaveBeenCalled();
+    expect(mocks.acceptLead).not.toHaveBeenCalled();
+  });
+
+  it("номер сотрудника: отказ без ложной тревоги «заведите карточку руками»", async () => {
+    const staff = new StaffPhoneLeadError({ agentId: "a", fullName: "x", phone: "+992900000001", matchedPhone: "+992900000001" });
+    mocks.createLead.mockRejectedValue(staff);
+    mocks.acceptLead.mockRejectedValue(staff);
+    expect(await createLeadFromCommentPhone({ ...row(), channel: "TELEGRAM" })).toBe("declined");
+    expect((await captureCommentPhoneIntoConversation(row(), "conv-1")).outcome).toBe("declined");
+    expect(mocks.log).not.toHaveBeenCalledWith("ai", expect.stringContaining("[alarm]"));
+  });
+
+  it("номер удалённой карточки: заявка не заводится, тревоги нет", async () => {
+    mocks.findOwners.mockResolvedValue([{ id: "c", deletedAt: new Date() }]);
+    expect(await createLeadFromCommentPhone({ ...row(), channel: "TELEGRAM" })).toBe("already");
+    expect(mocks.log).not.toHaveBeenCalled();
   });
 });

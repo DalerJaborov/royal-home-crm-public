@@ -10,6 +10,11 @@ import { watchdogLeadDraft } from "../lib/phoneLeadWatchdog.js";
 import { looksLikeRentRequest } from "../ai/rentGuard.js";
 import { mentionsJobSeeking } from "../ai/jobSeekerCall.js";
 import { isPublicAgencyPhone, isRetiredPublicAgencyPhone } from "../lib/publicAgencyContact.js";
+import { looksLikeMoneyRequest } from "../ai/moneyRequestGuard.js";
+import { detectSpam } from "../lib/incomingSpam.js";
+import { detectHate } from "../lib/commentHate.js";
+import { detectAgencyAd, detectListingAd } from "../lib/listingAd.js";
+import { StaffPhoneLeadError } from "../lib/staffPhoneGuard.js";
 import { classifyInbound } from "../services/leads/intakePolicy.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 
@@ -73,6 +78,21 @@ function clientPhonesOf(text: string): string[] {
   });
 }
 
+/**
+ * ЧЬИ НОМЕРА КЛИЕНТСКОЙ ЗАЯВКОЙ НЕ СТАНОВЯТСЯ — ПРОВЕРКА ЗДЕСЬ, В ОДНОЙ ДВЕРИ (ревью 17.11.2026), а не у каждого вызывающего:
+ *  - просьба о материальной помощи: решение владельца, полное молчание и никаких заявок (как в личке, routes/webhooks.ts);
+ *  - рассылка, мат, реклама агентства, объявление собственника: у них свои ветки (скрыть/удалить, карточка «Прочее»/«Продавец»),
+ *    а клиентом конкурент не становится — важно для ветки managed ядра, которая их сама не разбирает.
+ */
+export function commentLeadBlocked(text: string): string | null {
+  if (looksLikeMoneyRequest(text)) return "money_request";
+  if (detectSpam(text, { comment: true })) return "spam";
+  if (detectHate(text)) return "hate";
+  if (detectAgencyAd(text)) return "agency_ad";
+  if (detectListingAd(text)) return "listing_ad";
+  return null;
+}
+
 const NOTHING: CommentPhoneResult = { outcome: "no_phone", recordedInHistory: false };
 
 /**
@@ -86,6 +106,7 @@ export async function captureCommentPhoneIntoConversation(
   // Дешёвая проверка текста — до любого запроса в базу: у большинства комментариев номера нет.
   const phone = clientPhonesOf(row.text)[0];
   if (!phone) return NOTHING;
+  if (commentLeadBlocked(row.text)) return { outcome: "declined", recordedInHistory: false };
   try {
     const conversation = await prisma.botConversation.findUnique({
       where: { id: conversationId },
@@ -130,6 +151,8 @@ export async function captureCommentPhoneIntoConversation(
     );
     return { outcome: "accepted", recordedInHistory: true };
   } catch (err) {
+    // Номер сотрудника — не потеря, а отказ по правилу: тревоги «заведите карточку руками» нет.
+    if (err instanceof StaffPhoneLeadError) return { outcome: "declined", recordedInHistory: false };
     // Номер в ленте комментариев есть, карточки нет: случай обязан стать видимым.
     void logSystemError(
       "ai",
@@ -153,12 +176,18 @@ export async function createLeadFromCommentPhone(
   const phones = clientPhonesOf(row.text);
   const phone = phones[0];
   if (!phone) return "no_phone";
+  if (commentLeadBlocked(row.text)) return "declined";
   try {
     if (looksLikeRentRequest(row.text) || mentionsJobSeeking(row.text)) return "declined";
     const [known] = await findPhoneOwners(phones, { includeDeleted: true, limit: 1 });
-    if (known) return "already";
+    if (known) {
+      // Карточка есть (в том числе в корзине): не дубль и не потеря, но след оставляем без тревоги.
+      if (known.deletedAt) console.info(`[comment-phone] номер комментария ${row.commentId} принадлежит удалённой карточке, заявка не заводится`);
+      return "already";
+    }
     const decision = classifyInbound({ clientText: row.text, channel: "chat" });
     if (decision.reason === "работа") return "declined";
+    // В ClientSource нет YOUTUBE: как у createLeadFromCompetitorAd — INSTAGRAM, а площадка видна в socialChannel.
     const source: ClientSource = row.channel === "FACEBOOK" ? "FACEBOOK" : row.channel === "TELEGRAM" ? "TELEGRAM" : "INSTAGRAM";
     await createLeadFromChannel({
       fullName: row.authorName ? `@${row.authorName}` : "Комментатор",
@@ -175,6 +204,7 @@ export async function createLeadFromCommentPhone(
     });
     return "accepted";
   } catch (err) {
+    if (err instanceof StaffPhoneLeadError) return "declined";
     void logSystemError(
       "ai",
       `[alarm] Номер в комментарии ${row.commentId} (${row.channel}), но заявку оформить не удалось: ` +
