@@ -46,6 +46,10 @@ beforeAll(async () => {
   settingsBefore = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botLeadOnlyMode: true, botCanSendLinks: true, botCanSendPhotos: true } });
   ownerId = (await prisma.agent.create({ data: { fullName: `Агент ревью ${runId}`, phone: `+992906${String(Date.now()).slice(-6)}`, role: "AGENT", passwordHash: "x" } })).id;
   agents.push(ownerId);
+  // The alarm without an owner goes to supervisors («clients.assign»): the test brings its own instead of relying on whoever
+  // happens to be in the database (a fresh database has none, 17.11.2026).
+  agents.push((await prisma.agent.create({ data: { fullName: `Руководитель ревью ${runId}`, phone: `+992907${String(Date.now()).slice(-6)}`,
+    role: "DIRECTOR", passwordHash: "x" } })).id);
   propertyId = (await prisma.property.create({ data: { title: `Объект ревью ${runId}`, type: "APARTMENT", status: "AVAILABLE", publishedOnSite: true,
     price: 400000, currency: "TJS", rooms: 2, areaSqm: 55, condition: "GOOD", assignedAgentId: ownerId } })).id;
 });

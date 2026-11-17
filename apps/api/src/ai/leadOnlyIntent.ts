@@ -16,6 +16,7 @@
  * она получает готовое намерение. Ядро (lib/customerLeadOnlyCore.ts) и старый путь (messengers/leadOnlyLegacy.ts)
  * берут намерение только здесь.
  */
+import { BW, EW, TAIL } from "./wordBoundary.js";
 import { callAiText } from "./client.js";
 import { customerRoleSignals, foldCustomerText } from "./customerAgentRole.js";
 import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
@@ -41,8 +42,20 @@ export function leadOnlyIntentFallback(text: string, reason?: LeadOnlyIntent["fa
   if (looksLikeRentRequest(own)) return { role: signals.landlord ? "landlord" : "renter", hot: false, ...base };
   if (signals.sell && !signals.buyStrong) return { role: "seller", hot, ...base };
   if (signals.landlord && !signals.buyStrong) return { role: "landlord", hot: false, ...base };
-  if (signals.buyStrong || signals.buyWeak || customerSearchIntent(own)) return { role: "buyer", hot, ...base };
+  if (signals.buyStrong || signals.buyWeak || searchForHousing(own)) return { role: "buyer", hot, ...base };
   return { role: "other", hot, ...base };
+}
+
+/**
+ * The search parser treats any «нужны / какие есть / подскажите» as a request (it is asked only after the topic is housing).
+ * Here it must not make a buyer of «Какие документы нужны у нотариуса?» (17.11.2026: the fallback answered it «Есть варианты
+ * от …»). A buyer only when the request names something to look for (type, rooms, place, budget) or speaks of housing / options.
+ */
+const HOUSING_TOPIC = new RegExp(`${BW}(?:вариант${TAIL}|недвижим${TAIL}|жиль${TAIL}|квартир${TAIL}|дом${TAIL}|хона${TAIL}|ҳавлӣ|ҳавли|хавли|` +
+  `участ${TAIL}|замин${TAIL}|новостройк${TAIL})${EW}`, "iu");
+function searchForHousing(own: string): boolean {
+  const intent = customerSearchIntent(own);
+  return !!intent && (Object.keys(intent).length > 0 || HOUSING_TOPIC.test(own));
 }
 
 // ── Проверка ответа модели ──────────────────────────────────────────────────
