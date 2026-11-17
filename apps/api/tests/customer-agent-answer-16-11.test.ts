@@ -87,7 +87,9 @@ describe("review #211 probe: every inverted or invented fact falls back to the t
     expect(parseCustomerAgentAnswerParts(["Понимаю."])).toBeNull();
   });
   it("A15/B4: Russian words inside a Tajik reply → language; and a Tajik word inside a Russian one", () => {
-    expect(reasonOf({ lead: "Хорошо, фаҳмидам.", ask: "Чӣ қадар маблағ дар назар доред?" }, ask("budget", "tg"))).toBe("language");
+    expect(reasonOf({ lead: "Понимаю, фаҳмидам.", ask: "Чӣ қадар маблағ дар назар доред?" }, ask("budget", "tg"))).toBe("language");
+    // Review #211 round 6: an agreement word is counted as its own reason first, so the shadow shows how often the model writes «Хорошо».
+    expect(reasonOf({ lead: "Хорошо, фаҳмидам.", ask: "Чӣ қадар маблағ дар назар доред?" }, ask("budget", "tg"))).toBe("agree");
     expect(reasonOf({ lead: "Очень приятно, фаҳмидам." }, { language: "tg", inputText: "Нархи объекти 123 чанд?", requestedFacts: ["price"], d: reply(["e0"]), evidence: price })).toBe("language");
     expect(reasonOf({ lead: "Рахмат, понял вас.", ask: "Сколько комнат вам нужно?" }, ask("rooms"))).toBe("language");
   });

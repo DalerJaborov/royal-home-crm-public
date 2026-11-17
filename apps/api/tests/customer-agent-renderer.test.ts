@@ -99,13 +99,15 @@ describe("grounded free phrase (say) in the rendered answer (24.10)", () => {
     const verifiedContext = { surface: "dm" as const, revisionId: "a".repeat(64), publicState: { topic: "unknown" } as never,
       turns: [{ role: "assistant" as const, text: "Понял, вас интересует этот объект." }] };
     expect(withSay("Понял, вас интересует этот объект.", { verifiedContext })).toBe(price);
-    expect(withSay("Хорошо, давайте разберёмся.", { verifiedContext })).toBe(`Хорошо, давайте разберёмся.\n${price}`);
+    // Review #211 round 6: the last door cuts a consent opening from the whole text, the say phrase included («Хорошо» reads as «да»).
+    expect(withSay("Хорошо, давайте разберёмся.", { verifiedContext })).toBe(`Давайте разберёмся.\n${price}`);
   });
   it("lets a call word through only when the decision points at a callback receipt", () => {
     const receipt: CustomerAgentEvidence = { ref: "e1", value: { kind: "receipt", outcome: "callback_requested" } };
     const decision = { kind: "reply" as const, refs: ["e0", "e1"], social: "none" as const, question: "none" as const, say: "Хорошо, мы вам позвоним." };
     const rendered = (refs: string[]) => render([...evidence, receipt], { decision: { ...decision, refs }, inputText: "Перезвоните мне, пожалуйста" });
-    expect(rendered(["e0", "e1"])).toContain("Хорошо, мы вам позвоним.");
+    expect(rendered(["e0", "e1"])).toContain("Мы вам позвоним.");
+    expect(rendered(["e0", "e1"])).not.toContain("Хорошо");
     expect(rendered(["e0"])).not.toContain("позвоним");
   });
   it("does not make a say-only answer out of nothing: no evidence, no question, no social act is still empty", () => {

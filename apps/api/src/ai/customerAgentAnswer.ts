@@ -3,7 +3,7 @@ import { clientOwnWords } from "./untrustedContent.js";
 import { detectClientLanguage } from "./clientLanguage.js";
 import { findBannedWords } from "./bannedWordsGuard.js";
 import { normalizeSayText, SAY_LEXICON, foldSayText, foldSayPattern, sayTokens, sayComparable, sayEchoes } from "./customerAgentSay.js";
-import { informalAddress, foreignLanguageWord, SERVICE_CLAIM_SOURCE, humanPhraseKinds, humanPhraseMatch, humanPhraseAgrees, humanPhraseAcknowledges, humanPhraseSentences, humanPhraseRepeats, approvedAsk, APPROVED_ASKS, HUMAN_PHRASES,
+import { informalAddress, foreignLanguageWord, SERVICE_CLAIM_SOURCE, humanPhraseKinds, humanPhraseMatch, humanPhraseAgrees, humanPhraseAcknowledges, humanPhraseSentences, humanPhraseRepeats, humanPhrasesClash, approvedAsk, APPROVED_ASKS, HUMAN_PHRASES,
   type CustomerAgentAskKind } from "./customerAgentHumanText.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 
@@ -56,9 +56,9 @@ answer = {"lead": "...", "ask": "...", "close": "..."}; каждое поле н
 - ask: тот же вопрос, что ты выбрал в поле question, ДОСЛОВНО одной из утверждённых формулировок ниже (другой — нельзя; нет подходящей — без ask);
 - close: одна ДОСЛОВНАЯ фраза из списка ниже, только если вопроса нет.
 Своих фраз нет: любая другая фраза, другое слово или порядок — и уйдёт шаблон. Приветствие — только если сервер сам здоровается в этом ходе.
-Слов согласия («Хорошо», «Ладно», «Конечно», «Хуб», «Майлаш», «Бале») не пиши никогда: клиент примет их за «да» (скидку, цену, показ, договорённость), и сервер отбросит весь answer.
+Слов согласия («Хорошо», «Ладно», «Конечно», «С удовольствием», «Обязательно», «Без проблем», «Хуб», «Майлаш», «Бале», «Албатта») не пиши никогда: клиент примет их за «да» (скидку, цену, показ, договорённость), и сервер отбросит весь answer.
 Вместо них лучше всего благодарность: «Спасибо, что написали!», «Раҳмат, ки навиштед!», «Ташаккур барои паёматон.». «Понял вас.» / «Фаҳмидам.» — только если благодарить не за что и только перед фактом или вопросом (одно «понял» без дела звучит сухо).
-Одну и ту же фразу дважды не пиши: ни два раза в lead, ни в lead и close.
+Одну и ту же фразу дважды не пиши: ни два раза в lead, ни в lead и close. И не больше одной фразы одного смысла на весь ответ: одна благодарность, одно «понял», одно извинение; приветствие — только первым.
 Рядом с отказом, проданным или недоступным объектом, ответом о городе работы — только нейтральное вступление («Понимаю вас.», «Фаҳмидам.»), без радости и без close.
 Все факты (цены, объекты, наличие, комиссия, город и район работы, аренда, документы, сроки, контакты, обещания) сервер вставит сам, дословно.
 Только «вы» / «шумо»; никогда: «я уже писал выше», «повторяю», «дар боло навиштам», «лутфан», «мутахассис», «амвол», «я бот», ИИ, CRM, refs; без тире и списков; не здоровайся повторно.
@@ -191,6 +191,8 @@ function humanPartIssue(raw: string, role: Role, opts: { kind?: CustomerAgentAsk
   if (!kinds && humanPhraseRepeats(text)) return "repeat";
   const reason = lexiconReason(text, folded);
   if (reason) return reason;
+  // Its own counter (review #211, round 6): how often the model still writes «Хорошо» / «Хуб» / «С удовольствием» is visible in shadow.
+  if (humanPhraseAgrees(text)) return "agree";
   if (SAY_LEXICON.META.test(folded)) return "meta";
   if (REPEAT_RUDE.test(folded) || RECEIPT_TALK.test(folded) || WOODEN_TG.test(folded) || findBannedWords(text).length || DASH.test(text)) return "wooden";
   if (SAY_LEXICON.CLICHE.test(folded)) return "cliche";
@@ -282,10 +284,15 @@ export function validateCustomerAgentAnswer(input: CustomerAgentAnswerInput): Cu
   const lead = canonical(parts.lead, "lead"), ask = canonical(parts.ask, "ask"), close = canonical(parts.close, "close");
   if (lead === null || ask === null || close === null) return bad("vocabulary");
   const human = [lead, ask, close].filter((part): part is string => !!part);
-  // Third belt: whatever produced the words, no agreement word reaches the customer.
-  if (human.some(humanPhraseAgrees)) return bad("vocabulary");
-  // The same phrase twice in one reply («Спасибо!» as lead and as close, «Раҳмат!» twice): inside a lead humanPhraseMatch refuses it.
-  if (lead && close && humanPhraseSentences(lead).includes(close)) return bad("repeat");
+  // Third belt: whatever produced the words, no agreement word reaches the customer (the whole text passes withoutAgreementOpenings too).
+  if (human.some(humanPhraseAgrees)) return bad("agree");
+  // One meaning once in the whole reply (round 6): not the same phrase twice («Спасибо!» as lead and as close) and not two of one group
+  // across the opening (the template's own greeting / thanks when it stays), the lead and the close («Спасибо!» … «Спасибо за ваш
+  // вопрос!», «Раҳмат!» … «Ташаккур!»); a greeting only first. Inside a lead humanPhraseMatch refuses it already.
+  const leadGreets = !!lead && !!humanPhraseKinds(lead, input.language, "lead")?.includes("greeting");
+  const opening = lead ? [...(leadGreets ? [] : template.social.filter(isGreeting)), lead] : [...template.social];
+  if (lead && close && humanPhraseSentences(lead).includes(close) ||
+      humanPhrasesClash([...opening.flatMap(humanPhraseSentences), ...(close ? [close] : [])])) return bad("repeat");
   // «Понял вас.» / «Фаҳмидам.» alone is a dry filler (tajik-phrasebook do-not-say №7): only in front of a fact line or a question.
   if (lead && humanPhraseAcknowledges(lead) && !template.facts.length && !template.question) return bad("vocabulary");
 
@@ -296,7 +303,6 @@ export function validateCustomerAgentAnswer(input: CustomerAgentAnswerInput): Cu
   // Greetings: the lead may greet only where the template greets (then it replaces that line); ask and close never greet.
   // A vetted greeting phrase is the only greeting the model can write («Саломат бошед!» is a farewell close, never a greeting).
   const templateGreets = template.social.some(isGreeting);
-  const leadGreets = !!lead && !!humanPhraseKinds(lead, input.language, "lead")?.includes("greeting");
   if (leadGreets && !templateGreets) return bad("double_greet");
 
   // Never the same words twice in a conversation.

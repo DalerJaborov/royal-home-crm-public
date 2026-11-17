@@ -16,7 +16,7 @@ import { recruitmentPhoneLine, retiredRecruitmentPhoneLines } from "@royal-home/
 import { clientOwnWords } from "./untrustedContent.js";
 import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
 import { validateCustomerAgentAnswer, type CustomerAgentAnswerVerdict, type CustomerAgentAnswerTemplate } from "./customerAgentAnswer.js";
-import { CUSTOMER_AGENT_ASK_KINDS, type CustomerAgentAskKind } from "./customerAgentHumanText.js";
+import { CUSTOMER_AGENT_ASK_KINDS, withoutAgreementOpenings, type CustomerAgentAskKind } from "./customerAgentHumanText.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
@@ -925,11 +925,14 @@ function renderDecisionCore(input: {
  *  - a fixed question the previous turn already asked is not asked again; what is left of the reply stays;
  *  - nothing left: the buyer's finished questionnaire moves to the next step (an object), a seller who was not just
  *    asked gets the seller question, anything else goes to a person: "это скажет агент" (+ the phone question);
- *  - the same facts asked for again are said again after "Конечно." / "Албатта.".
+ *  - the same facts asked for again are said again after a neutral thanks («Спасибо за ваш вопрос.»; before review #211 round 6
+ *    "Конечно." / "Бале.", which read as «да» to a repeated «Скидку сделаете?»).
  * Never "I wrote this above" or "I repeat" (owner 15.11.2026: 30 such replies in 19 chats in a week, rude and robotic).
  * Hostile or promotional input is answered by one neutral line before any of this (no company fact for a threat).
  */
-const AGAIN_LEAD = { ru: "Конечно.", tg: "Бале." };
+const AGAIN_LEAD = { ru: "Спасибо за ваш вопрос.", tg: "Ташаккур барои саволатон." };
+/** The lead before review #211 round 6: older chats still carry it (a third ask then goes to a person). */
+const RETIRED_AGAIN_LEAD = { ru: "Конечно.", tg: "Бале." };
 /** The customer's message asks something (a question mark or a question word, RU/TG, colloquial spelling too). */
 const ASKS_NOW = /[?？]|(?:^|[\s,.!])(?:как\p{L}*|сколько|где|когда|почему|зачем|что|есть\s+ли|можно|мумкин|чанд|кай|куҷо|кучо|чӣ|чи|чаро|кадом\p{L}*|нархаш|расскаж\p{L}*|подробн\p{L}*|нақл|накл)(?=$|[\s,.!?])|(?:ҳаст|хаст)\s*$/iu;
 /** What the conversation already holds for the hand-off: lines said, and whether the phone was already asked for. */
@@ -973,7 +976,9 @@ const PREFERENCES_DONE = { ru: "Понял, учту. Если хотите по
   tg: "Фаҳмидам, ба назар мегирам. Агар хоҳед вариантро аз наздик бинед, рақам ё пайванди объектро фиристед." };
 /** Same meaning, different words: a bare greeting/thanks/acknowledgement is not sent twice in a row. */
 const SOCIAL_FAMILIES: ReadonlyArray<ReadonlyArray<{ ru: string; tg: string }>> = [
-  [social.acknowledge, { ru: "Хорошо, принято.", tg: "Хуб, қабул шуд." }, { ru: "Ясно, спасибо.", tg: "Равшан аст, ташаккур." }],
+  // Third of the family: a neutral thanks, never «Хорошо, принято.» (review #211, round 6: after «Беру», «Приеду», «Мегирам» it read as
+  // «да»; nothing was saved, so no «принято / записал» either).
+  [social.acknowledge, { ru: "Спасибо за ваше сообщение.", tg: "Ташаккур барои паёматон." }, { ru: "Ясно, спасибо.", tg: "Равшан аст, ташаккур." }],
   [social.thank, { ru: "Благодарю!", tg: "Миннатдорам!" }, { ru: "Спасибо вам!", tg: "Сипос!" }],
   [social.greet, { ru: "Добрый день!", tg: "Салом!" }, { ru: "Здравствуйте, рад вас слышать!", tg: "Салом, хуш омадед!" }],
 ];
@@ -1106,7 +1111,7 @@ function avoidRepeatedReply(text: string, input: RepeatInput): string {
     // through, never a third); after that a person takes over.
     if (asksNow) {
       // Already said once more after "Конечно."/"Бале.": the asked fact is still the answer; any other question goes to a person.
-      if (asked.has(AGAIN_LEAD[lang])) return input.requestedFacts?.length ? text : handOff();
+      if (asked.has(AGAIN_LEAD[lang]) || asked.has(RETIRED_AGAIN_LEAD[lang])) return input.requestedFacts?.length ? text : handOff();
       if (text.trim() !== assistant.at(-1)!.text.trim()) return text;
       return `${AGAIN_LEAD[lang]}\n${text}`;
     }
@@ -1210,9 +1215,28 @@ export function customerAgentAnswerVerdict(input: RenderInput): CustomerAgentAns
   } catch { return { ok: false, reason: "error" }; }
 }
 
-export function renderCustomerAgentDecision(input: RenderInput): string | null {
+/** What goes out when the last door removed every sentence: a neutral thanks from the vetted list (nothing was agreed or saved). */
+const NEUTRAL_THANKS = { ru: "Спасибо за ваше сообщение.", tg: "Ташаккур барои паёматон." } as const;
+/** The last door on the whole text (template + model words): no sentence opens with a consent word (customerAgentHumanText.ts). */
+function agreementChecked(text: string, input: RenderInput): { text: string | null; agreement: string[] } {
+  const checked = withoutAgreementOpenings(text);
+  if (!checked.removed.length) return { text, agreement: [] };
+  const result = checked.text.trim() ? checked.text : NEUTRAL_THANKS[input.language];
+  return { text: result.length <= input.maxOutputChars ? result : null, agreement: checked.removed };
+}
+
+/**
+ * The text the customer gets and the consent openings the last door removed from it (review #211, round 6). The core logs a
+ * non-empty `agreement` to the error journal (a template or a phrase must be fixed); the text is the same either way, so the
+ * renderer, the core and the delivery seal agree.
+ */
+export function renderCustomerAgentDecisionChecked(input: RenderInput): { text: string | null; agreement: string[] } {
   const verdict = customerAgentAnswerVerdict(input);
-  return verdict?.ok ? verdict.text : renderTemplateDecision({ ...input, decision: withoutModelWords(input.decision) }).text;
+  const raw = verdict?.ok ? verdict.text : renderTemplateDecision({ ...input, decision: withoutModelWords(input.decision) }).text;
+  return raw === null ? { text: null, agreement: [] } : agreementChecked(raw, input);
+}
+export function renderCustomerAgentDecision(input: RenderInput): string | null {
+  return renderCustomerAgentDecisionChecked(input).text;
 }
 
 /**
@@ -1237,7 +1261,7 @@ export function customerAgentSentQuestion(input: RenderInput, text: string): Cus
   const canonical = questions[kind][input.language];
   if (canonical && text.endsWith(canonical)) return kind;
   const verdict = customerAgentAnswerVerdict(input);
-  return verdict?.ok && verdict.text === text && verdict.asked === kind ? kind : "none";
+  return verdict?.ok && agreementChecked(verdict.text, input).text === text && verdict.asked === kind ? kind : "none";
 }
 
 /**
