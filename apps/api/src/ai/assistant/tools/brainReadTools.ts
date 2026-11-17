@@ -9,7 +9,7 @@ import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../../../lib
 import { redactSecrets } from "../../../lib/redactSecrets.js";
 import { withHiddenOrigin } from "../../../lib/clientOrigin.js";
 import { runLimited } from "../../../lib/concurrency.js";
-import { dushanbeDateString, dushanbeDateTimeString, dushanbeDayRange } from "../../../lib/dushanbeTime.js";
+import { dushanbeDateString, dushanbeDateTimeString, dushanbeDayRange, dushanbeStartOfToday } from "../../../lib/dushanbeTime.js";
 import { loadIntegrationHealthSnapshot } from "../../../lib/integrationHealthSnapshot.js";
 import { visibleInteractionWhere } from "../../../lib/investigationPrivacy.js";
 import { loadWeeklyLeaderboard } from "../../../lib/leaderboard.js";
@@ -105,11 +105,27 @@ interface MissedCallRow {
   callbackAgent: string | null;
 }
 
+/**
+ * Окно «за N дней» — сутки по Душанбе, а не скользящие N×24 часа (17.11.2026): «за 1 день» — с начала
+ * сегодняшних суток, «за N дней» — с начала суток N−1 дней назад. Скользящее окно в 03:00 теряло
+ * вчерашний вечер и не совпадало с тем, как директор считает «сегодня».
+ */
+export function missedWindowStart(days: number, now: Date = new Date()): Date {
+  return dushanbeStartOfToday(new Date(now.getTime() - (days - 1) * DAY_MS));
+}
+
+/** Период словами для ответа — как `period` у get_company_stats: «ГГГГ-ММ-ДД — ГГГГ-ММ-ДД» (даты по Душанбе). */
+export function missedWindowLabel(days: number, now: Date = new Date()): string {
+  const from = dushanbeDateString(missedWindowStart(days, now));
+  const to = dushanbeDateString(now);
+  return from === to ? to : `${from} — ${to}`;
+}
+
 async function loadMissedNoCallback(
   actor: AssistantActor,
   opts: { own: boolean; days: number },
 ): Promise<{ total: number; items: MissedCallRow[] }> {
-  const since = new Date(Date.now() - opts.days * DAY_MS);
+  const since = missedWindowStart(opts.days);
   let scope: Prisma.IncomingCallWhereInput = {};
   if (opts.own) {
     const me = await prisma.agent.findUnique({ where: { id: actor.id }, select: { sipExtension: true } });
@@ -593,13 +609,13 @@ export const getMissedCallsTool: AssistantReadToolPlugin = {
   description:
     "Пропущенные входящие звонки, по которым ещё НЕ перезвонили (ни звонка, ни сообщения клиенту после пропуска). " +
     "Руководству с доступом ко всем звонкам — по всей компании (mine=true — только свои), остальным — только звонки " +
-    "своих клиентов и назначенные им на перезвон. days — за сколько дней (по умолчанию 7, до 30). Зови на «кто звонил и " +
+    "своих клиентов и назначенные им на перезвон. days — за сколько суток по Душанбе (1 = только сегодня; по умолчанию 7, до 30). Зови на «кто звонил и " +
     "не дождался», «пропущенные без перезвона», «кому перезвонить», «зангҳои ҷавобнагирифта», «ба кӣ бозанг занам». " +
     "Числа — ровно из display; строки — из items (до 10).",
   parameters: {
     type: "object",
     properties: {
-      days: { type: "number", description: "Окно в днях, 1–30; по умолчанию 7" },
+      days: { type: "number", description: "Окно в сутках по Душанбе, 1–30 (1 = с начала сегодняшних суток); по умолчанию 7" },
       mine: { type: "boolean", description: "Только мои звонки, даже если видно все" },
       lang: LANG_PROP,
     },
@@ -619,8 +635,8 @@ export const getMissedCallsTool: AssistantReadToolPlugin = {
     const display = [
       tr(
         lang,
-        `☎️ Пропущенные без перезвона за ${days} дн. (${own ? "ваши" : "вся компания"}): ${total}`,
-        `☎️ Зангҳои ҷавобнагирифта, бе бозанг, дар ${days} рӯз (${own ? "аз они шумо" : "тамоми ширкат"}): ${total}`,
+        `☎️ Пропущенные без перезвона за ${missedWindowLabel(days)} (${own ? "ваши" : "вся компания"}): ${total}`,
+        `☎️ Зангҳои ҷавобнагирифта, бе бозанг, дар ${missedWindowLabel(days)} (${own ? "аз они шумо" : "тамоми ширкат"}): ${total}`,
       ),
       ...items.map((i) => `• ${i.at} — ${i.client ? i.client.code : i.phone}${i.callbackAgent ? ` → ${i.callbackAgent}` : ""}`),
       total > items.length ? moreText(lang, total - items.length).trim() : null,
@@ -628,6 +644,7 @@ export const getMissedCallsTool: AssistantReadToolPlugin = {
     return {
       scope: own ? "только ваши" : "вся компания",
       days,
+      period: missedWindowLabel(days),
       total,
       items,
       more: Math.max(0, total - items.length),

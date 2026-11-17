@@ -15,6 +15,16 @@
    запись «было → стало» и уведомление о правке в PATCH (раньше пересчёт стоял после них и бросал 500).
 6. Тесты: рубильник директора возвращается в `afterAll` и в `finally` (созданная строка настроек убирается);
    в тесте «мозга» показ «сегодня 23:59» больше не зависит от минуты прогона (часы Date на полдень Душанбе).
+7. `tests/property-complete-editing.test.ts`: гонка двух «Готово» — перед подсчётом записей `waitForSettled`,
+   статусы «один из 200/207 и один 409».
+8. `lib/propertyCompleteEditing.ts`: исключение `publishAfterEditingComplete` после перевода в AVAILABLE
+   ловится: `logSystemError` + успешный исход с `siteSyncError` («Объект уже в продаже, но публикация на сайте
+   не прошла») — инструмент ответит PARTIAL, маршрут 207; `skipVideoHandoffOnManualPublish` и
+   `publishPropertyUpdated` выполняются как раньше. Тест с подменой публикации, бросающей ошибку.
+9. Одно правило готовности: `saleBlockerCodes` в `lib/propertyPipeline.ts`; тексты `blockersForSale` (экран, ни
+   символа не изменено) и `saleBlockerAdvice` строятся по этим кодам.
+10. `get_missed_calls`: окно — сутки по Душанбе (`missedWindowStart`: 1 = с начала сегодняшних суток), в ответе поле
+    `period` «ГГГГ-ММ-ДД — ГГГГ-ММ-ДД». get_my_day (3 дня) тоже по суткам. Тест, звонок в тесте не раньше начала суток.
 
 ## Почему
 Ревью 17.11: устаревшая заявка переводила объект из чужого статуса; сырые тексты ошибок с ключами уходили
@@ -23,7 +33,8 @@
 ## Проверено
 `npm run build:api` код 0; `npx vitest run` 9 файлов (property-tools, property-change-requests, director-tools,
 brain-read-tools, assistant-telegram, tool-registry, missed-call-callback-escalation, complete-editing,
-redact-secrets): 241 тест зелёный. Новые тесты: устаревшая заявка, заявка без `from`, группа, 8 на `redactSecrets`.
+redact-secrets): 241 тест зелёный. Пункты 7–10 вторым коммитом: 13 файлов (+property-complete-editing, video-handoff, property-moderate-permission,
+property-restore-video-publish) 323 теста зелёные; `npm run map` / `map:check` без изменений. Новые тесты: устаревшая заявка, заявка без `from`, группа, 8 на `redactSecrets`.
 
 ## Осталось
 Полный `test:api` и `precheck` — сборщик.

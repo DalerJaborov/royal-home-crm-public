@@ -19,13 +19,15 @@
  * публикация, второе получает «уже не на монтаже» без побочных действий.
  */
 import type { Request } from "express";
-import { MIN_PROPERTY_PHOTOS, isInstagramLink, type PermissionId } from "@royal-home/shared";
+import { MIN_PROPERTY_PHOTOS, type PermissionId } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { publishPropertyUpdated } from "./livePublish.js";
 import { canManagePropertyAs } from "./propertyAccess.js";
-import { blockersForSale, publishAfterEditingComplete, type PublishAuditAuthor } from "./propertyPipeline.js";
+import { blockersForSale, publishAfterEditingComplete, saleBlockerCodes, type PublishAuditAuthor } from "./propertyPipeline.js";
 import { skipVideoHandoffOnManualPublish } from "./videoHandoff.js";
+import { describeError } from "./describeError.js";
+import { logSystemError } from "./systemError.js";
 
 export interface CompleteEditingActor {
   agentId: string;
@@ -95,32 +97,31 @@ export interface SaleBlockerAdvice {
 
 /**
  * Причины, почему объект не выходит в продажу, и что делать — словами для сотрудника.
- * Условия те же, что в `blockersForSale` (lib/propertyPipeline.ts): число записей совпадает с
- * длиной его ответа, это держит тест (ai-assistant-complete-editing.test.ts).
+ * Условия не повторяются: коды причин отдаёт `saleBlockerCodes` (lib/propertyPipeline.ts) — тот же
+ * источник, что у текстов экрана (`blockersForSale`).
  */
 export function saleBlockerAdvice(property: { instagramUrl: string | null; photoCount: number }): SaleBlockerAdvice[] {
-  const advice: SaleBlockerAdvice[] = [];
-  if (property.photoCount < MIN_PROPERTY_PHOTOS) {
-    advice.push({
-      problem: `фото меньше минимума (${property.photoCount} из ${MIN_PROPERTY_PHOTOS})`,
-      fix: `Добавьте фото в карточке объекта: нужно минимум ${MIN_PROPERTY_PHOTOS}.`,
-    });
-  }
-  const link = property.instagramUrl?.trim();
-  if (!link) {
-    advice.push({
-      problem: "нет ссылки на видео-обзор в Instagram — ролик не опубликован в Instagram",
-      fix:
-        "Опубликуйте ролик в Instagram (после принятия готового ролика это делает публикация по расписанию) " +
-        "или впишите ссылку на уже опубликованный ролик в карточке объекта; как только ссылка есть, объект выйдет в продажу.",
-    });
-  } else if (!isInstagramLink(link)) {
-    advice.push({
-      problem: "в поле видео-обзора ссылка не на Instagram",
-      fix: "Замените её в карточке на ссылку на ролик в Instagram: обзор должен быть опубликован именно там.",
-    });
-  }
-  return advice;
+  return saleBlockerCodes(property).map((code): SaleBlockerAdvice => {
+    switch (code) {
+      case "PHOTOS_BELOW_MIN":
+        return {
+          problem: `фото меньше минимума (${property.photoCount} из ${MIN_PROPERTY_PHOTOS})`,
+          fix: `Добавьте фото в карточке объекта: нужно минимум ${MIN_PROPERTY_PHOTOS}.`,
+        };
+      case "NO_INSTAGRAM_LINK":
+        return {
+          problem: "нет ссылки на видео-обзор в Instagram — ролик не опубликован в Instagram",
+          fix:
+            "Опубликуйте ролик в Instagram (после принятия готового ролика это делает публикация по расписанию) " +
+            "или впишите ссылку на уже опубликованный ролик в карточке объекта; как только ссылка есть, объект выйдет в продажу.",
+        };
+      case "LINK_NOT_INSTAGRAM":
+        return {
+          problem: "в поле видео-обзора ссылка не на Instagram",
+          fix: "Замените её в карточке на ссылку на ролик в Instagram: обзор должен быть опубликован именно там.",
+        };
+    }
+  });
 }
 
 /**
@@ -150,7 +151,17 @@ export async function completeEditing(input: {
     include: EDITING_INCLUDE,
   });
 
-  const { updated: published, siteSyncError } = await publishAfterEditingComplete(input.audit, updated);
+  // Статус уже AVAILABLE: исключение публикации не должно превращаться в «ошибку» — объект в продаже.
+  // Сбой уходит в журнал и в итог как siteSyncError (инструмент ответит «изменено, но не всё», маршрут — 207).
+  let published: Awaited<ReturnType<typeof publishAfterEditingComplete>>["updated"] = updated;
+  let siteSyncError: string | undefined;
+  try {
+    ({ updated: published, siteSyncError } = await publishAfterEditingComplete(input.audit, updated));
+  } catch (err) {
+    const reason = describeError(err);
+    void logSystemError("api", `Объект ${updated.id}: публикация после «Готово» упала — ${reason}`, { url: `/properties/${updated.id}` });
+    siteSyncError = "Объект уже в продаже, но публикация на сайте не прошла";
+  }
   // Защита от навсегда занятого места монтажёра: ручной выход из монтажа закрывает передачу ролика.
   void skipVideoHandoffOnManualPublish(published.id).catch((err) =>
     console.error("[video-handoff] закрытие хендоффа при «Готово»:", err),

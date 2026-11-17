@@ -21,7 +21,7 @@ const { brainReadTools } = await import("../src/ai/assistant/tools/brainReadTool
 const { groupHiddenToolsForTests } = await import("../src/telegram/assistantBot.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
 const { deleteAgentsWithTraces } = await import("./helpers/cleanupAgents.js");
-const { dushanbeDateString, dushanbeInputToDate } = await import("../src/lib/dushanbeTime.js");
+const { dushanbeDateString, dushanbeInputToDate, dushanbeStartOfToday } = await import("../src/lib/dushanbeTime.js");
 
 const runId = String(Date.now()).slice(-8);
 const nameA = `Мозгов${runId}`;
@@ -96,7 +96,8 @@ async function missedCall(client: { id: string; phone: string }) {
     data: {
       channelId: `brain-${runId}-${seq++}`,
       phone: client.phone,
-      startedAt: new Date(Date.now() - 60_000),
+      // Не раньше начала суток по Душанбе: окно get_missed_calls — сутки, и звонок в первую минуту суток не должен вылетать из «за 1 день».
+      startedAt: new Date(Math.max(Date.now() - 60_000, dushanbeStartOfToday().getTime() + 1000)),
       answered: false,
       clientId: client.id,
     },
@@ -260,6 +261,19 @@ describe("get_missed_calls", () => {
 
     // get_my_day берёт тот же источник.
     expect((await call("get_my_day", {}, actorA())).counts.missedCallsNoCallback).toBeGreaterThanOrEqual(1);
+  });
+
+  it("окно — сутки по Душанбе, а не скользящие 24 часа; период словами в ответе", async () => {
+    const { missedWindowStart, missedWindowLabel } = await import("../src/ai/assistant/tools/brainReadTools.js");
+    // 17 ноября 03:00 по Душанбе (= 16 ноября 22:00 UTC): «за 1 день» начинается в 00:00 этих суток, не вчера в 03:00.
+    const now = dushanbeInputToDate("2026-11-17", "03:00");
+    expect(missedWindowStart(1, now)).toEqual(dushanbeInputToDate("2026-11-17", "00:00"));
+    expect(missedWindowStart(3, now)).toEqual(dushanbeInputToDate("2026-11-15", "00:00"));
+    expect(missedWindowLabel(1, now)).toBe("2026-11-17");
+    expect(missedWindowLabel(3, now)).toBe("2026-11-15 — 2026-11-17");
+    const live = await call("get_missed_calls", { days: 2 }, actorLeader());
+    expect(live.period).toMatch(/^\d{4}-\d{2}-\d{2} — \d{4}-\d{2}-\d{2}$/);
+    expect(live.display).toContain(live.period);
   });
 
   it("руководитель видит звонки всей компании, но не из Корзины; без права — отказ", async () => {

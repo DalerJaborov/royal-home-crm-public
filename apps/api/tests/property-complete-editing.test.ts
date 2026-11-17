@@ -1,9 +1,25 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
-import { waitFor } from "./helpers/waitFor.js";
+import { waitFor, waitForSettled } from "./helpers/waitFor.js";
+
+// Публикация после «Готово» по умолчанию настоящая; тест ниже заставляет её бросить исключение.
+const publishFault = vi.hoisted(() => ({ failNext: false }));
+vi.mock("../src/lib/propertyPipeline.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/lib/propertyPipeline.js")>();
+  return {
+    ...original,
+    publishAfterEditingComplete: (...args: Parameters<typeof original.publishAfterEditingComplete>) => {
+      if (publishFault.failNext) {
+        publishFault.failNext = false;
+        return Promise.reject(new Error("тестовый сбой публикации"));
+      }
+      return original.publishAfterEditingComplete(...args);
+    },
+  };
+});
 
 /**
  * «Готово» у монтажёра (спецификация, Этап 7/9): переводит объект в продажу и
@@ -139,17 +155,38 @@ describe("POST /properties/:id/complete-editing", () => {
     const press = () =>
       request(app).post(`/api/v1/properties/${p.id}/complete-editing`).set("Authorization", `Bearer ${editorToken}`);
     const [a, b] = await Promise.all([press(), press()]);
-    expect([a.status, b.status].sort()).toEqual([207, 409]);
+    // Победитель — 200 или 207 (сайт в тесте не настроен), проигравший — 409.
+    const statuses = [a.status, b.status].sort((x, y) => x - y);
+    expect([200, 207]).toContain(statuses[0]);
+    expect(statuses[1]).toBe(409);
     const loser = a.status === 409 ? a : b;
     expect(loser.body.error).toMatch(/Монтаж/);
-    const entries = await waitFor(
-      async () => {
-        const n = await prisma.auditLog.count({ where: { entityId: p.id, action: "PROPERTY_EDITING_DONE" } });
-        return n >= 1 ? n : 0;
-      },
+    // Ждём, пока запись «осядет»: waitFor вернулся бы на первой записи и не поймал бы вторую.
+    await waitFor(
+      async () => (await prisma.auditLog.count({ where: { entityId: p.id, action: "PROPERTY_EDITING_DONE" } })) >= 1,
       { label: "запись PROPERTY_EDITING_DONE в журнале действий" }
     );
+    const entries = await waitForSettled(() =>
+      prisma.auditLog.count({ where: { entityId: p.id, action: "PROPERTY_EDITING_DONE" } })
+    );
     expect(entries).toBe(1);
+  });
+
+  it("публикация после «Готово» бросила исключение — объект всё равно в продаже, ответ 207 с siteSyncError, сбой в журнале", async () => {
+    const p = await makeProperty();
+    await addSixPhotos(p.id);
+    publishFault.failNext = true;
+    const res = await request(app)
+      .post(`/api/v1/properties/${p.id}/complete-editing`)
+      .set("Authorization", `Bearer ${editorToken}`);
+    expect(res.status).toBe(207);
+    expect(res.body.status).toBe("AVAILABLE");
+    expect(res.body.siteSyncError).toMatch(/в продаже, но публикация на сайте не прошла/);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).status).toBe("AVAILABLE");
+    const logged = await waitFor(() =>
+      prisma.errorLog.findFirst({ where: { message: { contains: `Объект ${p.id}: публикация после «Готово» упала` } } })
+    );
+    expect(logged?.message).toContain("тестовый сбой публикации");
   });
 
   it("вне PROPERTY_PIPELINE_STATUSES объект больше не считается в лимите активных (место освобождено)", async () => {

@@ -107,21 +107,34 @@ export async function loadPipelineDeadlines(): Promise<PipelineDeadlines> {
  *  сервер считали по одному правилу. Реэкспорт: импорты по коду не трогаем. */
 export { MIN_PROPERTY_PHOTOS };
 
-export function blockersForSale(property: { instagramUrl: string | null; photoCount: number }): string[] {
-  const blockers: string[] = [];
-  if (property.photoCount < MIN_PROPERTY_PHOTOS) {
-    blockers.push(`фото меньше минимума (${property.photoCount} из ${MIN_PROPERTY_PHOTOS})`);
-  }
-  // Пустое поле и заполненное «не тем» — РАЗНЫЕ сообщения, и это не придирка к
+/** Коды причин, по которым объект не выходит в продажу. Условия живут ТОЛЬКО здесь: тексты экрана
+ *  (`blockersForSale`) и советы помощнику (`saleBlockerAdvice`, lib/propertyCompleteEditing.ts)
+ *  строятся по этим кодам, а не повторяют проверки. */
+export type SaleBlockerCode = "PHOTOS_BELOW_MIN" | "NO_INSTAGRAM_LINK" | "LINK_NOT_INSTAGRAM";
+
+export function saleBlockerCodes(property: { instagramUrl: string | null; photoCount: number }): SaleBlockerCode[] {
+  const codes: SaleBlockerCode[] = [];
+  if (property.photoCount < MIN_PROPERTY_PHOTOS) codes.push("PHOTOS_BELOW_MIN");
+  // Пустое поле и заполненное «не тем» — РАЗНЫЕ причины, и это не придирка к
   // словам. Общее «нет ссылки» на карточке, где поле на глазах заполнено, уже
   // отправляло владельца заполнять заполненное (см. историю в lib/instagramLink.ts).
   const link = property.instagramUrl?.trim();
-  if (!link) {
-    blockers.push("нет ссылки на видео-обзор в Instagram");
-  } else if (!isInstagramLink(link)) {
-    blockers.push("в поле видео-обзора ссылка не на Instagram — обзор должен быть опубликован в Instagram");
-  }
-  return blockers;
+  if (!link) codes.push("NO_INSTAGRAM_LINK");
+  else if (!isInstagramLink(link)) codes.push("LINK_NOT_INSTAGRAM");
+  return codes;
+}
+
+export function blockersForSale(property: { instagramUrl: string | null; photoCount: number }): string[] {
+  return saleBlockerCodes(property).map((code) => {
+    switch (code) {
+      case "PHOTOS_BELOW_MIN":
+        return `фото меньше минимума (${property.photoCount} из ${MIN_PROPERTY_PHOTOS})`;
+      case "NO_INSTAGRAM_LINK":
+        return "нет ссылки на видео-обзор в Instagram";
+      case "LINK_NOT_INSTAGRAM":
+        return "в поле видео-обзора ссылка не на Instagram — обзор должен быть опубликован в Instagram";
+    }
+  });
 }
 
 /** Состояния конвейера — множеством, чтобы проверка «объект ещё готовится» была
