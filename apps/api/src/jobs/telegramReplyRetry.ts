@@ -8,7 +8,7 @@ import { sendPushToAgents } from "../push.js";
 import { OPERATOR_REPLY_PAUSE_MS } from "../lib/conversationDelivery.js";
 import type { ChatMessage } from "../ai/client.js";
 import type { LeadDraft } from "../ai/leadDraft.js";
-import { runQualifyTurn } from "../ai/leadQualifier.js";
+import { runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { botAbilitiesOf, loadBotCapabilities } from "../messengers/botCapabilities.js";
 import { finishTelegramQualifyTurn } from "../telegram/bot.js";
 import type { JobHandler } from "./registry.js";
@@ -50,7 +50,7 @@ export const telegramReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
   backoff: aiReplyRetryBackoffMs,
   // Ход бота: окно модели до 75 с плюс подготовка — минуты общего срока мало.
   timeoutMs: BOT_TURN_JOB_TIMEOUT_MS,
-  async run(payload) {
+  async run(payload, context) {
     const conversation = await prisma.telegramConversation.findUnique({
       where: { id: payload.conversationId },
       select: {
@@ -89,7 +89,7 @@ export const telegramReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
     const capabilities = await loadBotCapabilities();
     const abilities = botAbilitiesOf(capabilities);
 
-    const result = await runQualifyTurn(history, draft, {
+    const result = await runLegacyQualifyTurn(history, draft, {
       images: [],
       abilities,
       conversationId: conversation.id,
@@ -97,7 +97,9 @@ export const telegramReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       // память бота работала бы «в основном режиме, но не при повторе».
       contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
       phoneKnown,
-    });
+    }, { channel: "TELEGRAM", repeat: "retry", // a repeat of an already-shadowed turn (the core runs again in `core` mode)
+      // the live turn was run 1: at most 3 core runs per customer message, up to 4 paid calls each (CHANNEL_CORE_MAX_ATTEMPTS)
+      ...(context ? { attempt: context.attempt + 1 } : {}) });
     // Модель всё ещё лежит — исключение отдаёт задание очереди на следующую
     // ступень лесенки (см. aiReplyRetryPolicy.ts).
     if (!result) throw new Error("ИИ всё ещё недоступен");

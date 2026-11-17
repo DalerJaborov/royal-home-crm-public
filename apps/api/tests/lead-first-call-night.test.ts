@@ -2,9 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
-import { penalizeMissedFirstCalls, firstCallCandidateWindow, remindDueFirstCalls } from "../src/leads.js";
+import { handleMissedFirstCalls, firstCallCandidateWindow, remindDueFirstCalls } from "../src/leads.js";
 import { closedMsBeforeDue } from "../src/services/leads/shared.js";
 import { dushanbeInputToDate } from "../src/lib/dushanbeTime.js";
+import { missedFirstCallMarks } from "./helpers/missedFirstCall.js";
 
 /**
  * Срок первого звонка стоит ночью (23.09.2026, проверка раздачи, пункт 10).
@@ -46,8 +47,8 @@ async function makeAcceptedLead(name: string, acceptedAt: Date) {
   return c;
 }
 
-const penalized = (clientId: string) =>
-  prisma.royalScoreEvent.count({ where: { sourceId: { startsWith: `call-missed-${clientId}-` } } });
+/** Крон признал срыв первого звонка (до 16.11.2026 — строка штрафа, теперь запись в хронологии). */
+const penalized = missedFirstCallMarks;
 
 describe("сколько срок стоит ночью (closedMsBeforeDue)", () => {
   it("днём срок не стоит", () => {
@@ -99,20 +100,20 @@ describe("правило первого звонка на краях дня", ()
 
   it("принят в 07:00: в 10:05 штрафа нет, в 10:20 есть", async () => {
     const lead = await makeAcceptedLead("Принят ночью", at(DAY2, "07:00"));
-    await penalizeMissedFirstCalls(at(DAY2, "10:05"));
+    await handleMissedFirstCalls(at(DAY2, "10:05"));
     expect(await penalized(lead.id)).toBe(0);
-    await penalizeMissedFirstCalls(at(DAY2, "10:20"));
+    await handleMissedFirstCalls(at(DAY2, "10:20"));
     expect(await penalized(lead.id)).toBe(1);
   });
 
   it("принят в 20:50 и не прозвонен: утром в 10:10 проверка его видит", async () => {
     const lead = await makeAcceptedLead("Принят вечером", at(DAY1, "20:50"));
     // Вечером срок ещё не вышел: 10 минут до закрытия, остальные 5 — утром.
-    await penalizeMissedFirstCalls(at(DAY1, "20:59"));
+    await handleMissedFirstCalls(at(DAY1, "20:59"));
     expect(await penalized(lead.id)).toBe(0);
-    await penalizeMissedFirstCalls(at(DAY2, "10:02"));
+    await handleMissedFirstCalls(at(DAY2, "10:02"));
     expect(await penalized(lead.id)).toBe(0);
-    await penalizeMissedFirstCalls(at(DAY2, "10:10"));
+    await handleMissedFirstCalls(at(DAY2, "10:10"));
     expect(await penalized(lead.id)).toBe(1);
   });
 

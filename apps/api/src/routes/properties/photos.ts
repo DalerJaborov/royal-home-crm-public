@@ -18,7 +18,6 @@ import { autoApproveIfRawReviewOff } from "../../lib/propertyReview.js";
 import { resyncPhotosIfPublished } from "../../lib/siteSync.js";
 import { logSystemError } from "../../lib/systemError.js";
 import { logAudit } from "../../lib/audit.js";
-import { loadEventPoints, recordScoreEvent } from "../../lib/scoreJournal.js";
 import { requireElevation } from "../../lib/stepUp.js";
 import { enhancePropertyPhoto } from "../../ai/photoEnhance.js";
 import { claimAgentAiAction } from "../../lib/agentAiActionCap.js";
@@ -383,23 +382,9 @@ photosRouter.post("/:id/photos", requireAuth, anyParams(memoryUploadBudget), any
         reviewRejectionVoiceTranscript: null,
       },
     });
-    // На проверку маркетингу несайтовый объект не идёт — ни баллов за доработку,
-    // ни уведомления. Ответ маршрута при этом остаётся прежним (полный список
-    // фотографий ниже): менять его форму ради одной ветки нельзя, клиент обязан
-    // видеть повтор как успех.
-    const responsibleId = property.offSite
-      ? null
-      : property.intakeAgentId ?? property.assignedAgentId ?? property.createdById;
-    if (responsibleId) {
-      const points = await loadEventPoints();
-      recordScoreEvent({
-        agentId: responsibleId,
-        kind: "property_rework_fixed",
-        delta: points.property_rework_fixed,
-        reason: "Новые фото загружены — объект возвращён на проверку",
-        sourceId: `reject-${property.id}-photos-${property.photosRejectionCount}`,
-      });
-    }
+    // Баллы «объект исправлен после возврата» (+2.7, возврат 90% штрафа за
+    // доработку) сняты 16.11.2026 вместе с самим штрафом. На проверку маркетингу
+    // несайтовый объект не идёт — уведомления нет.
     // Симметрично видео-автовозврату (см. videoAutoRevert в PATCH /:id ниже): маркетинг
     // должен узнать, что появилась работа, а не выяснять это, заглянув в список руками.
     if (!property.offSite) {

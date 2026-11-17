@@ -36,7 +36,8 @@ describe("Pult contact reminders", () => {
     expect(html).toContain('href="/calls"');
     expect(html).toContain(">3<");
     expect(html).toContain("Первое касание — вчера");
-    expect(html).toContain("Медиана 8,5 мин · без касания: 2");
+    expect(html).toContain("Медиана 8,5 мин");
+    expect(html).not.toContain("без касания");
     const noAccess = renderToStaticMarkup(<MemoryRouter><PultContactReminders hero={hero} canCalls={false} canClients={false} /></MemoryRouter>);
     expect(noAccess).toBe("");
   });

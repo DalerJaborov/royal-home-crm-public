@@ -2,10 +2,12 @@ import { z } from "zod";
 import { contactProfileForPrompt } from "../lib/contactProfileMemory.js";
 import { prisma } from "../db.js";
 import { logSystemError } from "../lib/systemError.js";
+import { alertChannelStaff } from "../lib/channelStaffAlert.js";
+import { telegramDirectBotReplyEnabled } from "../lib/customerAgentChannelSwitch.js";
 import { describeError } from "../lib/describeError.js";
 import type { ChatMessage } from "../ai/client.js";
 import type { LeadDraft } from "../ai/leadDraft.js";
-import { runQualifyTurn } from "../ai/leadQualifier.js";
+import { runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { botAbilitiesOf, loadBotCapabilities } from "../messengers/botCapabilities.js";
 import { finishTelegramDirectQualifyTurn, isTelegramDirectMessagesEnabled } from "../messengers/telegramDirectMessages.js";
 import { isOperatorPauseActive } from "../lib/conversationState.js";
@@ -31,7 +33,7 @@ export const telegramDirectReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
   // мало, удавшийся ход засчитывался сорвавшейся попыткой (№169 ночной
   // проверки 24.09). Тот же срок, что у telegramReplyRetry/aiReplyRetry.
   timeoutMs: BOT_TURN_JOB_TIMEOUT_MS,
-  async run(payload) {
+  async run(payload, context) {
     const conversation = await prisma.telegramDirectConversation.findUnique({
       where: { id: payload.conversationId },
       select: {
@@ -56,6 +58,14 @@ export const telegramDirectReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
      */
     if (await isOperatorPauseActive(conversation.pausedUntil, null, conversation.clientId)) return;
     if (!(await isTelegramDirectMessagesEnabled())) return;
+    // Auto-reply switched off (TELEGRAM_DIRECT_BOT_REPLY=off): a queued retry tells a person instead of answering late.
+    if (!telegramDirectBotReplyEnabled()) {
+      const messages = Array.isArray(conversation.messages) ? conversation.messages as Array<{ role?: unknown; content?: unknown }> : [];
+      const lastUser = [...messages].reverse().find(item => item?.role === "user");
+      await alertChannelStaff({ channel: "TELEGRAM_DIRECT", conversationId: conversation.id,
+        text: typeof lastUser?.content === "string" ? lastUser.content : "", why: "bot_retired" });
+      return;
+    }
     const phoneKnown = await clientPhoneKnownOrDeleted(conversation.clientId);
     if (phoneKnown === "deleted") return;
 
@@ -67,7 +77,7 @@ export const telegramDirectReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
     const capabilities = await loadBotCapabilities();
     const abilities = botAbilitiesOf(capabilities);
 
-    const result = await runQualifyTurn(history, draft, {
+    const result = await runLegacyQualifyTurn(history, draft, {
       images: [],
       abilities,
       conversationId: conversation.id,
@@ -75,7 +85,8 @@ export const telegramDirectReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       // память бота работала бы «в основном режиме, но не при повторе».
       contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
       phoneKnown,
-    });
+    }, { channel: "TELEGRAM_DIRECT", repeat: "retry", // a repeat of an already-shadowed turn; own switch key (review #223 N2)
+      ...(context ? { attempt: context.attempt + 1 } : {}) }); // core: at most 3 runs (up to 4 paid calls each) per message
     if (!result) throw new Error("ИИ всё ещё недоступен");
 
     try {

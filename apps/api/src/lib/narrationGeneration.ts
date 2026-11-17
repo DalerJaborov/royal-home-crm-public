@@ -2,6 +2,7 @@ import { NARRATION_LANGS, NARRATION_VOICE_SAMPLE_TEXT, narrationConfigSchema, na
 import { prisma, type TxClient } from "../db.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
+import { logSystemError } from "./systemError.js";
 import { localVideoDelete, localVideoUpload } from "./localVideoStorage.js";
 import { generateNarrationAudio, narrationFactsCurrent, narrationHash, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 
@@ -27,10 +28,20 @@ export async function narrationQuotaExceededSince(db: Pick<Tx, "propertyNarratio
  */
 type Tx = TxClient;
 
-export async function loadNarrationConfiguration(): Promise<{ config: NarrationConfig; key: string | null }> {
+/**
+ * `unreadable` (17.11.2026): сохранённые настройки есть, но схема их не читает (например, шаблонов больше предела).
+ * Озвучка тогда выглядит ненастроенной — это попадает в журнал ошибок, а сохранение настроек с такой основой
+ * отклоняется (иначе оно молча стёрло бы голоса и шаблоны).
+ */
+export async function loadNarrationConfiguration(): Promise<{ config: NarrationConfig; key: string | null; unreadable: boolean }> {
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { propertyNarrationConfig: true, elevenLabsApiKey: true } });
-  const parsed = narrationConfigSchema.safeParse(settings?.propertyNarrationConfig ?? {});
-  return { config: parsed.success ? parsed.data : { modelId: "", voices: [] }, key: resolveElevenLabsKey(settings?.elevenLabsApiKey) };
+  const raw = settings?.propertyNarrationConfig ?? {};
+  const parsed = narrationConfigSchema.safeParse(raw);
+  const unreadable = !parsed.success;
+  if (!parsed.success) {
+    void logSystemError("api", `Настройки озвучки не читаются, озвучка считается ненастроенной: ${parsed.error.issues.slice(0, 2).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`, { dedupKey: "narration-config-unreadable" });
+  }
+  return { config: parsed.success ? parsed.data : { modelId: "", voices: [] }, key: resolveElevenLabsKey(settings?.elevenLabsApiKey), unreadable };
 }
 
 export function narrationProviderReady(config: NarrationConfig, key: string | null): boolean {
@@ -41,16 +52,18 @@ export function narrationProviderReady(config: NarrationConfig, key: string | nu
  * Расход за сутки по Душанбе: каждая начатая генерация, включая неудачные (деньги могли списаться).
  * Образцы голосов (11.11.2026) — в том же потолке: это та же платная озвучка.
  */
-export async function narrationBudgetUsage(db: Pick<Tx, "propertyNarrationVersion" | "narrationVoiceSample"> = prisma, now = new Date()) {
+export async function narrationBudgetUsage(db: Pick<Tx, "propertyNarrationVersion" | "narrationVoiceSample" | "freeNarration"> = prisma, now = new Date()) {
   const since = dushanbeStartOfToday(now);
-  const [rows, samples] = await Promise.all([
+  const [rows, samples, free] = await Promise.all([
     db.propertyNarrationVersion.findMany({ where: { generationStartedAt: { gte: since } }, select: { script: true, language: true }, take: 5000 }),
     db.narrationVoiceSample.findMany({ where: { generationStartedAt: { gte: since } }, select: { chars: true }, take: 5000 }),
+    // Озвучка свободного текста (16.11.2026) — тот же дневной потолок.
+    db.freeNarration.findMany({ where: { generationStartedAt: { gte: since } }, select: { chars: true }, take: 5000 }),
   ]);
   return {
     // Считаем то, что реально ушло в ElevenLabs: таджикские цифры уже словами (ревью 12.11.2026).
-    usedChars: (rows ?? []).reduce((sum, r) => sum + speechChars(r.script, r.language), 0) + (samples ?? []).reduce((sum, r) => sum + r.chars, 0),
-    usedGenerations: (rows ?? []).length + (samples ?? []).length,
+    usedChars: (rows ?? []).reduce((sum, r) => sum + speechChars(r.script, r.language), 0) + (samples ?? []).reduce((sum, r) => sum + r.chars, 0) + (free ?? []).reduce((sum, r) => sum + r.chars, 0),
+    usedGenerations: (rows ?? []).length + (samples ?? []).length + (free ?? []).length,
   };
 }
 
@@ -59,12 +72,27 @@ export function speechChars(script: string, language: string | null | undefined)
   return narrationSpeechText(script, language === "tg" || language === "ru" ? language : null).length;
 }
 
-/** Под общим замком: две генерации одновременно не проскочат мимо потолка. */
-async function budgetAllows(tx: Tx, chars: number, config: NarrationConfig, now: Date): Promise<boolean> {
+/** Расход свободных текстов («озвучь текст», 16.11.2026) за сутки по Душанбе: своя доля общего потолка. */
+export async function freeNarrationUsage(db: Pick<Tx, "freeNarration">, now = new Date()) {
+  const rows = await db.freeNarration.findMany({ where: { generationStartedAt: { gte: dushanbeStartOfToday(now) } }, select: { chars: true }, take: 5000 });
+  return { usedChars: (rows ?? []).reduce((sum, r) => sum + r.chars, 0), usedGenerations: (rows ?? []).length };
+}
+
+/**
+ * Под общим замком: две генерации одновременно не проскочат мимо потолка.
+ * `freeSharePercent` (озвучка свободного текста): сверх общего потолка эти озвучки ещё и не выедают больше
+ * этой доли знаков и озвучек за сутки, чтобы чужие тексты не оставили озвучку роликов без бюджета.
+ */
+export async function budgetAllows(tx: Tx, chars: number, config: NarrationConfig, now: Date, freeSharePercent?: number): Promise<boolean> {
   await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext('property-narration-budget'))) AS budget_lock`;
   const limits = narrationLimits(config);
   const used = await narrationBudgetUsage(tx, now);
-  return used.usedGenerations + 1 <= limits.dailyGenerations && used.usedChars + chars <= limits.dailyChars;
+  if (!(used.usedGenerations + 1 <= limits.dailyGenerations && used.usedChars + chars <= limits.dailyChars)) return false;
+  if (freeSharePercent === undefined) return true;
+  const free = await freeNarrationUsage(tx, now);
+  const maxChars = Math.floor(limits.dailyChars * freeSharePercent / 100);
+  const maxGenerations = limits.dailyGenerations > 0 ? Math.max(1, Math.floor(limits.dailyGenerations * freeSharePercent / 100)) : 0;
+  return free.usedGenerations + 1 <= maxGenerations && free.usedChars + chars <= maxChars;
 }
 
 export type NarrationGenerationOutcome =

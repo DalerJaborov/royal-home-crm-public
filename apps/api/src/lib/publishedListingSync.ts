@@ -1,5 +1,4 @@
-import { prisma, type TxClient } from "../db.js";
-import type { Property } from "../generated/prisma/client.js";
+import { prisma, type PropertyRecord, type TxClient } from "../db.js";
 import { logSystemError } from "./systemError.js";
 import { formatPrice } from "../ai/seoGenerator.js";
 import { loadMoneyContext, toTjs } from "./money.js";
@@ -11,6 +10,7 @@ import { sendPushToAgent } from "../push.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { CAPTION_FACT_FIELDS, rewriteStoredCaptionAfterEdit } from "./publishedVideoFix.js";
 import { stagePriceCaptionTargets } from "./priceCaptionDelivery.js";
+import { replaceCaptionPriceLines, replacePriceMentions } from "./captionPriceLine.js";
 
 /**
  * Подпись правили руками — цену в ней автоматически не заменить. Тихо оставить
@@ -77,8 +77,8 @@ export interface PriceSyncResult {
  */
 export async function stagePublishedPriceChange(
   tx: TxClient,
-  before: Property,
-  after: Property,
+  before: PropertyRecord,
+  after: PropertyRecord,
   changedFields: readonly string[] = [],
 ): Promise<PriceCaptionStage> {
   let caption = after.reelsCaption;
@@ -94,10 +94,22 @@ export async function stagePublishedPriceChange(
   const money = await loadMoneyContext(tx);
   const oldSitePrice = formatPrice(toTjs(before.price, before.currency, money), "TJS");
   const newSitePrice = formatPrice(toTjs(after.price, after.currency, money), "TJS");
-  const description = after.publishedOnSite && oldSitePrice !== newSitePrice
-    ? after.description?.replaceAll(oldSitePrice, newSitePrice)
-    : after.description;
-  const descriptionChanged = description !== undefined && description !== after.description;
+  // Описание сайта: сначала точная старая сумма, а если её нет (текст писали по
+  // другому курсу или другими словами) — суммы рядом со старой ценой (объект 164,
+  // 15.11.2026). Раньше условие ещё и требовало publishedOnSite: объект, цену
+  // которого правили ДО выхода на сайт, выходил туда со старой ценой в тексте.
+  let description = after.description;
+  if (description && oldSitePrice !== newSitePrice) {
+    if (description.includes(oldSitePrice)) description = description.replaceAll(oldSitePrice, newSitePrice);
+    else {
+      description = replacePriceMentions(
+        description,
+        { tjs: toTjs(before.price, before.currency, money), usd: before.currency === "USD" ? Number(before.price) : null },
+        { tjsText: newSitePrice, usdText: after.currency === "USD" ? formatPrice(Number(after.price), "USD") : null },
+      ).text;
+    }
+  }
+  const descriptionChanged = description != null && description !== after.description;
 
   const oldPrice = buildPriceDisplay(before.price, before.currency, money);
   const newPrice = buildPriceDisplay(after.price, after.currency, money);
@@ -105,7 +117,13 @@ export async function stagePublishedPriceChange(
   let updatedCaption: string | undefined;
   if (caption && oldPrice !== newPrice) {
     if (caption.includes(oldPrice)) updatedCaption = caption.replaceAll(oldPrice, newPrice);
-    else captionNeedsManualFix = !caption.includes(newPrice);
+    else if (!caption.includes(newPrice)) {
+      // Старой суммы дословно нет (курс дня написания, ручная правка пробелов) —
+      // переписываем строку цены по месту. Не нашлась и строка — тогда руками.
+      const byLine = replaceCaptionPriceLines(caption, newPrice);
+      if (byLine.replaced > 0) updatedCaption = byLine.text;
+      else captionNeedsManualFix = true;
+    }
   }
 
   if (updatedCaption !== undefined || descriptionChanged) {
@@ -121,7 +139,7 @@ export async function stagePublishedPriceChange(
 }
 
 /** Price-drop announcements and staff alerts are one-shot effects of a committed edit. */
-export async function reportPublishedPriceChange(before: Property, after: Property, stage: PriceCaptionStage): Promise<PriceSyncResult> {
+export async function reportPublishedPriceChange(before: PropertyRecord, after: PropertyRecord, stage: PriceCaptionStage): Promise<PriceSyncResult> {
   const result: PriceSyncResult = {
     updated: [], failed: [], queued: stage.queued, manual: stage.manual,
     skipped: stage.captionNeedsManualFix ? "подпись правили руками — старой цены в ней нет, пост остался как был" : null,

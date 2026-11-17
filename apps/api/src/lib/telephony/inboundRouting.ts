@@ -3,7 +3,6 @@ import { logSystemError } from "../systemError.js";
 import { describeError } from "../describeError.js";
 import { reactivateClientFromLost } from "../clientLifecycle.js";
 import { returningAgentStillAvailable } from "../returningClientRouting.js";
-import { returnDeferredClientEarly } from "../deferredClients.js";
 import { amiAction, loadAmiCredentials, withAmiConnection, type AmiCredentials } from "./amiClient.js";
 import {
   agentDeviceOnline,
@@ -185,8 +184,13 @@ export const ROUTE_SKIP_TEXT: Record<RouteSkipReason, string> = {
   redirect_failed: "станция отказала в переводе",
 };
 
-/** Состояния клиента, при которых звонок агенту не адресуется (см. decideRoute). */
-const CLOSED_STATUSES = new Set(["DEAL_CLOSED", "LOST", "ARCHIVED"]);
+/**
+ * Состояния клиента, при которых звонок агенту не адресуется (см. decideRoute).
+ * Закрытая сделка и Архив. «Потерянных» больше нет (владелец 16.11.2026) —
+ * бывший потерянный звонит своему агенту. Архив владелец не трогал: это та же
+ * закрытая карточка (он считает его корзиной), звонок по ней идёт в очередь.
+ */
+const CLOSED_STATUSES = new Set(["DEAL_CLOSED", "ARCHIVED"]);
 
 /**
  * Карточка звонящего в том виде, в каком её видит решение. Все поля читаются из
@@ -266,21 +270,10 @@ export function decideRoute(candidate: RouteCandidate): RouteOutcome {
    */
   if (!client.acceptedAt) return { routed: false, reason: "lead_not_accepted" };
   /**
-   * Закрытые и потерянные не звонят своему бывшему агенту: сделка сдана, а LOST —
-   * настоящая потеря клиента (решение человека после показа, см.
-   * lib/clientTransfer.ts, либо ручная правка), а не техническая пауза. Такой
-   * клиент распределяется заново, и решать это должен человек в очереди.
-   *
-   * UNRESPONSIVE и COLD здесь НЕ перечислены нарочно: «клиент остыл» и «до клиента
-   * не дозвонились» — это ровно тот случай, когда его собственный звонок надо
-   * отдать агенту в первую очередь.
-   *
-   * WorkStatus.INACTIVE (владелец 20.08.2026, отмена прежнего правила от
-   * 11.08.2026) — ТОЖЕ переводим агенту напрямую. «Неактивный» — это освобождённый
-   * слот в лимите (агент сам отложил клиента, или лид, который никто не подхватил
-   * до первого разговора, см. leads.ts), а не решение расстаться: карточка при
-   * этом остаётся закреплена за тем же агентом, и его собственный звонок — именно
-   * то обращение, ради которого слот и держали за ним.
+   * Закрытая сделка или Архив — звонок в очередь: решать, кто теперь
+   * разговаривает с клиентом, должен человек в очереди. Остальные клиенты
+   * (включая бывших «Потерянных» и «Неактивных» — этих состояний нет с
+   * 16.11.2026) звонят своему агенту.
    */
   if (CLOSED_STATUSES.has(client.status)) return { routed: false, reason: "client_closed" };
 
@@ -607,27 +600,6 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
       accept: !!previousAgentId,
     });
     if (reactivated.ok) {
-      const refreshed = await loadRouteClient(request.phone, request.clientId);
-      matchCount = refreshed.matchCount;
-      client = refreshed.client;
-    }
-  }
-
-  /**
-   * РАННИЙ ВОЗВРАТ ИЗ «ОТЛОЖЕННЫХ» ВХОДЯЩИМ ЗВОНКОМ (задача G, план 03-04.09.2026).
-   * decideRoute сам по себе НЕ проверяет workStatus (только status/acceptedAt/
-   * assignedAgent — см. документацию функции выше), поэтому звонок отложенного
-   * клиента и без этой правки ушёл бы напрямую тому же агенту. Но
-   * Client.workStatus остался бы DEFERRED навсегда (слот в лимите не
-   * освобождался бы обратно, а крон позже прислал бы избыточный «возврат по
-   * таймеру») — снимаем отсрочку здесь же, тем же принципом раннего возврата,
-   * что и у сообщений (services/leads/intake.ts), той же функцией
-   * (lib/deferredClients.ts::returnDeferredClientEarly). Агент не меняется —
-   * lastAgentId/requestedAgentStillAvailable здесь не нужны, карточка и так его.
-   */
-  if (client && !client.deletedAt && client.workStatus === "DEFERRED" && request.clientId) {
-    const returned = await returnDeferredClientEarly(request.clientId);
-    if (returned.ok) {
       const refreshed = await loadRouteClient(request.phone, request.clientId);
       matchCount = refreshed.matchCount;
       client = refreshed.client;

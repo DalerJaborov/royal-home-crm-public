@@ -38,7 +38,8 @@ export interface AssistantClientCard {
   name: string;
   /** Телефон в том виде, в каком его вправе видеть вызвавший (маска без права). */
   phone: string;
-  status: string;
+  // Статуса клиента в карточке нет (владелец 17.11.2026: статусы клиента не
+  // показываются нигде) — вид (покупатель/продавец) уже в номере ПК/ПР.
   agent: string | null;
   /** ISO-время последнего контакта или null. */
   lastContactAt: string | null;

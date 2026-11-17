@@ -46,6 +46,9 @@ const COMMENT = /^\s*(?:\/\/|\/\*|\*)/;
 /** `text-[11px]`, `text-[12.5px]` — Tailwind произвольный размер мельче 13px. */
 const TAILWIND_SMALL = /text-\[1[0-2](\.[0-9])?px\]/;
 
+/** `text-xs` — Tailwind 12px (tailwind.config.js размеры не переопределяет; аудит F3-3, 17.11.2026). */
+const TAILWIND_XS = /\btext-xs\b/;
+
 /** `fontSize: 12`, `fontSize: 11.5` — инлайновый стиль мельче 13px. */
 const INLINE_SMALL = /fontSize:\s*1[0-2](\.[0-9])?\b/;
 
@@ -60,10 +63,16 @@ describe("ничего мельче 13px", () => {
       const lines = fs.readFileSync(file, "utf8").split("\n");
       lines.forEach((line, i) => {
         if (COMMENT.test(line)) return;
-        if (TAILWIND_SMALL.test(line)) offenders.push(`${path.relative(SRC, file)}:${i + 1}`);
+        if (TAILWIND_SMALL.test(line) || TAILWIND_XS.test(line)) offenders.push(`${path.relative(SRC, file)}:${i + 1}`);
       });
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("сторож узнаёт класс Tailwind 12px (поломка нарочно)", () => {
+    // Образец собран из частей: целая строка в этом файле сама попала бы в список нарушителей.
+    expect(TAILWIND_XS.test('<span className="text-' + 'xs text-slate-500">')).toBe(true);
+    expect(TAILWIND_XS.test('<span className="text-[13px]">')).toBe(false);
   });
 
   it("ни один экран не задаёт инлайновый fontSize мельче 13px", () => {

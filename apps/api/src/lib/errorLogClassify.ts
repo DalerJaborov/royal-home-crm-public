@@ -140,6 +140,8 @@ export interface ErrorLogGroup {
   message: string;
   url: string | null;
   lastAt: Date;
+  /** Первое появление в окне — видно, что тип тянется с начала недели, а не только «вчера». */
+  firstAt: Date;
   /** Сколько раз одна и та же поломка повторилась в исходном списке. */
   count: number;
   priority: ErrorLogPriority;
@@ -151,9 +153,15 @@ export interface ErrorLogGroup {
 /**
  * Схлопывает пачку строк ErrorLog в уникальные ТИПЫ с count — ровно то, чего не
  * хватало утреннему отчёту: «377 неразобранных» была суммой повторов одной и той
- * же поломки, а не числом разных проблем. Сортировка: свежие сверху,
- * низкоприоритетные («номер без карточки», уже частично дублирует детектор
- * дублей) — в конце, чтобы не оттягивали внимание директора первыми.
+ * же поломки, а не числом разных проблем.
+ *
+ * СОРТИРОВКА ПО ВАЖНОСТИ И ЧИСЛУ, А НЕ ПО СВЕЖЕСТИ (17.11.2026, разбор журнала
+ * прода). Отчёт берёт первые 30 групп; при сортировке «свежие сверху» в эти 30
+ * попадали только типы последних суток (47 строк из 182 за неделю, все за 16.11),
+ * а лиды без агента, Meta 368 и кончившиеся деньги OpenAI за 13–15.11 не видел
+ * никто. Теперь: требующие действия — раньше эксплуатационных, «номер без
+ * карточки» (частично дублирует детектор дублей) — в конце, внутри — по числу
+ * повторов, при равенстве — свежие сверху.
  */
 export function groupErrorLogEntries<T extends GroupableErrorLog>(rows: T[]): ErrorLogGroup[] {
   const groups = new Map<string, ErrorLogGroup>();
@@ -163,12 +171,14 @@ export function groupErrorLogEntries<T extends GroupableErrorLog>(rows: T[]): Er
     if (existing) {
       existing.count += 1;
       if (row.createdAt > existing.lastAt) existing.lastAt = row.createdAt;
+      if (row.createdAt < existing.firstAt) existing.firstAt = row.createdAt;
     } else {
       groups.set(key, {
         source: row.source,
         message: String(row.message).slice(0, 300),
         url: row.url ?? null,
         lastAt: row.createdAt,
+        firstAt: row.createdAt,
         count: 1,
         priority: classifyErrorLog(row.source, row.message),
         lowPriority: isDuplicateLeadSignal(row.message),
@@ -177,6 +187,8 @@ export function groupErrorLogEntries<T extends GroupableErrorLog>(rows: T[]): Er
   }
   return [...groups.values()].sort((a, b) => {
     if (a.lowPriority !== b.lowPriority) return a.lowPriority ? 1 : -1;
+    if (a.priority !== b.priority) return a.priority === "actionable" ? -1 : 1;
+    if (a.count !== b.count) return b.count - a.count;
     return b.lastAt.getTime() - a.lastAt.getTime();
   });
 }

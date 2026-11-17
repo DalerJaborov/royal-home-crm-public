@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CLIENT_SOURCES, EXPENSE_CATEGORIES } from "./enums.js";
+import { expenseVendorSchema } from "./expenseVendors.js";
 export const expenseDateSchema = z.string().regex(/^(19|20|21)\d{2}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/).refine((v) => { const d = new Date(`${v}T00:00:00Z`); return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === v; }, "Некорректная дата");
 export const EXPENSE_PAYMENT_METHODS = ["CASH", "CARD", "BANK", "CARD_DIRECTOR"] as const;
 export const EXPENSE_PERIODS = ["WEEK", "MONTH", "QUARTER", "YEAR"] as const;
@@ -14,6 +15,10 @@ export const expenseWorkspaceFields = {
     categoryId: z.uuid().nullish(),
     currency: z.enum(["TJS", "USD"]).optional(),
     exchangeRate: z.number().positive().max(1000).nullish(),
+    /** Поставщик подписки или счёта (17.11.2026): Gemini, Meta Verified… null — не указан. */
+    vendor: expenseVendorSchema.nullish(),
+    /** Счёт оплачивает ИИ, которым работает CRM (API): снимает оценку этого поставщика за месяц. */
+    coversAiUsage: z.boolean().optional(),
 };
 export const expenseCategorySchema = z.object({
     title: z.string().trim().min(1).max(100), rootCategory: z.enum(EXPENSE_CATEGORIES),
@@ -24,6 +29,8 @@ export const recurringWorkspaceFields = {
     period: z.enum(EXPENSE_PERIODS).optional(), startsOn: expenseDateSchema.nullish(), endsOn: expenseDateSchema.nullish(),
     autoPay: z.boolean().optional(), categoryId: expenseWorkspaceFields.categoryId,
     counterparty: expenseWorkspaceFields.counterparty, paymentMethod: expenseWorkspaceFields.paymentMethod,
+    vendor: expenseWorkspaceFields.vendor,
+    coversAiUsage: expenseWorkspaceFields.coversAiUsage,
 };
 export const recurringOccurrenceSchema = z.object({ dueDate: expenseDateSchema, paymentDate: expenseDateSchema.optional() }).strict();
 export const expensePaymentSchema = z.object({ paymentDate: expenseDateSchema.optional() }).strict();

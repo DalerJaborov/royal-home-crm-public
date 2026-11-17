@@ -7,6 +7,11 @@ import { customerAgentClaimAcceptsPrincipal, customerAgentClaimCurrentTx, type C
 import { loadPublicCustomerPrincipal, revalidateCustomerPrincipal, type CustomerPrincipal } from "./customerPrincipal.js";
 import { pinCustomerAgentTurnTx } from "./customerAgentRevision.js";
 import { customerPropertyEvidenceFromText, mergeCustomerPropertyEvidence } from "./customerPropertyEvidence.js";
+import type { CustomerBurst } from "./customerDeferredInput.js";
+import { customerCaptionReference, type CustomerOwnBrandMarks } from "./customerCaptionReference.js";
+import { logSystemError } from "./systemError.js";
+import { customerCaptionReferenceVerified, loadCustomerOwnBrandMarks } from "./customerOwnBrandMarks.js";
+import type { CustomerAgentMediaPerception } from "../ai/customerAgentMediaPerception.js";
 import { resolveCustomerPropertyEvidence, type CustomerPropertyRegistry } from "./customerPropertyResolver.js";
 import { customerPropertyRegistry, customerPropertyRegistryWithOwnSiteRead } from "./customerPropertyRegistry.js";
 import { createCustomerOwnSiteIdentityReader, customerOwnSiteListingId, type CustomerOwnSiteReadWait } from "./customerOwnSiteIdentity.js";
@@ -32,11 +37,132 @@ export async function enrichCustomerAgentMediaFocus(input: FocusInput): Promise<
   if (!before.snapshot.state.capabilities.publicRead) return { status: "unchanged" };
   const media = await loadCustomerAgentMediaObservation(input.claim);
   if (!media) return { status: "unchanged" };
-  const candidates = customerPropertyEvidenceFromText([media.transcript, media.subject === "listing_card" ? media.readableText : ""].join("\n"));
-  if (candidates.some(item => item.kind === "untrusted_reference" && item.reference === "too_many_references")) return { status: "held", reason: "media_reference_overflow" };
-  const selectors = candidates.filter(item => item.kind === "public_selector");
+  const spoken = customerPropertyEvidenceFromText(media.transcript);
+  if (spoken.some(item => item.kind === "untrusted_reference" && item.reference === "too_many_references")) return { status: "held", reason: "media_reference_overflow" };
+  let printed: number[] = [];
+  try { printed = await customerPerceivedCaptionSelectors(media, await loadCustomerOwnBrandMarks()); }
+  catch (error) {
+    void logSystemError("ai", `Бот не смог прочитать метки компании для скриншота — номер со скриншота не используется: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+      { dedupKey: "customer-burst-references-unreadable", quietPult: true });
+  }
+  const selectors = mergeCustomerPropertyEvidence([spoken.filter(item => item.kind === "public_selector"), printed.map(selectorEvidence)]);
   if (!selectors.length) return { status: "unchanged" };
   return enrichFocus(input, selectors, media.speech === "partial");
+}
+
+const selectorEvidence = (shortId: number): CustomerPropertyEvidence => ({ kind: "public_selector", origin: "message", reference: `short:${shortId}` });
+/** Printed «Объект №N» on a picture (screenshot of our post, listing card): only next to our own mark and only when the
+ * fields it prints (rooms, area, district) match that CRM card (lib/customerCaptionReference.ts). */
+async function customerPerceivedCaptionSelectors(media: Pick<CustomerAgentMediaPerception, "subject" | "readableText">,
+  marks: CustomerOwnBrandMarks): Promise<number[]> {
+  const reference = customerCaptionReference(media.readableText, marks, { listingCard: media.subject === "listing_card" });
+  return reference && await customerCaptionReferenceVerified(reference) ? [reference.shortId] : [];
+}
+async function customerSharedCaptionSelectors(captions: readonly string[], marks: CustomerOwnBrandMarks): Promise<number[]> {
+  const found = new Set<number>();
+  for (const caption of captions) {
+    const reference = customerCaptionReference(caption, marks);
+    if (reference && await customerCaptionReferenceVerified(reference)) found.add(reference.shortId);
+  }
+  return [...found];
+}
+
+/** One input of the current burst (set-aside inputs + the current one) as the object reference sees it. */
+export interface CustomerBurstReference {
+  eventKey: string; order: bigint; media: boolean;
+  /** The input carried a reference of its own at admission (typed number/link, ad, reply, shared publication id). */
+  ownEvidence: boolean;
+  /** Verified caption/screenshot object numbers of this input (own mark + CRM card), and spoken ones. */
+  selectors: readonly number[];
+  /** The numbers came from Meta's caption of a shared post (they travel with that share's own references). */
+  fromCaption: boolean;
+  evidence: readonly CustomerPropertyEvidence[];
+}
+/** What each input of the burst points at. Spoken words count like typed ones; printed text needs our mark. */
+export async function analyzeCustomerBurstReferences(burst: CustomerBurst, current: { eventKey: string; order: string;
+  media: boolean; evidence: readonly CustomerPropertyEvidence[]; captions: readonly string[] }): Promise<CustomerBurstReference[]> {
+  const marks = await loadCustomerOwnBrandMarks();
+  const out: CustomerBurstReference[] = [];
+  for (const input of burst.inputs) {
+    const captioned = await customerSharedCaptionSelectors(input.captions, marks);
+    const spoken = input.observation ? customerPropertyEvidenceFromText(input.observation.transcript)
+      .filter(item => item.kind === "public_selector").map(item => Number(item.reference.replace(/^short:/, ""))) : [];
+    const printed = input.observation ? await customerPerceivedCaptionSelectors(input.observation, marks) : [];
+    out.push({ eventKey: input.eventKey, order: input.order, media: input.mediaCount > 0, ownEvidence: input.evidence.length > 0,
+      selectors: [...new Set([...captioned, ...spoken, ...printed])], fromCaption: captioned.length > 0, evidence: input.evidence });
+  }
+  const captioned = await customerSharedCaptionSelectors(current.captions, marks);
+  out.push({ eventKey: current.eventKey, order: BigInt(current.order), media: current.media, ownEvidence: current.evidence.length > 0,
+    selectors: captioned, fromCaption: captioned.length > 0, evidence: current.evidence });
+  return out;
+}
+
+/** Review #225 N4: a failed read of our marks / CRM cards must not drop the whole customer turn — the model answers as before.
+ * null = «could not read» (a warning goes to the journal); the caller skips the burst focus and the server video answer. */
+export async function safeAnalyzeCustomerBurstReferences(...args: Parameters<typeof analyzeCustomerBurstReferences>): Promise<CustomerBurstReference[] | null> {
+  try { return await analyzeCustomerBurstReferences(...args); }
+  catch (error) {
+    void logSystemError("ai", `Бот не смог прочитать метки компании для подписи/скриншота поста — ход идёт обычным путём: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+      { dedupKey: "customer-burst-references-unreadable", quietPult: true });
+    return null;
+  }
+}
+
+/** A shared post's own references carry its caption number: the resolver falls back to it when the publication is
+ * not in our registry and reports a conflict when they disagree. A CDN-only share (untrusted transport URL) is
+ * replaced by the number. Only with exactly one number. */
+function withCaption(evidence: readonly CustomerPropertyEvidence[], shortId: number): CustomerPropertyEvidence[] {
+  const ref = `short:${shortId}`;
+  let attached = false;
+  const out = evidence.map((item): CustomerPropertyEvidence => {
+    if (item.origin !== "shared_media") return item;
+    if (item.kind === "media" || item.kind === "url") { attached = true; return { ...item, secondaryReference: ref }; }
+    if (item.kind === "untrusted_reference") { attached = true; return { kind: "public_selector", origin: "shared_media", reference: ref }; }
+    return item;
+  });
+  return attached ? mergeCustomerPropertyEvidence([out]) : mergeCustomerPropertyEvidence([out, [{ kind: "public_selector", origin: "shared_media", reference: ref }]]);
+}
+
+/**
+ * The object of the current burst from captions and pictures (16–17.11.2026). The current input wins when it names an
+ * object in the customer's own words; otherwise its shared post's caption; otherwise the set-aside media just before
+ * it (their turns were held for these words before their media focus ran). A reference given AFTER that media keeps
+ * priority. Every failure before the focus write leaves the turn to the model ("unchanged"), never silence.
+ */
+export async function enrichCustomerAgentBurstFocus(input: FocusInput & { references: readonly CustomerBurstReference[] }): ReturnType<typeof enrichCustomerAgentMediaFocus> {
+  const current = input.references.at(-1);
+  if (!current || current.eventKey !== input.ticket.eventKey) return { status: "unchanged" };
+  if (input.ticket.evidence.some(item => item.origin !== "shared_media")) return { status: "unchanged" };
+  if (current.selectors.length) {
+    if (current.selectors.length > 1) return enrichFocus(input, [], true, undefined, { soft: true });
+    return enrichFocus(input, [], false, undefined, { soft: true, evidence: withCaption(input.ticket.evidence, current.selectors[0]) });
+  }
+  if (input.ticket.evidence.length) return { status: "unchanged" };
+  const earlier = input.references.slice(0, -1).filter(item => item.selectors.length);
+  if (!earlier.length) return { status: "unchanged" };
+  const latestOrder = earlier.reduce((max, item) => item.order > max ? item.order : max, earlier[0].order);
+  const focus = await readCustomerPropertyFocus(input.ticket);
+  if (focus?.focus.evidence.length && BigInt(focus.focus.lastEvidenceOrder) > latestOrder) return { status: "unchanged" };
+  const evidence = mergeCustomerPropertyEvidence(earlier.map(item => item.fromCaption && item.selectors.length === 1 && item.evidence.length
+    ? withCaption(item.evidence, item.selectors[0]) : item.selectors.map(selectorEvidence)));
+  if (evidence.some(item => item.kind === "untrusted_reference")) return { status: "unchanged" };
+  return enrichFocus(input, [], false, undefined, { soft: true, evidence });
+}
+
+/**
+ * Is the resolved object one THIS burst pointed at (review #225 H2)? The focus must have been set by an input of
+ * the burst, and no picture/file of the customer that pointed at nothing may follow the last reference: that
+ * picture may show another object. An older focus never answers a fresh question on its own.
+ */
+export function customerBurstFocusFresh(focus: { status: string; eventKey: string } | null | undefined,
+  references: readonly CustomerBurstReference[]): boolean {
+  if (!focus || focus.status !== "resolved" || !references.some(item => item.eventKey === focus.eventKey)) return false;
+  const pointing = references.filter(item => item.ownEvidence || item.selectors.length);
+  const current = references.at(-1);
+  const referenceOrder = pointing.length ? pointing.reduce((max, item) => item.order > max ? item.order : max, pointing[0].order)
+    : current && focus.eventKey === current.eventKey ? current.order : null;
+  if (referenceOrder === null) return false;
+  return !references.some(item => item.media && !item.ownEvidence && !item.selectors.length && item.order > referenceOrder);
 }
 
 type LinkReads = { registry: CustomerPropertyRegistry; wait: CustomerOwnSiteReadWait };
@@ -73,26 +199,29 @@ export async function enrichCustomerAgentSelectionFocus(input: FocusInput): Retu
   return enrichFocus(input, selected.status === "selected" ? [{ kind: "public_selector", origin: "message", reference: `short:${selected.shortId}` }] : [],
     selected.status === "ambiguous", selected.status === "selected" ? selected.assertSourceCurrent : undefined);
 }
+/** `evidence` replaces the merge of the ticket's evidence with `selectors` (a caption attached to its share).
+ * `soft`: a failure BEFORE the focus write leaves the turn to the model ("unchanged") instead of holding it (review #225 L1). */
 async function enrichFocus(input: FocusInput, selectors: CustomerPropertyEvidence[], ambiguous: boolean,
-  assertSourceCurrent?: (tx: TxClient) => Promise<boolean>): ReturnType<typeof enrichCustomerAgentMediaFocus> {
+  assertSourceCurrent?: (tx: TxClient) => Promise<boolean>, options: { evidence?: CustomerPropertyEvidence[]; soft?: boolean } = {}): ReturnType<typeof enrichCustomerAgentMediaFocus> {
+  const held = (reason: string) => options.soft ? { status: "unchanged" as const } : { status: "held" as const, reason };
   const registry = input.linkReads?.registry ?? customerPropertyRegistry, wait = input.linkReads?.wait;
   const alive = () => !wait || !wait.signal.aborted && Date.now() < wait.deadlineAt;
   if ((["eventKey", "order", "scopeKey", "conversationId", "channel", "accountId", "endpointScopeId"] as const)
     .some(key => input.ticket[key] !== input.principal.admission[key]) || !customerAgentClaimAcceptsPrincipal(input.claim, input.principal)) {
-    return { status: "held", reason: "media_focus_original_input_required" };
+    return held("media_focus_original_input_required");
   }
-  if (!alive() || wait && !await wait.assertCurrent()) return { status: "held", reason: "link_focus_context_changed" };
+  if (!alive() || wait && !await wait.assertCurrent()) return held("link_focus_context_changed");
   const before = await revalidateCustomerPrincipal(input.principal);
-  if (before.status !== "current" || !before.snapshot.state.capabilities.publicRead) return { status: "held", reason: "media_focus_context_changed" };
-  const evidence = mergeCustomerPropertyEvidence([input.ticket.evidence, selectors]);
+  if (before.status !== "current" || !before.snapshot.state.capabilities.publicRead) return held("media_focus_context_changed");
+  const evidence = options.evidence ?? mergeCustomerPropertyEvidence([input.ticket.evidence, selectors]);
   const focus = await readCustomerPropertyFocus(input.ticket);
-  if (!focus || BigInt(focus.focus.lastEvidenceOrder) > BigInt(input.ticket.order)) return { status: "held", reason: "media_focus_superseded" };
+  if (!focus || BigInt(focus.focus.lastEvidenceOrder) > BigInt(input.ticket.order)) return held("media_focus_superseded");
   const resolution = ambiguous ? { status: "ambiguous" as const, propertyId: null, candidates: [], reason: "conflict" as const, provenance: evidence }
     : await resolveCustomerPropertyEvidence(evidence, input.ticket, registry);
   const next = customerPropertyFocusSchema.parse({ version: 1, scopeKey: input.ticket.scopeKey, generation: randomUUID(),
     lastEvidenceOrder: input.ticket.order, eventKey: input.ticket.eventKey, status: resolution.status,
     propertyId: resolution.propertyId, evidence });
-  if (!alive() || wait && !await wait.assertCurrent() || (await revalidateCustomerPrincipal(input.principal)).status !== "current") return { status: "held", reason: "media_focus_context_changed" };
+  if (!alive() || wait && !await wait.assertCurrent() || (await revalidateCustomerPrincipal(input.principal)).status !== "current") return held("media_focus_context_changed");
   const changed = await prisma.$transaction(async tx => {
     // Reuse the existing canonical source/native/scope/policy/Inquiry locks and
     // ORIGINAL immutable pin; no second provider operation or controller.
@@ -107,7 +236,7 @@ async function enrichFocus(input: FocusInput, selectors: CustomerPropertyEvidenc
     if (count !== 1) return false;
     return true;
   });
-  if (!changed) return { status: "held", reason: "media_focus_changed" };
+  if (!changed) return held("media_focus_changed");
   const frame = customerPrincipalAuthenticatedInput(input.principal);
   const loaded = frame && await loadPublicCustomerPrincipal({ admission: input.ticket, authenticatedInput: frame, visibility: input.principal.visibility });
   if (!loaded || loaded.status !== "public_only" || !customerAgentClaimAcceptsPrincipal(input.claim, loaded.principal) ||

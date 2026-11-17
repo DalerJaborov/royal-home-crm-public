@@ -4,6 +4,8 @@ import {
   EDITABLE_ROYAL_SCORE_EVENT_GROUPS,
   EDITABLE_SCORE_EVENT_KEYS,
   ROYAL_SCORE_EVENT_GROUPS,
+  COMPENSATION_SCORE_EVENT_KEYS,
+  minScoreEventPoints,
 } from "@royal-home/shared";
 
 /**
@@ -53,19 +55,50 @@ describe("Каталог событий Royal Score", () => {
     expect(onScreen.size).toBe(EDITABLE_SCORE_EVENT_KEYS.length);
   });
 
-  it("два события, из-за которых и заведена проверка, на месте и правятся", () => {
-    expect(EDITABLE_SCORE_EVENT_KEYS).toContain("lead_ignored");
+  it("надбавка за возвращённого клиента на месте и правится", () => {
+    // lead_ignored, второе событие этой проверки, снят 16.11.2026 вместе с
+    // остальными автоматическими штрафами — см. тест ниже.
     expect(EDITABLE_SCORE_EVENT_KEYS).toContain("client_recovered_bonus");
-    expect(DEFAULT_EVENT_POINTS.lead_ignored).toBe(-2);
     expect(DEFAULT_EVENT_POINTS.client_recovered_bonus).toBe(3);
+  });
+
+  /**
+   * АВТОМАТИЧЕСКИХ ШТРАФОВ НЕТ (решение владельца 16.11.2026: модуль и плюсовые
+   * баллы остаются, штрафы убраны). Минус у начисляемого события допустим только
+   * как компенсация уже начисленного плюса (сделку аннулировали — её +10 и
+   * надбавка гасятся), а не как наказание. Новый штраф в каталоге — красный тест:
+   * вернуть его можно только осознанно, дописав сюда с решением владельца.
+   */
+  it("ни одно начисляемое событие не штраф — минус только у компенсации плюса", () => {
+    const COMPENSATIONS = new Set<string>(COMPENSATION_SCORE_EVENT_KEYS);
+    expect([...COMPENSATIONS].sort()).toEqual(["client_recovered_bonus_reversed", "deal_closed_reversed"]);
+    const penalties = EDITABLE_SCORE_EVENT_KEYS.filter(
+      (k) => DEFAULT_EVENT_POINTS[k] < 0 && !COMPENSATIONS.has(k)
+    );
+    expect(penalties).toEqual([]);
+  });
+
+  it("нижняя граница цены: минус только у компенсаций", () => {
+    expect(minScoreEventPoints("deal_closed_reversed")).toBe(-100);
+    expect(minScoreEventPoints("deal_closed")).toBe(0);
+    expect(minScoreEventPoints("call_on_time")).toBe(0);
+  });
+
+  it("снятые штрафы правке не подлежат и стоят 0 — старые строки журнала счёт не тянут", () => {
+    const retired = ROYAL_SCORE_EVENT_GROUPS.flatMap((g) => g.events).filter((e) => !e.editable);
+    for (const e of retired) expect(e.points, `снятый вид ${e.key}`).toBe(0);
+    for (const k of ["lead_ignored", "call_15min_missed", "showing_missed", "inactivity_penalty", "client_lost_agent_fault", "property_rework_fixed"] as const) {
+      expect(EDITABLE_SCORE_EVENT_KEYS).not.toContain(k);
+      expect(DEFAULT_EVENT_POINTS[k]).toBe(0);
+    }
   });
 
   it("устаревшие виды остаются в каталоге, но правке не подлежат", () => {
     // Строки журнала с ними надо уметь прочитать, а кнопка правки была бы
     // кнопкой в никуда: kpi_override запрещён с 03.08.2026 (Fair Play),
-    // lead_missed — старое имя call_15min_missed.
+    // lead_missed — старое имя call_15min_missed (штраф снят 16.11.2026, цена 0).
     expect(DEFAULT_EVENT_POINTS.kpi_override).toBe(0);
-    expect(DEFAULT_EVENT_POINTS.lead_missed).toBe(-5);
+    expect(DEFAULT_EVENT_POINTS.lead_missed).toBe(0);
     expect(EDITABLE_SCORE_EVENT_KEYS).not.toContain("kpi_override");
     expect(EDITABLE_SCORE_EVENT_KEYS).not.toContain("lead_missed");
   });

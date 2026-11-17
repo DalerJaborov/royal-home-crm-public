@@ -9,7 +9,7 @@ import type { Request } from "express";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { dushanbeDateString } from "../../lib/dushanbeTime.js";
-import { CLIENT_KIND_LABELS, CLIENT_PHONE_MASK_CHAR, formatClientCode, INACTIVE_REASON_LABELS, type ClientKind, type InactiveReason } from "@royal-home/shared";
+import { CLIENT_KIND_LABELS, CLIENT_PHONE_MASK_CHAR, formatClientCode, type ClientKind } from "@royal-home/shared";
 import { can } from "../../auth/middleware.js";
 import { clientWriteDenied } from "../../lib/clientWriteAccess.js";
 import { HIDDEN_ORIGIN_NAME, withHiddenOrigin } from "../../lib/clientOrigin.js";
@@ -139,6 +139,12 @@ export function presentClient<
     // же маской. Отдать их открытыми значило бы обойти clients.viewPhone списком:
     // права на номер нет, а позвонить всё равно можно.
     ...(client.extraPhones ? { extraPhones: client.extraPhones.map(maskPhone) } : {}),
+    // НИК И ЧАТ TELEGRAM — ТАКОЙ ЖЕ КОНТАКТ, КАК НОМЕР (аудит 17.11.2026, S2):
+    // по `@нику` клиенту пишут напрямую, мимо CRM, так же как звонят по номеру.
+    // Кому номер закрыт (нет права или лид ещё не принят) — закрыт и ник. Экран
+    // эти поля не показывает вовсе, поэтому прятать их ничего не ломает.
+    ...("telegramUsername" in client ? { telegramUsername: null } : {}),
+    ...("telegramChatId" in client ? { telegramChatId: null } : {}),
     // НОМЕР ВНУТРИ ИМЕНИ (владелец 20.08.2026, живой случай: агент видел
     // «Входящий +992910001003»). Карточки незнакомых звонивших CRM заводит сама,
     // и до сегодняшнего дня клала в имя ОТКРЫТЫЙ номер — маскировка поля `phone`
@@ -289,16 +295,12 @@ export function describePhoneConflicts(conflicts: PhoneConflict[], canSeePhone: 
  *
  * Порядок проверок — от самого «глухого» состояния к самому мягкому: Корзина
  * возвращается первой, потому что удалённая карточка может одновременно быть
- * и INACTIVE, и LOST — тексту нужен один самый важный повод, не все сразу.
+ * и с закрытой сделкой — тексту нужен один самый важный повод, не все сразу.
  */
 export type HiddenReasonKind =
   | "trashed"
   | "other"
-  | "inactive"
-  | "deferred"
-  | "lost"
   | "dealClosed"
-  | "archived"
   | "escalated"
   | "securityReview";
 
@@ -310,20 +312,12 @@ export interface HiddenReasonInfo {
   detail?: string;
 }
 
-/** Что видит агент после «отложить клиента»: дата возврата — по Душанбе, не по UTC. */
-export function deferredReturnMessage(deferredUntil: Date): string {
-  return `Клиент отложен — вернётся в работу автоматически ${dushanbeDateString(deferredUntil)} или раньше, если напишет сам`;
-}
-
 export function computeHiddenReason(client: {
   deletedAt: Date | null;
   deletedByName?: string | null;
   kind: ClientKind;
   status: string;
   workStatus: string;
-  inactiveReasonKey?: string | null;
-  deferredUntil?: Date | null;
-  deferredReason?: string | null;
   escalatedAt?: Date | null;
   acceptedAt: Date | null;
   securityReview?: string | null;
@@ -343,33 +337,14 @@ export function computeHiddenReason(client: {
   if (canViewInvestigations(viewerRole) && client.securityReview && client.securityReview !== "CLEARED") {
     return { kind: "securityReview", label: "На проверке СБ", detail: "Разбирает служба безопасности" };
   }
-  if (client.status === "LOST") {
-    return { kind: "lost", label: "Потерян", detail: "Раздел «Потерянные» — предел передач или отказ" };
-  }
   if (client.status === "DEAL_CLOSED") {
     return { kind: "dealClosed", label: "Сделка закрыта" };
-  }
-  if (client.status === "ARCHIVED") {
-    return { kind: "archived", label: "В архиве" };
   }
   if (client.escalatedAt && !client.acceptedAt) {
     return { kind: "escalated", label: "Эскалирован руководителю", detail: "Никто не принял вовремя — решает руководитель" };
   }
-  if (client.workStatus === "DEFERRED") {
-    return {
-      kind: "deferred",
-      label: "Отложен",
-      detail: client.deferredUntil
-        ? `До ${dushanbeDateString(client.deferredUntil)}${client.deferredReason ? `: ${client.deferredReason}` : ""}`
-        : client.deferredReason ?? undefined,
-    };
-  }
-  if (client.workStatus === "INACTIVE") {
-    const reasonLabel = client.inactiveReasonKey
-      ? INACTIVE_REASON_LABELS[client.inactiveReasonKey as InactiveReason] ?? client.inactiveReasonKey
-      : undefined;
-    return { kind: "inactive", label: "Неактивен", detail: reasonLabel };
-  }
+  // «Потерян», «В архиве», «Отложен», «Неактивен» убраны 16.11.2026 вместе с
+  // самими состояниями (владелец: «ничего лишнего»).
   return null;
 }
 

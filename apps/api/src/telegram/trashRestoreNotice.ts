@@ -171,7 +171,7 @@ export async function handleTrashRestoreCallback(query: TelegramCallbackQuery): 
       return true;
     }
     if (!can("clients.delete")) {
-      await answerCallbackQuery(query.id, "Восстановить клиента может директор или администратор");
+      await answerCallbackQuery(query.id, "Восстановить клиента может РОП, директор или администратор");
       return true;
     }
     const result = await restoreClientFromTrash(entityId, clicker.id);

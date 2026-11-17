@@ -209,12 +209,6 @@ export function DirectorHome() {
               />
               <Tile
                 href="/oversight"
-                tone={control.atLimit.count > 0 ? "pink" : "aqua"}
-                value={control.atLimit.count}
-                label="на лимите нагрузки"
-              />
-              <Tile
-                href="/oversight"
                 tone={control.silentAfterShowing.count > 0 ? "pink" : "lime"}
                 value={control.silentAfterShowing.count}
                 label="без ответа после показа"

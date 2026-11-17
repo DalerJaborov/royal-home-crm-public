@@ -9,6 +9,8 @@ import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
 import { customerMemoryFenceMatches, minimizeCustomerAgentMemoryText } from "./customerAgentVerifiedContext.js";
 import { NEWER_INPUT_PENDING, NEWER_INPUT_RESUMED } from "./customerNewerInboxInput.js";
+import type { CustomerPropertyEvidence } from "@royal-home/shared";
+import type { CustomerAgentMediaPerception } from "../ai/customerAgentMediaPerception.js";
 
 /** How far back a deferred question still belongs to the SAME customer turn. */
 const CARRY_WINDOW_MS = 10 * 60_000;
@@ -33,64 +35,101 @@ export function composeCarriedInput(pieces: readonly string[], maxChars: number 
   return kept.join("\n");
 }
 
-/** Text of the earlier inputs of this customer that were put aside as
- * `newer_input_pending` and never answered (nothing planned after them), in
- * chronological order. F12 (23.10.2026): a deferred question used to vanish —
- * public_envelope has no memory at all, and even a protected turn only saw it as
- * history, not as part of what the customer is asking NOW. Read-only; neither
- * renews the old input's age nor grants anything. Historical content is minimized
- * exactly like remembered turns; media content crosses only as a kind marker
- * (plus the stored transcript when BOTH inputs are protected_namespace). */
-export async function loadDeferredCustomerInput(principal: CustomerPrincipal): Promise<string> {
+type DeferredRow = { eventKey: string; order: bigint; payloadHash: string; agentRevisionId: string | null; providerOperationId: string | null;
+  mediaObservationVersion: number | null; mediaObservationCiphertext: string | null; mediaObservedAt: Date | null };
+type DeferredInput = { row: DeferredRow; payload: ReturnType<typeof decryptCustomerIngressEnvelope>["payload"];
+  prior: ReturnType<typeof decryptCustomerFinalOrigin>["input"]; current: NonNullable<ReturnType<typeof inspectAuthenticatedCustomerInput>> };
+
+/** The earlier inputs of this customer that were put aside as `newer_input_pending`
+ * and never answered (nothing planned after them), oldest first, each verified
+ * against its own sealed origin and the current fence. Read-only; ONE reader for
+ * both uses below, so the carried words and the carried media reference always
+ * come from the same verified inputs. */
+async function readDeferredCustomerInputs(principal: CustomerPrincipal): Promise<DeferredInput[]> {
+  const frame = customerPrincipalAuthenticatedInput(principal), current = frame && inspectAuthenticatedCustomerInput(frame);
+  if (!current || current.provenance !== "meta_signature" || principal.visibility !== "private_dm") return [];
+  const scope = { conversationId: principal.scope.conversationId, originalConversationId: principal.scope.conversationId,
+    scopeKey: principal.scope.scopeKey, endpointScopeId: principal.scope.endpointScopeId, tombstonedAt: null };
+  const currentOrder = BigInt(principal.admission.order);
+  // Anything planned after a deferred input answered the conversation already.
+  const barrier = await prisma.customerPropertyIngressTicket.findFirst({
+    where: { ...scope, order: { lt: currentOrder }, processingState: "PLANNED" }, orderBy: { order: "desc" }, select: { order: true } });
+  const rows = await prisma.customerPropertyIngressTicket.findMany({ where: { ...scope,
+    order: { lt: currentOrder, ...(barrier ? { gt: barrier.order } : {}) }, processingState: "HELD", errorCode: { in: [NEWER_INPUT_PENDING, NEWER_INPUT_RESUMED] },
+    plannedAt: null, payloadVersion: 1, originVersion: 1, outboxParts: { none: {} },
+    receivedAt: { gte: new Date(current.issuedAt - CARRY_WINDOW_MS) } },
+    orderBy: { order: "desc" }, take: CARRY_MAX_TICKETS, select: { eventKey: true, order: true, scopeKey: true, endpointScopeId: true,
+      payloadCiphertext: true, payloadHash: true, originCiphertext: true, receivedAt: true, agentRevisionId: true,
+      providerOperationId: true, mediaObservationVersion: true, mediaObservationCiphertext: true, mediaObservedAt: true } });
+  const inputs: DeferredInput[] = [];
+  for (const row of [...rows].reverse()) {
+    if (!row.payloadCiphertext || !row.payloadHash || !row.originCiphertext || !row.endpointScopeId) continue;
+    try {
+      const envelope = decryptCustomerIngressEnvelope({ version: 1, eventKey: row.eventKey, order: row.order.toString(),
+        scopeKey: row.scopeKey, endpointScopeId: row.endpointScopeId, payloadHash: row.payloadHash }, row.payloadCiphertext);
+      const origin = decryptCustomerFinalOrigin(row.originCiphertext), prior = origin.input;
+      if (origin.eventKey !== row.eventKey || origin.order !== row.order.toString() || origin.scopeKey !== row.scopeKey ||
+          origin.originalConversationId !== principal.scope.conversationId || origin.payloadHash !== row.payloadHash ||
+          prior.provenance !== "meta_signature" || prior.channel !== current.channel || prior.peer !== current.peer ||
+          prior.accountExternalId !== current.accountExternalId || prior.issuerAccountId !== current.issuerAccountId ||
+          prior.issuerEndpointScopeId !== current.issuerEndpointScopeId || prior.issuedAt !== row.receivedAt.getTime() ||
+          prior.inputText !== envelope.payload.inputText || prior.eventId !== envelope.payload.eventId ||
+          envelope.payload.observations.providerEcho || envelope.payload.observations.referralOnly ||
+          envelope.payload.observations.classifier?.bareTemplateEcho === true ||
+          !customerMemoryFenceMatches(prior.acceptedFence, principal.authority.fence)) continue;
+      inputs.push({ row: { ...row, payloadHash: row.payloadHash }, payload: envelope.payload, prior, current });
+    } catch { /* A corrupt or unverifiable earlier input is simply not carried. */ }
+  }
+  return inputs;
+}
+function deferredObservation(input: DeferredInput): CustomerAgentMediaPerception | null {
+  const row = input.row;
+  if (row.mediaObservationVersion !== 1 || !row.mediaObservationCiphertext || !row.mediaObservedAt || !row.agentRevisionId || !row.providerOperationId) return null;
+  return decodeCustomerAgentMediaObservation(row.mediaObservationCiphertext, { version: 1, eventKey: row.eventKey,
+    payloadHash: row.payloadHash, agentRevisionId: row.agentRevisionId, providerOperationId: row.providerOperationId,
+    observedAt: row.mediaObservedAt.getTime() });
+}
+
+/** One set-aside input of the current burst, as the bot turn needs it. `ownText` is the customer's own typed words
+ * (never a service marker or a media transcript); `observation` is what the bot perceived in its media, if stored. */
+export interface CustomerBurstInput {
+  eventKey: string; order: bigint; ownText: string; mediaCount: number; captions: readonly string[];
+  evidence: readonly CustomerPropertyEvidence[]; observation: CustomerAgentMediaPerception | null;
+}
+export interface CustomerBurst { inputs: readonly CustomerBurstInput[]; carried: string }
+
+/** The set-aside inputs of this burst (readDeferredCustomerInputs), read ONCE per turn: the carried words for the model
+ * and the media/caption material for the object reference come from the same verified inputs.
+ * F12 (23.10.2026): a deferred question used to vanish — public_envelope has no memory at all, and even a protected
+ * turn only saw it as history, not as part of what the customer is asking NOW. Read-only; neither renews the old
+ * input's age nor grants anything. Carried content is minimized exactly like remembered turns; media content crosses
+ * only as a kind marker (plus the stored transcript when BOTH inputs are protected_namespace). */
+export async function loadCustomerBurst(principal: CustomerPrincipal): Promise<CustomerBurst> {
   try {
-    const frame = customerPrincipalAuthenticatedInput(principal), current = frame && inspectAuthenticatedCustomerInput(frame);
-    if (!current || current.provenance !== "meta_signature" || principal.visibility !== "private_dm") return "";
-    const scope = { conversationId: principal.scope.conversationId, originalConversationId: principal.scope.conversationId,
-      scopeKey: principal.scope.scopeKey, endpointScopeId: principal.scope.endpointScopeId, tombstonedAt: null };
-    const currentOrder = BigInt(principal.admission.order);
-    // Anything planned after a deferred input answered the conversation already.
-    const barrier = await prisma.customerPropertyIngressTicket.findFirst({
-      where: { ...scope, order: { lt: currentOrder }, processingState: "PLANNED" }, orderBy: { order: "desc" }, select: { order: true } });
-    const rows = await prisma.customerPropertyIngressTicket.findMany({ where: { ...scope,
-      order: { lt: currentOrder, ...(barrier ? { gt: barrier.order } : {}) }, processingState: "HELD", errorCode: { in: [NEWER_INPUT_PENDING, NEWER_INPUT_RESUMED] },
-      plannedAt: null, payloadVersion: 1, originVersion: 1, outboxParts: { none: {} },
-      receivedAt: { gte: new Date(current.issuedAt - CARRY_WINDOW_MS) } },
-      orderBy: { order: "desc" }, take: CARRY_MAX_TICKETS, select: { eventKey: true, order: true, scopeKey: true, endpointScopeId: true,
-        payloadCiphertext: true, payloadHash: true, originCiphertext: true, receivedAt: true, agentRevisionId: true,
-        providerOperationId: true, mediaObservationVersion: true, mediaObservationCiphertext: true, mediaObservedAt: true } });
-    const pieces: string[] = [];
-    for (const row of [...rows].reverse()) {
-      if (!row.payloadCiphertext || !row.payloadHash || !row.originCiphertext || !row.endpointScopeId) continue;
+    const pieces: string[] = [], inputs: CustomerBurstInput[] = [];
+    for (const input of await readDeferredCustomerInputs(principal)) {
       try {
-        const envelope = decryptCustomerIngressEnvelope({ version: 1, eventKey: row.eventKey, order: row.order.toString(),
-          scopeKey: row.scopeKey, endpointScopeId: row.endpointScopeId, payloadHash: row.payloadHash }, row.payloadCiphertext);
-        const origin = decryptCustomerFinalOrigin(row.originCiphertext), prior = origin.input;
-        if (origin.eventKey !== row.eventKey || origin.order !== row.order.toString() || origin.scopeKey !== row.scopeKey ||
-            origin.originalConversationId !== principal.scope.conversationId || origin.payloadHash !== row.payloadHash ||
-            prior.provenance !== "meta_signature" || prior.channel !== current.channel || prior.peer !== current.peer ||
-            prior.accountExternalId !== current.accountExternalId || prior.issuerAccountId !== current.issuerAccountId ||
-            prior.issuerEndpointScopeId !== current.issuerEndpointScopeId || prior.issuedAt !== row.receivedAt.getTime() ||
-            prior.inputText !== envelope.payload.inputText || prior.eventId !== envelope.payload.eventId ||
-            envelope.payload.observations.providerEcho || envelope.payload.observations.referralOnly ||
-            envelope.payload.observations.classifier?.bareTemplateEcho === true ||
-            !customerMemoryFenceMatches(prior.acceptedFence, principal.authority.fence)) continue;
-        const kinds = customerDmAttachmentInput(envelope.payload)?.kinds ?? [];
-        let transcript = "";
-        if (prior.assurance === "protected_namespace" && current.assurance === "protected_namespace" &&
-            row.mediaObservationVersion === 1 && row.mediaObservationCiphertext && row.mediaObservedAt && row.agentRevisionId && row.providerOperationId) {
-          transcript = decodeCustomerAgentMediaObservation(row.mediaObservationCiphertext, { version: 1, eventKey: row.eventKey,
-            payloadHash: row.payloadHash, agentRevisionId: row.agentRevisionId, providerOperationId: row.providerOperationId,
-            observedAt: row.mediaObservedAt.getTime() }).transcript;
-        }
-        const text = minimizeCustomerAgentMemoryText([prior.inputText.trim(), transcript.trim(),
+        let observation: CustomerAgentMediaPerception | null = null;
+        try { observation = deferredObservation(input); } catch { /* An unreadable observation is simply not carried. */ }
+        const kinds = customerDmAttachmentInput(input.payload)?.kinds ?? [];
+        const transcript = input.prior.assurance === "protected_namespace" && input.current.assurance === "protected_namespace"
+          ? observation?.transcript ?? "" : "";
+        const text = minimizeCustomerAgentMemoryText([input.prior.inputText.trim(), transcript.trim(),
           kinds.length ? `[вложение: ${kinds.join(", ")}]` : ""].filter(Boolean).join("\n"));
         if (text) pieces.push(text);
+        inputs.push({ eventKey: input.row.eventKey, order: input.row.order, ownText: input.prior.inputText,
+          mediaCount: input.payload.media.length, captions: input.payload.observations.classifier?.mediaCaptions ?? [],
+          evidence: input.payload.propertyEvidence, observation });
       } catch { /* A corrupt or unverifiable earlier input is simply not carried. */ }
     }
-    return composeCarriedInput(pieces);
+    return { inputs, carried: composeCarriedInput(pieces) };
   } catch {
-    return "";
+    return { inputs: [], carried: "" };
   }
+}
+/** Text of the deferred inputs only (see loadCustomerBurst). */
+export async function loadDeferredCustomerInput(principal: CustomerPrincipal): Promise<string> {
+  return (await loadCustomerBurst(principal)).carried;
 }
 
 /** The NEWER input that put an older one aside has itself ended without an

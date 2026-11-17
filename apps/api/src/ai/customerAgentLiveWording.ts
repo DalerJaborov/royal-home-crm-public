@@ -102,8 +102,14 @@ const RECRUITMENT_THANKS_NOZA: Pair = {
   ru: `Спасибо! Все подробности расскажет ${RECRUITMENT_CONTACT.name} по телефону.`,
   tg: `Ташаккур! Ҳамаи тафсилотро ${RECRUITMENT_CONTACT.name} мегӯяд.`,
 };
-/** A receipt already said in this chat, and nothing else to say: the same fact in other words (never silence). */
-export const RECEIPT_AGAIN: Pair = { ru: "Хорошо, записал.", tg: "Хуб, қайд кардам." };
+/** A receipt already said in this chat, and nothing else to say: the same fact in other words (never silence). The data WAS saved
+ * this turn (a receipt is in the evidence), so «Записал.» is true; no «Хорошо» in front of it (review #211, round 6: read as «да»). */
+export const RECEIPT_AGAIN: Pair = { ru: "Записал.", tg: "Қайд кардам." };
+/**
+ * Template lines that opened with a consent word (review #211, round 6): «Хорошо, принято.» after «Беру», «Приеду», «Мегирам» read as
+ * «да». RETIRED: never rendered again (withoutAgreementOpenings would cut them anyway), kept for the memory of older chats.
+ */
+export const RETIRED_AGREEMENT_LINES: readonly string[] = ["Хорошо, принято.", "Хуб, қабул шуд.", "Хорошо, записал.", "Хуб, қайд кардам.", "Конечно.", "Бале."];
 /** Lines after which a person must be told (one door: lib/customerDmAgentTurn.ts::signalStaffFollowUp). */
 export const RECRUITMENT_FOLLOW_UP_LINES: readonly string[] = [RECRUITMENT_PHONE_TAKEN, RECRUITMENT_COMPLAINT].flatMap(pair => [pair.ru, pair.tg]);
 export function recruitmentFollowUpFixedLines(): string[] {
@@ -169,4 +175,5 @@ export const RETIRED_TEMPLATE_LINES: readonly string[] = [
   "Лутфан, ҳамчун акси оддӣ фиристед — агент онро нигоҳ медорад.",
   "Расскажите о вашем опыте. Если его пока нет, так и напишите — это не означает отказ.",
   "Дар бораи таҷрибаатон нависед. Агар таҷриба надошта бошед, ҳамин тавр нависед — ин маънои рад шуданро надорад.",
+  ...RETIRED_AGREEMENT_LINES,
 ];

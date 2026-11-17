@@ -567,6 +567,12 @@ export interface SaveAccountInput {
    */
   username?: string;
   messagingId?: string;
+  /**
+   * Страница Facebook, через которую говорит Instagram (вход через Facebook,
+   * 13.11.2026). Пишется ВМЕСТЕ с маркером, одной записью: аккаунт с маркером
+   * Страницы без pageId не знал бы, куда слать. `undefined` — не трогать.
+   */
+  pageId?: string | null;
 }
 
 /**
@@ -620,6 +626,7 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
             ...(extraIds === undefined ? {} : { extraExternalIds: extraIds }),
             ...(input.username?.trim() ? { username: input.username.trim() } : {}),
             ...(input.messagingId?.trim() ? { messagingId: input.messagingId.trim() } : {}),
+            ...(input.pageId === undefined ? {} : { pageId: input.pageId }),
           },
         })
       : await tx.messengerAccount.create({
@@ -636,6 +643,7 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
             extraExternalIds: extraIds ?? [],
             ...(input.username?.trim() ? { username: input.username.trim() } : {}),
             ...(input.messagingId?.trim() ? { messagingId: input.messagingId.trim() } : {}),
+            ...(input.pageId ? { pageId: input.pageId } : {}),
           },
         });
 

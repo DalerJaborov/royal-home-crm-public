@@ -1,19 +1,15 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { CLIENT_STATUS_LABELS, REFUSAL_REASON_LABELS } from "@royal-home/shared";
+import { NO_CONTACT_AFTER_DAYS, REFUSAL_REASON_LABELS, lastRealContactTime } from "@royal-home/shared";
 import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { pluralizeRu, relativeTime } from "../lib/format";
-import { INACTIVE_LEVEL_TONE } from "../components/InactiveLevelBadge";
-import { trafficLightHref } from "../lib/trafficLightLink";
 import { StatTile } from "../components/ui/StatTile";
 import { TranscriptView } from "../components/TranscriptView";
 import { useCounters } from "../hooks/useCounters";
 import {
   useOversightSummary,
-  useAgentsAtLimit,
   useOverdueTasks,
-  useStalledClients,
-  useInactiveClients,
+  useNoContactClients,
   useLeadTransfers,
   useSilentAfterShowing,
   useRefusedHighScore,
@@ -21,7 +17,6 @@ import {
   useSellerPropertyMissing,
   useEndlessNegotiations,
   useAgentLossSeries,
-  useTrafficLightSummary,
   useShowingSurveyCalls,
   useShowingSurveyCall,
   useShowingSurveyRecordingUrl,
@@ -231,67 +226,6 @@ function SlicePager({
 
 /* ─────────────────────────────── 1. Просроченные задачи ────────────────────── */
 
-/**
- * «Светофор неактивных — сейчас» (аудит 03.09.2026 ночь, п.7: у директора не
- * было ни одного экрана «весь светофор одним взглядом»). Числа ведут в
- * «Клиенты» с теми же фильтрами (workStatus=INACTIVE, inactiveLevel, agentId —
- * см. lib/trafficLightLink.ts) — 0 не ссылка, там нечего смотреть.
- */
-function TrafficLightCount({ level, value, agentId }: { level: "RED" | "YELLOW" | "GREEN"; value: number; agentId?: string }) {
-  if (value === 0) return <span className="meta">—</span>;
-  return (
-    <Link className={`chip ${INACTIVE_LEVEL_TONE[level]}`} to={trafficLightHref(level, agentId)}>
-      {value}
-    </Link>
-  );
-}
-
-function TrafficLightSummary() {
-  const { data, isLoading, isError, refetch } = useTrafficLightSummary();
-  const agents = data?.agents ?? [];
-
-  return (
-    <Slice
-      title="Светофор неактивных — сейчас"
-      note={data ? `${data.totals.red + data.totals.yellow + data.totals.green} карточек` : undefined}
-      hint="Кто сейчас в каком цвете: красный — ни разу не дозвонились, жёлтый — дозвонились, но встречи или показа не было, зелёный — встреча была. Число ведёт в отфильтрованный список клиентов."
-    >
-      <SliceState
-        isLoading={isLoading}
-        isError={isError}
-        isEmpty={!!data && agents.length === 0}
-        errorText="Светофор не загрузился. Это сбой связи, а не «все зелёные»."
-        emptyText="Неактивных клиентов нет ни у одного агента."
-        onRetry={() => refetch()}
-      />
-      {data && agents.length > 0 && (
-        <div className="quiet">
-          <span className="txt">
-            Всего: <TrafficLightCount level="RED" value={data.totals.red} /> красных ·{" "}
-            <TrafficLightCount level="YELLOW" value={data.totals.yellow} /> жёлтых ·{" "}
-            <TrafficLightCount level="GREEN" value={data.totals.green} /> зелёных
-          </span>
-        </div>
-      )}
-      {agents.map((a) => (
-        <div className="row" key={a.agentId}>
-          <div className="t">
-            <b>
-              <AgentLink id={a.agentId}>{a.agentName}</AgentLink>
-            </b>
-            <span>{a.total} неактивных</span>
-          </div>
-          <div className="act">
-            <TrafficLightCount level="RED" value={a.red} agentId={a.agentId} />
-            <TrafficLightCount level="YELLOW" value={a.yellow} agentId={a.agentId} />
-            <TrafficLightCount level="GREEN" value={a.green} agentId={a.agentId} />
-          </div>
-        </div>
-      ))}
-    </Slice>
-  );
-}
-
 function OverdueTasks() {
   const [page, setPage] = useState(1);
   const { data, pagerData, items, isLoading, isError, refetch } = useSliceFeed(page, useOverdueTasks(page), useOverdueTasks(1));
@@ -315,7 +249,7 @@ function OverdueTasks() {
         <div className="quiet crit" key={row.id}>
           <span className="txt">
             <ClientLink shortId={row.client.shortId} fullName={row.client.fullName} />
-            {row.client.workStatus === "INACTIVE" ? " (Неактивен)" : ""}: {row.nextAction}. Срок{" "}
+            : {row.nextAction}. Срок{" "}
             {row.nextActionDate ? relativeTime(row.nextActionDate) : "не указан"}. Агент{" "}
             {row.agent ? <AgentLink id={row.agent.id}>{row.agent.fullName}</AgentLink> : "—"}.
           </span>
@@ -337,89 +271,48 @@ function OverdueTasks() {
   );
 }
 
-/* ─────────────────────────────── 2. Агенты у лимита ────────────────────────── */
+/* ──────────────────────────────── 3. Без контакта ─────────────────────────────── */
 
-function AgentsAtLimit() {
-  const { data, isLoading, isError, refetch } = useAgentsAtLimit();
-  const items = data?.items ?? [];
-  const limit = data?.limit ?? 0;
+/**
+ * «Без контакта» — ОДНО правило на всю CRM (владелец 16.11.2026,
+ * packages/shared/src/clientNoContact.ts): больше суток ни разговора по телефону,
+ * ни сообщения от самого клиента; новая карточка — от создания. Заметки и задачи
+ * агента контактом не считаются.
+ */
+function NoContactClients() {
+  const [page, setPage] = useState(1);
+  const { data, pagerData, items, isLoading, isError, refetch } = useSliceFeed(page, useNoContactClients(page), useNoContactClients(1));
 
   return (
     <Slice
-      id="slice-agents-at-limit"
-      title="Агенты у лимита лидов"
-      note={data ? `${data.items.length} ${pluralizeRu(data.items.length, ["человек", "человека", "человек"])}` : undefined}
-      hint={
-        data
-          ? `Активный портфель ${limit} из ${limit}: новые обычные лиды агенту не распределяются, пока он не закроет клиента.`
-          : undefined
-      }
+      id="slice-no-contact-clients"
+      title="Без контакта"
+      note={data ? `${data.total} ${pluralizeRu(data.total, ["клиент", "клиента", "клиентов"])}` : undefined}
+      hint={`Больше ${NO_CONTACT_AFTER_DAYS === 1 ? "суток" : `${NO_CONTACT_AFTER_DAYS} дней`} ни разговора по телефону, ни сообщения от самого клиента. Заметки и задачи агента контактом не считаются.`}
     >
       <SliceState
         isLoading={isLoading}
         isError={isError}
         isEmpty={!!data && items.length === 0}
-        errorText="Не удалось проверить лимиты агентов. «Никто не у лимита» сейчас утверждать нельзя."
-        emptyText="Никто не упирается в лимит."
+        errorText="Не удалось загрузить клиентов без контакта. Не считайте, что их нет."
+        emptyText="Все клиенты в работе на связи."
         onRetry={() => refetch()}
       />
-      {items.map((a) => {
-        const share = limit > 0 ? Math.min(1, a.total / limit) : 0;
-        const tone = a.total >= limit ? "loadbar full" : share >= 0.8 ? "loadbar near" : "loadbar";
+      {items.map((c) => {
+        const last = lastRealContactTime(c);
         return (
-          <div className="quiet" key={a.id}>
+          <div className="quiet" key={c.id}>
             <span className="txt">
-              <AgentLink id={a.id}>{a.fullName}</AgentLink>
-              {a.frozen ? " (заморожен)" : ""}. Портфель {a.total} из {limit}, из них своих сверх лимита: {a.own}.
+              <ClientLink shortId={c.shortId} fullName={c.fullName} />.{" "}
+              {last ? `Последний контакт ${relativeTime(last.toISOString())}` : `Контакта не было, карточка ${relativeTime(c.createdAt)}`}. Агент{" "}
+              <AgentOrUnassigned agent={c.assignedAgent} />.
             </span>
-            <span className={tone} style={{ maxWidth: 120 }}>
-              <span className="bar">
-                <i style={{ "--v": share } as React.CSSProperties} />
-              </span>
-              <span className="n">
-                {a.total} из {limit}
-              </span>
-            </span>
+            <Link className="pill ghost sm" to={`/clients/${c.shortId}`} state={OVERSIGHT_BACK_STATE}>
+              Открыть
+            </Link>
           </div>
         );
       })}
-    </Slice>
-  );
-}
-
-/* ────────────────────── 3. Высокий скоринг без прогресса ───────────────────── */
-
-function StalledClients() {
-  const [page, setPage] = useState(1);
-  const { data, pagerData, items, isLoading, isError, refetch } = useSliceFeed(page, useStalledClients(page), useStalledClients(1));
-
-  return (
-    <Slice
-      id="slice-stalled-clients"
-      title="Высокий скоринг без прогресса"
-      note={data ? `${data.total} ${pluralizeRu(data.total, ["клиент", "клиента", "клиентов"])}` : undefined}
-      hint="Клиенты с высокой оценкой ИИ (вероятная сделка), с которыми не связывались больше трёх дней."
-    >
-      <SliceState
-        isLoading={isLoading}
-        isError={isError}
-        isEmpty={!!data && items.length === 0}
-        errorText="Не удалось загрузить зависших горячих клиентов. Не считайте, что их нет."
-        emptyText="Таких клиентов нет, все горячие лиды под контролем."
-        onRetry={() => refetch()}
-      />
-      {items.map((c) => (
-        <div className="quiet" key={c.id}>
-          <span className="txt">
-            <ClientLink shortId={c.shortId} fullName={c.fullName} />. {CLIENT_STATUS_LABELS[c.status]}. Последний контакт{" "}
-            {relativeTime(c.lastContactAt)}. Агент <AgentOrUnassigned agent={c.assignedAgent} />.
-          </span>
-          <span className="chip warn">{c.aiScore}</span>
-          <Link className="pill ghost sm" to={`/clients/${c.shortId}`} state={OVERSIGHT_BACK_STATE}>
-            Открыть
-          </Link>
-        </div>
-      ))}
       {pagerData && (
         <SlicePager
           page={page}
@@ -462,7 +355,7 @@ function SilentAfterShowing() {
         <div className="quiet warn" key={c.id}>
           <span className="txt">
             <ClientLink shortId={c.shortId} fullName={c.fullName} />
-            {c.workStatus === "INACTIVE" ? " (Неактивен)" : ""}. С показа прошло: {relativeTime(c.lastContactAt)}. Агент{" "}
+            . С показа прошло: {relativeTime(c.lastContactAt)}. Агент{" "}
             <AgentOrUnassigned agent={c.assignedAgent} />.
           </span>
           <Link className="pill ghost sm" to={`/clients/${c.shortId}`} state={OVERSIGHT_BACK_STATE}>
@@ -572,7 +465,7 @@ function EndlessNegotiations() {
         <div className="quiet warn" key={n.id}>
           <span className="txt">
             <ClientLink shortId={n.client.shortId} fullName={n.client.fullName} />
-            {n.client.workStatus === "INACTIVE" ? " (Неактивен)" : ""}. {n.rounds}{" "}
+            . {n.rounds}{" "}
             {pluralizeRu(n.rounds, ["круг", "круга", "кругов"])} переговоров. Ближайший срок{" "}
             {relativeTime(n.dueAt)}. Агент {n.agent ? <AgentLink id={n.agent.id}>{n.agent.fullName}</AgentLink> : "—"}.
           </span>
@@ -987,27 +880,6 @@ function ShowingSurveyCallItem({
   );
 }
 
-function InactiveLog() {
-  const [page, setPage] = useState(1);
-  const { data, pagerData, items, isLoading, isError, refetch } = useSliceFeed(page, useInactiveClients(page), useInactiveClients(1));
-  return (
-    <EventLogSlice
-      id="slice-inactive-log"
-      title="Переводы в «Неактивные»"
-      hint="Агент отметил, что клиент замолчал или отложил покупку. Слот в лимите освобождён, клиент не потерян."
-      emptyText="Переводов в «Неактивные» пока не было."
-      rows={items}
-      page={page}
-      setPage={setPage}
-      data={data}
-      pagerData={pagerData}
-      isLoading={isLoading}
-      isError={isError}
-      onRetry={() => refetch()}
-    />
-  );
-}
-
 function TransfersLog() {
   const [page, setPage] = useState(1);
   const { data, pagerData, items, isLoading, isError, refetch } = useSliceFeed(page, useLeadTransfers(page), useLeadTransfers(1));
@@ -1140,18 +1012,12 @@ export function Oversight() {
             title="Список просроченных задач ниже на этом экране"
           />
           <StatTile
-            label="Агентов у лимита"
-            value={summary?.agentsAtLimit ?? "—"}
-            line="лиды им не распределяются"
-            onClick={() => scrollToSlice("slice-agents-at-limit")}
-            title="Список агентов у лимита ниже на этом экране"
-          />
-          <StatTile
-            label="Горячих без прогресса"
-            value={summary?.staleHotClients ?? "—"}
-            line="нет контакта больше 3 дней"
-            onClick={() => scrollToSlice("slice-stalled-clients")}
-            title="Высокий скоринг без прогресса — список ниже на этом экране"
+            label="Без контакта"
+            value={summary?.noContactClients ?? "—"}
+            line="больше суток ни разговора, ни сообщения клиента"
+            critical={!!summary?.noContactClients}
+            onClick={() => scrollToSlice("slice-no-contact-clients")}
+            title="Клиенты без контакта — список ниже на этом экране"
           />
           <StatTile
             label="Тишина после показа"
@@ -1193,13 +1059,6 @@ export function Oversight() {
             title="Список агентов с серией потерь ниже на этом экране"
           />}
           <StatTile
-            label="В «Неактивные»"
-            value={summary?.recentInactive ?? "—"}
-            line={summary ? `за ${summary.recentWindowDays} дней` : ""}
-            onClick={() => scrollToSlice("slice-inactive-log")}
-            title="Журнал переводов в «Неактивные» ниже на этом экране"
-          />
-          <StatTile
             label="Передач"
             value={summary?.recentTransfers ?? "—"}
             line={summary ? `за ${summary.recentWindowDays} дней` : ""}
@@ -1224,17 +1083,14 @@ export function Oversight() {
           </div>
         )}
 
-        <TrafficLightSummary />
         <OverdueTasks />
-        <AgentsAtLimit />
-        <StalledClients />
+        <NoContactClients />
         <SilentAfterShowing />
         {investigations && <SellerPropertyMissing />}
         <EndlessNegotiations />
         {investigations && <RefusedHighScore />}
         {investigations && <ShowingSurveyCalls />}
         {investigations && <AgentLossSeries />}
-        <InactiveLog />
         <TransfersLog />
         {investigations && <TransferPairs />}
       </div>

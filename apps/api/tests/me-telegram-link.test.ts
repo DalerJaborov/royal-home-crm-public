@@ -3,6 +3,9 @@ import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
+import { grantElevation, revokeElevation } from "../src/lib/stepUp.js";
+import { tryLinkAgentByCode } from "../src/lib/telegramAgentLink.js";
+import { waitFor } from "./helpers/waitFor.js";
 
 /**
  * Привязка личного Telegram-чата сотрудника (POST /me/telegram-link,
@@ -31,9 +34,11 @@ beforeAll(async () => {
   const res = await request(app).post("/api/v1/auth/login").send({ phone, password });
   expect(res.status).toBe(200);
   token = res.body.accessToken;
+  grantElevation(agentId);
 });
 
 afterAll(async () => {
+  await prisma.auditLog.deleteMany({ where: { entityId: agentId } });
   await prisma.agent.deleteMany({ where: { phone } });
 });
 
@@ -48,6 +53,29 @@ describe("GET /me — признак привязки", () => {
 });
 
 describe("POST /me/telegram-link", () => {
+  // Аудит безопасности 17.11.2026, S2: Telegram — канал кода входа, привязать его
+  // с чужой открытой вкладки значило войти в учётку. Без свежего подтверждения — 428.
+  it("без свежего подтверждения личности — 428, код не заводится", async () => {
+    revokeElevation(agentId);
+    await prisma.agent.update({ where: { id: agentId }, data: { telegramLinkCode: null } });
+    const res = await request(app).post("/api/v1/me/telegram-link").set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(428);
+    expect(res.body.stepUpRequired).toBe(true);
+    const agent = await prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
+    expect(agent.telegramLinkCode).toBeNull();
+    grantElevation(agentId);
+  });
+
+  it("привязка по коду оставляет след в журнале действий", async () => {
+    const res = await request(app).post("/api/v1/me/telegram-link").set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    const chatId = `link-audit-${runId}`;
+    expect(await tryLinkAgentByCode(chatId, res.body.code)).toBe(true);
+    const row = await waitFor(() => prisma.auditLog.findFirst({ where: { action: "TELEGRAM_LINKED", entityId: agentId } }));
+    expect(row?.agentId).toBe(agentId);
+    await prisma.agent.update({ where: { id: agentId }, data: { telegramChatId: null, telegramUserId: null } });
+  });
+
   it("выдаёт одноразовый код, записывает его агенту", async () => {
     const res = await request(app).post("/api/v1/me/telegram-link").set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);

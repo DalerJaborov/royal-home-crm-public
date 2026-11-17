@@ -19,7 +19,7 @@ import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { verifyAccessToken } from "../auth/jwt.js";
 import { audioUpload, upload, uploadsDir } from "../upload.js";
 import { encryptSecret, decryptSecretSafe } from "../crypto.js";
-import { DEFAULT_BOT_PERSONA } from "../ai/leadQualifier.js";
+import { DEFAULT_BOT_PERSONA } from "../ai/legacyQualifyDoor.js";
 import { DEFAULT_LIVE_VOICE_PROMPT, buildLiveVoiceSystemPrompt } from "../ai/liveVoicePersona.js";
 import { withSelfGenderReminder, withSelfGenderRule } from "../ai/liveVoiceSelfGender.js";
 import { DEFAULT_COMMENT_PROMPT } from "../messengers/comments.js";
@@ -46,6 +46,7 @@ import { DEFAULT_KPI_WEIGHTS, type KpiMetricKey } from "../kpi.js";
 import {
   COVER_SELECTION_MODES,
   EDITABLE_SCORE_EVENT_KEYS,
+  minScoreEventPoints,
   daysOffSchema,
   dealStageWinProbabilitySchema,
   mergeTranscriptFragments,
@@ -471,7 +472,7 @@ function toStaffSettings(settings: {
      * 17.09.2026, «клиент теряется, если вовремя не позвонить»): без этих двух
      * чисел агент не мог узнать дедлайн на своём же экране — окно приёма после
      * «Принять» уводит в карточку и на этом всё, а крон (services/leads/firstCall.ts,
-     * penalizeMissedFirstCalls) снимает лид молча. Коммерческой тайны в минутах и
+     * handleMissedFirstCalls) снимает лид молча. Коммерческой тайны в минутах и
      * секундах нет — то же обоснование, что у leadAcceptMinutes выше.
      */
     leadCallMinutes: settings.leadCallMinutes,
@@ -723,15 +724,14 @@ const settingsUpdateSchema = z.object({
   botPauseEscalateHours: z.number().int().min(1).max(720).optional(),
   /** Сколько секунд разговора считаются состоявшимся звонком. 0 = порога нет. */
   leadCallMinSeconds: z.number().int().min(0).max(600).optional(),
-  /** Максимум активных лидов у агента одновременно («лимит 5»). 0 = без лимита. */
-  leadActiveLimit: z.number().int().min(0).max(100).optional(),
+  // leadActiveLimit, «свои объекты сверх лимита» и «взвешенные слоты» убраны
+  // 16.11.2026 (владелец: «лимитов заявок больше нет и не будет»). Колонки
+  // Settings остаются до отдельной миграции, PATCH их больше не принимает.
   /** Максимум объектов у агента одновременно в конвейере подготовки. 0 = без лимита. */
   propertyActiveLimit: z.number().int().min(0).max(100).optional(),
   /** Единая политика подбора (решение владельца 17.09.2026, docs/match-policy-plan-17-09.md)
    *  — вкладка «Подбор объектов». lib/matchPolicy.ts::loadMatchPolicy() читает те же поля. */
   autoMatchEnabled: z.boolean().optional(),
-  matchIncludeInactive: z.boolean().optional(),
-  matchIncludeDeferred: z.boolean().optional(),
   matchNotifyPropertyOwner: z.boolean().optional(),
   /** Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026, lib/market/buyerAlerts.ts). */
   marketBuyerAlertsEnabled: z.boolean().optional(),
@@ -751,28 +751,6 @@ const settingsUpdateSchema = z.object({
   /** Жёсткое исключение без порога: бот уже показал клиенту этот объект. */
   ownPropertyShownExceptionEnabled: z.boolean().optional(),
   ownPropertyShownWindowDays: z.number().int().min(1).max(365).optional(),
-  /** Лимит активных лидов — предел смешанного портфеля; свои объекты за него
-   *  выходят через освобождение места, а без обычных лидов — просто сверх. */
-  ownPropertyOverLimitEnabled: z.boolean().optional(),
-  ownPropertyReleaseEnabled: z.boolean().optional(),
-  // ownPropertyReleaseMode: режим "random" убран по закону владения (П-4/П-6,
-  // 17.09.2026, `docs/audit/lead-ownership-17-09.md` §4) — система больше не
-  // выбирает жертву сама. Поле нарочно НЕ принимается: сохранено в схеме БД
-  // (без миграции), но из формы Настроек и из PATCH исключено намеренно.
-  /** Надбавка к leadActiveLimit для лидов по своим объектам (не абсолютное
-   *  число) — по умолчанию 1, то есть потолок activeLimit+1. 0 = буквально
-   *  без предела. См. leads.ts::canTakeOwnPropertyLead. */
-  ownPropertyLeadCap: z.number().int().min(0).max(100).optional(),
-  /** «Взвешенные слоты» лимита (план владельца 20-21.08.2026): свежий лид
-   *  занимает целое место, доведённый до показа — половину, «думающий» —
-   *  четверть, и сливать почти доработанного клиента ради нового становится
-   *  незачем. Веса — в процентах слота. Потолок 1000 % оставлен намеренно:
-   *  владелец вправе сделать какую-то ступень дороже целого места, если решит
-   *  наоборот придерживать портфель. См. lib/leadLimits.ts. */
-  weightedLeadSlotsEnabled: z.boolean().optional(),
-  leadSlotWeightFreshPercent: z.number().int().min(0).max(1000).optional(),
-  leadSlotWeightAfterShowingPercent: z.number().int().min(0).max(1000).optional(),
-  leadSlotWeightThinkingPercent: z.number().int().min(0).max(1000).optional(),
   /** Раздача портфеля уволенного: клиенты — сильным по KPI, объекты — слабым. */
   handoverClientsToHighKpi: z.boolean().optional(),
   handoverPropertiesToLowKpi: z.boolean().optional(),
@@ -894,6 +872,8 @@ const settingsUpdateSchema = z.object({
   metaAppSecret: secretField(500),
   /** Номер приложения Meta — нужен, чтобы обменять маркер рекламы на 60-дневный. */
   metaAppId: z.string().trim().max(100).optional(),
+  /** Номер конфигурации входа через Facebook (13.11.2026, lib/metaLogin.ts) — только цифры; пусто — без конфигурации. */
+  metaLoginConfigId: z.string().trim().regex(/^\d{0,30}$/, "Номер конфигурации — только цифры").optional(),
   metaVerifyToken: secretField(500),
   metaWaToken: secretField(1000),
   metaWaPhoneId: z.string().trim().max(100).optional(),
@@ -912,7 +892,9 @@ const settingsUpdateSchema = z.object({
   /** Рекламный кабинет (Marketing API): рубильник, маркер с ads_read и номер кабинета. */
   metaAdsEnabled: z.boolean().optional(),
   metaAdsToken: secretField(1000),
-  metaAdAccountId: z.string().trim().max(100).optional(),
+  // 1000, а не 100: вход через Facebook дописывает кабинеты списком (13.11.2026),
+  // и после пятого кабинета поле перестало бы сохраняться на экране.
+  metaAdAccountId: z.string().trim().max(1000).optional(),
   /** Секрет для приёма бюджетных оповещений Google Cloud (не ключ доступа — просто
    *  строка в адресе подписки Pub/Sub, поэтому не шифруется). Пустая строка —
    *  «секрет не задан», а не короткий секрет, и должна проходить как раньше.
@@ -1244,21 +1226,15 @@ const settingsUpdateSchema = z.object({
   /** Резерв объекта на сделке (Путь покупателя) — сколько рабочих дней держим,
    *  прежде чем автоматически вернуть в продажу. */
   dealReservationBusinessDays: z.number().int().min(1).max(30).optional(),
-  inactivityWarnAfterDays: z.number().int().min(1).max(60).optional(),
-  inactivityPenaltyAfterDays: z.number().int().min(1).max(90).optional(),
-  inactivityPenaltyPoints: z.number().int().min(0).max(50).optional(),
+  // inactivityWarnAfterDays/inactivityPenaltyAfterDays/inactivityPenaltyPoints убраны
+  // из схемы 16.11.2026 вместе со штрафом за бездействие (lib/inactivityPenalty.ts
+  // удалён). Колонки в БД остаются; схема не строгая — старый экран, приславший
+  // поле, получит 200, поле просто отбросится.
   /** «Застой сделки» (владелец 30.08.2026, lib/dealStalePipeline.ts): продавец без
    *  единого объекта в CRM дольше стольких дней, или покупатель без единой сделки —
    *  застой. Потолки — тот же порядок, что и дефолт в схеме (10/21 дней), с запасом. */
   dealStaleSellerDays: z.number().int().min(1).max(60).optional(),
   dealStaleBuyerDays: z.number().int().min(1).max(90).optional(),
-  /** Светофор неактивных (владелец 20-21.08.2026, lib/inactiveTrafficLight.ts): цвет
-   *  ставит система, эти числа настраивают только темп — как часто напоминать агенту
-   *  и после скольких попыток карточка уходит в Потерянные. Потолок часов 240 (10 суток) —
-   *  порог, за которым «напоминание» уже не отличить от «забыли». */
-  inactiveGreenPingHours: z.number().int().min(1).max(240).optional(),
-  inactiveYellowPingHours: z.number().int().min(1).max(240).optional(),
-  inactiveRedPingHours: z.number().int().min(1).max(240).optional(),
   /** Потерянный/Неактивный клиент, написавший сам, ждёт прежнего агента это время,
    *  прежде чем уйти в общую очередь по KPI. */
   lostReturnAcceptMinutes: z.number().int().min(5).max(1440).optional(),
@@ -1347,7 +1323,19 @@ const settingsUpdateSchema = z.object({
    *  события не пишутся (recordScoreEvent), push о счёте не уходит, кабинет и
    *  карточка в профиле агента не показываются. Журнал не стирается. */
   royalScoreEnabled: z.boolean().optional(),
-  royalScoreEventPoints: z.partialRecord(z.enum(SCORE_EVENT_KEYS), z.number().min(-100).max(100)).optional(),
+  // Минус — только у компенсаций уже начисленного плюса (minScoreEventPoints из
+  // общего каталога, то же правило, что у поля на экране): автоматических штрафов
+  // нет с 16.11.2026, и вернуть их «через цену» в Настройках нельзя.
+  royalScoreEventPoints: z
+    .partialRecord(z.enum(SCORE_EVENT_KEYS), z.number().min(-100).max(100))
+    .superRefine((points, ctx) => {
+      for (const [key, value] of Object.entries(points)) {
+        if (typeof value === "number" && value < minScoreEventPoints(key)) {
+          ctx.addIssue({ code: "custom", path: [key], message: "Цена события не может быть меньше нуля — баллы только начисляются" });
+        }
+      }
+    })
+    .optional(),
   /** Скользящее окно, за которое считается счёт, дней. Меньше суток бессмысленно —
    *  событие выпадало бы из расчёта в день начисления. */
   royalScoreWindowDays: z.number().int().min(1).max(365).optional(),
@@ -1498,22 +1486,6 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     const endMin = pair.publishScheduleWindowEndMin ?? currentPublish?.publishScheduleWindowEndMin ?? 1260;
     if (endMin <= startMin) {
       return res.status(400).json({ error: "Конец окна публикаций должен быть позже начала" });
-    }
-  }
-
-  // Сроки бездействия — тоже пара, и сломанной оказывается именно она: штраф раньше
-  // предупреждения означает, что предупреждать уже некогда, а вся суть правила была
-  // в том, чтобы не наказывать за то, о чём человека не предупредили. Сверяем с тем,
-  // что уже в базе: поля могут прийти по одному.
-  if (pair.inactivityWarnAfterDays !== undefined || pair.inactivityPenaltyAfterDays !== undefined) {
-    const currentDays = await prisma.settings.findUnique({
-      where: { id: "singleton" },
-      select: { inactivityWarnAfterDays: true, inactivityPenaltyAfterDays: true },
-    });
-    const warnDays = pair.inactivityWarnAfterDays ?? currentDays?.inactivityWarnAfterDays ?? 3;
-    const penaltyDays = pair.inactivityPenaltyAfterDays ?? currentDays?.inactivityPenaltyAfterDays ?? 5;
-    if (penaltyDays <= warnDays) {
-      return res.status(400).json({ error: "Штраф должен наступать позже предупреждения — иначе предупреждать некогда" });
     }
   }
 
@@ -2838,7 +2810,7 @@ settingsRouter.post(
       return res.status(400).json({ error: "Неизвестный канал" });
     }
     let externalId = body.externalId?.trim();
-    let instagramIdentity: { username: string; messagingId?: string } | undefined;
+    let instagramIdentity: { username: string; messagingId?: string; pageId?: string } | undefined;
     const title = body.title?.trim();
     if (!title) return res.status(400).json({ error: "Укажите название аккаунта" });
 
@@ -2868,7 +2840,9 @@ settingsRouter.post(
       if (!identity.username?.trim()) {
         return res.status(400).json({ error: "Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан входом через Instagram, и попробуйте снова" });
       }
-      instagramIdentity = { username: identity.username.trim(), messagingId: identity.messagingId };
+      // Маркер Страницы (EAA…) вместо маркера Instagram: такой аккаунт говорит
+      // только через эту Страницу — запоминаем её вместе с маркером (13.11.2026).
+      instagramIdentity = { username: identity.username.trim(), messagingId: identity.messagingId, pageId: identity.pageId };
     }
     // Правка одного поля (промт, «сделать основным», выключить) не обязана
     // пересылать всю запись: недостающее берём из той, что уже есть.

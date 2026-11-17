@@ -1,5 +1,4 @@
-import type { TxClient } from "../db.js";
-import type { Property } from "../generated/prisma/client.js";
+import type { PropertyRecord, TxClient } from "../db.js";
 import { stagePublishedPriceChange, type PriceCaptionStage } from "./publishedListingSync.js";
 import { enqueueSiteResyncInTransaction } from "./siteResyncQueue.js";
 import { isSiteListedStatus } from "./siteSync.js";
@@ -11,8 +10,8 @@ export interface PropertyPriceDelivery {
 
 export async function stagePropertyPriceDelivery(
   tx: TxClient,
-  before: Property,
-  after: Property,
+  before: PropertyRecord,
+  after: PropertyRecord,
   changedFields: readonly string[],
   context: string,
 ): Promise<PropertyPriceDelivery> {

@@ -71,17 +71,11 @@ export interface Settings {
   botPauseEscalateHours: number;
   /** Сколько секунд разговора считаются состоявшимся звонком; 0 = порога нет. */
   leadCallMinSeconds: number;
-  /** Максимум активных лидов у агента одновременно; 0 = без лимита. */
-  leadActiveLimit: number;
   /** Максимум объектов у агента одновременно в конвейере подготовки; 0 = без лимита. */
   propertyActiveLimit: number;
   /** Единая политика подбора «клиент ↔ объект» (17.09.2026, matchPolicy.ts):
    *  общий рубильник автоподбора — новый объект сам находит ждущих покупателей. */
   autoMatchEnabled: boolean;
-  /** Включать в подбор клиентов со статусом «Неактивный». */
-  matchIncludeInactive: boolean;
-  /** Включать в подбор отложенных (DEFERRED) клиентов. */
-  matchIncludeDeferred: boolean;
   /** Хозяину объекта приходит пуш, когда его объект предложили чужому клиенту. */
   matchNotifyPropertyOwner: boolean;
   /** Пуш агенту, когда на Somon/Paydo появилось объявление под его покупателя (по умолчанию выключено). */
@@ -105,21 +99,8 @@ export interface Settings {
   /** Жёсткое исключение без порога: бот уже показал клиенту этот объект. */
   ownPropertyShownExceptionEnabled: boolean;
   ownPropertyShownWindowDays: number;
-  /** Лимит активных лидов ограничивает смешанный портфель; свои объекты выходят
-   *  за него через освобождение места, а без обычных лидов — просто сверх. */
-  ownPropertyOverLimitEnabled: boolean;
-  ownPropertyReleaseEnabled: boolean;
-  // ownPropertyReleaseMode убран из ответа API 17.09.2026 (закон владения
-  // П-4/П-6 — режим "random" отменён, система жертву больше не выбирает сама).
-  /** Потолок лидов по своим объектам сверх общего лимита; 0 = без предела. */
-  ownPropertyLeadCap: number;
-  /** «Взвешенные слоты» лимита: свежий лид занимает целое место, после показа —
-   *  половину, «думающий» — четверть. Веса в процентах слота. Выключено по
-   *  умолчанию: правило меняет раздачу лидов всей компании. */
-  weightedLeadSlotsEnabled: boolean;
-  leadSlotWeightFreshPercent: number;
-  leadSlotWeightAfterShowingPercent: number;
-  leadSlotWeightThinkingPercent: number;
+  // Лимит активных лидов, «свои объекты сверх лимита» и «взвешенные слоты»
+  // убраны 16.11.2026 (владелец: «лимитов заявок больше нет и не будет»).
   /** Раздача портфеля уволенного: клиенты — сильным по KPI, объекты — слабым. */
   handoverClientsToHighKpi: boolean;
   handoverPropertiesToLowKpi: boolean;
@@ -161,21 +142,11 @@ export interface Settings {
   // из типа 28.09.2026: ни экран, ни сервер их не читают. Колонки в БД остались.
   /** Резерв объекта на сделке — сколько рабочих дней держим, прежде чем вернуть в продажу. */
   dealReservationBusinessDays: number;
-  /** Штраф за бездействие: сроки предупреждения и штрафа, цена штрафа в баллах. */
-  inactivityWarnAfterDays: number;
-  inactivityPenaltyAfterDays: number;
-  inactivityPenaltyPoints: number;
   /** «Застой сделки» (владелец 30.08.2026): продавец без единого объекта в CRM,
    *  или покупатель без единой сделки, дольше стольких дней — сигнал владельцу и
    *  задача агенту (см. lib/dealStalePipeline.ts). */
   dealStaleSellerDays: number;
   dealStaleBuyerDays: number;
-  /** Светофор неактивных клиентов (владелец 20-21.08.2026): цвет ставит система,
-   *  эти числа настраивают только темп напоминаний и порог перевода в Потерянные
-   *  для каждого уровня (см. lib/inactiveTrafficLight.ts). */
-  inactiveGreenPingHours: number;
-  inactiveYellowPingHours: number;
-  inactiveRedPingHours: number;
   /** Потерянный/Неактивный клиент, написавший сам, ждёт прежнего агента это время. */
   lostReturnAcceptMinutes: number;
   /** Приёмка от продавца принята, объекта в CRM ещё нет — предупреждение / критично. */
@@ -307,6 +278,8 @@ export interface Settings {
   metaAdAccountId: string | null;
   /** Номер приложения Meta — нужен для обмена маркера на 60-дневный. */
   metaAppId: string | null;
+  /** Номер конфигурации входа через Facebook (не секрет). */
+  metaLoginConfigId: string | null;
   metaAdsSyncedAt: string | null;
   /** Секрет в адресе push-подписки Pub/Sub для бюджетных оповещений Google Cloud.
    *  Значение наружу не отдаётся (аудит №4) — только признак «задан». */

@@ -12,6 +12,8 @@ import { recordAudienceMessage } from "../lib/audienceHeatmap.js";
 import { contactProfileForPrompt, rememberContactTurn } from "../lib/contactProfileMemory.js";
 import { collectSellerFacts } from "../ai/sellerIntake.js";
 import { logSystemError } from "../lib/systemError.js";
+import { alertChannelStaff } from "../lib/channelStaffAlert.js";
+import { telegramDirectBotReplyEnabled } from "../lib/customerAgentChannelSwitch.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { noteRealInbound, repeatBlockedTexts } from "../lib/outboundShield.js";
 import { describeError } from "../lib/describeError.js";
@@ -25,7 +27,7 @@ import { fetchTelegramAlbumAttachments, telegramUnsupportedMark } from "../teleg
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
 import { stripUntrusted, wrapUntrusted } from "../ai/untrustedContent.js";
 import type { ChatMessage, ImageInput, StoredAttachment } from "../ai/client.js";
-import { mergeDraft, runQualifyTurn } from "../ai/leadQualifier.js";
+import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { extractTypedPhone, extractVolunteeredPhone, normalizeDigits } from "../lib/shared/phoneText.js";
 import { lastClientLanguage } from "../ai/shortAgentReply.js";
 import { type LeadDraft } from "../ai/leadDraft.js";
@@ -36,9 +38,11 @@ import {
   FALLBACK_VOICE,
   finalizeBotReply,
   inClientLanguage,
+  intendedSilenceReply,
   lastClientWords,
   recentBotText,
   silentTurnReason,
+  verifiedCoreReply,
   type FallbackText,
 } from "./replyChain.js";
 import {
@@ -247,7 +251,7 @@ export async function finishTelegramDirectQualifyTurn(params: {
   draft: LeadDraft;
   history: ChatMessage[];
   text: string;
-  turn: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>;
+  turn: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>;
   capabilities?: Awaited<ReturnType<typeof loadBotCapabilities>>;
   /** Клиент в ЭТОМ ходе прислал голосовое — условие для голосового ответа
    *  (см. телеграм-личку telegram/bot.ts, тот же приём). Повтор из
@@ -293,7 +297,12 @@ export async function finishTelegramDirectQualifyTurn(params: {
   const turnLanguage = turnLanguageRaw === "unknown" ? lastClientLanguage(history) : turnLanguageRaw;
   // Ответ съели фильтры — не молчим (аудит 10.10.2026, P0-1): короткая нейтральная
   // реплика; ключ щита — собеседник темы (`chatId:topicId`, как в telegram/api.ts).
-  const filtered = await finalizeBotReply({
+  // The core's turn (switch `telegram_direct`, review #223 N2) is delivered as the bot's and the site's: intended silence
+  // stays silent, the server-verified text is not edited by the old guards and gets no second phone ask.
+  const shieldBlocked = (bubbles: string[]) => repeatBlockedTexts("TELEGRAM", `${chatId}:${topicId}`, bubbles);
+  const filtered = turn.silent ? intendedSilenceReply()
+    : turn.verified ? await verifiedCoreReply(turn.reply.join(" "), shieldBlocked)
+    : await finalizeBotReply({
     reply: turn.reply,
     conversationId: conversation.id,
     channelLabel: "TELEGRAM Direct Messages",
@@ -309,7 +318,7 @@ export async function finishTelegramDirectQualifyTurn(params: {
     phoneAsksSent: conversation.phoneAsksSent ?? 0,
     phoneKnown,
     fallbackLanguageWords: [text, lastClientWords(history)],
-  }, { shieldBlocked: (bubbles) => repeatBlockedTexts("TELEGRAM", `${chatId}:${topicId}`, bubbles) });
+  }, { shieldBlocked });
   /**
    * Слова клиента уже в переписке, черновик и досье ниже сохраняются как обычно:
    * не уходит и не пишется только ответ бота (след в журнале, как в telegram/bot.ts).
@@ -868,8 +877,17 @@ export async function handleTelegramDirectMessage(msg: TelegramIncomingMessage):
   // Окончание хода — общей функцией finishTelegramDirectQualifyTurn (объявлена
   // ниже в модуле), чтобы её же вызывал персистентный повтор
   // jobs/telegramDirectReplyRetry.ts. См. докстринг там же.
+  /**
+   * Рубильник автоответа модели в личных сообщениях Telegram-канала (один мозг, шаг 3; по умолчанию — как было).
+   * TELEGRAM_DIRECT_BOT_REPLY=off: модель не отвечает, слова клиента уже в переписке (saveIncoming выше), номер по-прежнему
+   * оформляет заявку (ветка выше), сотруднику — «ответьте вручную». ФАКТ (прод, 16.11): 0 диалогов за всё время.
+   */
+  if (!telegramDirectBotReplyEnabled()) {
+    await alertChannelStaff({ channel: "TELEGRAM_DIRECT", conversationId: conversation.id, text, why: "bot_retired", eventId: msg.message_id != null ? String(msg.message_id) : null });
+    return;
+  }
   const capabilities = await loadBotCapabilities();
-  const finishTurn = (turn: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>): Promise<void> =>
+  const finishTurn = (turn: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>): Promise<void> =>
     finishTelegramDirectQualifyTurn({
       conversation,
       chatId,
@@ -885,12 +903,14 @@ export async function handleTelegramDirectMessage(msg: TelegramIncomingMessage):
 
   const abilities = botAbilitiesOf(capabilities);
   if (peerBudget) await spendAiTurns(peerBudget.row.id, peerBudget.budget.dayKey, 1, "peer");
-  const result = await runQualifyTurn(nextHistory, draft, {
+  const result = await runLegacyQualifyTurn(nextHistory, draft, {
     images,
     abilities,
     conversationId: conversation.id,
     contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
-  });
+    // Its own switch key `telegram_direct` (review #223 N2): `CHANNEL_CORE=telegram` does not move direct messages, and a
+    // staff alert from the core looks the chat up in TelegramDirectConversation, not in TelegramConversation.
+  }, { channel: "TELEGRAM_DIRECT" });
 
   if (!result) {
     // Персистентный повтор (13.09.2026, тот же чертёж Б2, что у личных чатов и

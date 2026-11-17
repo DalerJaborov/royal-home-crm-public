@@ -76,8 +76,9 @@ export const AUTO_TASK_KINDS = [
   /** «Проверить контакт с клиентом…» — эскалация руководителю после исчерпанных
    *  попыток (lib/noAnswerStreak.ts::notifyNoAnswerEscalation). */
   "no_answer_supervisor_check",
-  /** «Ещё раз попробовать дозвониться…» — отложенный «хвост» после эскалации
-   *  (lib/noAnswerStreak.ts::processNoAnswerTailAnchors). */
+  /** «Ещё раз попробовать дозвониться…» — отложенный «хвост» после эскалации.
+   *  Сам «хвост» удалён 16.11.2026; вид остаётся, чтобы уже открытые задачи
+   *  закрывались контактом (CALLBACK_AUTO_TASK_KINDS ниже). */
   "no_answer_tail_retry",
   /** «Написать в чат нельзя, окно закрыто — позвоните…» (lib/agentUnansweredAlarm.ts). */
   "chat_window_closed",
