@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 763,
-  "forks": 4051,
+  "forks": 4048,
   "mounts": 86,
   "cron": 136,
   "jobs": 33,
@@ -12730,14 +12730,6 @@
     },
     {
      "k": "do",
-     "t": "const ownAgentId = scopeToOwnAgent(req);",
-     "a": [
-      "зовёт scopeToOwnAgent()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
      "t": "const client = await prisma.client.findUnique({ where: { shortId }, select: { id: true, shortId: true, fullNa…",
      "a": [
       "читает в базе: client"
@@ -12760,30 +12752,31 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const access = await resolveClientCardAccess(req, client);",
+     "a": [
+      "зовёт resolveClientCardAccess()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
-     "t": "ownAgentId && client.assignedAgentId !== ownAgentId",
+     "t": "access === \"denied\"",
      "a": [],
      "c": [
       {
-       "k": "if",
-       "t": "!hasDeal && !wasMine",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-         "a": [
-          "ответ 403 — «Недостаточно прав»"
-         ],
-         "c": []
-        }
-       ]
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
       }
      ]
     },
     {
      "k": "if",
-     "t": "ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "t": "access === \"nameOnly\"",
      "a": [],
      "c": [
       {
@@ -12791,6 +12784,21 @@
        "t": "return res.status(403).json({ error: \"Лид ещё не принят — переписка не открыта\" });",
        "a": [
         "ответ 403 — «Лид ещё не принят — переписка не открыта»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "access === \"transferred\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Клиент передан другому агенту — переписка закрыта\" });",
+       "a": [
+        "ответ 403 — «Клиент передан другому агенту — переписка закрыта»"
        ],
        "c": []
       }
@@ -15379,45 +15387,30 @@
     },
     {
      "k": "do",
-     "t": "const ownAgentId = scopeToOwnAgent(req);",
+     "t": "const access = await resolveClientCardAccess(req, { ...client, id: id.data });",
      "a": [
-      "зовёт scopeToOwnAgent()"
+      "зовёт resolveClientCardAccess()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "!canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId",
+     "t": "access === \"denied\"",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "const hasDeal = ownAgentId && await prisma.deal.count({ where: { clientId: id.data, agentId: ownAgentId } });",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
        "a": [
-        "считает в базе: deal"
+        "ответ 403 — «Недостаточно прав»"
        ],
        "c": []
-      },
-      {
-       "k": "if",
-       "t": "!hasDeal",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-         "a": [
-          "ответ 403 — «Недостаточно прав»"
-         ],
-         "c": []
-        }
-       ]
       }
      ]
     },
     {
      "k": "if",
-     "t": "ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "t": "access === \"nameOnly\"",
      "a": [],
      "c": [
       {
@@ -15425,6 +15418,21 @@
        "t": "return res.status(403).json({ error: \"Сначала примите лид\" });",
        "a": [
         "ответ 403 — «Сначала примите лид»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "access === \"transferred\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ items: [], total: 0, page: query.data.page, pageSize } satisfies ClientPropertyActivity);",
+       "a": [
+        "ответ 200"
        ],
        "c": []
       }
@@ -16074,7 +16082,7 @@
     },
     {
      "k": "if",
-     "t": "!isHolder && !can(req, \"clients.viewAll\")",
+     "t": "decideClientCardAccess(scopeToOwnAgent(req), { ...client, acceptedAt: null }, false) === \"denied\"",
      "a": [],
      "c": [
       {
@@ -17547,14 +17555,6 @@
     },
     {
      "k": "do",
-     "t": "const ownAgentId = scopeToOwnAgent(req);",
-     "a": [
-      "зовёт scopeToOwnAgent()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
      "t": "const client = await prisma.client.findUnique({ where: cardWhere, select: { id: true, deletedAt: true, assign…",
      "a": [
       "читает в базе: client"
@@ -17577,38 +17577,31 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const access = await resolveClientCardAccess(req, client);",
+     "a": [
+      "зовёт resolveClientCardAccess()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
-     "t": "ownAgentId && client.assignedAgentId !== ownAgentId",
+     "t": "access === \"denied\"",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "const hasDeal = (await prisma.deal.count({ where: { clientId: client.id, agentId: ownAgentId } })) > 0;",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
        "a": [
-        "считает в базе: deal"
+        "ответ 403 — «Недостаточно прав»"
        ],
        "c": []
-      },
-      {
-       "k": "if",
-       "t": "!hasDeal && client.lastAgentId !== ownAgentId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-         "a": [
-          "ответ 403 — «Недостаточно прав»"
-         ],
-         "c": []
-        }
-       ]
       }
      ]
     },
     {
      "k": "if",
-     "t": "ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "t": "access !== \"full\"",
      "a": [],
      "c": [
       {
@@ -18233,39 +18226,25 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const access = await resolveClientCardAccess(req, client);",
+     "a": [
+      "зовёт resolveClientCardAccess()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
-     "t": "ownAgentId && client.assignedAgentId !== ownAgentId",
+     "t": "access === \"denied\"",
      "a": [],
      "c": [
       {
-       "k": "if",
-       "t": "!hasDeal && !wasMine",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-         "a": [
-          "ответ 403 — «Недостаточно прав»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "!hasDeal && wasMine",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "transferAccess = await loadTransferAccess(client.id, ownAgentId);",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
       }
      ]
     },
@@ -18427,7 +18406,7 @@
     },
     {
      "k": "do",
-     "t": "const sellerPropertyAddress = client.kind === \"SELLER\" ? await loadSellerPropertyAddress(client.id) : null;",
+     "t": "const sellerPropertyAddress = client.kind === \"SELLER\" && access !== \"transferred\" ? await loadSellerProperty…",
      "a": [
       "зовёт loadSellerPropertyAddress()"
      ],
@@ -21000,6 +20979,14 @@
       "ответ 200"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "const rowAccess = decideClientCardAccess(ownAgentId, c, false);",
+       "a": [
+        "зовёт decideClientCardAccess()"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "const presented = presentClient( gated, canSeePhone && !gateUntilAccepted, can(req, \"clients.viewOrigin\"), in…",
@@ -87071,6 +87058,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -93277,6 +93272,14 @@
          ],
          "c": [
           {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -93476,6 +93479,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -95551,6 +95562,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -96169,6 +96188,14 @@
          ],
          "c": [
           {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -96343,6 +96370,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -108672,6 +108707,14 @@
            ],
            "c": [
             {
+             "k": "do",
+             "t": "message = maskPhoneNumbersInText(String(message));",
+             "a": [
+              "зовёт maskPhoneNumbersInText()"
+             ],
+             "c": []
+            },
+            {
              "k": "if",
              "t": "isPrivateOperation()",
              "a": [],
@@ -108838,6 +108881,14 @@
           "запись в журнал ошибок"
          ],
          "c": [
+          {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
           {
            "k": "if",
            "t": "isPrivateOperation()",
@@ -115456,6 +115507,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -117245,6 +117304,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -117655,6 +117722,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -118515,6 +118590,14 @@
          ],
          "c": [
           {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -118811,6 +118894,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -119054,6 +119145,14 @@
       "запись в журнал ошибок"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "message = maskPhoneNumbersInText(String(message));",
+       "a": [
+        "зовёт maskPhoneNumbersInText()"
+       ],
+       "c": []
+      },
       {
        "k": "if",
        "t": "isPrivateOperation()",
@@ -120023,6 +120122,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -120498,6 +120605,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -120754,6 +120869,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -121055,6 +121178,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -121415,6 +121546,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -121966,6 +122105,14 @@
          ],
          "c": [
           {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -122147,6 +122294,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -122535,6 +122690,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -123122,6 +123285,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -123432,6 +123603,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -123843,6 +124022,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -124007,6 +124194,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -124366,6 +124561,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -124951,6 +125154,14 @@
          ],
          "c": [
           {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -125466,6 +125677,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -126068,6 +126287,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -126292,6 +126519,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -126503,6 +126738,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -127049,6 +127292,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -127420,6 +127671,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -127730,6 +127989,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -128325,6 +128592,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -128652,6 +128927,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -129316,6 +129599,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -129668,6 +129959,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -129925,6 +130224,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -130534,6 +130841,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -131474,6 +131789,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -132321,6 +132644,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -132526,6 +132857,14 @@
           "запись в журнал ошибок"
          ],
          "c": [
+          {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
           {
            "k": "if",
            "t": "isPrivateOperation()",
@@ -132777,6 +133116,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -134164,6 +134511,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -134387,6 +134742,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -134709,6 +135072,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -135244,6 +135615,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",

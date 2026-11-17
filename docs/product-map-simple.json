@@ -16,10 +16,10 @@
   "paths": 763,
   "cron": 136,
   "jobs": 33,
-  "conditions": 4035,
-  "untranslatedUnique": 466,
-  "untranslatedTotal": 604,
-  "partialUnique": 1099,
+  "conditions": 4032,
+  "untranslatedUnique": 464,
+  "untranslatedTotal": 597,
+  "partialUnique": 1096,
   "translatedShare": 85
  },
  "untranslated": [
@@ -56,7 +56,6 @@
   "!byId.get(pair.videoMontajerAgentId)?.telegramChatId",
   "!c || c.deletedAt || !canAccessAssignedAgent(req, c.assignedAgentId) || foreignWriteDenied(req, c, ownAgentId)",
   "!can(req, \"deals.viewAll\") && deal.agentId !== req.agent!.id",
-  "!canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId",
   "!canReadInvestigations(req) && await prisma.interaction.findFirst({ where: { investigationOnly: true, voiceNo…",
   "!channel.name.startsWith(\"UnicastRTP/\") || ours.has(channel.id)",
   "!classifyFileName(file.area, path.basename(file.relPath))",
@@ -90,7 +89,6 @@
   "!fs.existsSync(filePath)",
   "!fs.existsSync(from)",
   "!hasBuyerCriteria(wants)",
-  "!hasDeal && client.lastAgentId !== ownAgentId",
   "!idSchema.safeParse(req.params.receiptId).success",
   "!identity.username?.trim()",
   "!isLastPart && body.length !== session.partSize",
@@ -284,6 +282,7 @@
   "data.status && data.status !== existing.status && existing.source === \"WEBSITE\"",
   "day <= secondMeetingDay(y, m)",
   "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId",
+  "decideClientCardAccess(scopeToOwnAgent(req), { ...client, acceptedAt: null }, false) === \"denied\"",
   "delivery.propertyId !== p.id || delivery.versionId !== row.id || delivery.createdById !== req.agent!.id || de…",
   "digits.replace(/\\D/g, \"\").length < 5",
   "dispatchLikelyInProgress(p.videoHandoffDispatchStartedAt, now)",
@@ -381,7 +380,6 @@
   "ownAgentId && existing.assignedAgentId !== ownAgentId",
   "ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt",
   "ownAgentId && taskOwnerId !== ownAgentId",
-  "ownAgentId === client.assignedAgentId && !client.acceptedAt",
   "pair.botReplyDelaySec !== undefined || pair.botReplyMaxWaitSec !== undefined || pair.followUpWindowStart !== …",
   "pair.liveVoicePrompt !== undefined && pair.liveVoicePrompt.trim() && pair.liveVoicePrompt.trim() !== DEFAULT_…",
   "pair.workHoursStart !== undefined || pair.workHoursEnd !== undefined || pair.alarmHoursStart !== undefined ||…",
@@ -16908,28 +16906,20 @@
      ]
     },
     {
-     "t": "если ownAgentId && client.assignedAgentId !== ownAgentId",
+     "t": "если доступ — «denied»",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "если нет: есть сделка и нет: was мои",
-       "k": "if",
+       "t": "отказ: не хватает прав: «Недостаточно прав»",
+       "k": "do",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: не хватает прав: «Недостаточно прав»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
+       "c": []
       }
-     ],
-     "raw": "ownAgentId && client.assignedAgentId !== ownAgentId"
+     ]
     },
     {
-     "t": "если ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "t": "если доступ — «nameOnly»",
      "k": "if",
      "a": [],
      "c": [
@@ -16939,8 +16929,20 @@
        "a": [],
        "c": []
       }
-     ],
-     "raw": "ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt"
+     ]
+    },
+    {
+     "t": "если доступ — «transferred»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: не хватает прав: «Клиент передан другому агенту — переписка закрыта»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
     },
     {
      "t": "если format — «txt»",
@@ -18611,28 +18613,20 @@
      ]
     },
     {
-     "t": "если !canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId",
+     "t": "если доступ — «denied»",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "если нет: есть сделка",
-       "k": "if",
+       "t": "отказ: не хватает прав: «Недостаточно прав»",
+       "k": "do",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: не хватает прав: «Недостаточно прав»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
+       "c": []
       }
-     ],
-     "raw": "!canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId"
+     ]
     },
     {
-     "t": "если ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "t": "если доступ — «nameOnly»",
      "k": "if",
      "a": [],
      "c": [
@@ -18642,8 +18636,20 @@
        "a": [],
        "c": []
       }
-     ],
-     "raw": "ownAgentId === client.assignedAgentId && !client.acceptedAt"
+     ]
+    },
+    {
+     "t": "если доступ — «transferred»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
     },
     {
      "t": "если section — «sent»",
@@ -19064,7 +19070,7 @@
      ]
     },
     {
-     "t": "если нет: is holder и нет: право «clients.viewAll»",
+     "t": "если decideClientCardAccess(scopeToOwnAgent(req), { ...client, acceptedAt: null }, false) === \"denied\"",
      "k": "if",
      "a": [],
      "c": [
@@ -19074,7 +19080,8 @@
        "a": [],
        "c": []
       }
-     ]
+     ],
+     "raw": "decideClientCardAccess(scopeToOwnAgent(req), { ...client, acceptedAt: null }, false) === \"denied\""
     },
     {
      "t": "если есть already",
@@ -20002,29 +20009,20 @@
      ]
     },
     {
-     "t": "если ownAgentId && client.assignedAgentId !== ownAgentId",
+     "t": "если доступ — «denied»",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "если !hasDeal && client.lastAgentId !== ownAgentId",
-       "k": "if",
+       "t": "отказ: не хватает прав: «Недостаточно прав»",
+       "k": "do",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: не хватает прав: «Недостаточно прав»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "!hasDeal && client.lastAgentId !== ownAgentId"
+       "c": []
       }
-     ],
-     "raw": "ownAgentId && client.assignedAgentId !== ownAgentId"
+     ]
     },
     {
-     "t": "если ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "t": "если доступ не «full»",
      "k": "if",
      "a": [],
      "c": [
@@ -20034,8 +20032,7 @@
        "a": [],
        "c": []
       }
-     ],
-     "raw": "ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt"
+     ]
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -20460,31 +20457,17 @@
      ]
     },
     {
-     "t": "если ownAgentId && client.assignedAgentId !== ownAgentId",
+     "t": "если доступ — «denied»",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "если нет: есть сделка и нет: was мои",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не хватает прав: «Недостаточно прав»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если нет: есть сделка и есть was мои",
-       "k": "if",
+       "t": "отказ: не хватает прав: «Недостаточно прав»",
+       "k": "do",
        "a": [],
        "c": []
       }
-     ],
-     "raw": "ownAgentId && client.assignedAgentId !== ownAgentId"
+     ]
     },
     {
      "t": "если ownAgentId && client.assignedAgentId === ownAgentId && client.acceptedAt",

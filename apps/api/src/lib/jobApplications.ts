@@ -27,6 +27,7 @@ import { WHATSAPP_CHANNEL, whatsAppPhoneFromSubscriberId, findClientByPhoneDigit
 import { detachAgentForCandidate, notifyCandidateOwners } from "./clientToCandidate.js";
 import { trashBlocker } from "./trashClient.js";
 import { isPlaceholderName } from "./placeholderName.js";
+import { maskClientPhone } from "./clientPhone.js";
 
 /**
  * Досье и карточка по разговору. `JobApplication.conversationId` — это id из ОДНОЙ
@@ -794,7 +795,7 @@ export async function captureCandidateFromCall(input: {
     }
     return { applicationId: application.id, clientId, detached, notified: notify };
   } catch (err) {
-    void logSystemError("telephony", `Кандидат по звонку (${input.phone}) не принят: ${describeError(err)}`);
+    void logSystemError("telephony", `Кандидат по звонку (${maskClientPhone(input.phone)}) не принят: ${describeError(err)}`);
     return { applicationId: null, clientId: null, detached: false, notified: false };
   }
 }

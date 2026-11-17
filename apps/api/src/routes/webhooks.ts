@@ -144,6 +144,7 @@ import { findAgentsWithPermission } from "../lib/recipients.js";
 import { requestAgentAttention } from "../lib/agentAttention.js";
 import { sendPushToAgents } from "../push.js";
 import { ensureMetaAdKnown } from "../lib/ads/syncMetaAds.js";
+import { maskPhonesInFreeText } from "../lib/clientPhone.js";
 
 export const webhooksRouter = Router();
 
@@ -377,7 +378,8 @@ webhooksRouter.post("/website-lead", leadWebhookLimiter, async (req, res) => {
     void logSystemError(
       "ai",
       `Заявка с сайта заведена как «прочее обращение»: ${decision.reason}. Агенту не назначается. ` +
-        `Комментарий: «${(data.comment ?? "").replace(/\s+/g, " ").slice(0, 160)}»`
+        // Свободный текст клиента — с маской номеров и короче (аудит 17.11.2026, S3).
+        `Комментарий: «${maskPhonesInFreeText((data.comment ?? "").replace(/\s+/g, " ")).slice(0, 60)}»`
     );
   }
 
