@@ -27,6 +27,7 @@ import { moderationErrorOutcome, moderationAcceptedNote } from "./commentModerat
 import { detectSpam } from "../lib/incomingSpam.js";
 import { detectAgencyAd, detectListingAd } from "../lib/listingAd.js";
 import { detectHate } from "../lib/commentHate.js";
+import { createLeadFromCommentPhone } from "./commentPhoneLead.js";
 import { resolveTelegramCommentProperty } from "../lib/propertyVoice/commentProperty.js";
 import { commentDecisionProviderSchema, type CommentDecision } from "@royal-home/shared";
 import { commentDecisionCapabilities, validateCommentDecision } from "../ai/commentDecision.js";
@@ -396,10 +397,8 @@ export async function handleTelegramComment(
   }
 
   const screen = screenIncomingText(row.text, { checkSpam: false });
-  if (screen.action === "silent") {
-    await finish(row.id, { status: "SKIPPED", note: screen.reason.slice(0, 120) });
-    return "skipped";
-  }
+  // Решение сторожа применяется ниже, после проверок спама/мата/объявлений (17.11.2026):
+  // молчание не должно уносить с собой номер, оставленный в комментарии.
 
   /**
    * СПАМ И ЧАСТНЫЕ ОБЪЯВЛЕНИЯ — КОДОМ, КАК ПОД ПОСТАМИ INSTAGRAM (24.09.2026).
@@ -432,6 +431,17 @@ export async function handleTelegramComment(
     return outcome;
   }
 
+  /**
+   * ОТСЕЧКА СТОРОЖА ВХОДЯЩЕГО — ПРИМЕНЯЕТСЯ ЗДЕСЬ (17.11.2026). Молчим как и раньше, но номер
+   * человека становится заявкой (messengers/commentPhoneLead.ts): в переписке Meta
+   * молчание номер не уносило, а здесь уносило.
+   */
+  if (screen.action === "silent") {
+    await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" });
+    await finish(row.id, { status: "SKIPPED", note: screen.reason.slice(0, 120) });
+    return "skipped";
+  }
+
   const { row: budgetRow, budget } = await loadPeerAiBudget("TELEGRAM_COMMENTS", row.authorId, null);
   if (budget.turnsLeft <= 0) {
     void logSystemError(
@@ -439,6 +449,7 @@ export async function handleTelegramComment(
       `Комментатор ${row.authorName ? `@${row.authorName}` : row.authorId} упёрся в суточный потолок ходов ИИ ` +
         `под постами Telegram — бот больше не отвечает ему сегодня.`
     );
+    await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" });
     await finish(row.id, { status: "SKIPPED", note: "ai_budget" });
     return "skipped";
   }
@@ -485,6 +496,10 @@ export async function handleTelegramComment(
     if (decision.action === "delete") await leadFromAd(row, "OTHER");
     return outcome;
   }
+
+  // Живой человек (не спам, не конкурент, не собственник): номер из комментария — заявкой,
+  // что бы ни решила модель дальше (ответить, промолчать, позвать человека), 17.11.2026.
+  await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" });
 
   if (decision.action === "escalate") {
     await escalate(row, decision.reason);
