@@ -119,9 +119,9 @@ const isMonthlyAutoRow = (e: { autoKey: string | null }) => !!e.autoKey && (e.au
  */
 async function dailyAutoSpendTjs(from: Date, to: Date, money: Awaited<ReturnType<typeof loadMoneyContext>>): Promise<number> {
   // Окно режется по месяцам (неделя на стыке): у каждого месяца свои счета поставщиков ИИ и свои
-  // строки месяца. Строку месяца удалили или поправили руками — по этому источнику дневной расход
-  // не считаем: «Финансы» её не видят (удалена) или держат ручную сумму, а ручной счёт с днём
-  // оплаты уже лежит в выборке «Пульса» (ревью 17.11: иначе реклама считалась дважды).
+  // строки месяца. Строку месяца удалили — по этому источнику дневной расход не считаем: «Финансы»
+  // её не видят, а ручной счёт с днём оплаты уже лежит в выборке «Пульса» (ревью 17.11: иначе
+  // реклама считалась дважды).
   let total = 0;
   let cursor = from;
   while (cursor < to) {
@@ -140,9 +140,11 @@ async function monthSegmentAutoSpendTjs(month: string, from: Date, to: Date, mon
   const dayTo = new Date(`${dushanbeDateString(to)}T00:00:00.000Z`);
   const autoRows = await prisma.expense.findMany({
     where: { month: monthDate, OR: [{ autoKey: { startsWith: "ads:" } }, { autoKey: { startsWith: "ai:" } }] },
-    select: { autoKey: true, deletedAt: true, manualEditedAt: true },
+    select: { autoKey: true, deletedAt: true },
   });
-  const skip = (key: string) => autoRows.some((r) => r.autoKey === key && (r.deletedAt || r.manualEditedAt));
+  // Только удалённая строка снимает источник (значит, есть другой счёт); ручная правка суммы — нет:
+  // иначе «Пульс» за неделю снова показывал бы 0 при настоящем расходе (повторное ревью 17.11).
+  const skip = (key: string) => autoRows.some((r) => r.autoKey === key && r.deletedAt);
   const platforms = SYNCED_AD_PLATFORMS.filter((p) => !skip(`ads:${p}:${month}`));
   const [ads, ai, bills] = await Promise.all([
     platforms.length ? prisma.adSpendDaily.findMany({

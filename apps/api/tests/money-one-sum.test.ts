@@ -91,7 +91,7 @@ describe("«Пульс» за неделю — реклама по дням, н�
     // Строку рекламы этого месяца, удалённую или правленую другим тестом, на время убираем из учёта:
     // тест про дневной расход кабинета, а не про ручные правки.
     const monthKeyNow = `ads:META:${dushanbeDateString().slice(0, 7)}`;
-    await prisma.expense.updateMany({ where: { autoKey: monthKeyNow, OR: [{ deletedAt: { not: null } }, { manualEditedAt: { not: null } }] }, data: { autoKey: `${monthKeyNow}-parked-${stamp}` } });
+    await prisma.expense.updateMany({ where: { autoKey: monthKeyNow, deletedAt: { not: null } }, data: { autoKey: `${monthKeyNow}-parked-${stamp}` } });
     const before = await buildFinancePulse();
     adId = (await prisma.ad.create({ data: { externalId: `test-pulse-${stamp}`, name: "Тест пульса" } })).id;
     await prisma.adSpendDaily.create({ data: { adId, date: new Date(`${dushanbeDateString()}T00:00:00.000Z`), spend: 10, currency: "USD" } });
@@ -145,6 +145,7 @@ describe("курс закрытого месяца", () => {
       expect(third).toEqual(again);
     } finally {
       await prisma.expense.deleteMany({ where: { autoKey: { in: keys } } });
+      if (!settings?.usdToTjsRate) await prisma.settings.update({ where: { id: "singleton" }, data: { usdToTjsRate: null } });
     }
   });
 });
