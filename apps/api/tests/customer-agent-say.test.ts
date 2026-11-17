@@ -25,7 +25,7 @@ describe("say validator: positive examples", () => {
     "Понял, вас интересует эта квартира.",
     "Спасибо, что рассказали о своей ситуации.",
     "Извините, что вам пришлось ждать ответа.",
-    "Хорошо, давайте разберёмся вместе.",
+    "Давайте разберёмся вместе.",
     "Понимаю, выбор жилья для семьи важное дело.",
   ])("accepts %s", say => { expect(check(say)).toEqual({ ok: true, text: say }); });
   it.each([...CUSTOMER_AGENT_SAY_EXAMPLES.ru])("accepts the prompt example (ru): %s", say => { expect(check(say).ok).toBe(true); });
@@ -38,10 +38,14 @@ describe("say validator: positive examples", () => {
     expect(reason("Понял, вы смотрите квартиры в Шохмансуре.", { inputText: "Ищу светлую квартиру в Шохмансуре" })).toBe("ok");
   });
   it("lets a call word through only with a callback or handover receipt in the decision refs", () => {
-    expect(reason("Хорошо, мы вам позвоним.")).toBe("promise");
-    expect(reason("Хорошо, мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "callback_requested" }] })).toBe("ok");
-    expect(reason("Хорошо, мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "handover_requested" }] })).toBe("ok");
-    expect(reason("Хорошо, мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "contact_saved" }] })).toBe("promise");
+    expect(reason("Мы вам позвоним.")).toBe("promise");
+    expect(reason("Мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "callback_requested" }] })).toBe("ok");
+    expect(reason("Мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "handover_requested" }] })).toBe("ok");
+    expect(reason("Мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "contact_saved" }] })).toBe("promise");
+  });
+  it("refuses an agreement word with its own reason (review #211, round 7): «Хорошо, …» reads as «да»", () => {
+    expect(reason("Хорошо, давайте разберёмся вместе.")).toBe("agree");
+    expect(reason("Хорошо, мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "callback_requested" }] })).toBe("agree");
   });
   it("lets a saved word through only with a saved-contact or job-application receipt", () => {
     expect(reason("Я записал ваши данные.")).toBe("promise");
@@ -196,14 +200,14 @@ describe("normalizeSayText", () => {
 
 describe("say validator for a decision", () => {
   const evidence = [{ ref: "e0", value: { kind: "receipt", outcome: "callback_requested" } }, { ref: "e1", value: { kind: "receipt", outcome: "contact_saved" } }];
-  const base = { say: "Хорошо, мы вам позвоним.", language: "ru" as const, surface: "dm" as const, inputText: "Перезвоните мне", evidence };
+  const base = { say: "Мы вам позвоним.", language: "ru" as const, surface: "dm" as const, inputText: "Перезвоните мне", evidence };
   it("takes receipts from the refs the decision selected, not from all evidence", () => {
     expect(validateCustomerAgentSayForDecision({ ...base, decision: { kind: "reply", social: "none", refs: ["e0"] } }).ok).toBe(true);
     expect(validateCustomerAgentSayForDecision({ ...base, decision: { kind: "reply", social: "none", refs: ["e1"] } })).toEqual({ ok: false, reason: "promise" });
     expect(validateCustomerAgentSayForDecision({ ...base, decision: { kind: "propose", social: "none", ref: "e0" } }).ok).toBe(true);
   });
   it("reads earlier bot turns and the social act from the decision and the verified context", () => {
-    const verifiedContext = { turns: [{ role: "assistant" as const, text: "Хорошо, мы вам позвоним." }, { role: "user" as const, text: "ок" }] };
+    const verifiedContext = { turns: [{ role: "assistant" as const, text: "Мы вам позвоним." }, { role: "user" as const, text: "ок" }] };
     expect(validateCustomerAgentSayForDecision({ ...base, decision: { kind: "reply", social: "none", refs: ["e0"] }, verifiedContext })).toEqual({ ok: false, reason: "repeat" });
   });
 });

@@ -9,7 +9,7 @@ import {
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
-import { customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
+import { customerAgentAnswerLiveChannels, customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaExecutionMode } from "./customerPropertyMedia.js";
 import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
@@ -143,7 +143,12 @@ const EVALUATORS: Record<string, Evaluator> = {
   // «Один мозг», шаг 1 (#211): весь ответ своими словами вокруг проверенных фактов. Пусто — «тень».
   "bot-answer-mode": ({ env }) => {
     const mode = customerAgentAnswerMode(env);
-    if (mode === "live") return { state: "working", reason: "Бот отвечает клиентам своими словами вокруг проверенных фактов (CUSTOMER_AGENT_ANSWER_MODE=live)." };
+    // Live is per channel (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS): the mode alone (no channel) is never "live" any more.
+    if (env.CUSTOMER_AGENT_ANSWER_MODE === "live") {
+      const channels = customerAgentAnswerLiveChannels(env);
+      if (channels.length) return { state: "working", reason: `Бот отвечает клиентам своими словами вокруг проверенных фактов в каналах: ${channels.join(", ")} (CUSTOMER_AGENT_ANSWER_MODE=live). Остальные каналы — только проверка.` };
+      return { state: "preview", reason: "CUSTOMER_AGENT_ANSWER_MODE=live, но список каналов CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS пуст или без известных имён: своими словами бот не отвечает нигде, клиенту уходит готовый шаблон. Запись об этом — в журнале ошибок." };
+    }
     if (mode === "off") return { state: "off", reason: "Выключено на сервере (CUSTOMER_AGENT_ANSWER_MODE=off): бот не пишет ответ своими словами, работают прежние короткие фразы." };
     return {
       state: "preview",
