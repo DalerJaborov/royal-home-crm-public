@@ -1,3 +1,4 @@
+import { districtPickAllowed } from "../lib/serviceArea.js";
 import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import { readCustomerDmSubjectExecution } from "../lib/customerAgentEnrollment.js";
 import { prisma } from "../db.js";
@@ -30,7 +31,7 @@ import {
 } from "./conversationStore.js";
 export { ensureConversationId, markLastReplyUndelivered, markMessageDeliveryStatus, stampOutgoingMid };
 import { appendConversationMessages } from "./appendMessages.js";
-import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, takeStuckBuffers } from "./debounceBuffer.js";
+import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, quickRepeatMergeEnabled, takeStuckBuffers } from "./debounceBuffer.js";
 import { claimUnreadablePhoneAsk } from "./phoneRetryClaim.js";
 import { CLIENT_KIND_LABELS, CLIENT_SOURCES, formatClientCode, type ClientSource } from "@royal-home/shared";
 import { clientSelfStatedName, normalizeClientName } from "../ai/replyGuards.js";
@@ -77,6 +78,8 @@ import { extractPostAcceptFacts } from "../ai/postAcceptFacts.js";
 import { countNoContactComplaints, looksLikeNoContactComplaint, looksLikeWantsHumanAgent } from "../ai/complaintGuard.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
+import { requestAgentAttention } from "../lib/agentAttention.js";
+import { newerClientMessagePending } from "./turnSupersede.js";
 import { detectAgencyPitch } from "../ai/agencyPitchGuard.js";
 import { guardFired } from "../ai/guardMetrics.js";
 import { createLeadFromChannel } from "../leads.js";
@@ -856,7 +859,9 @@ export async function acceptLead(
   // Без учёта регистра, общим правилом на все каналы (ночная проверка
   // 24.09.2026): раньше здесь стояло точное сравнение, и «сино» из разговора
   // не находило «Сино» в справочнике — район молча не попадал в карточку.
-  const districtId = await findDistrictIdByName(draft.districtName);
+  // «Рудаки (район)» от модели — только если клиент сам говорил о районе Рудаки, а не о проспекте (lib/serviceArea.ts).
+  const districtSourceWords = [...history.filter((m) => m.role === "user").map((m) => (typeof m.content === "string" ? m.content : "")), options?.clientText ?? ""].join("\n");
+  const districtId = districtPickAllowed(draft.districtName, districtSourceWords) ? await findDistrictIdByName(draft.districtName) : undefined;
 
   // Продажа объекта ЗА ПРЕДЕЛАМИ Таджикистана (Россия и т.п.) — не принимаем вообще:
   // заявку не заводим и телефон не сохраняем, даже если клиент сам его прислал.
@@ -1276,6 +1281,14 @@ export async function acceptLead(
    * по параметру draft, который у обоих вызовов одинаково устаревший) — тот же
    * приём, что и захват буфера дебаунса (debounceAndMerge): забирает ход ровно
    * один раз, опоздавший тихо уходит без второго ответа клиенту.
+   *
+   * «done» БЕЗ КАРТОЧКИ — НЕ ЗАНЯТО, А БРОШЕНО (14.11.2026, живой случай Instagram 10.11:
+   * бот ответил «Приняли ваш номер», карточки нет). Победитель ставит «done» ВМЕСТЕ с
+   * clientId одной записью (ниже), поэтому «done» при пустом clientId гонкой не бывает:
+   * это след удалённой карточки (routes/clients/card.ts отвязывает диалог, стадию не
+   * трогает) или любой другой отвязки. Раньше такой диалог не мог принять номер НИКОГДА:
+   * ни живой ход, ни сторож лидов — только тревога руководству. Защита по умолчанию:
+   * условие здесь, а не сброс стадии в каждом месте, где диалог отвязывают.
    */
   let claimed = await prisma.$executeRaw`
     UPDATE "BotConversation"
@@ -1283,7 +1296,8 @@ export async function acceptLead(
       jsonb_set(COALESCE("leadDraft", '{}'::jsonb), '{stage}', '"accepting"'),
       '{acceptingAt}', to_jsonb((extract(epoch from clock_timestamp()) * 1000)::bigint))
     WHERE "id" = ${conversationId}
-      AND COALESCE("leadDraft"->>'stage', '') NOT IN ('done', 'accepting')`;
+      AND (COALESCE("leadDraft"->>'stage', '') NOT IN ('done', 'accepting')
+        OR ("leadDraft"->>'stage' = 'done' AND "clientId" IS NULL))`;
   if (claimed === 0) {
     /**
      * ЗАВИСШИЙ ЗАХВАТ — ПЕРЕЗАХВАТ (AI-DIALOGUE01, аудит 04.10.2026).
@@ -1321,6 +1335,8 @@ export async function acceptLead(
      * что бот промолчал. Теперь во втором случае реплику сохраняем (кроме повтора
      * по уже сохранённой истории, см. `fromHistory`) и пишем в журнал; ответа
      * клиенту по-прежнему нет — карточку в такой переписке заводит человек.
+     * С 14.11.2026 «done» БЕЗ карточки захватывается выше и сюда не доходит; ветка
+     * осталась для «done» при живой карточке (приём сюда звать не должны) — след в журнале.
      */
     const stale = await prisma.botConversation
       .findUnique({ where: { id: conversationId }, select: { leadDraft: true } })
@@ -3038,26 +3054,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * Без назначенного агента отмечать некого — обычная раздача заявки решит
      * этот случай сама.
      */
-    if (looksLikeWantsHumanAgent(text)) {
-      void (async () => {
-        const card = await prisma.client.findUnique({
-          where: { id: conversation.clientId! },
-          select: { shortId: true, fullName: true, assignedAgentId: true, agentAttentionRequestedAt: true },
-        });
-        if (!card?.assignedAgentId || card.agentAttentionRequestedAt) return;
-        await prisma.client
-          .update({ where: { id: conversation.clientId! }, data: { agentAttentionRequestedAt: new Date() } })
-          .catch(() => {});
-        await sendPushToAgent(card.assignedAgentId, {
-          kind: "message",
-          level: "CRITICAL",
-          title: `${card.fullName} хочет поговорить с вами`,
-          body: "Клиент попросил живого агента — бот отвечает вместо вас, пока вы не свяжетесь сами.",
-          url: `/clients/${card.shortId}`,
-          tag: `agent-attention-${conversation.clientId}`,
-        }).catch((err) => console.error("[push] просьба живого агента:", err instanceof Error ? err.message : err));
-      })();
-    }
+    // Одна дверь с обещанием звонка (lib/agentAttention.ts, 16.11.2026).
+    if (looksLikeWantsHumanAgent(text)) void requestAgentAttention(conversation.clientId!, "wants_human");
 
     // Дальше — никакого отдельного «гейта на закрытый разговор» и никакого
     // отдельного захвата хода: ниже по функции те же debounceAndMerge и
@@ -3241,7 +3239,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
        * докстринг debounceAndMerge), которую раньше делал свой `replyClaimed`
        * прямо в блоке «заявка уже принята» — но полные 25 секунд обычного
        * окна здесь ни к чему: клиент, который уже оставил номер, ждёт ответа
-       * так же быстро, как ждал бы «агент свяжется» раньше. `delayMs: 0` —
+       * так же быстро, как ждал бы «агент свяжется» раньше. 6 с по умолчанию (Settings.botMergeQuickRepeats, владелец 15.11 «Да, 6 секунд можно»; выключен — 0 с) —
        * не ждём НАРОЧНО, `maxWaitMs` небольшой — просто потолок на случай,
        * если несколько вебхуков всё же пришли не совсем одновременно.
        */
@@ -3257,6 +3255,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         accepted: !!conversation.clientId,
         hasMedia: images.length > 0 || saved.length > 0,
         greetingFast,
+        mergeQuickRepeats: !!conversation.clientId && (await quickRepeatMergeEnabled()),
       })
     );
     if (batch === null) return { reply: "", ready: true, accepted: !!conversation.clientId, shouldReply: false };
@@ -3677,11 +3676,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   const finishQualifyTurn = async (
     result: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>
-  ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer }> => {
+  ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer; agentSignal?: MessengerTurnResult["agentSignal"] }> => {
     // Если уже ждали телефон — оставляем этот этап (модель могла сбросить ready).
     // `merged` — слова самого клиента: по ним код отсекает аренду, не полагаясь
     // на то, что модель прочла запрет в промте (см. ai/rentGuard.ts).
-    const mergedDraft = mergeDraft(draft, result, merged);
+    const mergedDraft = mergeDraft(draft, result, merged, [...history].reverse().find((m) => m.role === "assistant")?.content);
     if (draft.stage === "awaiting_phone") mergedDraft.stage = "awaiting_phone";
     /**
      * НОМЕР УЖЕ ЕСТЬ — СТАДИЯ «ЖДЁМ НОМЕР» НЕ ВОЗВРАЩАЕТСЯ (13.10.2026).
@@ -4016,10 +4015,16 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * протухшая пауза потерянного клиента, которую ход сознательно обошёл,
      * новой не считается.
      */
-    const pauseNow = await prisma.botConversation
-      .findUnique({ where: { id: conversation.id }, select: { pausedUntil: true } })
-      .then((row) => row?.pausedUntil ?? null)
+    const lateRow = await prisma.botConversation
+      .findUnique({ where: { id: conversation.id }, select: { pausedUntil: true, pendingSince: true, pendingMessages: true } })
       .catch(() => null);
+    const pauseNow = lateRow?.pausedUntil ?? null;
+    // Пока бот думал, клиент написал ещё — отвечает следующий ход (messengers/turnSupersede.ts).
+    const newerPending = newerClientMessagePending(lateRow, !!input.skipSaveIncoming);
+    if (newerPending) {
+      guardFired("superseded_by_newer_message");
+      return { reply: "", ready: mergedDraft.stage === "awaiting_phone", shouldReply: false };
+    }
     if (
       pauseNow &&
       pauseNow.getTime() > Date.now() &&
@@ -4178,6 +4183,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       ready: mergedDraft.stage === "awaiting_phone",
       ...(outgoing ? {} : { shouldReply: false }),
       ...(replyVoiceWav ? { replyVoiceWav } : {}),
+      // Обещан звонок клиенту с номером — сигнал агенту шлёт отправитель ПОСЛЕ доставки
+      // (routes/webhooks.ts → lib/agentAttention.ts), а не здесь: ответ ещё может не уйти.
+      ...(outgoing && filtered.promisedCall && conversation.clientId
+        ? { agentSignal: { clientId: conversation.clientId, reason: "call_promised" as const } }
+        : {}),
     };
   };
 

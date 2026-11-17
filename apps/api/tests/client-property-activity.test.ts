@@ -69,8 +69,11 @@ describe("client property workspace data and access", () => {
   it("masks phones in property titles and respects independent origin visibility", async () => {
     const res = await activity("AGENT");
     expect(JSON.stringify(res.body)).not.toContain("900001234");
+    // 16.11.2026 номера только директору: ADMIN видит маску, DIRECTOR — номер целиком.
     const admin = await activity("ADMIN");
-    expect(JSON.stringify(admin.body)).toContain("900001234");
+    expect(JSON.stringify(admin.body)).not.toContain("900001234");
+    const director = await activity("DIRECTOR");
+    expect(JSON.stringify(director.body)).toContain("900001234");
   });
   it("phone permission never grants origin visibility, or vice versa", async () => {
     try {
@@ -78,7 +81,8 @@ describe("client property workspace data and access", () => {
       invalidateAgentAccess(agents[0]);
       const res = await activity("AGENT");
       expect(res.body.items[0].channel).toBeNull();
-      expect(res.body.items[0].property.title).toContain("900001234");
+      // 16.11.2026: выданное не-директору clients.viewPhone номер не открывает (directorOnly).
+      expect(res.body.items[0].property.title).not.toContain("900001234");
       await prisma.agent.update({ where: { id: agents[0] }, data: { permissions: { granted: ["clients.viewOrigin"], revoked: ["clients.viewPhone"] } } });
       invalidateAgentAccess(agents[0]);
       const reverse = await activity("AGENT");

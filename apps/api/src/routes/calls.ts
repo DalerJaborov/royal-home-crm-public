@@ -805,7 +805,7 @@ callsRouter.get("/telephony/dashboard", supervisorOnly, async (req, res) => {
           .catch(() => ({ online: false, list: [] as Awaited<ReturnType<typeof listEndpoints>> }))
       : Promise.resolve({ online: false, list: [] as Awaited<ReturnType<typeof listEndpoints>> }),
     prisma.incomingCall.count({ where: { startedAt: { gte: dayStart } } }),
-    prisma.interaction.count({ where: { type: "CALL", createdAt: { gte: dayStart }, ...visibleInteractionWhere(investigationViewerRole(req)) } }),
+    prisma.interaction.count({ where: { type: "CALL", archiveReview: false, createdAt: { gte: dayStart }, ...visibleInteractionWhere(investigationViewerRole(req)) } }),
     prisma.incomingCall.count({ where: { startedAt: { gte: dayStart }, answered: false } }),
     prisma.incomingCall.count({
       where: { startedAt: { gte: dayStart }, ...AWAITING_REVIEW_WHERE },

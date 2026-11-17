@@ -415,7 +415,7 @@ describe("Свой разговор — агенту, чужой — тольк�
   });
 });
 
-describe("Слушать ЛЮБОЙ разговор (04.09.2026): DIRECTOR/ADMIN, SECURITY, MARKETING — да; AGENT/MANAGER — нет", () => {
+describe("Слушать ЛЮБОЙ разговор (04.09.2026; с 16.11.2026 маркетинг — нет): DIRECTOR/ADMIN, SECURITY — да; MARKETING/AGENT/MANAGER — нет", () => {
   it("СБ (роль SECURITY) читает и слушает ЧУЖОЙ разговор целиком", async () => {
     const text = await request(app)
       .get(`/api/v1/interactions/${otherInteractionId}/transcript`)
@@ -430,17 +430,17 @@ describe("Слушать ЛЮБОЙ разговор (04.09.2026): DIRECTOR/ADMI
     expect(recording.status).not.toBe(403);
   });
 
-  it("маркетинг (роль MARKETING) читает и слушает ЧУЖОЙ разговор целиком", async () => {
+  it("маркетинг (роль MARKETING) НЕ читает и НЕ слушает ЧУЖОЙ разговор — 403 (16.11.2026: у маркетинга сняты calls.transcripts и calls.hearRecording)", async () => {
     const text = await request(app)
       .get(`/api/v1/interactions/${otherInteractionId}/transcript`)
       .set("Authorization", `Bearer ${marketingToken}`);
-    expect(text.status).toBe(200);
-    expect(text.body.transcript).toBe(OTHER_TRANSCRIPT);
+    expect(text.status).toBe(403);
+    expect(JSON.stringify(text.body)).not.toContain(OTHER_TRANSCRIPT);
 
     const recording = await request(app)
       .get(`/api/v1/interactions/${otherInteractionId}/recording`)
       .set("Authorization", `Bearer ${marketingToken}`);
-    expect(recording.status).not.toBe(403);
+    expect(recording.status).toBe(403);
   });
 
   it("руководитель (роль MANAGER, calls.ownTranscripts БЕЗ calls.hearRecording) — читает свой разговор, слушать не может", async () => {

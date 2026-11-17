@@ -37,7 +37,7 @@ export const traceModelAttemptSchema = z.strictObject({
   schemaIssues: z.array(z.strictObject({ path: z.enum(["reply", "ready", "confident", "lead", "jobApplication", "showing", "topic", "other"]), code: z.enum(["invalid_type", "invalid_value", "too_small", "too_big", "unrecognized_keys", "custom", "other"]) })).max(16),
 });
 export const traceFilterDeltaSchema = z.strictObject({
-  guard: z.enum(["price", "discount", "availability", "media_apology", "reply_chain", "recovery"]),
+  guard: z.enum(["price", "discount", "availability", "media_apology", "reply_chain", "recovery", "place", "renovation"]),
   attemptIndex: count, stage: z.enum(["qualifier_guards", "reply_chain", "recovery"]),
   before: traceTextSchema, after: traceTextSchema, changed: z.boolean(), guardHits: count,
 });

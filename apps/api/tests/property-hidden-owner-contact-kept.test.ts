@@ -19,10 +19,10 @@ const OWNER_PHONE = "+992900000077 Собственник";
 const agentIds: string[] = [];
 let districtId = "";
 let propertyId = "";
-let editorToken = "";
-let managerToken = "";
+let hiddenToken = "";
+let directorToken = "";
 
-async function agent(role: "AGENT" | "EDITOR" | "MANAGER", tail: string) {
+async function agent(role: "AGENT" | "MANAGER" | "DIRECTOR", tail: string) {
   const a = await prisma.agent.create({
     data: { fullName: `Номер собственника ${role} ${runId}`, phone: `+99297${tail}${String(runId).slice(-5)}`, role, passwordHash: "x" },
   });
@@ -33,8 +33,8 @@ async function agent(role: "AGENT" | "EDITOR" | "MANAGER", tail: string) {
 beforeAll(async () => {
   districtId = (await prisma.district.create({ data: { name: `Район скрытого номера ${runId}` } })).id;
   const owner = await agent("AGENT", "61");
-  editorToken = signAccessToken({ sub: (await agent("EDITOR", "62")).id, role: "EDITOR" });
-  managerToken = signAccessToken({ sub: (await agent("MANAGER", "63")).id, role: "MANAGER" });
+  hiddenToken = signAccessToken({ sub: (await agent("MANAGER", "62")).id, role: "MANAGER" });
+  directorToken = signAccessToken({ sub: (await agent("DIRECTOR", "63")).id, role: "DIRECTOR" });
   propertyId = (
     await prisma.property.create({
       data: {
@@ -64,12 +64,12 @@ afterAll(async () => {
 
 describe("Правка объекта тем, кому номер собственника скрыт", () => {
   it("форма прислала пустой номер — номер собственника в базе остался", async () => {
-    const view = await request(app).get(`/api/v1/properties/${propertyId}`).set("Authorization", `Bearer ${editorToken}`);
+    const view = await request(app).get(`/api/v1/properties/${propertyId}`).set("Authorization", `Bearer ${hiddenToken}`);
     if (view.status === 200) expect(view.body.ownerContactHidden).toBe(true);
 
     const res = await request(app)
       .patch(`/api/v1/properties/${propertyId}`)
-      .set("Authorization", `Bearer ${editorToken}`)
+      .set("Authorization", `Bearer ${hiddenToken}`)
       .send({ floor: 4, ownerContact: null });
     expect(res.status).toBeLessThan(300);
 
@@ -81,7 +81,7 @@ describe("Правка объекта тем, кому номер собстве
   it("кому номер виден, тот по-прежнему может его стереть", async () => {
     const res = await request(app)
       .patch(`/api/v1/properties/${propertyId}`)
-      .set("Authorization", `Bearer ${managerToken}`)
+      .set("Authorization", `Bearer ${directorToken}`)
       .send({ ownerContact: null });
     expect(res.status).toBeLessThan(300);
 

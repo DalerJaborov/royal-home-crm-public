@@ -179,4 +179,9 @@ export interface MessengerTurnResult {
    *  прислал ли он голосовое) — см. finishQualifyTurn, messengers/botCapabilities.ts::voiceReplies.
    *  Не заменяет текстовую доставку, отправляется ДОПОЛНИТЕЛЬНО (см. webhooks.ts). */
   replyVoiceWav?: Buffer;
+  /**
+   * Сигнал агенту, который отправитель шлёт ТОЛЬКО ПОСЛЕ доставки ответа (16.11.2026):
+   * бот пообещал клиенту с номером звонок агента (ai/callbackPromiseGuard.ts → lib/agentAttention.ts).
+   */
+  agentSignal?: { clientId: string; reason: "call_promised" };
 }

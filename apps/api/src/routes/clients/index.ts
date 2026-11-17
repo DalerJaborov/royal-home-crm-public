@@ -18,6 +18,7 @@
  */
 import { Router } from "express";
 import { listRouter } from "./list.js";
+import { trashReviewRouter } from "./trashReview.js";
 import { summaryRouter } from "./summary.js";
 import { duplicatesRouter } from "./duplicates.js";
 import { deleteRequestsRouter } from "./deleteRequests.js";
@@ -44,6 +45,8 @@ export const clientsRouter = Router();
 // id=delete-requests»/«id=property-count-disputes»/«id=reactivation-offers» и
 // всегда отвечали бы 404.
 clientsRouter.use(listRouter);
+// GET /trash/:id/review — разбор удалённого клиента (16.11.2026), рядом с /trash и до card.
+clientsRouter.use(trashReviewRouter);
 // /summary — до cardRouter (GET /:id), как /trash и /lost.
 clientsRouter.use(summaryRouter);
 clientsRouter.use(duplicatesRouter);

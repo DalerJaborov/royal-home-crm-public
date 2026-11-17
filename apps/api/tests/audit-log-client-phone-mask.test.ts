@@ -22,13 +22,13 @@ const clientEntityId = `00000000-0000-4000-8000-${runId.padStart(12, "0")}`;
 let blindToken: string;
 let seeingToken: string;
 
-async function mk(fullName: string, phone: string, permissions: unknown) {
+async function mk(fullName: string, phone: string, permissions: unknown, role = "MANAGER") {
   await prisma.agent.deleteMany({ where: { phone } });
   const a = await prisma.agent.create({
     data: {
       fullName,
       phone,
-      role: "MANAGER" as never,
+      role: role as never,
       passwordHash: await bcrypt.hash(password, 10),
       permissions: permissions as never,
     },
@@ -48,10 +48,13 @@ beforeAll(async () => {
     granted: ["auditLog.view"],
     revoked: ["clients.viewPhone"],
   });
-  const seeing = await mk("Читатель Журнала С Номерами", `+992992${runId}`, {
-    granted: ["auditLog.view", "clients.viewPhone"],
-    revoked: [],
-  });
+  // 16.11.2026 номера только директору: «видящий» — DIRECTOR (clients.viewPhone стало directorOnly).
+  const seeing = await mk(
+    "Читатель Журнала С Номерами",
+    `+992992${runId}`,
+    { granted: ["auditLog.view", "clients.viewPhone"], revoked: [] },
+    "DIRECTOR",
+  );
   blindToken = await loginOf(blind.phone);
   seeingToken = await loginOf(seeing.phone);
   for (const action of ["TRASH", "RESTORE"]) {
@@ -89,7 +92,7 @@ describe("GET /audit-log и номер клиента", () => {
     expect(res.body.items[0].meta.kind).toBe("BUYER");
   });
 
-  it("с clients.viewPhone журнал отдаётся как есть", async () => {
+  it("директору (clients.viewPhone) журнал отдаётся как есть", async () => {
     const res = await request(app)
       .get(`/api/v1/audit-log?entityType=Client&entityId=${clientEntityId}`)
       .set("Authorization", `Bearer ${seeingToken}`);

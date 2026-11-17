@@ -1,3 +1,4 @@
+import { outsideAreaAcceptedText } from "../lib/serviceArea.js";
 import { prepareCustomerPublicAgentDraft, publicAgentCommentLane, finishPublicAgentDecision } from "../lib/customerPublicAgentTurn.js";
 import { expireUnsentPublicAgentPlans } from "../lib/customerPublicAgentFailure.js";
 import { inspectPublicCommentPrincipal } from "../lib/publicCommentSourceIssuer.js";
@@ -21,6 +22,8 @@ import { callAiText } from "../ai/client.js";
 import { learnedRulesBlock } from "../lib/botLessons.js";
 import { screenIncomingText } from "../ai/inboundScreen.js";
 import { siteListingUrl } from "../lib/siteListingUrl.js";
+import { loadMoneyContext } from "../lib/money.js";
+import { guardCommentPrice } from "./commentPriceGuard.js";
 import { captionShortId, describeProperty, healInstagramUrl, instagramShortcode, recordClientInterest } from "./sharedMedia.js";
 import {
   callGraph,
@@ -839,13 +842,7 @@ export const COMMENT_SCENARIO_RULES =
   "\n<сценарии_под_постом>\n" +
   "АРЕНДА (иҷора/аренда/снять/сдать): аренды у нас нет. Одна вежливая фраза об этом (факт — в АГЕНТСТВЕ выше) " +
   "и всё. Номер телефона НЕ проси, в директ по этому поводу НЕ зови.\n" +
-  "ДРУГОЙ ГОРОД (не Душанбе): работаем ТОЛЬКО по Душанбе (см. факты агентства). Откажи одной вежливой фразой " +
-  "СРАЗУ. ЗАПРЕЩЕНО «баррасӣ мекунем», «можем рассмотреть» и любые похожие обещания. ЗАПРЕЩЕНО ЛЮБОЕ ОБЕЩАНИЕ " +
-  "ЗВОНКА ИЛИ СВЯЗИ (владелец 17.09.2026): «агент позвонит», «агенти мо тамос мегирад», «свяжемся в ближайшее " +
-  "время» и всё в этом духе — этого не будет, номер сам не проси. Если человек уже сам оставил номер или " +
-  "написал про свою квартиру — ответь ровно так: «Записали, спасибо. Пока работаем только по Душанбе; если " +
-  "начнём работать в вашем городе — напишем.» / «Сабт кардем, раҳмат. Ҳоло танҳо дар Душанбе кор мекунем; агар " +
-  "дар шаҳри шумо сар кунем, менависем.»\n" +
+  `ДРУГОЙ ГОРОД (не Душанбе и не район Рудаки): работаем ТОЛЬКО в Душанбе и районе Рудаки (см. факты агентства). Откажи одной вежливой фразой СРАЗУ. ЗАПРЕЩЕНО «баррасӣ мекунем», «можем рассмотреть» и любые похожие обещания. ЗАПРЕЩЕНО ЛЮБОЕ ОБЕЩАНИЕ ЗВОНКА ИЛИ СВЯЗИ (владелец 17.09.2026): «агент позвонит», «агенти мо тамос мегирад», «свяжемся в ближайшее время» и всё в этом духе — этого не будет, номер сам не проси. Если человек уже сам оставил номер или написал про свою квартиру — ответь ровно так: «${outsideAreaAcceptedText("ru")}» / «${outsideAreaAcceptedText("tg")}»\n` +
   "ПРОДАВЕЦ-СОБСТВЕННИК (продаёт СВОЮ квартиру, дом, участок: спрашивает нас про условия или просто выложил " +
   "объявление) — action=owner, см. правила выбора action. Подробности условий и выгод мы напишем ему в личку сами, " +
   "под постом их не расписывай.\n" +
@@ -878,7 +875,9 @@ function knownPropertyRules(property: NonNullable<MediaContext["property"]>): st
     "ни «приезжайте». Ответил на вопрос — закончил.\n" +
     "Но если человек прямо под постом говорит, что готов купить, называет свою цену или просит скидку — это " +
     "торг, и тут зови в личные сообщения смело: там продолжится разговор о цене.\n" +
-    "Цену, площадь, район и комнаты бери ТОЛЬКО отсюда. Если объект уже не в продаже — скажи об этом честно " +
+    "Цену, площадь, район и комнаты бери ТОЛЬКО отсюда. Подпись публикации могла устареть: если цифры в ней " +
+    "расходятся с карточкой, верна карточка. Цену называй в той валюте, что в карточке, сам в доллары не пересчитывай " +
+    "(16.11.2026: «135 520 сомонӣ» вместо 1 250 000). Если объект уже не в продаже — скажи об этом честно " +
     "и предложи посмотреть похожее. Если спрашивают именно ЗА СКОЛЬКО объект продали (цену сделки) — скажи, что " +
     "квартира продана, а цену сделки НЕ называй ни в каком виде (владелец 17.09.2026); предложи похожие варианты."
   );
@@ -1358,6 +1357,31 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   const brand = await brandForAccount(account.id);
   /** Страховка на выходе: прежнее имя в готовом ответе заменяется и пишется в журнал. */
   const leakSafe = (t: string): string => guardBrandLeak([t], brand, { where: "комментарий", conversationId: row.id })[0]!;
+  /** Цена под постом — только из карточки (messengers/commentPriceGuard.ts, 16.11.2026). */
+  const priceSafe = async (t: string, ctx: MediaContext): Promise<string> => {
+    if (!t) return t;
+    const p = ctx.property;
+    const card = p
+      ? {
+          // Ссылка карточки — в источниках: цифры её адреса не цена.
+          line: `${describeProperty(p as Parameters<typeof describeProperty>[0])} ${siteListingUrl(p) ?? ""}`,
+          price: Number(p.price),
+          currency: p.currency,
+          available: p.status === "AVAILABLE",
+        }
+      : null;
+    const money = await loadMoneyContext().catch(() => null);
+    const out = guardCommentPrice({ text: t, card, commentText: row.text, usdToTjs: money?.usdToTjs, channel: row.channel });
+    if (out.invented.length > 0) {
+      void logSystemError(
+        "ai",
+        `Бот под комментарием (${row.channel}) назвал цену, которой нет в карточке (${out.invented.join(", ")}) — ` +
+          "фраза вырезана" + (card?.available ? ", цену назвал код из карточки." : "."),
+        { dedupKey: "comment-invented-price", dedupScope: row.id }
+      );
+    }
+    return out.text;
+  };
 
   // Защита от зацикливания: одному человеку под одной публикацией отвечаем
   // ограниченное число раз в сутки. Дальше — молчим, разговор продолжает человек.
@@ -1765,7 +1789,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     // Собственник, которого код не узнал (без номера, своими словами). Спросил НАС —
     // модель дала короткий публичный ответ, комментарий остаётся. Выложил объявление
     // для читателей — ответа нет, объявление убираем с глаз, как у кода выше.
-    const publicReply = leakSafe(cleanPublicCommentReply(stripShowingInvite(decision.reply?.trim() ?? ""), row.text));
+    const publicReply = await priceSafe(leakSafe(cleanPublicCommentReply(stripShowingInvite(decision.reply?.trim() ?? ""), row.text)), context);
     if (publicReply) {
       await humanReplyDelay();
       const replyCommentId = await postCommentReply(row, publicReply, account.token);
@@ -1896,14 +1920,14 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // смайликом — норма и прямо предписан промтом (в личке эмодзи запрещены). Поэтому
   // ответ, состоящий только из реакции, оставляем как есть; чистим лишь текст.
   const rawReply = stripShowingInvite(decision.reply?.trim() ?? "");
-  const replyText = leakSafe(cleanPublicCommentReply(rawReply, row.text));
+  const replyText = await priceSafe(leakSafe(cleanPublicCommentReply(rawReply, row.text)), context);
   if (replyText) await humanReplyDelay();
   const replyCommentId = replyText ? await postCommentReply(row, replyText, account.token) : null;
 
   // Личное только после публичного ответа: если публичный не ушёл, значит с
   // комментарием что-то не так, и лезть человеку в личку тем более не стоит.
   // Личное — это обычная переписка, и правила там ровно те же, что в директе.
-  const dmText = leakSafe(linkAsLastLine(cleanOutgoingReply(decision.dm?.trim() ?? ""), context.property)) || undefined;
+  const dmText = (await priceSafe(leakSafe(linkAsLastLine(cleanOutgoingReply(decision.dm?.trim() ?? ""), context.property)), context)) || undefined;
   const dm = replyText ? await maybeSendPrivateReply(row, dmText, account.token) : { sent: false as const };
   // Личное ушло — оно ОБЯЗАНО появиться в переписке CRM (20.09.2026). Раньше текст
   // личного ложился только в журнал комментариев (InstagramComment.dmText), а в
@@ -2419,6 +2443,11 @@ async function failComment(row: QueuedComment, err: unknown): Promise<void> {
    * решение бота передать реальный вопрос клиента человеку (см. ниже случай
    * `decision.action === "escalate"` — тот push остаётся: там модель сама решила,
    * что вопрос про документы/рассрочку/сделку ей не по силам, и это не сбой).
+   * 15.11.2026 ВЛАДЕЛЕЦ ЭТО РЕШЕНИЕ ОТМЕНИЛ (В2: «комментарии, на которые ИИ
+   * технически не смог ответить, теперь тоже уходят человеку»). Пуш по-прежнему
+   * не шлётся отсюда на каждый комментарий: человека зовёт сторож
+   * lib/commentWaitingAlert.ts одной сводкой за тик — и по финалу ai_down, и
+   * раньше, если комментарий висит без ответа дольше 30 минут.
    * Директор всё равно узнаёт немедленно через logSystemError выше по функции
    * (source "meta", единый канал «Здоровье системы» — 20.08.2026).
    */

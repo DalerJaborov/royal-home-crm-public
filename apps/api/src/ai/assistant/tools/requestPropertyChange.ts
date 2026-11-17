@@ -13,10 +13,13 @@ import type { CAPTION_FACT_FIELDS } from "../../../lib/publishedVideoFix.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**
- * request_property_change — заявка руководителю на изменение ОПУБЛИКОВАННОГО объекта
- * в трёх видах: данные карточки (CARD_DATA), убрать из соцсетей (UNPUBLISH) и
- * «Другое» (OTHER). Цена и статус — отдельные инструменты. Перемонтаж — `send_to_remake`.
- * Право — `properties.requestChange` (как кнопка «Запросить изменение»).
+ * request_property_change — изменение ОПУБЛИКОВАННОГО объекта в трёх видах: данные карточки
+ * (CARD_DATA), убрать из соцсетей (UNPUBLISH) и «Другое» (OTHER). Цена и статус — отдельные
+ * инструменты. Перемонтаж — `send_to_remake`.
+ * Данные карточки СВОЕГО объекта применяются сразу после «Подтвердить» (владелец 15.11.2026:
+ * «через Шабнам и без неё можно менять любые свои данные»; правило — одно с REST,
+ * lib/propertyAccess.ts::canApplyChangeDirectly); у чужого объекта, «убрать из соцсетей» и
+ * «Другое» — заявка руководителю. Право — `properties.requestChange`.
  */
 const KINDS = ["CARD_DATA", "UNPUBLISH", "OTHER"] as const;
 
@@ -38,6 +41,7 @@ const plainValue = (v: unknown): unknown => (v === undefined ? null : JSON.parse
 export const requestPropertyChangeExecutor = makeChangeRequestExecutor<z.infer<typeof argsSchema>>({
   tool: "request_property_change",
   kind: (args) => args.kind,
+  directKinds: ["CARD_DATA"],
   parseArgs: (raw) => argsSchema.parse(raw),
   async buildBody(args): Promise<CreatePropertyChangeRequestInput> {
     switch (args.kind) {
@@ -106,9 +110,9 @@ export const requestPropertyChangePlugin: AssistantWriteToolPlugin = {
   name: "request_property_change",
   level: "C",
   description:
-    "Подать заявку руководителю на изменение опубликованного объекта: поправить данные карточки, убрать ролик из соцсетей " +
-    "или передать другую просьбу. Звать, когда просят «попроси директора поменять…». " +
-    "Для цены, статуса и перемонтажа есть отдельные инструменты. После подготовки коротко предложи подтвердить заявку.",
+    "Изменить данные карточки опубликованного объекта (своему — сразу, чужому — заявкой руководителю), " +
+    "убрать ролик из соцсетей или передать другую просьбу заявкой «Другое». Звать: «поправь этаж в ОБ-88», «попроси директора поменять…». " +
+    "Для цены, статуса и перемонтажа есть отдельные инструменты. После подготовки коротко предложи подтвердить.",
   parameters: {
     type: "object",
     properties: {

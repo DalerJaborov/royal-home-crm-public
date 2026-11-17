@@ -354,10 +354,10 @@ describe("mode and daily statistics", () => {
     expect(customerAgentSayMode({ CUSTOMER_AGENT_SAY_MODE: "true" })).toBe("shadow");
     expect(customerAgentSayMode({ CUSTOMER_AGENT_SAY_MODE: "live" })).toBe("live");
   });
-  it("the Tajik switch on the «Бот» screen: on by default and without a row, off only when switched off, Russian-only on a failed read", async () => {
+  it("the Tajik switch on the «Бот» screen: off without a row (17.11.2026, not yet heard by a native speaker), on only when switched on, Russian-only on a failed read", async () => {
     const { prisma } = await import("../src/db.js");
     guardRows.settings = null;
-    expect(await customerAgentSayLanguages()).toEqual(["ru", "tg"]);
+    expect(await customerAgentSayLanguages()).toEqual(["ru"]);
     guardRows.settings = { botSayTajik: true };
     expect(await customerAgentSayLanguages()).toEqual(["ru", "tg"]);
     guardRows.settings = { botSayTajik: false };

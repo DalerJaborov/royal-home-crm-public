@@ -10,7 +10,7 @@ export async function projectMonthlyPublicInteractions(metrics: unknown, periodS
   if (m.publicInteractionScopeVersion === 1) return m;
   const { from, to } = monthRange(periodStart);
   const rows = await prisma.interaction.findMany({ where: {
-    investigationOnly: false, client: { deletedAt: null }, createdAt: { gte: from, lt: to },
+    investigationOnly: false, archiveReview: false, client: { deletedAt: null }, createdAt: { gte: from, lt: to },
     OR: [{ type: { in: ["CALL", "MESSAGE", "MEETING"] } }, { type: "SHOWING", ...COUNTED_SHOWING_WHERE }],
   }, select: { type: true, clientId: true, agentId: true, subjectAgentId: true }, take: LIMIT + 1 }).catch(() => null);
   const known = rows !== null && rows.length <= LIMIT;

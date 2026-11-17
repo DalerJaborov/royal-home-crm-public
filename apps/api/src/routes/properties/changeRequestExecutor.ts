@@ -38,7 +38,7 @@ import { embedAndSaveProperty, EMBEDDING_RELEVANT_FIELDS } from "../../ai/embedd
 import { describePropertyChanges } from "../../lib/propertyChanges.js";
 import { toCents } from "../../lib/money.js";
 import { canResumeAssistantPriceUndo, recordAssistantPriceUndo } from "../../lib/assistantPriceUndoJournal.js";
-import { closeForOtherReviewers } from "../../lib/propertyChangeRequestService.js";
+import { cancelPropertyChangeRequest, closeForOtherReviewers } from "../../lib/propertyChangeRequestService.js";
 import { refreshPublishedCaptions, removeFromSocial, sendBackToMontajer } from "../../lib/publishedVideoFix.js";
 import { runPostUpdateEffects, seoFieldsForUpdate } from "../../lib/propertyUpdateEffects.js";
 import { stagePropertyPriceDelivery, type PropertyPriceDelivery } from "../../lib/propertyPriceDelivery.js";
@@ -627,4 +627,23 @@ async function notifyAfterDecision(a: {
       `Заявка на изменение ${a.requestId}: извещения после решения не ушли — ${err instanceof Error ? err.message : String(err)}`
     );
   }
+}
+
+/**
+ * СВОЯ ЗАЯВКА ПРИНИМАЕТСЯ АВТОРОМ СРАЗУ — одна дверь для REST и Шабнам (владелец 15.11.2026:
+ * «менять свои данные можно без ожидания»). Вызывающий уже проверил право
+ * (lib/propertyAccess.ts::canApplyChangeDirectly) и создал заявку; здесь она принимается тем же
+ * исполнителем, что кнопка «Принять» директора, а не принятая — отзывается, чтобы не висеть в очереди
+ * руководства. Возвращает тот же итог, что approvePropertyChangeRequest.
+ */
+export async function applyOwnChangeRequestNow(requestId: string, authorId: string): Promise<ApproveOutcome> {
+  const applied: ApproveOutcome = await approvePropertyChangeRequest({
+    requestId,
+    actorId: authorId,
+    note: "Свой объект: применено автором без заявки руководителю",
+  }).catch((err: unknown) => ({ ok: false as const, status: 500, error: err instanceof Error ? err.message : "сбой применения" }));
+  if (!applied.ok) {
+    await cancelPropertyChangeRequest({ requestId, actorId: authorId, note: "Не применено: " + applied.error });
+  }
+  return applied;
 }

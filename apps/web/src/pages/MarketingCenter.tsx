@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ArrowRight, Camera, CalendarClock, CheckCheck, Clapperboard, LayoutDashboard, List, Radio, Rocket, Search } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/auth";
+import { useCan } from "../lib/permissions";
 import {
   useMarketingQueue,
   useMarketingSummary,
@@ -297,8 +298,8 @@ function RecentlyPublishedList({ data, items }: { data: RecentlyPublished | unde
     {freeVideos.length > 0 && (
       <>
         <div className="sec-h stack">
-          <h3 className="sec-t">Промо-ролики</h3>
-          <span className="note">без объекта, из раздела «Ролики в соцсети»</span>
+          <h3 className="sec-t">Публикации без объекта</h3>
+          <span className="note">ролики и фото из раздела «Публикации в соцсети»</span>
         </div>
         <div className="list">
           {freeVideos.map((v) => (
@@ -391,9 +392,8 @@ export function MarketingCenter() {
   // на сервере (routes/marketing.ts). Монтажёр НЕ входит в canViewQueue: у него
   // нет доступа к /queue и /summary, только к /editors-load. ADMIN — в обеих,
   // как DIRECTOR (решение владельца 22.08.2026, полная видимость).
-  const canViewQueue = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
-  const canViewEditorsLoad =
-    role === "MARKETING" || role === "EDITOR" || role === "DIRECTOR" || role === "ADMIN";
+  const canViewQueue = useCan()("marketing.access");
+  const canViewEditorsLoad = canViewQueue || role === "EDITOR";
   const canView = canViewQueue || canViewEditorsLoad;
   // Монтажёр открывается сразу на своей единственной вкладке — переключателя
   // на «Очередь подготовки» у него нет вовсе (см. рендер вкладок ниже).
@@ -500,7 +500,7 @@ export function MarketingCenter() {
         {canViewQueue && (
           <Link
             to="/social-videos"
-            aria-label="Опубликовать промо-ролик во все соцсети"
+            aria-label="Опубликовать ролик или фото во все соцсети"
             style={{
               display: "flex",
               alignItems: "center",
@@ -515,9 +515,9 @@ export function MarketingCenter() {
           >
             <Rocket className="i" aria-hidden />
             <span style={{ flex: "1 1 260px", minWidth: 0 }}>
-              <b style={{ display: "block", fontSize: 17 }}>Опубликовать промо-ролик во все соцсети</b>
+              <b style={{ display: "block", fontSize: 17 }}>Опубликовать ролик или фото во все соцсети</b>
               <span style={{ display: "block", fontSize: 14, opacity: 0.9 }}>
-                Загрузите ролик, ИИ напишет подписи — выберите сети и время, остальное сделает CRM.
+                Загрузите ролик или фото с текстом, выберите сети и время, остальное сделает CRM.
               </span>
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600 }}>

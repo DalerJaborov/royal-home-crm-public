@@ -2,6 +2,7 @@ import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import path from "node:path";
 import { handleModerationCallback, handleModerationText, claimCallback } from "../lib/telegramModeration.js";
 import { handleClipReviewCallback, handleClipReviewText } from "./clipReviewBot.js";
+import { handleTransferReviewCallback } from "./transferReviewBot.js";
 import { isOperatorPauseActive } from "../lib/conversationState.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
@@ -14,7 +15,7 @@ import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { handleMontajerVideo, handleMontajerReceiveCallback, handleVoicelessCopyCallback } from "./montajerReceive.js";
 import { parseMontajerCallback, parseMontajerText, runMontajerCommand } from "./montajerBot.js";
 import { appendTelegramConversationMessages } from "../messengers/appendMessages.js";
-import { batchWindowFor, debounceAndMerge } from "../messengers/debounceBuffer.js";
+import { batchWindowFor, debounceAndMerge, quickRepeatMergeEnabled } from "../messengers/debounceBuffer.js";
 import { markLastTelegramReplyUndelivered } from "../messengers/appendMessages.js";
 import { deliverVoiceToConversation } from "../lib/conversationDelivery.js";
 import { synthesizeChatVoiceReply, pcmToWavBuffer } from "../ai/tts.js";
@@ -182,6 +183,8 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
   if (await handleModerationCallback(query)) return;
   // Проверка готового ролика (telegram/clipReviewBot.ts, 25.09.2026) — cr:*.
   if (await handleClipReviewCallback(query)) return;
+  // Передача РОП — решение директора (telegram/transferReviewBot.ts, 16.11.2026) — tr:*.
+  if (await handleTransferReviewCallback(query)) return;
   if (query.data === "call_agent") {
     // Диалог мог уже принять заявку (клиент нажал кнопку из старого сообщения
     // после того, как оформился заявкой текстом) — тогда просто подтверждаем,
@@ -1854,7 +1857,8 @@ async function replyAfterWindow(p: {
       p.conversationId,
       p.text,
       { voice: p.voice, media: p.hasMedia, messageId: p.messageId },
-      batchWindowFor({ accepted: !!p.registeredClientId, hasMedia: p.hasMedia })
+      batchWindowFor({ accepted: !!p.registeredClientId, hasMedia: p.hasMedia,
+        mergeQuickRepeats: !!p.registeredClientId && (await quickRepeatMergeEnabled()) })
     );
     if (!batch) return; // клиент дописал — ответит более свежий вызов, за всю пачку
     const images = drainBatchImages(p.conversationId);

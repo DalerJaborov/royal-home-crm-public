@@ -572,6 +572,7 @@ export async function closeSettledCallbackRequests(now = new Date()): Promise<{ 
   const calls = await prisma.interaction.findMany({
     where: {
       type: "CALL",
+      archiveReview: false,
       clientId: { in: withClient.map((r) => r.resolvedClientId) },
       createdAt: { gt: earliest },
       // Закрыть просьбу может только звонок живого агента (actorKind=AGENT) —
