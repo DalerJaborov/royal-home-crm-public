@@ -79,6 +79,14 @@ describe("реестр инструментов помощника", () => {
       "get_missed_calls",
       "get_team_load",
       "get_stuck_work",
+      // «Режим директора» (17.11.2026, tools/directorTools.ts).
+      "list_pending_requests",
+      "decide_request",
+      "get_error_log",
+      "resolve_error",
+      "get_system_health",
+      "list_switches",
+      "set_switch",
     ]) {
       expect(names).toContain(name);
     }

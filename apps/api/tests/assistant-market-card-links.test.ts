@@ -99,6 +99,8 @@ describe("сторож класса: инструмент чтения со сс
     "get_deal_card", "get_my_commission", "get_payouts_due", "list_staff", "get_staff_card", "staff_now",
     // «Мозг компании» (17.11.2026): только числа, сотрудники и сбои — ссылок на карточки не отдают.
     "get_day_snapshot", "get_team_load", "get_stuck_work",
+    // «Режим директора» (17.11.2026): журнал ошибок, здоровье и рубильники ведут в /health, /stuck-work, /settings.
+    "get_error_log", "get_system_health", "list_switches",
   ]);
   const CARD_MARKER = /propertyHref\(|\/clients\/\$\{|\/properties\/\$\{|\bshortId:\s*(?!true)/;
 
