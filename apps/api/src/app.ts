@@ -87,6 +87,7 @@ import { securityRouter } from "./routes/security.js";
 import { manualDataCorrectionsRouter } from "./routes/manualDataCorrections.js";
 import { marketingRouter } from "./routes/marketing.js";
 import { socialVideosRouter } from "./routes/socialVideos.js";
+import { uploadSessionsRouter } from "./routes/uploadSessions.js";
 import { adsRouter, adsCallbackRouter } from "./routes/ads.js";
 import { tiktokRouter, tiktokCallbackRouter } from "./routes/tiktok.js";
 import { threadsRouter, threadsCallbackRouter } from "./routes/threads.js";
@@ -763,6 +764,8 @@ app.use("/api/v1/maintenance/data-corrections", manualDataCorrectionsRouter);
 app.use("/api/v1/marketing", marketingRouter);
 // Свободные ролики в соцсети (12.10.2026): промо-ролик без объекта, кросспостинг по выбору.
 app.use("/api/v1/social-videos", socialVideosRouter);
+// Общие сессии загрузки частями (17.11.2026): старт и части; сборку делает маршрут назначения.
+app.use("/api/v1/upload-sessions", uploadSessionsRouter);
 // Возврат из Facebook — до общего роутера рекламы: у него requireAuth, а сюда
 // человека приводит сам Facebook, без маркера доступа CRM (см. adsCallbackRouter).
 // Бюджетные оповещения Google Cloud приходят от Pub/Sub — без входа в CRM,

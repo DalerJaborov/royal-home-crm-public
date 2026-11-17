@@ -5,8 +5,11 @@ import crypto from "node:crypto";
 import multer from "multer";
 import { looksLikeHeicName } from "./lib/heicInput.js";
 import sharp from "sharp";
+import type { RequestHandler } from "express";
 import {
-  SOCIAL_VIDEO_UPLOAD_MAX_BYTES,
+  PROXY_SINGLE_REQUEST_MAX_BYTES,
+  REQUEST_TOO_LARGE_CODE,
+  singleRequestTooLargeMessage,
   SOCIAL_VIDEO_COVER_MAX_BYTES,
   SOCIAL_VIDEO_COVER_MIME_TYPES,
   SOCIAL_PHOTO_POST_MAX_BYTES,
@@ -141,6 +144,81 @@ const videoTmpStorage = multer.diskStorage({
   },
 });
 
+/**
+ * ОДНА ДВЕРЬ ДЛЯ ПРИЁМА ФАЙЛА ОДНИМ ЗАПРОСОМ (17.11.2026, класс «большой файл одним
+ * запросом → 413 от прокси»). Каждый загрузчик multer создаётся только здесь, через
+ * `guardedUpload`, и обязан назвать `maxRequestBytes` — сколько весит весь запрос. Между
+ * браузером и API стоят Cloudflare и прокси, которые режут тело больше ~100 МБ, поэтому
+ * потолок — PROXY_SINGLE_REQUEST_MAX_BYTES (90 МБ); всё тяжелее едет частями
+ * (lib/chunkedUploadSessions.ts, routes/uploadSessions.ts). Выше потолка — только с
+ * `overProxyCeilingReason` (кто зовёт мимо прокси и почему).
+ *
+ * Сторож — `scripts/audit-limits.mjs` (precheck и CI): `multer(` вне этой функции и
+ * `maxRequestBytes` выше потолка без причины не проходят.
+ *
+ * Сама дверь тоже держит обещание: запрос с Content-Length больше `maxRequestBytes`
+ * получает 413 с понятным текстом ДО разбора тела — тем же текстом, что видит экран.
+ */
+export interface UploadDoorOptions extends multer.Options {
+  /** Имя для сторожа и журнала, совпадает с именем переменной. */
+  name: string;
+  /** Предел всего запроса. Не больше PROXY_SINGLE_REQUEST_MAX_BYTES без причины. */
+  maxRequestBytes: number;
+  /** Обоснование, если запрос тяжелее потолка прокси: кто зовёт мимо Cloudflare. */
+  overProxyCeilingReason?: string;
+}
+
+export interface UploadDoor {
+  readonly name: string;
+  readonly maxRequestBytes: number;
+  single(field: string): RequestHandler;
+  array(field: string, maxCount?: number): RequestHandler;
+  fields(fields: readonly multer.Field[]): RequestHandler;
+  none(): RequestHandler;
+  any(): RequestHandler;
+}
+
+/** Все двери процесса — для проверки в тестах (tests/upload-limits-door.test.ts). */
+export const uploadDoors: Array<{ name: string; maxRequestBytes: number; overProxyCeilingReason: string | null }> = [];
+
+/** Отказ по заявленному весу запроса — до чтения тела. Отдельно, чтобы проверять без сети. */
+export function requestCapGuard(maxRequestBytes: number): RequestHandler {
+  return (req, res, next) => {
+    const declared = Number(req.headers["content-length"]);
+    if (Number.isFinite(declared) && declared > maxRequestBytes) {
+      // Тело не читаем: закрываем соединение, чтобы клиент не досылал сотни мегабайт впустую.
+      res.setHeader("Connection", "close");
+      res.status(413).json({ error: singleRequestTooLargeMessage(declared), code: REQUEST_TOO_LARGE_CODE });
+      return;
+    }
+    next();
+  };
+}
+
+export function guardedUpload(options: UploadDoorOptions): UploadDoor {
+  const { name, maxRequestBytes, overProxyCeilingReason, ...multerOptions } = options;
+  if (maxRequestBytes > PROXY_SINGLE_REQUEST_MAX_BYTES && !overProxyCeilingReason?.trim()) {
+    // Сторож в CI ловит это раньше; здесь — чтобы ошибка не прошла и мимо него.
+    console.error(`[upload] ${name}: предел запроса выше потолка прокси без причины`);
+  }
+  uploadDoors.push({ name, maxRequestBytes, overProxyCeilingReason: overProxyCeilingReason ?? null });
+  const inner = multer(multerOptions);
+  const cap = requestCapGuard(maxRequestBytes);
+  const capped =
+    (handler: RequestHandler): RequestHandler =>
+    (req, res, next) =>
+      cap(req, res, (err?: unknown) => (err ? next(err) : handler(req, res, next)));
+  return {
+    name,
+    maxRequestBytes,
+    single: (field) => capped(inner.single(field)),
+    array: (field, maxCount) => capped(inner.array(field, maxCount)),
+    fields: (fields) => capped(inner.fields(fields)),
+    none: () => capped(inner.none()),
+    any: () => capped(inner.any()),
+  };
+}
+
 function guessExtFromMime(mimetype: string): string {
   if (mimetype.startsWith("video/")) return `.${mimetype.split("/")[1] || "mp4"}`;
   if (mimetype.startsWith("image/")) return `.${mimetype.split("/")[1] || "jpg"}`;
@@ -167,7 +245,9 @@ export async function moveUploadedFile(srcPath: string, destPath: string): Promi
 
 // 30 МБ/файл: клиент сжимает фото перед отправкой (compressImage), но запас
 // нужен на случай необрабатываемых форматов, уходящих оригиналом.
-export const upload = multer({
+export const upload = guardedUpload({
+  name: "upload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   limits: { fileSize: 30 * 1024 * 1024, files: 30 },
   fileFilter: (_req, file, cb) => {
@@ -201,7 +281,9 @@ export function isAcceptedDraftPhoto(mimetype: string | undefined, filename: str
  * вредоносный запрос. 5 — тот же порядок, что у MAX_VIDEOS_PER_REQUEST
  * (routes/properties/videos.ts): с запасом над «по одному», но не «как карточка».
  */
-export const draftPhotoUpload = multer({
+export const draftPhotoUpload = guardedUpload({
+  name: "draftPhotoUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   limits: { fileSize: DRAFT_PHOTO_MAX_BYTES, files: 5 },
   fileFilter: (_req, file, cb) => {
@@ -220,7 +302,9 @@ export const draftPhotoUpload = multer({
  * 4 файла, 8 МБ каждый: слой шаблона — это разметка и, редко, встроенная
  * картинка data:, а не фотобанк.
  */
-export const coverTemplatesUpload = multer({
+export const coverTemplatesUpload = guardedUpload({
+  name: "coverTemplatesUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024, files: 4 },
   fileFilter: (_req, file, cb) => {
@@ -243,7 +327,9 @@ export const coverTemplatesUpload = multer({
  * расширять его «или картинка, или звук» значило бы, что фото объекта можно
  * подменить mp3-файлом. 15 МБ хватает на несколько минут музыки в mp3.
  */
-export const audioUpload = multer({
+export const audioUpload = guardedUpload({
+  name: "audioUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
@@ -261,7 +347,9 @@ export const audioUpload = multer({
  * лимиты разного смысла лучше не делить на одном multer: смена одного случайно
  * подвинула бы другой.
  */
-export const voiceMessageUpload = multer({
+export const voiceMessageUpload = guardedUpload({
+  name: "voiceMessageUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
@@ -277,7 +365,9 @@ export const voiceMessageUpload = multer({
  * не относится. Сохраняются в закрытое хранилище (lib/dealDocumentFiles.ts), не
  * в `uploadsDir`: документы сделки не могут раздаваться статикой.
  */
-export const dealDocumentUpload = multer({
+export const dealDocumentUpload = guardedUpload({
+  name: "dealDocumentUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
@@ -306,10 +396,17 @@ export const dealDocumentUpload = multer({
  * clipVideoUpload ниже. Прежний 1 ГБ был опечаткой порядка величины: здесь
  * memoryStorage, и файл целиком ложится в оперативную память сервера, а не на
  * диск (аудит лимитов 21.08.2026).
+ *
+ * С 17.11.2026 300 МБ живут в CHUNKED_UPLOAD_PURPOSES["conversation-media"]: экран шлёт
+ * файл ЧАСТЯМИ (POST /conversations/:id/reply-media/upload-sessions/:id/complete), а этот
+ * одиночный приём — для старых вкладок и не тяжелее потолка прокси (тяжелее его и так
+ * отбивал Cloudflare с 413 ещё до API).
  */
-export const mediaMessageUpload = multer({
+export const mediaMessageUpload = guardedUpload({
+  name: "mediaMessageUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: videoTmpStorage,
-  limits: { fileSize: 300 * 1024 * 1024, files: 1 },
+  limits: { fileSize: PROXY_SINGLE_REQUEST_MAX_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith("image/") && !file.mimetype.startsWith("video/")) {
       return cb(new UploadRejectedError("Допустимы только изображения или видео"));
@@ -323,10 +420,15 @@ export const mediaMessageUpload = multer({
  * 300 МБ — предел ДО сжатия (значение из плана: обход квартиры телефоном, HD
  * покрывается с запасом). Длительность (не более 90с) проверяется отдельно через
  * ffprobe после сохранения во временный файл — multer её не знает.
+ *
+ * С 17.11.2026 экран шлёт ролик ЧАСТЯМИ (CHUNKED_UPLOAD_PURPOSES["clip-video"], 300 МБ);
+ * одиночный приём — для старых вкладок и не тяжелее потолка прокси.
  */
-export const clipVideoUpload = multer({
+export const clipVideoUpload = guardedUpload({
+  name: "clipVideoUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: videoTmpStorage,
-  limits: { fileSize: 300 * 1024 * 1024, files: 1 },
+  limits: { fileSize: PROXY_SINGLE_REQUEST_MAX_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith("video/")) return cb(new UploadRejectedError("Допустимо только видео"));
     cb(null, true);
@@ -342,17 +444,18 @@ export const clipVideoUpload = multer({
  * 2 ГБ, а не 700 МБ (23.09.2026, докачка с середины): панель «Загрузить готовый
  * ролик» (PropertyVideoFixCard.tsx) теперь шлёт файл через докачку с середины
  * (upload-sessions, purpose=HANDOFF) — у той предела по факту нет (10 000 частей
- * по 8 МБ, см. routes/properties/videos.ts). Этот маршрут остаётся для ДРУГИХ
- * вызывающих (Telegram-бот шлёт готовый ролик сюда же одним запросом) — 2 ГБ
- * потому, что ровно таков потолок своего Bot API сервера
- * (TELEGRAM_BOT_SEND_LIMIT_BYTES, telegram/api.ts) — тяжелее оттуда всё равно не
- * прилетит. Не безлимит: одним запросом, как раньше, значит опять весь файл во
- * временном каталоге ДО обработки, и держать это неограниченным ценой
- * памяти/диска ради канала с собственным чётким потолком незачем.
+ * по 8 МБ, см. routes/properties/videos.ts).
+ *
+ * 17.11.2026: предел опущен с 2 ГБ до потолка прокси. Прежнее обоснование «Telegram-бот
+ * шлёт готовый ролик сюда же одним запросом» не подтвердилось: бот принимает ролик
+ * функцией (lib/videoHandoff.ts), а не HTTP-запросом, и других вызывающих в репозитории
+ * нет. Снаружи же тело больше ~100 МБ сюда не доходило вовсе — его режет Cloudflare.
  */
-export const videoHandoffUpload = multer({
+export const videoHandoffUpload = guardedUpload({
+  name: "videoHandoffUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: videoTmpStorage,
-  limits: { fileSize: 2 * 1024 * 1024 * 1024, files: 1 },
+  limits: { fileSize: PROXY_SINGLE_REQUEST_MAX_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith("video/")) return cb(new UploadRejectedError("Допустимо только видео"));
     cb(null, true);
@@ -361,14 +464,16 @@ export const videoHandoffUpload = multer({
 
 /**
  * СВОБОДНЫЙ РОЛИК В СОЦСЕТИ (12.10.2026, routes/socialVideos.ts): промо-ролик без объекта,
- * который маркетинг загружает сам. Предел приёма — SOCIAL_VIDEO_UPLOAD_MAX_BYTES (2 ГБ,
- * как у ролика объекта): это предохранитель, настоящие пределы у каждой сети свои и
- * проверяются отдельно (shared/socialVideo.ts). Файл пишется на диск по мере приёма
+ * который маркетинг загружает сам. С 17.11.2026 экран шлёт его ЧАСТЯМИ
+ * (/social-videos/upload-sessions, до SOCIAL_VIDEO_UPLOAD_MAX_BYTES), а этот одиночный
+ * приём — для старых вкладок и не тяжелее потолка прокси. Файл пишется на диск по мере приёма
  * (videoTmpStorage), не в память; обработчик маршрута обязан убрать временный файл.
  */
-export const socialVideoUpload = multer({
+export const socialVideoUpload = guardedUpload({
+  name: "socialVideoUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: videoTmpStorage,
-  limits: { fileSize: SOCIAL_VIDEO_UPLOAD_MAX_BYTES, files: 1, fields: 10, parts: 12, fieldSize: 64 * 1024 },
+  limits: { fileSize: PROXY_SINGLE_REQUEST_MAX_BYTES, files: 1, fields: 10, parts: 12, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith("video/")) return cb(new UploadRejectedError("Допустимо только видео (MP4 или MOV)"));
     cb(null, true);
@@ -376,7 +481,9 @@ export const socialVideoUpload = multer({
 });
 
 /** Фото-пост в разделе публикаций (16.11.2026): до 10 снимков по 20 МБ в память — sharp перекладывает их в JPEG. */
-export const socialPhotoPostUpload = multer({
+export const socialPhotoPostUpload = guardedUpload({
+  name: "socialPhotoPostUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   limits: { fileSize: SOCIAL_PHOTO_POST_MAX_BYTES, files: SOCIAL_PHOTO_POST_MAX_IMAGES, fields: 10, parts: SOCIAL_PHOTO_POST_MAX_IMAGES + 10, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
@@ -389,7 +496,9 @@ export const socialPhotoPostUpload = multer({
 });
 
 /** Обложка свободного ролика: картинка до 10 МБ в память — дальше sharp делает из неё два файла. */
-export const socialVideoCoverUpload = multer({
+export const socialVideoCoverUpload = guardedUpload({
+  name: "socialVideoCoverUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   limits: { fileSize: SOCIAL_VIDEO_COVER_MAX_BYTES, files: 1, fields: 4, parts: 6, fieldSize: 16 * 1024 },
   fileFilter: (_req, file, cb) => {

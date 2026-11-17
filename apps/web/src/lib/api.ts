@@ -3,6 +3,7 @@ import { getOrCreateDeviceId } from "./deviceId";
 import { ApiError } from "./apiError";
 import { withFieldHint } from "./validationHint";
 import { httpStatusMessage } from "./httpStatusMessage";
+import { assertFitsSingleRequest } from "./singleRequestLimit";
 import { noteServerBuild } from "./appVersion";
 // Общий выход (снимает push-подписку устройства). Импорт односторонний: signOut
 // намеренно ходит голым fetch и НЕ импортирует api.ts — иначе получился бы цикл.
@@ -375,6 +376,9 @@ export async function api<T>(
    * определяем сами; явное значение по-прежнему уважается.
    */
   const isForm = options.isForm ?? body instanceof FormData;
+  // Файлы тяжелее потолка одного запроса до сервера не дойдут: Cloudflare и прокси ответят
+  // 413 после минут отправки (17.11.2026). Отказываем сразу и понятным текстом.
+  if (body instanceof FormData) assertFitsSingleRequest(body);
   const timeoutMs = options.timeoutMs ?? timeoutForPath(path, responseType, isForm);
   const assertSameAgent = () => {
     const current = useAuthStore.getState();

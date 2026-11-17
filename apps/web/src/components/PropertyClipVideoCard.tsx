@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { api } from "../lib/api";
+import { uploadClipVideo } from "../lib/clipVideoUpload";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Property } from "../types";
 
@@ -28,9 +28,8 @@ export function PropertyClipVideoCard({ property, readOnly = false }: { property
     setError(null);
     setUploading(true);
     try {
-      const form = new FormData();
-      form.append("video", file);
-      await api(`/properties/${property.id}/clip-video`, { method: "POST", body: form });
+      // Частями (17.11.2026): одним запросом ролик тяжелее ~90 МБ отбивал прокси (413).
+      await uploadClipVideo(property.id, file);
       /* Префикс, а не точный ключ: карточка лежит под id из адреса (строка),
          см. подробный разбор в PropertyVideoFixCard.tsx::refresh. */
       await qc.invalidateQueries({ queryKey: ["property"] });

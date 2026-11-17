@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **769**. Развилок в самих путях: **2506**; вместе с задачами по расписанию и фоновыми заданиями — **4077**. Модулей: **86**.
+Путей: **776**. Развилок в самих путях: **2517**; вместе с задачами по расписанию и фоновыми заданиями — **4088**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5074,6 +5074,27 @@
   - throw err;
     · пробрасывает ошибку дальше
 
+### POST /api/v1/conversations/:id/reply-media/upload-sessions/complete
+
+`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const parsed = replyMediaCompleteSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой replyMediaCompleteSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- пробует
+  - assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId: parsed.data.sessionId, agent…
+    · зовёт assembleChunkedUpload()
+- если сорвалось
+  - если err instanceof ChunkedUploadError
+    - return res.status(err.status).json({ error: err.message });
+      · ответ (код зависит от условия)
+  - throw err;
+    · пробрасывает ошибку дальше
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
 ### POST /api/v1/conversations/:id/reply-media
 
 `apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, anyParams(mediaMessageUpload.single("media"))
@@ -5086,18 +5107,6 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const conversation = isTelegram ? await prisma.telegramConversation.findUnique({ where: { id: rawId.slice(TG_…
-  · читает в базе: telegramConversation
-  · читает в базе: botConversation
-- если !conversation
-  - return res.status(404).json({ error: "Диалог не найден" });
-    · ответ 404 — «Диалог не найден»
-- пробует
-  - const delivery = await deliverMediaToConversation( target, { path: req.file.path, size: req.file.size, mimety…
-    · зовёт deliverMediaToConversation()
-- в любом случае
-  - await fs.rm(req.file.path, { force: true });
-    · дословно из кода
 - res.status(outcome.status).json(outcome.body);
   · ответ (код зависит от условия)
 
@@ -10503,6 +10512,39 @@
 - res.json(result);
   · ответ 200
 
+### POST /api/v1/properties/:id/clip-video/upload-sessions/:sessionId/complete
+
+`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const property = await prisma.property.findUnique({ where: { id: req.params.id } });
+  · читает в базе: property
+- если isGone(property)
+  - return replyGone(req, res);
+    · дословно из кода
+- если !canManageProperty(req, property)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- const lock = propertyEditLockBody(req, property);
+  · зовёт propertyEditLockBody()
+- если lock
+  - return res.status(409).json(lock);
+    · ответ 409
+- пробует
+  - assembled = await assembleChunkedUpload({ kind: "clip-video", sessionId: String(req.params.sessionId), agentI…
+    · зовёт assembleChunkedUpload()
+- если сорвалось
+  - если err instanceof ChunkedUploadError
+    - return res.status(err.status).json({ error: err.message });
+      · ответ (код зависит от условия)
+  - throw err;
+    · пробрасывает ошибку дальше
+- пробует
+  - res.status(outcome.status).json(outcome.body);
+    · ответ (код зависит от условия)
+- в любом случае
+  - await fs.rm(assembled.tmpPath, { force: true }).catch(() => {});
+    · дословно из кода
+
 ### POST /api/v1/properties/:id/clip-video
 
 `apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(clipVideoUpload.single("video"))
@@ -10523,27 +10565,8 @@
 - если !file
   - return res.status(400).json({ error: "Файл не получен" });
     · ответ 400 — «Файл не получен»
-- await moveUploadedFile(file.path, inputPath);
-  · зовёт moveUploadedFile()
-- const durationSec = await probeDurationSec(inputPath);
-  · зовёт probeDurationSec()
-- если durationSec === null
-  - return res.status(400).json({ error: "Не удалось определить длительность видео" });
-    · ответ 400 — «Не удалось определить длительность видео»
-- если durationSec > MAX_CLIP_VIDEO_DURATION_SEC
-  - return res.status(400).json({ error: `Видео длиннее ${MAX_CLIP_VIDEO_DURATION_SEC} секунд (${Math.round(durat…
-    · ответ 400 — «Видео длиннее ${MAX_CLIP_VIDEO_DURATION_SEC} секунд…»
-- await prisma.property.update({ where: { id: property.id }, data: { clipVideoStatus: "PROCESSING", clipVideoPe…
-  · меняет в базе: property
-- const queued = await enqueueBackgroundJob({ type: "clip-compress", payload: { propertyId: property.id, inputF…
-  · зовёт enqueueBackgroundJob()
-- если !queued.enqueued
-  - await prisma.property.update({ where: { id: property.id }, data: { clipVideoStatus: property.clipVideoStatus,…
-    · меняет в базе: property
-  - return res.status(503).json({ error: "Не удалось поставить видео в обработку — попробуйте ещё раз" });
-    · ответ 503 — «Не удалось поставить видео в обработку — попробуйте ещё раз»
-- res.status(202).json({ clipVideoStatus: "PROCESSING" });
-  · ответ 202
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
 
 ### POST /api/v1/properties/:id/complete-editing
 
@@ -17488,6 +17511,65 @@
 - res.json(await getSocialVideoTrends({ refresh: req.query.refresh === "1" }));
   · ответ 200
 
+### POST /api/v1/social-videos/upload-sessions/:sessionId/complete
+
+`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+
+- пробует
+  - const fields = socialVideoCreateFieldsSchema.safeParse(req.body ?? {});
+    · проверяет данные схемой socialVideoCreateFieldsSchema
+  - если !fields.success
+    - res.status(400).json({ error: fields.error.issues[0]?.message ?? "Неверные поля формы" });
+      · ответ 400
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const assembled = await assembleSocialVideoUpload(String(req.params.sessionId), req.agent!.id);
+    · зовёт assembleSocialVideoUpload()
+  - const item = await createSocialVideoFromUpload({ tmpPath: assembled.tmpPath, originalName: assembled.original…
+    · зовёт createSocialVideoFromUpload()
+  - logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { sizeBytes: item.sizeBytes, durationSec: i…
+    · зовёт logAudit()
+  - res.status(201).json(item);
+    · ответ 201
+- если сорвалось
+  - если err instanceof SocialVideoError
+    - res.status(err.status).json({ error: err.message });
+      · ответ (код зависит от условия)
+    - return;
+      · дальше не идёт, ничего не меняя
+- в любом случае
+  - если tmpPath
+    - await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+      · дословно из кода
+
+### PUT /api/v1/social-videos/upload-sessions/:sessionId/parts/:partNumber
+
+`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, express.raw({ type: () => true, limit: "16mb" })
+
+- если !Buffer.isBuffer(body)
+  - res.status(400).json({ error: "Пустая часть" });
+    · ответ 400 — «Пустая часть»
+  - return;
+    · дальше не идёт, ничего не меняя
+- await writeSocialVideoPart({ sessionId: String(req.params.sessionId), agentId: req.agent!.id, partNumber: Num…
+  · зовёт writeSocialVideoPart()
+- res.json({ ok: true });
+  · ответ 200
+
+### POST /api/v1/social-videos/upload-sessions
+
+`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+
+- const parsed = uploadStartSchema.safeParse(req.body);
+  · проверяет данные схемой uploadStartSchema
+- если !parsed.success
+  - res.status(400).json({ error: "Неверные данные файла" });
+    · ответ 400 — «Неверные данные файла»
+  - return;
+    · дальше не идёт, ничего не меняя
+- res.status(201).json(await startSocialVideoUpload({ agentId: req.agent!.id, ...parsed.data }));
+  · ответ 201
+
 ### GET /api/v1/social-videos
 
 `apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
@@ -18055,6 +18137,58 @@
 
 - res.json({ enabled: isUiShellEnabled(await storedConfig(), req.agent!) });
   · ответ 200
+
+## /api/v1/upload-sessions
+
+### PUT /api/v1/upload-sessions/:sessionId/parts/:partNumber
+
+`apps/api/src/routes/uploadSessions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, express.raw({ type: () => true, limit: "32mb" })
+
+- если !Buffer.isBuffer(body)
+  - res.status(400).json({ error: "Пустая часть" });
+    · ответ 400 — «Пустая часть»
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - const kind = await chunkedUploadKind(sessionId);
+    · зовёт chunkedUploadKind()
+  - если !kind || !(kind in CHUNKED_UPLOAD_PURPOSES)
+    - res.status(404).json({ error: "Загрузка не найдена — выберите файл ещё раз" });
+      · ответ 404 — «Загрузка не найдена — выберите файл ещё раз»
+    - return;
+      · дальше не идёт, ничего не меняя
+  - await writeChunkedUploadPart({ kind, sessionId, agentId: req.agent!.id, partNumber: Number(req.params.partNum…
+    · зовёт writeChunkedUploadPart()
+  - res.json({ ok: true });
+    · ответ 200
+- если сорвалось
+  - sendError(res, err, next);
+    · дословно из кода
+
+### POST /api/v1/upload-sessions
+
+`apps/api/src/routes/uploadSessions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = startSchema.safeParse(req.body);
+  · проверяет данные схемой startSchema
+- если !parsed.success
+  - res.status(400).json({ error: "Неверные данные файла" });
+    · ответ 400 — «Неверные данные файла»
+  - return;
+    · дальше не идёт, ничего не меняя
+- если !acceptsType(purpose, contentType)
+  - res.status(400).json({ error: `Допустимо только ${what}` });
+    · ответ 400 — «Допустимо только ${what}»
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - const session = await startChunkedUpload({ kind: purpose, agentId: req.agent!.id, filename, sizeBytes, conten…
+    · зовёт startChunkedUpload()
+  - res.status(201).json(session);
+    · ответ 201
+- если сорвалось
+  - sendError(res, err, next);
+    · дословно из кода
 
 ## /api/v1/vacancies
 
