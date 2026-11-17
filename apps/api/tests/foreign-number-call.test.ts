@@ -52,6 +52,12 @@ describe("правило номера (packages/shared)", () => {
     expect(isForeignPhone("+992•••••57")).toBe(false);
     // Без «+» по маске страну не понять — решает сервер по настоящим цифрам.
     expect(isForeignPhone("7990•••••01")).toBe(false);
+    // Маска — первые четыре ЗНАКА: таджикский номер с пробелом или скобкой после «+»
+    // даёт голову «+ 99» / «+(99» — это не заграница (ложный отказ хуже недозвона).
+    expect(isForeignPhone("+ 99•••••57")).toBe(false);
+    expect(isForeignPhone("+(99•••••57")).toBe(false);
+    expect(isForeignPhone("+9•••••57")).toBe(false);
+    expect(isForeignPhone("+ 79•••••01")).toBe(true);
   });
 
   it("одна дверь: таджикский — можно, иностранный и битый — понятная причина", () => {

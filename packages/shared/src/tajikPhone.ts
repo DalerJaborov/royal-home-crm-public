@@ -46,7 +46,11 @@ export function isForeignPhone(phone: string | null | undefined): boolean {
   if (!raw) return false;
   if (raw.includes("•")) {
     const head = raw.split("•")[0] ?? "";
-    return head.startsWith("+") && !phoneDigits(head).startsWith("992") && phoneDigits(head).length > 0;
+    const headDigits = phoneDigits(head);
+    // Маска берёт первые четыре ЗНАКА записи, а не цифры: «+ 992…» или «+(992)…» дают
+    // голову «+ 99» / «+(99» — это начало таджикского кода, не другая страна. Иностранным
+    // считаем только голову, которая уже разошлась с 992 (ложный отказ хуже недозвона).
+    return head.trimStart().startsWith("+") && headDigits.length > 0 && !"992".startsWith(headDigits) && !headDigits.startsWith("992");
   }
   if (isDialableTajikNumber(raw)) return false;
   const digits = phoneDigits(raw);
