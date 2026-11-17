@@ -131470,7 +131470,7 @@
            "c": [
             {
              "k": "do",
-             "t": "return \"skipped\";",
+             "t": "return \"excluded\";",
              "a": [
               "дословно из кода"
              ],
@@ -131557,7 +131557,7 @@
          "c": [
           {
            "k": "do",
-           "t": "void logSystemError(\"ai\", `Уведомление «клиент ждёт человека» не отправлено: ${error instanceof Error ? error…",
+           "t": "void logSystemError(\"ai\", `Уведомление «клиент ждёт человека» не отправлено (чат ${input.conversationId ?? \"б…",
            "a": [
             "запись в журнал ошибок"
            ],
