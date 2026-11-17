@@ -111,7 +111,9 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
  *  сбой, очередь сдалась); silence — сторож увидел молчание через 30 минут. */
 /** follow_up — бот ответил клиенту «это скажет агент» / «агент позвонит» (15.11.2026): обещание правдиво, только
  *  если ответственный узнал. Эпизод — эта реплика клиента (`since`), а не окно в 6 ч: каждое обещание доходит. */
-export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up";
+/** handover — канал без своего ядра (сайт): бот не ответил по существу и сказал клиенту, что передал сообщение
+ *  сотруднику (lib/channelStaffAlert.ts); `why` — готовая фраза с причиной. */
+export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up" | "handover";
 
 /** A person (an agent in the CRM or staff from the messenger app) answered in the chat after `since`. Pure. */
 export function humanRepliedSince(messages: unknown, since: Date): boolean {
@@ -230,7 +232,7 @@ export async function alertClientWaiting(input: {
   /** По умолчанию — `BotConversation` (Meta и чат сайта). */
   source?: WaitingChatSource;
   trigger: ClientWaitingTrigger;
-  /** Для failed: почему бот не ответил, простыми словами (без служебных кодов). */
+  /** Для failed и handover: почему бот не ответил, простыми словами (без служебных кодов). */
   why?: string;
   /** Для follow_up: время реплики клиента, на которую бот пообещал агента (ключ эпизода). */
   since?: Date;
@@ -264,6 +266,10 @@ export async function alertClientWaiting(input: {
       ? `${name}: бот ответил клиенту, что это уточнит агент. ${chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint}`
       : input.trigger === "escalate"
       ? `${name}: бот решил, что нужен сотрудник, и не ответил. ${chat.replyHint}`
+      : input.trigger === "handover"
+      // Клиент уже услышал «передал сотруднику» (ревью #223 N8): не «бот не ответил», а «ответьте вы».
+      ? `${name}: ${input.why ?? "бот передал разговор сотруднику: ответьте клиенту сами."}` +
+        (chat.replyHint === "Ответьте клиенту." ? "" : ` ${chat.replyHint}`)
       : input.trigger === "failed"
         // Правда о причине (ревью 193-3, 15.11): бот сломался, а не «решил».
         ? `${name}: ${input.why ?? "бот не смог подготовить ответ"} — клиент без ответа. ${chat.replyHint}`

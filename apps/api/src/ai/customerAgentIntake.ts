@@ -66,8 +66,11 @@ export function customerAgentIntake(turns: readonly { role: "user" | "assistant"
 /**
  * WHERE THE PROPERTY IS — the two lead-draft fields the old bot filled from its model schema (one brain, step 3):
  * `locationOutsideDushanbe` (another city or district of Tajikistan: the lead goes to «Прочие обращения», the phone is still
- * taken) and `locationDifferentCountry` (a SELLER's property abroad: no lead at all, as before). Code decides from the
- * customer's own words only (ai/coverageGuard.ts); a mention of Dushanbe or Rudaki anywhere lifts both. Zone: Dushanbe + Rudaki.
+ * taken) and `locationDifferentCountry` (a SELLER's property POSSIBLY abroad: a word-level guess, so it never refuses a lead —
+ * the card is always created and the agent gets a «уточнить» note, review #223 H1/N8; lib/customerNewLeadBridge.ts). Code
+ * decides from the customer's own words only (ai/coverageGuard.ts); a mention of Dushanbe or Rudaki anywhere lifts both.
+ * Zone: Dushanbe + Rudaki. Meta DMs (the new-lead bridge) use it only with CUSTOMER_AGENT_INTAKE_LOCATION=on; the channel
+ * adapter (lib/customerChannelCore.ts, `core` channels only) fills the same lead fields the old bot filled there.
  * A buyer who lives abroad is our normal client, so "other country" is a seller-only verdict, exactly like the old field.
  */
 export function customerIntakeLocation(ownTexts: readonly string[], role: "buyer" | "seller" | "unknown"):

@@ -85,7 +85,7 @@ export const telegramDirectReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       // память бота работала бы «в основном режиме, но не при повторе».
       contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
       phoneKnown,
-    }, { channel: "TELEGRAM", repeat: "retry" }); // a repeat of an already-shadowed turn
+    }, { channel: "TELEGRAM_DIRECT", repeat: "retry" }); // a repeat of an already-shadowed turn; own switch key (review #223 N2)
     if (!result) throw new Error("ИИ всё ещё недоступен");
 
     try {

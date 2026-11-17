@@ -15,16 +15,24 @@ import { scheduleLegacyCoreShadow } from "../lib/customerAgentLegacyShadow.js";
  * Mapping (pure, `youtubeCoreDecision`):
  *  - reply → `reply` (but a reply that sends the person to private messages is NOT posted: YouTube has no DMs — staff);
  *  - silent → `ignore`; moderation → `hide` (reversible; never `delete`, which the old path also uses to open an OTHER lead);
- *  - staff → `escalate` (posts nothing, pushes staff); unavailable → null (the existing AI-down retry path).
+ *  - staff → `escalate` (posts nothing, pushes staff), including the core's own refusal (`core_refused`, review #223 N3);
+ *    unavailable (a transient failure only) → null (the existing AI-down retry path).
  */
 const PRIVATE_MESSAGES = /личн\p{L}*\s+сообщени|в\s+директ|в\s+личк|паёми\s+шахсӣ|паёми\s+шахси|ба\s+директ|дар\s+директ|direct/iu;
+
+/** Why a person answers this comment, in plain words (the comment card shows it). */
+const YOUTUBE_STAFF_REASON: Record<Extract<ChannelCoreOutcome, { status: "staff" }>["reason"], string> = {
+  escalate: "бот передал вопрос человеку",
+  action_needs_staff: "клиент просит действие, которое бот под роликом не оформляет",
+  unreadable_input: "бот не смог прочитать комментарий",
+  core_refused: "бот не смог ответить по существу",
+};
 
 export function youtubeCoreDecision(outcome: ChannelCoreOutcome): CommentDecision | null {
   if (outcome.status === "unavailable") return null;
   if (outcome.status === "silent") return { action: "ignore", reason: `core:${outcome.reason}` };
   if (outcome.status === "moderate") return { action: "hide", reason: "core:moderation" };
-  if (outcome.status === "staff") return { action: "escalate", reason: outcome.reason === "escalate" ? "бот передал вопрос человеку"
-    : "клиент просит действие, которое бот под роликом не оформляет" };
+  if (outcome.status === "staff") return { action: "escalate", reason: YOUTUBE_STAFF_REASON[outcome.reason] };
   if (PRIVATE_MESSAGES.test(outcome.text)) return { action: "escalate", reason: "ответ зовёт в личные сообщения, а на YouTube их нет" };
   return { action: "reply", reply: outcome.text };
 }

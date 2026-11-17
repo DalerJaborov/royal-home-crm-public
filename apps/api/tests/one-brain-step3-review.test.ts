@@ -18,13 +18,14 @@ vi.mock("../src/lib/customerAgentRuntime.js", async importOriginal => ({ ...(awa
 
 const { detectForeignPlace } = await import("../src/ai/coverageGuard.js");
 const { customerIntakeLocation } = await import("../src/ai/customerAgentIntake.js");
-const { channelOwnWords, channelCoreTurns, runChannelCoreTurn } = await import("../src/lib/customerChannelCore.js");
+const { channelOwnWords, channelCoreTurns, runChannelCoreTurn, channelCoreRetryable, CHANNEL_CORE_RETRY_REASONS } = await import("../src/lib/customerChannelCore.js");
 const { wrapUntrusted } = await import("../src/ai/untrustedContent.js");
 const { customerIntakeLocationEnabled } = await import("../src/lib/customerAgentFeaturePolicy.js");
 const { readCustomerAgentBrand, customerAgentBrandNameEnabled, customerAgentBrandVoiceEnabled } = await import("../src/lib/customerAgentBrandRead.js");
-const { telegramDirectBotReplyEnabled } = await import("../src/lib/customerAgentChannelSwitch.js");
+const { telegramDirectBotReplyEnabled, customerAgentChannelMode, customerAgentLegacyChannelKey, customerAgentShadowChannels } = await import("../src/lib/customerAgentChannelSwitch.js");
 const { NEUTRAL_REPLIES, verifiedCoreReply } = await import("../src/messengers/replyChain.js");
-const { unansweredTail } = await import("../src/lib/channelStaffAlert.js");
+const { readFileSync, readdirSync, statSync } = await import("node:fs");
+const { join } = await import("node:path");
 const { createProviderOperation } = await import("../src/ai/providerContract.js");
 const { customerAgentRevisionSchema } = await import("@royal-home/shared");
 
@@ -130,11 +131,80 @@ describe("M4: the core's verified text is delivered as is", () => {
   });
 });
 
-describe("Telegram silence watchdog: what counts as «the customer is waiting»", () => {
-  it("only a chat that ends with the customer's words; the episode starts at the first unanswered message", () => {
-    expect(unansweredTail([{ role: "user", content: "a" }, { role: "assistant", content: "b" }])).toBeNull();
-    expect(unansweredTail([{ role: "assistant", content: "b" }, { role: "user", content: "c" }, { role: "user", content: "d" }]))
-      .toMatchObject({ text: "c\nd", index: 1 });
-    expect(unansweredTail([])).toBeNull();
+describe("N3 (re-review #223): a transient failure is repeated, the core's own refusal goes to a person at once", () => {
+  it("REAL core: the model insists on `skip` in a DM (surface_decision_denied) → staff now, no retry ladder", async () => {
+    f.modelTurn.mockResolvedValue({ text: JSON.stringify({ kind: "skip", reason: "no_reply_needed" }), calls: [], modelParts: [] });
+    const outcome = await runChannelCoreTurn({ channel: "TELEGRAM", channelKey: "telegram", conversationId: "c-4", eventId: "4",
+      history: [{ role: "user", content: "Сколько стоит двушка в Сино?" }], phoneKnown: false }, { mode: "live" });
+    expect(outcome).toMatchObject({ status: "staff", reason: "core_refused", language: "ru" });
+  });
+  it("REAL core: the provider throws (network / 5xx / timeout) → unavailable, the channel's retry plays it again", async () => {
+    f.modelTurn.mockRejectedValue(new Error("fetch failed"));
+    const outcome = await runChannelCoreTurn({ channel: "WEBSITE", channelKey: "website", conversationId: "c-5", eventId: "5",
+      history: [{ role: "user", content: "Сколько стоит двушка в Сино?" }], phoneKnown: false }, { mode: "live" });
+    expect(outcome).toEqual({ status: "unavailable", reason: "turn_unavailable" });
+  });
+  it("only provider/runtime failures are repeated; every verdict of the core is a person; unknown = a person", () => {
+    for (const reason of ["turn_unavailable", "turn_deadline", "operation_stopped", "runtime_unavailable", "channel_core_failed"]) {
+      expect(channelCoreRetryable(reason)).toBe(true);
+    }
+    for (const reason of ["surface_decision_denied", "unsupported_decision_evidence", "facts_unavailable", "round_limit", "tool_limit",
+      "output_limit", "invalid_model_decision", "invalid_model_turn", "input_limit", "effect_unknown", "some_reason_added_later"]) {
+      expect(channelCoreRetryable(reason)).toBe(false);
+    }
+  });
+  it("guard: every repeatable reason is really produced by the core or the adapter (no typo silently turns into «a person»)", () => {
+    const code = readFileSync(new URL("../src/ai/customerAgentCore.ts", import.meta.url), "utf8") +
+      readFileSync(new URL("../src/lib/customerChannelCore.ts", import.meta.url), "utf8").replace(/CHANNEL_CORE_RETRY_REASONS[\s\S]*?\];/, "");
+    for (const reason of CHANNEL_CORE_RETRY_REASONS) expect(code, reason).toContain(`"${reason}"`);
+  });
+});
+
+describe("N2 (re-review #223): Telegram channel direct messages have their own switch key", () => {
+  it("TELEGRAM_DIRECT is `telegram_direct`; neither `telegram` nor `all` moves it — only its own name", () => {
+    expect(customerAgentLegacyChannelKey("TELEGRAM_DIRECT", null)).toBe("telegram_direct");
+    expect(customerAgentChannelMode("telegram_direct", { CUSTOMER_AGENT_CHANNEL_CORE: "telegram" })).toBe("legacy");
+    expect(customerAgentChannelMode("telegram_direct", { CUSTOMER_AGENT_CHANNEL_CORE: "all" })).toBe("legacy");
+    expect(customerAgentChannelMode("telegram_direct", { CUSTOMER_AGENT_CHANNEL_CORE: "telegram_direct" })).toBe("core");
+    expect(customerAgentChannelMode("telegram_direct", { CUSTOMER_AGENT_CHANNEL_CORE: "all,telegram_direct" })).toBe("core");
+    expect(customerAgentShadowChannels("all").has("telegram_direct")).toBe(false);
+    expect(customerAgentChannelMode("telegram_direct", {})).toBe("legacy");
+  });
+  it("guard: every turn and staff alert of a TelegramDirectConversation says TELEGRAM_DIRECT (the id is from that table)", () => {
+    for (const file of ["../src/messengers/telegramDirectMessages.ts", "../src/jobs/telegramDirectReplyRetry.ts"]) {
+      const code = readFileSync(new URL(file, import.meta.url), "utf8");
+      const calls = [...code.matchAll(/\b(?:runLegacyQualifyTurn|alertChannelStaff)\(/g)];
+      expect(calls.length, file).toBeGreaterThan(0);
+      for (const call of calls) {
+        const channel = code.slice(call.index!, call.index! + 1500).match(/\bchannel:\s*"([A-Z_]+)"/)?.[1];
+        expect(channel, `${file}@${call.index}`).toBe("TELEGRAM_DIRECT");
+      }
+    }
+  });
+});
+
+describe("N4 (re-review #223): after the core's text the channel never adds its own phone ask", () => {
+  it("verifiedCoreReply forbids the channel's second phone message", async () => {
+    expect((await verifiedCoreReply("Ташаккур, дархости шумо қабул шуд.")).stopAskingPhone).toBe(true);
+  });
+});
+
+describe("N5 (re-review #223): one silence watchdog for every chat, Telegram included", () => {
+  it("cron runs `runClientSilenceSweep`, which reads both Telegram tables; no second Telegram silence sweep exists", () => {
+    const cron = readFileSync(new URL("../src/cron.ts", import.meta.url), "utf8");
+    expect(cron).toMatch(/scheduleTracked\("client-silence-sweep"[\s\S]{0,200}runClientSilenceSweep\(/);
+    const door = readFileSync(new URL("../src/lib/clientWaitingAlert.ts", import.meta.url), "utf8");
+    expect(door).toContain('FROM "TelegramConversation"');
+    expect(door).toContain('FROM "TelegramDirectConversation"');
+    const src = new URL("../src", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+    const sweeps: string[] = [];
+    const walk = (dir: string) => { for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) { if (name !== "generated") walk(path); continue; }
+      if (!path.endsWith(".ts")) continue;
+      for (const m of readFileSync(path, "utf8").matchAll(/export\s+async\s+function\s+(run\w*Silence\w*Sweep)\s*\(/g)) sweeps.push(m[1]);
+    } };
+    walk(src);
+    expect(sweeps).toEqual(["runClientSilenceSweep"]);
   });
 });

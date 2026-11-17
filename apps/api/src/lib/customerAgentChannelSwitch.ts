@@ -17,20 +17,27 @@ import { customerAgentLegacyChannelSchema, type CustomerAgentLegacyChannel } fro
  *
  * Env: CUSTOMER_AGENT_CHANNEL_SHADOW / CUSTOMER_AGENT_CHANNEL_CORE = comma list of channel keys or `all`.
  * A key in both lists is `core` (the shadow of a core channel would compare the core with itself).
+ *
+ * `telegram_direct` (direct messages of the Telegram channel, TelegramDirectConversation — review #223 N2) is its own key and
+ * is switched ONLY by name: neither `telegram` nor `all` moves it. Its auto-reply has its own switch on top
+ * (TELEGRAM_DIRECT_BOT_REPLY), and 0 dialogs exist there today (prod, 16.11): nothing moves it by accident.
  */
 export type CustomerAgentChannelMode = "legacy" | "shadow" | "core";
 
 const ALL = customerAgentLegacyChannelSchema.options;
 /** Channels whose only door to the core is the channel adapter. */
-export const CUSTOMER_AGENT_CORE_ADAPTER_CHANNELS: readonly CustomerAgentLegacyChannel[] = ["telegram", "website", "youtube"];
+export const CUSTOMER_AGENT_CORE_ADAPTER_CHANNELS: readonly CustomerAgentLegacyChannel[] = ["telegram", "telegram_direct", "website", "youtube"];
+/** Keys that `all` never includes: they are switched only when named. */
+export const CUSTOMER_AGENT_NAMED_ONLY_CHANNELS: readonly CustomerAgentLegacyChannel[] = ["telegram_direct"];
 const warned = new Map<string, string>();
 
 function parseChannelList(raw: string | undefined, name: string, allowed: readonly CustomerAgentLegacyChannel[]): ReadonlySet<CustomerAgentLegacyChannel> {
   const tokens = (raw ?? "").split(",").map(token => token.trim().toLowerCase()).filter(Boolean);
-  if (tokens.includes("all")) return new Set(allowed);
   const chosen = new Set<CustomerAgentLegacyChannel>();
+  if (tokens.includes("all")) for (const key of allowed) if (!CUSTOMER_AGENT_NAMED_ONLY_CHANNELS.includes(key)) chosen.add(key);
   const unknown: string[] = [];
   for (const token of tokens) {
+    if (token === "all") continue;
     const parsed = customerAgentLegacyChannelSchema.safeParse(token);
     if (parsed.success && allowed.includes(parsed.data)) chosen.add(parsed.data); else unknown.push(token);
   }
@@ -72,6 +79,7 @@ export function customerAgentShadowDailyCap(env: Readonly<Record<string, string 
  */
 export function customerAgentLegacyChannelKey(channel: string, brandName: string | null | undefined): CustomerAgentLegacyChannel | null {
   if (channel === "TELEGRAM") return "telegram";
+  if (channel === "TELEGRAM_DIRECT") return "telegram_direct";
   if (channel === "WEBSITE") return "website";
   if (channel === "YOUTUBE") return "youtube";
   if (channel === "INSTAGRAM" || channel === "FACEBOOK" || channel === "WHATSAPP") return brandName?.trim() ? "arvan" : "meta_dm";

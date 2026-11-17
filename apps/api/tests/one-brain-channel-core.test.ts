@@ -20,6 +20,7 @@ const { customerAgentChannelMode, customerAgentCoreChannels } = await import("..
 const { channelCoreTurns, channelCoreIntake, channelCoreOutcome } = await import("../src/lib/customerChannelCore.js");
 const { runLegacyQualifyTurn, channelCoreQualifyResult } = await import("../src/ai/legacyQualifyDoor.js");
 const { youtubeCoreDecision } = await import("../src/messengers/youtubeCoreComment.js");
+const { customerAgentHandoverLine } = await import("../src/ai/customerAgentRenderer.js");
 const { customerIntakeLocation } = await import("../src/ai/customerAgentIntake.js");
 const { customerAgentBrandBlock, CUSTOMER_AGENT_BRAND_VOICE_MAX } = await import("../src/ai/customerAgentBrand.js");
 const { customerAgentBrandVoiceEnabled } = await import("../src/lib/customerAgentBrandRead.js");
@@ -82,6 +83,9 @@ describe("adapter pure parts", () => {
     expect(channelCoreOutcome(ready({ kind: "reply" }, "  "), intake, "dm")).toEqual({ status: "silent", reason: "empty_reply" });
     expect(channelCoreOutcome({ status: "held", reason: "turn_deadline", evidence: [], unknownToolCalls: [], rounds: 1, toolCalls: 0 } as never, intake, "dm"))
       .toEqual({ status: "unavailable", reason: "turn_deadline" });
+    // The core's own verdict is not repeated (re-review #223 N3): a person, in the customer's language.
+    expect(channelCoreOutcome({ status: "held", reason: "unsupported_decision_evidence", evidence: [], unknownToolCalls: [], rounds: 1, toolCalls: 0 } as never, intake, "dm", "tg"))
+      .toEqual({ status: "staff", reason: "core_refused", intake, language: "tg" });
   });
   it("old result shape: lead fields from the customer's words, `ready` = the server asked for the number", () => {
     const result = channelCoreQualifyResult({ status: "reply", text: "Какой район?", askedPhone: false, intake: { role: "buyer" } },
@@ -98,6 +102,10 @@ describe("adapter pure parts", () => {
     expect(youtubeCoreDecision({ status: "reply", text: "Дар паёми шахсӣ нависед.", askedPhone: false, intake }).action).toBe("escalate");
     expect(youtubeCoreDecision({ status: "moderate", action: "delete" })).toMatchObject({ action: "hide" });
     expect(youtubeCoreDecision({ status: "staff", reason: "escalate", intake, language: "ru" })).toMatchObject({ action: "escalate" });
+    expect(youtubeCoreDecision({ status: "staff", reason: "core_refused", intake, language: "ru" }))
+      .toEqual({ action: "escalate", reason: "бот не смог ответить по существу" });
+    expect(youtubeCoreDecision({ status: "staff", reason: "unreadable_input", intake, language: "ru" }))
+      .toEqual({ action: "escalate", reason: "бот не смог прочитать комментарий" });
     expect(youtubeCoreDecision({ status: "silent", reason: "no_reply_needed" })).toMatchObject({ action: "ignore" });
     expect(youtubeCoreDecision({ status: "unavailable", reason: "x" })).toBeNull();
   });
@@ -139,6 +147,30 @@ describe("the legacy door routes a `core` channel to the adapter", () => {
     f.channelCore.mockResolvedValue({ status: "unavailable", reason: "turn_deadline" });
     expect(await runLegacyQualifyTurn([user("x")] as never, { stage: "chatting" }, options, { channel: "TELEGRAM", repeat: "retry" })).toBeNull();
     expect(f.qualify).not.toHaveBeenCalled();
+  });
+  it("`core` + the core's own refusal (re-review #223 N3): a person now and the handover line — also on a queued retry", async () => {
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram");
+    f.channelCore.mockResolvedValue({ status: "staff", reason: "core_refused", intake, language: "tg" });
+    for (const repeat of [undefined, "retry" as const]) {
+      f.alert.mockClear();
+      const result = await runLegacyQualifyTurn([user("Нархаш чанд?")] as never, { stage: "chatting" }, { conversationId: "c-9" } as never,
+        { channel: "TELEGRAM", ...(repeat ? { repeat } : {}) });
+      expect(result).toMatchObject({ reply: [customerAgentHandoverLine("tg")], verified: true });
+      expect(f.alert).toHaveBeenCalledWith(expect.objectContaining({ channel: "TELEGRAM", conversationId: "c-9", why: "core_refused" }));
+    }
+  });
+  it("Telegram channel direct messages (re-review #223 N2): `telegram` does not move them; their own key does, and the alert names the right table", async () => {
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram");
+    await runLegacyQualifyTurn([user("x")] as never, { stage: "chatting" }, { conversationId: "td-1" } as never, { channel: "TELEGRAM_DIRECT" });
+    expect(f.channelCore).not.toHaveBeenCalled();
+    expect(f.qualify).toHaveBeenCalledTimes(1);
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram_direct");
+    f.channelCore.mockResolvedValue({ status: "staff", reason: "escalate", intake, language: "ru" });
+    const result = await runLegacyQualifyTurn([user("Позовите человека")] as never, { stage: "chatting" }, { conversationId: "td-1" } as never,
+      { channel: "TELEGRAM_DIRECT" });
+    expect(f.channelCore.mock.calls[0][0]).toMatchObject({ channel: "TELEGRAM_DIRECT", channelKey: "telegram_direct" });
+    expect(f.alert).toHaveBeenCalledWith(expect.objectContaining({ channel: "TELEGRAM_DIRECT", conversationId: "td-1", why: "escalate" }));
+    expect(result).toMatchObject({ verified: true });
   });
   it("`core`: a guard's regeneration does not run the core twice (its text is already verified)", async () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram");

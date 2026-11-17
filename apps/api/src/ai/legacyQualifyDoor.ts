@@ -113,7 +113,9 @@ async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOp
   const outcome = await runChannelCoreTurn({ channel: source.channel, channelKey: key, accountId: options.accountId ?? null,
     traceAccount: source.traceAccount ?? null, conversationId: options.conversationId ?? null, eventId: source.eventId ?? null,
     history: turnHistory, phoneKnown: options.phoneKnown === true }, { mode: "live" });
-  // The channel's existing AI-retry job plays the turn again later (and tells staff when it gives up).
+  // Only a TRANSIENT failure (provider, network, deadline) comes back as `unavailable`: the channel's AI-retry job plays the
+  // turn again later (and tells staff when it gives up). The core's own refusal is already `staff` (`core_refused`, review
+  // #223 N3): a repeat would reproduce it for ~13 hours, so a person is told now and the customer hears the handover line.
   if (outcome.status === "unavailable" || outcome.status === "moderate") return null;
   const ownTexts = turnHistory.filter(item => item.role === "user").map(item => channelOwnWords(item.content)).filter(Boolean);
   if (outcome.status === "staff") {

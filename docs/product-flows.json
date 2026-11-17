@@ -133144,7 +133144,7 @@
            "c": [
             {
              "k": "do",
-             "t": "const outcome = await alertClientWaiting(input.why === \"escalate\" ? { conversationId: input.conversationId, t…",
+             "t": "const outcome = await alertClientWaiting(HANDED_OVER.has(input.why) ? { conversationId: input.conversationId,…",
              "a": [
               "зовёт alertClientWaiting()"
              ],

@@ -38,9 +38,11 @@ import {
   FALLBACK_VOICE,
   finalizeBotReply,
   inClientLanguage,
+  intendedSilenceReply,
   lastClientWords,
   recentBotText,
   silentTurnReason,
+  verifiedCoreReply,
   type FallbackText,
 } from "./replyChain.js";
 import {
@@ -295,7 +297,12 @@ export async function finishTelegramDirectQualifyTurn(params: {
   const turnLanguage = turnLanguageRaw === "unknown" ? lastClientLanguage(history) : turnLanguageRaw;
   // Ответ съели фильтры — не молчим (аудит 10.10.2026, P0-1): короткая нейтральная
   // реплика; ключ щита — собеседник темы (`chatId:topicId`, как в telegram/api.ts).
-  const filtered = await finalizeBotReply({
+  // The core's turn (switch `telegram_direct`, review #223 N2) is delivered as the bot's and the site's: intended silence
+  // stays silent, the server-verified text is not edited by the old guards and gets no second phone ask.
+  const shieldBlocked = (bubbles: string[]) => repeatBlockedTexts("TELEGRAM", `${chatId}:${topicId}`, bubbles);
+  const filtered = turn.silent ? intendedSilenceReply()
+    : turn.verified ? await verifiedCoreReply(turn.reply.join(" "), shieldBlocked)
+    : await finalizeBotReply({
     reply: turn.reply,
     conversationId: conversation.id,
     channelLabel: "TELEGRAM Direct Messages",
@@ -311,7 +318,7 @@ export async function finishTelegramDirectQualifyTurn(params: {
     phoneAsksSent: conversation.phoneAsksSent ?? 0,
     phoneKnown,
     fallbackLanguageWords: [text, lastClientWords(history)],
-  }, { shieldBlocked: (bubbles) => repeatBlockedTexts("TELEGRAM", `${chatId}:${topicId}`, bubbles) });
+  }, { shieldBlocked });
   /**
    * Слова клиента уже в переписке, черновик и досье ниже сохраняются как обычно:
    * не уходит и не пишется только ответ бота (след в журнале, как в telegram/bot.ts).
@@ -901,7 +908,9 @@ export async function handleTelegramDirectMessage(msg: TelegramIncomingMessage):
     abilities,
     conversationId: conversation.id,
     contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
-  }, { channel: "TELEGRAM" });
+    // Its own switch key `telegram_direct` (review #223 N2): `CHANNEL_CORE=telegram` does not move direct messages, and a
+    // staff alert from the core looks the chat up in TelegramDirectConversation, not in TelegramConversation.
+  }, { channel: "TELEGRAM_DIRECT" });
 
   if (!result) {
     // Персистентный повтор (13.09.2026, тот же чертёж Б2, что у личных чатов и

@@ -529,11 +529,14 @@ export interface FinalBotReply extends BotReplyFilterResult {
  * принципу «целиком или шаблон»: стражи этого файла (обрезка вопросов, вторая просьба номера, нейтральная заготовка)
  * его больше не трогают. Остаётся только защита доставки — щит повтора уже отправленного. Щит сработал — не уходит
  * ничего (ядро само не повторяется; заготовок-подмен нет).
+ * Просить номер или нет, решило ядро (сервер сам вставляет просьбу в текст): `stopAskingPhone: true` запрещает каналу
+ * дописать вторым сообщением свою phoneReminder (ревью #223 N4: «Ташаккур, дархости шумо қабул шуд.» + «…рақаматонро
+ * нависед»). Этот флаг читают только окончания хода Telegram-бота и лички канала — других значений у него нет.
  */
 export async function verifiedCoreReply(text: string, shieldBlocked?: BotReplyRecovery["shieldBlocked"]): Promise<FinalBotReply> {
   const bubbles = text.trim() ? [text.trim()] : [];
   const base: BotReplyFilterResult = { bubbles, finalBubbles: bubbles, modelSaidNothing: bubbles.length === 0, guardsAteReply: false,
-    silencedBy: null, phoneAsksSoFar: 0, stopAskingPhone: false };
+    silencedBy: null, phoneAsksSoFar: 0, stopAskingPhone: true };
   const shielded = await withoutShieldRepeats(base, shieldBlocked);
   return { ...shielded, silencedBy: null, recovery: "none" };
 }

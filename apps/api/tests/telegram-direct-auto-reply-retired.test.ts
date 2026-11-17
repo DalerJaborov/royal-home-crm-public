@@ -1,8 +1,10 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * ЛИЧНЫЕ СООБЩЕНИЯ TELEGRAM-КАНАЛА: АВТООТВЕТ МОДЕЛИ СНЯТ (один мозг, шаг 3, 16.11.2026).
  *
+ * Режим рубильника TELEGRAM_DIRECT_BOT_REPLY=off (по умолчанию автоответ включён, как раньше — ревью #223 M1; тест
+ * сам ставит `off`, иначе он проверял бы умолчание, которого больше нет).
  * ФАКТ (прод, 16.11): TelegramDirectConversation — 0 диалогов за всё время. Старый бот здесь больше не отвечает и на
  * ядро не переносится; слова клиента остаются в переписке, а человеку уходит «ответьте вручную» (lib/channelStaffAlert.ts).
  * Повтор jobs/telegramDirectReplyRetry.ts — тоже без модели: уже стоящие задания закрываются уведомлением.
@@ -83,10 +85,13 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  vi.stubEnv("TELEGRAM_DIRECT_BOT_REPLY", "off");
   sendMessage.mockClear();
   callAiText.mockReset();
   alertChannelStaff.mockClear();
 });
+
+afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("Direct Messages: модель не отвечает, человек узнаёт", () => {
   it("живой ход: ни модели, ни ответа бота; реплика клиента в переписке; сотруднику — «ответьте вручную»", async () => {

@@ -62,14 +62,36 @@ export interface ChannelCoreIntake {
 export type ChannelCoreOutcome =
   /** A verified reply for the customer (template or verified model answer). `askedPhone`: the server asked for the number. */
   | { status: "reply"; text: string; askedPhone: boolean; intake: ChannelCoreIntake }
-  /** The core wants a person (escalate, or an action no tool of this channel can do): send nothing, call staff. */
-  | { status: "staff"; reason: "escalate" | "action_needs_staff" | "unreadable_input"; intake: ChannelCoreIntake; language: "ru" | "tg" }
+  /** The core wants a person (escalate, an action no tool of this channel can do, unreadable input, or a refusal that a
+   *  repeat would only reproduce — `core_refused`): no answer of substance, staff are called at once. */
+  | { status: "staff"; reason: ChannelCoreStaffReason; intake: ChannelCoreIntake; language: "ru" | "tg" }
   /** Intended silence (thanks, a reaction, a duplicate). */
   | { status: "silent"; reason: string }
   /** Public comment only: spam/abuse, the channel's own moderation decides. */
   | { status: "moderate"; action: "hide" | "delete" }
-  /** The core could not finish (provider, deadline, revision): the channel's existing AI-retry takes over. */
+  /** A transient failure (provider, network, deadline, revision being published): the channel's existing AI-retry takes over. */
   | { status: "unavailable"; reason: string };
+export type ChannelCoreStaffReason = "escalate" | "action_needs_staff" | "unreadable_input" | "core_refused";
+
+/**
+ * HELD REASONS WORTH A REPEAT (review #223 N3, 17.11.2026). The channels' AI-retry ladder plays a turn again for up to
+ * ~13 hours (jobs/aiReplyRetryPolicy.ts, 46 attempts, each a paid model call). Only a failure that a later, fresh run can
+ * escape belongs there: the provider or the network failed (`turn_unavailable` — every exception of the turn, provider
+ * 5xx/timeouts arrive as ProviderOperationError), the deadline ran out, the runtime or the pinned revision is not available
+ * right now. Every OTHER reason is the core's own verdict on these words (no supported answer, surface decision denied,
+ * round/tool/output limit, malformed model output, input too large…): a repeat reproduces it, so a person answers at once.
+ * Protection by default: a reason the core adds later is a person, not 13 hours of silence.
+ */
+export const CHANNEL_CORE_RETRY_REASONS: readonly string[] = [
+  // the provider / the turn failed or was stopped by its deadline
+  "turn_unavailable", "turn_deadline", "operation_stopped",
+  // the adapter could not start the core now (runtime, revision being published), or threw
+  "runtime_unavailable", "no_active_revision", "revision_missing", "channel_core_failed",
+];
+/** Pure: is this HELD reason a transient failure (repeat) rather than the core's refusal (a person now)? */
+export function channelCoreRetryable(reason: string): boolean {
+  return CHANNEL_CORE_RETRY_REASONS.includes(reason);
+}
 
 export const CHANNEL_CORE_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
 const MAX_DEADLINE_MS = 60_000;
@@ -111,7 +133,8 @@ export function channelCoreIntake(history: ChannelCoreTurn["history"]): ChannelC
 /** Pure: map a finished core turn to what the channel does. */
 export function channelCoreOutcome(result: CustomerCoreResult, intake: ChannelCoreIntake, surface: ChannelCoreSurface,
   language: "ru" | "tg" = "ru"): ChannelCoreOutcome {
-  if (result.status !== "ready") return { status: "unavailable", reason: result.reason };
+  if (result.status !== "ready") return channelCoreRetryable(result.reason) ? { status: "unavailable", reason: result.reason }
+    : { status: "staff", reason: "core_refused", intake, language };
   const decision = result.decision;
   if (decision.kind === "skip") return { status: "silent", reason: decision.reason };
   if (decision.kind === "escalate") return { status: "staff", reason: "escalate", intake, language };
@@ -128,7 +151,8 @@ export function channelCoreOutcome(result: CustomerCoreResult, intake: ChannelCo
 type Runtime = Extract<Awaited<ReturnType<typeof openPinnedCustomerAgentRuntime>>, { status: "ready" }>["runtime"];
 
 /**
- * One core turn on a channel history. Never throws: any failure is `unavailable` (the caller's retry decides).
+ * One core turn on a channel history. Never throws: a transient failure is `unavailable` (the caller's retry plays it again),
+ * the core's own refusal is `staff` (`core_refused`, see CHANNEL_CORE_RETRY_REASONS).
  * `afterCore` runs inside the trace scope (the shadow writes its comparison there).
  */
 export async function runChannelCoreTurn(turn: ChannelCoreTurn, options: { mode: "shadow" | "live";
@@ -187,7 +211,8 @@ export async function runChannelCoreTurn(turn: ChannelCoreTurn, options: { mode:
         traceCustomerCoreResult(result);
         options.afterCore?.(result, { historyTurns: context.success ? context.data.turns.length : 0, toolsOffered: CHANNEL_CORE_TOOLS.length });
         const outcome = channelCoreOutcome(result, intake, surface, language);
-        if (outcome.status === "unavailable") traceCustomerCoreDisposition("held", outcome.reason);
+        // HELD stays HELD in the trace whether it is repeated or handed to a person (the reason tells which).
+        if (result.status !== "ready") traceCustomerCoreDisposition("held", result.reason, result.cause);
         else if (outcome.status !== "reply") traceCustomerCoreDisposition("unchanged");
         return outcome;
       } finally {

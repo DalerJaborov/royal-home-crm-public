@@ -12,7 +12,7 @@ const outgoingScope = new AsyncLocalStorage<number>();
 let warned = false;
 const channels = new Set(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE"]);
 /** Channels traced ONLY for the one-brain records (shadow, core channel adapter): their legacy turns stay untraced. */
-const shadowChannels = new Set([...channels, "TELEGRAM", "YOUTUBE"]);
+const shadowChannels = new Set([...channels, "TELEGRAM", "TELEGRAM_DIRECT", "YOUTUBE"]);
 function runtimeConfig(): TraceConfig {
   return { enabled: /^(1|true)$/.test(process.env.BOT_TURN_TRACE_ENABLED ?? ""), secret: process.env.BOT_TURN_TRACE_HMAC_KEY ?? "", text: process.env.BOT_TURN_TRACE_TEXT_ENABLED === "1" };
 }

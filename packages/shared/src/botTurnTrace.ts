@@ -4,8 +4,9 @@ import { customerMutationReceiptSchema } from "./customerMutation.js";
 
 export const BOT_TURN_TRACE_COVERAGE = "meta_website_customer_bot_v1" as const;
 export const BOT_CUSTOMER_AGENT_TRACE_COVERAGE = "customer_agent_dm_public_v1" as const;
-/** TELEGRAM and YOUTUBE carry only the one-brain records: shadow (phase "shadow") and the core channel adapter (phase "channel"). */
-export const traceChannelSchema = z.enum(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE", "TELEGRAM", "YOUTUBE"]);
+/** TELEGRAM, TELEGRAM_DIRECT (direct messages of the Telegram channel) and YOUTUBE carry only the one-brain records: shadow
+ *  (phase "shadow") and the core channel adapter (phase "channel"). */
+export const traceChannelSchema = z.enum(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE", "TELEGRAM", "TELEGRAM_DIRECT", "YOUTUBE"]);
 export const traceSourceSchema = z.enum(["webhook", "website", "ai_retry", "manual_retry", "internal", "delivery_status"]);
 export const traceOutcomeSchema = z.enum(["incomplete", "completed", "duplicate", "remembered", "echo", "manual", "bot_off", "batched", "no_reply", "failed", "blocked", "partially_sent"]);
 export const traceStageSchema = z.enum(["ingress", "media_download", "asr", "vision", "resolution", "model", "qualifier_guards", "reply_chain", "recovery", "send", "stamp", "final"]);
@@ -99,8 +100,9 @@ export const traceManagedDeliverySchema = z.strictObject({
   status: z.enum(["accepted", "available_widget", "unknown", "suppressed", "not_sent", "waiting", "missing"]),
   projectionPending: z.boolean(),
 });
-/** One-brain step 2 (16.11.2026): channels whose customer replies still come from the old bot, each with its own shadow switch. */
-export const customerAgentLegacyChannelSchema = z.enum(["meta_dm", "arvan", "website", "youtube", "telegram"]);
+/** One-brain step 2 (16.11.2026): channels whose customer replies still come from the old bot, each with its own shadow switch.
+ *  `telegram_direct` = direct messages of the Telegram channel (review #223 N2): its own key, never part of `telegram`. */
+export const customerAgentLegacyChannelSchema = z.enum(["meta_dm", "arvan", "website", "youtube", "telegram", "telegram_direct"]);
 export type CustomerAgentLegacyChannel = z.infer<typeof customerAgentLegacyChannelSchema>;
 /** What the old bot actually did with the turn. Flags only: no text, no lead values. */
 const traceLegacyActionSchema = z.enum(["none", "callback", "ask_owner", "showing", "job_application", "guide", "property"]);
