@@ -5,6 +5,7 @@ import { resolveBuildingByText } from "./geoResolve.js";
 import { districtByPoint } from "./propertyDistrict.js";
 import { isGenericPlaceName, radiusFor, type MatchPlace, type PropertyMatchQuery } from "./propertyMatch.js";
 import { textMentionsSuburb } from "./suburbanProperty.js";
+import { mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME, stripRudakiDistrictWords } from "./serviceArea.js";
 
 /**
  * МЕСТО В ЗАПРОСЕ ПОКУПАТЕЛЯ — КОДОМ, ОДНИМ ПРАВИЛОМ ДЛЯ ГОЛОСА И ЧАТ-БОТА
@@ -30,8 +31,8 @@ const OFFICIAL_DISTRICTS: { district: OfficialDistrict; re: RegExp }[] = [
 ];
 
 export interface ResolvedSearchPlace {
-  /** Район, названный словом. */
-  districtName: OfficialDistrict | null;
+  /** Район, названный словом (район Рудаки — тоже, с 15.11.2026: lib/serviceArea.ts). */
+  districtName: OfficialDistrict | typeof RUDAKI_DISTRICT_NAME | null;
   /** Район места (по точке карты или по народному списку) — когда района словом нет. */
   placeDistrictName: string | null;
   place: MatchPlace | null;
@@ -97,9 +98,12 @@ export async function resolveSearchPlace(text: string | null | undefined): Promi
   const empty: ResolvedSearchPlace = { districtName: null, placeDistrictName: null, place: null, suburban: false };
   if (!text?.trim()) return empty;
   let key = geoMatchKey(text);
-  const official = officialDistrictIn(text);
+  // Район Рудаки словами («ноҳияи Рӯдакӣ», «район Рудаки», «Сомониён») — район, а не проспект Рудаки в центре
+  // (ревью #204, С3): его слова вырезаются из ключа, как названия районов города.
+  const official = officialDistrictIn(text) ?? (mentionsRudakiDistrict(text) ? RUDAKI_DISTRICT_NAME : null);
   // Название района — не место: «Исмоили Сомони» не должен найтись проспектом Сомони.
   for (const d of OFFICIAL_DISTRICTS) key = key.replace(new RegExp(d.re.source, "gu"), " ");
+  key = stripRudakiDistrictWords(key);
   const suburban = textMentionsSuburb(text);
 
   // Адрес «улица + номер дома» («Рудаки 177») — точка самого дома из справочника домов

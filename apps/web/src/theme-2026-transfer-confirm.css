@@ -1,0 +1,210 @@
+/* БОЛЬШОЕ ОКНО ПОДТВЕРЖДЕНИЯ ПЕРЕДАЧИ — «как при звонках» (владелец 16.11.2026).
+ * Один экран для ПК и телефона: на узком — во всю высоту, на широком — карточка по центру.
+ * Отдельный файл, как и theme-2026-lead-incoming.css: theme-2026-proto.css генерируется скриптом и руками
+ * не правится. Видимость не зависит от анимации (состояние выражено классами, а не ключевыми кадрами).
+ * Слой 43: ниже окна разговора (45) и входящего лида (44) — идущий звонок важнее и его кнопки не перекрыты. */
+.rh2 .scr .tc-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 43;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: var(--overlay-strong, rgba(10, 14, 24, 0.55));
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.rh2 .scr .tc-card {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  background: var(--page);
+  color: var(--ink);
+}
+.rh2 .scr .tc-top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top, 0px) + 18px) 16px 10px;
+  font-size: var(--fs-14);
+  color: var(--muted);
+  text-align: center;
+}
+.rh2 .scr .tc-top i,
+.rh2 .scr .tc-quiet i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--crit);
+  flex: none;
+}
+.rh2 .scr .tc-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 24px;
+  text-align: center;
+}
+.rh2 .scr .tc-ico {
+  width: 88px;
+  height: 88px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--soft);
+  color: var(--ink);
+}
+.rh2 .scr .tc-ico svg {
+  width: 40px;
+  height: 40px;
+}
+.rh2 .scr .tc-title {
+  font: 700 26px/1.2 var(--ff-head, Onest, sans-serif);
+  letter-spacing: -0.02em;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.rh2 .scr .tc-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: var(--fs-15);
+  color: var(--muted);
+}
+.rh2 .scr .tc-flow b {
+  color: var(--ink);
+}
+.rh2 .scr .tc-flow .i {
+  width: 18px;
+  height: 18px;
+}
+.rh2 .scr .tc-who {
+  font-size: var(--fs-14);
+  color: var(--muted);
+}
+.rh2 .scr .tc-who b {
+  color: var(--ink);
+}
+.rh2 .scr .tc-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  max-width: 420px;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--soft);
+  text-align: left;
+  font-size: var(--fs-14);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.rh2 .scr .tc-reason-lab {
+  font-size: var(--fs-13);
+  color: var(--muted);
+}
+.rh2 .scr .tc-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 420px;
+  margin-top: 6px;
+  font-size: var(--fs-13);
+  color: var(--muted);
+  text-align: left;
+  line-height: 1.4;
+}
+.rh2 .scr .tc-left .i {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+}
+.rh2 .scr .tc-actions {
+  flex: none;
+  padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  border-top: 1px solid var(--line-soft);
+  background: var(--card-glass, var(--page));
+}
+.rh2 .scr .tc-btns {
+  display: flex;
+  gap: 10px;
+}
+.rh2 .scr .tc-btn {
+  flex: 1;
+  min-height: 64px;
+  border-radius: var(--r-md);
+  font: 600 17px var(--ff-head, Onest, sans-serif);
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rh2 .scr .tc-btn:active {
+  transform: scale(0.97);
+}
+.rh2 .scr .tc-btn:disabled {
+  opacity: 0.6;
+}
+.rh2 .scr .tc-btn.accept {
+  background: var(--pill);
+  color: var(--pill-ink);
+}
+.rh2 .scr .tc-btn.reject {
+  background: var(--soft);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+.rh2 .scr .tc-later {
+  display: block;
+  margin: 12px auto 0;
+  min-height: 44px;
+  padding: 8px 16px;
+  font-size: var(--fs-14);
+  color: var(--muted);
+}
+/* Широкий экран: карточка по центру, как окно звонка на ПК. */
+@media (min-width: 720px) {
+  .rh2 .scr .tc-wrap {
+    align-items: center;
+    padding: 24px;
+  }
+  .rh2 .scr .tc-card {
+    max-height: min(720px, calc(100vh - 48px));
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: var(--shadow-lg, 0 24px 80px rgba(0, 0, 0, 0.35));
+  }
+  .rh2 .scr .tc-top {
+    padding-top: 20px;
+  }
+}
+/* Свёрнутое «позже»: тихая плашка снизу, окно разворачивается нажатием. */
+.rh2 .scr .tc-quiet {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+  transform: translateX(-50%);
+  z-index: 43;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--pill);
+  color: var(--pill-ink);
+  font-size: var(--fs-14);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}

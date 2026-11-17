@@ -38,7 +38,7 @@ const TOOL = "transfer_property";
 async function transferActorOf(actor: AssistantActionActor): Promise<PropertyTransferActor> {
   const access = await loadAgentAccess(actor.agentId, prisma);
   if (!access?.isActive || isReadOnlyRole(access.role)) throw new AssistantActionError(403, "FORBIDDEN", "Недостаточно прав на это действие");
-  const transferActor: PropertyTransferActor = { id: actor.agentId, can: (p) => access.permissions.has(p) && actor.can(p) };
+  const transferActor: PropertyTransferActor = { id: actor.agentId, role: access.role, can: (p) => access.permissions.has(p) && actor.can(p) };
   if (!canTransferProperty(transferActor)) throw new AssistantActionError(403, "FORBIDDEN", "Передать объект другому агенту может руководитель");
   return transferActor;
 }

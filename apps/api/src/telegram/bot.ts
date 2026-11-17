@@ -2,6 +2,7 @@ import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import path from "node:path";
 import { handleModerationCallback, handleModerationText, claimCallback } from "../lib/telegramModeration.js";
 import { handleClipReviewCallback, handleClipReviewText } from "./clipReviewBot.js";
+import { handleTransferReviewCallback } from "./transferReviewBot.js";
 import { isOperatorPauseActive } from "../lib/conversationState.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
@@ -184,6 +185,8 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
   if (await handleModerationCallback(query)) return;
   // Проверка готового ролика (telegram/clipReviewBot.ts, 25.09.2026) — cr:*.
   if (await handleClipReviewCallback(query)) return;
+  // Передача РОП — решение директора (telegram/transferReviewBot.ts, 16.11.2026) — tr:*.
+  if (await handleTransferReviewCallback(query)) return;
   if (query.data === "call_agent") {
     // Диалог мог уже принять заявку (клиент нажал кнопку из старого сообщения
     // после того, как оформился заявкой текстом) — тогда просто подтверждаем,

@@ -22,7 +22,7 @@ import {
   buildClientTextSearchAnd,
   clientFieldFilters,
   clientIdsWithUnreadReply,
-  pendingDeleteHiddenClientIds,
+  pendingDeleteHideWhere,
 } from "../../lib/clientSearchWhere.js";
 import { fuzzyClientIds } from "../../lib/fuzzySearch.js";
 import { loadSellerPropertyAddresses } from "../../lib/sellerPropertyAnchor.js";
@@ -151,8 +151,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
    * (intake.ts заявку на удаление не проверяет вовсе). Прячем только те
    * карточки, где нет непрочитанной реплики клиента.
    */
-  const idsToHide = await pendingDeleteHiddenClientIds({ ownAgentId, canDelete: can(req, "clients.delete") });
-  if (idsToHide.length > 0) where.id = { notIn: idsToHide };
+  Object.assign(where, await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, "clients.delete") }));
   if (allMine) {
     /**
      * ВКЛАДКА «ВСЕ МОИ КЛИЕНТЫ» (18.09.2026, задание В §f п.1, Р-2/Р-7

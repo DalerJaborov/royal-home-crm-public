@@ -2054,6 +2054,9 @@ function BotCommentsSection() {
   const { data } = useInstagramComments({ pageSize: 1 }, { enabled: canSee });
   const hidden = data?.counts.HIDDEN ?? 0;
   const waiting = data?.counts.ESCALATED ?? 0;
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const failureWatchOn = settings?.commentFailureWatchEnabled ?? true;
 
   return (
     <SettingsSection icon={MessageCircle} title="Комментарии под постами Instagram">
@@ -2072,6 +2075,17 @@ function BotCommentsSection() {
           пишет под постами, задаётся выше, в карточке «Промт ответов на комментарии».
         </span>
       </div>
+
+      <SwitchRow
+        title="Бот не смог ответить — сказать человеку"
+        on={failureWatchOn}
+        onToggle={() => updateSettings.mutate({ commentFailureWatchEnabled: !failureWatchOn })}
+        hint={
+          failureWatchOn
+            ? "Если ИИ был недоступен, у бота сорвался ответ или комментарий висит без ответа дольше 30 минут — тем, кто читает переписки, уходит одна сводка: «ответьте вручную»."
+            : "Не сообщаем: комментарий, на который бот не смог ответить из-за сбоя, останется без ответа, пока его не увидят в ленте."
+        }
+      />
 
       {canSee && (
         <div className="quiet">

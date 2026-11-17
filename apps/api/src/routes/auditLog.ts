@@ -58,7 +58,7 @@ auditLogRouter.get("/", async (req, res) => {
     // "Тот, кому открыты ВСЕ объекты" — это viewOwners ИЛИ editForeign: монтажёру
     // (слой 3, 08.09.2026 — editForeign без viewOwners, roles-check.md §2.2) нужна
     // история чужого объекта, который он ведёт по конвейеру, ровно как маркетингу.
-    if (!isResponsible && !can(req, "properties.viewOwners") && !can(req, "properties.editForeign")) {
+    if (!isResponsible && !can(req, "properties.viewOwners") && !can(req, "properties.editForeign") && !can(req, "properties.moderate")) {
       return res.status(403).json({ error: "Недостаточно прав" });
     }
   }

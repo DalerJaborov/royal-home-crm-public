@@ -200,7 +200,9 @@ export function canManageProperty(
  */
 export function canReassignPropertyAgents(req: Request): boolean {
   // Одно правило с передачей объекта помощницей (lib/propertyManualTransfer.ts).
-  return canTransferProperty({ id: req.agent?.id ?? "", can: (permission) => can(req, permission) });
+  // РОП передаёт объект через POST /transfer (с уведомлением директору), а не правкой полей в PATCH.
+  if (req.agent?.role === "HEAD_OF_SALES") return false;
+  return canTransferProperty({ id: req.agent?.id ?? "", role: req.agent?.role, can: (permission) => can(req, permission) });
 }
 
 /**

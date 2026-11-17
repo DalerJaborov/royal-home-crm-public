@@ -35,6 +35,20 @@
 export const API_CACHE_NAME = "api-cache";
 
 /**
+ * Удаляет кэш ответов API воркера целиком. Единое место: вход другого
+ * сотрудника (store/auth.ts) и самолечение пустых списков
+ * (lib/emptyListGuard.ts) чистят его одной и той же функцией.
+ * Best-effort: `caches` может не быть (старый браузер, http) — тогда нет и воркера.
+ */
+export async function dropSwApiCache(): Promise<void> {
+  try {
+    await caches?.delete(API_CACHE_NAME);
+  } catch {
+    /* кэша нет — чистить нечего */
+  }
+}
+
+/**
  * Разделы, которые обязаны открываться без сети хотя бы «как было в последний
  * раз» — ради этого офлайн-режим и существует (см. tests/e2e/offline.spec.ts):
  *

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { api } from "../../lib/api";
+import { useCan } from "../../lib/permissions";
 import { useYandexOverview } from "../../hooks/useMarketing";
 import { ErrorLine, PeriodTabs, QueryList, ReturnBanner, SearchTiles, dmy, num } from "./searchBits";
 
@@ -20,6 +21,8 @@ const YANDEX_REASONS: Record<string, string> = {
 };
 
 export function YandexSearchPanel({ returnStatus }: { returnStatus: { sc: string | null; reason: string | null } }) {
+  // Подключать и отключать каналы компании может только директор (замок прав 16.11.2026).
+  const canChannels = useCan()("finance.manage");
   const [days, setDays] = useState<number>(28);
   const q = useYandexOverview(days);
   const qc = useQueryClient();
@@ -91,7 +94,7 @@ export function YandexSearchPanel({ returnStatus }: { returnStatus: { sc: string
           каком месте сайт, его ИКС и сколько страниц в поиске.
         </p>
         {showForm ? (
-          <form className="acts" onSubmit={saveApp}>
+          <form className="acts" onSubmit={saveApp} style={canChannels ? undefined : { display: "none" }}>
             <label className="fld">
               <span className="lab">ID приложения Яндекса (ClientID)</span>
               <input value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" required />
@@ -111,7 +114,7 @@ export function YandexSearchPanel({ returnStatus }: { returnStatus: { sc: string
             </button>
           </form>
         ) : (
-          <div className="acts">
+          <div className="acts" style={canChannels ? undefined : { display: "none" }}>
             <button className="pill" type="button" onClick={connect} disabled={busy}>
               <Search className="i" aria-hidden /> {busy ? "Открываем Яндекс…" : "Подключить Яндекс"}
             </button>
@@ -195,6 +198,7 @@ export function YandexSearchPanel({ returnStatus }: { returnStatus: { sc: string
           className="pill ghost sm"
           type="button"
           disabled={busy}
+          style={canChannels ? undefined : { display: "none" }}
           onClick={() =>
             void run(async () => {
               await api("/search-console/yandex/disconnect", { method: "POST" });

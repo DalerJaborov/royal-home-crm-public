@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { logAgentAudit } from "./audit.js";
 import { assignableAgentError } from "./propertyAssignableAgent.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
+import { recordRopTransfer } from "./ownershipTransferRecord.js";
 import { transferPropertyWithSeller } from "./propertyTransferWithSeller.js";
 
 /**
@@ -21,6 +22,8 @@ import { transferPropertyWithSeller } from "./propertyTransferWithSeller.js";
  */
 export interface PropertyTransferActor {
   id: string;
+  /** Роль нужна, чтобы закрыть прямую передачу для РОП: он передаёт только запросом хозяину (16.11.2026). */
+  role?: string | null;
   can: (permission: PermissionId) => boolean;
 }
 
@@ -35,6 +38,9 @@ const fail = (status: number, error: string, details?: unknown): PropertyTransfe
 });
 
 export function canTransferProperty(actor: PropertyTransferActor): boolean {
+  // РОП (право transfers.request) передаёт сам, без правки чужих карточек; директору уйдёт уведомление
+  // (recordRopTransfer ниже). Рядовым агентам передача недоступна вовсе.
+  if (actor.role === "HEAD_OF_SALES") return actor.can("transfers.request") && actor.can("clients.assign");
   return actor.can("properties.editForeign") && actor.can("clients.assign");
 }
 
@@ -70,6 +76,15 @@ export async function transferPropertyByManager(
     reason,
     actorId: actor.id,
     source: "manual",
+  });
+  void recordRopTransfer({
+    kind: "PROPERTY",
+    targetId: property.id,
+    fromAgentId: result.fromAgentId,
+    toAgentId,
+    actorId: actor.id,
+    actorRole: actor.role,
+    reason,
   });
   logAgentAudit(actor.id, "PROPERTY_TRANSFER", "Property", property.id, {
     fromAgentId: result.fromAgentId,
