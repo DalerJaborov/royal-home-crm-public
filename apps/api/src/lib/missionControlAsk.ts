@@ -117,8 +117,8 @@ export async function buildAskContext(seesMoney: boolean, now: Date = new Date()
     }),
     prisma.client.groupBy({
       by: ["assignedAgentId"],
-      // «Без контакта» — одно правило на всю CRM (lib/noContact.ts).
-      where: { AND: [noContactWhere(now), { assignedAgentId: { in: ids } }] },
+      // «Не связывались» — одно правило на всю CRM (lib/noContact.ts).
+      where: { AND: [noContactWhere(), { assignedAgentId: { in: ids } }] },
       _count: { _all: true },
     }),
     prisma.deal.groupBy({

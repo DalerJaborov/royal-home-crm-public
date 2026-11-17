@@ -190,6 +190,32 @@ describe("GET /clients/summary", () => {
     expect(res.body.mine).toBe(2);
   });
 
+  it("«Не связывались» (17.11.2026): плитка и список по нажатию — одно число; недозвон убирает клиента", async () => {
+    const token = await login(agentPhone);
+    const get = (path: string) => request(app).get(path).set("Authorization", `Bearer ${token}`);
+    const before = await get("/api/v1/clients/summary");
+    expect(before.status).toBe(200);
+    expect(before.body).not.toHaveProperty("noContactOverDay");
+    // Обе карточки агента — ни звонка, ни сообщения сотрудника: обе в счётчике.
+    expect(before.body.neverContacted).toBe(2);
+    // Список по нажатию — без вкладки «покупатели/продавцы», как и число на плитке.
+    const list = await get("/api/v1/clients?noContact=1&scope=inWork");
+    expect(list.status).toBe(200);
+    expect(list.body.total).toBe(2);
+
+    const call = await prisma.interaction.create({
+      data: { clientId: ids[1], agentId, type: "CALL", notes: "Звонок через CRM", callAttempt: "NO_ANSWER" },
+    });
+    try {
+      const after = await get("/api/v1/clients/summary");
+      expect(after.body.neverContacted).toBe(1);
+      const listAfter = await get("/api/v1/clients?noContact=1&scope=inWork");
+      expect(listAfter.body.items.map((c: { id: string }) => c.id)).toEqual([ids[0]]);
+    } finally {
+      await prisma.interaction.delete({ where: { id: call.id } });
+    }
+  });
+
   it("директор: счётчики по всему агентству", async () => {
     const token = await login(directorPhone);
     const res = await request(app).get("/api/v1/clients/summary").set("Authorization", `Bearer ${token}`);

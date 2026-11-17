@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { MarketBuyerListing, MarketBuyerListingsResponse, MarketBuyerSummary } from "@royal-home/shared";
+import { marketContactText } from "@royal-home/shared";
 import { MarketBuyerListingsView, marketBuyerLineText } from "./MarketBuyerListings";
 
 const listing = (i: number): MarketBuyerListing => ({
   source: i % 2 ? "paydo.tj" : "somon.tj", sourceUrl: `https://somon.tj/adv/${i}`, title: `Квартира ${i}`, priceTjs: 600000 + i,
-  pricePerSqmTjs: 9500, areaSqm: 60 + i, rooms: 2, floor: 3, totalFloors: 9, districtName: "Сино",
-  publishedAt: "2026-11-08T10:00:00.000Z",
+  pricePerSqmTjs: 9500, areaSqm: 60 + i, rooms: 2, floor: 3, totalFloors: 9, districtName: "Сино", districtUnknown: false,
+  publishedAt: "2026-11-08T10:00:00.000Z", lastSeenAt: "2026-11-17T10:00:00.000Z", contact: null,
 });
 const ok = (n: number, over: Partial<MarketBuyerListingsResponse> = {}): MarketBuyerListingsResponse => ({
-  status: "ok", criteria: ["район Сино", "2-комнатные"], total: n, totalIsLowerBound: false, budgetMaxTjs: 700000, market: null, ownersOnly: null, listings: Array.from({ length: n }, (_, i) => listing(i)), ...over,
+  status: "ok", criteria: ["район Сино", "2-комнатные"], total: n, totalIsLowerBound: false, budgetMaxTjs: 700000, market: null, ownersOnly: null, offset: 0, freshDays: 3, clientDistrictMissing: false, listings: Array.from({ length: n }, (_, i) => listing(i)), ...over,
 });
 
 describe("MarketBuyerListingsView", () => {
@@ -25,8 +26,8 @@ describe("MarketBuyerListingsView", () => {
     expect(html).toContain("район Сино, 2-комнатные");
   });
 
-  it("говорит, что показано ближайшее, если подходящих больше", () => {
-    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(10, { total: 27 })} />)).toContain("Показаны ближайшие 10 из 27.");
+  it("говорит, что показаны лучшие, если подходящих больше", () => {
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(10, { total: 27 })} />)).toContain("Показаны лучшие 10 из 27.");
     expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(10, { total: 2000, totalIsLowerBound: true })} />)).toContain("из 2000+");
   });
 
@@ -83,5 +84,49 @@ describe("строка «только собственники» (14.11.2026)", 
     expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(2, { ownersOnly: { enabled: false, kept: 9, total: 9 } })} />)).not.toContain("market-owners-only");
     expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(0, { ownersOnly: { enabled: true, kept: 0, total: 0 } })} />)).not.toContain("market-owners-only");
     expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(2)} />)).not.toContain("market-owners-only");
+  });
+});
+
+describe("узкий подбор (17.11.2026)", () => {
+  it("объявление без района подписано «район не указан»; свежесть названа словами", () => {
+    const rows = [listing(0), { ...listing(1), districtName: null, districtUnknown: true }];
+    const html = renderToStaticMarkup(<MarketBuyerListingsView data={ok(2, { listings: rows })} />);
+    expect(html).toContain("район не указан");
+    expect(html).toContain("за последние 3 суток");
+  });
+
+  it("клиент без района: строка «подбор по всему городу»", () => {
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(1, { clientDistrictMissing: true })} />)).toContain("подбор по всему городу");
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(1)} />)).not.toContain("market-district-missing");
+  });
+
+  it("«Показать ещё» есть, пока сервер говорит, что есть следующая страница; список — все загруженные страницы", () => {
+    const more = { hasMore: true, loading: false, onMore: () => {} };
+    const all = Array.from({ length: 12 }, (_, i) => listing(i));
+    const html = renderToStaticMarkup(<MarketBuyerListingsView data={ok(10, { total: 27 })} listings={all} more={more} />);
+    expect(html).toContain("Показать ещё");
+    expect(html).toContain("Показаны лучшие 12 из 27.");
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(10, { total: 27 })} more={{ ...more, hasMore: false }} />)).not.toContain("Показать ещё");
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(10, { total: 27 })} more={{ ...more, failed: true }} />)).toContain("нажмите кнопку ещё раз");
+  });
+});
+
+describe("действия и отметка «уже связывались» (17.11.2026)", () => {
+  it("у каждого объявления: WhatsApp, «Показать номер» (Somon) или «Номер на сайте» (Paydo) и ссылка", () => {
+    const html = renderToStaticMarkup(<MarketBuyerListingsView data={ok(2)} clientId="c1" />);
+    expect(html.match(/aria-label="Написать продавцу в WhatsApp"/g)).toHaveLength(2);
+    expect(html).toContain("Показать номер");
+    expect(html).toContain("Номер на сайте");
+    expect(html.match(/>Объявление</g)).toHaveLength(2);
+  });
+
+  it("отметка видна под строкой; текст без «—» и без номера", () => {
+    const contact = { action: "PHONE" as const, agentName: "Фарида", byMe: false, at: "2026-11-17T06:00:00.000Z" };
+    const html = renderToStaticMarkup(<MarketBuyerListingsView data={ok(1, { listings: [{ ...listing(0), contact }] })} />);
+    expect(html).toContain("Номер уже взят: Фарида");
+    expect(marketContactText({ ...contact, byMe: true }, "17.11")).toBe("Вы уже брали номер, 17.11");
+    expect(marketContactText({ ...contact, action: "WHATSAPP" }, "17.11")).toBe("Продавцу уже писали в WhatsApp: Фарида, 17.11");
+    expect(marketContactText({ ...contact, action: "OWNER_LEAD" }, "17.11")).toContain("Продавца уже ведёт Фарида");
+    for (const a of ["PHONE", "WHATSAPP", "OWNER_LEAD"] as const) expect(marketContactText({ ...contact, action: a }, "17.11")).not.toContain("—");
   });
 });

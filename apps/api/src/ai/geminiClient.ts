@@ -576,6 +576,11 @@ export async function callGemini<T>(params: {
    */
   onBlocked?: (reason: string) => void;
   providerOperation?: ProviderOperation;
+  /**
+   * Вызывающий бросил ждать (например, свой короткий срок разбора реплики, ai/leadOnlyIntent.ts): текущий запрос
+   * Google прерывается, остальные модели и ключи не пробуем, ошибкой в журнал это не пишется. Без сигнала всё как было.
+   */
+  signal?: AbortSignal;
 }): Promise<T | null> {
   params.providerOperation?.check();
   const start = Date.now();
@@ -826,6 +831,7 @@ export async function callGemini<T>(params: {
                 })
               : null;
           for (let attempt = 0; attempt < ATTEMPTS_PER_MODEL; attempt++) {
+            if (params.signal?.aborted) break keys;
             // Пауза перед повтором тоже укладывается в бюджет — ждать четыре секунды,
             // когда до потолка осталась одна, значит просто отдать их впустую.
             if (attempt > 0) {
@@ -844,6 +850,7 @@ export async function callGemini<T>(params: {
             if (left <= 0) break;
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), Math.min(TIMEOUT_MS, left));
+            const unlinkAbort = linkAbort(controller, params.signal);
             let providerAttempt: ProviderAttempt | undefined;
             let attemptOutcome: Parameters<ProviderAttempt["finish"]>[0] = "error";
             const traceStarted = performance.now();
@@ -1091,6 +1098,7 @@ export async function callGemini<T>(params: {
             } finally {
               traceModelFinish(traceAttempt, traceResult, traceStarted, traceRaw);
               clearTimeout(timeout);
+              unlinkAbort();
               await providerAttempt?.finish(attemptOutcome);
             }
           }
@@ -1100,6 +1108,8 @@ export async function callGemini<T>(params: {
         if (promptBlocked) break keys;
       }
     }
+    // Сами отказались ждать — это не отказ Google, в журнал ошибок не пишем.
+    if (params.signal?.aborted) return null;
     console.error(`[ai:${params.endpoint}:gemini]`, lastError instanceof Error ? lastError.message : lastError);
     if (blockedReason) {
       logPromptBlocked(params.endpoint, blockedReason, params.conversationId, params.clientId);

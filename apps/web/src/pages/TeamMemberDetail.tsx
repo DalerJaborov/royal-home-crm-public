@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useGoBack } from "../hooks/useGoBack";
 import { ChevronLeft, ChevronRight, Headphones, Mail, Phone } from "lucide-react";
-import { daysOffSentenceRu, formatClientCode } from "@royal-home/shared";
+import { daysOffSentenceRu, formatClientCode, NO_CONTACT_TEXT } from "@royal-home/shared";
 import { dealStageText } from "../lib/dealStageText";
 import { useAgentLive, useAgentOverview, type AgentLive, type AgentOverview } from "../hooks/useAgentOverview";
 import {
@@ -562,7 +562,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                     {data.problems.noContactClients.total > 0 && (
                       <>
                         <p className="state" style={{ margin: "8px 0 0" }}>
-                          <b>Без контакта больше суток</b> · {data.problems.noContactClients.total}
+                          <b>{NO_CONTACT_TEXT.title}</b> · {data.problems.noContactClients.total}
                         </p>
                         {data.problems.noContactClients.items.map((c) => (
                           <Link key={c.id} className="row" to={`/clients/${c.shortId}`} state={backState(id, data.agent.fullName)}>
@@ -1231,7 +1231,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                     {data.problems.noContactClients.total > 0 && (
                       <div className="quiet">
                         <div className="ln">
-                          <b>Без контакта больше суток · {data.problems.noContactClients.total}</b>
+                          <b>{NO_CONTACT_TEXT.title} · {data.problems.noContactClients.total}</b>
                         </div>
                       </div>
                     )}

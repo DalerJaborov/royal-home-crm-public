@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MARKET_BUYER_RULE_DEFAULTS as MARKET_DEFAULTS, MARKET_BUYER_RULE_LIMITS as MARKET_LIMITS } from "@royal-home/shared";
 import { useServerSyncedFields } from "../../hooks/useServerSyncedForm";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { SwitchRow } from "../../components/Switch";
@@ -32,6 +33,12 @@ export function MatchingTab() {
   const [defaultRadius, setDefaultRadius] = useState("");
   const [savedRadius, setSavedRadius] = useState(false);
 
+  const [marketFresh, setMarketFresh] = useState("");
+  const [marketBudget, setMarketBudget] = useState("");
+  const [marketRooms, setMarketRooms] = useState("");
+  const [marketAlerts, setMarketAlerts] = useState("");
+  const [savedMarket, setSavedMarket] = useState(false);
+
   useServerSyncedFields(
     settings && {
       ttlDays: String(settings.matchRequirementTtlDays ?? 60),
@@ -39,6 +46,10 @@ export function MatchingTab() {
       areaTolerance: String(settings.matchAreaTolerancePct ?? 10),
       roomsTolerance: String(settings.matchRoomsTolerance ?? 1),
       defaultRadius: String(settings.matchDefaultRadiusM ?? 1500),
+      marketFresh: String(settings.marketBuyerFreshDays ?? MARKET_DEFAULTS.freshDays),
+      marketBudget: String(settings.marketBuyerBudgetTolerancePct ?? MARKET_DEFAULTS.budgetTolerancePct),
+      marketRooms: String(settings.marketBuyerRoomsTolerance ?? MARKET_DEFAULTS.roomsTolerance),
+      marketAlerts: String(settings.marketBuyerAlertsPerDay ?? MARKET_DEFAULTS.alertsPerDay),
     },
     {
       ttlDays: [ttlDays, setTtlDays],
@@ -46,6 +57,10 @@ export function MatchingTab() {
       areaTolerance: [areaTolerance, setAreaTolerance],
       roomsTolerance: [roomsTolerance, setRoomsTolerance],
       defaultRadius: [defaultRadius, setDefaultRadius],
+      marketFresh: [marketFresh, setMarketFresh],
+      marketBudget: [marketBudget, setMarketBudget],
+      marketRooms: [marketRooms, setMarketRooms],
+      marketAlerts: [marketAlerts, setMarketAlerts],
     }
   );
 
@@ -100,6 +115,18 @@ export function MatchingTab() {
       matchRoomsTolerance: Number(roomsTolerance),
     });
     setSavedTolerances(true);
+  }
+
+  async function handleSaveMarket(e: React.FormEvent) {
+    e.preventDefault();
+    setSavedMarket(false);
+    await updateSettings.mutateAsync({
+      marketBuyerFreshDays: Number(marketFresh),
+      marketBuyerBudgetTolerancePct: Number(marketBudget),
+      marketBuyerRoomsTolerance: Number(marketRooms),
+      marketBuyerAlertsPerDay: Number(marketAlerts),
+    });
+    setSavedMarket(true);
   }
 
   async function handleSaveRadius(e: React.FormEvent) {
@@ -158,7 +185,7 @@ export function MatchingTab() {
           onToggle={() => updateSettings.mutate({ marketBuyerAlertsEnabled: !marketAlertsOn })}
           hint={
             marketAlertsOn
-              ? "Агент получает пуш, когда на Somon.tj или Paydo.tj появилось объявление под его покупателя. Не больше трёх пушей в день на одного клиента, одно объявление приходит один раз."
+              ? "Агент получает пуш в рабочие часы, когда на Somon.tj или Paydo.tj появилось объявление под его покупателя. Сколько пушей в день — ниже, одно объявление приходит агенту один раз."
               : "Выключено: агент видит объявления с площадок только в карточке клиента."
           }
         />
@@ -212,6 +239,53 @@ export function MatchingTab() {
             hint="Допустимая разница в числе комнат между объектом и запросом клиента."
           />
           <SaveRow pending={updateSettings.isPending} saved={savedTolerances} />
+        </form>
+      </section>
+
+      <section className="card">
+        <div className="sec-h stack">
+          <h2>Подбор с площадок</h2>
+          <span className="note">Объявления Somon и Paydo в карточке покупателя и в пушах агенту</span>
+        </div>
+
+        <form onSubmit={handleSaveMarket}>
+          <NumberRow
+            label="Свежесть"
+            unit="суток"
+            min={MARKET_LIMITS.freshDays.min}
+            max={MARKET_LIMITS.freshDays.max}
+            value={marketFresh}
+            onChange={setMarketFresh}
+            hint="Объявление, которое сбор не видел на сайте дольше, клиентам не предлагается: скорее всего, его уже продали."
+          />
+          <NumberRow
+            label="Цена около бюджета"
+            unit="%"
+            min={MARKET_LIMITS.budgetTolerancePct.min}
+            max={MARKET_LIMITS.budgetTolerancePct.max}
+            value={marketBudget}
+            onChange={setMarketBudget}
+            hint="Насколько цена объявления может быть ниже или выше бюджета клиента."
+          />
+          <NumberRow
+            label="Комнаты"
+            unit="комнат"
+            min={MARKET_LIMITS.roomsTolerance.min}
+            max={MARKET_LIMITS.roomsTolerance.max}
+            value={marketRooms}
+            onChange={setMarketRooms}
+            hint="0 — ровно столько комнат, сколько просит клиент."
+          />
+          <NumberRow
+            label="Пушей агенту в день"
+            unit="шт."
+            min={MARKET_LIMITS.alertsPerDay.min}
+            max={MARKET_LIMITS.alertsPerDay.max}
+            value={marketAlerts}
+            onChange={setMarketAlerts}
+            hint="Сколько раз в день агент может получить пуш о новом объявлении под своих покупателей."
+          />
+          <SaveRow pending={updateSettings.isPending} saved={savedMarket} />
         </form>
       </section>
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { NO_CONTACT_AFTER_DAYS, REFUSAL_REASON_LABELS, lastRealContactTime } from "@royal-home/shared";
+import { NO_CONTACT_TEXT, REFUSAL_REASON_LABELS } from "@royal-home/shared";
 import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { pluralizeRu, relativeTime } from "../lib/format";
 import { StatTile } from "../components/ui/StatTile";
@@ -271,13 +271,12 @@ function OverdueTasks() {
   );
 }
 
-/* ──────────────────────────────── 3. Без контакта ─────────────────────────────── */
+/* ──────────────────────────────── 3. Не связывались ─────────────────────────────── */
 
 /**
- * «Без контакта» — ОДНО правило на всю CRM (владелец 16.11.2026,
- * packages/shared/src/clientNoContact.ts): больше суток ни разговора по телефону,
- * ни сообщения от самого клиента; новая карточка — от создания. Заметки и задачи
- * агента контактом не считаются.
+ * «Не связывались» — ОДНО правило на всю CRM (17.11.2026,
+ * packages/shared/src/clientNoContact.ts): с клиентом ни разу не связывался ни один
+ * сотрудник — ни звонка (даже без ответа), ни сообщения, ни показа.
  */
 function NoContactClients() {
   const [page, setPage] = useState(1);
@@ -286,33 +285,30 @@ function NoContactClients() {
   return (
     <Slice
       id="slice-no-contact-clients"
-      title="Без контакта"
+      title={NO_CONTACT_TEXT.title}
       note={data ? `${data.total} ${pluralizeRu(data.total, ["клиент", "клиента", "клиентов"])}` : undefined}
-      hint={`Больше ${NO_CONTACT_AFTER_DAYS === 1 ? "суток" : `${NO_CONTACT_AFTER_DAYS} дней`} ни разговора по телефону, ни сообщения от самого клиента. Заметки и задачи агента контактом не считаются.`}
+      hint={NO_CONTACT_TEXT.rule}
     >
       <SliceState
         isLoading={isLoading}
         isError={isError}
         isEmpty={!!data && items.length === 0}
-        errorText="Не удалось загрузить клиентов без контакта. Не считайте, что их нет."
-        emptyText="Все клиенты в работе на связи."
+        errorText="Не удалось загрузить список. Не считайте, что он пуст."
+        emptyText={NO_CONTACT_TEXT.empty}
         onRetry={() => refetch()}
       />
-      {items.map((c) => {
-        const last = lastRealContactTime(c);
-        return (
-          <div className="quiet" key={c.id}>
-            <span className="txt">
-              <ClientLink shortId={c.shortId} fullName={c.fullName} />.{" "}
-              {last ? `Последний контакт ${relativeTime(last.toISOString())}` : `Контакта не было, карточка ${relativeTime(c.createdAt)}`}. Агент{" "}
-              <AgentOrUnassigned agent={c.assignedAgent} />.
-            </span>
-            <Link className="pill ghost sm" to={`/clients/${c.shortId}`} state={OVERSIGHT_BACK_STATE}>
-              Открыть
-            </Link>
-          </div>
-        );
-      })}
+      {items.map((c) => (
+        <div className="quiet" key={c.id}>
+          <span className="txt">
+            <ClientLink shortId={c.shortId} fullName={c.fullName} />. Карточка {relativeTime(c.createdAt)}
+            {c.lastClientMessageAt ? `, клиент писал ${relativeTime(c.lastClientMessageAt)}` : ""}. Агент{" "}
+            <AgentOrUnassigned agent={c.assignedAgent} />.
+          </span>
+          <Link className="pill ghost sm" to={`/clients/${c.shortId}`} state={OVERSIGHT_BACK_STATE}>
+            Открыть
+          </Link>
+        </div>
+      ))}
       {pagerData && (
         <SlicePager
           page={page}
@@ -1012,12 +1008,12 @@ export function Oversight() {
             title="Список просроченных задач ниже на этом экране"
           />
           <StatTile
-            label="Без контакта"
+            label={NO_CONTACT_TEXT.title}
             value={summary?.noContactClients ?? "—"}
-            line="больше суток ни разговора, ни сообщения клиента"
+            line={summary && summary.noContactClients === 0 ? NO_CONTACT_TEXT.zero : "ни звонка, ни сообщения сотрудника"}
             critical={!!summary?.noContactClients}
             onClick={() => scrollToSlice("slice-no-contact-clients")}
-            title="Клиенты без контакта — список ниже на этом экране"
+            title="Клиенты, с кем ни разу не связывались — список ниже на этом экране"
           />
           <StatTile
             label="Тишина после показа"

@@ -22,19 +22,9 @@ import {
 } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { can, requireAuth, requirePermission } from "../../auth/middleware.js";
-import { logAudit } from "../../lib/audit.js";
-import { sendPushToAgent } from "../../push.js";
-import { publishRequestUpdated } from "../../lib/livePublish.js";
-import {
-  CHANGE_REQUEST_INCLUDE,
-  summarizeChangeRequest,
-  toChangeRequestDto,
-} from "../../lib/propertyChangeRequests.js";
-import {
-  cancelPropertyChangeRequest,
-  closeForOtherReviewers,
-  createPropertyChangeRequest,
-} from "../../lib/propertyChangeRequestService.js";
+import { CHANGE_REQUEST_INCLUDE, toChangeRequestDto } from "../../lib/propertyChangeRequests.js";
+import { cancelPropertyChangeRequest, createPropertyChangeRequest } from "../../lib/propertyChangeRequestService.js";
+import { rejectPropertyChangeRequest } from "../../lib/managerRequestDecisions.js";
 import { canManageProperty } from "./shared.js";
 import { applyOwnChangeRequestNow, approvePropertyChangeRequest } from "./changeRequestExecutor.js";
 import { canApplyChangeDirectly } from "../../lib/propertyAccess.js";
@@ -102,49 +92,14 @@ changeRequestsRouter.post(
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Напишите причину отказа" });
     }
-    const request = await prisma.propertyChangeRequest.findUnique({
-      where: { id: req.params.rid },
-      include: { property: { select: { id: true, shortId: true, title: true, price: true, currency: true } } },
-    });
-    if (!request) return res.status(404).json({ error: "Заявка не найдена" });
-    if (request.status !== "PENDING") return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-
-    // Условный переход PENDING → REJECTED: проигравший гонку получает 409 (как у заявок на удаление).
-    const decided = await prisma.propertyChangeRequest.updateMany({
-      where: { id: request.id, status: "PENDING" },
-      data: { status: "REJECTED", decidedById: req.agent!.id, decidedAt: new Date(), decisionNote: parsed.data.note },
-    });
-    if (decided.count === 0) return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-
-    const summary = summarizeChangeRequest(request.kind, request.payload, request.property);
-    logAudit(req, "PROPERTY_CHANGE_REQUEST_DECIDED", "Property", request.propertyId, {
-      requestId: request.id,
-      kind: request.kind,
-      decision: "REJECTED",
-      summary,
-      authorId: request.authorId,
+    // Тело отказа — lib/managerRequestDecisions.ts: тем же путём отклоняет и Шабнам (режим директора).
+    const outcome = await rejectPropertyChangeRequest({
+      requestId: req.params.rid,
+      actorId: req.agent!.id,
       note: parsed.data.note,
     });
-    void sendPushToAgent(request.authorId, {
-      title: "Заявка отклонена",
-      body: `${request.property.title}: ${summary}\nПричина: ${parsed.data.note}`,
-      url: `/properties/${request.property.shortId}?changeRequest=${request.id}`,
-      tag: `property-change-request-${request.id}-result`,
-    });
-    void closeForOtherReviewers(request.id, req.agent!.id);
-    publishRequestUpdated({
-      requestId: request.id,
-      propertyId: request.propertyId,
-      agentIds: [request.authorId],
-      stage: "REJECTED",
-      actorId: req.agent!.id,
-    });
-
-    const row = await prisma.propertyChangeRequest.findUniqueOrThrow({
-      where: { id: request.id },
-      include: CHANGE_REQUEST_INCLUDE,
-    });
-    res.json({ request: toChangeRequestDto(row), message: "Заявка отклонена, агенту отправлена причина" });
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json({ request: outcome.request, message: outcome.message });
   }
 );
 

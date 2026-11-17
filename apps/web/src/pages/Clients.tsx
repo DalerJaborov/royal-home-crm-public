@@ -31,7 +31,7 @@ import {
   Skeleton,
 } from "../components/rh2";
 import { useAgents } from "../hooks/useAgents";
-import type { ClientSort } from "@royal-home/shared";
+import { NO_CONTACT_TEXT, type ClientSort } from "@royal-home/shared";
 import { CallClientButton } from "../components/CallClientButton";
 import { SwipeRow } from "../components/SwipeRow";
 import { useMarkSectionSeen } from "../hooks/useCounters";
@@ -223,7 +223,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
    */
   const [noResponseYesterday, setNoResponseYesterday] = useState(() => searchParams.get("slice") === "noResponseYesterday");
   /**
-   * «Без контакта» — то же число, что на плитке телефона и в «Контроле
+   * «Не связывались» — то же число, что на плитке телефона и в «Контроле
    * руководителя»: правило одно (packages/shared/src/clientNoContact.ts), список
    * даёт сервер (`noContact`, lib/noContact.ts). Приходит и по ссылке (`?slice=noContact`).
    */
@@ -261,12 +261,12 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   const searching = !!debouncedQuery?.trim();
   const searchAcrossKinds = searching && (role === "AGENT" || can("otherInquiries.view"));
   const kindForQuery =
-    searchAcrossKinds || isAllMineRoute || allKinds || pendingSlice ? undefined : sectionKind ?? kind;
+    searchAcrossKinds || isAllMineRoute || allKinds || pendingSlice || noContactSlice ? undefined : sectionKind ?? kind;
   const clientQuery: ClientFilters = {
     ...filters,
     q: debouncedQuery,
-    // «Ждут принятия» — и покупатели, и продавцы разом: так считает число в шторке
-    // (useClientsSummary.awaitingAgent), и срез по разделу давал список короче числа.
+    // «Ждут принятия» и «Не связывались» — и покупатели, и продавцы разом: так считают
+    // числа сводки (useClientsSummary), и срез по разделу давал список короче числа.
     kind: kindForQuery,
     scope: clientListScope({ allMine: isAllMineRoute, other: isOther, searching,
       pending: pendingSlice, noResponseYesterday }),
@@ -461,15 +461,16 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
       {mobile && segment}
 
       {/* Тихие строки вместо карточек-уведомлений (договор §6.1): ждёт агента, похожие карточки */}
-      {!isOther && ((oldest && summary) || (duplicates && duplicates.length > 0) || !!summary?.noContactOverDay) && (
+      {!isOther && ((oldest && summary) || (duplicates && duplicates.length > 0) || !!summary?.neverContacted) && (
         <Card tight className={clean ? "clean-client-notices" : undefined}>
-          {/* «Без контакта» — то же число, что плитка на телефоне (MobileClientsList)
-              и «Контроль руководителя»: одно правило, один счётчик (16.11.2026). */}
-          {!!summary?.noContactOverDay && (
+          {/* «Не связывались» — то же число, что плитка на телефоне (NoContactTile)
+              и «Контроль руководителя»: одно правило, один счётчик (17.11.2026).
+              Ноль здесь не показывается: тихая строка — только когда есть кого показать. */}
+          {!!summary?.neverContacted && (
             <div className="quiet crit">
               <span className="dot crit" />
               <span className="txt">
-                Без контакта: {num(summary.noContactOverDay)} — ни разговора по телефону, ни сообщения от клиента.
+                {NO_CONTACT_TEXT.title}: {num(summary.neverContacted)} — ни звонка, ни сообщения сотрудника, ни показа.
               </span>
               <Button
                 variant="ghost"
@@ -658,7 +659,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
                 options={[
                   { id: "all", label: "Все" },
                   { id: "pending", label: "Ждут принятия", count: summary?.awaitingAgent.count },
-                  { id: "noContact", label: "Без контакта", count: summary?.noContactOverDay },
+                  { id: "noContact", label: NO_CONTACT_TEXT.title, count: summary?.neverContacted },
                   ...(slice === "yesterday" ? [{ id: "yesterday" as const, label: "Вчера без ответа" }] : []),
                 ]}
               />

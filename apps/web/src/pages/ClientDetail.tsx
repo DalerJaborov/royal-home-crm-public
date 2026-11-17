@@ -865,7 +865,7 @@ function ClientDetailCard() {
   // A role confirmation slot shared by desktop, Clean phones and the agent phone card.
   const clientIntentConfirmation = <ClientIntentConfirmation key={`${client.id}:${client.kind}:${client.dualIntent}`} client={client} locked={locked} />;
   const overviewProperties = !(pending && locked) && (sells || buys) ? <div className="client-overview-properties" ref={overviewPropertiesRef}>
-    {buys && <><ClientBuyerRequirementsEditor client={client} locked={locked} /><MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} /><MarketBuyerListings key={`market:${client.id}`} clientId={client.id} /></>}
+    {buys && <><ClientBuyerRequirementsEditor client={client} locked={locked} /><MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} /></>}
     {sells && <ClientPropertyWorkspace key={`seller:${client.id}:${client.kind}:${client.dualIntent}`} variant="portfolio" client={client} locked={locked}
       canCreate={canCreatePropertyFromLead} onCreate={createSellerProperty} onSchedule={scheduleShowing} />}
   </div> : null;
@@ -1768,6 +1768,11 @@ function ClientDetailCard() {
 
               {clientIntentConfirmation}
               {overviewProperties}
+              {/* «С площадок» под покупателем — свой узел у каждой карточки (телефон агента рисует его в
+                  MobileClientCard), сторож cardActionParity сверяет обе. */}
+              {buys && !(pending && locked) && (
+                <div className="client-overview-properties"><MarketBuyerListings key={`market:${client.id}`} clientId={client.id} /></div>
+              )}
               {overviewNextStep}
 
               {/* Число объектов от ИИ — тихой строкой, не карточкой-уведомлением

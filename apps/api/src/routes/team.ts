@@ -419,8 +419,8 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
   // ботом/системой от лица держателя карточки (agentId: null), остаётся ЕГО
   // хвостом — тот же приём, что computeDiscipline в kpi.ts.
   const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRole(req)), OR: [{ agentId: id }, { subjectAgentId: id }] };
-  // «Без контакта» — одно правило на всю CRM (lib/noContact.ts), здесь — по этому агенту.
-  const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(now), { assignedAgentId: id }] };
+  // «Не связывались» — одно правило на всю CRM (lib/noContact.ts), здесь — по этому агенту.
+  const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(), { assignedAgentId: id }] };
 
   const [
     propertiesTotal,
@@ -438,6 +438,7 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
     overdueTasksItems,
     overdueTasksTotal,
     noContactItems,
+    noContactTotal,
     silentAfterShowing,
     refusedHighScore,
     endlessNegotiations,
@@ -554,14 +555,16 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
         },
       }),
       () => prisma.interaction.count({ where: overdueTasksAgentWhere }),
-      // Клиенты без контакта (одно правило на всю CRM, lib/noContact.ts) — сначала
-      // те, кто молчит дольше.
+      // Клиенты, с кем ни разу не связывались (одно правило на всю CRM,
+      // lib/noContact.ts) — самые давние карточки первыми. Число — отдельным
+      // подсчётом: раньше total был длиной списка и не поднимался выше пяти.
       () => prisma.client.findMany({
         where: noContactAgentWhere,
-        orderBy: [{ lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         take: 5,
         select: { id: true, shortId: true, fullName: true, createdAt: true, lastClientMessageAt: true },
       }),
+      () => prisma.client.count({ where: noContactAgentWhere }),
       // Остальные красные флаги — общекомандные хелперы, отфильтрованные на этого
       // агента после загрузки (капы take(500) внутри них те же, что у «Контроля
       // руководителя»: фильтр в памяти на уже маленьком списке дешевле второго
@@ -694,7 +697,7 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
         total: overdueTasksTotal,
         items: overdueTasksItems.map((t) => ({ ...t, notes: maskText(t.notes), nextAction: maskText(t.nextAction), client: maskName(t.client) })),
       },
-      noContactClients: { total: noContactItems.length, items: noContactItems.map(maskName) },
+      noContactClients: { total: noContactTotal, items: noContactItems.map(maskName) },
       silentAfterShowing: { total: silentAfterShowingForAgent.length, days: silentAfterShowing.days, items: silentAfterShowingForAgent.slice(0, 5).map(maskName) },
       refusedHighScore: {
         total: refusedHighScoreForAgent.length,

@@ -15,7 +15,7 @@ import { AWAITING_REVIEW_WHERE } from "../lib/telephony/awaitingReview.js";
 import { ownIncomingCallsOr } from "../lib/telephony/ownIncomingCalls.js";
 import { liveOutgoingCalls } from "../lib/telephony/callTracker.js";
 import { incomingOperatorIds, loadIncomingSettings } from "../lib/telephony/incomingSettings.js";
-import { elapsedWorkingMinutes, findCallbackContacts } from "../lib/telephony/missedCallEscalation.js";
+import { elapsedWorkingMinutes, findCallbackContacts, missedWithoutCallbackIds } from "../lib/telephony/missedCallEscalation.js";
 import { loadDisciplineRules } from "../lib/disciplineRules.js";
 
 /** Кто «принял» входящий, на который ответил консультант на телефоне (ИИ). */
@@ -503,17 +503,10 @@ callsRouter.get("/incoming", supervisorOnly, async (req, res) => {
    * поэтому сперва выбираем id пропущенных без перезвона в пределах `since` (потолок
    * 1000 — тот же порядок, что и в countMissedCallsNoCallbackYesterday), а дальше
    * фильтруем обычный where по этому списку, чтобы skip/take и count остались честными.
+   * Сама выборка — общая дверь missedWithoutCallbackIds (её же читает помощница Шабнам).
    */
   if (noCallbackOnly) {
-    const candidates = await prisma.incomingCall.findMany({
-      where: { startedAt: { gte: since }, answered: false, irrelevant: false },
-      select: { id: true, clientId: true, startedAt: true },
-      take: 1000,
-    });
-    const calledBack = await findCallbackContacts(
-      candidates.flatMap((c) => (c.clientId ? [{ id: c.id, clientId: c.clientId, since: c.startedAt }] : [])),
-    );
-    where.id = { in: candidates.filter((c) => !calledBack.has(c.id)).map((c) => c.id) };
+    where.id = { in: await missedWithoutCallbackIds(since) };
   }
 
   const [items, total, missed, unqualified, periodTotal] = await Promise.all([

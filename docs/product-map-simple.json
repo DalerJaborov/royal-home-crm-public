@@ -16,10 +16,10 @@
   "paths": 777,
   "cron": 140,
   "jobs": 33,
-  "conditions": 4068,
-  "untranslatedUnique": 473,
-  "untranslatedTotal": 608,
-  "partialUnique": 1095,
+  "conditions": 4035,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 596,
+  "partialUnique": 1088,
   "translatedShare": 85
  },
  "untranslated": [
@@ -140,7 +140,6 @@
   "!text.trim()",
   "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
-  "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
   "!verifyState(state)",
   "!verifyTotpCode(agent.phone, secret, parsed.data.code)",
   "!video || video.propertyId !== req.params.id",
@@ -275,12 +274,6 @@
   "data.stage && data.stage !== existing.stage",
   "data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId",
   "data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && existing.stage !== \"PENDING_APPROVAL\" && !isD…",
-  "data.status !== undefined && data.status !== existing.status",
-  "data.status !== undefined && data.status !== existing.status && data.status === \"AVAILABLE\" && !willAutoPubli…",
-  "data.status !== undefined && data.status !== existing.status && data.status === \"EDITING\"",
-  "data.status !== undefined && data.status !== existing.status && data.status === \"PENDING_REVIEW\"",
-  "data.status !== undefined && data.status !== existing.status && existing.status === \"EDITING\"",
-  "data.status !== undefined && data.status !== existing.status && existing.status === \"PENDING_REVIEW\"",
   "data.status && data.status !== existing.status",
   "data.status && data.status !== existing.status && existing.source === \"WEBSITE\"",
   "day <= secondMeetingDay(y, m)",
@@ -323,7 +316,6 @@
   "existing.client?.deletedAt && data.stage && data.stage !== existing.stage",
   "existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId",
   "existing.stage === \"COMPLETED\" && !can(req, \"finance.manage\") && (data.commissionAmount !== undefined || data…",
-  "existing.status === \"EDITING\" && data.status !== undefined && data.status !== \"EDITING\" && isPipelineStatus(d…",
   "existing.status === \"RESERVED\" && changedFields.some((f) => f === \"price\" || f === \"currency\") && !can(req, \"…",
   "existing.status === \"SOLD\" && changedFields.some((f) => f === \"soldPrice\" || f === \"currency\" || f === \"price…",
   "existingSession.propertyId !== property.id",
@@ -395,8 +387,6 @@
   "parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…",
   "parsed.data.ownerContact?.trim()",
   "parsed.data.previewFingerprint && parsed.data.previewFingerprint !== previewFingerprint",
-  "parsed.data.status !== undefined && parsed.data.status !== existing.status",
-  "parsed.data.status !== undefined && requiresPropertyModeration(existing.status, parsed.data.status) && !can(r…",
   "parsed.data.status && parsed.data.status !== existing.status",
   "parsed.data.until && parsed.data.until.getTime() < Date.now()",
   "parsed.data.voiceId && !config.voices.some((v) => v.id === parsed.data.voiceId)",
@@ -2800,11 +2790,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 120,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 125,
      "direct": false,
      "conf": "через общую часть"
@@ -2961,41 +2946,6 @@
     },
     {
      "i": 297,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 330,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 331,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 332,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 333,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 334,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 335,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 336,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -18007,7 +17957,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -20934,93 +20883,17 @@
      ]
     },
     {
-     "t": "если нет: заявка",
+     "t": "если не получилось",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Заявка не найдена»",
+       "t": "ответ (код зависит от условия)",
        "k": "do",
        "a": [],
        "c": []
       }
      ]
-    },
-    {
-     "t": "если статус (заявка) не «PENDING»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По этой заявке уже вынесено решение»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "меняет: клиент удалить заявка",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если количество — «0»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По этой заявке уже вынесено решение»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "меняет: клиент удалить заявка",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если нет: already trashed",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "пробует сделать",
-       "k": "try",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если не получилось",
-       "k": "catch",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если не получилось",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "ответ (код зависит от условия)",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если есть получилось (ответ)",
-     "k": "if",
-     "a": [],
-     "c": []
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -21066,55 +20939,17 @@
      ]
     },
     {
-     "t": "если нет: заявка",
+     "t": "если не получилось",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Заявка не найдена»",
+       "t": "ответ (код зависит от условия)",
        "k": "do",
        "a": [],
        "c": []
       }
      ]
-    },
-    {
-     "t": "если статус (заявка) не «PENDING»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По этой заявке уже вынесено решение»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "меняет: клиент удалить заявка",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если количество — «0»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По этой заявке уже вынесено решение»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "push-уведомление",
-     "k": "do",
-     "a": [],
-     "c": []
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -26283,12 +26118,12 @@
    ],
    "tree": [
     {
-     "t": "пробует сделать",
-     "k": "try",
+     "t": "если ответ — «not-found»",
+     "k": "if",
      "a": [],
      "c": [
       {
-       "t": "готово, отвечать нечем",
+       "t": "отказ: не нашли: «Запись не найдена»",
        "k": "do",
        "a": [],
        "c": []
@@ -26296,25 +26131,10 @@
      ]
     },
     {
-     "t": "если не получилось",
-     "k": "catch",
+     "t": "готово, отвечать нечем",
+     "k": "do",
      "a": [],
-     "c": [
-      {
-       "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Запись не найдена»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\""
-      }
-     ]
+     "c": []
     }
    ]
   },
@@ -26339,12 +26159,12 @@
    ],
    "tree": [
     {
-     "t": "пробует сделать",
-     "k": "try",
+     "t": "если ответ — «not-found»",
+     "k": "if",
      "a": [],
      "c": [
       {
-       "t": "готово, отвечать нечем",
+       "t": "отказ: не нашли: «Запись не найдена»",
        "k": "do",
        "a": [],
        "c": []
@@ -26352,25 +26172,10 @@
      ]
     },
     {
-     "t": "если не получилось",
-     "k": "catch",
+     "t": "готово, отвечать нечем",
+     "k": "do",
      "a": [],
-     "c": [
-      {
-       "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Запись не найдена»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\""
-      }
-     ]
+     "c": []
     }
    ]
   },
@@ -33635,7 +33440,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33708,7 +33512,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33762,7 +33565,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33790,7 +33592,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33857,7 +33658,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33911,7 +33711,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33965,7 +33764,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -38764,12 +38562,12 @@
    ],
    "tree": [
     {
-     "t": "если нет: объект или есть удалён at",
+     "t": "если не получилось",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Объект не найден»",
+       "t": "ответ (код зависит от условия)",
        "k": "do",
        "a": [],
        "c": []
@@ -38777,52 +38575,7 @@
      ]
     },
     {
-     "t": "если нельзя менять этот объект",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Недостаточно прав»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если статус (объект) не «EDITING»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Кнопка «Готово» доступна только на этапе «Монтаж»»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если blockers количество больше 0",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Объект не готов: ${blockers.join(»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "меняет: объект",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если есть сайт сверка с сайтом ошибка",
+     "t": "если есть сайт сверка с сайтом ошибка (ответ)",
      "k": "if",
      "a": [],
      "c": [
@@ -46331,67 +46084,12 @@
      "raw": "changedFields.includes(\"instagramUrl\") && agentReelLinkClosed(existing.status, can(req, \"properties.editForei…"
     },
     {
-     "t": "если parsed.data.status !== undefined && parsed.data.status !== existing.status",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если есть заблокировать",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "ответ (код зависит от условия)",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ],
-     "raw": "parsed.data.status !== undefined && parsed.data.status !== existing.status"
-    },
-    {
-     "t": "если parsed.data.status !== undefined && requiresPropertyModeration(existing.status, parsed.data.status) && !can(r…",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "parsed.data.status !== undefined && requiresPropertyModeration(existing.status, parsed.data.status) && !can(r…"
-    },
-    {
-     "t": "если статус (присланные данные) — «AVAILABLE» и (это pipeline статус или статус (такая запись) — «WITHDRAWN»)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если есть not ready",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "ответ (код зависит от условия)",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
      "t": "если статус (присланные данные) задан",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "если есть revert",
+       "t": "если есть заблокировать",
        "k": "if",
        "a": [],
        "c": [
@@ -46599,7 +46297,7 @@
          ]
         },
         {
-         "t": "если есть количество (ответ) и статус — «WITHDRAWN» и статус (такая запись) не «WITHDRAWN»",
+         "t": "если есть количество (ответ)",
          "k": "if",
          "a": [],
          "c": []
@@ -46667,13 +46365,6 @@
      "raw": "EMBEDDING_RELEVANT_FIELDS.some((f) => data[f] !== undefined)"
     },
     {
-     "t": "если data.status !== undefined && data.status !== existing.status",
-     "k": "if",
-     "a": [],
-     "c": [],
-     "raw": "data.status !== undefined && data.status !== existing.status"
-    },
-    {
      "t": "если field changes количество больше 0",
      "k": "if",
      "a": [],
@@ -46687,34 +46378,6 @@
      "raw": "data.assignedAgentId !== undefined && data.assignedAgentId !== existing.assignedAgentId"
     },
     {
-     "t": "если data.status !== undefined && data.status !== existing.status && data.status === \"PENDING_REVIEW\"",
-     "k": "if",
-     "a": [],
-     "c": [],
-     "raw": "data.status !== undefined && data.status !== existing.status && data.status === \"PENDING_REVIEW\""
-    },
-    {
-     "t": "если data.status !== undefined && data.status !== existing.status && data.status === \"EDITING\"",
-     "k": "if",
-     "a": [],
-     "c": [],
-     "raw": "data.status !== undefined && data.status !== existing.status && data.status === \"EDITING\""
-    },
-    {
-     "t": "если data.status !== undefined && data.status !== existing.status && existing.status === \"PENDING_REVIEW\"",
-     "k": "if",
-     "a": [],
-     "c": [],
-     "raw": "data.status !== undefined && data.status !== existing.status && existing.status === \"PENDING_REVIEW\""
-    },
-    {
-     "t": "если data.status !== undefined && data.status !== existing.status && existing.status === \"EDITING\"",
-     "k": "if",
-     "a": [],
-     "c": [],
-     "raw": "data.status !== undefined && data.status !== existing.status && existing.status === \"EDITING\""
-    },
-    {
      "t": "если fieldChanges.length > 0 && (data.status === undefined || data.status === existing.status)",
      "k": "if",
      "a": [],
@@ -46722,79 +46385,10 @@
      "raw": "fieldChanges.length > 0 && (data.status === undefined || data.status === existing.status)"
     },
     {
-     "t": "если data.status !== undefined && data.status !== existing.status && data.status === \"AVAILABLE\" && !willAutoPubli…",
-     "k": "if",
-     "a": [],
-     "c": [],
-     "raw": "data.status !== undefined && data.status !== existing.status && data.status === \"AVAILABLE\" && !willAutoPubli…"
-    },
-    {
      "t": "если есть адрес изменённые и нет: есть manual coords и есть адрес",
      "k": "if",
      "a": [],
      "c": []
-    },
-    {
-     "t": "если есть became withdrawn и есть продавец клиент",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если existing.status === \"EDITING\" && data.status !== undefined && data.status !== \"EDITING\" && isPipelineStatus(d…",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "запись в журнал ошибок",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "existing.status === \"EDITING\" && data.status !== undefined && data.status !== \"EDITING\" && isPipelineStatus(d…"
-    },
-    {
-     "t": "если есть became sold или есть became withdrawn или есть became reserved",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если есть опубликованные on сайт и (есть became sold или есть became unsold или есть became withdrawn или есть entered pipeline)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если есть with relations",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "меняет: объект",
-         "k": "do",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": [
-          {
-           "t": "если нет: проблема",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ]
     },
     {
      "t": "если есть will auto опубликовать",
@@ -47205,55 +46799,17 @@
      ]
     },
     {
-     "t": "если нет: заявка",
+     "t": "если не получилось",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Заявка не найдена»",
+       "t": "ответ (код зависит от условия)",
        "k": "do",
        "a": [],
        "c": []
       }
      ]
-    },
-    {
-     "t": "если статус (заявка) не «PENDING»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По этой заявке уже вынесено решение»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "меняет: объект change заявка",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если количество — «0»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По этой заявке уже вынесено решение»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "push-уведомление",
-     "k": "do",
-     "a": [],
-     "c": []
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -47391,93 +46947,17 @@
      ]
     },
     {
-     "t": "если нет: заявка",
+     "t": "если не получилось",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Заявка не найдена»",
+       "t": "ответ (код зависит от условия)",
        "k": "do",
        "a": [],
        "c": []
       }
      ]
-    },
-    {
-     "t": "если статус (заявка) не «PENDING»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По этой заявке уже вынесено решение»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "меняет: объект удалить заявка",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если количество — «0»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По этой заявке уже вынесено решение»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "меняет: объект удалить заявка",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если нет: already trashed",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "пробует сделать",
-       "k": "try",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если не получилось",
-       "k": "catch",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если не получилось",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "ответ (код зависит от условия)",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если есть получилось (ответ)",
-     "k": "if",
-     "a": [],
-     "c": []
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -47528,55 +47008,17 @@
      ]
     },
     {
-     "t": "если нет: заявка",
+     "t": "если не получилось",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Заявка не найдена»",
+       "t": "ответ (код зависит от условия)",
        "k": "do",
        "a": [],
        "c": []
       }
      ]
-    },
-    {
-     "t": "если статус (заявка) не «PENDING»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По этой заявке уже вынесено решение»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "меняет: объект удалить заявка",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если количество — «0»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По этой заявке уже вынесено решение»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "push-уведомление",
-     "k": "do",
-     "a": [],
-     "c": []
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -71263,6 +70705,13 @@
            "more": true
           },
           {
+           "t": "если это не внутри dushanbe окно",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
            "t": "если raw listings количество — «0»",
            "k": "if",
            "a": [],
@@ -79523,6 +78972,12 @@
        ]
       },
       {
+       "t": "если есть write и это не объект опубликованные",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
        "t": "если есть write",
        "k": "if",
        "a": [],
@@ -81553,15 +81008,34 @@
          "t": "если есть заявка",
          "k": "if",
          "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть телефон",
+         "k": "if",
+         "a": [],
          "c": [
           {
-           "t": "если scenario — «hot»",
+           "t": "если телефон заметка — «noted»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если телефон заметка — «no_card»",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           }
          ]
+        },
+        {
+         "t": "если scenario не «callback» и scenario не «no_call»",
+         "k": "if",
+         "a": [],
+         "c": []
         }
        ]
       },
@@ -81734,29 +81208,7 @@
          "a": [],
          "c": [
           {
-           "t": "если !urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
-           "more": true
-          },
-          {
-           "t": "если нет: переписка",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть назначен сотрудник (клиент)",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть объект",
+           "t": "если есть владелец",
            "k": "if",
            "a": [],
            "c": [],

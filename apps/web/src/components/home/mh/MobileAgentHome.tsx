@@ -36,6 +36,7 @@ import {
 import { MhMoney, MhNoData, MhQuiet, MhScreen, MhSection, mmss, useSecondTick } from "./MhScreen";
 import type { Client, Interaction } from "../../../types";
 import type { DashboardSummary } from "../../../hooks/useDashboard";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 
 type FirstCallDueItem = DashboardSummary["firstCallDue"][number];
 
@@ -110,7 +111,7 @@ export function MobileAgentHome() {
   // это: позвонить, осталось 6:02» стояло под крупным «0, на сегодня всё сделано».
   const todayCount = tasks.length + firstCallDue.length;
   const callTick = useSecondTick(firstCallDue.length > 0);
-  // «Без контакта» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
+  // «Не связывались» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
   const { data: noContactPage, isError: noContactError, refetch: refetchNoContact } = useClients({ pageSize: 1, noContact: true });
   const noContact = useMemo(() => noContactPage?.items ?? [], [noContactPage]);
   const showings = useMemo(() => buildShowings(tasks), [tasks]);
@@ -146,7 +147,7 @@ export function MobileAgentHome() {
    */
   const summary = screenState({ data, isError });
   const pendingState = screenState({ data: pendingPage, isError: pendingError });
-  // Строка «без контакта» — серверный срез noContact (#220), а не сотня карточек.
+  // Строка «не связывались» — серверный срез noContact (#220), а не сотня карточек.
   const clientsState = screenState({ data: noContactPage, isError: noContactError });
   const pendingErrorShown = pendingState === "error";
 
@@ -385,7 +386,7 @@ export function MobileAgentHome() {
         ) : noContact[0] ? (
           <div className="card-s">
             <p className="hint">
-              {clientDisplayName(noContact[0].fullName)} — без контакта больше суток.
+              {clientDisplayName(noContact[0].fullName)} — {NO_CONTACT_TEXT.item}.
               Короткий звонок сегодня дешевле, чем новый лид завтра.
             </p>
             <div className="chips">

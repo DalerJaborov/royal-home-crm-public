@@ -43,7 +43,7 @@ export function otherCityAcceptedReply(language: ReturnType<typeof detectClientL
  */
 export function otherInquiryAcceptedReply(language: ReturnType<typeof detectClientLanguage>): string {
   return language === "ru"
-    ? "Записали, спасибо. Если сможем помочь — напишем."
+    ? "Записали, спасибо. Если сможем помочь, напишем."
     : "Сабт кардем, раҳмат. Агар кӯмак карда тавонем, менависем.";
 }
 
