@@ -23,6 +23,7 @@ import { hasScenarioCallMark, withScenarioCallMark } from "./postShowingCalls.js
 import type { ScenarioCallMark } from "./postShowingCalls.js";
 import { buildBypassDossier, findSellerProbeCandidates } from "./sellerBypassProbe.js";
 import { logSystemError } from "./systemError.js";
+import { sellerSwitchOn } from "./sellerSwitches.js";
 import { originateLiveVoiceScenarioCall } from "./telephony/liveVoiceBridge.js";
 import { LIVE_VOICE_STATION_AUDIO_RETRY_MS } from "./telephony/liveVoiceAudioPath.js";
 import { scenarioVoice } from "./telephony/scenarioVoice.js";
@@ -132,6 +133,10 @@ export async function runSellerProbeCallTick(now: Date = new Date()): Promise<nu
   // бессмысленно (звонить будет не по чему) и опасно (звонки собственникам
   // пошли бы без понимания, откуда они взялись).
   if (!settings?.postShowingCallEnabled || !settings.liveVoiceEnabled) return 0;
+  // Свой выключатель владельца поверх общих (14.11.2026, lib/sellerSwitches.ts):
+  // выключено — ни новых проверок, ни звонков. Уже начатый разговор доводит
+  // finishSellerProbeCall: итог звонка, который состоялся, теряться не должен.
+  if (!(await sellerSwitchOn("sellerProbeCallEnabled"))) return 0;
 
   // Снимок общих выходных для часов звонков (postShowingCall.ts, 11.10.2026).
   await loadCompanyDaysOff();
@@ -690,6 +695,8 @@ export async function runNewOwnerVerificationTick(now = new Date(), options: { a
   if (!options.allowLive || newOwnerProbeMode() !== 'LIVE') return 0;
   const settings = await prisma.settings.findUnique({ where: { id: 'singleton' }, select: { liveVoiceEnabled: true, postShowingCallEnabled: true } });
   if (!settings?.liveVoiceEnabled || !settings.postShowingCallEnabled) return 0;
+  // Тот же выключатель, что у runSellerProbeCallTick: это тоже звонок собственнику.
+  if (!(await sellerSwitchOn("sellerProbeCallEnabled"))) return 0;
   await loadCompanyDaysOff();
   await releaseStuckSellerProbeCalls(now);
   if (!isWithinPostShowingCallHours(now)) return 0;

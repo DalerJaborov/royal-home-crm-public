@@ -30,6 +30,17 @@ vi.mock("../src/lib/conversationDelivery.js", async (importOriginal) => ({
   deliverToConversation,
 }));
 
+/**
+ * Выключатели «работа с продавцами» (14.11.2026) — подменяются ТОЛЬКО в этом файле:
+ * по умолчанию всё включено, как в базе, а выключение не трогает общую строку
+ * Settings, которую в тот же момент читают тесты других файлов.
+ */
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/sellerSwitches.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/sellerSwitches.js")>()),
+  sellerSwitchOn: async (key: string) => !switchesOff.has(key),
+}));
+
 import { prisma } from "../src/db.js";
 import { dealCloseFollowupJob } from "../src/jobs/dealCloseFollowup.js";
 import { dealReviewAskJob } from "../src/jobs/dealReviewAsk.js";
@@ -184,5 +195,36 @@ describe("JOB-03: отказ доставки вопроса об отзыве",
     deliverToConversation.mockResolvedValueOnce({ ok: false, status: 400, error: "окно", code: "window_closed" });
     await expect(dealReviewAskJob.run({ dealId })).resolves.toBeUndefined();
     expect(await rowsCount()).toBe(1);
+  });
+});
+
+describe("выключатель «сообщения после сделки» (14.11.2026)", () => {
+  it("выключен — вопрос об отзыве не уходит и отметки нет; включили — уходит", async () => {
+    findClientDeliveryTarget.mockResolvedValue({ kind: "telegram", id: "c1" });
+    deliverToConversation.mockResolvedValue({ ok: true });
+    switchesOff.add("dealAfterCloseMessagesEnabled");
+    try {
+      await expect(dealReviewAskJob.run({ dealId })).resolves.toBeUndefined();
+      expect(findClientDeliveryTarget).not.toHaveBeenCalled();
+      expect(deliverToConversation).not.toHaveBeenCalled();
+      const rows = await prisma.$queryRaw<{ id: string }[]>`SELECT "id" FROM "DealReview" WHERE "dealId" = ${dealId}`;
+      expect(rows).toHaveLength(0);
+    } finally {
+      switchesOff.delete("dealAfterCloseMessagesEnabled");
+    }
+    await dealReviewAskJob.run({ dealId });
+    expect(deliverToConversation).toHaveBeenCalledOnce();
+  });
+
+  it("выключен — закрытие сделки не ломается: объект снимается с сайта, сторона продавца пересчитана", async () => {
+    switchesOff.add("dealAfterCloseMessagesEnabled");
+    try {
+      await dealCloseFollowupJob.run(closePayload());
+    } finally {
+      switchesOff.delete("dealAfterCloseMessagesEnabled");
+    }
+    expect(notifySellerSideOfSale).toHaveBeenCalledOnce();
+    expect(syncPropertiesToSite).toHaveBeenCalledOnce();
+    expect(syncPropertiesToSite.mock.calls[0][1]).toBe("sold");
   });
 });
