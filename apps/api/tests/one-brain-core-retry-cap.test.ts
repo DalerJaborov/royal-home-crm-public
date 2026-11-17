@@ -209,7 +209,7 @@ describe("R1: a transient failure is repeated, but one customer turn gets at mos
     expect(result?.silent).toBeUndefined();
     expect(f.log).toHaveBeenCalledTimes(1);
     expect(f.log).toHaveBeenCalledWith("ai", expect.stringContaining("сигнал сотруднику не ушёл"),
-      expect.objectContaining({ dedupKey: "channel-core-staff-unalerted:TELEGRAM" }));
+      expect.objectContaining({ dedupKey: expect.stringMatching(/^channel-core-staff-unalerted:TELEGRAM:.+/) }));
   });
   it("R1-2: «already told» (the watchdog claimed the episode) is the handover line too, and nothing is logged", async () => {
     f.modelTurn.mockRejectedValueOnce(coded("tool_limit"));

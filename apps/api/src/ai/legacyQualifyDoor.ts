@@ -132,11 +132,13 @@ async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOp
     // The customer ALWAYS hears the core's approved handover line (the Meta receipt wording), owner 17.11.2026 (review #223
     // R1-2/R1-4): silence here kept the chat «unanswered», so the website's stuck-chat cron replayed it every 30 minutes and
     // at night nobody answered at all. `sent`/`already`: a person knows. `skipped` (nobody to tell, a database error): the
-    // director learns from the error log instead, and the silence watchdog still sees the chat in working hours.
+    // handover line is a bot reply, so the silence watchdog does NOT see this chat any more (review 0e463b02 N1). The error
+    // log is the only signal: its key is PER CHAT, so every such chat is its own entry and its own «new problem» push to
+    // the director (a channel-wide key swallowed the second chat within 10 minutes and pushed only once ever).
     if (alerted === "skipped") {
       void logSystemError("ai", `Клиенту в канале ${source.channel} бот ответил «передал сотруднику», но сигнал сотруднику не ушёл ` +
         `(чат ${options.conversationId ?? "без номера"}): откройте переписку и ответьте сами.`,
-        { dedupKey: `channel-core-staff-unalerted:${source.channel}` }).catch(() => {});
+        { dedupKey: `channel-core-staff-unalerted:${source.channel}:${options.conversationId ?? source.eventId ?? "unknown"}` }).catch(() => {});
     }
     return { ...channelCoreQualifyResult(outcome, ownTexts), reply: [customerAgentHandoverLine(outcome.language)], silent: undefined, verified: true };
   }
