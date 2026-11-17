@@ -51,7 +51,7 @@ import { PropertyShareOpensCard } from "../components/PropertyShareOpensCard";
 import { MatchPanel } from "../components/match/MatchPanel";
 import { PropertyHistoryCard } from "../components/PropertyHistoryCard";
 import { PhoneInput } from "../components/FormField";
-import { ShareButton } from "../components/ShareButton";
+import { PropertyShareLink } from "../components/property/PropertyShareLink";
 import { RequestDeletePropertyModal } from "../components/RequestDeletePropertyModal";
 import { PropertyChangeRequestCard } from "../components/PropertyChangeRequestCard";
 import { changeRequestMode } from "../lib/propertyChangeRequestView";
@@ -868,7 +868,7 @@ function PropertyViewCard({
 
   if (legacyAgentMobile) {
     return <LegacyAgentPropertyView
-      {...{ property, can, updateProperty, isTrashed, canEnterEdit, onEditParams, canInlineEdit, editingPhotos, setEditingPhotos, onInlineDone, showSolve, viewSolve, dealSlot, fieldsBlock, role, canMarkGroupShare, changeRequestBlock, sourcesBlock, isResponsibleForProperty, docsBlock, deleteMode, pendingDeleteRequest, setRequestDeleteOpen, setDeleteOpen, setMatchOpen, placeLine }}
+      {...{ property, can, updateProperty, isTrashed, canEnterEdit, onEditParams, canInlineEdit, editingPhotos, setEditingPhotos, onInlineDone, showSolve, viewSolve, dealSlot, fieldsBlock, role, canMarkGroupShare, changeRequestBlock, sourcesBlock, isResponsibleForProperty, docsBlock, deleteMode, pendingDeleteRequest, setRequestDeleteOpen, setDeleteOpen, setMatchOpen, placeLine, canSchedule }}
       slots={{ trashedNotice, addressNotice, lockedNotice, reelsBlock, promotionBlock, shareOpensBlock, matchDialog, deleteDialog, requestDeleteDialog }}
       parts={{ InlineDoneButton, InlineEditLink, DemandLine, DescriptionBlock }}
     />;
@@ -1056,13 +1056,7 @@ function PropertyViewCard({
         <PropertyActionSheet title="Ещё" items={moreItems} onClose={() => setMoreOpen(false)}>
           {property.siteUrl && (
             <div className="rh-sheet-share">
-              <ShareButton
-                className="pill soft"
-                label="Поделиться ссылкой"
-                title={property.title}
-                text={`${property.title}, ${formatMoney(property.price, property.currency)}, ${property.district?.name ?? ""}`}
-                url={property.siteUrl}
-              />
+              <PropertyShareLink className="pill soft" label="Поделиться ссылкой" property={property} />
             </div>
           )}
           {deleteMode === "request" && pendingDeleteRequest && (
@@ -1550,14 +1544,7 @@ function SitePublishToggle({
        * существует (siteUrl приходит null), и отправлять нечего. Права
        * отдельного не требует — ссылка публичная, её видит любой прохожий.
        */}
-      {property.siteUrl && (
-        <ShareButton
-          className="lnk"
-          title={property.title}
-          text={`${property.title}, ${formatMoney(property.price, property.currency)}, ${property.district?.name ?? ""}`}
-          url={property.siteUrl}
-        />
-      )}
+      <PropertyShareLink className="lnk" property={property} />
       </div>
     </div>
   );

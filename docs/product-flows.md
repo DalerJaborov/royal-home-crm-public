@@ -8843,7 +8843,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
     · ответ 400 — «Неверные параметры»
-- res.json(await findSegments(parsed.data));
+- res.json(await findSegmentsCached(parsed.data));
   · ответ 200
 
 ## /api/v1/market/matches

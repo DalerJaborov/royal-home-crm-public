@@ -13,6 +13,7 @@ import path from "node:path";
 import { UploadRejectedError, uploadsDir } from "./upload.js";
 import { verifyMediaToken } from "./auth/jwt.js";
 import { signMediaUrlsInResponses } from "./lib/mediaJsonSign.js";
+import { uploadsCacheControl } from "./lib/uploadsCacheControl.js";
 import { prisma } from "./db.js";
 import { logSystemError } from "./lib/systemError.js";
 import { StaffPhoneLeadError } from "./lib/staffPhoneGuard.js";
@@ -244,7 +245,20 @@ app.use("/uploads", (req, res, next) => {
   if (PRIVATE_UPLOAD_DIRS.test(normalized)) return requireMediaAccess(req, res, next);
   next();
 });
-app.use("/uploads", express.static(uploadsDir));
+// Срок хранения в кэше — по списку проверенных папок (lib/uploadsCacheControl.ts):
+// фото и миниатюры с уникальным именем — 30 дней immutable, звуки телефонии и
+// закрытые папки — без общего кэша, всё прочее — как было (max-age=0 + ETag).
+// setHeaders вызывается ДО того, как send ставит свой Cache-Control, и тот
+// уважает уже выставленный заголовок.
+app.use(
+  "/uploads",
+  express.static(uploadsDir, {
+    setHeaders: (res, filePath) => {
+      const policy = uploadsCacheControl(path.relative(uploadsDir, filePath));
+      if (policy) res.setHeader("Cache-Control", policy);
+    },
+  })
+);
 
 /**
  * ЗВУКИ ТЕЛЕФОНИИ БЕЗ СЛЕДА В ЖУРНАЛЕ (найдено 11.09.2026, docs/TASKS.md:

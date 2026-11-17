@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { WaFirstContactStatus, WaTemplatesOverview } from "@royal-home/shared";
 import { api } from "../lib/api";
+import { sendToClient } from "../lib/clientSend";
+import { useSendIntent } from "./useSendIntent";
 
 /**
  * Первое сообщение клиенту в WhatsApp (24.09.2026): кнопка в карточке клиента и
@@ -21,9 +23,10 @@ export function useWaFirstContactStatus(clientId: string, enabled = true) {
 
 export function useSendWaFirstContact(clientId: string) {
   const qc = useQueryClient();
+  const intent = useSendIntent();
   return useMutation({
     mutationFn: (propertyShortId: number | null) =>
-      api<WaFirstContactStatus>(`/clients/${clientId}/whatsapp-first`, { method: "POST", body: { propertyShortId } }),
+      sendToClient<WaFirstContactStatus>(intent, `/clients/${clientId}/whatsapp-first`, { propertyShortId }),
     onSuccess: (data) => {
       qc.setQueryData(["client", clientId, "whatsapp-first"], data);
       // Сообщение легло в переписку клиента — карточка перечитает её.
