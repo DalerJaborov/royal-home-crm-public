@@ -1,5 +1,4 @@
-import { prisma, type TxClient } from "../db.js";
-import type { Property } from "../generated/prisma/client.js";
+import { prisma, type PropertyRecord, type TxClient } from "../db.js";
 import { logSystemError } from "./systemError.js";
 import { formatPrice } from "../ai/seoGenerator.js";
 import { loadMoneyContext, toTjs } from "./money.js";
@@ -77,8 +76,8 @@ export interface PriceSyncResult {
  */
 export async function stagePublishedPriceChange(
   tx: TxClient,
-  before: Property,
-  after: Property,
+  before: PropertyRecord,
+  after: PropertyRecord,
   changedFields: readonly string[] = [],
 ): Promise<PriceCaptionStage> {
   let caption = after.reelsCaption;
@@ -121,7 +120,7 @@ export async function stagePublishedPriceChange(
 }
 
 /** Price-drop announcements and staff alerts are one-shot effects of a committed edit. */
-export async function reportPublishedPriceChange(before: Property, after: Property, stage: PriceCaptionStage): Promise<PriceSyncResult> {
+export async function reportPublishedPriceChange(before: PropertyRecord, after: PropertyRecord, stage: PriceCaptionStage): Promise<PriceSyncResult> {
   const result: PriceSyncResult = {
     updated: [], failed: [], queued: stage.queued, manual: stage.manual,
     skipped: stage.captionNeedsManualFix ? "подпись правили руками — старой цены в ней нет, пост остался как был" : null,

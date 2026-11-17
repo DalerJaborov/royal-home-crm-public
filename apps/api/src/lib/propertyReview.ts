@@ -14,8 +14,7 @@
  * текущее состояние; проигравший получает `count: 0` и честный ответ «уже решил
  * такой-то в такое-то время» (whoDecided).
  */
-import { prisma } from "../db.js";
-import type { Property } from "../generated/prisma/client.js";
+import { prisma, type PropertyRecord } from "../db.js";
 import {
   closePendingReviewPush,
   isRawReviewRequired,
@@ -52,7 +51,7 @@ function asActor<T>(actor: ReviewActor, fn: () => Promise<T>): Promise<T> {
 }
 
 export type ReviewFailure = { ok: false; status: 404 | 409; code: "not_found" | "not_pending" | "already" | "no_material"; error: string };
-export type ReviewResult = { ok: true; property: Property; movedToEditing: boolean } | ReviewFailure;
+export type ReviewResult = { ok: true; property: PropertyRecord; movedToEditing: boolean } | ReviewFailure;
 
 export const REVIEW_AUDIT_ACTIONS = [
   "PROPERTY_PHOTOS_APPROVED",
@@ -139,9 +138,9 @@ export async function approveReviewMaterial(
 
 /** Последствия одобрения — общие для «одного материала» (CRM) и «целиком» (Telegram). */
 async function afterApproval(
-  before: Property,
+  before: PropertyRecord,
   materials: ReviewMaterial[],
-  updated: Property,
+  updated: PropertyRecord,
   movedToEditing: boolean,
   actor: ReviewActor
 ): Promise<void> {
