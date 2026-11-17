@@ -68,6 +68,8 @@ import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTabs, cleanClientDetailScale, cleanClientPanelProps, cleanClientShowsPanel } from "../components/clean/CleanClientDetailLayout";
 import { MobileClientCard } from "../components/mobile/MobileClientCard";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalClientTabs } from "../components/look/clients/RoyalClients";
 import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
 import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
 import { ClientBuyerRequirementsEditor } from "../components/ClientBuyerRequirementsEditor";
@@ -173,6 +175,8 @@ function ClientDetailCard() {
    */
   const mobile = useMobileUx();
   const clean = useCleanShell();
+  // «Новый вид»: меняются только вкладки (разметка) и оформление слоя, функции те же.
+  const royal = useRoyalLook() && clean;
   // Роут теперь короткий числовой shortId (/clients/1042) — все мутации ниже адресуют
   // настоящий UUID с уже загруженной карточки, а не парсят его заново из URL.
   const updateClient = useUpdateClient(client?.id ?? "");
@@ -1725,7 +1729,8 @@ function ClientDetailCard() {
             телефоне — плоский стек секций (макет c99db05f), gating по `tab`
             снят полностью для mobile, все пять блоков видны подряд. */}
         <div className={clean ? "card clean-client-sections" : "card"} ref={tabsCardRef} style={clean ? { border: 0, padding: 24 } : undefined}>
-          {clean ? <CleanClientDetailTabs value={tab} onChange={setTab} objectsLabel={buys ? "Отправки и показы" : "Показы"} /> : !mobile && (
+          {royal ? <RoyalClientTabs value={tab} onChange={setTab} objectsLabel={buys ? "Отправки и показы" : "Показы"} />
+            : clean ? <CleanClientDetailTabs value={tab} onChange={setTab} objectsLabel={buys ? "Отправки и показы" : "Показы"} /> : !mobile && (
             <div className="tabs" role="tablist" aria-label="Разделы карточки">
               {tabs.map((t) => (
                 <button

@@ -1,0 +1,471 @@
+/* «НОВЫЙ ВИД» — РАЗДЕЛ «КЛИЕНТЫ» (пачка clients, 18.11.2026).
+ *
+ * Обычный, НЕ генерируемый файл (gen:typeset его пропускает). Подключён после
+ * theme-look-royal.css, и КАЖДОЕ правило стоит под :root[data-ui-look="royal"]
+ * (сторож theme-look-royal.test.ts): без признака не меняется ни один пиксель.
+ *
+ * Где действует:
+ *   список   — .rh2.clean-clients-page (Клиенты, Продавцы, Прочие обращения,
+ *              «Мои клиенты»: один экран pages/Clients.tsx);
+ *   карточка — .rh2 .scr.clean-client-detail (pages/ClientDetail.tsx, ветка Clean);
+ *   окна     — шторки Rh2Sheet, открытые поверх этих двух экранов (портал в body,
+ *              поэтому через :has по экрану: чужие разделы не задеваются).
+ *
+ * Приём: старая тема держит цвета в переменных .rh2 (--card, --ink, --pill…).
+ * Внутри раздела они переназначены на токены нового вида (--rh-ui-*), поэтому
+ * вложенные блоки карточки (сводка, подбор, история, площадки) перекрашиваются
+ * сами и ночью берут ночные значения, без правки их разметки.
+ * Нутро панели переписки (ClientChatPanel) — пачка чатов, здесь не трогается.
+ */
+
+/* ============================ токены раздела ============================ */
+
+:root[data-ui-look="royal"] .rh2.clean-clients-page,
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail,
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 {
+  --page: var(--rh-ui-bg);
+  --card: var(--rh-ui-card);
+  --card-glass: var(--rh-ui-card);
+  --soft: var(--rh-ui-bg);
+  --hover: var(--rh-ui-hover);
+  --line: var(--rh-ui-sep);
+  --line-soft: var(--rh-ui-sep);
+  --line-strong: var(--rh-ui-ring);
+  --ink: var(--rh-ui-text);
+  --body: var(--rh-ui-text);
+  --muted: var(--rh-ui-hint);
+  --faint: var(--rh-ui-hint);
+  --pill: var(--rh-ui-primary);
+  --pill-ink: var(--rh-ui-primary-fg);
+  --pill-hover: var(--rh-ui-primary-hover);
+  --on-accent: var(--rh-ui-primary-fg);
+  --ok: var(--rh-ui-ok);
+  --ok-bg: var(--rh-ui-ok-soft);
+  --warn: var(--rh-ui-warn);
+  --warn-bg: var(--rh-ui-warn-soft);
+  --warn-dot: var(--rh-ui-warn);
+  --crit: var(--rh-ui-crit-text);
+  --crit-bg: color-mix(in srgb, var(--rh-ui-crit) 12%, var(--rh-ui-card));
+  --r: var(--rh-ui-r-card);
+  --r-md: 20px;
+  --shadow: var(--rh-ui-shadow);
+  --shadow-sm: var(--rh-ui-shadow);
+  --shadow-lift: var(--rh-ui-shadow);
+  color: var(--rh-ui-text);
+}
+
+/* ===================== общие детали внутри раздела ===================== */
+
+/* Кнопки-таблетки: высота 48, главная синяя, остальные серые; ночью текст на синем белый. */
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .pill,
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .pill {
+  min-height: 48px; height: auto; padding: 0 20px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
+  font-size: 15px; font-weight: 600; box-shadow: none;
+}
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .pill:hover,
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .pill:hover { background: var(--rh-ui-primary-hover); transform: none; }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .pill:is(.ghost, .soft),
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .pill:is(.ghost, .soft) {
+  background: var(--rh-ui-press); color: var(--rh-ui-text); border: 0;
+}
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .pill:is(.ghost, .soft):hover,
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .pill:is(.ghost, .soft):hover {
+  background: color-mix(in srgb, var(--rh-ui-hint) 20%, transparent);
+}
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .pill.sm,
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .pill.sm {
+  min-height: 44px; height: auto; padding: 0 16px; font-size: 15px;
+}
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .pill:active,
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .pill:active { transform: scale(.97); }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .pill:disabled,
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .pill:disabled { opacity: .5; transform: none; }
+
+/* Плашки состояния: срочно — сплошная красная (самая яркая), внимание —
+   светлая янтарная с обводкой, норма — светлая зелёная. Слово в плашке
+   остаётся главным носителем смысла. */
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 12px;
+  border: 0; border-radius: 999px; font-size: 14px; font-weight: 600; line-height: 1.2;
+  background: var(--rh-ui-raised); color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .chip:is(.crit, .danger) {
+  background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); font-weight: 700;
+}
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .chip.warn {
+  background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent);
+}
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .chip.ok { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .chip:is(.mute, .info) { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
+
+/* Тихие строки (ждёт агента, похожие карточки, включены фильтры). */
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .quiet {
+  gap: 10px; min-height: 48px; font-size: 15px; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .quiet.crit .txt { color: var(--rh-ui-crit-text); font-weight: 600; }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .quiet.warn .txt { color: var(--rh-ui-warn); font-weight: 600; }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .quiet .dot { width: 10px; height: 10px; flex: none; }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .quiet .dot.crit { background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent); }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .quiet .dot.warn { background: var(--rh-ui-warn); border-radius: 2px; transform: rotate(45deg); }
+
+/* Пусто: круг со значком, одна строка и подсказка ниже. */
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .empty {
+  display: grid; justify-items: center; gap: 8px; padding: 32px 20px; text-align: center; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .empty .ic {
+  display: grid; place-items: center; width: 48px; height: 48px; border-radius: 999px;
+  background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+}
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .empty .ic .i { width: 24px; height: 24px; }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .empty p { margin: 0; font-size: 17px; font-weight: 600; }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .empty .sub { font-size: 15px; color: var(--rh-ui-hint); text-wrap: pretty; }
+
+/* Поля ввода и выпадающие списки — 52, мягкий фон, без рамки. */
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .inp,
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet :is(.inp, .fld input:not([type="checkbox"]):not([type="radio"]), .fld select, .fld textarea) {
+  min-height: 52px; border: 0; border-radius: 16px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: 16px; box-shadow: none;
+}
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .fld textarea { min-height: 96px; }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .inp::placeholder,
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet :is(.inp, .fld input, .fld textarea)::placeholder { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] :is(.rh2.clean-clients-page, .rh2 .scr.clean-client-detail) .inp:focus-visible,
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet :is(.inp, .fld input:not([type="checkbox"]):not([type="radio"]), .fld select, .fld textarea):focus {
+  outline: 2px solid var(--rh-ui-primary); outline-offset: 0;
+}
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .fld.bad :is(input, select, textarea) { box-shadow: inset 0 0 0 2px var(--rh-ui-crit); }
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet :is(.fld, .field) > .lab { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .fld .msg { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .fld.bad .msg { color: var(--rh-ui-crit-text); }
+
+/* ================================ список ================================ */
+
+/* Шапка ПК: заголовок 32 и строка, справа «Продавцы/Покупатели» и одна синяя кнопка. */
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-head {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin: 4px 0 20px; min-width: 0;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-title { min-width: 0; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-title h1 {
+  margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -.028em; line-height: 1.12; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-title p { margin: 4px 0 0; font-size: 16px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-width: 0; }
+
+/* «Продавцы / Покупатели» — переключатель-капсула. */
+:root[data-ui-look="royal"] .rh2.clean-clients-page .seg {
+  display: inline-flex; gap: 4px; min-width: 0; padding: 4px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-raised); box-shadow: none;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .seg button {
+  flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--rh-ui-hint); font-size: 15px; font-weight: 600; box-shadow: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .seg button[aria-pressed="true"] {
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 1px 3px rgba(20, 24, 40, .12);
+}
+
+/* Тихие строки над списком и сам список — белые карточки радиус 24. */
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.clean-clients-page > .scr > .card.tight {
+  margin-bottom: 16px; padding: 4px 8px 4px 16px; border: 0; border-radius: var(--rh-ui-r-card);
+  background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.clean-clients-page > .scr > #clients-list.card.tight { padding: 16px 0 8px; }
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.clean-clients-page > .scr > #clients-list > .quiet { max-height: none; margin: 0 16px; }
+
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-search { display: flex; align-items: center; gap: 10px; margin: 0 16px 8px; min-width: 0; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-search .inp { flex: 1 1 auto; width: auto; min-width: 0; padding: 0 18px; border-radius: 999px; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-search .ry-btn { flex: none; }
+
+/* Список: строки склеены тонкой линией, таблица включается по ширине самого списка. */
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist {
+  container: ry-clist / inline-size; display: block; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist > .sw + .sw { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist .swm { background: var(--rh-ui-card); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head { display: none; }
+
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "main acts" "req req" "next next" "agent agent";
+  align-items: center; column-gap: 12px; row-gap: 4px; min-width: 0; padding: 12px 16px 14px;
+  color: var(--rh-ui-text); background: var(--rh-ui-card);
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow[data-deleted] { opacity: .72; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-main {
+  grid-area: main; display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 48px;
+  color: inherit; text-decoration: none; border-radius: 16px;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page a.ry-crow-main:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-av { display: grid; flex: none; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-name {
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  font-size: 17px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page a.ry-crow-main:hover .ry-crow-name { color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-id { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page :is(.ry-crow-req, .ry-crow-next, .ry-crow-agent) {
+  display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 4px; min-width: 0; padding-left: 56px; font-size: 15px; line-height: 1.35;
+}
+/* Телефон: запрос и источник одной строкой с многоточием (полностью — в карточке),
+   имя в одну строку, подписи «Последний контакт» и «Ответственный» — значками. */
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req {
+  grid-area: req; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req > .ry-crow-hint::before { content: " · "; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-name { -webkit-line-clamp: 1; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-next { grid-area: next; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent { grid-area: agent; flex-wrap: nowrap; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent > .ry-crow-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page :is(.ry-crow-last, .ry-crow-agent) { display: inline-flex; align-items: center; gap: 6px; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-ico { flex: none; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-nowrap { white-space: nowrap; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-label {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-text { min-width: 0; overflow-wrap: anywhere; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-hint { min-width: 0; overflow-wrap: anywhere; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-hint[data-tone="crit"] { color: var(--rh-ui-crit-text); font-weight: 600; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step { display: inline-flex; flex-wrap: wrap; min-width: 0; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step > span:not(.chip) { font-size: 15px; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-acts {
+  grid-area: acts; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0;
+}
+/* Несколько действий (Принять / Отклонить, Восстановить) — отдельной строкой под данными, не сжимая имя. */
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) {
+  grid-template-areas: "main main" "req req" "next next" "agent agent" "acts acts";
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) .ry-crow-acts {
+  justify-content: flex-start; padding-left: 56px; padding-top: 6px;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-acts .basis-full { flex-basis: 100%; }
+/* Трубка — круг 48 с синим значком: одно главное действие строки. */
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-acts .pill.btn-call.rh-btn {
+  width: 48px; min-width: 48px; height: 48px; min-height: 48px; padding: 0; border-radius: 999px;
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-acts .pill.btn-call.rh-btn:hover { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-acts .btn-call svg { width: 22px; height: 22px; }
+
+/* Таблица — когда самому списку хватает ширины (ПК). */
+@container ry-clist (min-width: 880px) {
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head,
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.15fr) minmax(0, 1.1fr) 112px;
+    grid-template-areas: "main req next acts";
+    column-gap: 16px; padding: 10px 20px;
+  }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page :is(.ry-clist-head, .ry-crow)[data-agent] {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.15fr) minmax(0, 1.1fr) minmax(0, .8fr) 112px;
+    grid-template-areas: "main req next agent acts";
+  }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) { grid-template-areas: "main req next acts"; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow[data-agent]:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) { grid-template-areas: "main req next agent acts"; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) .ry-crow-acts { justify-content: flex-end; padding: 0; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head {
+    display: grid; min-height: 44px; align-items: center; padding-top: 0; padding-bottom: 0;
+    font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); box-shadow: inset 0 -1px 0 var(--rh-ui-sep);
+  }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head > :last-child { text-align: right; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head + .sw { box-shadow: none; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page :is(.ry-crow-req, .ry-crow-next, .ry-crow-agent) {
+    flex-direction: column; align-items: flex-start; flex-wrap: nowrap; padding-left: 0;
+  }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent { color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent > .ry-crow-text { overflow: visible; white-space: normal; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req { display: flex; -webkit-line-clamp: none; overflow: visible; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req > .ry-crow-hint::before { content: none; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-name { -webkit-line-clamp: 2; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-ico { display: none; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-last { display: block; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-label-pc { position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: normal; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow { min-height: 76px; transition: background-color 160ms cubic-bezier(.23, 1, .32, 1); }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:hover { background: color-mix(in srgb, var(--rh-ui-hover) 100%, var(--rh-ui-card)); }
+}
+
+/* «Показать ещё» и шкала загрузки списка. */
+:root[data-ui-look="royal"] .rh2.clean-clients-page #clients-list .skel { border-radius: 16px; }
+
+/* Телефон: переключатель и «+ Клиент» в одной строке, переключатель забирает остаток. */
+:root[data-ui-look="royal"][data-mobile-ux] .rh2.clean-clients-page .ry-clients-head { margin: 0 0 12px; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2.clean-clients-page .ry-clients-tools { flex: 1 1 100%; flex-wrap: nowrap; gap: 8px; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2.clean-clients-page .ry-clients-tools .seg { flex: 1 1 auto; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2.clean-clients-page .ry-clients-tools .seg button { padding: 0 8px; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2.clean-clients-page .ry-clients-tools .ry-btn { flex: none; padding: 0 16px; }
+@media (max-width: 359.98px) {
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-tools .ry-btn { padding: 0 12px; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-tools .ry-btn svg { display: none; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page :is(.ry-crow-req, .ry-crow-next, .ry-crow-agent) { padding-left: 0; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) .ry-crow-acts { padding-left: 0; }
+}
+
+/* =============================== карточка =============================== */
+
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail { max-width: 1280px; font-family: var(--font-sans, "Onest", system-ui, sans-serif); }
+
+/* «← Покупатели  ПК-000010» — кнопка-таблетка 44 и номер карточки рядом. */
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail > .wrap:first-child { gap: 12px; margin-bottom: 12px; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail > .wrap:first-child > .lk {
+  min-height: 44px; padding: 0 16px 0 12px; border-radius: 999px; background: var(--rh-ui-card);
+  box-shadow: 0 0 0 1px var(--rh-ui-ring); color: var(--rh-ui-text); font-size: 15px; font-weight: 600; text-decoration: none;
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail > .wrap:first-child > .lk:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail > .wrap:first-child > .meta { font-size: 15px; font-variant-numeric: tabular-nums; color: var(--rh-ui-hint) !important; }
+
+/* Карточки внутри — радиус 24, белые, без рамки. */
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .card {
+  border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .card .card { box-shadow: 0 0 0 1px var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .sec-t,
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .sec-h h2 { font-size: 20px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .sec-h { min-height: 44px; align-items: center; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail :is(.lnk, .sec-h a) { min-height: 44px; display: inline-flex; align-items: center; font-size: 15px; font-weight: 600; color: var(--rh-ui-primary-ink); }
+
+/* Шапка: аватар 64, имя 28 жирным (не больше двух строк), плашки, строка о клиенте. */
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header { margin-bottom: 16px; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header h1 {
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  margin: 0 0 8px; font-size: 28px !important; font-weight: 700; letter-spacing: -.028em; line-height: 1.15 !important; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .sub { font-size: 15px !important; line-height: 1.45 !important; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .cd-name-edit {
+  display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 999px; background: var(--rh-ui-press); color: var(--rh-ui-text);
+}
+
+/* Ряд действий ПК (ошибка макета: третья кнопка вылезала за край). Здесь — перенос
+   строк и min-width:0 у каждой кнопки, ни одна не шире ряда; главная одна, синяя. */
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .acts {
+  display: flex !important; flex-wrap: wrap; gap: 8px !important; min-width: 0; margin-top: 8px;
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .acts > * { min-width: 0; max-width: 100%; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .acts :is(.pill, button) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .acts .pill .i { width: 20px; height: 20px; flex: none; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .acts .pill:not(.ghost) ~ .pill:not(.ghost),
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .acts .pill:not(.ghost) ~ * .pill:not(.ghost) {
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .acts .pill.sm[aria-label="Изменить имя"] { width: 48px; min-height: 48px; padding: 0; }
+
+/* Ряд действий телефона: «Позвонить» синяя, «Написать», «Подбор», «Ещё» — круги
+   со значком над подписью, четыре в ряд и без вылета; уже 360 — два на два. */
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .cd-actbar {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 16px; padding: 0;
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .cd-actbar > * { min-width: 0; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .cd-actbar > .relative > .cd-act { width: 100%; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .cd-actbar .cd-act {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; min-width: 0; min-height: 72px; padding: 10px 4px; border: 0; border-radius: 20px;
+  background: var(--rh-ui-card); color: var(--rh-ui-primary-soft-fg); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  font-size: 13px; font-weight: 600; line-height: 1.15; white-space: nowrap;
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .cd-actbar .cd-act > :not(svg) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .cd-actbar .cd-act :is(.i, svg) { width: 24px; height: 24px; flex: none; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .cd-actbar .cd-act--main { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .cd-actbar .cd-act:disabled { opacity: .5; }
+@media (max-width: 359.98px) {
+  :root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .cd-actbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .cd-actbar .cd-act { flex-direction: row; min-height: 52px; font-size: 14px; }
+}
+
+/* Вкладки карточки: таблетки на сером поле; на узком экране — лента с прокруткой
+   внутри карточки (страница вбок не едет). */
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-ctabs {
+  display: flex; gap: 4px; min-width: 0; max-width: 100%; padding: 4px; border-radius: 999px;
+  background: var(--rh-ui-raised); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-ctabs::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-ctab {
+  display: inline-flex; flex: 1 0 auto; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px;
+  border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-hint);
+  font-size: 15px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  transition: background-color 160ms cubic-bezier(.23, 1, .32, 1), color 160ms;
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-ctab:hover { color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-ctab[aria-selected="true"] {
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 1px 3px rgba(20, 24, 40, .12);
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-ctab:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-ctab-short { display: none; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2 .scr.clean-client-detail .ry-ctab { flex: 0 0 auto; padding: 0 14px; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2 .scr.clean-client-detail .ry-ctab-long { display: none; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2 .scr.clean-client-detail .ry-ctab-short { display: inline; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2 .scr.clean-client-detail .ry-ctab svg { display: none; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2 .scr.clean-client-detail .clean-client-header h1 { font-size: 24px !important; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2 .scr.clean-client-detail .clean-client-sections { padding: 16px !important; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2 .scr.clean-client-detail .clean-client-header { padding: 20px !important; }
+
+/* Обзор без сводки: короткая строка и кнопка, не три абзаца. */
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-overview-empty {
+  display: grid; justify-items: start; gap: 8px; margin: 0 0 16px; padding: 16px 20px; border-radius: 20px; background: var(--rh-ui-bg);
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-overview-empty p { margin: 0; font-size: 16px; font-weight: 600; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-overview-empty .sub { font-size: 15px; font-weight: 400; color: var(--rh-ui-hint); }
+
+/* Строки списков внутри карточки (сделка, история, подбор) — 60, без рамок. */
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .list > .row { min-height: 60px; border-radius: 16px; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .list > .row:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .state { font-size: 16px; color: var(--rh-ui-hint); }
+
+/* «Другие действия» на ПК и «Ещё» на телефоне — одна группа строк 56. */
+:root[data-ui-look="royal"] :is(.rh2 .scr.clean-client-detail, :root:has(.clean-client-detail) body > .rh2 .sheet) .cd-menu { display: grid; gap: 16px; }
+:root[data-ui-look="royal"] :is(.rh2 .scr.clean-client-detail, :root:has(.clean-client-detail) body > .rh2 .sheet) .cd-mg-t { margin: 0 4px 6px; font-size: 15px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] :is(.rh2 .scr.clean-client-detail, :root:has(.clean-client-detail) body > .rh2 .sheet) .cd-mi {
+  min-height: 56px; border-radius: 16px; font-size: 16px; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] :is(.rh2 .scr.clean-client-detail, :root:has(.clean-client-detail) body > .rh2 .sheet) .cd-mi:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] :is(.rh2 .scr.clean-client-detail, :root:has(.clean-client-detail) body > .rh2 .sheet) .cd-mi-i {
+  display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 999px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+}
+:root[data-ui-look="royal"] :is(.rh2 .scr.clean-client-detail, :root:has(.clean-client-detail) body > .rh2 .sheet) .cd-mi.danger .cd-mi-i,
+:root[data-ui-look="royal"] :is(.rh2 .scr.clean-client-detail, :root:has(.clean-client-detail) body > .rh2 .sheet) .cd-mi.crit .cd-mi-i { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] :is(.rh2 .scr.clean-client-detail, :root:has(.clean-client-detail) body > .rh2 .sheet) :is(.cd-mi.danger, .cd-mi.crit) .cd-mi-t { color: var(--rh-ui-crit-text); }
+
+/* ================================ окна ================================ */
+
+/* Шторки раздела (новый клиент, фильтры, показ, итог, передача, удаление,
+   объединение, сделка, выбор номера, «Ещё»): радиус 28, заголовок 22,
+   «Закрыть» серой таблеткой, кнопки подвала 48. Корпус окна (фокус, Esc,
+   смахивание) не трогается — это Rh2Sheet. */
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet {
+  border: 0; background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: 0 24px 60px -20px rgba(10, 14, 30, .38), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet.right { border-radius: 28px 0 0 28px; }
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet.bottom { border-radius: 28px 28px 0 0; }
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .sheet-h {
+  min-height: 64px; padding: 16px 20px 12px; border: 0; background: transparent;
+}
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .sheet-h h2 {
+  margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; text-wrap: balance; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .sheet-b { padding: 4px 20px 20px; }
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .sheet-f {
+  display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px 16px; border: 0; background: var(--rh-ui-card);
+  box-shadow: inset 0 1px 0 var(--rh-ui-sep);
+}
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .sheet-f > :is(.pill, button) { flex: 1 1 140px; min-width: 0; }
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .sec-t {
+  margin: 20px 0 8px; font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--rh-ui-hint);
+}
+/* Выбор из нескольких (срез, источник, итог) — таблетки 44, выбранная тёмная. */
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .rh-filters { gap: 8px; }
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .rh-filters button {
+  min-height: 44px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: 15px; font-weight: 600; box-shadow: none;
+}
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .rh-filters button[aria-pressed="true"] { background: var(--rh-ui-text); color: var(--rh-ui-bg); }
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .rh-filters .n { font-variant-numeric: tabular-nums; opacity: .8; }
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet .card {
+  border: 0; border-radius: 20px; background: var(--rh-ui-bg); box-shadow: none;
+}
+:root[data-ui-look="royal"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet-back { background: rgba(10, 14, 30, .42); }
+
+/* Ночью у шторки та же графитовая подложка, что у карточек. */
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"]:has(.clean-clients-page, .clean-client-detail) body > .rh2 .sheet {
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .8), 0 0 0 1px var(--rh-ui-ring);
+}

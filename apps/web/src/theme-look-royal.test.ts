@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -51,10 +51,17 @@ export function unscopedSelectors(css: string): string[] {
   return bad;
 }
 
-describe("theme-look-royal.css", () => {
+/** Основа и слои экранов нового вида (theme-look-royal-<пачка>.css) — каждый под тем же сторожем. */
+const LOOK_FILE = /^theme-look-royal(-[\w-]+)?\.css$/;
+const lookFiles = readdirSync(new URL(".", import.meta.url)).filter((f) => LOOK_FILE.test(f)).sort();
+
+describe("theme-look-royal*.css", () => {
   const css = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
-  it("every rule is scoped to :root[data-ui-look=\"royal\"]", () => {
-    expect(unscopedSelectors(css)).toEqual([]);
+  it("знает основу и слой раздела «Клиенты»", () => {
+    expect(lookFiles).toEqual(expect.arrayContaining(["theme-look-royal.css", "theme-look-royal-clients.css"]));
+  });
+  it.each(lookFiles)("%s: every rule is scoped to :root[data-ui-look=\"royal\"]", (file) => {
+    expect(unscopedSelectors(readFileSync(new URL(`./${file}`, import.meta.url), "utf8"))).toEqual([]);
   });
   it("the guard really catches an unscoped rule (сторож проверен поломкой)", () => {
     expect(unscopedSelectors(`${css}\n.clean-tab { color: red; }\n@media (min-width: 1px) { body, :root[data-ui-look="royal"] a { color: red; } }`))
@@ -62,9 +69,14 @@ describe("theme-look-royal.css", () => {
     const atRules = `\n@font-face { font-family: X; src: url(x.woff2); }\n@layer base { :root[data-ui-look="royal"] a { color: red; } }\n@keyframes spin { to { opacity: 0; } }`;
     expect(unscopedSelectors(`${css}${atRules}`)).toEqual(["@font-face", "@layer base", "@keyframes spin"]);
   });
-  it("is imported after every other theme layer", () => {
+  it("основа и слои экранов подключены после всех прежних тем, основа — первой из них", () => {
     const index = readFileSync(new URL("./index.css", import.meta.url), "utf8");
     const imports = [...index.matchAll(/@import '\.\/(theme-[^']+\.css)'/g)].map((m) => m[1]);
-    expect(imports.at(-1)).toBe("theme-look-royal.css");
+    const first = imports.indexOf("theme-look-royal.css");
+    expect(first).toBeGreaterThan(-1);
+    const tail = imports.slice(first);
+    expect(tail.every((f) => LOOK_FILE.test(f)), `после основы только слои нового вида: ${tail.join(", ")}`).toBe(true);
+    // Каждый слой на диске подключён: забытый @import молча выключил бы экран.
+    expect([...tail].sort()).toEqual(lookFiles);
   });
 });
