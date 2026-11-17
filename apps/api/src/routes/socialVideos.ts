@@ -49,6 +49,7 @@ import {
   startSocialVideoUpload,
   writeSocialVideoPart,
 } from "../lib/socialVideoUploadSessions.js";
+import { ChunkedUploadError, chunkedUploadErrorBody } from "../lib/chunkedUploadSessions.js";
 
 /**
  * СВОБОДНЫЕ РОЛИКИ В СОЦСЕТИ — API (12.10.2026). Промо-ролик без объекта: загрузить,
@@ -74,6 +75,10 @@ function guarded(fn: AsyncHandler) {
     } catch (err) {
       if (err instanceof SocialVideoError) {
         res.status(err.status).json({ error: err.message });
+        return;
+      }
+      if (err instanceof ChunkedUploadError) {
+        res.status(err.status).json(chunkedUploadErrorBody(err));
         return;
       }
       if (err instanceof SocialVideoAiError) {
@@ -287,6 +292,10 @@ socialVideosRouter.post("/upload-sessions/:sessionId/complete", async (req, res,
   } catch (err) {
     if (err instanceof SocialVideoError) {
       res.status(err.status).json({ error: err.message });
+      return;
+    }
+    if (err instanceof ChunkedUploadError) {
+      res.status(err.status).json(chunkedUploadErrorBody(err));
       return;
     }
     next(err);
