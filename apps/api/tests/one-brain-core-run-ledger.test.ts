@@ -34,7 +34,8 @@ vi.mock("../src/lib/systemError.js", async importOriginal => ({ ...(await import
   logSystemError: f.log }));
 vi.mock("../src/push.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/push.js")>()),
   sendPushToAgent: f.push, sendPushToAgents: f.push }));
-vi.mock("../src/lib/stuckConversations.js", () => ({
+vi.mock("../src/lib/stuckConversations.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/stuckConversations.js")>()),
   /** The website's contract of the real retryStuckConversation: the stored turn through the one door, the reply into the history. */
   retryStuckConversation: async (row: { id: string }, _source: string, attempt?: number) => {
     const { prisma } = await import("../src/db.js");
