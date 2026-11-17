@@ -20191,9 +20191,9 @@
     },
     {
      "k": "do",
-     "t": "const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, \"clients.delete\") });",
+     "t": "const base = await clientsScopeBaseWhere({ ownAgentId, canDelete: can(req, \"clients.delete\") });",
      "a": [
-      "зовёт pendingDeleteHideWhere()"
+      "зовёт clientsScopeBaseWhere()"
      ],
      "c": []
     },
@@ -20218,6 +20218,14 @@
      "t": "const tomorrow = dushanbeDayRange(new Date(today.end.getTime() + 1));",
      "a": [
       "зовёт dushanbeDayRange()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const awaitingWhere = awaitingAcceptanceWhere(base);",
+     "a": [
+      "зовёт awaitingAcceptanceWhere()"
      ],
      "c": []
     },

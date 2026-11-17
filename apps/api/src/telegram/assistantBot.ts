@@ -173,6 +173,10 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "get_missed_calls",
   "get_team_load",
   "get_stuck_work",
+  // Разбор клиентской базы (17.11.2026, tools/clientBaseOverviewTool.ts): числа по агентам — только личка.
+  "get_client_base_overview",
+  // Сообщение коллеге от имени просящего (17.11.2026, tools/sendStaffMessageTool.ts): текст и получатель — только личка.
+  "send_staff_message",
   "get_client_last_call",
   "create_task",
   "reschedule_task",
@@ -278,6 +282,11 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
         `${tajik ? "Пеш" : "Было"}: ${translate(p.was.Цена)} → ${translate(p.becomes.Цена)}`,
         ...(p.becomes.Заявка ? [tajik ? "Роҳбар розӣ шавад, нарх иваз мешавад." : "Цена изменится после одобрения руководителем."] : []),
       ].join("\n");
+    }
+    // Сообщение коллеге (send_staff_message): текст показывается ЦЕЛИКОМ, без обрезки field() —
+    // подтверждают ровно то, что уйдёт. Длину держит сам инструмент (≤ 1000 знаков).
+    if (a.tool === "send_staff_message" && typeof p.becomes.Сообщение === "string") {
+      return [head, `   ${p.becomes.Сообщение}`, `   ⚠️ ${p.risk ?? frame.irreversible}`].join("\n");
     }
     return [
       head,

@@ -4625,14 +4625,16 @@
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
-- const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
-  · зовёт pendingDeleteHideWhere()
+- const base = await clientsScopeBaseWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
+  · зовёт clientsScopeBaseWhere()
 - const today = dushanbeDayRange(now);
   · зовёт dushanbeDayRange()
 - const yesterday = dushanbeDayRange(new Date(today.start.getTime() - 1));
   · зовёт dushanbeDayRange()
 - const tomorrow = dushanbeDayRange(new Date(today.end.getTime() + 1));
   · зовёт dushanbeDayRange()
+- const awaitingWhere = awaitingAcceptanceWhere(base);
+  · зовёт awaitingAcceptanceWhere()
 - const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput
   · зовёт visibleInteractionWhere()
 - const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, noContactOverDay, showTo…

@@ -4,6 +4,7 @@ import { knowledgeTools } from "./knowledgeTools.js";
 import { notificationPrefPlugin } from "./notificationPrefTool.js";
 import { registerAssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { brainReadTools } from "./brainReadTools.js";
+import { getClientBaseOverviewTool } from "./clientBaseOverviewTool.js";
 import { clientOwnershipTools } from "./clientOwnershipTools.js";
 import { completeTaskTool } from "./completeTaskTool.js";
 import { dealReadTools } from "./dealReadTools.js";
@@ -13,6 +14,7 @@ import { expenseTools } from "./expenseTools.js";
 import { marketTools } from "./marketTools.js";
 import { propertyTools } from "./propertyTools.js";
 import { readTools } from "./readTools.js";
+import { sendStaffMessagePlugin } from "./sendStaffMessageTool.js";
 import { showingNoteTools } from "./showingNoteTools.js";
 import { staffReadTools } from "./staffReadTools.js";
 import { staffWriteTools } from "./staffWriteTools.js";
@@ -43,7 +45,7 @@ function add(plugin: AssistantToolPlugin): () => void {
   };
 }
 
-for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...expenseTools, ...dealReadTools, ...dealWriteTools, ...marketTools, ...staffReadTools, ...staffWriteTools, transferPropertyTool, notificationPrefPlugin, ...brainReadTools, ...directorTools]) add(plugin);
+for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...expenseTools, ...dealReadTools, ...dealWriteTools, ...marketTools, ...staffReadTools, ...staffWriteTools, transferPropertyTool, notificationPrefPlugin, ...brainReadTools, getClientBaseOverviewTool, sendStaffMessagePlugin, ...directorTools]) add(plugin);
 
 /** Для тестов: добавить плагин на время теста; возвращает функцию снятия. */
 export function registerAssistantToolPlugin(plugin: AssistantToolPlugin): () => void {
