@@ -473,6 +473,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       customerPropertyUnresolvedReason(currentFocus.evidence, currentFocus.status, currentFocus.lookupAttempts) === "not_found";
     const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput,
       unlinked && ownPublicationFound && !mediaPerception ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
+    // Live words may be switched on for one channel first (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS); the trace records the mode of this turn.
+    const answerMode = customerAgentAnswerMode(process.env, planningPrincipal.scope.channel);
     const brand = await readCustomerAgentBrand(planningPrincipal.scope.accountId);
     const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
       ...(brand ? { brand } : {}),
@@ -482,7 +484,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       // В режиме «только заявки» подборки нет вовсе: инструмент не предлагается модели (первый слой запрета).
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS.filter(name => !leadOnly.enabled || name !== "search_public_properties"),
         ...mutations.availableToolNames]),
-      verifiedContext: remembered.context, sayMode: customerAgentSayMode(), answerMode: customerAgentAnswerMode(),
+      verifiedContext: remembered.context, sayMode: customerAgentSayMode(), answerMode,
     }, {
       assertCurrent: async (evidence, wait) => { accumulated = evidence; return current(wait); },
       modelTurn: async input => {
@@ -521,7 +523,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       // neither re-enter the model nor enqueue a second customer response.
       observeLateToolResult: () => {},
     });
-    traceCustomerCoreResult(result);
+    traceCustomerCoreResult({ ...result, answerMode });
     if (result.status === "ready") { recordCustomerAgentSay(result.say); recordCustomerAgentAnswer(result.answer); }
     // Count a spam turn (a foreign reel / like-exchange words with nothing asked) toward the mute. Never allowed to break the turn.
     if ((result.status === "ready" || result.status === "held" && result.reason === "foreign_share_no_reply") &&

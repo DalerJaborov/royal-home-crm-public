@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Prisma } from "../generated/prisma/client.js";
 import { logSystemError } from "./systemError.js";
 import type { SiteSyncItemResult } from "@royal-home/shared";
-import { prisma } from "../db.js";
+import { prisma, type PropertyDefaultOmit } from "../db.js";
 import { crmPublicBase, publicUploadUrl } from "./crmPublicUrl.js";
 import { PermanentJobError } from "../jobs/registry.js";
 import { enqueueSiteResyncInTransaction } from "./siteResyncQueue.js";
@@ -26,6 +26,7 @@ const SITE_SYNC_API_KEY = process.env.SITE_SYNC_API_KEY;
 
 export type SyncableProperty = Prisma.PropertyGetPayload<{
   include: { district: true; photos: true };
+  omit: PropertyDefaultOmit;
 }>;
 
 /**

@@ -66,7 +66,9 @@ export function uploadConversationMedia(
   conversationId: string,
   file: File,
   caption: string | undefined,
-  onProgress: (percent: number) => void
+  onProgress: (percent: number) => void,
+  /** Ключ повтора (17.11.2026, аудит F2-4): «Повторить» после обрыва не шлёт клиенту файл второй раз. */
+  idempotencyKey?: string
 ): Promise<{ ok: boolean; pausedUntil: string }> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
@@ -106,6 +108,7 @@ export function uploadConversationMedia(
     const token = useAuthStore.getState().accessToken;
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.setRequestHeader("X-Device-Id", getOrCreateDeviceId());
+    if (idempotencyKey) xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
 
     xhr.upload.onprogress = (e) => {
       beat();

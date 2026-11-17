@@ -1,4 +1,5 @@
 import React from "react";
+import { isChunkLoadError } from "../lib/chunkLoadError";
 
 /**
  * Последний рубеж на клиенте. Без него любая ошибка рендера обваливала всё
@@ -37,11 +38,18 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
+    // Кусок сборки не загрузился — почти всегда это выкат при открытой вкладке, а
+    // не поломка: lazyWithReload уже дважды пробовал перезагрузить страницу сам.
+    // Человеку честно говорим, что делать, а не «что-то пошло не так» (аудит
+    // F2-6, 17.11.2026).
+    const stale = isChunkLoadError(this.state.error);
     return (
       <div className="flex flex-col items-center justify-center min-h-screen text-center px-6">
-        <h1 className="text-[18px] font-bold tracking-tight mb-1">Что-то пошло не так</h1>
+        <h1 className="text-[18px] font-bold tracking-tight mb-1">{stale ? "Вышла новая версия приложения" : "Что-то пошло не так"}</h1>
         <p className="text-[15px] text-gray-500 mb-5 max-w-[420px]">
-          Страница не смогла отрисоваться. Ошибка записана в журнал, попробуйте обновить страницу.
+          {stale
+            ? "Часть приложения не загрузилась: страница открыта со старой версией. Обновите страницу, если не поможет — проверьте интернет."
+            : "Страница не смогла отрисоваться. Ошибка записана в журнал, попробуйте обновить страницу."}
         </p>
         <button type="button"
           onClick={() => window.location.reload()}

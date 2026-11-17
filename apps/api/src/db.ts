@@ -1,5 +1,5 @@
 import { txScope, openScope, type StageEventRow, type TxScope } from "./lib/transactionScope.js";
-import { PrismaClient } from "./generated/prisma/client.js";
+import { PrismaClient, type Prisma } from "./generated/prisma/client.js";
 import { makePrismaAdapter } from "./lib/prismaAdapter.js";
 import { currentActorId } from "./lib/requestActor.js";
 
@@ -62,7 +62,30 @@ const TRACKED = {
  * Ничего дополнительно в пул передавать не нужно: строка подключения уходит в
  * `PrismaPg` целиком.
  */
-const base = new PrismaClient({ adapter: makePrismaAdapter(process.env.DATABASE_URL ?? "") });
+/**
+ * ВЕКТОР ПОДБОРА НЕ ЕДЕТ В КАЖДЫЙ ЗАПРОС ОБЪЕКТА (17.11.2026, аудит скорости P1).
+ * Property.embedding — 768 чисел, 4 543 из 7 876 байт строки (58 %). Любой
+ * `property.findMany/findUnique` без `select` (список «Объекты», «Топ объектов» на
+ * Главной, карточка, подбор) тащил его из базы и разбирал в массив, а presentProperty
+ * потом выбрасывал. Теперь поле скрыто по умолчанию; кому вектор нужен, просит его
+ * явно: `select: { embedding: true }` (lib/embeddingSearch.ts) или
+ * `omit: { embedding: false }`. Запись (`data: { embedding }`) это не затрагивает.
+ *
+ * Типы: `PropertyRecord` — строка объекта так, как её возвращает этот клиент; в
+ * `Prisma.PropertyGetPayload<{ include: …; omit: PropertyDefaultOmit }>` то же правило
+ * для выборок с include. ОГОВОРКА: у `tx` внутри `prisma.$transaction(async (tx) => …)`
+ * Prisma теряет глобальный omit в ТИПАХ (в работе он действует) — тип там шире правды.
+ * Поэтому чтение `.embedding` вне разрешённых мест ловит сторож
+ * tests/property-embedding-omit.test.ts, а не только компилятор.
+ */
+export type PropertyDefaultOmit = { embedding: true };
+const PROPERTY_DEFAULT_OMIT: PropertyDefaultOmit = { embedding: true };
+export type PropertyRecord = Prisma.PropertyGetPayload<{ omit: PropertyDefaultOmit }>;
+
+const base = new PrismaClient({
+  adapter: makePrismaAdapter(process.env.DATABASE_URL ?? ""),
+  omit: { property: PROPERTY_DEFAULT_OMIT },
+});
 
 /** Новое значение из data: Prisma принимает и `status: "HOT"`, и `status: { set: "HOT" }`. */
 function plannedValue(data: Record<string, unknown>, field: string): string | undefined {

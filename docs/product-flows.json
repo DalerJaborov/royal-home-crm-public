@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 763,
-  "forks": 4034,
+  "forks": 4027,
   "mounts": 86,
   "cron": 136,
   "jobs": 33,
@@ -39758,7 +39758,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(await findSegments(parsed.data));",
+     "t": "res.json(await findSegmentsCached(parsed.data));",
      "a": [
       "ответ 200"
      ],
@@ -64794,6 +64794,14 @@
      "t": "const reports = await prisma.monthlyReport.findMany({ orderBy: { periodStart: \"desc\" }, take: 12, include: { …",
      "a": [
       "читает в базе: monthlyReport"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const live = can(req, \"finance.view\") ? await liveMonthlyMoneyMap(reports.map((r)",
+     "a": [
+      "зовёт liveMonthlyMoneyMap()"
      ],
      "c": []
     },
@@ -113814,6 +113822,36 @@
        ]
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "await step(\"Курс закрытого месяца не закреплён\", \"api\", async ()",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const frozen = await freezeClosedAutoExpenseRates();",
+       "a": [
+        "зовёт freezeClosedAutoExpenseRates()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "frozen",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Курс закреплён у ${frozen} строк закрытого месяца`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
     }
    ],
    "file": "apps/api/src/cron.ts"
@@ -122015,21 +122053,13 @@
          ]
         },
         {
-         "k": "do",
-         "t": "const location: ReturnType<typeof customerIntakeLocation> = customerIntakeLocationEnabled() ? customerIntakeL…",
-         "a": [
-          "зовёт customerIntakeLocationEnabled()"
-         ],
-         "c": []
-        },
-        {
          "k": "loop",
          "t": "для каждого: const text of [...own].reverse()",
          "a": [],
          "c": [
           {
            "k": "if",
-           "t": "zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000",
+           "t": "requirementsNotes.length + text.length + 1 <= 4000",
            "a": [],
            "c": [
             {
@@ -122045,23 +122075,8 @@
          ]
         },
         {
-         "k": "if",
-         "t": "zoneNote",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "requirementsNotes = zoneNote + (requirementsNotes ? \"\\n\" + requirementsNotes : \"\");",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
          "k": "do",
-         "t": "const baseContext: CustomerIntakeContext = { version: 1, kind: location.locationOutsideDushanbe ? \"OTHER\" : i…",
+         "t": "const baseContext: CustomerIntakeContext = { version: 1, kind: intake.role === \"buyer\" ? \"BUYER\" : intake.rol…",
          "a": [
           "зовёт isWithinWorkingHours()"
          ],
@@ -131185,177 +131200,6 @@
      ]
     },
     {
-     "k": "if",
-     "t": "!telegramDirectBotReplyEnabled()",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await alertChannelStaff({ channel: \"TELEGRAM_DIRECT\", conversationId: conversation.id, text: typeof lastUser?…",
-       "a": [
-        "зовёт alertChannelStaff()"
-       ],
-       "c": [
-        {
-         "k": "try",
-         "t": "пробует",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "!input.conversationId",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return \"skipped\";",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "input.channel !== \"TELEGRAM\" && input.channel !== \"TELEGRAM_DIRECT\"",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const outcome = await alertClientWaiting(HANDED_OVER.has(input.why) ? { conversationId: input.conversationId,…",
-             "a": [
-              "зовёт alertClientWaiting()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const chat = direct ? await prisma.telegramDirectConversation.findUnique({ where: { id: input.conversationId …",
-           "a": [
-            "читает в базе: telegramDirectConversation",
-            "читает в базе: telegramConversation"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!chat || chat.client?.deletedAt",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return \"skipped\";",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const recipients = owner ? [owner] : await findAgentsWithPermission(\"messages.view\");",
-           "a": [
-            "зовёт findAgentsWithPermission()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!recipients.length",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void logSystemError(\"telegram\", `Клиент в Telegram ждёт ответа, а уведомить некого (чат ${chat.id}).`, { dedu…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const claimed = await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdA…",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "claimed !== 1",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return \"already\";",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const raw = clientOwnWords(input.text ?? \"\").replace(/\\s+/gu, \" \").trim() || \"[голосовое или вложение без тек…",
-           "a": [
-            "зовёт clientOwnWords()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);",
-           "a": [
-            "зовёт scrubMentionedClientPhonesInText()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await sendPushToAgents(recipients, { kind: \"message\", title: `Ответьте вручную: ${name}`, body: `«${excerpt}»…",
-           "a": [
-            "push-уведомление"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "catch",
-         "t": "если сорвалось",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError(\"ai\", `Уведомление «клиент ждёт человека» не отправлено: ${error instanceof Error ? error…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ],
-       "from": "alertChannelStaff() — apps/api/src/lib/channelStaffAlert.ts"
-      },
-      {
-       "k": "do",
-       "t": "return;",
-       "a": [
-        "дальше не идёт, ничего не меняя"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "do",
      "t": "const phoneKnown = await clientPhoneKnownOrDeleted(conversation.clientId);",
      "a": [
@@ -131526,7 +131370,45 @@
      "a": [
       "зовёт runLegacyQualifyTurn()"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "do",
+       "t": "const result = await runQualifyTurn(history, draft, options);",
+       "a": [
+        "зовёт runQualifyTurn()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "shadow",
+       "a": [],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "scheduleLegacyCoreShadow({ channel: shadow.channel, accountId: options.accountId ?? null, traceAccount: shado…",
+           "a": [
+            "зовёт scheduleLegacyCoreShadow()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "runLegacyQualifyTurn() — apps/api/src/ai/legacyQualifyDoor.ts"
     },
     {
      "k": "if",
@@ -132002,36 +131884,6 @@
      "c": [
       {
        "k": "do",
-       "t": "const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);",
-       "a": [
-        "зовёт customerAgentLegacyChannelKey()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "key && customerAgentChannelMode(key) === \"core\"",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "source.repeat === \"regeneration\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return null;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "do",
        "t": "const result = await runQualifyTurn(history, draft, options);",
        "a": [
         "зовёт runQualifyTurn()"
@@ -132040,7 +131892,7 @@
       },
       {
        "k": "if",
-       "t": "!source.repeat",
+       "t": "shadow",
        "a": [],
        "c": [
         {
@@ -132050,7 +131902,7 @@
          "c": [
           {
            "k": "do",
-           "t": "scheduleLegacyCoreShadow({ channel: source.channel, accountId: options.accountId ?? null, traceAccount: sourc…",
+           "t": "scheduleLegacyCoreShadow({ channel: shadow.channel, accountId: options.accountId ?? null, traceAccount: shado…",
            "a": [
             "зовёт scheduleLegacyCoreShadow()"
            ],

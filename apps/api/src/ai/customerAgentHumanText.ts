@@ -161,12 +161,16 @@ export type CustomerAgentAskKind = typeof CUSTOMER_AGENT_ASK_KINDS[number];
  * is not a phrase and the template goes out.
  *  - `greeting`: only where the template greets (it then replaces that line); no time-of-day greeting (the bot does not know the
  *    customer's hour well enough: «Добрый вечер» at 9 a.m. is worse than «Здравствуйте»);
- *  - `agree` («Хорошо», «Хуб», «Майлаш»): reads as «да», so never when the customer ASKS for something (a discount, a viewing
- *    tomorrow, «можно…?», «мумкин…?») and never next to a refusal;
+ *  - NO agreement phrase at all («Хорошо», «Хуб», «Майлаш»; first live, review #211 round 5): the customer reads it as «да» not only
+ *    after a question or a request but after an offer or an arrangement too («Беру за 900», «Приеду в субботу», «Мегирам», Latin
+ *    «skidku sdelayte»): 40 of 44 such inputs passed the request detector. A phrase with an agreement word is refused by
+ *    humanPhraseMatch whatever its tag, so adding one here later changes nothing (see AGREEMENT below);
+ *  - an acknowledgement («Понял вас.», «Фаҳмидам.», «Мефаҳмам.») alone is dry (tajik-phrasebook do-not-say №7): it goes out only
+ *    in front of a fact line or a question (validateCustomerAgentAnswer, humanPhraseAcknowledges);
  *  - `warm`: never next to a refusal / sold / unavailable / zone line; `neutral`: always;
  *  - `farewell` (close only, «Саломат бошед!»): also after a refusal (tajik-phrasebook: «Прощание после отказа»).
  */
-export type HumanPhraseKind = "greeting" | "neutral" | "warm" | "agree" | "farewell";
+export type HumanPhraseKind = "greeting" | "neutral" | "warm" | "farewell";
 export const HUMAN_PHRASES: Record<"ru" | "tg", Record<"lead" | "close", ReadonlyArray<readonly [string, HumanPhraseKind]>>> = {
   ru: {
     lead: [
@@ -177,8 +181,7 @@ export const HUMAN_PHRASES: Record<"ru" | "tg", Record<"lead" | "close", Readonl
       ["Спасибо, что дождались ответа.", "neutral"], ["Благодарю за терпение.", "neutral"], ["Спасибо за терпение.", "neutral"],
       ["Извините за задержку.", "neutral"], ["Извините, что пришлось ждать.", "neutral"], ["Извините за ожидание.", "neutral"],
       ["Понимаю, это важный вопрос.", "neutral"], ["Вот что могу сказать.", "neutral"], ["Вот информация по вашему вопросу.", "neutral"],
-      ["Рады вашему сообщению.", "warm"], ["С удовольствием расскажу.", "warm"], ["Рады, что вы обратились.", "warm"],
-      ["Хорошо.", "agree"], ["Хорошо, понял вас.", "agree"], ["Хорошо, понимаю вас.", "agree"], ["Хорошо, спасибо.", "agree"],
+      ["Рады вашему сообщению.", "warm"], ["Рады, что вы обратились.", "warm"],
     ],
     close: [
       ["Всего доброго!", "farewell"], ["Всего хорошего!", "farewell"], ["Спасибо!", "farewell"], ["Спасибо за ваш вопрос!", "farewell"],
@@ -193,7 +196,6 @@ export const HUMAN_PHRASES: Record<"ru" | "tg", Record<"lead" | "close", Readonl
       ["Ташаккур, ки ба мо муроҷиат кардед.", "neutral"], ["Ташаккур барои саволатон.", "neutral"], ["Ташаккур барои паёматон.", "neutral"],
       ["Ташаккур барои таваҷҷуҳ.", "neutral"], ["Раҳмат барои сабр.", "neutral"], ["Ташаккур барои сабр.", "neutral"], ["Бубахшед барои таъхир.", "neutral"],
       ["Бубахшед, ки интизор шудед.", "neutral"], ["Инак маълумот.", "neutral"],
-      ["Хуб.", "agree"], ["Хеле хуб.", "agree"], ["Хуб, фаҳмидам.", "agree"], ["Майлаш.", "agree"],
     ],
     close: [
       ["Саломат бошед!", "farewell"], ["Хайр, саломат бошед!", "farewell"], ["Ташаккур, саломат бошед!", "farewell"], ["Раҳмат!", "farewell"],
@@ -204,30 +206,214 @@ export const HUMAN_PHRASES: Record<"ru" | "tg", Record<"lead" | "close", Readonl
 /** Case, «ё», punctuation, spaces and invisible characters only; a hyphen or any other letter stays and breaks the match. */
 const phraseKey = (text: string) => text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").toLowerCase().replace(/ё/gu, "е")
   .replace(/[.,!…«»"':;]/gu, " ").replace(/\s+/gu, " ").trim();
-const PHRASE_INDEX = Object.fromEntries((["ru", "tg"] as const).map(language => [language,
-  Object.fromEntries((["lead", "close"] as const).map(role => [role, new Map(HUMAN_PHRASES[language][role].map(([text, kind]) => [phraseKey(text), kind]))]))])) as
-  Record<"ru" | "tg", Record<"lead" | "close", Map<string, HumanPhraseKind>>>;
-/** The kinds of the 1–2 vetted sentences a lead / close consists of, or null when any sentence is not a vetted phrase. */
-export function humanPhraseKinds(text: string, language: "ru" | "tg", role: "lead" | "close"): HumanPhraseKind[] | null {
-  const sentences = text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").split(/(?<=[.!…])\s+/u).map(part => part.trim()).filter(Boolean);
-  if (!sentences.length || sentences.length > (role === "lead" ? 2 : 1)) return null;
-  const kinds: HumanPhraseKind[] = [];
-  for (const sentence of sentences) {
-    const kind = PHRASE_INDEX[language][role].get(phraseKey(sentence));
-    if (!kind) return null;
-    kinds.push(kind);
-  }
-  return kinds;
+type HumanPhraseList = typeof HUMAN_PHRASES;
+type PhraseIndex = Record<"ru" | "tg", Record<"lead" | "close", Map<string, { text: string; kind: HumanPhraseKind }>>>;
+const phraseIndexOf = (phrases: HumanPhraseList) => Object.fromEntries((["ru", "tg"] as const).map(language => [language,
+  Object.fromEntries((["lead", "close"] as const).map(role => [role, new Map(phrases[language][role].map(([text, kind]) => [phraseKey(text), { text, kind }]))]))])) as PhraseIndex;
+const PHRASE_INDEX = phraseIndexOf(HUMAN_PHRASES);
+/**
+ * The words that read as «да» to whatever the customer said last («Хорошо», «Ладно», «Конечно», «Хуб», «Майлаш», «Бале», «Албатта»).
+ * A phrase carrying one of them is never sent, whatever its tag and whatever the customer wrote: humanPhraseMatch refuses it (review
+ * #211, round 5: the second guard behind the list, so a phrase added to HUMAN_PHRASES later can never slip a «да» through).
+ * Round 6 added the eager forms («С удовольствием!», «Обязательно», «Без проблем», «Принято», «Сделаем», «Қабул шуд», «Бешубҳа»): the
+ * customer reads them as «да» to «Сделаете скидку?» just as well. «Бемалол» is «пожалуйста» in front of a request («Бемалол, рақамро
+ * нависед», «Бемалол бигӯед, …?») and «без проблем» only on its own: only a sentence that is «Бемалол» alone agrees.
+ * Matched in the Tajik fold («ҳа» = «ха»). Not «хайр» («Хайр, саломат бошед!» is a farewell) and not «понял / фаҳмидам» (an
+ * acknowledgement, not consent).
+ */
+// Round 7: «ага» and Latin «ok / okay» too (the last door already cut them; the word checks did not see them).
+const AGREEMENT_SOURCE = `${BW}(?:хорошо|ладно|договорились|конечно|разумеется|непременно|да|ага|ок|окей|ok|okay|согласн${TAIL}|согласен|отлично|можно|` +
+  `с\\s+удовольствием|обязательно|без\\s+проблем|принято|сделаем|` +
+  `хуб|майлаш|бале|ха|албатта|рози|мумкин|мешавад|хоп|хатман|бешубха|кабул\\s+шуд)${EW}`;
+const AGREEMENT = new RegExp(AGREEMENT_SOURCE, "iu");
+const AGREEMENT_ALL = new RegExp(AGREEMENT_SOURCE, "giu");
+const BEMALOL_ALL = new RegExp(`${BW}бемалол${EW}`, "giu");
+const SENTENCE_SPLIT = /(?<=[.!?…])\s+/u;
+export function humanPhraseAgrees(text: string): boolean {
+  const folded = tgFold(lower(text));
+  return AGREEMENT.test(folded) || folded.split(SENTENCE_SPLIT).some(sentence => words(sentence).join(" ") === "бемалол");
 }
 /**
- * The customer ASKS for something an «Хорошо» / «Хуб» would grant (a discount, a viewing, a date, «можно…?», «мумкин…?»): then no
- * agreement-like phrase may open the reply, whatever the template lines say (third review: «Можно скидку?» → «Хорошо.» + price).
+ * The whole text is a «да» and nothing else («Конечно!», «Да.», «Бале.», «Албатта.», «Ҳатман.», «Отлично!», «Договорились.», «Сделаем.»,
+ * «Да, конечно!»): no letter is left once the agreement words are taken out. It states no fact of its own, so the drop reason is
+ * `agree`, not `claim` (review #211, round 7, п.5: 18 of 52 agreement-only phrases were counted as claims). «Да, свободен.» keeps
+ * «свободен» and stays a claim.
  */
-const CUSTOMER_REQUEST = new RegExp(`${BW}(?:можно|можете|могли|могу\\s+ли|дайте|сделайте|давайте|разрешите|скидк${TAIL}|уступ${TAIL}|торг${TAIL}|дешевле|завтра|сегодня|послезавтра|` +
-  `посмотреть|показ${TAIL}|просмотр${TAIL}|запиш${TAIL}|встрет${TAIL}|приехать|прийти|бронь|заброниру${TAIL}|мумкин|мешавад|метавонед|тахфиф|арзон${TAIL}|` +
-  `кам\\s+кунед|диҳед|дихед|пагоҳ|пагох|имрӯз|имруз|фардо|дидан|бинам|бубинам|тамошо|омадан|биёям|сабт)${EW}`, "iu");
-export function customerRequestInText(text: string): boolean {
-  return CUSTOMER_REQUEST.test(text.normalize("NFKC").toLowerCase());
+export function humanPhraseOnlyAgrees(text: string): boolean {
+  const folded = tgFold(lower(text));
+  return /\p{L}/u.test(folded) && !/\p{L}/u.test(folded.replace(AGREEMENT_ALL, " ").replace(BEMALOL_ALL, " "));
+}
+
+/**
+ * THE LAST DOOR FOR THE WHOLE REPLY (review #211, round 6). The template itself said «Хорошо, принято.» / «Хуб, қабул шуд.» after
+ * «Беру», «Приеду», «Мегирам», and the third belt read only the model's words. Every text the core renders (template lines + the
+ * model's words) passes here last: a sentence that OPENS with a consent word loses that opening, a sentence left empty is removed.
+ *  - consent opening a sentence: «Хорошо, …», «Конечно, …», «Хуб, …», «Майлаш», «С удовольствием», «Без проблем», «Принято»…;
+ *  - a bare «да» sentence: «Да.», «Бале.», «Ҳа.», «Можно.», «Мумкин.», «Бемалол.» on its own;
+ *  - NOT a yes that opens a server answer: «Да, объект свободен», «Бале, дар ноҳияи … ҳастанд», «Да, конечно. Расскажите о себе…»
+ *    (the server decided that answer from its facts), and not a consent word inside a sentence («… дода мешавад», «Бемалол, рақамро
+ *    нависед»: «пожалуйста»).
+ * Whatever the customer wrote: the request detector misses offers («Беру», «Приеду», «Мегирам»), so no customer-side condition.
+ * Pure: the core, the renderer and the delivery seal get the same text. `removed`: the sentences that had a consent opening.
+ *
+ * Round 7 (п.2): only a consent word that STANDS ALONE is cut, i.e. a punctuation mark (closing quotes allowed in between) or the end
+ * of the sentence follows it. The door cut the first word whatever followed: «Согласны ли вы на звонок?» → «Ли вы на звонок?»,
+ * «Розӣ ҳастед, ки …?» → «Ҳастед, ки …?», «Хуб аст, ки …» → «Аст, ки …», «Принято считать …» → «Считать …». A word followed by the
+ * next word is part of the sentence, not a «да». A «?» is a question («Хорошо?»), and «Хорошо, что вы написали.» / «Хуб, ки
+ * навиштед.» (a comma, then «что / чтобы / ки / если / агар») say «good that…», not «yes»: both stay.
+ */
+const CONSENT_ALONE = `(?=[»"”’')]*\\s*(?:[.!…:;—–]|,(?!\\s*(?:что|чтобы|ки|если|агар)${EW})|-(?![\\p{L}\\p{N}])|$))`;
+const CONSENT_OPENING = new RegExp(`^(?:хорошо|ладно|договорились|конечно|разумеется|непременно|ок|окей|ok|okay|согласен|согласна|согласны|отлично|` +
+  `с\\s+удовольствием|обязательно|без\\s+проблем|принято|сделаем|хеле\\s+хуб|хуб|майлаш|хоп|рози|албатта|хатман|бешубха|кабул\\s+шуд)${EW}${CONSENT_ALONE}`, "iu");
+const BARE_YES = new Set(["да", "ага", "ха", "бале", "можно", "мумкин", "мешавад", "бемалол"]);
+function withoutConsentOpening(sentence: string): string {
+  let rest = sentence;
+  for (;;) {
+    const start = rest.replace(/^[^\p{L}\p{N}]+/u, ""), body = start.normalize("NFKC");
+    // `lower` / `tgFold` keep the length of Cyrillic and Latin letters, so the match length cuts the text. The original text is cut
+    // when its opening normalizes to the same letters, so the rest keeps its own characters («м²» stays «м²», review #211 round 7 п.7).
+    const opening = CONSENT_OPENING.exec(tgFold(lower(body)));
+    if (opening) {
+      const length = opening[0].length, source = start.slice(0, length).normalize("NFKC") === body.slice(0, length) ? start : body;
+      rest = source.slice(length).replace(/^[^\p{L}\p{N}]+/u, "");
+      continue;
+    }
+    // A number keeps the sentence: «Можно: {список}» lists the options (review #211, round 7: the CI guard over all literals found it).
+    const own = words(body);
+    return own.length && !/\p{N}/u.test(body) && own.every(word => BARE_YES.has(tgFold(word))) ? "" : rest;
+  }
+}
+export function withoutAgreementOpenings(text: string): { text: string; removed: string[] } {
+  const removed: string[] = [], lines: string[] = [];
+  for (const line of text.split("\n")) {
+    let changed = false;
+    const kept = line.split(SENTENCE_SPLIT).flatMap(sentence => {
+      const rest = withoutConsentOpening(sentence);
+      if (rest === sentence) return [sentence];
+      changed = true;
+      removed.push(sentence.trim());
+      return /\p{L}/u.test(rest) ? [rest.charAt(0).toLocaleUpperCase("ru") + rest.slice(1)] : [];
+    });
+    if (!changed) lines.push(line);
+    else if (kept.length) lines.push(kept.join(" "));
+  }
+  return { text: removed.length ? lines.join("\n") : text, removed };
+}
+
+// ── one meaning once (review #211, round 6) ─────────────────────────────────────────────────────────────────────────────
+/** The meaning groups of the vetted phrases: never two of one group in a reply («Понял вас. Поняла вас.», «Раҳмат! Ташаккур!»). */
+export type HumanPhraseGroup = "thanks" | "understood" | "greeting" | "apology";
+const PHRASE_GROUPS: ReadonlyArray<readonly [HumanPhraseGroup, RegExp]> = [
+  ["thanks", new RegExp(`${BW}(?:спасибо|благодар${TAIL}|рахмат${TAIL}|ташаккур${TAIL}|миннатдор${TAIL}|сипос)${EW}`, "iu")],
+  ["understood", new RegExp(`${BW}(?:понял${TAIL}|поняла|понимаю|ясно|фахмидам|мефахмам|фахмо)${EW}`, "iu")],
+  ["greeting", new RegExp(`${BW}(?:здравствуйте|добрый\\s+(?:день|вечер)|доброе\\s+утро|привет${TAIL}|ассалому|ваалайкум|салом|хуш\\s+омадед)${EW}`, "iu")],
+  ["apology", new RegExp(`${BW}(?:извин${TAIL}|простите|бубахшед|мебахшед|узр)${EW}`, "iu")],
+];
+export function humanPhraseGroups(sentence: string): HumanPhraseGroup[] {
+  const folded = tgFold(lower(sentence));
+  return PHRASE_GROUPS.filter(([, pattern]) => pattern.test(folded)).map(([group]) => group);
+}
+/**
+ * The spoken human sentences of one reply, in order, break «one meaning once»: a group twice («Спасибо!» … «Спасибо!», «Понял вас.
+ * Поняла вас.», «Раҳмат! Ташаккур!», «Извините за задержку. Извините за ожидание.») or a greeting that is not the first sentence
+ * («Спасибо! Здравствуйте!»). A sentence of two groups («Понял, спасибо.») uses both.
+ */
+export function humanPhrasesClash(sentences: readonly string[]): boolean {
+  const seen = new Set<HumanPhraseGroup>();
+  for (const [index, sentence] of sentences.entries()) {
+    for (const group of humanPhraseGroups(sentence)) {
+      if (seen.has(group) || group === "greeting" && index > 0) return true;
+      seen.add(group);
+    }
+  }
+  return false;
+}
+/**
+ * The 1–2 vetted sentences a lead / close consists of: their kinds and the CANONICAL text (the list's own spelling, case and
+ * punctuation), or null when any sentence is not a vetted phrase. The canonical text is what goes out, never the model's string:
+ * «СПАСИБО ЗА ТЕРПЕНИЕ», «понимаю вас» are matched as a whole phrase and sent as «Спасибо за терпение.» / «Понимаю вас.»
+ * (review #211, round 4, п.2: the check compared a key and the reply carried the raw text).
+ * Also null (review #211, round 5):
+ *  - a phrase with an agreement word (AGREEMENT), even a listed one: «Хорошо.» reads as «да» to an offer as much as to a request;
+ *  - the same phrase twice («Спасибо! Спасибо!», «Хуб. Хуб.», «Понимаю вас. Понимаю вас.»): it went out as typed before.
+ * `phrases` is for the test that adds an agreement phrase to a copy of the list (the guard must hold for a list edited later).
+ */
+export function humanPhraseMatch(text: string, language: "ru" | "tg", role: "lead" | "close", phrases?: HumanPhraseList): { kinds: HumanPhraseKind[]; text: string } | null {
+  const index = phrases ? phraseIndexOf(phrases) : PHRASE_INDEX;
+  const sentences = text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").split(/(?<=[.!…])\s+/u).map(part => part.trim()).filter(Boolean);
+  if (!sentences.length || sentences.length > (role === "lead" ? 2 : 1)) return null;
+  const kinds: HumanPhraseKind[] = [], canonical: string[] = [];
+  for (const sentence of sentences) {
+    const found = index[language][role].get(phraseKey(sentence));
+    if (!found || humanPhraseAgrees(found.text) || canonical.includes(found.text)) return null;
+    kinds.push(found.kind);
+    canonical.push(found.text);
+  }
+  // One meaning once and a greeting only first (round 6): «Понял вас. Поняла вас.», «Раҳмат! Ташаккур!», «Спасибо! Здравствуйте!».
+  if (humanPhrasesClash(canonical)) return null;
+  return { kinds, text: canonical.join(" ") };
+}
+/** The same sentence or the same meaning twice in one part («Спасибо! Спасибо!», «Хуб. Хуб.», «Понял вас. Поняла вас.», «Раҳмат!
+ * Ташаккур!»), whatever the case and punctuation: the reason «repeat». A greeting in the second place is not a repeat (vocabulary). */
+export function humanPhraseRepeats(text: string): boolean {
+  const sentences = text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").split(/(?<=[.!…])\s+/u).filter(part => phraseKey(part));
+  const keys = sentences.map(phraseKey);
+  if (new Set(keys).size < keys.length) return true;
+  const groups = sentences.flatMap(sentence => humanPhraseGroups(sentence));
+  return new Set(groups).size < groups.length;
+}
+/** The vetted sentences of a canonical lead / close, one per phrase (the split humanPhraseMatch uses). */
+export function humanPhraseSentences(text: string): string[] {
+  return text.split(/(?<=[.!…])\s+/u).map(part => part.trim()).filter(Boolean);
+}
+/**
+ * «Понял вас.», «Понимаю вас.», «Ясно, спасибо.», «Фаҳмидам.», «Мефаҳмам.»: an acknowledgement. Alone it is a dry filler
+ * (tajik-phrasebook do-not-say №7), so it goes out only in front of a fact line or a question (validateCustomerAgentAnswer).
+ */
+const ACKNOWLEDGE = new RegExp(`${BW}(?:понял${TAIL}|поняла|понимаю|ясно|фахмидам|мефахмам|фахмо)${EW}`, "iu");
+export function humanPhraseAcknowledges(text: string): boolean {
+  return ACKNOWLEDGE.test(tgFold(lower(text)));
+}
+/** The kinds of the 1–2 vetted sentences a lead / close consists of, or null when any sentence is not a vetted phrase. */
+export function humanPhraseKinds(text: string, language: "ru" | "tg", role: "lead" | "close"): HumanPhraseKind[] | null {
+  return humanPhraseMatch(text, language, role)?.kinds ?? null;
+}
+
+/**
+ * The customer ASKS or REQUESTS something (review #211, round 4: the class, not a list of request words). Since round 5 no agreement
+ * phrase goes out at all (humanPhraseMatch, and the answer verdict once more), so nothing calls this now; it stays, with its tests, as
+ * the gate any future «Хорошо» must pass together with a whitelist by meaning (the customer answered OUR question). Before round 5 no
+ * agreement phrase could open the reply: «Цену снизите?», «Последняя цена?», «Покажете 123?», «Ипотека есть?», «Насия ҳаст?» → «Хорошо.» + the price
+ * line reads as «да». A message is asking when it has
+ *  - a question mark (any script);
+ *  - a question word or particle: ru «ли», «как», «что», «сколько», «разве»…; tg «оё», «чӣ», «чанд», «кай», «куҷо», «магар», the
+ *    question suffix «-ми» («ҳастми», «мешавадми») and «ҳаст» closing the message («Насия ҳаст»);
+ *  - an imperative or a «вы»-form verb addressed to the agency: ru «покажите», «скиньте», «снизите», «покажете»; tg «диҳед», «кунед»,
+ *    «мекунед», «нишон деҳ», «бидеҳ», «бигӯ»;
+ *  - a request word: «можно», «мумкин», «мешавад», a discount, a viewing, a date, a booking, a mortgage or instalments, documents, the
+ *    final price.
+ * Over-matching only costs the agreement phrase (a neutral lead still goes out); under-matching sends a false «да». Matched in the
+ * Tajik fold, so «хуччат», «дихед», «насия хаст» are the same words as «ҳуҷҷат», «диҳед», «насия ҳаст».
+ */
+const ASK_MARK = /[?？؟¿]/u;
+const QUESTION_WORD = new RegExp(`${BW}(?:ли|разве|неужели|как${TAIL}|каков${TAIL}|сколько|где|куда|откуда|когда|почему|зачем|что|чем|чей|чья|чье|кто|` +
+  // Tajik (folded): «кӣ» folds into «ки», the conjunction «ки» («Раҳмат, ки навиштед»), so «who» is left to the question mark.
+  // The suffix «-ми» follows a consonant («ҳастми», «доредми»); Russian «-ами / -ями / -ьми / всеми» never is a question.
+  `оё|ое|чи|чанд${TAIL}|кай|кучо|чаро|кадом${TAIL}|магар|ми|\\p{L}+[бвгджзйклмнпрстфхцчшщ]ми)${EW}|${BW}хаст\\s*[.!…]*\\s*$`, "iu");
+/** Words that end like a «вы»-verb or an imperative but ask nothing: «в бюджете», «на сайте», «Здравствуйте», «Извините», «Бубахшед»,
+ * and the Tajik past «-ед» («навиштед», «кардед», «гуфтед», «омадед»: «you wrote / did / said / came»). */
+const NOT_VERB = new RegExp(`^(?:бюдж|пак|кабин|компл|секр|предм|интерн|бил|парк|сов|отв|прив|цв|св|ракет|квартет)ете$|^(?:сайте|граните|элите|сосед|обед|след|вред|дед|плед|сафед|умед|здравствуйте|здраствуйте|извините|простите|бубахшед)$|(?:шт|рд|фт|ид|ад|од)ед$`, "iu");
+const VERB_TO_US = new RegExp(`${BW}(?:\\p{L}{2,}(?:ите|йте|ьте|ете|ед)|давай${TAIL}|покажи|скинь|дай|сделай|отложи|оставь|скажи|подскажи|напиши|позвони|` +
+  `бидех|бигу|бифирист)${EW}|${BW}(?:нишон\\s+дех|кам\\s+кун)${EW}`, "giu");
+const REQUEST_WORD = new RegExp(`${BW}(?:можно|могу|могли|мумкин|мешавад${TAIL}|метавон${TAIL}|разрешите|скидк${TAIL}|уступ${TAIL}|торг${TAIL}|дешевле|подешевл${TAIL}|` +
+  `сниз${TAIL}|сбав${TAIL}|последн${TAIL}|окончательн${TAIL}|охирин|завтра|сегодня|послезавтра|посмотреть|смотр${TAIL}|показ${TAIL}|покаж${TAIL}|просмотр${TAIL}|` +
+  `запиш${TAIL}|встрет${TAIL}|приехать|прийти|брон${TAIL}|заброниру${TAIL}|резерв${TAIL}|отлож${TAIL}|ипотек${TAIL}|рассроч${TAIL}|кредит${TAIL}|насия${TAIL}|карз${TAIL}|` +
+  `документ${TAIL}|хуччат${TAIL}|хучат${TAIL}|тахфиф${TAIL}|арзон${TAIL}|кам\\s+(?:мекун|кун)${TAIL}|дихед|пагох|имруз|фардо|дидан|бинам|бубинам|тамошо|омадан|биёям|биеям|сабт${TAIL})${EW}`, "iu");
+export function customerAsksOrRequests(text: string): boolean {
+  const own = tgFold(lower(text));
+  if (!own.trim()) return false;
+  if (ASK_MARK.test(own) || QUESTION_WORD.test(own) || REQUEST_WORD.test(own)) return true;
+  return [...own.matchAll(VERB_TO_US)].some(([word]) => !NOT_VERB.test(word));
 }
 
 /**
@@ -256,10 +442,10 @@ export const APPROVED_ASKS: Record<"ru" | "tg", Record<CustomerAgentAskKind, rea
   },
 };
 const askKey = (text: string) => text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").toLowerCase().replace(/ё/gu, "е").replace(/[.,!«»"':;]/gu, " ").replace(/\s+/gu, " ").replace(/\s+\?/gu, "?").trim();
-const ASK_INDEX = new Map<string, { kind: CustomerAgentAskKind; language: "ru" | "tg" }>((["ru", "tg"] as const).flatMap(language =>
+const ASK_INDEX = new Map<string, { kind: CustomerAgentAskKind; language: "ru" | "tg"; text: string }>((["ru", "tg"] as const).flatMap(language =>
   (Object.entries(APPROVED_ASKS[language]) as [CustomerAgentAskKind, readonly string[]][]).flatMap(([kind, list]) =>
-    list.map(text => [askKey(text), { kind, language }] as const))));
-/** The kind of an approved question wording (any punctuation inside, one «?» at the end), or null. */
-export function approvedAsk(text: string): { kind: CustomerAgentAskKind; language: "ru" | "tg" } | null {
+    list.map(text => [askKey(text), { kind, language, text }] as const))));
+/** The kind and the CANONICAL wording (sent instead of the model's string) of an approved question (one «?» at the end), or null. */
+export function approvedAsk(text: string): { kind: CustomerAgentAskKind; language: "ru" | "tg"; text: string } | null {
   return /[?]\s*$/u.test(text) && (text.match(/[?]/gu)?.length ?? 0) === 1 ? ASK_INDEX.get(askKey(text)) ?? null : null;
 }

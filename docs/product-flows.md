@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **763**. Развилок в самих путях: **2472**; вместе с задачами по расписанию и фоновыми заданиями — **4034**. Модулей: **86**.
+Путей: **763**. Развилок в самих путях: **2472**; вместе с задачами по расписанию и фоновыми заданиями — **4027**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -8843,7 +8843,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
     · ответ 400 — «Неверные параметры»
-- res.json(await findSegments(parsed.data));
+- res.json(await findSegmentsCached(parsed.data));
   · ответ 200
 
 ## /api/v1/market/matches
@@ -14654,6 +14654,8 @@
 
 - const reports = await prisma.monthlyReport.findMany({ orderBy: { periodStart: "desc" }, take: 12, include: { …
   · читает в базе: monthlyReport
+- const live = can(req, "finance.view") ? await liveMonthlyMoneyMap(reports.map((r)
+  · зовёт liveMonthlyMoneyMap()
 - res.json(await Promise.all(reports.map((r)
   · ответ 200
 
@@ -25359,6 +25361,12 @@
   - если salaries
     - console.log(`[cron] Зарплатных строк обновлено: ${salaries}`);
       · пишет строку в журнал сервера
+- await step("Курс закрытого месяца не закреплён", "api", async ()
+  - const frozen = await freezeClosedAutoExpenseRates();
+    · зовёт freezeClosedAutoExpenseRates()
+  - если frozen
+    - console.log(`[cron] Курс закреплён у ${frozen} строк закрытого месяца`);
+      · пишет строку в журнал сервера
 
 ### tomorrow-digest — 0 18 * * *
 
@@ -27126,16 +27134,11 @@
     - если intake.role === "unknown" && own.some(text => /(?:ваканси|резюме|ҷойи\s+кор|ищу\s+работу)/iu.test(text))
       - return { status: "denied", reason: "recruitment_intake_separate" };
         · дословно из кода
-    - const location: ReturnType<typeof customerIntakeLocation> = customerIntakeLocationEnabled() ? customerIntakeL…
-      · зовёт customerIntakeLocationEnabled()
     - для каждого: const text of [...own].reverse()
-      - если zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000
+      - если requirementsNotes.length + text.length + 1 <= 4000
         - requirementsNotes = text + (requirementsNotes ? "\n" + requirementsNotes : "");
           · дословно из кода
-    - если zoneNote
-      - requirementsNotes = zoneNote + (requirementsNotes ? "\n" + requirementsNotes : "");
-        · дословно из кода
-    - const baseContext: CustomerIntakeContext = { version: 1, kind: location.locationOutsideDushanbe ? "OTHER" : i…
+    - const baseContext: CustomerIntakeContext = { version: 1, kind: intake.role === "buyer" ? "BUYER" : intake.rol…
       · зовёт isWithinWorkingHours()
     - const context: CustomerIntakeContext = { ...(intake.role === "buyer" ? deriveOwnBuyerPreferences(own) : {}), …
       · зовёт deriveOwnBuyerPreferences()
@@ -29104,43 +29107,6 @@
 - если !(await isTelegramDirectMessagesEnabled())
   - return;
     · дальше не идёт, ничего не меняя
-- если !telegramDirectBotReplyEnabled()
-  - await alertChannelStaff({ channel: "TELEGRAM_DIRECT", conversationId: conversation.id, text: typeof lastUser?…
-    · зовёт alertChannelStaff()
-    - пробует
-      - если !input.conversationId
-        - return "skipped";
-          · дословно из кода
-      - если input.channel !== "TELEGRAM" && input.channel !== "TELEGRAM_DIRECT"
-        - const outcome = await alertClientWaiting(HANDED_OVER.has(input.why) ? { conversationId: input.conversationId,…
-          · зовёт alertClientWaiting()
-      - const chat = direct ? await prisma.telegramDirectConversation.findUnique({ where: { id: input.conversationId …
-        · читает в базе: telegramDirectConversation
-        · читает в базе: telegramConversation
-      - если !chat || chat.client?.deletedAt
-        - return "skipped";
-          · дословно из кода
-      - const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
-        · зовёт findAgentsWithPermission()
-      - если !recipients.length
-        - void logSystemError("telegram", `Клиент в Telegram ждёт ответа, а уведомить некого (чат ${chat.id}).`, { dedu…
-          · запись в журнал ошибок
-      - const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdA…
-        · обращается к базе своим SQL
-      - если claimed !== 1
-        - return "already";
-          · дословно из кода
-      - const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[голосовое или вложение без тек…
-        · зовёт clientOwnWords()
-      - const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
-        · зовёт scrubMentionedClientPhonesInText()
-      - await sendPushToAgents(recipients, { kind: "message", title: `Ответьте вручную: ${name}`, body: `«${excerpt}»…
-        · push-уведомление
-    - если сорвалось
-      - void logSystemError("ai", `Уведомление «клиент ждёт человека» не отправлено: ${error instanceof Error ? error…
-        · запись в журнал ошибок
-  - return;
-    · дальше не идёт, ничего не меняя
 - const phoneKnown = await clientPhoneKnownOrDeleted(conversation.clientId);
   · зовёт clientPhoneKnownOrDeleted()
   - если !clientId
@@ -29177,6 +29143,13 @@
   · зовёт botAbilitiesOf()
 - const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…
   · зовёт runLegacyQualifyTurn()
+  - const result = await runQualifyTurn(history, draft, options);
+    · зовёт runQualifyTurn()
+  - если shadow
+    - пробует
+      - scheduleLegacyCoreShadow({ channel: shadow.channel, accountId: options.accountId ?? null, traceAccount: shado…
+        · зовёт scheduleLegacyCoreShadow()
+    - если сорвалось
 - если !result
   - throw new Error("ИИ всё ещё недоступен");
     · ошибка Error — «ИИ всё ещё недоступен»
@@ -29278,17 +29251,11 @@
   · зовёт botAbilitiesOf()
 - const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…
   · зовёт runLegacyQualifyTurn()
-  - const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);
-    · зовёт customerAgentLegacyChannelKey()
-  - если key && customerAgentChannelMode(key) === "core"
-    - если source.repeat === "regeneration"
-      - return null;
-        · дословно из кода
   - const result = await runQualifyTurn(history, draft, options);
     · зовёт runQualifyTurn()
-  - если !source.repeat
+  - если shadow
     - пробует
-      - scheduleLegacyCoreShadow({ channel: source.channel, accountId: options.accountId ?? null, traceAccount: sourc…
+      - scheduleLegacyCoreShadow({ channel: shadow.channel, accountId: options.accountId ?? null, traceAccount: shado…
         · зовёт scheduleLegacyCoreShadow()
     - если сорвалось
 - если !result

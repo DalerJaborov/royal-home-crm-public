@@ -223,13 +223,16 @@ export function traceCustomerCoreResult(result: { status: "ready" | "held"; deci
   /** Verdict of the model's free phrase; the phrase itself never reaches the trace. */
   say?: { status: "absent" | "used" | "dropped"; reason?: string };
   /** Verdict of the model's whole reply (one-brain step 1); the text itself never reaches the trace. */
-  answer?: { status: "absent" | "used" | "dropped"; reason?: string } }): void {
+  answer?: { status: "absent" | "used" | "dropped"; reason?: string };
+  /** The answer mode this turn ran in (CUSTOMER_AGENT_ANSWER_MODE narrowed by CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS). */
+  answerMode?: "off" | "shadow" | "live" }): void {
   observe(ctx => {
     if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning" && ctx.payload.managed.phase !== "shadow" &&
       ctx.payload.managed.phase !== "channel") return;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ status: result.status,
       ...(result.say ? { sayStatus: result.say.status, ...(result.say.status === "dropped" ? { sayDropReason: result.say.reason } : {}) } : {}),
       ...(result.answer ? { answerStatus: result.answer.status, ...(result.answer.status === "dropped" ? { answerDropReason: result.answer.reason } : {}) } : {}),
+      ...(result.answerMode ? { answerMode: result.answerMode } : {}),
       ...(result.status === "ready" && result.decision ? { decisionKind: result.decision.kind } : {}),
       rounds: result.rounds, toolCalls: result.toolCalls,
       receiptOutcomes: [...new Set(result.evidence.filter(e => e.value.kind === "receipt").map(e => e.value.outcome))],

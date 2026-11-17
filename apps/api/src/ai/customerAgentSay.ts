@@ -2,7 +2,7 @@ import type { CustomerAgentSayDropReason, CustomerAgentSurface, CustomerAgentVer
 import { clientOwnWords } from "./untrustedContent.js";
 import { detectClientLanguage } from "./clientLanguage.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
-import { informalAddress, foreignLanguageWord, SERVICE_CLAIM_SOURCE } from "./customerAgentHumanText.js";
+import { informalAddress, foreignLanguageWord, SERVICE_CLAIM_SOURCE, humanPhraseAgrees, humanPhraseOnlyAgrees, withoutAgreementOpenings } from "./customerAgentHumanText.js";
 
 /**
  * GROUNDED FREE-PHRASE CHANNEL (`say`) — the only model-written words a customer can read (plan 24.10.2026, section 3).
@@ -45,6 +45,7 @@ export const CUSTOMER_AGENT_SAY_GUIDANCE = `Единственное исклю�
 - без цифр, сумм, дат, дней недели, сроков, контактов, ссылок и @; без названий мест, которых клиент сам не писал;
 - без обещаний и будущих действий («позвоним», «уточню», «проверю», «запишу», «подберу»);
 - без вопросов и просьб что-то написать или прислать: вопрос задаёт сервер; без знака «?» и без слов как (и любых на «как»: какой, какая, каким), ${SAY_ASKING_WORDS_RU.join(", ")}, не подскажете — сервер отбрасывает фразу с любым из них, даже в обычном обороте («как важно», «какая квартира» тоже);
+- без слов согласия («Хорошо», «Конечно», «Да», «Ладно», «Договорились», «Хуб», «Майлаш», «Бале»): клиент прочтёт их как «да» на свою просьбу или предложение;
 - без слов «я бот», «ИИ», CRM, «инструмент», refs; не повторяй факты и слова клиента подряд;
 - не здоровайся в say и не повторяй прежние реплики.
 Сервер принимает say целиком или отбрасывает целиком и не правит; сомневаешься в фразе — не пиши say, ответ уйдёт по шаблону.
@@ -176,6 +177,8 @@ export function validateCustomerAgentSay(input: CustomerAgentSayInput): Customer
   if (text.length < 2 || text.length > SAY_MAX_CHARS || sentenceCount(text) > SAY_MAX_SENTENCES) return bad("length");
   const folded = fold(text);
   if (QUESTION_MARK.test(text) || ASKING.test(folded)) return bad("question");
+  // Only a «да» («Конечно!», «Да.», «Хорошо.»): its own reason before the fact checks read «да» as a claim (review #211, round 7, п.5).
+  if (humanPhraseOnlyAgrees(text)) return bad("agree");
   if (/\p{Nd}/u.test(text) || NUMBER_WORDS.test(folded) || CURRENCY.test(folded) || MONTHS.test(folded) || WEEKDAYS.test(folded) || RELATIVE_TIME.test(folded)) return bad("number_or_date");
   if (META.test(folded)) return bad("meta");
   if (CONTACT.test(folded)) return bad("contact");
@@ -200,6 +203,11 @@ export function validateCustomerAgentSay(input: CustomerAgentSayInput): Customer
   const unlocked = [callUnlocked ? CALL_PROMISE : null, saveUnlocked ? SAVE_PROMISE : null]
     .reduce((value, pattern) => pattern ? value.replace(new RegExp(pattern.source, "giu"), " ") : value, folded);
   if (SERVICE_CLAIM.test(unlocked)) return bad("fact_claim");
+  // An agreement word anywhere («Хорошо, понимаю вас.»), or anything the last door would cut: refused HERE, as in the `answer` channel
+  // (review #211, round 7, п.3). Before, the phrase passed and the renderer's last door cut it and wrote the error journal on every new
+  // wording of the model (a new dedup key each time, a push to the directors). A model word is the model's mistake: a counter
+  // (`say_dropped_agree`), never the journal; the journal is only for a server TEMPLATE line the door had to cut.
+  if (humanPhraseAgrees(text) || withoutAgreementOpenings(text).removed.length) return bad("agree");
   const key = comparable(text);
   if ((input.priorAssistantTurns ?? []).some(turn => key && comparable(turn).includes(key))) return bad("repeat");
   if ((input.social === "greet" || (input.priorAssistantTurns?.length ?? 0) > 0) && GREETING.test(folded)) return bad("double_greet");

@@ -2,7 +2,7 @@ import type { AdPlatform, ClientSource } from "../../generated/prisma/client.js"
 import { prisma } from "../../db.js";
 import { describeError } from "../describeError.js";
 import { centsToTjs, fromCents, loadMoneyContext, toCents } from "../money.js";
-import { dushanbeWallClock } from "../dushanbeTime.js";
+import { dushanbeMonthRange, dushanbeWallClock } from "../dushanbeTime.js";
 import { logSystemError } from "../systemError.js";
 import { warnManualOverlapsForAuto } from "../expenseAutoOverlap.js";
 import { AI_ESTIMATE_VENDORS, aiEstimateNote, splitAiEstimate } from "@royal-home/shared";
@@ -56,6 +56,8 @@ const PLATFORM_LABEL: Record<AdPlatform, string> = {
  * лидов, своя стоимость лида) заработает само.
  */
 const SYNCED_PLATFORMS: AdPlatform[] = ["META"];
+/** Тот же список для «Пульса» (дневной расход по площадкам). */
+export const SYNCED_AD_PLATFORMS: readonly AdPlatform[] = SYNCED_PLATFORMS;
 
 /** «2026-08» → первый день месяца (UTC) — так месяц хранит Expense (см. routes/expenses.ts). */
 function monthToDate(month: string): Date {
@@ -142,12 +144,14 @@ export async function upsertAiExpenses(months: string[]): Promise<number> {
   let touched = 0;
   for (const month of months) {
     const from = monthToDate(month);
-    const to = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
+    // Обращения месяца — по Душанбе (аудит денег 17.11): по UTC последние 5 часов месяца уходили в
+    // следующий, а после 1-го числа прошлый месяц не пересчитывается — хвост терялся навсегда.
+    const range = dushanbeMonthRange(month);
 
     const [groups, bills] = await Promise.all([
       prisma.aiLog.groupBy({
         by: ["provider", "model"],
-        where: { createdAt: { gte: from, lt: to }, costUsd: { not: null } },
+        where: { createdAt: { gte: range.from, lt: range.to }, costUsd: { not: null } },
         _sum: { costUsd: true },
       }),
       // Настоящие счета и подписки поставщиков ИИ за месяц: ручные и из шаблонов, не в корзине.
@@ -181,6 +185,9 @@ export async function upsertAiExpenses(months: string[]): Promise<number> {
   return touched;
 }
 
+/** Сумма для записи в базу — ровно два знака строкой (аудит денег 17.11: в базе 76.65000000000001). */
+const moneyString = (amount: number) => (toCents(amount) / 100).toFixed(2);
+
 async function upsertAutoExpense(row: {
   autoKey: string;
   month: Date;
@@ -197,8 +204,17 @@ async function upsertAutoExpense(row: {
     });
 
     // Человек удалил строку — не воскрешаем и не трогаем. Человек поправил сумму — тоже (аудит №4:
-    // ночной пересчёт откатывал правку директора; найдено ревью 17.11 рядом).
-    if (existing?.deletedAt || existing?.manualEditedAt) return false;
+    // ночной пересчёт откатывал правку директора; найдено ревью 17.11 рядом). Расхождение ручной
+    // суммы с источником — в журнал ошибок раз в неделю: директор видит, что кабинет насчитал другое.
+    if (existing?.deletedAt) return false;
+    if (existing?.manualEditedAt) {
+      if (toCents(existing.amount) !== toCents(row.amount)) {
+        void logSystemError("ads", `Строка ${row.autoKey} правлена вручную: по источнику ${fromCents(toCents(row.amount))} ${row.currency}, в строке оставлена ручная сумма ${Number(existing.amount)} ${existing.currency}`, {
+          dedupKey: `auto-vs-manual:${row.autoKey}`, dedupWindowMs: 7 * 86_400_000,
+        });
+      }
+      return false;
+    }
 
     // Нулевой расход не заводим: пустая строка «0 с.» в Финансах — шум. Но если
     // строка уже есть (расход был, потом Meta пересчитала в ноль) — обновляем.
@@ -214,14 +230,14 @@ async function upsertAutoExpense(row: {
       // Текст строки ИИ говорит, какой поставщик не посчитан (счёт есть) — обновляется вместе с суммой.
       const noteChanged = row.autoKey.startsWith("ai:") && existing.note !== row.note;
       if (toCents(existing.amount) === toCents(row.amount) && existing.currency === currency && !noteChanged) return false;
-      await prisma.expense.update({ where: { id: existing.id }, data: { amount: row.amount, currency, ...(noteChanged ? { note: row.note } : {}) } });
+      await prisma.expense.update({ where: { id: existing.id }, data: { amount: moneyString(row.amount), currency, ...(noteChanged ? { note: row.note } : {}) } });
       return true;
     }
     await prisma.expense.create({
       data: {
         autoKey: row.autoKey,
         month: row.month,
-        amount: row.amount,
+        amount: moneyString(row.amount),
         currency: row.currency === "TJS" ? "TJS" : "USD",
         category: row.category,
         source: row.source,

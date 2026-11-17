@@ -16,10 +16,10 @@
   "paths": 763,
   "cron": 136,
   "jobs": 33,
-  "conditions": 4018,
-  "untranslatedUnique": 465,
-  "untranslatedTotal": 597,
-  "partialUnique": 1091,
+  "conditions": 4011,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 595,
+  "partialUnique": 1088,
   "translatedShare": 85
  },
  "untranslated": [
@@ -134,7 +134,6 @@
   "!state?.sourceStopped || (state.requestLeaseUntil && state.requestLeaseUntil > new Date())",
   "!target.success || !intents.success || target.data.inquiryId !== row.inquiryId || target.data.nativeId !== ro…",
   "!task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt || task.decl…",
-  "!telegramDirectBotReplyEnabled()",
   "!text.trim()",
   "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
@@ -344,7 +343,6 @@
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
   "items.some((i) => i.propertyId === req.params.id)",
-  "key && customerAgentChannelMode(key) === \"core\"",
   "key.startsWith(\"client:\")",
   "key.startsWith(\"td_\")",
   "lastAlertDay === today",
@@ -424,6 +422,7 @@
   "req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" && (client.assignmentCompletedAt || client.dele…",
   "request?.kind !== \"PRICE_CHANGE\" || request.status !== \"PENDING\" || readPriceUndoGuard(request.payload)?.assi…",
   "requestedTail !== phoneTail(client.phone)",
+  "requirementsNotes.length + text.length + 1 <= 4000",
   "rest.phone !== undefined && rest.phone !== target.phone",
   "rest.phone && rest.phone !== existing.phone",
   "rest.role !== undefined && rest.role !== target.role",
@@ -486,8 +485,7 @@
   "wall.getUTCDay() !== settings.digestWeekday",
   "wall.getUTCHours() !== settings.digestHourDushanbe",
   "workStart === workEnd",
-  "youtubeRefreshToken && !skip.has(\"YOUTUBE\") && params.localVideoPath.startsWith(\"/uploads/\")",
-  "zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000"
+  "youtubeRefreshToken && !skip.has(\"YOUTUBE\") && params.localVideoPath.startsWith(\"/uploads/\")"
  ],
  "unknownCalls": [
   "GET /api/v1/properties/:x/group-share/:x/done — адрес есть, но другим способом"
@@ -75575,6 +75573,19 @@
        "c": []
       }
      ]
+    },
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если есть frozen",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
     }
    ]
   },
@@ -79018,20 +79029,14 @@
          "a": [],
          "c": [
           {
-           "t": "если zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000",
+           "t": "если requirementsNotes.length + text.length + 1 <= 4000",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000",
+           "raw": "requirementsNotes.length + text.length + 1 <= 4000",
            "more": true
           }
          ]
-        },
-        {
-         "t": "если есть zone заметка",
-         "k": "if",
-         "a": [],
-         "c": []
         }
        ]
       },
@@ -83011,82 +83016,6 @@
      "c": []
     },
     {
-     "t": "если !telegramDirectBotReplyEnabled()",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "внутри этого шага",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "пробует сделать",
-         "k": "try",
-         "a": [],
-         "c": [
-          {
-           "t": "если нет: переписка",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если канал не «TELEGRAM» и канал не «TELEGRAM_DIRECT»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если нет: чат или есть удалён at",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если нет: recipients количество",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если claimed не «1»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "push-уведомление",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "если не получилось",
-         "k": "catch",
-         "a": [],
-         "c": [
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ],
-     "raw": "!telegramDirectBotReplyEnabled()"
-    },
-    {
      "t": "внутри этого шага",
      "k": "do",
      "a": [],
@@ -83146,6 +83075,32 @@
        "k": "catch",
        "a": [],
        "c": []
+      }
+     ]
+    },
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если есть shadow",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -83351,21 +83306,7 @@
      "a": [],
      "c": [
       {
-       "t": "если key && customerAgentChannelMode(key) === \"core\"",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если repeat — «regeneration»",
-         "k": "if",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "key && customerAgentChannelMode(key) === \"core\""
-      },
-      {
-       "t": "если нет: repeat",
+       "t": "если есть shadow",
        "k": "if",
        "a": [],
        "c": [

@@ -6,7 +6,7 @@ import { Router, type Request } from "express";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
-import type { Prisma, Property } from "../../generated/prisma/client.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import {
   bulkTrashPropertiesSchema,
   propertyCreateSchema,
@@ -22,7 +22,7 @@ import {
   MIN_PROPERTY_PHOTOS,
   isInstagramLink,
 } from "@royal-home/shared";
-import { prisma } from "../../db.js";
+import { prisma, type PropertyRecord } from "../../db.js";
 import { can, canBindClient, requireAuth, requirePermission } from "../../auth/middleware.js";
 import { uploadsDir } from "../../upload.js";
 import {
@@ -1287,8 +1287,8 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
    */
   const { version: clientVersion, ...dataWithoutVersion } = data;
 
-  let updated: Property;
-  let priceBefore: Property;
+  let updated: PropertyRecord;
+  let priceBefore: PropertyRecord;
   let priceDelivery: PropertyPriceDelivery | null;
   try {
     ({ updated, priceBefore, priceDelivery } = await prisma.$transaction(async (tx) => {

@@ -59,12 +59,14 @@ export const listExpensesTool: AssistantReadToolPlugin = {
   description:
     "Список расходов компании с фильтрами, как экран «Расходы»: месяц, период по дате оплаты, статус (PAID — оплачено, " +
     "PLANNED — ждёт оплаты), раздел (ADVERTISING, SALARY, OFFICE, OTHER), подраздел, поиск по названию/контрагенту. " +
-    "Возвращает до 30 строк с id (по нему меняют, удаляют, оплачивают) и сумму всех подходящих в сомони.",
+    "Возвращает до 30 строк с id (по нему меняют, удаляют, оплачивают) и сумму всех подходящих в сомони. " +
+    "«Сколько потратили за месяц» — month, а не from/to: реклама из кабинета, ИИ и доля по сделкам — строки за месяц без дня, " +
+    "период from/to берёт их, только если накрывает месяц целиком; итог месяца — как в «Финансах».",
   parameters: {
     type: "object",
     properties: {
       month: { type: "string", description: "YYYY-MM" },
-      from: { type: "string", description: "Начало периода YYYY-MM-DD (по дате оплаты)" },
+      from: { type: "string", description: "Начало периода YYYY-MM-DD (по дате оплаты; месячные строки — если месяц целиком)" },
       to: { type: "string", description: "Конец периода YYYY-MM-DD" },
       status: { type: "string", enum: ["PAID", "PLANNED"] },
       rootCategory: { type: "string", enum: [...EXPENSE_CATEGORIES] },
