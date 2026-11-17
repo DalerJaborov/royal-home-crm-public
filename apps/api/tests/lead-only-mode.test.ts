@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { leadOnlyAppliesTo, leadOnlyCallbackWhen, leadOnlyFilterReply, leadOnlyHotIntent, leadOnlyPhoneAskHistory, leadOnlyPhoneLine, leadOnlyReply,
   leadOnlyReplyAvoidingRepeat, leadOnlyScenario, clampMaxPhoneAsks, LEAD_ONLY_OFFICE_PHONE_TEXT } from "../src/ai/leadOnlyMode.js";
 import { leadOnlyPropertyAsked } from "../src/lib/leadOnlySettings.js";
+import { leadOnlyIntentFallback } from "../src/ai/leadOnlyIntent.js";
 
 /**
  * Режим «только заявки» (владелец 12–13.11.2026): одна дверь решений и текстов
@@ -9,6 +10,8 @@ import { leadOnlyPropertyAsked } from "../src/lib/leadOnlySettings.js";
  * в lead-only-mode-legacy-postgres.test.ts и lead-only-mode-core-postgres.test.ts.
  */
 const config = { hotIntentHandover: true };
+/** Сценарий по запасному пути двери намерения (регулярки, без модели): так решает код, когда модель не ответила. */
+const scenario = (input: Omit<Parameters<typeof leadOnlyScenario>[0], "intent">) => leadOnlyScenario({ ...input, intent: leadOnlyIntentFallback(input.text) });
 const soon = { kind: "soon" as const };
 
 describe("горячие слова → агенту сразу", () => {
@@ -17,7 +20,7 @@ describe("горячие слова → агенту сразу", () => {
     "мы хотели бы её посмотреть",
     "Можно посмотреть?",
     "Куда ехать?",
-    "Скажите адрес",
+    "Скажите адрес, хотим завтра приехать",
     "Когда можно приехать?",
     "Мы реальные покупатели",
     "готовы купить",
@@ -26,34 +29,36 @@ describe("горячие слова → агенту сразу", () => {
     "Куҷо биёем?",
     "кучо биём",
     "Кай омада метавонем?",
-    "Суроғаш куҷо аст?",
+    "Суроғаш куҷо, пагоҳ биёем?",
     "Мо харидори воқеӣ ҳастем",
   ])("«%s» — горячие", text => {
     expect(leadOnlyHotIntent(text)).toBe(true);
-    expect(leadOnlyScenario({ text, propertyKnown: false, config })).toBe("hot");
+    expect(scenario({ text, propertyKnown: false, config })).toBe("hot");
   });
-  it.each(["Здравствуйте", "Сколько стоит?", "Адрес вашего офиса?", "Где ваш офис находится, адрес?", "Нархаш чанд?"])(
+  // Второе ревью 13.11: голый вопрос об адресе — вопрос об объекте, «другие варианты» — просьба о подборке.
+  it.each(["Здравствуйте", "Сколько стоит?", "Адрес вашего офиса?", "Где ваш офис находится, адрес?", "Нархаш чанд?",
+    "Скажите адрес", "Какой адрес?", "Суроғаш куҷо аст?", "Можно посмотреть другие варианты?", "Можно посмотреть ещё варианты?"])(
     "«%s» — не горячие", text => expect(leadOnlyHotIntent(text)).toBe(false));
   it("рубильник горячих слов выключен — сценарий не «hot»", () => {
-    expect(leadOnlyScenario({ text: "Хотим посмотреть", propertyKnown: true, config: { hotIntentHandover: false } })).toBe("property");
+    expect(scenario({ text: "Хотим посмотреть", propertyKnown: true, config: { hotIntentHandover: false } })).toBe("property");
   });
 });
 
 describe("сценарий хода", () => {
-  it("продать квартиру — продавец", () => expect(leadOnlyScenario({ text: "Хочу продать свою квартиру", propertyKnown: false, config })).toBe("seller"));
-  it("нужна квартира — покупатель", () => expect(leadOnlyScenario({ text: "Ищу двухкомнатную квартиру в Сино", propertyKnown: false, config })).toBe("buyer"));
-  it("объект известен — сценарий объекта", () => expect(leadOnlyScenario({ text: "Интересует", propertyKnown: true, config })).toBe("property"));
+  it("продать квартиру — продавец", () => expect(scenario({ text: "Хочу продать свою квартиру", propertyKnown: false, config })).toBe("seller"));
+  it("нужна квартира — покупатель", () => expect(scenario({ text: "Ищу двухкомнатную квартиру в Сино", propertyKnown: false, config })).toBe("buyer"));
+  it("объект известен — сценарий объекта", () => expect(scenario({ text: "Интересует", propertyKnown: true, config })).toBe("property"));
   it("ясное «хочу продать» сильнее объекта в фокусе и слова «адрес»", () => {
-    expect(leadOnlyScenario({ text: "Хочу продать свою квартиру", propertyKnown: true, config })).toBe("seller");
-    expect(leadOnlyScenario({ text: "Продаю квартиру, адрес Сино 12", propertyKnown: false, config })).toBe("seller");
+    expect(scenario({ text: "Хочу продать свою квартиру", propertyKnown: true, config })).toBe("seller");
+    expect(scenario({ text: "Продаю квартиру, адрес Сино 12", propertyKnown: false, config })).toBe("seller");
   });
   it("вакансии остаются как были (Ноза)", () => {
-    expect(leadOnlyScenario({ text: "Есть вакансия? Ищу работу", propertyKnown: false, config })).toBeNull();
-    expect(leadOnlyScenario({ text: "Хочу купить квартиру", propertyKnown: false, jobTopic: true, config })).toBeNull();
+    expect(scenario({ text: "Есть вакансия? Ищу работу", propertyKnown: false, config })).toBeNull();
+    expect(scenario({ text: "Хочу купить квартиру", propertyKnown: false, jobTopic: true, config })).toBeNull();
   });
   it("аренда и просто приветствие — не заявка", () => {
-    expect(leadOnlyScenario({ text: "Сдаёте квартиру в аренду?", propertyKnown: false, config })).toBeNull();
-    expect(leadOnlyScenario({ text: "Здравствуйте", propertyKnown: false, config })).toBeNull();
+    expect(scenario({ text: "Сдаёте квартиру в аренду?", propertyKnown: false, config })).toBeNull();
+    expect(scenario({ text: "Здравствуйте", propertyKnown: false, config })).toBeNull();
   });
 });
 
@@ -152,15 +157,15 @@ describe("ревью 13.11: горячие слова не ловят отриц
 describe("ревью 13.11: объект, оставшийся в фокусе, не «залипает» (№2)", () => {
   it.each(["Где ваш офис?", "Спасибо", "Здравствуйте", "А вы работаете в субботу?"])(
     "«%s» при старом объекте — не сценарий объекта", text =>
-      expect(leadOnlyScenario({ text, propertyKnown: true, propertyInMessage: false, propertyAsked: leadOnlyPropertyAsked(text), config }))
+      expect(scenario({ text, propertyKnown: true, propertyInMessage: false, propertyAsked: leadOnlyPropertyAsked(text), config }))
         .not.toBe("property"));
   it("объект из этого сообщения или вопрос о нём — сценарий объекта", () => {
-    expect(leadOnlyScenario({ text: "Салом", propertyKnown: true, propertyInMessage: true, config })).toBe("property");
-    expect(leadOnlyScenario({ text: "Сколько стоит?", propertyKnown: true, propertyAsked: leadOnlyPropertyAsked("Сколько стоит?"), config })).toBe("property");
-    expect(leadOnlyScenario({ text: "Эта квартира ещё продаётся?", propertyKnown: true, config })).toBe("property");
+    expect(scenario({ text: "Салом", propertyKnown: true, propertyInMessage: true, config })).toBe("property");
+    expect(scenario({ text: "Сколько стоит?", propertyKnown: true, propertyAsked: leadOnlyPropertyAsked("Сколько стоит?"), config })).toBe("property");
+    expect(scenario({ text: "Эта квартира ещё продаётся?", propertyKnown: true, config })).toBe("property");
   });
   it("покупатель с новым запросом при старом объекте — покупатель, а не объект", () =>
-    expect(leadOnlyScenario({ text: "Хочу купить квартиру в Сино", propertyKnown: true, config })).toBe("buyer"));
+    expect(scenario({ text: "Хочу купить квартиру в Сино", propertyKnown: true, config })).toBe("buyer"));
 });
 
 describe("ревью 13.11: правда в текстах (№3, №6)", () => {
@@ -172,15 +177,25 @@ describe("ревью 13.11: правда в текстах (№3, №6)", () => 
     const sold = leadOnlyReply({ ...base, scenario: "property", language: "ru", phone: noPhone(3), property: { shortId: 5, price: null, currency: "USD", sold: true } });
     expect(sold).toBe("Объект №5 уже продан.");
   });
-  it("горячие слова без номера после всех просьб: «ответит здесь», а не «позвонит»", () => {
+  it("горячие слова без номера (заявки нет, никого не зовём): ни «передаю», ни «ответит здесь» — просьба номера, потом офис", () => {
+    const first = leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: noPhone(0) });
+    // Показ без заявки не обещаем (пятое ревью 13.11, №3): показ назначает агент.
+    expect(first).toBe("Показ назначает агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
     const text = leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "ask", asksSoFar: 2, maxAsks: 2, officeAlreadyOffered: false } });
-    expect(text).toContain("ответит вам здесь");
-    expect(text).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
-    expect(text).not.toMatch(/Хорошо.*Хорошо/u);
+    expect(text).toBe(`Показ назначает агент. Если удобнее, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);
+    expect(text).not.toMatch(/передаю|ответит вам здесь|в курсе|Хорошо.*Хорошо/iu);
+    expect(leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: noPhone(0), property: { shortId: 7, price: null, currency: "USD", sold: false } }))
+      .toBe("Показ объекта №7 назначает агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
   });
-  it("вопрос к сотруднику без номера — «ответит здесь», с номером — «свяжется»; «номер получил» не звучит", () => {
-    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", phone: noPhone(0) })).toBe("Передаю ваш вопрос агенту, он ответит вам здесь.");
+  it("вопрос к сотруднику без номера — просьба номера, без «передаю»; с номером — «свяжется»; при заявке без звонка — «ответит здесь»", () => {
+    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", phone: noPhone(0) }))
+      .toBe("С этим вопросом поможет агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
+    // Просьбы исчерпаны, офис уже называли: номер офиса повторяется, а не одно «поможет агент» (пятое ревью 13.11, №3).
+    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", phone: noPhone(3) })).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
     expect(leadOnlyReply({ ...base, scenario: "escalate", language: "tg", phone: { kind: "whatsapp" } })).toContain("тамос мегирад");
+    // Номер WhatsApp есть, клиент просил не звонить: заявка заведена, агент правда ответит в переписке.
+    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", agentInformed: true,
+      phone: { kind: "ask", asksSoFar: 0, maxAsks: 2, officeAlreadyOffered: false, refused: true } })).toBe("Передаю ваш вопрос агенту, он ответит вам здесь.");
   });
   it("карточка есть, номер в этом ходе не давали — без «номер получил» (№6)", () => {
     const text = leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "card" } });

@@ -17,6 +17,8 @@ import { customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFe
 import { readCustomerAgentBrand } from "./customerAgentBrandRead.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { withBotTurnTrace, traceCustomerCoreResult, traceCustomerCoreDisposition, type TraceConfig } from "./botTurnTrace.js";
+import { loadLeadOnlyConfig } from "./leadOnlyConfig.js";
+import { leadOnlyAppliesTo } from "../ai/leadOnlyMode.js";
 
 /**
  * THE CORE CHANNEL ADAPTER — one brain, step 3 (owner 16.11.2026).
@@ -167,6 +169,18 @@ export async function claimChannelCoreRun(turn: Pick<ChannelCoreTurn, "channel" 
 }
 
 export const CUSTOMER_AGENT_CHANNEL_CORE_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
+/**
+ * Pure: the tools of one channel turn. Lead-only mode on this channel (WhatsApp/Instagram/Facebook, owner 12–13.11.2026: no
+ * picks, photos or links) takes the search away, the same as the DM core does (lib/customerDmAgentTurn.ts): nothing to pick
+ * from, nothing to show. Today such channels reach this adapter only in shadow; the rule holds for any future live use too.
+ */
+export function channelCoreToolNames(leadOnly: boolean): readonly (typeof CUSTOMER_AGENT_CHANNEL_CORE_TOOLS)[number][] {
+  return leadOnly ? CUSTOMER_AGENT_CHANNEL_CORE_TOOLS.filter(name => name !== "search_public_properties") : CUSTOMER_AGENT_CHANNEL_CORE_TOOLS;
+}
+/** Lead-only mode applies to this channel right now. A settings failure reads as "off" (loadLeadOnlyConfig). */
+async function channelLeadOnly(channel: string): Promise<boolean> {
+  return leadOnlyAppliesTo(channel) && (await loadLeadOnlyConfig()).enabled;
+}
 const MAX_DEADLINE_MS = 60_000;
 
 /** Markers the channels write instead of a file they did not read («[📷]», «[🎤 не расслышал]», «[📎 …]»): not words. */
@@ -301,20 +315,21 @@ async function runChannelCoreTurnOnce(turn: ChannelCoreTurn, options: ChannelCor
         const linkPreference = turn.channel === "WEBSITE" ? "site" as const : "social" as const;
         const knownPhoneSource = turn.phoneKnown ? "scoped_contact" as const
           : extractTypedPhone(inputText) || extractVolunteeredPhone(inputText) ? "current_input" as const : "none" as const;
+        const toolNames = channelCoreToolNames(await channelLeadOnly(turn.channel));
         const result = await runCustomerAgentTurn({ surface, language, inputText, knownPhoneSource, requestedFacts: [], revision, startedAt,
-          operation: runtime.operation, tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_CHANNEL_CORE_TOOLS]),
+          operation: runtime.operation, tools: customerAgentToolDefinitions([...toolNames]),
           ...(context.success ? { verifiedContext: context.data } : {}), ...(brand ? { brand } : {}),
           sayMode: options.mode === "shadow" ? "shadow" : customerAgentSayMode(),
           // Same answer switch as Meta DMs (#211): in shadow the model's own words are only counted.
           answerMode: options.mode === "shadow" ? (customerAgentAnswerMode() === "off" ? "off" : "shadow") : customerAgentAnswerMode() }, {
           assertCurrent: async () => true,
           modelTurn: input => runtime.modelTurn(input),
-          executeAllowedTool: call => channelCoreTool(call, { knowledgeSourceHash: revision.knowledgeSourceHash, linkPreference, brandName }),
+          executeAllowedTool: call => channelCoreTool(call, { knowledgeSourceHash: revision.knowledgeSourceHash, linkPreference, brandName, toolNames }),
           requestStop: () => runtime.stop(),
           observeLateToolResult: () => {}, // Read-only tools: nothing to replay.
         });
         traceCustomerCoreResult(result);
-        options.afterCore?.(result, { historyTurns: context.success ? context.data.turns.length : 0, toolsOffered: CUSTOMER_AGENT_CHANNEL_CORE_TOOLS.length });
+        options.afterCore?.(result, { historyTurns: context.success ? context.data.turns.length : 0, toolsOffered: toolNames.length });
         const outcome = channelCoreOutcome(result, intake, surface, language);
         // HELD stays HELD in the trace whether it is repeated or handed to a person (the reason tells which).
         if (result.status !== "ready") traceCustomerCoreDisposition("held", result.reason, result.cause);
@@ -332,10 +347,11 @@ async function runChannelCoreTurnOnce(turn: ChannelCoreTurn, options: ChannelCor
 }
 
 /** Public reads only, from the same internal data service the live adapters use. Every write is denied. */
-async function channelCoreTool(call: CustomerAgentToolCall, options: { knowledgeSourceHash: string; linkPreference: "site" | "social"; brandName: string | null }): Promise<CustomerAgentToolResult> {
+async function channelCoreTool(call: CustomerAgentToolCall, options: { knowledgeSourceHash: string; linkPreference: "site" | "social"; brandName: string | null;
+  toolNames: readonly string[] }): Promise<CustomerAgentToolResult> {
   if (call.name === "get_agency_contact") return { status: "observed", observation: {
     kind: "agency_contact", contact: { phone: PUBLIC_AGENCY_CONTACT.phone, digits: PUBLIC_AGENCY_CONTACT.digits, channel: "telephone" } } };
-  if (!(CUSTOMER_AGENT_CHANNEL_CORE_TOOLS as readonly string[]).includes(call.name)) return { status: "denied", reason: "channel_read_only" };
+  if (!options.toolNames.includes(call.name)) return { status: "denied", reason: "channel_read_only" };
   const read = await readCustomerAgentPublicData(call, { knowledgeSourceHash: options.knowledgeSourceHash,
     linkPreference: options.linkPreference, brandName: options.brandName });
   return read.status === "observed" ? { status: "observed", observation: read.observation } : read;

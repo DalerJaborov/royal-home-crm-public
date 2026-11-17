@@ -32,12 +32,33 @@ export const MAX_STORED_MESSAGES = 40;
  * колонку исходящее сообщение сотрудника — запись устаревшего снимка затёрла бы его.
  * Поэтому пишем ТОЛЬКО новые реплики, а конкатенацию делает Postgres.
  */
-export async function appendConversationMessages(conversationId: string, newMessages: ChatMessage[]): Promise<void> {
-  if (newMessages.length === 0) return;
-  const { affectedRows, messages } = await appendConversationRows(prisma, conversationId, newMessages);
+export async function appendConversationMessages(conversationId: string, newMessages: ChatMessage[],
+  /**
+   * Сопутствующая запись (например, память режима «только заявки»): ложится в той же транзакции, что и реплики, или не
+   * ложится вовсе. Её сбой НЕ откатывает реплики (четвёртое ревью 13.11, №5): точка сохранения откатывает только её,
+   * ответ бота остаётся в переписке, а ошибка возвращается вызывающему для журнала. Без реплик она не пишется никогда.
+   */
+  alongside?: (tx: TxClient) => Promise<void>): Promise<{ alongsideError: unknown }> {
+  if (newMessages.length === 0) return { alongsideError: null };
+  let alongsideError: unknown = null;
+  const { affectedRows, messages } = alongside
+    ? await prisma.$transaction(async (tx) => {
+      const rows = await appendConversationRows(tx, conversationId, newMessages);
+      await tx.$executeRaw`SAVEPOINT conversation_alongside`;
+      try {
+        await alongside(tx);
+        await tx.$executeRaw`RELEASE SAVEPOINT conversation_alongside`;
+      } catch (err) {
+        alongsideError = err ?? new Error("alongside failed");
+        await tx.$executeRaw`ROLLBACK TO SAVEPOINT conversation_alongside`;
+      }
+      return rows;
+    })
+    : await appendConversationRows(prisma, conversationId, newMessages);
   traceWebsiteMessagesPersisted(conversationId, messages, affectedRows);
   void publishMessageNew("bot", conversationId, batchDirection(messages));
   if (batchDirection(messages) === "IN") scheduleSellerFactsRefreshForConversation("bot", conversationId);
+  return { alongsideError };
 }
 
 /** Narrow customer-adapter seam. Caller owns native/scope fences and publishes
