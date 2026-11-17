@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4058**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4064**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -845,7 +845,7 @@
   · зовёт propertyOwnerWhere()
 - const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRol…
   · зовёт overdueTasksWhere()
-- const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(now), { assignedAgentId: id }] };
+- const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(), { assignedAgentId: id }] };
   · зовёт noContactWhere()
 - const [ propertiesTotal, propertiesAvailable, propertiesCreated, lastProperties, clientsTotal, lastClients, d…
   · считает в базе: property
@@ -4637,7 +4637,7 @@
   · зовёт dushanbeDayRange()
 - const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput
   · зовёт visibleInteractionWhere()
-- const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, noContactOverDay, showTo…
+- const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, neverContacted, showToda…
   · считает в базе: client
   · читает в базе: client
   · считает в базе: interaction
@@ -4744,7 +4744,7 @@
   - where.AND = textSearchAnd;
     · дословно из кода
 - если noContact
-  - where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Dat…
+  - where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere()];
     · дословно из кода
 - если scope === "inWork"
   - Object.assign(where, CLIENT_IN_WORK_WHERE);
@@ -10160,7 +10160,7 @@
 - const [noContact, silent, refused, seller, endless, ackedNoContact, ackedSilent, ackedRefused, ackedSeller, a…
   · читает в базе: client
 - для каждого: const c of noContact.filter((x) => !ackedNoContact.has(x.id)).slice(0, FLAGS_PER_SLICE)
-  - flags.push({ sliceKey: "no-contact-clients", subjectId: c.id, title: `${name(c.fullName)}: без контакта больш…
+  - flags.push({ sliceKey: "no-contact-clients", subjectId: c.id, title: `${name(c.fullName)}: ${NO_CONTACT_TEXT.…
     · дословно из кода
 - для каждого: const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)
   - flags.push({ sliceKey: "silent-after-showing", subjectId: c.id, title: `${name(c.fullName)}: тишина после пок…
@@ -10191,14 +10191,12 @@
 
 `apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
-- const where = noContactWhere(new Date());
+- const where = noContactWhere();
   · зовёт noContactWhere()
-- const [light, total] = await Promise.all([ prisma.client.findMany({ where, take: NO_CONTACT_ORDER_CAP, select…
+- const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ createdAt: "asc" }, { i…
   · читает в базе: client
   · считает в базе: client
-- const [rows] = await Promise.all([ prisma.client.findMany({ where: { id: { in: pageIds } }, select: { id: tru…
-  · читает в базе: client
-- res.json({ items: await markAcked("no-contact-clients", rows.map(({ interactions, ...c })
+- res.json({ items: await markAcked("no-contact-clients", rows.map((c)
   · ответ 200
 
 ### GET /api/v1/oversight/overdue-tasks
@@ -22823,13 +22821,13 @@
       - tick.failure = `${label}: ${reason}`.slice(0, 500);
         · дословно из кода
 
-### market-paydo-daily — 0 3 * * *
+### market-paydo-daily — 30 2 * * *
 
 - если process.env.MARKET_CRAWL_ENABLED !== "1"
   - return;
     · дальше не идёт, ничего не меняя
 - пробует
-  - await runPaydoFullCrawl();
+  - const result = await runPaydoFullCrawl();
     · зовёт runPaydoFullCrawl()
     - если paydoRunning
       - return null;
@@ -22840,6 +22838,14 @@
     - в любом случае
       - paydoRunning = false;
         · дословно из кода
+  - если result && !result.complete
+    - markCronTickFailed("Полный обход Paydo неполный", new Error(`причина ${result.stopReason ?? "неизвестна"}, ст…
+      · зовёт markCronTickFailed()
+      - console.error(`[cron] ${label}:`, reason);
+        · пишет строку в журнал сервера
+      - если tick
+        - tick.failure = `${label}: ${reason}`.slice(0, 500);
+          · дословно из кода
 - если сорвалось
   - markCronTickFailed("Ошибка ночного обхода Paydo", err);
     · зовёт markCronTickFailed()
@@ -22921,13 +22927,13 @@
       - tick.failure = `${label}: ${reason}`.slice(0, 500);
         · дословно из кода
 
-### market-weekly-crawl — 30 2 * * 0
+### market-weekly-crawl — undefined
 
 - если process.env.MARKET_CRAWL_ENABLED !== "1"
   - return;
     · дальше не идёт, ничего не меняя
 - пробует
-  - await runMarketFullCrawl();
+  - const result = await runMarketFullCrawl();
     · зовёт runMarketFullCrawl()
     - если somonRunning
       - return null;
@@ -22938,6 +22944,14 @@
     - в любом случае
       - somonRunning = false;
         · дословно из кода
+  - если result && !result.somon.complete
+    - markCronTickFailed("Полный обход Somon неполный", new Error(`причина ${result.somon.stopReason ?? "неизвестна…
+      · зовёт markCronTickFailed()
+      - console.error(`[cron] ${label}:`, reason);
+        · пишет строку в журнал сервера
+      - если tick
+        - tick.failure = `${label}: ${reason}`.slice(0, 500);
+          · дословно из кода
 - если сорвалось
   - markCronTickFailed("Ошибка недельного обхода рынка", err);
     · зовёт markCronTickFailed()
@@ -27493,6 +27507,11 @@
     - return { status: "held", reason: "historical_payload_unavailable" };
       · дословно из кода
   - если selected?.intakeAgentRevisionId
+    - если await isCustomerIngressTicketChannelOff(eventKey)
+      - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${CU…
+        · обращается к базе своим SQL
+      - void reportUnansweredCustomerTurn(eventKey, CUSTOMER_CHANNEL_OFF_REASON);
+        · зовёт reportUnansweredCustomerTurn()
     - const result = await runCustomerDmAgentTurn(eventKey);
       · зовёт runCustomerDmAgentTurn()
     - если result.status === "held"
@@ -29549,6 +29568,9 @@
   · зовёт botAbilitiesOf()
 - const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…
   · зовёт runLegacyQualifyTurn()
+  - если await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…
+    - return channelOffTurn(history, options, source);
+      · дословно из кода
   - const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);
     · зовёт customerAgentLegacyChannelKey()
   - если key && customerAgentChannelMode(key) === "core"

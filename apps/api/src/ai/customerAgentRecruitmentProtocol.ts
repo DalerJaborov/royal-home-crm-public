@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { customerAgentVacanciesObservationSchema, recruitmentPositionSchema, assessRecruitmentResume,
   type RecruitmentFactKey, type CustomerAgentVacanciesObservation, type RecruitmentPosition } from "@royal-home/shared";
-import { customerTextRole, foldCustomerText } from "./customerAgentRole.js";
+import { customerRoleSignals, customerTextRole, foldCustomerText } from "./customerAgentRole.js";
 import { extractRecruitmentResumeFacts, extractRecruitmentAnswerFacts } from "../lib/recruitmentResume.js";
 import { customerOwnUnquotedText } from "./customerAgentConversationPolicy.js";
 
@@ -15,8 +15,18 @@ export function isCustomerVacanciesObservation(value: unknown): value is Custome
   return result.success && result.data.sourceHash === recruitmentCatalogHash({ collecting: result.data.collecting, positions: result.data.positions }) &&
     result.data.positions.every(row => row.isOpen) && (result.data.collecting || !result.data.positions.length);
 }
+const JOB_STRONG = /ваканси|ищу\s+работу|хочу\s+работать|хочу\s+(?:стать|устроиться)\s+агент|резюме|ҷойи\s+кор|чои\s+кор|дар\s+бораи\s+кор|(?:насч[её]т|по\s+поводу)\s+работы|кор\s+(?:меҷӯ|мечу|мекоб|мехо[ҳх]|даркор|лозим)|ба\s+кор\s+(?:гири|қабул|кабул)|(?:есть|имеется)\s+(?:у\s+вас\s+)?(?:сейчас\s+)?(?:какая[\s-]*нибудь\s+)?(?:работ[аы]|работу)(?![\p{L}])|кор\s+доред(?![\p{L}])|SMM|СММ|видеограф/iu;
+/** «о работе» / «по работе» alone: «Я по работе переехал, ищу 2-комнатную» is a flat search, not a job inquiry (audit 17.11.2026). */
+const JOB_WEAK = /(?:о|по)\s+работе/iu;
+const WORK_REASON = /переех|переезж|приех|прилет|приле[тч]|командиров|перевел|перевёл|перевод(?:ят|ится)|живу\s+по\s+работе/iu;
+const PROPERTY_INTENT = /квартир|комнатн|(?<!\p{L})дом(?:а|у|е)?(?!\p{L})|участок|аренд|снять|сниму|снимаю|снимать|сдам|сдаю|сдать|купить|куплю|покупк|продам|продаю|продать|продаж|недвижим|ипотек|новостро|ҳуҷра|хона(?!\p{L})|манзил/iu;
 export function customerRecruitmentRequested(text: string): boolean {
-  return /ваканси|ищу\s+работу|хочу\s+работать|хочу\s+(?:стать|устроиться)\s+агент|резюме|ҷойи\s+кор|чои\s+кор|дар\s+бораи\s+кор|(?:о|по)\s+работе|(?:насч[её]т|по\s+поводу)\s+работы|кор\s+(?:меҷӯ|мечу|мекоб|мехо[ҳх]|даркор|лозим)|ба\s+кор\s+(?:гири|қабул|кабул)|(?:есть|имеется)\s+(?:у\s+вас\s+)?(?:сейчас\s+)?(?:какая[\s-]*нибудь\s+)?(?:работ[аы]|работу)(?![\p{L}])|кор\s+доред(?![\p{L}])|SMM|СММ|видеограф/iu.test(text);
+  if (JOB_STRONG.test(text)) return true;
+  if (!JOB_WEAK.test(text)) return false;
+  // Weak phrase: property intent (buy / sell / rent / housing words) or a relocation reason wins over the job reading.
+  const signals = customerRoleSignals(text);
+  const property = signals.buyStrong || signals.buyWeak || signals.sell || signals.landlord || signals.rent || PROPERTY_INTENT.test(text);
+  return !property && !WORK_REASON.test(text);
 }
 export function customerRecruitmentFactsRequested(text: string): boolean {
   const own = customerOwnUnquotedText(text);

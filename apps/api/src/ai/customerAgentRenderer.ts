@@ -34,7 +34,7 @@ import { detectOutsideCoverage } from "./coverageGuard.js";
 import { customerReplyLink } from "../lib/customerReplyLink.js";
 import { serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
-import { customerPolicyTermAsked } from "./customerAgentPolicyAsked.js";
+import { customerPolicyTermAsked, customerRecentUserTexts } from "./customerAgentPolicyAsked.js";
 import { customerRecruitmentFollowUp, recruitmentFollowUpLine, recruitmentFollowUpFixedLines, RETIRED_TEMPLATE_LINES, AD_OPEN_QUESTION,
   customerAdOpening, customerGreetingLine, customerAlreadyGreeted, customerInputHasLink,
   customerSubstantiveInput, GREETING_REPLY_LINES, RECEIPT_AGAIN } from "./customerAgentLiveWording.js";
@@ -735,7 +735,8 @@ function renderDecisionCore(input: {
       // about it (audit 16.11.2026; one door customerPolicyTermAsked). A voice message counts by its transcript.
       // Only against the customer's actual words: a render without input (the memory allow-list) keeps every line.
       if (input.surface === "dm" && input.inputText !== undefined &&
-          !customerPolicyTermAsked(item.value.topic, [input.inputText, perception?.success ? perception.data.transcript : ""].filter(Boolean).join("\n"))) {
+          !customerPolicyTermAsked(item.value.topic, [input.inputText, perception?.success ? perception.data.transcript : ""].filter(Boolean).join("\n"),
+            customerRecentUserTexts(input.verifiedContext))) {
         unaskedPolicySkipped = true;
         // The term was already said in this chat: the customer reacts to it («фаҳмидам»), the topic question would be off.
         if (lineSentBefore(input.verifiedContext, policySegment(item.value, lang))) unaskedPolicyEcho = true;

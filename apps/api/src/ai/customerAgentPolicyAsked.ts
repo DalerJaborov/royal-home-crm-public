@@ -1,5 +1,5 @@
 import type { CustomerAgentCompanyPolicyTopic } from "@royal-home/shared";
-import { customerLegalAsked, customerRentalAsked } from "./customerAgentLiveWording.js";
+import { customerLegalAsked, customerRentalAsked, customerRentalAskedRecently } from "./customerAgentLiveWording.js";
 import { foldCustomerTextForRole } from "./customerAgentRole.js";
 import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "./untrustedContent.js";
@@ -70,11 +70,20 @@ const POLICY_ASKED: Partial<Record<CustomerAgentCompanyPolicyTopic, RegExp>> = {
   negotiation: asked(`торг${L}|скидк${L}|уступ${L}|дешевле|дорого|тахфиф${L}|арзон${L}|савдо${L}|кам (?:мекун|кун)${L}`),
 };
 
-/** `service_scope` has its own rule (serviceScopeLines in the renderer): the work area is answered by where the flat is. */
-export function customerPolicyTermAsked(topic: CustomerAgentCompanyPolicyTopic, text: string): boolean {
+/** The customer's earlier messages in this chat, oldest first (the rental rule looks at the last three, #267). */
+export function customerRecentUserTexts(context?: { turns: readonly { role: string; text: string }[] } | null): string[] {
+  return (context?.turns ?? []).filter(turn => turn.role === "user").map(turn => turn.text);
+}
+
+/**
+ * `service_scope` has its own rule (serviceScopeLines in the renderer): the work area is answered by where the flat is.
+ * `recentTurns` (the customer's earlier messages) matter only for rental: «хочу снять квартиру», then «Центр», then «Сколько
+ * это будет стоить?» still speaks about renting (#267, 17.11.2026). Every other term answers only the current question.
+ */
+export function customerPolicyTermAsked(topic: CustomerAgentCompanyPolicyTopic, text: string, recentTurns?: readonly string[]): boolean {
   if (topic === "service_scope") return true;
   if (topic === "legal") return customerLegalAsked(text);
-  if (topic === "rental") return customerRentalAsked(text);
+  if (topic === "rental") return recentTurns ? customerRentalAskedRecently(text, recentTurns) : customerRentalAsked(text);
   if (topic === "commission") return customerCommissionWordsAsked(text) || customerAgencyTermsAsked(text);
   const pattern = POLICY_ASKED[topic];
   return !!pattern && pattern.test(ownWords(text));

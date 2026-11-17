@@ -49,6 +49,8 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   sender_read_unavailable: "не удалось прочитать данные собеседника",
   original_context_changed: "переписка изменилась, пока бот готовил ответ, и ответ не ушёл",
   consume_job_gave_up: "бот не смог обработать сообщение после повторов",
+  // lib/customerAgentChannelOff.ts: the emergency kill switch, the customer heard nothing from the bot.
+  customer_channel_off: "бот в этом канале временно выключен, клиенту он не отвечал",
 };
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
 const tagOf = (conversationId: string) => `customer-held-${conversationId}`;

@@ -71,7 +71,7 @@ describe("OversightAck", () => {
     expect(flags.body.items.length).toBeLessThanOrEqual(20);
     const mine = flags.body.items.find((f: { subjectId: string }) => f.subjectId === hotClientId);
     expect(mine).toMatchObject({ sliceKey: "no-contact-clients", href: "/oversight#slice-no-contact-clients" });
-    expect(mine.title).toContain("без контакта");
+    expect(mine.title).toContain("ни разу не связывались");
 
     const slice = await request(app).get("/api/v1/oversight/no-contact-clients?pageSize=50").set("Authorization", `Bearer ${directorToken}`);
     const row = slice.body.items.find((i: { id: string }) => i.id === hotClientId);

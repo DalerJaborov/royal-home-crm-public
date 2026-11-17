@@ -12,6 +12,7 @@ import {
   type PropertyStatus,
   type RefusalReason,
   RATED_ROLES,
+  NO_CONTACT_TEXT,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import {
@@ -303,7 +304,7 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
     // groupBy, а не выборка строк: событий за месяц тысячи, и тянуть их в память
     // ради подсчёта нельзя. Один запрос на всю команду вместо запроса на агента.
     prisma.royalScoreEvent.groupBy({ by: ["agentId", "kind"], where: { at: cur }, _count: { _all: true } }),
-    // «Без контакта» — одно правило на всю CRM (packages/shared clientNoContact.ts,
+    // «Не связывались» — одно правило на всю CRM (packages/shared clientNoContact.ts,
     // серверная дверь lib/noContact.ts), то же число, что в «Контроле руководителя»
     // и «Команде». Раньше здесь было своё правило по lastContactAt, который двигает
     // любая заметка агента, — отчёт и экраны считали бы «потерю контакта» по-разному.
@@ -401,7 +402,7 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
 
   const links: ProblemLink[] = ranked.map(({ agentId }) => {
     const parts = [
-      staleByAgent.get(agentId) ? `без контакта больше суток: ${staleByAgent.get(agentId)}` : null,
+      staleByAgent.get(agentId) ? `не связывались ни разу: ${staleByAgent.get(agentId)}` : null,
     ].filter(Boolean);
     const category = worstCategory.get(agentId);
     if (category) {
@@ -420,11 +421,11 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
     // только с отчётом, посчитанным по этому же правилу, иначе тренд врал бы.
     metric(
       "noContact",
-      "Клиенты без контакта больше суток",
+      "Клиенты, с кем ни разу не связывались",
       total(staleByAgent),
       prevStale,
       "/clients",
-      "Ни разговора по телефону, ни сообщения от клиента — это и есть потеря контакта"
+      NO_CONTACT_TEXT.rule
     ),
   ];
 
@@ -436,9 +437,9 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
     ago: ctx.ago,
     headline: (worst, trend) => {
       const first = ranked[0];
-      if (!first) return "У команды нет клиентов без контакта больше суток.";
+      if (!first) return "У команды нет клиентов, с кем ни разу не связывались.";
       const name = nameById.get(first.agentId) ?? "Агент";
-      return `${name} — больше всего клиентов без контакта (${first.failures}). Чаще всего проседает: ${
+      return `${name} — больше всего клиентов, с кем не связывались (${first.failures}). Чаще всего проседает: ${
         worst?.label.toLowerCase() ?? "—"
       }. Всего ${trend || "сравнить не с чем"}.`;
     },

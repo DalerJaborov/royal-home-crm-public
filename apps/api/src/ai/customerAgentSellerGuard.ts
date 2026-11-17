@@ -1,8 +1,6 @@
 import type { CustomerAgentDecision, CustomerAgentVerifiedContext } from "@royal-home/shared";
 import { customerAgentIntake } from "./customerAgentIntake.js";
-import { foldCustomerText } from "./customerAgentRole.js";
-import { BW, EW } from "./wordBoundary.js";
-import { customerAgencyTermsAsked, customerCommissionWordsAsked } from "./customerAgentPolicyAsked.js";
+import { customerAgencyTermsAsked, customerCommissionWordsAsked, customerPolicyTermAsked, customerRecentUserTexts } from "./customerAgentPolicyAsked.js";
 
 /**
  * Server guard for a DM seller whose model decision answered the wrong subject (30.10.2026 live probes:
@@ -14,7 +12,6 @@ export const SELLER_POLICY_MISMATCH_CAUSE = "repair:seller_policy_mismatch";
 export const SELLER_COMMISSION_NO_INTAKE_CAUSE = "repair:seller_commission_no_intake";
 export const SELLER_TERMS_UNANSWERED_CAUSE = "repair:seller_terms_unanswered";
 
-const RENT_MENTION = new RegExp(`${BW}(?:аренд\\p{L}*|сдам|сдаю|сдаем|сда(?:ть|вать)|сдается|сдаются|сними\\p{L}*|снять|снимать|ичора\\p{L}*|наем\\p{L}*)${EW}`, "u");
 
 // «Какая комиссия?», «Чи шарту шароит доред?»: ONE detector with the renderer's gate (customerAgentPolicyAsked.ts, 17.11.2026).
 // Two copies drifted: the seller guard forced the commission for «шарту шароит», and the renderer then dropped it as unasked.
@@ -52,10 +49,11 @@ export function guardSellerDecision(input: { decision: CustomerAgentDecision; ev
   const recent = customerAgentIntake(prior ? [] : input.verifiedContext?.turns ?? [], input.inputText, prior?.role);
   const role = recent.role !== "unknown" ? recent.role : prior?.role;
   if (role !== "seller") return null;
-  const words = foldCustomerText(input.inputText);
   const rentTopic = referenced.every(value => value?.topic === "rental"), commissionTopic = referenced.every(value => value?.topic === "commission");
   // A bare "what should I explain?" to a seller who just named an object is the same miss (30.10: "хонаи фуруши дорам").
-  const mismatch = topicOnly || rentTopic && !RENT_MENTION.test(words) || commissionTopic && !asksTerms(input.inputText);
+  // Rent: the same door as the renderer, with the customer's last turns (#267), not a second copy of the rent words.
+  const mismatch = topicOnly || rentTopic && !customerPolicyTermAsked("rental", input.inputText, customerRecentUserTexts(input.verifiedContext)) ||
+    commissionTopic && !asksTerms(input.inputText);
   if (mismatch) return { cause: SELLER_POLICY_MISMATCH_CAUSE,
     decision: { kind: "clarify", refs: [], social: d.social, question: "seller_details", ...(d.say ? { say: d.say } : {}) } };
   // The seller asked about the commission: keep the verified answer, but do not leave the intake unanswered (question: none).

@@ -1,16 +1,17 @@
-import { noContactCutoff } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
 import { CLIENT_IN_WORK_WHERE } from "./clientInWork.js";
 
 /**
- * «БЕЗ КОНТАКТА» НА СЕРВЕРЕ — выборка по правилу из packages/shared
- * (clientNoContact.ts). Одна дверь: и счётчик сводки, и «Контроль руководителя»,
- * и «Команда», и контекст помощника директора берут условие отсюда.
+ * «НЕ СВЯЗЫВАЛИСЬ» НА СЕРВЕРЕ — одна дверь (правило и подписи: packages/shared/src/
+ * clientNoContact.ts). Плитка «Клиенты», срез по нажатию (`/clients?noContact=1`),
+ * «Контроль руководителя», «Команда», пульт, помощник директора — все берут условие отсюда.
  *
- * Настоящий звонок — тот, где клиент взял трубку и был разговор. Ручная запись
- * агента с исходом, заметка, задача сюда НЕ входят (в отличие от
- * REAL_CALL_CONTACT_WHERE в clientContact.ts, которое считает и ручные записи).
+ * До 17.11.2026 здесь было «больше суток ни разговора, ни сообщения клиента», и агент,
+ * которому клиент не берёт трубку, держал «без контакта» навсегда (жалоба Нозы).
  */
+
+/** Разговор по телефону состоялся (клиент взял трубку). Нужен паузе бота и нагрузке
+ *  агента — к счётчику «не связывались» не относится, там шире: любая попытка. */
 export const TALKED_CALL_WHERE = {
   type: "CALL",
   // Звонок РОП «почему в Корзине» (#217, lib/archiveReviewCall.ts) — разбор
@@ -20,32 +21,83 @@ export const TALKED_CALL_WHERE = {
 } satisfies Prisma.InteractionWhereInput;
 
 /**
- * Условие правила без отбора «кто в работе»: настоящего контакта не было после
- * `cutoff` — ни сообщения самого клиента, ни разговора по телефону. Карточка, с
- * которой контакта не было ни разу, подходит сразу (оба условия выполнены).
- * Тем же условием пользуются рассылка «вернуть клиента» (lib/reactivationCampaign.ts)
- * и пауза бота (lib/conversationState.ts) — каждая со своим порогом.
+ * Каждое примечание входящего звонка начинается так (lib/telephony/incomingCalls.ts,
+ * сторож — tests/no-contact-rule.test.ts). Пропущенный входящий, уведённый агенту,
+ * записывается от его имени без исхода дозвона — это клиент пытался дозвониться до
+ * нас, а не сотрудник до клиента, поэтому связью не считается.
+ */
+export const INCOMING_CALL_NOTE_PREFIX = "Входящий звонок";
+
+/**
+ * Запись хронологии, после которой с клиентом «связывались»:
+ *  - звонок с исходом дозвона: взял трубку, не ответил, сброшен, пока у клиента звонило
+ *    (`AGENT_NO_PICKUP` — агент сам не снял трубку, до клиента вызов не дошёл — не в счёт);
+ *  - любой разговор с длительностью, в том числе отвеченный входящий;
+ *  - звонок, записанный сотрудником без отметки станции (ручная запись «связался со
+ *    своего телефона», старые записи до 27.08.2026, автоответчик клиента) — кроме
+ *    пропущенного входящего;
+ *  - встреча или показ, записанные сотрудником (бот и система — не в счёт).
+ * Запись типа MESSAGE — это заметка сотрудника, а не сообщение клиенту: настоящие
+ * сообщения лежат в переписке и в `lastAgentAttemptAt` (см. neverContactedWhere).
+ */
+export const STAFF_CONTACT_INTERACTION_WHERE = {
+  archiveReview: false,
+  OR: [
+    { type: "CALL", callAttempt: { in: ["TALKED", "NO_ANSWER", "CANCELLED"] } },
+    { type: "CALL", recordingDurationSec: { gt: 0 } },
+    { type: "CALL", actorKind: "AGENT", callAttempt: null, NOT: { notes: { startsWith: INCOMING_CALL_NOTE_PREFIX } } },
+    { type: { in: ["MEETING", "SHOWING"] }, actorKind: "AGENT" },
+  ],
+} satisfies Prisma.InteractionWhereInput;
+
+/** Реплика сотрудника в сохранённой переписке: из CRM (`by.kind = agent`) или прямо в
+ *  мессенджере (`manual`). Ответы бота и служебные сообщения сюда не входят. */
+const STAFF_MESSAGE_FILTERS = [
+  { messages: { array_contains: [{ role: "assistant", by: { kind: "agent" } }] } },
+  { messages: { array_contains: [{ role: "assistant", by: { kind: "manual" } }] } },
+] as const;
+
+/**
+ * Условие правила без отбора «кто в работе»: с клиентом не связывались ни разу.
+ * `lastAgentAttemptAt` — общая отметка «агент пытался» (lib/clientWorkStalled.ts):
+ * звонок с исходом дозвона, сообщение из CRM, первое сообщение в WhatsApp, отказ
+ * станции на нажатие «Позвонить». Переписка проверяется отдельно: в ней видны и ответы
+ * сотрудников, которые не ведут карточку, и ответы прямо из мессенджера.
+ */
+export function neverContactedWhere(): Prisma.ClientWhereInput {
+  return {
+    lastAgentAttemptAt: null,
+    interactions: { none: STAFF_CONTACT_INTERACTION_WHERE },
+    botConversation: { none: { OR: [...STAFF_MESSAGE_FILTERS] } },
+    telegramDirectConversations: { none: { OR: [...STAFF_MESSAGE_FILTERS] } },
+    NOT: { telegramConversation: { is: { OR: [...STAFF_MESSAGE_FILTERS] } } },
+  };
+}
+
+/**
+ * Клиенты в работе (покупатели и продавцы с агентом), с которыми ни разу не связывались.
+ * Срока нет: клиент, с которым связались хотя бы раз, сюда не попадает никогда.
+ */
+export function noContactWhere(): Prisma.ClientWhereInput {
+  return {
+    AND: [
+      CLIENT_IN_WORK_WHERE,
+      { kind: { in: ["BUYER", "SELLER"] }, assignedAgentId: { not: null } },
+      neverContactedWhere(),
+    ],
+  };
+}
+
+/**
+ * Пауза в контакте с порогом — для рассылки «вернуть клиента»
+ * (lib/reactivationCampaign.ts): после `cutoff` не было ни сообщения самого клиента,
+ * ни разговора по телефону. К счётчику «не связывались» отношения не имеет.
  */
 export function noContactSinceWhere(cutoff: Date): Prisma.ClientWhereInput {
   return {
     AND: [
       { OR: [{ lastClientMessageAt: null }, { lastClientMessageAt: { lt: cutoff } }] },
       { interactions: { none: { ...TALKED_CALL_WHERE, createdAt: { gte: cutoff } } } },
-    ],
-  };
-}
-
-/**
- * Клиенты в работе (покупатели и продавцы с агентом) «без контакта» по общему
- * правилу (packages/shared/src/clientNoContact.ts): контакта не было ни разу —
- * сразу; был — когда с последнего прошло больше порога. lastContactAt не читается.
- */
-export function noContactWhere(now: Date = new Date()): Prisma.ClientWhereInput {
-  return {
-    AND: [
-      CLIENT_IN_WORK_WHERE,
-      { kind: { in: ["BUYER", "SELLER"] }, assignedAgentId: { not: null } },
-      noContactSinceWhere(noContactCutoff(now)),
     ],
   };
 }

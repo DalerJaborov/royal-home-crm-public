@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { customerAgentCompanyPolicyTopicSchema, type CustomerAgentDecision } from "@royal-home/shared";
+import { customerAgentCompanyPolicyTopicSchema, customerAgentVerifiedContextSchema, type CustomerAgentDecision } from "@royal-home/shared";
 import { renderCustomerAgentDecision } from "../src/ai/customerAgentRenderer.js";
 import { customerPolicyTermAsked } from "../src/ai/customerAgentPolicyAsked.js";
+import { guardSellerDecision, SELLER_POLICY_MISMATCH_CAUSE } from "../src/ai/customerAgentSellerGuard.js";
 import { wrapUntrusted } from "../src/ai/untrustedContent.js";
 import { readCustomerAgentCompanyKnowledge } from "../src/lib/customerAgentPublicReads.js";
 import { customerAgentCompanyKnowledgeHash } from "../src/ai/customerAgentPublicProtocol.js";
@@ -80,5 +81,42 @@ describe("renderer: company terms in a DM", () => {
   it("the memory allow-list render (no input) keeps every term line", () => {
     expect(renderCustomerAgentDecision({ decision, evidence: policy("negotiation") as never, language: "ru", requestedFacts: [],
       knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", knowledgeSourceHash })).toContain("Вопрос торга");
+  });
+});
+
+// Merge of #269 with #267 (18.11.2026): rental looks at the last three customer messages INSIDE the one door; every other term
+// answers only the current question. The renderer and the seller guard call the same door.
+describe("one door with the conversation: rental by history, other terms only on the current question", () => {
+  type Turn = { role: "user" | "assistant"; text: string };
+  const user = (text: string): Turn => ({ role: "user", text }), bot = (text: string): Turn => ({ role: "assistant", text });
+  const context = (turns: Turn[], seller = false) => customerAgentVerifiedContextSchema.parse({ surface: "dm", revisionId: "a".repeat(64), turns,
+    publicState: { language: "ru", topic: "unknown", openQuestion: "none" },
+    ...(seller ? { intake: { role: "seller", sellerKnown: [], buyerKnown: [] } } : {}) });
+  const rentTwoTurnsAgo = [user("аренда есть?"), bot("Какой район?"), user("Центр"), bot("Сколько комнат?")];
+  it("the door: rental asked two messages ago still counts, commission does not", () => {
+    expect(customerPolicyTermAsked("rental", "две комнаты", ["аренда?", "Центр"])).toBe(true);
+    expect(customerPolicyTermAsked("rental", "две комнаты")).toBe(false);
+    expect(customerPolicyTermAsked("rental", "две комнаты", ["аренда?", "Центр", "а", "б"])).toBe(false);
+    expect(customerPolicyTermAsked("commission", "Центр", ["какая комиссия?"])).toBe(false);
+  });
+  it.each(["а в Сино?", "две комнаты"])("«аренда есть?» two messages ago, now «%s»: the rental line holds (#267), no commission", (text) => {
+    expect(render("rental", text, { verifiedContext: context(rentTwoTurnsAgo) })).toMatch(/аренд/u);
+    expect(render("commission", text, { verifiedContext: context(rentTwoTurnsAgo) })).not.toMatch(/Комиссия/u);
+  });
+  it("a commission or bargaining asked earlier is not printed on «Центр»; «а для покупателя?» asks it again", () => {
+    const turns = [user("какая комиссия?"), bot("Комиссия для продавца 2%, для покупателя 0%."), user("ищу квартиру"), bot("Какой район?")];
+    expect(render("commission", "Центр", { verifiedContext: context(turns) })).not.toMatch(/Комиссия/u);
+    expect(render("negotiation", "Центр", { verifiedContext: context([user("торг возможен?"), bot("Какой район?")]) })).not.toMatch(/торг/iu);
+    expect(render("commission", "а для покупателя?", { verifiedContext: context(turns) })).toMatch(/для покупателя 0%/u);
+  });
+  it("the seller guard reads rental through the same door, with the history", () => {
+    const evidence = [{ ref: "e0", value: { kind: "company_policy", topic: "rental" } }];
+    const d = { kind: "reply", refs: ["e0"], social: "none", question: "none" } as never;
+    expect(guardSellerDecision({ decision: d, evidence, surface: "dm", inputText: "две комнаты",
+      verifiedContext: context([user("Хочу продать квартиру"), bot("Сколько комнат?")], true) })?.cause).toBe(SELLER_POLICY_MISMATCH_CAUSE);
+    expect(guardSellerDecision({ decision: d, evidence, surface: "dm", inputText: "две комнаты",
+      verifiedContext: context([user("аренда есть?"), bot("Нет."), user("Хочу продать квартиру"), bot("Сколько комнат?")], true) })).toBeNull();
+    // A form only the guard knew before (its old RENT_MENTION): «сдам» still counts.
+    expect(customerPolicyTermAsked("rental", "сдам квартиру")).toBe(true);
   });
 });

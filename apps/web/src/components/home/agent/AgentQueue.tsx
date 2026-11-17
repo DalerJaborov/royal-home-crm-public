@@ -10,6 +10,7 @@ import { dushanbeTime } from "../../../lib/date";
 import { initials } from "../../../lib/theme2026Person";
 import { leadHint, nextStepLine, type AgentTodoItem } from "../../../lib/agentFocus";
 import { CallCircle, DuplicateReviewActions, PendingLeadActions, ReactivationActions } from "./AgentActions";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 
 /**
  * «ОЧЕРЕДЬ» (контракт 06.10.2026): всё, что не заняло «Сначала это», по
@@ -163,7 +164,7 @@ function QueueRow({ todo, index }: { todo: AgentTodoItem; index: number }) {
       const chip = overdue ? (
         <Chip tone="crit">Позвонить сейчас</Chip>
       ) : todo.kind === "cold" || todo.noContact ? (
-        <Chip tone="warn">без контакта</Chip>
+        <Chip tone="warn">{NO_CONTACT_TEXT.tile}</Chip>
       ) : undefined;
       return (
         <SwipeCall to={`/clients/${c.shortId}`} canCall={canCall}>

@@ -108,7 +108,7 @@ export interface AgentOverview {
         client: { id: string; shortId: number; fullName: string };
       }[];
     };
-    /** «Без контакта» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts). */
+    /** «Не связывались» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts). */
     noContactClients: {
       total: number;
       items: { id: string; shortId: number; fullName: string; createdAt: string; lastClientMessageAt: string | null }[];
