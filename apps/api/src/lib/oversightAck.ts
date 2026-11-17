@@ -8,7 +8,8 @@ import { prisma } from "../db.js";
  * его же зовёт Zod роутов, лента `/oversight/flags` и пометка `acked` в срезах.
  */
 export const OVERSIGHT_FLAG_SLICES = [
-  "stalled-clients",
+  // «Без контакта» (16.11.2026) заменил «горячего клиента без контакта» (stalled-clients).
+  "no-contact-clients",
   "silent-after-showing",
   "refused-high-score",
   "seller-property-missing",

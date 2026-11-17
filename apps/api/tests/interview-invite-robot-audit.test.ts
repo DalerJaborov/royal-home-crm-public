@@ -35,7 +35,6 @@ const { buildInterviewInviteCallPrompt, spokenInterviewTimeRu, spokenInterviewTi
 );
 const { normalizeInterviewInviteParse } = await import("../src/ai/interviewInviteCallParse.js");
 const { presentInviteCall } = await import("../src/routes/vacancies.js");
-const { findSilentInviteCalls, recallSilentInviteCalls, SILENT_WINDOW } = await import("../src/lib/silentInviteCalls.js");
 
 /**
  * ПРОВЕРКА РОБОТА 02.10.2026 — звонок-приглашение кандидату.
@@ -325,36 +324,9 @@ describe("что видит HR", () => {
   });
 });
 
-describe("немые звонки 28.09–03.10", () => {
-  const inWindow = new Date(SILENT_WINDOW.from.getTime() + 60 * 60 * 1000);
-
-  it("находит «не дозвонились» из немого периода и ставит новый звонок; второй прогон — пусто", async () => {
-    const silent = await addCall({ status: "GIVEN_UP", skipReason: "no_answer", attempts: 1, lastAttemptAt: inWindow });
-    const found = await findSilentInviteCalls(NOW);
-    const mine = found.filter((c) => c.jobApplicationId === appId);
-    expect(mine.map((c) => c.callId)).toEqual([silent.id]);
-
-    expect(await recallSilentInviteCalls(mine, NOW)).toBe(1);
-    const rows = await prisma.interviewInviteCall.findMany({ where: { jobApplicationId: appId }, orderBy: { createdAt: "asc" } });
-    expect(rows.map((r) => [r.status, r.skipReason])).toEqual([
-      ["GIVEN_UP", AUDIO_DEAD_REASON],
-      ["PENDING", null],
-    ]);
-    // Правило «один звонок» помеченный немой звонок не считает.
-    const refusal = await interviewInviteRefusal({ jobApplicationId: appId, interviewAt: INTERVIEW_AT, phone: PHONE, now: NOW });
-    expect(["wrong_number", "already_called"]).not.toContain(refusal?.reason);
-    expect((await findSilentInviteCalls(NOW)).filter((c) => c.jobApplicationId === appId)).toEqual([]);
-  });
-
-  it("«ответ непонятен» из немого периода тоже, а звонок вне периода и прошедшее собеседование — нет", async () => {
-    const unclear = await addCall({ status: "DONE", outcome: "UNCLEAR", attempts: 1, lastAttemptAt: inWindow });
-    expect((await findSilentInviteCalls(NOW)).filter((c) => c.jobApplicationId === appId).map((c) => c.was)).toEqual(["unclear"]);
-    await prisma.interviewInviteCall.update({ where: { id: unclear.id }, data: { lastAttemptAt: new Date(SILENT_WINDOW.to.getTime() + 3600_000) } });
-    expect((await findSilentInviteCalls(NOW)).filter((c) => c.jobApplicationId === appId)).toEqual([]);
-    await prisma.interviewInviteCall.update({ where: { id: unclear.id }, data: { lastAttemptAt: inWindow } });
-    expect((await findSilentInviteCalls(new Date(INTERVIEW_AT.getTime() - 30 * 60 * 1000))).filter((c) => c.jobApplicationId === appId)).toEqual([]);
-  });
-
+// Разовый перезвон немых звонков 28.09–03.10 (lib/silentInviteCalls.ts) удалён
+// 16.11.2026: окно давно прошло. Пометка AUDIO_DEAD_REASON живёт дальше.
+describe("немой звонок (AUDIO_DEAD_REASON)", () => {
   it("немой звонок «придёт» не считается прошлым приглашением при переносе", async () => {
     await addCall({ status: "DONE", outcome: "CONFIRMED", skipReason: AUDIO_DEAD_REASON, attempts: 1, interviewAt: new Date(INTERVIEW_AT.getTime() - 3600_000) });
     const call = await addCall();

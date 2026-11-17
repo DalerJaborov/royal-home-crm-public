@@ -232,10 +232,6 @@ describe("Автоматическая карточка по входящему 
         kind: "BUYER",
         assignedAgentId: agentId,
         workStatus: "INACTIVE",
-        inactiveLevel: "RED",
-        inactiveReasonKey: "STOPPED_RESPONDING",
-        inactiveSince: new Date(Date.now() - 3 * 24 * 3600_000),
-        inactivePingCount: 2,
       },
     });
     createdClientIds.push(client.id);
@@ -246,10 +242,6 @@ describe("Автоматическая карточка по входящему 
     expect(result.status).toBe("known_client");
     const after = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
     expect(after.workStatus).toBe("ACTIVE");
-    expect(after.inactiveLevel).toBeNull();
-    expect(after.inactiveReasonKey).toBeNull();
-    expect(after.inactiveSince).toBeNull();
-    expect(after.inactivePingCount).toBe(0);
     expect(after.returnedAt).not.toBeNull();
     // status не тронут: судьбу LOST этот путь не решает.
     expect(after.status).toBe(client.status);

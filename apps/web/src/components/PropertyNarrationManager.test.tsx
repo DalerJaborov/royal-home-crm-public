@@ -31,7 +31,10 @@ const TECH = ["Модель озвучки", "Символов в сутки", "
 
 describe("карточка объекта: озвучка для агента", () => {
   it("нет озвучки: сначала голос, потом текст по шаблону с цифрами словами, одна кнопка «Озвучить», техники нет", () => {
+    // Шаблон выбирается случайно (16.11.2026): первый подходящий — при броске 0.
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
     const html = render();
+    random.mockRestore();
     expect(html.indexOf("Голос")).toBeLessThan(html.indexOf("Текст"));
     expect(html).toContain("Квартира барои фурӯш. Масоҳаташ шасту ду метри мураббаъ.");
     expect(html).toContain(">Озвучить<");

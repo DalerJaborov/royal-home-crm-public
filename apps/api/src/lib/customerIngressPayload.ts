@@ -21,6 +21,10 @@ export const customerNormalizedIngressSchema = z.object({
       // Optional transport classification, excluded from stable event identity.
       // Older encrypted envelopes remain readable and are never rewritten.
       mediaKinds: z.array(z.enum(["image", "video", "audio", "document", "share", "link", "ephemeral", "unknown"])).max(16).optional(),
+      // Caption Meta sent with a shared post/reel (`payload.title`), "" for media without one; same membership as
+      // `media`. Transport metadata like mediaKinds, NOT event identity and not property evidence by itself: the
+      // bot turn accepts its «Объект №N» only next to our own mark (lib/customerCaptionReference.ts).
+      mediaCaptions: z.array(z.string().max(2200)).max(16).optional(),
     }).strict().optional(),
   }).strict(),
   providerOccurredAt: z.string().datetime({ offset: true }).optional(),
@@ -39,6 +43,9 @@ export const customerNormalizedIngressSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   if (value.observations.classifier?.mediaKinds && value.observations.classifier.mediaKinds.length !== value.media.length) {
     ctx.addIssue({ code: "custom", message: "Media classifier membership mismatch" });
+  }
+  if (value.observations.classifier?.mediaCaptions && value.observations.classifier.mediaCaptions.length !== value.media.length) {
+    ctx.addIssue({ code: "custom", message: "Media caption membership mismatch" });
   }
   if (value.channel !== "WHATSAPP" && value.observations.classifier?.recipientPhoneDigits) {
     ctx.addIssue({ code: "custom", message: "Phone recipient observation channel mismatch" });

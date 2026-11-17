@@ -38,13 +38,12 @@ export function isHeldMeeting(meeting: {
 
 export const TERMINAL_CLIENT_STATUSES = ["LOST", "ARCHIVED", "DEAL_CLOSED"] as const;
 
-export function inactiveExitData() {
-  return {
-    workStatus: "ACTIVE" as const,
-    inactiveLevel: null,
-    inactiveReasonKey: null,
-    inactiveSince: null,
-    inactiveEnteredAt: null,
-    inactivePingCount: 0 as const,
-  };
+/**
+ * Карточка снова в обычной работе. Светофор и его поля удалены 16.11.2026
+ * (владелец: «ничего лишнего») — код их больше не читает и не пишет; колонки
+ * снимет отдельная миграция. Здесь остаётся только workStatus для старых строк
+ * (пометка нерешённого предложения прежнему агенту).
+ */
+export function resumeWorkData() {
+  return { workStatus: "ACTIVE" as const };
 }

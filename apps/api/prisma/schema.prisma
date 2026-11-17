@@ -3019,6 +3019,8 @@ model PropertyNarrationVersion {
   /// MANUAL — прежний путь маркетинга; WIZARD / AUTO / AGENT — автоозвучка (11.11.2026).
   source String @default("MANUAL")
   templateId String?
+  /// Концовка (призыв) из списка endings настроек озвучки, выбранная вместе с шаблоном (16.11.2026): текст собирается по кодам.
+  endingId String?
   language String?
   /// Автоозвучка: не раньше этого времени (пауза после последней правки). null — не ставить в очередь.
   generateAfter DateTime?
@@ -5456,8 +5458,17 @@ model Expense {
   autoFingerprint String?
   /// Сумму правил человек — автоматика больше её не трогает (ставится в PATCH).
   manualEditedAt  DateTime?
+  /// Поставщик подписки или счёта (17.11.2026): GEMINI, META_VERIFIED, ELEVENLABS… (список —
+  /// packages/shared/src/expenseVendors.ts). У строки из шаблона-подписки копируется из шаблона.
+  /// Счёт поставщика ИИ за месяц снимает его ОЦЕНКУ из строки ai:<месяц> (splitAiEstimate).
+  vendor          String?
+  /// Счёт оплачивает ИИ, которым работает CRM (API Gemini, голос ElevenLabs). Только такой
+  /// ОПЛАЧЕННЫЙ счёт снимает оценку поставщика из ai:<месяц>; подписка на чат (ChatGPT Plus,
+  /// Claude Max) обращения CRM не оплачивает и оценку не трогает (ревью 17.11.2026).
+  coversAiUsage   Boolean         @default(false)
 
   @@index([month])
+  @@index([vendor, month])
   @@index([category, month])
   @@index([status, month])
   @@index([paymentDate])
@@ -5726,10 +5737,54 @@ model RecurringExpense {
   /// Для SALARY: сотрудник, которого ночная задача копирует в создаваемый расход.
   agentId           String?
   agent             Agent?          @relation(fields: [agentId], references: [id])
+  /// Поставщик подписки (17.11.2026, список — packages/shared/src/expenseVendors.ts): Gemini,
+  /// Meta Verified («синяя галочка»), ElevenLabs… null — обычный повторяющийся платёж.
+  vendor            String?
+  /// Строки этой подписки оплачивают ИИ, которым работает CRM (см. Expense.coversAiUsage).
+  coversAiUsage     Boolean         @default(false)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
   @@index([active])
+}
+
+/// Учредитель компании (17.11.2026, владелец: «Баходур. Илхом. Мирсаид. И возможность удалить или
+/// добавить ещё кого-то»). Удаление мягкое: прошлые взносы остаются в истории и итогах.
+model Founder {
+  id            String                @id @default(uuid())
+  name          String
+  sortOrder     Int                   @default(0)
+  deletedAt     DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  contributions FounderContribution[]
+
+  @@index([deletedAt])
+}
+
+/// Взнос учредителя в компанию. НЕ доход от продаж: в выручку, прибыль и комиссию не входит.
+model FounderContribution {
+  id           String    @id @default(uuid())
+  founderId    String
+  founder      Founder   @relation(fields: [founderId], references: [id], onDelete: Restrict)
+  amount       Decimal   @db.Decimal(12, 2)
+  currency     Currency  @default(TJS)
+  /// Курс доллара, зафиксированный в день записи (у сомони — 1).
+  exchangeRate Decimal?
+  /// День взноса «ГГГГ-ММ-ДД» по Душанбе.
+  date         String
+  /// Первый день месяца взноса — для итогов за месяц.
+  month        DateTime
+  note         String?
+  createdById  String?
+  /// Ключ повтора (помощница, двойное нажатие): один взнос — одна строка.
+  requestKey   String?   @unique
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([month])
+  @@index([founderId, month])
 }
 
 model ExpenseCategoryDefinition {
@@ -6113,6 +6168,11 @@ model Settings {
   /// требует пары «приложение + секрет» (см. lib/ads/metaAdsToken.ts). Для
   /// переписки не используется: там маркеры выдаются иначе.
   metaAppId                         String?
+  /// Номер конфигурации входа через Facebook (Facebook Login for Business →
+  /// «Конфигурации», 13.11.2026). Не секрет. Задан — кнопка «Войти через
+  /// Facebook» в Настройках → Каналы открывает окно с этим набором прав и
+  /// ресурсов (config_id); пусто — окно со списком прав из lib/tokenScopes.ts.
+  metaLoginConfigId                 String?
   metaVerifyToken                   String?
   metaWaToken                       String?
   /// Идентификатор номера-отправителя в WhatsApp. Не секрет — хранится как есть.
@@ -11048,6 +11108,10 @@ model SomonMonitor {
   sourceStopped       Boolean  @default(false)
   sourceFailures      Int      @default(0)
   sourceLastFailureAt DateTime?
+  /// Мягкая дозапись ключа автора записям до появления SomonSeenAdvert.sellerKey: следующая
+  /// страница выдачи для прохода «только дописать ключ» (без новых записей и без сброса
+  /// baseline). null — проход не нужен или завершён (discoveryStore.rekeySellerPage).
+  sellerKeyRekeyPage  Int?
   updatedAt           DateTime @updatedAt
 }
 
@@ -11078,8 +11142,12 @@ model SomonSeenAdvert {
   status    String   @default("PENDING")
   sellerCheck Json?
   lastCheckedAt DateTime?
+  // HMAC от ID автора из выдачи категории — счёт объявлений автора в категории. Сырой ID здесь не пишется
+  // (временно он есть только в sellerCheck на время проверки профиля и обнуляется на конечных статусах).
+  sellerKey String?
 
   @@index([seenAt])
+  @@index([sellerKey])
 }
 
 // Keyed, non-reversible contact fingerprint prevents repeated outreach without storing a phone.
@@ -11607,4 +11675,63 @@ enum RobotCallStopSource {
   VOICE
   STAFF
   STATION
+}
+
+/// Озвучка свободного текста (16.11.2026): сотрудник присылает текст, выбирает голос, получает mp3.
+/// Строка — запрос, расход (знаки идут в общий дневной потолок озвучки) и защита от двойного платежа.
+model FreeNarration {
+  id                  String    @id @default(uuid())
+  agentId             String
+  /// TELEGRAM | API
+  source              String
+  chatId              String?
+  /// AWAITING_TEXT | AWAITING_VOICE | GENERATING | READY | FAILED | UNKNOWN
+  status              String
+  /// Текст; после срока хранения очищается (lib/freeNarration.ts, purgeFreeNarrations).
+  script              String    @default("")
+  lang                String?
+  voiceId             String?
+  /// Знаки, ушедшие в синтез (цифры словами), ставятся при захвате.
+  chars               Int       @default(0)
+  storageKey          String?
+  errorCode           String?
+  providerRequestId   String?
+  requestKey          String?   @unique
+  generationStartedAt DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  @@index([agentId, generationStartedAt])
+  @@index([generationStartedAt])
+  @@index([chatId, status])
+}
+
+/// One-brain live check (17.11.2026): the model's words beside the template for one customer turn, kept 72 hours (lib/customerAgentAnswerSamples.ts).
+/// Phones and links masked; read only by the director through scripts/export-answer-samples.ts. No API route.
+model CustomerAgentAnswerSample {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+  channel        String
+  conversationId String?
+  eventKey       String?
+  answerMode     String
+  status         String
+  reason         String?
+  customerText   String
+  modelText      String
+  templateText   String
+
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@index([eventKey])
+}
+
+// Ключевой хеш номера + объявление: один номер в 3+ разных объявлениях за 30 дней — агентство.
+model SomonPhoneSighting {
+  phoneHash String
+  advertId  String
+  seenAt    DateTime @default(now())
+
+  @@id([phoneHash, advertId])
+  @@index([seenAt])
 }

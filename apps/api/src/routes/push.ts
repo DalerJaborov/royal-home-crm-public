@@ -154,13 +154,6 @@ pushRouter.post("/action", async (req, res) => {
         const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : "Лид";
         return res.json({ ok: true, message: `${name} принят — контакты открыты`, url });
       }
-      if (outcome.requiresRelease) {
-        return res.json({
-          ok: false,
-          message: "Портфель полон — откройте карточку и выберите, кого передать",
-          url,
-        } satisfies PushActionResult);
-      }
       return res.json({ ok: false, message: outcome.error, url } satisfies PushActionResult);
     }
 

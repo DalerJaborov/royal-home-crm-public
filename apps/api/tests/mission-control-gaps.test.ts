@@ -232,7 +232,6 @@ describe("Пульт: блоки, которые раньше всегда по�
       res.body.properties.extra.idle,
       res.body.properties.extra.districts,
       res.body.system.control.overdueTasks,
-      res.body.system.control.atLimit,
       res.body.system.control.silentAfterShowing,
     ];
     for (const b of blocks) {

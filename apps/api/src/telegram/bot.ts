@@ -31,7 +31,7 @@ import { fetchTelegramAlbumAttachments, telegramUnsupportedMark } from "./attach
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
 import { stripUntrusted, wrapUntrusted } from "../ai/untrustedContent.js";
 import type { ChatMessage, ImageInput, StoredAttachment } from "../ai/client.js";
-import { mergeDraft, runQualifyTurn } from "../ai/leadQualifier.js";
+import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { extractTypedPhone, extractVolunteeredPhone, normalizeDigits } from "../lib/shared/phoneText.js";
 import { lastClientLanguage } from "../ai/shortAgentReply.js";
 import { type LeadDraft } from "../ai/leadDraft.js";
@@ -45,6 +45,8 @@ import {
   lastClientWords,
   recentBotText,
   silentTurnReason,
+  intendedSilenceReply,
+  verifiedCoreReply,
 } from "../messengers/replyChain.js";
 import {
   FALLBACK_ACCEPT_ERROR,
@@ -698,7 +700,7 @@ export async function finishTelegramQualifyTurn(params: {
   draft: LeadDraft;
   history: ChatMessage[];
   text: string;
-  turn: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>;
+  turn: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>;
   capabilities: Awaited<ReturnType<typeof loadBotCapabilities>>;
   /** Клиент в ЭТОМ ходе прислал голосовое — условие для голосового ответа
    *  (см. докстринг у синтеза ниже). Повтор из jobs/telegramReplyRetry.ts
@@ -859,7 +861,9 @@ export async function finishTelegramQualifyTurn(params: {
   // Ответ съели фильтры — не молчим (аудит 10.10.2026, P0-1): повторить ход модели
   // здесь нечем (окончание хода общее с фоновым повтором), поэтому сразу короткая
   // нейтральная реплика; щит исходящих спрашиваем заранее.
-  const filtered = await finalizeBotReply({
+  const filtered = turn.silent ? intendedSilenceReply()
+    : turn.verified ? await verifiedCoreReply(turn.reply.join(" "), (bubbles) => repeatBlockedTexts("TELEGRAM", chatId, bubbles))
+    : await finalizeBotReply({
     reply: turn.reply,
     conversationId: conversation.id,
     channelLabel: "TELEGRAM",
@@ -2004,13 +2008,13 @@ async function replyToBatch(p: {
   // заводить колонку ради потока, которого там почти нет.
   // showcase не передаётся тоже: отправка фотографий в чат есть только в каналах Meta
   // (см. messengers/propertyShowcase.ts), и промт по умолчанию считает, что показа нет.
-  const result = await runQualifyTurn(promptHistory, draft, {
+  const result = await runLegacyQualifyTurn(promptHistory, draft, {
     images: p.images,
     abilities,
     conversationId: conversation.id,
     contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
     phoneKnown: clientPhoneKnown,
-  });
+  }, { channel: "TELEGRAM" });
 
   if (!result) {
     /**

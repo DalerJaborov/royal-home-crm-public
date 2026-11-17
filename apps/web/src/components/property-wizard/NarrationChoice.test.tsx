@@ -12,6 +12,7 @@ const options: NarrationOptionsView = {
     { id: "tg-short", name: "Кӯтоҳ", lang: "tg", text: "{вид} барои фурӯш. [{комнаты} ҳуҷра.] Масоҳаташ {площадь} метри мураббаъ." },
     { id: "ru-short", name: "Рус", lang: "ru", text: "В продаже {вид}. Площадь {площадь} метров." },
   ],
+  endings: [],
   voices: [{ id: "f1", name: "Мадина", gender: "female" }, { id: "m1", name: "Фирӯз", gender: "male" }],
   defaultTemplateId: null, defaultVoiceId: "m1", autoGenerate: true,
 };
@@ -50,6 +51,36 @@ describe("wizard narration choice", () => {
     expect(html).toContain("последний раз выбран");
     expect(html).toContain("В продаже квартира. Площадь 62 метров.");
     expect(html).toMatch(/value="f1"[^>]*checked|checked[^>]*value="f1"/);
+  });
+  it("шаблон и концовка по типу объекта (16.11.2026): квартире — квартирные, участку — участковые; концовка стоит в конце текста", () => {
+    const typed: NarrationOptionsView = { ...options,
+      templates: [
+        { id: "apt", name: "Квартира 1", lang: "tg", text: "{вид} барои фурӯш.", propertyTypes: ["APARTMENT"] },
+        { id: "land", name: "Участок 1", lang: "tg", text: "Замин барои фурӯш аст.", propertyTypes: ["LAND"] },
+        { id: "old", name: "Старый", lang: "tg", text: "Шаблони кӯҳна барои фурӯш.", manualOnly: true },
+      ],
+      endings: [
+        { id: "end-apt", lang: "tg", text: "Ба мо дар Директ нависед.", propertyTypes: ["APARTMENT", "HOUSE"] },
+        { id: "end-land", lang: "tg", text: "Заминро аз наздик бинед.", propertyTypes: ["LAND"] },
+      ] };
+    const draw = (type: string) => {
+      const client = new QueryClient();
+      client.setQueryData(["narration-options"], typed);
+      return renderToStaticMarkup(<QueryClientProvider client={client}><NarrationChoice facts={{ ...facts, type }} value={{}} onChange={() => {}} /></QueryClientProvider>);
+    };
+    const apartment = draw("APARTMENT");
+    expect(apartment).toContain("Квартира барои фурӯш. Ба мо дар Директ нависед.");
+    expect(apartment).not.toContain("Замин барои фурӯш аст");
+    expect(apartment).not.toContain("Заминро аз наздик");
+    const land = draw("LAND");
+    expect(land).toContain("Замин барои фурӯш аст. Заминро аз наздик бинед.");
+    expect(land).not.toContain("Ба мо дар Директ нависед");
+    // Кнопки вариантов: подходящие типу и «только вручную», чужого типа нет.
+    expect(land).toContain("Участок 1"); expect(land).toContain("Старый"); expect(land).not.toContain("Квартира 1");
+  });
+  it("предвыбор уходит в запрос кодами: шаблон и концовка, которые агент видит, сервер и соберёт", () => {
+    expect(narrationChoiceForCreate({ templateId: "apt", endingId: "end-apt", voiceId: "f1" })).toEqual({ templateId: "apt", endingId: "end-apt", voiceId: "f1" });
+    expect(narrationChoiceForCreate({ templateId: "apt", endingId: "" })).toEqual({ templateId: "apt" });
   });
   it("voice lines accept an optional gender", () => {
     expect(parseVoiceLines("a | Мадина | ж\nb | Фирӯз | м\nc | Без пола")).toEqual([

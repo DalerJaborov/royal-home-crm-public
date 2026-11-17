@@ -114,7 +114,16 @@ function maskContactsInText(text: string): string {
 }
 
 export function maskPhonesInText(text: string): string {
-  return maskContactsInText(text).replace(PHONE_IN_TEXT_RE, (match) => {
+  return maskPhoneNumbersInText(maskContactsInText(text));
+}
+
+/**
+ * Только номера, без ников и ссылок — для служебных текстов (журнал ошибок,
+ * lib/systemError.ts): там «@аккаунт» и ссылка — это имя НАШЕЙ страницы или
+ * сервиса, по которому ищут поломку, а номер клиента — личные данные.
+ */
+export function maskPhoneNumbersInText(text: string): string {
+  return text.replace(PHONE_IN_TEXT_RE, (match) => {
     const digits = match.replace(/\D/g, "");
     if (digits.length < 9) return match;
     return maskClientPhone(match.trim().startsWith("+") ? `+${digits}` : digits);

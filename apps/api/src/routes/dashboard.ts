@@ -17,7 +17,7 @@ import { buildDashboardInsights } from "../lib/dashboardInsights.js";
 import { withMaskedClient, clientNamePhoneSafe, clientPhoneFor } from "../lib/clientPhone.js";
 import { presentInteractions, transcriptAccess } from "../lib/callTranscripts.js";
 import { firstCallCandidateWindow, firstCallStatus } from "../leads.js";
-import { DEFAULT_LEAD_ACTIVE_LIMIT, OCCUPIES_SLOT_WHERE } from "../lib/leadLimits.js";
+import { activeBuyersLoadWhere } from "../lib/agentLoad.js";
 import { AWAITING_REVIEW_WHERE } from "../lib/telephony/awaitingReview.js";
 import { ownIncomingCallsOr } from "../lib/telephony/ownIncomingCalls.js";
 import {
@@ -486,12 +486,13 @@ dashboardRouter.get("/team-live", requireAuth, requirePermission("dashboard.anal
   const unacceptedWhere = { acceptedAt: null, assignedAgentId: { not: null }, kind: { not: "OTHER" as const }, deletedAt: null };
   const [activeLoad, pendingAccept, acceptedToday, escalated, unaccepted, unacceptedTotal, escalatedTotal, queuedTotal] =
     await Promise.all([
-    // «Активная нагрузка» — то же самое, что занятый слот в лимите лидов
-    // (OCCUPIES_SLOT_WHERE, см. lib/leadLimits.ts). Здесь считалось по статусам
+    // «Активная нагрузка» — покупатели в работе
+    // с живым контактом (activeBuyersLoadWhere, см. lib/agentLoad.ts — то же, что у
+    // честной раздачи). Здесь считалось по статусам
     // NEW/CONTACTED/HOT/COLD, в плитке «Кто перегружен» — без COLD, а в
     // «Контроле руководителя» — по слотам: три числа про одного агента на
     // соседних экранах. Определение теперь одно на всю CRM.
-    prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, deletedAt: null, ...OCCUPIES_SLOT_WHERE }, _count: { _all: true } }),
+    prisma.client.groupBy({ by: ["assignedAgentId"], where: { AND: [{ assignedAgentId: { in: ids } }, activeBuyersLoadWhere()] }, _count: { _all: true } }),
     prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, acceptedAt: null, deletedAt: null }, _count: { _all: true } }),
     prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, acceptedAt: { gte: startOfDay }, deletedAt: null }, _count: { _all: true } }),
     prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, acceptedAt: null, escalatedAt: { not: null }, deletedAt: null }, _count: { _all: true } }),
@@ -733,7 +734,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
    *
    * ТА ЖЕ ФУНКЦИЯ, ЧТО У КРОНА, ОДНИМ ПАКЕТНЫМ ЗАПРОСОМ (firstCallStatus →
    * collectFirstCallFacts, один Interaction.findMany на всех кандидатов сразу,
-   * не по одному на карточку) — иначе экран агента и penalizeMissedFirstCalls
+   * не по одному на карточку) — иначе экран агента и handleMissedFirstCalls
    * рано или поздно разошлись бы в том, что считать «дозвонился».
    *
    * Тот же круг условий, что и у candidates в firstCall.ts: принят, не «Прочее
@@ -1020,22 +1021,6 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
     // проверялось только в разделе «Объекты»). См. lib/ownerContact.ts.
     topProperties: topProperties.map((p) => ({ ...presentProperty(p, req), demandCount: demandCounts.get(p.id) ?? 0 })),
     districtBreakdown,
-    // «Лимит 5» (решение владельца 30.07): агенту — его текущая загрузка и лимит,
-    // чтобы дашборд мог предупредить «новые лиды не придут, пока не закроете эти».
-    // Руководству поле не отдаём: у него нет личного портфеля лидов.
-    ...(ownAgentId
-      ? {
-          activeLeadLoad: {
-            // Тем же правилом, что и сама раздача (lib/leadLimits.ts,
-            // OCCUPIES_SLOT_WHERE) — здесь была вторая копия условия, и она
-            // расходилась с реальностью: см. подробный разбор в lib/royalScore.ts.
-            count: await prisma.client.count({
-              where: { assignedAgentId: ownAgentId, deletedAt: null, ...OCCUPIES_SLOT_WHERE },
-            }),
-            limit: settings?.leadActiveLimit ?? DEFAULT_LEAD_ACTIVE_LIMIT,
-          },
-        }
-      : {}),
   });
 });
 

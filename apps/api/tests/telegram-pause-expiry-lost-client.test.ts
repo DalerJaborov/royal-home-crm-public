@@ -103,7 +103,9 @@ beforeAll(async () => {
       phone: `+992502${String(runId).slice(-6)}`,
       source: "TELEGRAM",
       assignedAgentId: agentId,
-      status: "LOST",
+      // «Брошен» с 16.11.2026 — по общему правилу «без контакта»: неделю и больше
+      // ни одного разговора (lib/conversationState.ts), а не статус LOST.
+      createdAt: new Date(Date.now() - 30 * 24 * 3600_000),
     },
   });
   clientId = client.id;
@@ -140,7 +142,7 @@ beforeEach(() => {
 });
 
 describe("Telegram: бессрочная пауза оператора протухает у брошенного клиента", () => {
-  it("pausedUntil +10 лет, botPausedAt -8 дней, клиент LOST — бот отвечает", async () => {
+  it("pausedUntil +10 лет, botPausedAt -8 дней, клиент брошен (неделю без разговора) — бот отвечает", async () => {
     await prisma.telegramConversation.update({
       where: { chatId },
       data: {

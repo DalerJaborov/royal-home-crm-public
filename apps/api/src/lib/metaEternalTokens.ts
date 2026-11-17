@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { MetaEternalKeyRow, MetaEternalState, MetaEternalStatus } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
-import { GRAPH_VERSION, instagramApiUrl, instagramRequest } from "../messengers/metaGraph.js";
+import { GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken } from "../messengers/metaGraph.js";
 import { describeError } from "./describeError.js";
 import { logSystemError } from "./systemError.js";
 import { isMetaAuthFailure, raiseChannelKeyAlarm } from "./channelKeyAlarm.js";
@@ -249,7 +249,21 @@ function benchPage(pageId: string, reason: string, systemToken?: string): void {
 
 export type InstagramRoute =
   | { kind: "instagram_login"; token: string }
-  | { kind: "page"; token: string; pageId: string; accountId: string | null };
+  /** pageOnly — аккаунт подключён входом через Facebook и держит маркер САМОЙ
+   *  Страницы: другого пути у него нет, откатываться некуда. */
+  | { kind: "page"; token: string; pageId: string; accountId: string | null; pageOnly?: boolean };
+
+/**
+ * Аккаунт Instagram с маркером Страницы (EAA…, «Войти через Facebook»,
+ * 13.11.2026): говорит ТОЛЬКО через свою Страницу — graph.instagram.com такой
+ * маркер не примет. Поэтому без рубильников и App Review: это не подмена
+ * личного ключа ключом компании, а единственная дорога этого аккаунта.
+ */
+function pageOnlyRoute(s: Snapshot, token: string): InstagramRoute | null {
+  if (!isFacebookLoginToken(token)) return null;
+  const account = s.accounts.find((a) => a.channel === "INSTAGRAM" && a.token === token && a.pageId);
+  return account?.pageId ? { kind: "page", token, pageId: account.pageId, accountId: account.id, pageOnly: true } : null;
+}
 
 /**
  * Каким путём говорить с Instagram, если в руках — маркер аккаунта. Никогда не
@@ -261,6 +275,8 @@ export async function instagramRouteForToken(token: string): Promise<InstagramRo
     const knownPage = pageTokenOwner.get(token);
     if (knownPage) return { kind: "page", token, pageId: knownPage, accountId: null };
     const s = await loadSnapshot();
+    const pageOnly = pageOnlyRoute(s, token);
+    if (pageOnly) return pageOnly;
     if (!messagingAllowed(s)) return fallback;
     const account = s.accounts.find((a) => a.channel === "INSTAGRAM" && a.token === token && a.pageId);
     if (!account?.pageId) return fallback;
@@ -327,6 +343,8 @@ export type RoutedCall = {
   route: "instagram_page" | "facebook_page" | "unchanged";
   pageId?: string;
   accountId?: string | null;
+  /** Личного ключа у аккаунта нет — повтор «личным» бессмыслен (см. pageOnlyRoute). */
+  pageOnly?: boolean;
 };
 
 /**
@@ -343,7 +361,15 @@ export async function routeMetaMessagingCall(url: string, token: string, body: u
     if (url === instagramApiUrl(`/${GRAPH_VERSION}/me/messages`)) {
       const route = await instagramRouteForToken(token);
       if (route.kind !== "page") return same;
-      return { url: `${GRAPH}/${route.pageId}/messages`, token: route.token, body: withResponseType(body), route: "instagram_page", pageId: route.pageId, accountId: route.accountId };
+      return {
+        url: `${GRAPH}/${route.pageId}/messages`,
+        token: route.token,
+        body: withResponseType(body),
+        route: "instagram_page",
+        pageId: route.pageId,
+        accountId: route.accountId,
+        ...(route.pageOnly ? { pageOnly: true } : {}),
+      };
     }
     const match = FB_MESSAGES.exec(url);
     if (match) {
@@ -372,6 +398,9 @@ function withResponseType(body: unknown): unknown {
  */
 export function pageRouteFailed(routed: RoutedCall, status: number, text: string): boolean {
   if (routed.route === "unchanged" || !routed.pageId) return false;
+  // Маркер Страницы — единственный ключ аккаунта: откатываться некуда, отказ
+  // идёт обычным путём ошибки (тревога «ключ не принят» — в callGraph).
+  if (routed.pageOnly) return false;
   let error: { code?: number; message?: string } | undefined;
   try { error = (JSON.parse(text) as { error?: { code?: number; message?: string } }).error; } catch { error = undefined; }
   if (status < 400 || status >= 500 || !error) return false;
@@ -430,7 +459,8 @@ export async function describeMetaToken(token: string): Promise<{ key: string; l
     const account = s.accounts.find((a) => a.token === token);
     if (account) {
       const name = account.channel === "INSTAGRAM" ? "Instagram" : account.channel === "FACEBOOK" ? "Facebook" : "WhatsApp";
-      return { key: `account:${account.id}`, label: `${name} «${account.title}» (личный маркер)` };
+      const kind = account.channel === "INSTAGRAM" && isFacebookLoginToken(token) ? "ключ Страницы" : "личный маркер";
+      return { key: `account:${account.id}`, label: `${name} «${account.title}» (${kind})` };
     }
     if (token === s.settingsPageToken) return { key: "settings:metaPageToken", label: "Страница Facebook (маркер в Настройках)" };
     if (token === s.settingsIgToken) return { key: "settings:metaIgToken", label: "Instagram (запасной маркер в Настройках)" };
@@ -559,6 +589,21 @@ export async function metaEternalStatus(): Promise<MetaEternalStatus> {
     };
   };
   for (const a of s.accounts.filter((x) => x.channel === "INSTAGRAM")) {
+    if (a.pageId && isFacebookLoginToken(a.token)) {
+      // Подключён «Войти через Facebook» (13.11.2026): у аккаунта маркер своей
+      // Страницы, ключ компании и рубильник ему не нужны — не пугаем «нет ключа».
+      rows.push({
+        key: `account:${a.id}`,
+        title: `Instagram «${a.title}»${a.username ? ` @${a.username}` : ""}`,
+        channel: "INSTAGRAM",
+        accountId: a.id,
+        pageId: a.pageId,
+        lastSentAt: a.eternalLastSentAt?.toISOString() ?? null,
+        state: a.eternalLastSentAt ? "ready" : "pending_first_send",
+        hint: "Подключён входом через Facebook: отвечает ключом своей Страницы, ключ компании не нужен.",
+      });
+      continue;
+    }
     rows.push(await pageRow({ key: `account:${a.id}`, title: `Instagram «${a.title}»${a.username ? ` @${a.username}` : ""}`, channel: "INSTAGRAM", accountId: a.id, pageId: a.pageId }, IG_PAGE_SCOPES, a.eternalLastSentAt, a.externalId));
   }
   const fbAccounts = s.accounts.filter((x) => x.channel === "FACEBOOK");
@@ -654,24 +699,63 @@ export const PAGE_MESSAGING_FIELDS = ["messages", "messaging_postbacks"];
  * нашего приложения — POST задаёт список целиком, и голый вызов снял бы, например,
  * `feed` (комментарии). Не узнали приложение или текущую подписку — отказ, без POST.
  */
-export async function subscribePageMessaging(pageId: string): Promise<{ ok: true; fields: string[] } | { ok: false; error: string }> {
+export type PageSubscribeResult = { ok: true; fields: string[] } | { ok: false; error: string };
+
+export async function subscribePageMessaging(pageId: string): Promise<PageSubscribeResult> {
   const s = await loadSnapshot();
   if (!s.systemToken) return { ok: false, error: "Нет ключа системного пользователя." };
   const grant = await systemPageGrant(pageId, s.systemToken);
   if (!grant.ok) return { ok: false, error: grant.reason };
-  const app = await graphJson(`${GRAPH}/app?fields=id`, s.systemToken).catch(() => null);
-  const appId = app?.ok && typeof app.data?.id === "string" ? app.data.id : undefined;
+  const appId = await companyKeyAppId();
   if (!appId) return { ok: false, error: "Не удалось узнать приложение ключа компании — подписка не изменена. Нажмите ещё раз позже." };
-  const current = await graphJson(`${GRAPH}/${encodeURIComponent(pageId)}/subscribed_apps`, grant.token);
-  if (!current.ok) return { ok: false, error: `Текущая подписка не прочитана — не меняю: ${graphErrorText(current)}` };
-  const ours = ((current.data?.data ?? []) as Array<{ id?: string; subscribed_fields?: string[] }>).find((x) => x.id === appId);
-  const fields = Array.from(new Set([...(ours?.subscribed_fields ?? []), ...PAGE_MESSAGING_FIELDS]));
-  const r = await graphJson(`${GRAPH}/${encodeURIComponent(pageId)}/subscribed_apps`, grant.token, {
-    method: "POST",
-    body: new URLSearchParams({ subscribed_fields: fields.join(",") }),
-  });
-  if (!r.ok) return { ok: false, error: graphErrorText(r) };
-  return { ok: true, fields };
+  return subscribePageWithToken(pageId, grant.token, appId);
+}
+
+/** Приложение ключа компании (системного пользователя) — его поля подписки сверяем. */
+export async function companyKeyAppId(): Promise<string | undefined> {
+  const s = await loadSnapshot();
+  if (!s.systemToken) return undefined;
+  const app = await graphJson(`${GRAPH}/app?fields=id`, s.systemToken).catch(() => null);
+  return app?.ok && typeof app.data?.id === "string" ? app.data.id : undefined;
+}
+
+/**
+ * ПОДПИСКА СТРАНИЦЫ МАРКЕРОМ САМОЙ СТРАНИЦЫ — одна дверь для ключа компании и
+ * для входа через Facebook (13.11.2026). `appId` — приложение, выдавшее маркер
+ * Страницы: POST подписывает именно его, а поля сверяем по его же строке.
+ * Поля ОБЪЕДИНЯЮТСЯ с уже подписанными (feed не снимается); не узнали приложение
+ * или текущую подписку — отказ без POST.
+ */
+export async function subscribePageWithToken(pageId: string, pageToken: string, appId: string | undefined): Promise<PageSubscribeResult> {
+  if (!appId) return { ok: false, error: "Не удалось узнать приложение Meta — подписка не изменена. Нажмите ещё раз позже." };
+  try {
+    const current = await graphJson(`${GRAPH}/${encodeURIComponent(pageId)}/subscribed_apps`, pageToken);
+    if (!current.ok) return { ok: false, error: `Текущая подписка не прочитана — не меняю: ${graphErrorText(current)}` };
+    const ours = ((current.data?.data ?? []) as Array<{ id?: string; subscribed_fields?: string[] }>).find((x) => x.id === appId);
+    const fields = Array.from(new Set([...(ours?.subscribed_fields ?? []), ...PAGE_MESSAGING_FIELDS]));
+    const r = await graphJson(`${GRAPH}/${encodeURIComponent(pageId)}/subscribed_apps`, pageToken, {
+      method: "POST",
+      body: new URLSearchParams({ subscribed_fields: fields.join(",") }),
+    });
+    if (!r.ok) return { ok: false, error: graphErrorText(r) };
+    return { ok: true, fields };
+  } catch (err) {
+    return { ok: false, error: describeError(err) };
+  }
+}
+
+/**
+ * ЗАПРОС К GRAPH ОТ ИМЕНИ ВХОДА — для lib/metaLoginAssets.ts: тот же срок
+ * ожидания (8 с) и тот же разбор ошибки, что у вызовов ключа компании.
+ */
+export async function metaGraphGet(path: string, token: string): Promise<{ ok: true; data: Record<string, unknown> | null } | { ok: false; error: string; auth: boolean }> {
+  try {
+    const r = await graphJson(`${GRAPH}${path}`, token);
+    if (r.ok) return { ok: true, data: r.data };
+    return { ok: false, error: graphErrorText(r), auth: isMetaAuthFailure(r.status, r.text) };
+  } catch (err) {
+    return { ok: false, error: describeError(err), auth: false };
+  }
 }
 
 // ──────────────────── Страницы Facebook ключом компании ────────────────────

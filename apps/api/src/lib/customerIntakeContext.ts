@@ -9,6 +9,8 @@ export const customerIntakeContextSchema = z.object({
   desiredDistrictId: z.string().uuid().optional(), desiredRooms: z.number().int().min(0).max(50).optional(),
   desiredType: z.enum(PROPERTY_TYPES).optional(), propertyId: z.string().uuid().optional(),
   requestedAgentId: z.string().uuid().optional(),
+  /** Customer's own words name a place outside Dushanbe/Rudaki (ai/customerAgentIntake.ts::customerIntakeLocation): OTHER lead. */
+  locationOutsideDushanbe: z.literal(true).optional(),
   deferAssignment: z.boolean().default(false),
 }).strict();
 export type CustomerIntakeContext = z.infer<typeof customerIntakeContextSchema>;

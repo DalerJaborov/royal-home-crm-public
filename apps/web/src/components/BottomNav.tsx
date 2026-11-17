@@ -1,7 +1,8 @@
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import { NavLink } from "react-router-dom";
 import { Plus } from "lucide-react";
-import { lazy, Suspense, useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
+import { lazyWithReload } from "../lib/lazyWithReload";
 import { hapticSuccess, hapticTap } from "../lib/haptics";
 /**
  * МЕНЮ «+» ЗАГРУЖАЕТСЯ ПО НАЖАТИЮ (10.09.2026).
@@ -12,7 +13,7 @@ import { hapticSuccess, hapticTap } from "../lib/haptics";
  * шторкой хуже, чем открыться на кадр позже; файл предзагружается service
  * worker, поэтому и офлайн меню открывается.
  */
-const FabMenu = lazy(() => import("./FabMenu").then((m) => ({ default: m.FabMenu })));
+const FabMenu = lazyWithReload(() => import("./FabMenu").then((m) => ({ default: m.FabMenu })));
 // Панель ассистента — общей обёрткой на все места оболочки (там же разобрано,
 // почему ленивый импорт обязан быть во ВСЕХ них, иначе сборщик оставляет модуль
 // во входном куске).

@@ -24,6 +24,17 @@ import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
  */
 
 const { callAi } = vi.hoisted(() => ({ callAi: vi.fn() }));
+/**
+ * Ответ модели для подменённого callAiText: у короткой реплики подтверждения
+ * (`lead-closing`, ai/shortAgentReply.ts) поле reply — СТРОКА, у разговора — массив.
+ * С 17.11.2026 номер без понятного намерения заводится покупателем с пометкой
+ * (services/leads/intakePolicy.ts), и приём заявки идёт через подтверждение —
+ * прежняя подмена «массив на всё» там роняла приём (`reply.trim is not a function`).
+ */
+const modelReply = (text: string) => async (req: { endpoint?: string }) =>
+  req?.endpoint === "lead-closing"
+    ? { reply: text }
+    : { reply: [text], ready: false, confident: true, topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false };
 vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText: callAi,
@@ -100,7 +111,7 @@ async function clientLines(): Promise<string[]> {
 
 describe("Клиент пишет требования, следом телефон", () => {
   it("сказанное перед номером попадает в переписку, а не пропадает", async () => {
-    callAi.mockResolvedValue({ reply: ["Раҳмат!"], ready: false, confident: true, topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false });
+    callAi.mockImplementation(modelReply("Раҳмат!"));
 
     // ХОДЫ ОБЯЗАНЫ НАЛОЖИТЬСЯ — в этом вся суть. При нулевом окне первый ход успевает
     // закончиться до второго, буфер пуст, и гонки не происходит: тест был бы зелёным
@@ -214,7 +225,7 @@ describe("Тот же телефон уже привязан к другой п�
     // (clientId)", и клиент вместо тёплого подтверждения получал заглушку
     // «позвоните нам» — заявка формально не пропадала (карточка и так одна на
     // клиента), но диалог ломался и не отмечался принятым.
-    callAi.mockResolvedValue({ reply: ["Раҳмат!"], ready: false, confident: true, topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false });
+    callAi.mockImplementation(modelReply("Раҳмат!"));
     const phone = "935001199";
     const subA = `${SUBSCRIBER}-dupA`;
     const subB = `${SUBSCRIBER}-dupB`;
