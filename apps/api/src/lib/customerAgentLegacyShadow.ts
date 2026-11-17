@@ -50,7 +50,7 @@ export interface LegacyShadowTurn {
   legacy: LegacyTurnSummary;
 }
 
-const SHADOW_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
+const CUSTOMER_AGENT_SHADOW_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
 const MAX_PARALLEL = 2;
 const MAX_DEADLINE_MS = 60_000;
 let running = 0;
@@ -120,7 +120,7 @@ export async function runLegacyCoreShadow(turn: LegacyShadowTurn, options: { tra
         const linkPreference = turn.channel === "WEBSITE" ? "site" as const : "social" as const;
         const result = await runCustomerAgentTurn({ surface: "dm", language, inputText,
           knownPhoneSource: turn.phoneKnown ? "scoped_contact" : "none", requestedFacts: [], revision, startedAt,
-          operation: runtime.operation, tools: customerAgentToolDefinitions([...SHADOW_TOOLS]),
+          operation: runtime.operation, tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_SHADOW_TOOLS]),
           ...(context.success ? { verifiedContext: context.data } : {}), sayMode: "shadow" }, {
           assertCurrent: async () => true,
           modelTurn: input => runtime.modelTurn(input),
@@ -132,7 +132,7 @@ export async function runLegacyCoreShadow(turn: LegacyShadowTurn, options: { tra
         const core = legacyShadowCoreView(result);
         traceLegacyShadow({ channelKey: key, legacy: { ...turn.legacy, bubbles: Math.min(8, Math.max(0, turn.legacy.bubbles)) }, core,
           agree: { replied: core.replied === turn.legacy.replied, askedPhone: core.askedPhone === turn.legacy.askedPhone },
-          toolsOffered: SHADOW_TOOLS.length, historyTurns: context.success ? context.data.turns.length : 0 });
+          toolsOffered: CUSTOMER_AGENT_SHADOW_TOOLS.length, historyTurns: context.success ? context.data.turns.length : 0 });
         return "recorded" as const;
       } finally {
         // Settle the provider operation exactly like the live adapters (close only; aborting first could leave it HELD).
@@ -146,7 +146,7 @@ export async function runLegacyCoreShadow(turn: LegacyShadowTurn, options: { tra
 async function shadowTool(call: CustomerAgentToolCall, options: { knowledgeSourceHash: string; linkPreference: "site" | "social"; brandName: string | null }): Promise<CustomerAgentToolResult> {
   if (call.name === "get_agency_contact") return { status: "observed", observation: {
     kind: "agency_contact", contact: { phone: PUBLIC_AGENCY_CONTACT.phone, digits: PUBLIC_AGENCY_CONTACT.digits, channel: "telephone" } } };
-  if (!(SHADOW_TOOLS as readonly string[]).includes(call.name)) return { status: "denied", reason: "shadow_read_only" };
+  if (!(CUSTOMER_AGENT_SHADOW_TOOLS as readonly string[]).includes(call.name)) return { status: "denied", reason: "shadow_read_only" };
   const read = await readCustomerAgentPublicData(call, { knowledgeSourceHash: options.knowledgeSourceHash,
     linkPreference: options.linkPreference, brandName: options.brandName });
   return read.status === "observed" ? { status: "observed", observation: read.observation } : read;
