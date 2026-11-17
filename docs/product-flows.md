@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **753**. Развилок в самих путях: **2474**; вместе с задачами по расписанию и фоновыми заданиями — **4066**. Модулей: **85**.
+Путей: **765**. Развилок в самих путях: **2485**; вместе с задачами по расписанию и фоновыми заданиями — **4077**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -7163,6 +7163,186 @@
     · запись в журнал ошибок
   - res.status(500).json({ error: "Не удалось посчитать прогноз" });
     · ответ 500 — «Не удалось посчитать прогноз»
+
+## /api/v1/founders
+
+### PATCH /api/v1/founders/:id/restore
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+
+- пробует
+  - const row = await restoreFounder(req.params.id);
+    · зовёт restoreFounder()
+  - logAudit(req, "RESTORE", "Founder", row.id, { name: row.name });
+    · зовёт logAudit()
+  - res.json(row);
+    · ответ 200
+- если сорвалось
+  - если !failed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
+
+### DELETE /api/v1/founders/:id
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+
+- пробует
+  - const row = await deleteFounder(req.params.id);
+    · зовёт deleteFounder()
+  - logAudit(req, "DELETE", "Founder", row.id, { name: row.name });
+    · зовёт logAudit()
+  - res.json(row);
+    · ответ 200
+- если сорвалось
+  - если !failed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
+
+### PATCH /api/v1/founders/:id
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+
+- пробует
+  - const row = await updateFounder(req.params.id, req.body);
+    · зовёт updateFounder()
+  - logAudit(req, "UPDATE", "Founder", row.id, { changed: Object.keys(req.body ?? {}) });
+    · зовёт logAudit()
+  - res.json(row);
+    · ответ 200
+- если сорвалось
+  - если !failed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
+
+### PATCH /api/v1/founders/contributions/:id/restore
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+
+- пробует
+  - const row = await restoreContribution(req.params.id);
+    · зовёт restoreContribution()
+  - logAudit(req, "RESTORE", "FounderContribution", row.id, {});
+    · зовёт logAudit()
+  - res.json(row);
+    · ответ 200
+- если сорвалось
+  - если !failed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
+
+### DELETE /api/v1/founders/contributions/:id
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+
+- пробует
+  - const row = await deleteContribution(req.params.id);
+    · зовёт deleteContribution()
+  - logAudit(req, "DELETE", "FounderContribution", row.id, { founderId: row.founderId, amount: row.amount.toStrin…
+    · зовёт logAudit()
+  - res.status(204).end();
+    · ответ 204
+- если сорвалось
+  - если !failed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
+
+### PATCH /api/v1/founders/contributions/:id
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+
+- пробует
+  - const row = await updateContribution(req.params.id, req.body);
+    · зовёт updateContribution()
+  - logAudit(req, "UPDATE", "FounderContribution", row.id, { changed: Object.keys(req.body ?? {}) });
+    · зовёт logAudit()
+  - res.json(row);
+    · ответ 200
+- если сорвалось
+  - если !failed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
+
+### GET /api/v1/founders/contributions
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+
+- пробует
+  - res.json(await listContributions(req.query));
+    · ответ 200
+- если сорвалось
+  - если !failed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
+
+### POST /api/v1/founders/contributions
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+
+- пробует
+  - const row = await createContribution(req.body, { agentId: req.agent!.id, requestKey });
+    · зовёт createContribution()
+  - logAudit(req, "FOUNDER_CONTRIBUTION_CREATE", "FounderContribution", row.id, { founderId: row.founderId, amoun…
+    · зовёт logAudit()
+  - res.status(201).json(row);
+    · ответ 201
+- если сорвалось
+  - если !failed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
+
+### GET /api/v1/founders/totals
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+
+- пробует
+  - res.json(await founderTotals(String(req.query.month ?? "")));
+    · ответ 200
+- если сорвалось
+  - если !failed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
+
+### GET /api/v1/founders
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+
+- res.json(await listFounders({ includeDeleted: req.query.includeDeleted === "1" || req.query.includeDeleted ==…
+  · ответ 200
+
+### POST /api/v1/founders
+
+`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+
+- пробует
+  - const row = await createFounder(req.body);
+    · зовёт createFounder()
+  - logAudit(req, "FOUNDER_CREATE", "Founder", row.id, { name: row.name });
+    · зовёт logAudit()
+  - res.status(201).json(row);
+    · ответ 201
+- если сорвалось
+  - если !failed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
+
+## /api/v1/function-status
+
+### GET /api/v1/function-status
+
+`apps/api/src/routes/functionStatus.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- пробует
+  - если !canViewFunctionStatus(req.agent?.role)
+    - return res.status(403).json({ error: "Недостаточно прав" });
+      · ответ 403 — «Недостаточно прав»
+  - const body = await loadFunctionStatus(investigationViewerRole(req));
+    · зовёт loadFunctionStatus()
+  - return res.json(functionStatusResponseSchema.parse(body));
+    · ответ 200
+    · проверяет данные схемой functionStatusResponseSchema
+- если сорвалось
+  - return next(err);
+    · дословно из кода
 
 ## /api/v1/geo
 
