@@ -15,6 +15,7 @@ import {
 } from "../hooks/useAgents";
 import { useTeam, type TeamMember } from "../hooks/useTeam";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { useRoyalLook } from "../hooks/useRoyalLook";
 import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { usableRouteId } from "../lib/routeId";
 import { ApiError } from "../lib/apiError";
@@ -344,9 +345,11 @@ function TeamMemberDetailDesktop(props: SharedProps) {
     revertError, setRevertError,
     lastInteraction, nextTask, statusNow,
   } = props;
+  // «Новый вид» (18.11.2026): метка для оформления слоя, разметка та же.
+  const royal = useRoyalLook();
 
   return (
-    <div className="rh2 screens">
+    <div className={royal ? "rh2 screens ry-member" : "rh2 screens"}>
       <div className="scr">
         {overview.isLoading && (
           <div className="card">
@@ -981,9 +984,11 @@ function TeamMemberDetailMobile(props: SharedProps) {
   // Шаг назад вместо жёсткого перехода в «Команду»: иначе возврат терял срез и
   // место в списке (разбор в hooks/useGoBack.ts).
   const goBack = useGoBack("/team");
+  // «Новый вид» (18.11.2026): метка для оформления слоя, разметка та же.
+  const royal = useRoyalLook();
 
   return (
-    <div className="rh2" style={MH_HOST}>
+    <div className={royal ? "rh2 ry-member" : "rh2"} style={MH_HOST}>
       <div className="mh">
         <ShellOwnHeader />
         <div className="top">

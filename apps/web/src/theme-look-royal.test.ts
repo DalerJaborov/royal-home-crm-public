@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -51,20 +51,40 @@ export function unscopedSelectors(css: string): string[] {
   return bad;
 }
 
-describe("theme-look-royal.css", () => {
+/** Слой основы и слои пачек (theme-look-royal-<пачка>.css): сторож один на все. */
+const LOOK_FILES = readdirSync(new URL(".", import.meta.url)).filter((name) => /^theme-look-royal(-[\w-]+)?\.css$/.test(name)).sort();
+
+describe("theme-look-royal*.css", () => {
   const css = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
-  it("every rule is scoped to :root[data-ui-look=\"royal\"]", () => {
-    expect(unscopedSelectors(css)).toEqual([]);
+  it("covers the base layer and every pack layer", () => {
+    expect(LOOK_FILES).toContain("theme-look-royal.css");
+    expect(LOOK_FILES).toContain("theme-look-royal-team.css");
+  });
+  it.each(LOOK_FILES)("every rule of %s is scoped to :root[data-ui-look=\"royal\"]", (name) => {
+    expect(unscopedSelectors(readFileSync(new URL(`./${name}`, import.meta.url), "utf8"))).toEqual([]);
   });
   it("the guard really catches an unscoped rule (сторож проверен поломкой)", () => {
-    expect(unscopedSelectors(`${css}\n.clean-tab { color: red; }\n@media (min-width: 1px) { body, :root[data-ui-look="royal"] a { color: red; } }`))
+    expect(unscopedSelectors(`${css}
+.clean-tab { color: red; }
+@media (min-width: 1px) { body, :root[data-ui-look="royal"] a { color: red; } }`))
       .toEqual([".clean-tab", "body"]);
-    const atRules = `\n@font-face { font-family: X; src: url(x.woff2); }\n@layer base { :root[data-ui-look="royal"] a { color: red; } }\n@keyframes spin { to { opacity: 0; } }`;
+    const atRules = `
+@font-face { font-family: X; src: url(x.woff2); }
+@layer base { :root[data-ui-look="royal"] a { color: red; } }
+@keyframes spin { to { opacity: 0; } }`;
     expect(unscopedSelectors(`${css}${atRules}`)).toEqual(["@font-face", "@layer base", "@keyframes spin"]);
+    // :has() на корне — тоже под признаком, а селектор без него ловится и в слое пачки.
+    expect(unscopedSelectors(`:root[data-ui-look="royal"]:has(.ry-set) .sheet { color: red; }
+:root:has(.ry-set) .sheet { color: red; }`))
+      .toEqual([":root:has(.ry-set) .sheet"]);
   });
-  it("is imported after every other theme layer", () => {
+  it("base layer first, then pack layers, after every other theme layer", () => {
     const index = readFileSync(new URL("./index.css", import.meta.url), "utf8");
     const imports = [...index.matchAll(/@import '\.\/(theme-[^']+\.css)'/g)].map((m) => m[1]);
-    expect(imports.at(-1)).toBe("theme-look-royal.css");
+    const firstLook = imports.indexOf("theme-look-royal.css");
+    expect(firstLook).toBeGreaterThanOrEqual(0);
+    // После слоя основы — только слои пачек, и каждый файл пачки подключён.
+    expect(imports.slice(firstLook + 1).every((name) => /^theme-look-royal-[\w-]+\.css$/.test(name))).toBe(true);
+    expect([...imports.slice(firstLook)].sort()).toEqual(LOOK_FILES);
   });
 });

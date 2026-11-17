@@ -1,0 +1,525 @@
+/* «НОВЫЙ ВИД» — ПАЧКА «team»: Команда, карточка сотрудника, активность команды,
+ * Настройки (список групп и все экраны групп), «Ещё», меню профиля. 18.11.2026.
+ *
+ * Обычный, НЕ генерируемый файл. Подключён сразу после theme-look-royal.css, и
+ * КАЖДОЕ правило стоит под :root[data-ui-look="royal"] (сторож
+ * theme-look-royal.test.ts проверяет все файлы theme-look-royal*.css). Без
+ * признака с сервера не меняется ни один пиксель.
+ *
+ * Токены — общие --rh-ui-* из theme-look-royal.css; здесь своих токенов нет.
+ * Области: .ry-set (Настройки), .ry-teamp (Команда), .ry-member (карточка
+ * сотрудника), .ry-activity (активность), .ry-more («Ещё»), .ry-pmenu (меню
+ * профиля). Окна (шторки, подтверждения) живут в портале, поэтому их оформление
+ * привязано к открытому экрану пачки через :has().
+ *
+ * Значения — из макета docs/design/oblik-2026-11-17 (`screenSettings`,
+ * `settingsGroupBody`, `screenTeam`, `screenMore`): круг 48 / значок 24,
+ * строка ~60, карточки 24, переключатель 56×34, текст не мельче 13.
+ */
+
+/* ============================ общее пачки ============================ */
+
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity, .ry-more) {
+  color: var(--rh-ui-text); font-family: var(--font-sans, "Onest", system-ui, sans-serif);
+}
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-more) .scr,
+:root[data-ui-look="royal"] .ry-more { display: grid; gap: 20px; min-width: 0; max-width: 1280px; padding: 8px 0 32px; margin: 0; }
+:root[data-ui-look="royal"] .ry-title { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-title { font-size: 28px; }
+/* Телефон: шапка оболочки уже пишет название экрана — второй такой же заголовок только для чтеца. */
+:root[data-ui-look="royal"][data-mobile-ux] .ry-title[data-dup] {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+:root[data-ui-look="royal"] .ry-chev { flex: none; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-meta { margin: 0; font-size: 15px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-wrap { white-space: normal; }
+:root[data-ui-look="royal"] .ry-row-danger .ry-row-title { color: var(--rh-ui-crit-text); }
+
+/* Кнопка «i» и скрытое под ней пояснение. */
+:root[data-ui-look="royal"] .ry-info {
+  display: inline-grid; place-items: center; flex: none; width: 44px; height: 44px; margin: -10px -8px -10px -4px; padding: 0;
+  border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-hint); cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-info:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-info:is([aria-expanded="true"], [aria-pressed="true"]) { color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] .ry-info:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: -4px; }
+:root[data-ui-look="royal"] .ry-hint { margin: 0; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
+
+/* Таблетки выбора (блоки группы, отбор команды). */
+:root[data-ui-look="royal"] .ry-pill {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap; text-decoration: none; cursor: pointer;
+  transition: transform 90ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] .ry-pill { flex: none; }
+:root[data-ui-look="royal"] .ry-pill:active { transform: scale(.97); }
+:root[data-ui-look="royal"] .ry-pill b { font-weight: 700; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-pill:is([aria-current="page"], [aria-selected="true"]) { background: var(--rh-ui-text); color: var(--rh-ui-bg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-pill:is([aria-current="page"], [aria-selected="true"]) b { color: inherit; opacity: .75; }
+:root[data-ui-look="royal"] .ry-pill[data-danger] { color: var(--rh-ui-crit-text); box-shadow: 0 0 0 1px color-mix(in srgb, var(--rh-ui-crit-text) 35%, transparent); }
+:root[data-ui-look="royal"] .ry-pill[data-danger][aria-current="page"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+
+:root[data-ui-look="royal"] .ry-badge {
+  display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px;
+  background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+:root[data-ui-look="royal"] .ry-badge[data-quiet] { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
+
+/* Строка-ссылка, сделанная из <Link>/<button> вручную: те же метрики, что у RhRow. */
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-more) a.ry-row { text-decoration: none; }
+:root[data-ui-look="royal"] .ry-linklike {
+  display: block; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  min-height: 24px;
+}
+:root[data-ui-look="royal"] .ry-linklike:hover { text-decoration: underline; }
+
+/* Переходы между экранами раздела (TeamTabs, SettingsTabs): таблетки или выбор. */
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .seg-ai {
+  display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  margin: 0; padding: 2px; background: transparent; border: 0; box-shadow: none;
+}
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .seg-ai::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .seg-ai > a {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  font-size: 15px; font-weight: 600; text-decoration: none;
+}
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .seg-ai > a[aria-current="page"] { background: var(--rh-ui-text); color: var(--rh-ui-bg); box-shadow: none; }
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .seg-ai > a .n {
+  min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: 13px; font-weight: 700; line-height: 22px; text-align: center;
+}
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .clean-section-switcher { margin: 0; }
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .clean-section-switcher select {
+  min-height: 52px; border-radius: 999px; padding: 0 20px; background-color: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: 0 0 0 1px var(--rh-ui-ring); font-size: 16px;
+}
+
+/* Поиск: серая капсула 52 (макет). */
+:root[data-ui-look="royal"] .ry-search {
+  display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 52px; padding: 0 8px 0 18px; border-radius: 999px;
+  background: var(--rh-ui-raised); color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-search input {
+  flex: 1 1 auto; min-width: 0; height: 48px; padding: 0; border: 0; outline: 0; background: transparent;
+  color: var(--rh-ui-text); font: inherit; font-size: 17px;
+}
+:root[data-ui-look="royal"] .ry-search input::placeholder { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-search:focus-within { box-shadow: 0 0 0 2px var(--rh-ui-primary); }
+:root[data-ui-look="royal"] .ry-search input::-webkit-search-cancel-button { display: none; }
+:root[data-ui-look="royal"] .ry-search-clear {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--rh-ui-hint); cursor: pointer;
+}
+
+/* Стрелка «назад» — белая таблетка (макет). */
+:root[data-ui-look="royal"] .ry-back {
+  display: inline-flex; align-items: center; gap: 4px; justify-self: start; min-height: 44px; padding: 0 18px 0 12px; border-radius: 999px;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  font-size: 16px; font-weight: 600; text-decoration: none;
+}
+
+/* Круг переключателя: выключено — серый, включено — синий (макет `.swt.on .circle`). */
+:root[data-ui-look="royal"] .ry-circle[data-on="false"] { background: var(--rh-ui-raised); color: var(--rh-ui-hint); }
+
+/* ===================== переключатель 56×34 (одна дверь) ===================== */
+/* Тот же <label class="tgl"> с настоящим чекбоксом (components/Switch.tsx), только крупнее. */
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .tgl,
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member) :is(.sheet, .modal) .tgl { width: 56px; height: 44px; }
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .tgl i,
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member) :is(.sheet, .modal) .tgl i {
+  width: 56px; height: 34px; background: #c5c9d3; transition: background-color 160ms;
+}
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .tgl i,
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"]:has(.ry-set, .ry-teamp, .ry-member) :is(.sheet, .modal) .tgl i { background: #3b4251; }
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .tgl i::after,
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member) :is(.sheet, .modal) .tgl i::after {
+  left: 3px; top: 3px; width: 28px; height: 28px; background: #ffffff; box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
+  transition: transform 240ms cubic-bezier(.32, .72, 0, 1);
+}
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .tgl input:checked + i,
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member) :is(.sheet, .modal) .tgl input:checked + i { background: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .tgl input:checked + i::after,
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member) :is(.sheet, .modal) .tgl input:checked + i::after { transform: translateX(22px); }
+:root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .tgl input:focus-visible + i { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+
+/* Галочки-выборы (кто получает новый интерфейс и т.п.) рисуются тем же переключателем 56×34. */
+:root[data-ui-look="royal"] .ry-set :is(.shell-rollout-choice, .ry-check) input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; position: relative; flex: none; width: 56px; height: 34px; margin: 0;
+  border-radius: 999px; background: #c5c9d3; cursor: pointer; transition: background-color 160ms;
+}
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] .ry-set :is(.shell-rollout-choice, .ry-check) input[type="checkbox"] { background: #3b4251; }
+:root[data-ui-look="royal"] .ry-set :is(.shell-rollout-choice, .ry-check) input[type="checkbox"]::after {
+  content: ""; position: absolute; left: 3px; top: 3px; width: 28px; height: 28px; border-radius: 999px; background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .25); transition: transform 240ms cubic-bezier(.32, .72, 0, 1);
+}
+:root[data-ui-look="royal"] .ry-set :is(.shell-rollout-choice, .ry-check) input[type="checkbox"]:checked { background: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] .ry-set :is(.shell-rollout-choice, .ry-check) input[type="checkbox"]:checked::after { transform: translateX(22px); }
+:root[data-ui-look="royal"] .ry-set :is(.shell-rollout-choice, .ry-check) input[type="checkbox"]:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] .ry-set :is(.shell-rollout-choice, .ry-check) input[type="checkbox"]:disabled { opacity: .5; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-look="royal"] :is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .tgl i::after,
+  :root[data-ui-look="royal"] .ry-set :is(.shell-rollout-choice, .ry-check) input[type="checkbox"]::after { transition: none; }
+}
+
+/* ============================== Настройки ============================== */
+
+:root[data-ui-look="royal"] .ry-set .scr { container: ry-set / inline-size; }
+:root[data-ui-look="royal"] .ry-set .ry-group { min-width: 0; }
+:root[data-ui-look="royal"] .ry-set .ry-group + .ry-group { margin-top: 16px; }
+:root[data-ui-look="royal"] .ry-set-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; align-items: start; }
+:root[data-ui-look="royal"] .ry-set-nav, :root[data-ui-look="royal"] .ry-set-main { min-width: 0; }
+:root[data-ui-look="royal"] .ry-set-main { display: grid; gap: 16px; }
+:root[data-ui-look="royal"] .ry-set-h { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
+@container ry-set (min-width: 900px) {
+  :root[data-ui-look="royal"] .ry-set-wrap { grid-template-columns: 340px minmax(0, 1fr); }
+  :root[data-ui-look="royal"] .ry-set-nav { position: sticky; top: 24px; }
+}
+/* Выбранная группа в списке (ПК): синяя подложка, как в макете. */
+:root[data-ui-look="royal"] .ry-set-nav .ry-row[aria-current="page"] { background: var(--rh-ui-primary-soft); }
+:root[data-ui-look="royal"] .ry-set-nav .ry-row[aria-current="page"] .ry-row-title { color: var(--rh-ui-primary-soft-fg); }
+
+/* Тело группы: блоки таблетками, заголовок блока, формы. */
+:root[data-ui-look="royal"] .ry-set .sset-body.ry-set-body { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 0; background: transparent; box-shadow: none; border: 0; }
+:root[data-ui-look="royal"] .ry-set-tasks { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-set-tasks { flex-wrap: nowrap; overflow-x: auto; margin-inline: -16px; padding: 2px 16px; scrollbar-width: none; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-set-tasks::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] .ry-set .ry-task-head { display: grid; gap: 4px; margin: 4px 0 0; }
+:root[data-ui-look="royal"] .ry-set .ry-task-head h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-set .ry-task-head p { margin: 0; font-size: 15px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-set .clean-settings-jump:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0; }
+:root[data-ui-look="royal"] .ry-set .clean-settings-jump label { font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-set .clean-settings-jump select {
+  flex: 1 1 220px; min-width: 0; min-height: 48px; padding: 0 16px; border: 0; border-radius: 999px;
+  background-color: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); font: inherit; font-size: 16px;
+}
+
+/* Раздел-складка: белая карточка 24, шапка — круг 48 + заголовок 17 + шеврон. */
+:root[data-ui-look="royal"] .ry-set .acc.ry-acc,
+:root[data-ui-look="royal"] .ry-set .acc {
+  margin: 0 0 12px; border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); overflow: visible;
+}
+:root[data-ui-look="royal"] .ry-set .ry-acc-head { display: flex; align-items: center; gap: 4px; padding-right: 12px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-set .ry-acc .acc-h {
+  display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; min-height: 72px; padding: 12px 8px 12px 16px;
+  border: 0; border-radius: var(--rh-ui-r-card); background: transparent; color: var(--rh-ui-text); text-align: left; cursor: pointer;
+}
+@media (hover: hover) {
+  :root[data-ui-look="royal"] .ry-set .ry-acc .acc-h:hover { background: var(--rh-ui-hover); }
+}
+:root[data-ui-look="royal"] .ry-set .ry-acc .acc-h h3 { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 17px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-set .ry-acc .acc-h .cnt { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-set .ry-acc .acc-h .ch { flex: none; width: 22px; height: 22px; color: var(--rh-ui-hint); transition: transform 200ms cubic-bezier(.23, 1, .32, 1); }
+:root[data-ui-look="royal"] .ry-set .ry-acc .acc-h[aria-expanded="true"] .ch { transform: rotate(180deg); }
+:root[data-ui-look="royal"] .ry-set .ry-acc .ry-info { margin: 0; }
+:root[data-ui-look="royal"] .ry-set .acc .acc-b { padding: 4px 16px 16px; border: 0; }
+
+/* Пояснения строк без своего компонента — под «i» раздела (список = RY_HINT_SELECTOR в SettingsSection.tsx). */
+:root[data-ui-look="royal"] .ry-set .ry-acc:not([data-ry-hints="open"]) .acc-b :is(.mod > .t > span, p.sub) { display: none; }
+
+/* Строка настройки без своего компонента (.mod): круг со значком раздела слева. */
+:root[data-ui-look="royal"] .ry-set .acc-b .mod {
+  position: relative; align-items: center; gap: 12px 16px; min-height: 72px; padding: 12px 0 12px 60px; border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--rh-ui-sep);
+}
+:root[data-ui-look="royal"] .ry-set .acc-b .mod:last-child { box-shadow: none; }
+:root[data-ui-look="royal"] .ry-set .acc-b .mod::before {
+  content: ""; position: absolute; left: 0; top: 12px; width: 48px; height: 48px; border-radius: 999px; background: var(--rh-ui-a0);
+}
+:root[data-ui-look="royal"] .ry-set .acc-b .mod::after {
+  content: ""; position: absolute; left: 12px; top: 24px; width: 24px; height: 24px; background: var(--rh-ui-a0f);
+  -webkit-mask: var(--ry-sec-icon, none) center / 24px 24px no-repeat; mask: var(--ry-sec-icon, none) center / 24px 24px no-repeat;
+}
+:root[data-ui-look="royal"] .ry-set .acc-b .mod .t { min-width: min(200px, 100%); }
+:root[data-ui-look="royal"] .ry-set .acc-b .mod .t b { font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-set .acc-b .mod .t > span { font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); }
+/* Слово состояния и пометки рядом с названием — маленькой таблеткой, а не полосой во всю ширину. */
+:root[data-ui-look="royal"] .ry-set .acc-b .mod .t b :is(.chip, span[class]) { display: inline-flex; align-items: center; width: auto; margin: 0 0 0 8px; vertical-align: middle; }
+
+/* Плитки-переключатели (SwitchRow): соседние плитки встают сеткой по две, на
+   широком экране настроек — по три (макет `.swts`); всё остальное в том же
+   родителе занимает строку целиком. */
+:root[data-ui-look="royal"] .ry-swt {
+  display: flex; flex-direction: column; justify-content: space-between; gap: 14px; min-width: 0; min-height: 148px; padding: 16px;
+  border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); text-align: left;
+}
+:root[data-ui-look="royal"] :is(div, form, section, fieldset):has(> .ry-swt) {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: stretch;
+}
+:root[data-ui-look="royal"] :is(div, form, section, fieldset):has(> .ry-swt) > :not(.ry-swt) { grid-column: 1 / -1; min-width: 0; }
+:root[data-ui-look="royal"] :is(div, form, section, fieldset):has(> .ry-swt) > :is(button, a, .pill, .chip) { justify-self: start; }
+/* Внутри карточки раздела плитки — на сером, чтобы карточка в карточке читалась. */
+:root[data-ui-look="royal"] .ry-set .acc-b .ry-swt { background: var(--rh-ui-bg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-swt-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+:root[data-ui-look="royal"] .ry-swt-t { display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; font-size: 16px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; text-wrap: balance; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-swt .ry-hint { font-size: 14px; }
+:root[data-ui-look="royal"] .ry-swt-warn { margin: 0; padding: 8px 12px; border-radius: 14px; background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); font-size: 14px; font-weight: 600; line-height: 1.4; }
+/* Ширину для сетки плиток меряет сама карточка раздела, а не окно. */
+:root[data-ui-look="royal"] .ry-set :is(.acc-b, .ry-set-body) { container: ry-box / inline-size; }
+@container ry-box (min-width: 760px) {
+  :root[data-ui-look="royal"] .ry-set :is(div, form, section, fieldset):has(> .ry-swt) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* Узко (телефон): плитка становится строкой — круг, название с «i», переключатель справа. */
+@container ry-box (max-width: 459.98px) {
+  :root[data-ui-look="royal"] .ry-set :is(div, form, section, fieldset):has(> .ry-swt) { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  :root[data-ui-look="royal"] .ry-set .ry-swt {
+    display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; min-height: 72px; padding: 12px;
+  }
+  :root[data-ui-look="royal"] .ry-set .ry-swt-top { display: contents; }
+  :root[data-ui-look="royal"] .ry-set .ry-swt-top > .ry-circle { grid-column: 1; grid-row: 1; }
+  :root[data-ui-look="royal"] .ry-set .ry-swt-top > .tgl { grid-column: 3; grid-row: 1; }
+  :root[data-ui-look="royal"] .ry-set .ry-swt-t { grid-column: 2; grid-row: 1; align-items: center; justify-content: flex-start; text-wrap: pretty; }
+  :root[data-ui-look="royal"] .ry-set .ry-swt :is(.ry-hint, .ry-swt-warn) { grid-column: 1 / -1; }
+}
+
+/* Строка числа (NumberRow): круг, название с «i», поле справа. */
+:root[data-ui-look="royal"] .ry-setrow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 72px; padding: 12px 0;
+  box-shadow: inset 0 -1px 0 var(--rh-ui-sep);
+}
+:root[data-ui-look="royal"] .ry-setrow:last-child { box-shadow: none; }
+:root[data-ui-look="royal"] .ry-setrow-text { display: grid; gap: 4px; flex: 1 1 180px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-setrow-title { display: flex; align-items: center; gap: 4px; font-size: 17px; font-weight: 600; line-height: 1.3; }
+:root[data-ui-look="royal"] .ry-setrow-field { flex: none; margin-left: auto; }
+
+/* Поля, выборы и кнопки форм внутри настроек — общий язык нового вида. */
+:root[data-ui-look="royal"] .ry-set :is(.nf input, .fld input:not([type="checkbox"]):not([type="radio"]), .fld select, .fld textarea, input.inp, select.inp, textarea.inp) {
+  min-height: 48px; border: 0; border-radius: 16px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
+  box-shadow: inset 0 0 0 1px var(--rh-ui-sep); font-size: 16px;
+}
+:root[data-ui-look="royal"] .ry-set .fld textarea { border-radius: 18px; }
+:root[data-ui-look="royal"] .ry-set :is(.nf input, .fld input, .fld select, .fld textarea, .inp):focus { outline: 2px solid var(--rh-ui-primary); outline-offset: 0; }
+:root[data-ui-look="royal"] .ry-set .fld > .lab { font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-set .scr .pill { min-height: 48px; padding: 0 20px; border-radius: 999px; font-size: 15px; font-weight: 600; }
+:root[data-ui-look="royal"] .ry-set .scr .pill.sm { min-height: 44px; padding: 0 16px; }
+:root[data-ui-look="royal"] .ry-set .scr .pill:not(.ghost) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); border: 0; }
+:root[data-ui-look="royal"] .ry-set .scr .pill.ghost { background: var(--rh-ui-press); color: var(--rh-ui-text); border: 0; box-shadow: none; }
+:root[data-ui-look="royal"] .ry-set .scr .pill.crit,
+:root[data-ui-look="royal"] .ry-set .scr .pill.danger { background: transparent; color: var(--rh-ui-crit-text); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--rh-ui-crit-text) 45%, transparent); }
+:root[data-ui-look="royal"] .ry-set .scr .seg button { min-height: 44px; border-radius: 999px; font-size: 15px; }
+:root[data-ui-look="royal"] .ry-set .scr .seg button[aria-selected="true"],
+:root[data-ui-look="royal"] .ry-set .scr .seg button[aria-pressed="true"] { background: var(--rh-ui-text); color: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .ry-set .scr .card { border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .ry-set .acc-b .card { background: var(--rh-ui-bg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-set .grp-lab { margin: 20px 4px 10px; font-size: 20px; font-weight: 700; letter-spacing: -.02em; text-transform: none; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-set :is(.note, .state, .msg) { font-size: 15px; }
+:root[data-ui-look="royal"] .ry-set :is(.chip) { min-height: 28px; border-radius: 999px; font-size: 13px; }
+:root[data-ui-look="royal"] .ry-set .tbl-wrap { max-width: 100%; overflow-x: auto; }
+
+/* «Новый интерфейс CRM»: те же галочки — строками-переключателями. */
+:root[data-ui-look="royal"] .ry-set .shell-rollout { padding: 20px; }
+:root[data-ui-look="royal"] .ry-set .ry-shell-head { justify-content: space-between; padding-right: 0; }
+:root[data-ui-look="royal"] .ry-set .ry-shell-head h2 { margin: 0; }
+:root[data-ui-look="royal"] .ry-set .shell-rollout:not([data-ry-hints="open"]) p.sub { display: none; }
+:root[data-ui-look="royal"] .ry-set .shell-rollout h2 { margin: 0 0 8px; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+:root[data-ui-look="royal"] .ry-set .shell-rollout fieldset { min-width: 0; margin: 16px 0 0; padding: 0; border: 0; }
+:root[data-ui-look="royal"] .ry-set .shell-rollout legend { margin-bottom: 8px; font-size: 17px; font-weight: 700; }
+:root[data-ui-look="royal"] .ry-set .shell-rollout-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 0 16px; }
+:root[data-ui-look="royal"] .ry-set .shell-rollout-choice {
+  display: flex; align-items: center; justify-content: space-between; flex-direction: row-reverse; gap: 12px; min-height: 60px; padding: 8px 0;
+  box-shadow: inset 0 -1px 0 var(--rh-ui-sep); font-size: 16px; font-weight: 600; color: var(--rh-ui-text); cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-set .shell-rollout > form > fieldset > .shell-rollout-choice { box-shadow: none; padding: 4px 0 12px; font-size: 17px; }
+:root[data-ui-look="royal"] .ry-set .shell-rollout .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+:root[data-ui-look="royal"] .ry-set .shell-rollout [role="status"],
+:root[data-ui-look="royal"] .ry-set .shell-rollout [role="alert"] { margin: 8px 0 0; padding: 10px 14px; border-radius: 14px; font-size: 15px; font-weight: 600; }
+:root[data-ui-look="royal"] .ry-set .shell-rollout [role="status"] { background: var(--rh-ui-info-soft); color: var(--rh-ui-info); }
+:root[data-ui-look="royal"] .ry-set .shell-rollout [role="alert"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
+
+/* ============================== Команда ============================== */
+
+:root[data-ui-look="royal"] .ry-teamp .scr { container: ry-team / inline-size; }
+:root[data-ui-look="royal"] .ry-page-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-page-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-page-title .ry-info { margin: 0; }
+:root[data-ui-look="royal"] .ry-page-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+:root[data-ui-look="royal"] .ry-page-head .ry-hint { flex-basis: 100%; max-width: 72ch; }
+/* Телефон: заголовок прячется (его пишет шапка), «i» встаёт в ряд с кнопками. */
+:root[data-ui-look="royal"][data-mobile-ux] .ry-page-head { flex-wrap: wrap; gap: 8px; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-page-acts { order: 1; flex: 1 1 auto; flex-wrap: wrap; min-width: 0; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-page-acts .ry-btn { padding: 0 14px; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-page-title { order: 2; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-page-head .ry-hint { order: 3; }
+:root[data-ui-look="royal"] .ry-subtabs { min-width: 0; }
+
+:root[data-ui-look="royal"] .ry-team-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-team-tiles > :last-child { grid-column: 1 / -1; }
+@container ry-team (min-width: 720px) {
+  :root[data-ui-look="royal"] .ry-team-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] .ry-team-tiles > :last-child { grid-column: auto; }
+}
+
+/* Аватар с точкой «в сети». */
+:root[data-ui-look="royal"] .ry-person { position: relative; flex: none; display: inline-grid; }
+:root[data-ui-look="royal"] .ry-pres {
+  position: absolute; right: -2px; bottom: -2px; width: 14px; height: 14px; border-radius: 999px;
+  background: var(--rh-ui-raised); box-shadow: 0 0 0 3px var(--rh-ui-card);
+}
+:root[data-ui-look="royal"] .ry-pres[data-on="true"] { background: #1f9d55; }
+
+/* Список сотрудников: телефон — строка + цифры строкой ниже; ПК — таблица. */
+:root[data-ui-look="royal"] .ry-members { display: grid; }
+:root[data-ui-look="royal"] .ry-mhead { display: none; }
+:root[data-ui-look="royal"] .ry-mrow { display: flex; align-items: stretch; min-width: 0; }
+:root[data-ui-look="royal"] .ry-members > .ry-mrow + .ry-mrow { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-mrow-main {
+  display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 8px 12px; flex: 1 1 auto; min-width: 0;
+  min-height: 60px; padding: 12px 4px 12px 16px; border: 0; background: transparent; color: var(--rh-ui-text); text-align: left; font: inherit; cursor: pointer;
+  transition: background-color 160ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] .ry-mrow-main:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-mrow-main:active { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .ry-mrow-main:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: -2px; }
+:root[data-ui-look="royal"] .ry-mrow-text { display: grid; gap: 2px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-mrow-text .chip { font-size: 13px; }
+:root[data-ui-look="royal"] .ry-mrow .ry-stat {
+  display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; font-size: 15px; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-mrow .ry-stat b { font-size: 16px; color: var(--rh-ui-text); white-space: nowrap; }
+:root[data-ui-look="royal"] .ry-mrow .ry-stat small { font-size: 13px; }
+/* Телефон: цифры строкой под именем; ПК — колонками таблицы (обёртка исчезает). */
+:root[data-ui-look="royal"] .ry-mrow-stats { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px 14px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-mrow-main > .ry-person { align-self: start; }
+:root[data-ui-look="royal"] .ry-more-btn {
+  display: grid; place-items: center; flex: none; width: 52px; min-height: 60px; border: 0; background: transparent;
+  color: var(--rh-ui-hint); cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-more-btn:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-more-btn:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: -4px; }
+@container ry-team (min-width: 720px) {
+  :root[data-ui-look="royal"] .ry-mhead, :root[data-ui-look="royal"] .ry-mrow-main {
+    grid-template-columns: 48px minmax(180px, 2.4fr) repeat(4, minmax(56px, .7fr)) minmax(72px, .8fr) minmax(72px, .8fr);
+  }
+  :root[data-ui-look="royal"] .ry-mrow[data-money] .ry-mrow-main,
+  :root[data-ui-look="royal"] .ry-members:has(.ry-mrow[data-money]) .ry-mhead {
+    grid-template-columns: 48px minmax(180px, 2.4fr) repeat(4, minmax(52px, .6fr)) minmax(96px, 1fr) minmax(60px, .7fr) minmax(72px, .8fr);
+  }
+  :root[data-ui-look="royal"] .ry-mhead {
+    display: grid; gap: 0 12px; align-items: center; min-height: 44px; padding: 0 52px 0 16px;
+    font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); box-shadow: inset 0 -1px 0 var(--rh-ui-sep);
+  }
+  :root[data-ui-look="royal"] .ry-mhead > :first-child { grid-column: 1 / 3; }
+  :root[data-ui-look="royal"] .ry-mhead > :last-child { display: none; }
+  :root[data-ui-look="royal"] .ry-mrow-main { column-gap: 12px; }
+  :root[data-ui-look="royal"] .ry-mrow-stats { display: contents; }
+  :root[data-ui-look="royal"] .ry-mrow-main > .ry-person { align-self: center; }
+  :root[data-ui-look="royal"] .ry-mrow .ry-stat small { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  :root[data-ui-look="royal"] .ry-mrow .ry-stat b { font-size: 17px; }
+}
+
+/* Доски почёта, рейтинг, «Показы и сделки», раскрытие «Достижения» — карточки нового вида. */
+:root[data-ui-look="royal"] .ry-teamp .scr .card,
+:root[data-ui-look="royal"] .ry-teamp details.clean-team-recognition {
+  margin: 0; border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-teamp details.clean-team-recognition > summary {
+  display: flex; align-items: center; min-height: 60px; padding: 0 20px; font-size: 17px; font-weight: 600; cursor: pointer; list-style: none;
+}
+:root[data-ui-look="royal"] .ry-teamp details.clean-team-recognition > summary::-webkit-details-marker { display: none; }
+:root[data-ui-look="royal"] .ry-teamp details.clean-team-recognition > summary::after { content: "+"; margin-left: auto; font-size: 24px; font-weight: 400; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-teamp details.clean-team-recognition[open] > summary::after { content: "−"; }
+:root[data-ui-look="royal"] .ry-teamp details.clean-team-recognition > .cols2 { padding: 0 12px 12px; }
+:root[data-ui-look="royal"] .ry-teamp .scr .sec-h h2 { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+:root[data-ui-look="royal"] .ry-teamp .scr :is(.note, .state) { font-size: 15px; }
+:root[data-ui-look="royal"] .ry-teamp .tbl-wrap { max-width: 100%; overflow-x: auto; }
+
+/* ======================= Карточка сотрудника ======================= */
+/* Разметка прежняя (ПК — .scr, телефон — .mh); здесь только оформление. */
+:root[data-ui-look="royal"] .ry-member .scr { max-width: 1280px; }
+:root[data-ui-look="royal"] .ry-member :is(.scr .card, .mh .card-s) {
+  border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-member :is(.sec-h h2, .sec-t h2, .sec-t) { font-size: 20px; font-weight: 700; letter-spacing: -.02em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-member :is(.state, .note, .sub) { font-size: 15px; line-height: 1.45; }
+:root[data-ui-look="royal"] .ry-member .scr .cd-h h1,
+:root[data-ui-look="royal"] .ry-member .mh h1 { font-size: 28px; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; }
+:root[data-ui-look="royal"] .ry-member :is(.scr .row, .mh .row) { min-height: 60px; }
+:root[data-ui-look="royal"] .ry-member :is(.scr .row, .mh .row) .t b { font-size: 17px; font-weight: 600; }
+:root[data-ui-look="royal"] .ry-member :is(.scr .row, .mh .row) .t span { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-member .scr .pill,
+:root[data-ui-look="royal"] .ry-member .mh :is(.pill, .btn) { min-height: 48px; border-radius: 999px; font-size: 15px; font-weight: 600; }
+:root[data-ui-look="royal"] .ry-member .scr .pill:not(.ghost) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); border: 0; }
+:root[data-ui-look="royal"] .ry-member .scr .pill.ghost { background: var(--rh-ui-press); color: var(--rh-ui-text); border: 0; box-shadow: none; }
+/* Плитки «Цифры за неделю»: радиус 28, крупная цифра. */
+:root[data-ui-look="royal"] .ry-member :is(.scr .tile, .mh .tile) {
+  border: 0; border-radius: var(--rh-ui-r-tile); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-member :is(.scr .tile, .mh .tile) :is(.v, .n, b) { font-family: var(--rh-ui-font-num); font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+:root[data-ui-look="royal"] .ry-member .mh .top .ico { width: 44px; height: 44px; border-radius: 999px; }
+/* Одно главное действие в шапке — «Позвонить» синим, остальное серыми таблетками. */
+:root[data-ui-look="royal"] .ry-member .scr .pg-h .acts > :first-child { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .ry-member .scr .cd-h :is(img, .av) { border-radius: 32%; }
+:root[data-ui-look="royal"] .ry-member .scr .cd-h .who h1 { font-size: 30px; }
+
+/* Плитки с цифрой (карточка сотрудника и активность): подпись 16, цифра 40. */
+:root[data-ui-look="royal"] :is(.ry-member, .ry-activity) .tile { min-height: 120px; padding: 16px; text-decoration: none; }
+:root[data-ui-look="royal"] :is(.ry-member, .ry-activity) .tile .hd { font-size: 16px; font-weight: 600; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] :is(.ry-member, .ry-activity) .tile > b {
+  font-family: var(--rh-ui-font-num); font-size: 40px; font-weight: 700; line-height: 1.05; letter-spacing: -.035em; font-variant-numeric: tabular-nums;
+}
+:root[data-ui-look="royal"] :is(.ry-member, .ry-activity) .tile > small { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] :is(.ry-member, .ry-activity) .tile > small.crit { color: var(--rh-ui-crit-text); font-weight: 700; }
+
+/* ========================= Активность команды ========================= */
+:root[data-ui-look="royal"] .ry-activity .scr { max-width: 1280px; }
+:root[data-ui-look="royal"] .ry-activity .pg-h h1 { font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-activity .pg-h h1 { font-size: 28px; }
+:root[data-ui-look="royal"] .ry-activity .pg-h .sub { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-activity .scr :is(.card, .tile) {
+  border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-activity .scr .tile { border-radius: var(--rh-ui-r-tile); }
+:root[data-ui-look="royal"] .ry-activity .scr .seg { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+:root[data-ui-look="royal"] .ry-activity .scr .seg::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] .ry-activity .scr .seg button { flex: none; min-height: 44px; border-radius: 999px; font-size: 15px; }
+:root[data-ui-look="royal"] .ry-activity .scr .seg button[aria-selected="true"] { background: var(--rh-ui-text); color: var(--rh-ui-bg); border-color: transparent; }
+:root[data-ui-look="royal"] .ry-activity .scr .row { min-height: 60px; }
+:root[data-ui-look="royal"] .ry-activity .scr .row .t b { font-size: 17px; font-weight: 600; }
+:root[data-ui-look="royal"] .ry-activity .scr .row .t span { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-activity .scr .pill { min-height: 48px; border-radius: 999px; font-size: 15px; font-weight: 600; }
+
+/* ================================ «Ещё» ================================ */
+:root[data-ui-look="royal"] .ry-more { max-width: 720px; }
+:root[data-ui-look="royal"] .ry-more .ry-section { gap: 8px; }
+:root[data-ui-look="royal"] .ry-more .ry-section-head { min-height: 36px; }
+
+/* ============================ меню профиля ============================ */
+:root[data-ui-look="royal"] .ry-pmenu {
+  display: grid; gap: 2px; width: 280px; overflow-y: auto; padding: 8px; border-radius: var(--rh-ui-r-card);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 18px 40px -12px rgba(20, 24, 40, .28), 0 0 0 1px var(--rh-ui-ring);
+  font-family: var(--font-sans, "Onest", system-ui, sans-serif);
+}
+:root[data-ui-look="royal"] .ry-pmenu-head { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px 8px 12px; box-shadow: inset 0 -1px 0 var(--rh-ui-sep); margin-bottom: 4px; }
+:root[data-ui-look="royal"] .ry-pmenu-head > span:last-child { display: grid; min-width: 0; }
+:root[data-ui-look="royal"] .ry-pmenu-head b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; font-weight: 700; }
+:root[data-ui-look="royal"] .ry-pmenu-head small { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-pmenu-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 6px 8px; border: 0; border-radius: 18px;
+  background: transparent; color: var(--rh-ui-text); font: inherit; font-size: 16px; font-weight: 600; text-align: left; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-pmenu-item:hover, :root[data-ui-look="royal"] .ry-pmenu-item:focus-visible { background: var(--rh-ui-hover); outline: none; }
+:root[data-ui-look="royal"] .ry-pmenu-item[data-danger] { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .ry-pmenu .ry-circle svg { width: 22px; height: 22px; }
+
+/* ================== окна поверх экранов пачки (портал) ================== */
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member, .ry-activity) .sheet {
+  border: 0; background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 24px 60px -20px rgba(20, 24, 40, .35);
+}
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member, .ry-activity) .sheet.right { border-radius: var(--rh-ui-r-card) 0 0 var(--rh-ui-r-card); }
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member, .ry-activity) .sheet.bottom { border-radius: 28px 28px 0 0; }
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member, .ry-activity) .sheet .sheet-h h2,
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member, .ry-activity) .sheet .sheet-h :is(h1, h3) { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member, .ry-activity) .sheet :is(.pill, .btn, button.rh-btn) { min-height: 48px; border-radius: 999px; font-size: 15px; font-weight: 600; }
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member, .ry-activity) .sheet .seg button { min-height: 44px; border-radius: 999px; }
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member, .ry-activity) .sheet :is(.state, .note, .msg) { font-size: 15px; line-height: 1.45; }
+:root[data-ui-look="royal"]:has(.ry-set, .ry-teamp, .ry-member, .ry-activity) .sheet :is(.fld input:not([type="checkbox"]):not([type="radio"]), .fld select, .fld textarea, .inp) {
+  min-height: 48px; border: 0; border-radius: 16px; background: var(--rh-ui-bg); box-shadow: inset 0 0 0 1px var(--rh-ui-sep); font-size: 16px;
+}
+:root[data-ui-look="royal"]:has(.ry-teamp) .sheet .ry-group { box-shadow: 0 0 0 1px var(--rh-ui-ring); }

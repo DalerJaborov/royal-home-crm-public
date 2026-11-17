@@ -136,7 +136,8 @@ function build() {
   // «Новый вид» (theme-look-royal.css, 18.11.2026) — своя шкала 13+ под
   // :root[data-ui-look="royal"], подключён ПОСЛЕ typeset; поднимать в нём нечего.
   const OWN_SCALE = new Set(["theme-look-royal.css"]);
-  const files = readdirSync(WEB).filter((f) => f.endsWith(".css") && f !== OUT && f !== "index.css" && !OWN_SCALE.has(f));
+  // Слои пачек нового вида (theme-look-royal-<пачка>.css) — та же своя шкала, что у основы.
+  const files = readdirSync(WEB).filter((f) => f.endsWith(".css") && f !== OUT && f !== "index.css" && !OWN_SCALE.has(f) && !/^theme-look-royal-[\w-]+\.css$/.test(f));
   const rules = [];
   for (const f of files) collect(readFileSync(join(WEB, f), "utf8"), f, rules);
 

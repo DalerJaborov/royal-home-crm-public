@@ -1,5 +1,7 @@
-import { createContext, useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, type LucideIcon } from "lucide-react";
+import { createContext, useContext, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { ChevronDown, Info, type LucideIcon } from "lucide-react";
+import { TeamCircle, iconMaskUrl, settingsIconFor, toneFor } from "../look/team/parts";
+import { useRoyalLookAttr } from "../look/team/useRoyalLookAttr";
 
 /**
  * Поиск по настройкам (макет владельца, экран «Помощник»: строка «Что ищем:
@@ -10,6 +12,9 @@ import { ChevronDown, type LucideIcon } from "lucide-react";
  * ведут себя как обычно.
  */
 const SettingsSearchContext = createContext("");
+
+/** Пояснения строк, которые в «Новом виде» прячутся под «i» раздела (тот же список — в theme-look-royal-team.css). */
+const RY_HINT_SELECTOR = ".acc-b .mod > .t > span, .acc-b p.sub";
 
 export function SettingsSearchProvider({ query, children }: { query: string; children: ReactNode }) {
   return <SettingsSearchContext.Provider value={query.trim().toLowerCase()}>{children}</SettingsSearchContext.Provider>;
@@ -80,6 +85,50 @@ export function SettingsSection({
     observer.observe(root, { subtree: true, childList: true, characterData: true });
     return () => observer.disconnect();
   }, [searching, query]);
+
+  // «Новый вид» (18.11.2026): круг-значок в шапке, у строк без своего значка —
+  // значок раздела, длинные пояснения строк скрыты под одной кнопкой «i» раздела.
+  const royal = useRoyalLookAttr();
+  const [hintsOpen, setHintsOpen] = useState(false);
+  const [hasHints, setHasHints] = useState(false);
+  // Строки приходят с сервера позже первого кадра — пересчёт по наблюдателю, как у поиска.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!royal || !isOpen || !root) return;
+    const check = () => setHasHints(Boolean(root.querySelector(RY_HINT_SELECTOR)));
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(root, { subtree: true, childList: true });
+    return () => observer.disconnect();
+  }, [royal, isOpen]);
+
+  if (royal) {
+    const iconName = settingsIconFor(title);
+    return (
+      <div ref={rootRef} className="acc ry-acc" data-search-miss={miss ? "" : undefined} data-ry-hints={hintsOpen ? "open" : undefined}
+        style={miss ? { display: "none" } : ({ "--ry-sec-icon": iconMaskUrl(iconName) } as CSSProperties)}>
+        <div className="ry-acc-head">
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={isOpen} aria-controls={bodyId} className="acc-h">
+            <TeamCircle icon={iconName} tone={toneFor(title)} />
+            <h3>{title}</h3>
+            {badge ? <span className="cnt">{badge}</span> : null}
+            <ChevronDown className="i ch" aria-hidden="true" />
+          </button>
+          {isOpen && hasHints && (
+            <button type="button" className="ry-info" aria-pressed={hintsOpen} aria-controls={bodyId}
+              aria-label={hintsOpen ? `Скрыть пояснения: ${title}` : `Пояснения: ${title}`} onClick={() => setHintsOpen((v) => !v)}>
+              <Info size={20} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+        {isOpen && (
+          <div id={bodyId} className="acc-b">
+            {children}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div ref={rootRef} className="acc" data-search-miss={miss ? "" : undefined} style={miss ? { display: "none" } : undefined}>

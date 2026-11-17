@@ -1,3 +1,6 @@
+import { RoyalNumberRow } from "../look/team/settingsRows";
+import { useRoyalLookAttr } from "../look/team/useRoyalLookAttr";
+
 /**
  * Строки чисел и кнопка сохранения — общие для вкладок Настроек с числовыми
  * параметрами («Лиды», «Подбор объектов»). Вынесено из LeadsTab.tsx (17.09.2026):
@@ -31,26 +34,30 @@ export function NumberRow({
   step?: number;
   unit?: string;
 }) {
+  const field = (
+    <span className="nf">
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+      />
+      {unit && <span className="u">{unit}</span>}
+    </span>
+  );
+  // «Новый вид» (18.11.2026): строка со значком, пояснение под «i», то же поле.
+  const royal = useRoyalLookAttr();
+  if (royal) return <RoyalNumberRow label={label} hint={hint} field={field} />;
   return (
     <div className="mod">
       <div className="t">
         <b>{label}</b>
         <span>{hint}</span>
       </div>
-      <div className="acts">
-        <span className="nf">
-          <input
-            type="number"
-            min={min}
-            max={max}
-            step={step}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            aria-label={label}
-          />
-          {unit && <span className="u">{unit}</span>}
-        </span>
-      </div>
+      <div className="acts">{field}</div>
     </div>
   );
 }

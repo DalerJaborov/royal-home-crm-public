@@ -1,3 +1,6 @@
+import { RoyalSwitchTile } from "./look/team/settingsRows";
+import { useRoyalLookAttr } from "./look/team/useRoyalLookAttr";
+
 /**
  * Тумблер настройки — один на все Настройки.
  *
@@ -83,6 +86,14 @@ export function SwitchRow({
   warning?: React.ReactNode;
   className?: string;
 }) {
+  // «Новый вид» (18.11.2026): та же строка плиткой со значком и пояснением под «i».
+  const royal = useRoyalLookAttr();
+  if (royal) {
+    return (
+      <RoyalSwitchTile title={title} hint={hint} on={on} warning={warning} className={className}
+        switchNode={<Switch on={on} disabled={disabled} onToggle={onToggle} label={title} />} />
+    );
+  }
   return (
     <div className={`mod${className ? ` ${className}` : ""}`}>
       <div className="t">

@@ -6,6 +6,8 @@ import { useCan } from "../../lib/permissions";
 import { useAuthStore } from "../../store/auth";
 import { useTeam } from "../../hooks/useTeam";
 import { readShellDraft, rebaseShellDraft, writeShellDraft, type ShellDraft } from "./uiShellDraft";
+import { useRoyalLookAttr } from "../look/team/useRoyalLookAttr";
+import { Info } from "lucide-react";
 
 const CONFIG_KEY = ["ui-shell", "config"];
 
@@ -15,6 +17,9 @@ export function UiShellRolloutSection() {
   const sessionEpoch = useAuthStore((s) => s.sessionEpoch);
   const can = useCan();
   const allowed = (agent?.role === "DIRECTOR" || agent?.role === "ADMIN") && can("settings.manage");
+  // «Новый вид» (18.11.2026): пояснения под «i», как у разделов настроек.
+  const royal = useRoyalLookAttr();
+  const [hintsOpen, setHintsOpen] = useState(false);
   const config = useQuery({
     queryKey: [...CONFIG_KEY, agent?.id],
     queryFn: () => api<UiShellRolloutConfig>("/ui-shell/config", { expectAgentId: agent?.id }),
@@ -22,8 +27,15 @@ export function UiShellRolloutSection() {
   });
   if (!allowed) return null;
   return (
-    <section className="card shell-rollout" aria-labelledby="shell-rollout-title">
-      <h2 id="shell-rollout-title">Новый интерфейс CRM</h2>
+    <section className="card shell-rollout" aria-labelledby="shell-rollout-title" data-ry-hints={hintsOpen ? "open" : undefined}>
+      {royal ? (
+        <div className="ry-acc-head ry-shell-head">
+          <h2 id="shell-rollout-title">Новый интерфейс CRM</h2>
+          <button type="button" className="ry-info" aria-pressed={hintsOpen} aria-label={hintsOpen ? "Скрыть пояснения" : "Пояснения"} onClick={() => setHintsOpen((v) => !v)}>
+            <Info size={20} strokeWidth={2} aria-hidden="true" />
+          </button>
+        </div>
+      ) : <h2 id="shell-rollout-title">Новый интерфейс CRM</h2>}
       <p className="sub">Включайте постепенно: сначала себе, затем сотрудникам или ролям. На компьютере и телефоне используется Royal Clean; у агентов на телефоне пока остаётся прежний интерфейс.</p>
       {config.isError && config.data && <p role="alert">Не удалось обновить настройки. Ваши несохранённые изменения сохранены на экране.</p>}
       {config.isPending ? <p role="status">Загружаем настройки…</p> : !config.data ? (

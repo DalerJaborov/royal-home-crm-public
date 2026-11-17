@@ -7,6 +7,9 @@ import { signOut } from "../lib/signOut";
 import { ROLE_LABELS } from "../lib/roles";
 import { useCan } from "../lib/permissions";
 import { ProfileAvatar } from "./ProfileAvatar";
+import { useRoyalLookAttr } from "./look/team/useRoyalLookAttr";
+import { RhAvatar } from "./look/ui";
+import { RoyalIcon } from "./look/RoyalIcon";
 
 /**
  * Профиль в правом верхнем углу — единственная точка входа в учётную запись.
@@ -43,6 +46,8 @@ export function ProfileMenu({
   // держало профиль на поводке у группы: любое её пополнение молча пополняло
   // и меню профиля. Профилю нужна ОДНА ссылка, и он знает её сам.
   const can = useCan();
+  // «Новый вид» (18.11.2026): та же панель и те же три пункта, строки со значком в круге.
+  const royal = useRoyalLookAttr();
 
   // Escape закрывает меню: без этого с клавиатуры из него было не выйти.
   useEffect(() => {
@@ -128,6 +133,26 @@ export function ProfileMenu({
               Обёртка `Rh2Portal` обязательна: портал уносит меню за пределы области
               темы, и без неё ни `.card`, ни `.row` не нарисовались бы (Rh2Scope.tsx). */}
           <div className="sheet-back" style={{ backdropFilter: "none", background: "transparent" }} onClick={() => setOpen(false)} />
+          {royal ? (
+          <div ref={menuRef} role="menu" aria-label="Профиль" className="ry-pmenu"
+            style={{ position: "fixed", zIndex: 41, top: menuPos.top, right: menuPos.right, maxHeight: "calc(100dvh - 5rem)" }}>
+            <div className="ry-pmenu-head">
+              <RhAvatar name={agent?.fullName ?? "Гость"} src={agent?.avatarUrl} />
+              <span><b>{agent?.fullName ?? "Гость"}</b><small>{agent ? ROLE_LABELS[agent.role] : "Агент"} · онлайн</small></span>
+            </div>
+            <button type="button" role="menuitem" className="ry-pmenu-item" onClick={() => go("/profile")}>
+              <span className="ry-circle" data-tone="a3" data-size="44" aria-hidden="true"><UserCircle size={22} strokeWidth={1.8} /></span>Мой профиль
+            </button>
+            {can("settings.view") && (
+              <button type="button" role="menuitem" className="ry-pmenu-item" onClick={() => go("/settings")}>
+                <span className="ry-circle" data-tone="a5" data-size="44" aria-hidden="true"><RoyalIcon name="settings" /></span>Настройки CRM
+              </button>
+            )}
+            <button type="button" role="menuitem" className="ry-pmenu-item" data-danger onClick={handleLogout}>
+              <span className="ry-circle" data-tone="a0" data-size="44" aria-hidden="true"><RoyalIcon name="log-out" /></span>Выйти
+            </button>
+          </div>
+          ) : (
           <div
             ref={menuRef}
             role="menu"
@@ -174,6 +199,7 @@ export function ProfileMenu({
               </button>
             </div>
           </div>
+          )}
         </Rh2Portal>
       )}
     </div>
