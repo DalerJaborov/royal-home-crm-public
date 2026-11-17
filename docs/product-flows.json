@@ -110666,7 +110666,7 @@
           },
           {
            "k": "if",
-           "t": "pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000",
+           "t": "pendingDelayed(pending[0], new Date())",
            "a": [],
            "c": [
             {
@@ -131785,7 +131785,7 @@
            "c": [
             {
              "k": "do",
-             "t": "return \"skipped\";",
+             "t": "return \"excluded\";",
              "a": [
               "дословно из кода"
              ],
@@ -131872,7 +131872,7 @@
          "c": [
           {
            "k": "do",
-           "t": "void logSystemError(\"ai\", `Уведомление «клиент ждёт человека» не отправлено: ${error instanceof Error ? error…",
+           "t": "void logSystemError(\"ai\", `Уведомление «клиент ждёт человека» не отправлено (чат ${input.conversationId ?? \"б…",
            "a": [
             "запись в журнал ошибок"
            ],

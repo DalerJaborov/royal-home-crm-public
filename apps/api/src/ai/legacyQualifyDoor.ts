@@ -47,7 +47,8 @@ export interface ChannelTurnSource {
   repeat?: "retry" | "regeneration";
   /**
    * `retry` only: which run of this customer turn the repeat is (the live turn was 1; a retry job passes its own attempt + 1).
-   * In `core` mode it bounds the paid repeats (lib/customerChannelCore.ts CHANNEL_CORE_MAX_ATTEMPTS); `legacy` ignores it.
+   * In `core` mode it is the fallback bound on the runs (a run = up to 4 paid calls: lib/customerChannelCore.ts
+   * CHANNEL_CORE_MAX_ATTEMPTS); the stored message's own count wins when known. `legacy` ignores it.
    */
   attempt?: number;
 }
@@ -129,9 +130,13 @@ async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOp
     const lastUser = [...turnHistory].reverse().find(item => item.role === "user")?.content ?? "";
     const alerted = await alertChannelStaff({ channel: source.channel, conversationId: options.conversationId ?? null,
       text: lastUser, why: outcome.reason, eventId: source.eventId ?? null });
+    // No staff signal by design (the customer opted out, the client is in the trash): promising a person would be a lie and
+    // the error log below a false alarm. Silence, as the old path did — its AI-retry job drops such chats (review 0e463b02 N5).
+    if (alerted === "excluded") return { ...channelCoreQualifyResult(outcome, ownTexts), reply: [], silent: "intended" };
     // The customer ALWAYS hears the core's approved handover line (the Meta receipt wording), owner 17.11.2026 (review #223
     // R1-2/R1-4): silence here kept the chat «unanswered», so the website's stuck-chat cron replayed it every 30 minutes and
-    // at night nobody answered at all. `sent`/`already`: a person knows. `skipped` (nobody to tell, a database error): the
+    // at night nobody answered at all. `sent`/`already`: a person knows (if the earlier sender behind `already` fails, it logs
+    // this chat itself: clientWaitingAlert.ts, review 0e463b02 N4). `skipped` (nobody to tell, a database error): the
     // handover line is a bot reply, so the silence watchdog does NOT see this chat any more (review 0e463b02 N1). The error
     // log is the only signal: its key is PER CHAT, so every such chat is its own entry and its own «new problem» push to
     // the director (a channel-wide key swallowed the second chat within 10 minutes and pushed only once ever).

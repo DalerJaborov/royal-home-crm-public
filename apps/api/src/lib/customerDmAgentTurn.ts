@@ -790,7 +790,8 @@ export async function customerReplyRepeatBlocked(principal: CustomerAgentMutatio
 export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number): Promise<"agent" | "director" | "already" | "skipped"> {
   try {
     const { alertClientWaiting } = await import("./clientWaitingAlert.js");
-    return await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs) });
+    const outcome = await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs) });
+    return outcome === "excluded" ? "skipped" : outcome; // Meta keeps its four outcomes (review 0e463b02 N5 is the channel door's)
   } catch (error) {
     console.error("[client-waiting]", error instanceof Error ? error.message : "UnknownError");
     return "skipped";

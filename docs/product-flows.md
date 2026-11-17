@@ -24690,7 +24690,7 @@
     - если Date.now() < deadline
       - const pending = await prisma.somonSeenAdvert.findMany({ where: { status: "PENDING", baseline: false }, orderB…
         · читает в базе: somonSeenAdvert
-      - если pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000
+      - если pendingDelayed(pending[0], new Date())
         - await logSystemError("cron", "Somon: очередь объявлений задерживается более 15 минут", { dedupKey: "somon-pen…
           · запись в журнал ошибок
       - для каждого: const item of pending
@@ -29235,7 +29235,7 @@
         · читает в базе: telegramDirectConversation
         · читает в базе: telegramConversation
       - если !chat || chat.client?.deletedAt
-        - return "skipped";
+        - return "excluded";
           · дословно из кода
       - const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
         · зовёт findAgentsWithPermission()
@@ -29254,7 +29254,7 @@
       - await sendPushToAgents(recipients, { kind: "message", title: `Ответьте вручную: ${name}`, body: `«${excerpt}»…
         · push-уведомление
     - если сорвалось
-      - void logSystemError("ai", `Уведомление «клиент ждёт человека» не отправлено: ${error instanceof Error ? error…
+      - void logSystemError("ai", `Уведомление «клиент ждёт человека» не отправлено (чат ${input.conversationId ?? "б…
         · запись в журнал ошибок
   - return;
     · дальше не идёт, ничего не меняя

@@ -86,7 +86,7 @@ export const telegramDirectReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
       phoneKnown,
     }, { channel: "TELEGRAM_DIRECT", repeat: "retry", // a repeat of an already-shadowed turn; own switch key (review #223 N2)
-      ...(context ? { attempt: context.attempt + 1 } : {}) }); // core: at most 3 runs of one turn (review #223 R1)
+      ...(context ? { attempt: context.attempt + 1 } : {}) }); // core: at most 3 runs (up to 4 paid calls each) per message
     if (!result) throw new Error("ИИ всё ещё недоступен");
 
     try {
