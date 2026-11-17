@@ -115,7 +115,7 @@ function DesktopInsights() {
                   <span className="txt">
                     Собрание {formatDayMonth(selected.meetingAt)}, {selected.caseCount}{" "}
                     {pluralCases(selected.caseCount)}. Источники: звонков {selected.coverage.calls}, отобрано{" "}
-                    {selected.coverage.analyzed}, штрафов {selected.coverage.penalties}.
+                    {selected.coverage.analyzed}.
                   </span>
                   <DigestStatusBadge status={selected.status} />
                 </div>

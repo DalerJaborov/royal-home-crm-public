@@ -4,15 +4,15 @@ import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { grantElevation } from "../src/lib/stepUp.js";
-import { activeLeadCounts, loadLeadLimits, DEFAULT_LEAD_ACTIVE_LIMIT } from "../src/lib/leadLimits.js";
+import { agentLoadCounts } from "../src/lib/agentLoad.js";
 
 /** Настройки правил «свой объект» (решение владельца 11.08.2026). Требование
  *  дословно: «все эти настройки должны быть прописаны в настройках и работать,
  *  чтобы не было сложностей с кодом». Значит проверяем ровно две вещи: что
  *  значения правятся через маршрут и что мусор он не принимает.
  *
- *  Отдельно — раздельный счёт лидов: на нём держится всё правило лимита, и
- *  ошибка в нём тихо отдала бы агенту лишних клиентов. */
+ *  Отдельно — счёт нагрузки (lib/agentLoad.ts): лимита нет с 16.11.2026, но по
+ *  этому числу справедливая очередь выбирает, кому дать лид. */
 
 const runId = Date.now();
 const password = "testpass123";
@@ -84,9 +84,6 @@ describe("Правила «свой объект» правятся в Наст�
       ownPropertyMatchThreshold: 70,
       ownPropertyShownExceptionEnabled: false,
       ownPropertyShownWindowDays: 14,
-      ownPropertyOverLimitEnabled: false,
-      ownPropertyReleaseEnabled: false,
-      ownPropertyLeadCap: 9,
       handoverClientsToHighKpi: false,
       handoverPropertiesToLowKpi: false,
       pushLeadActionsEnabled: false,
@@ -98,7 +95,6 @@ describe("Правила «свой объект» правятся в Наст�
     // ownPropertyReleaseMode больше НЕ в наборе (закон П-4/П-6, 17.09.2026, см.
     // комментарий у settingsUpdateSchema) — см. тест ниже «несуществующий способ
     // освобождения не принимается» про новое поведение этого поля.
-    expect(res.body.ownPropertyLeadCap).toBe(9);
     expect(res.body.ownPropertyPriorityEnabled).toBe(false);
 
     // И читается обратно тем же значением — правка дошла до базы, а не только до ответа.
@@ -106,24 +102,14 @@ describe("Правила «свой объект» правятся в Наст�
     expect(fresh?.botTopicDriftTurns).toBe(3);
   });
 
-  it("loadLeadLimits отдаёт то, что стоит в Настройках", async () => {
-    await patch({
-      ownPropertyOverLimitEnabled: true,
-      ownPropertyReleaseEnabled: true,
-      ownPropertyReleaseMode: "agent_choice",
-      ownPropertyLeadCap: 0,
-    });
-    const limits = await loadLeadLimits();
-    expect(limits.overLimitEnabled).toBe(true);
-    expect(limits.releaseMode).toBe("agent_choice");
-    expect(limits.ownPropertyCap).toBe(0);
-    expect(limits.activeLimit).toBeGreaterThan(0);
-  });
-
-  it("умолчание лимита — шесть, как в спецификации, а не пять", () => {
-    // Пятёрка жила в трёх местах сразу и расходилась со схемой: агент видел
-    // «5 из 5» и получал шестой лид. Число теперь одно на всю систему.
-    expect(DEFAULT_LEAD_ACTIVE_LIMIT).toBe(6);
+  it("поля снятого лимита через PATCH больше не правятся (16.11.2026) — молча отбрасываются", async () => {
+    const before = await prisma.settings.findUnique({ where: { id: "singleton" } });
+    const res = await patch({ leadActiveLimit: 1, weightedLeadSlotsEnabled: true, ownPropertyOverLimitEnabled: false });
+    expect(res.status).toBe(200);
+    const after = await prisma.settings.findUnique({ where: { id: "singleton" } });
+    expect(after?.leadActiveLimit).toBe(before?.leadActiveLimit);
+    expect(after?.weightedLeadSlotsEnabled).toBe(before?.weightedLeadSlotsEnabled);
+    expect(after?.ownPropertyOverLimitEnabled).toBe(before?.ownPropertyOverLimitEnabled);
   });
 
   it("тумблер подтверждения показов сохраняется", async () => {
@@ -205,7 +191,7 @@ describe("Правила «свой объект» правятся в Наст�
   });
 });
 
-describe("Раздельный счёт активных лидов", () => {
+describe("Нагрузка агента (покупатели в работе)", () => {
   it("делит портфель на свои и обычные", async () => {
     for (const [i, own] of [true, true, false].entries()) {
       const c = await prisma.client.create({
@@ -222,8 +208,8 @@ describe("Раздельный счёт активных лидов", () => {
       clientIds.push(c.id);
     }
 
-    const counts = await activeLeadCounts([agentId]);
-    expect(counts.get(agentId)).toEqual({ total: 3, own: 2, regular: 1, weighted: 3 });
+    const counts = await agentLoadCounts([agentId]);
+    expect(counts.get(agentId)).toEqual({ total: 3, own: 2 });
   });
 
   it("клиент из Корзины в счёт не идёт", async () => {
@@ -240,18 +226,11 @@ describe("Раздельный счёт активных лидов", () => {
     });
     clientIds.push(deleted.id);
 
-    const counts = await activeLeadCounts([agentId]);
+    const counts = await agentLoadCounts([agentId]);
     expect(counts.get(agentId)?.total).toBe(3);
   });
 
-  it("закрытая сделка и потерянный лид места не занимают, а холодный — занимает", async () => {
-    // Переработка 12.08.2026 (ТЗ владельца, «Логика Статус + Итог»): раньше COLD
-    // сознательно не считался занятым слотом — «позвонить через месяц» не должен
-    // был запирать приём новых. Теперь единственный сигнал «слот свободен» — это
-    // явное действие агента (workStatus=INACTIVE, «Передача», «Завершить сделку»),
-    // а не то, что клиент остыл сам по себе: агент, который просто не разобрался с
-    // клиентом, не должен получать шестого нового, пока не решил, что с этим делать.
-    // DEAL_CLOSED/LOST — состояния окончательные, слот освобождают всегда.
+  it("закрытая сделка и старый потерянный в нагрузку не идут, а холодный — идёт", async () => {
     for (const [i, status] of (["COLD", "DEAL_CLOSED", "LOST"] as const).entries()) {
       const c = await prisma.client.create({
         data: {
@@ -267,15 +246,12 @@ describe("Раздельный счёт активных лидов", () => {
     }
 
     // 3 из beforeEach (NEW) + COLD (занимает) = 4; DEAL_CLOSED/LOST не считаются.
-    const counts = await activeLeadCounts([agentId]);
+    const counts = await agentLoadCounts([agentId]);
     expect(counts.get(agentId)?.total).toBe(4);
   });
 
-  it("workStatus=INACTIVE освобождает слот, даже если Состояние ещё не остыло", async () => {
-    // Файл делит клиентов между тестами (clientIds копится, а не сбрасывается),
-    // поэтому сверяемся с ПРЕДЫДУЩИМ счётом, а не абсолютным числом — важно только,
-    // что именно этот клиент в счёт не попал.
-    const before = (await activeLeadCounts([agentId])).get(agentId)?.total ?? 0;
+  it("workStatus больше не влияет на нагрузку (16.11.2026): старый INACTIVE считается как обычный", async () => {
+    const before = (await agentLoadCounts([agentId])).get(agentId)?.total ?? 0;
     const c = await prisma.client.create({
       data: {
         fullName: `Лид неактивный ${runId}`,
@@ -288,16 +264,14 @@ describe("Раздельный счёт активных лидов", () => {
       },
     });
     clientIds.push(c.id);
-
-    // HOT+INACTIVE в счёт не идёт, хотя Состояние «Горячий» — счёт не должен вырасти.
-    const counts = await activeLeadCounts([agentId]);
-    expect(counts.get(agentId)?.total).toBe(before);
+    const counts = await agentLoadCounts([agentId]);
+    expect(counts.get(agentId)?.total).toBe(before + 1);
   });
 
   it("агент без лидов возвращается нулём, а не отсутствует", async () => {
     // Иначе каждое место вызова обязано было бы помнить про undefined —
     // и одно из них рано или поздно забыло бы.
-    const counts = await activeLeadCounts([adminId]);
-    expect(counts.get(adminId)).toEqual({ total: 0, own: 0, regular: 0, weighted: 0 });
+    const counts = await agentLoadCounts([adminId]);
+    expect(counts.get(adminId)).toEqual({ total: 0, own: 0 });
   });
 });

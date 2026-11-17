@@ -11,9 +11,6 @@
  *  - просьба подтвердить показ — `sendShowingConfirmationRequests` в
  *    apps/api/src/lib/meetingReminders.ts: askClientsToConfirmShowings и
  *    botCanConfirmShowings одновременно (botCanBookShowings НЕ участвует);
- *  - «Предлагать освободить место» — `acceptLead` в apps/api/src/lib/leadAccept.ts:
- *    ownPropertyReleaseEnabled и ownPropertyOverLimitEnabled (у второго нет
- *    тумблера на экране) одновременно;
  *  - порог «свой объект» — `pickByPropertyMatch` в
  *    apps/api/src/services/leads/assignment.ts сравнивает его с баллом
  *    matchClientProperty().points (lib/clientPropertyMatching.ts), бонуса горячему нет с 10.11.2026.
@@ -78,25 +75,6 @@ export function showingConfirmBlockedBy(s: ShowingConfirmSwitches, from: "bot" |
     return "Сейчас просьбы не уходят: во вкладке «Бот» → «Что бот умеет» выключено «Просить подтверждение встречи». Нужны оба тумблера.";
   }
   return null;
-}
-
-export interface ReleaseSwitches {
-  ownPropertyReleaseEnabled?: boolean;
-  ownPropertyOverLimitEnabled?: boolean;
-}
-
-/** Работает ли «Предлагать освободить место» на самом деле — так, как проверяет
- *  acceptLead. Второе поле без тумблера: экран показывает итог, а не одно поле. */
-export function releaseEffectiveOn(s: ReleaseSwitches): boolean {
-  return (s.ownPropertyReleaseEnabled ?? true) && (s.ownPropertyOverLimitEnabled ?? true);
-}
-
-/** Что отправить при нажатии. Включение поднимает и скрытое поле: иначе тумблер
- *  «включался» бы без всякого действия. Выключение трогает только своё поле. */
-export function releaseToggleBody(currentlyOn: boolean): Record<string, boolean> {
-  return currentlyOn
-    ? { ownPropertyReleaseEnabled: false }
-    : { ownPropertyReleaseEnabled: true, ownPropertyOverLimitEnabled: true };
 }
 
 export interface ScoreWeights {

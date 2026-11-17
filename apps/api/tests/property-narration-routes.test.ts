@@ -17,6 +17,7 @@ vi.mock("../src/db.js", async (importOriginal) => {
   const prisma = { $disconnect: vi.fn(), $queryRaw: vi.fn().mockResolvedValue([]),
     property: { findUnique: s.property, findUniqueOrThrow: s.property }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
     narrationVoiceSample: { findMany: vi.fn().mockResolvedValue([]) },
+    freeNarration: { findMany: vi.fn().mockResolvedValue([]) },
     // Последний выбор голоса сотрудника (12.11.2026): у этой подделки его нет.
     agent: { findUnique: vi.fn().mockResolvedValue(null) },
     propertyNarrationVersion: { findFirst: s.latest, findUnique: s.findVersion, findMany: s.versions, create: s.create, update: s.update, updateMany: s.updateMany, count: s.count },

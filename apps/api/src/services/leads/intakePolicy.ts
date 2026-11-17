@@ -3,6 +3,9 @@ import { decideLeadKind, type LeadKindDecision, type LeadKindInput } from "../..
 import type { LeadIntent } from "../../ai/botContract.js";
 import { assignAgentForLead } from "./assignment.js";
 import type { LeadAssignContext, LeadAssignment, LeadAssignReason } from "./assignmentTypes.js";
+import { INTENT_UNKNOWN_NOTE, INTENT_UNKNOWN_REASON } from "./intentUnknown.js";
+
+export { INTENT_UNKNOWN_NOTE, INTENT_UNKNOWN_REASON } from "./intentUnknown.js";
 
 /**
  * ЕДИНАЯ ОБВЯЗКА ВОКРУГ РЕШЕНИЯ «ТИП ОБРАЩЕНИЯ» И «КОМУ ДОСТАЁТСЯ ЛИД»
@@ -79,9 +82,11 @@ function classifyOtherReason(decision: LeadKindDecision): OtherReason | undefine
 }
 
 /** Каналы, из которых сейчас приходит обращение. Ровно тот список, что в
- *  §F отчёта 07: у переписки (chat) fallbackKind нет и не должно быть — «модель
- *  не поняла» обязана остаться OTHER; у формы сайта человек сам заполнил форму,
- *  «намерение не определено» там означает обычного покупателя. */
+ *  §F отчёта 07: у переписки (chat) fallbackKind нет — «модель не поняла» не
+ *  становится молча покупателем; с 17.11.2026 такая заявка идёт в общую раздачу
+ *  С ПОМЕТКОЙ «тип не определён» (INTENT_UNKNOWN_NOTE ниже), а не в «Прочие»
+ *  без агента. У формы сайта человек сам заполнил форму, «намерение не
+ *  определено» там означает обычного покупателя. */
 export type InboundChannel = "chat" | "call" | "site_form" | "comment";
 
 export interface ClassifyInboundInput {
@@ -110,6 +115,8 @@ export interface ClassifyInboundResult {
    *  прежнего `reason`, не замена: пригодится будущему фильтру в «Прочих
    *  обращениях» по причине без разбора голых строк. */
   otherReason?: OtherReason;
+  /** Намерение не определено, заявка идёт в общую раздачу с пометкой (см. INTENT_UNKNOWN_NOTE). */
+  intentUnknown?: boolean;
 }
 
 /** По каналу — свой fallbackKind, когда намерение не определено вовсе (см.
@@ -149,13 +156,49 @@ export function classifyInbound(input: ClassifyInboundInput): ClassifyInboundRes
     priorCategory: input.priorCategory,
   };
   const decision = decideLeadKind(kindInput);
+  const otherReason = classifyOtherReason(decision);
+  if (decision.kind === "OTHER" && UNRESOLVED_TO_QUEUE.has(decision.reason ?? "") && UNKNOWN_INTENT_TO_QUEUE.has(input.channel)) {
+    return { kind: "BUYER", label: INTENT_UNKNOWN_NOTE, reason: INTENT_UNKNOWN_REASON, intentUnknown: true };
+  }
   return {
     kind: decision.kind,
     label: decision.label,
     reason: decision.reason,
-    otherReason: classifyOtherReason(decision),
+    otherReason,
   };
 }
+
+/**
+ * «Не поняли, чего хочет человек» во всех видах — в общую раздачу с пометкой, не в «Прочие» без агента (17.11.2026,
+ * решение по продукту: человек, оставивший номер в переписке, никогда не остаётся без агента). Сюда — только «бот не
+ * понял»: намерения нет (NO_INTENT, #232), модель не уверена (LOW_CONFIDENCE), пришёл по рекламе и сам ничего не написал
+ * (AD_NO_WORDS: номер-то он оставил). «Прочее» от модели (OTHER_INTENT) — это её уверенное «не клиент» (подрядчики,
+ * «делаю ремонт квартир», которых словарь услуг не узнал): остаётся «Прочим», как и то, что код сам увидел как
+ * не-клиента — работа, аренда, другой город, услуги, коммерция, не по теме.
+ */
+// Exact decideLeadKind reasons (ai/leadKind.ts), not classifyOtherReason: its fallback files any unknown reason as OTHER_INTENT.
+const UNRESOLVED_TO_QUEUE: ReadonlySet<string> = new Set([
+  "намерение не определено", "модель не уверена в типе обращения", "реклама без слов клиента",
+]);
+/**
+ * НАМЕРЕНИЕ НЕ ОПРЕДЕЛЕНО — ЗАЯВКА ИДЁТ В ОБЩУЮ РАЗДАЧУ С ПОМЕТКОЙ, А НЕ В
+ * «ПРОЧИЕ» БЕЗ АГЕНТА (17.11.2026, журнал прода: за неделю 10 карточек
+ * «прочее обращение: намерение не определено, агенту не назначается», из них
+ * ~6 — настоящие продавцы и покупатели: «xonai furushi dorum», «Хами хонара
+ * видеоша дорен», «вариант пешниход кунед»). Человек оставил номер в переписке
+ * агентства недвижимости — это заявка. Разбор слов никогда не догонит все
+ * опечатки и говоры, а цена промаха — потерянный клиент; тот же выбор, что
+ * «пометка, а не прочее» у продавца 22.09.2026.
+ *
+ * Карточка заводится покупателем (лесенка назначения у покупателя — общая
+ * раздача), первой строкой требований — пометка «тип не определён, уточнить
+ * первым звонком»; руководство с правом назначения получает сигнал штатным
+ * пушем (services/leads/intake.ts, createNewChannelLead). Все прочие отсечки
+ * (аренда, работа, другой город, услуги, реклама без слов, «модель не
+ * уверена») остаются «прочими» как были. Звонок и форма сайта — свои правила.
+ */
+const UNKNOWN_INTENT_TO_QUEUE: ReadonlySet<InboundChannel> = new Set(["chat", "comment"]);
+// INTENT_UNKNOWN_NOTE / INTENT_UNKNOWN_REASON — в ./intentUnknown.ts (без импортов: иначе intake.ts замыкал круг).
 
 export interface ResolveOwnerAgentLead {
   clientId?: string;

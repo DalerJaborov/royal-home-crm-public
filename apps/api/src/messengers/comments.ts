@@ -65,6 +65,8 @@ import {
   moderationFailureNote, moderationAcceptedNote, type ModerationOutcome, type ModerationProvider,
 } from "./commentModerationOutcome.js";
 import { mapWithConcurrency } from "../lib/concurrency.js";
+import { customerAgentChannelMode } from "../lib/customerAgentChannelSwitch.js";
+import { decideYoutubeCommentWithCore, shadowYoutubeComment } from "./youtubeCoreComment.js";
 import { commentApi, isCommentGone, postCommentReply, postCommentReplyResponse, setCommentHidden } from "./commentGraphActions.js";
 export { isCommentGone, postCommentReply, postCommentReplyResponse, setCommentHidden };
 import { ingestInstagramComments, ingestManagedMetaPublicComments, isCommentsBotEnabled, parseIncomingComments } from "./commentIngest.js";
@@ -1760,7 +1762,10 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   await spendAiTurns(budgetRow.id, budget.dayKey, 1, "peer");
   // `answered` — не только ограничитель круга, но и факт для промта: если мы уже
   // отвечали этому человеку под этим постом, здороваться второй раз нельзя.
-  const decision = await decideOnComment(
+  // One brain (lib/customerAgentChannelSwitch.ts): YouTube comments may be answered by the core (`core`) or compared with it
+  // (`shadow`); every other channel of this generator keeps it. The rest of the body below is the same for both brains.
+  const youtubeMode = channel === "YOUTUBE" ? customerAgentChannelMode("youtube") : "legacy";
+  const decision = youtubeMode === "core" ? await decideYoutubeCommentWithCore(row) : await decideOnComment(
     {
       text: row.text,
       authorName: row.authorName,
@@ -1772,6 +1777,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     },
     context
   );
+  if (youtubeMode === "shadow") shadowYoutubeComment(row, decision);
   // Модель не ответила — это не «нечего сказать», а отказ поставщика ИИ. Помечаем
   // ошибку ИМЕННО как «ИИ недоступен»: у неё свой путь повторов — терпеливый, с
   // растущей паузой (см. failComment). Обычные три попытки рассчитаны на битые

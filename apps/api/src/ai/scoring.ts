@@ -1,5 +1,5 @@
 import type { ConversationMessage, ClientStatus } from "@royal-home/shared";
-import { CLIENT_SOURCE_LABELS, CLIENT_STATUS_LABELS, DEAL_STAGE_LABELS } from "@royal-home/shared";
+import { CLIENT_SOURCE_LABELS, DEAL_STAGE_LABELS } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { wrapUntrusted } from "./untrustedContent.js";
 import { callAiText } from "./client.js";
@@ -208,7 +208,6 @@ export async function scoreClient(clientId: string): Promise<{ aiScore: number; 
   const facts = [
     `код карточки: ${client.shortId}`,
     `обратился: ${dushanbeWallClock(client.createdAt).toISOString().slice(0, 16).replace("T", " ")}`,
-    `этап: ${CLIENT_STATUS_LABELS[client.status]}`,
     client.workStatus === "DEFERRED"
       ? `отложен${client.deferredUntil ? ` до ${dushanbeWallClock(client.deferredUntil).toISOString().slice(0, 10)}` : ""}${client.deferredReason ? ` (${client.deferredReason})` : ""}`
       : client.workStatus === "INACTIVE"

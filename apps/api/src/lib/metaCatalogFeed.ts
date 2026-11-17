@@ -1,5 +1,5 @@
 import type { Prisma } from "../generated/prisma/client.js";
-import { prisma } from "../db.js";
+import { prisma, type PropertyDefaultOmit } from "../db.js";
 import { loadMoneyContext } from "./money.js";
 import { crmPublicBase } from "./crmPublicUrl.js";
 import { siteHomeUrl } from "./siteListingUrl.js";
@@ -37,6 +37,7 @@ const DEFAULT_CITY = "Душанбе";
 
 export type CatalogProperty = Prisma.PropertyGetPayload<{
   include: { district: true; photos: { orderBy: { order: "asc" } } };
+  omit: PropertyDefaultOmit;
 }>;
 
 export interface HomeListingRow {

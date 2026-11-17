@@ -9,7 +9,6 @@ import { queueVideoHandoff, rearmPublishAfterRestore, releaseVideoHandoffForTras
 import { describeError } from "./describeError.js";
 import { cancelPendingInstagramContainersForTrashed } from "./instagramPendingContainers.js";
 import { sendPushToAgent } from "../push.js";
-import { refreshSellerAfterPropertyChange } from "./clientAutoStatus.js";
 import { canRestorePropertyAs, PROPERTY_RESTORE_DENIED, type TrashActor } from "./trashAccess.js";
 
 /**
@@ -525,7 +524,6 @@ export async function restorePropertyFromTrash(propertyId: string, actor: TrashA
   // Очередь монтажа и публикация принятого ролика — тем же списком, что и у «Откатить»
   // удаление сайтом (routes/siteNotifications.ts).
   await reopenWorkAfterRestore(property);
-  await refreshSellerAfterPropertyChange(property.sellerClientId);
   return {
     ok: true,
     property: {

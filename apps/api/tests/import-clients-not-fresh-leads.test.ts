@@ -5,7 +5,7 @@ import { randomInt } from "node:crypto";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { grantElevation } from "../src/lib/stepUp.js";
-import { penalizeMissedFirstCalls, SELF_CREATED_ASSIGN_REASON } from "../src/services/leads/firstCall.js";
+import { handleMissedFirstCalls, SELF_CREATED_ASSIGN_REASON } from "../src/services/leads/firstCall.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 
 /**
@@ -66,7 +66,7 @@ describe("импорт клиентов — не новые лиды", () => {
 
     // Сдвигаем «принят» на 20 минут назад — окно первого звонка прошло.
     await prisma.client.update({ where: { id: saved.id }, data: { acceptedAt: new Date(Date.now() - 20 * 60_000) } });
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
     const notes = await prisma.interaction.count({
       where: { clientId: saved.id, notes: { contains: "Первый звонок" } },
     });

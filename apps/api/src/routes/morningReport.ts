@@ -27,6 +27,9 @@ import { classifyErrorLog, groupErrorLogEntries } from "../lib/errorLogClassify.
 
 export const morningReportRouter = Router();
 
+/** Сколько типов ошибок отчёт отдаёт поимённо; остальные — числом errorGroupsHidden. */
+const ERROR_GROUPS_LIMIT = 30;
+
 /** MORNING_REPORT_TOKEN — текущее имя. TEAM_REQUESTS_TOKEN поддержан запасным
  *  вариантом, чтобы прод не отвалился в промежуток между выкатом кода и правкой
  *  .env; после обновления переменных на сервере запасное имя можно убрать. */
@@ -81,7 +84,11 @@ morningReportRouter.get("/", async (req, res) => {
   const operationalCount = errorRows.length - actionableRows.length;
   // Уникальные ТИПЫ с count — «377» была суммой повторов одной и той же
   // поломки, а не числом разных проблем; директору нужны типы, не строки.
-  const errorGroups = groupErrorLogEntries(actionableRows).slice(0, 30);
+  // Предел 30 — ПОСЛЕ сортировки по важности и числу (lib/errorLogClassify.ts),
+  // и сколько типов за ним осталось, отчёт говорит вслух (17.11.2026: «29 типов»
+  // оказались типами одного последнего дня, остальные шесть дней не видел никто).
+  const allErrorGroups = groupErrorLogEntries(actionableRows);
+  const errorGroups = allErrorGroups.slice(0, ERROR_GROUPS_LIMIT);
 
   res.json({
     tasksToday: numbers.tasksToday,
@@ -103,6 +110,9 @@ morningReportRouter.get("/", async (req, res) => {
     // свежие сверху) — новые потребители должны читать errorGroups.
     errors: actionableRows.slice(0, 25),
     errorGroups,
+    // Сколько всего разных типов за неделю и сколько не поместилось в errorGroups.
+    errorGroupsTotal: allErrorGroups.length,
+    errorGroupsHidden: Math.max(0, allErrorGroups.length - errorGroups.length),
     stuck,
     /**
      * Экраны, куда не заходил никто (карта обследованного, lib/routeHits.ts).

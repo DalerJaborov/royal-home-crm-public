@@ -247,7 +247,7 @@ async function runOneInContext(job: BackgroundJob): Promise<void> {
     const timeoutMs = effectiveJobTimeoutMs(job.type);
     const timedOut = Symbol("timeout");
     const result = await Promise.race([
-      handler.run(payload).then(() => "done" as const),
+      handler.run(payload, { attempt: job.attempts + 1 }).then(() => "done" as const),
       new Promise<typeof timedOut>((resolve) => setTimeout(() => resolve(timedOut), timeoutMs)),
     ]);
     if (result === timedOut) {

@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { lazyWithReload } from "../lib/lazyWithReload";
 
 /**
  * ПОИСК ПО CRM, ЗАГРУЖАЕМЫЙ ПО НАЖАТИЮ.
@@ -21,7 +22,7 @@ import { lazy, Suspense } from "react";
  * Вызывать так же, как раньше: `{showSearch && <CommandPaletteLazy onClose={…} />}`
  * — условие вокруг обязательно, иначе файл скачается сразу.
  */
-const CommandPalette = lazy(() =>
+const CommandPalette = lazyWithReload(() =>
   import("./CommandPalette").then((m) => ({ default: m.CommandPalette })),
 );
 

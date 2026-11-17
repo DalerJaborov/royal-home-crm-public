@@ -2,6 +2,7 @@ import { isPrivateOperation } from "./investigationOperations.js";
 import { prisma } from "../db.js";
 import { isShuttingDown } from "./shutdownState.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
+import { maskPhoneNumbersInText } from "./clientPhone.js";
 
 /**
  * Запись отказа интеграции в журнал ошибок.
@@ -148,6 +149,12 @@ export async function logSystemError(
     silent?: boolean;
   }
 ): Promise<void> {
+  // НОМЕРА КЛИЕНТОВ В ЖУРНАЛ НЕ ПОПАДАЮТ (аудит 17.11.2026, S3). Журнал читают
+  // все с auditLog.view, лог контейнера — все с доступом к серверу, а вызывающих
+  // ~150: маска ставится здесь, в одной двери, а не в каждом вызове. Та же
+  // штатная маска номера, что у карточки (lib/clientPhone.ts); ники и ссылки не
+  // трогаем — в служебной ошибке это обычно имя нашей же страницы.
+  message = maskPhoneNumbersInText(String(message));
   if (isPrivateOperation()) source = "investigation";
   if (source === "investigation") context = { ...context, silent: true };
   // ОБЩИЙ МЕХАНИЗМ ОСТАНОВКИ (17.09.2026, shutdownState.ts). Фоновые задачи
