@@ -10,7 +10,7 @@
  *    cannot crowd out another); one row per customer turn (eventKey), a retried turn is not written twice;
  *  - stricter than the shared mask: any digit run that may be a phone becomes «[номер]» whole, e-mails «[почта]»
  *    (the shared mask leaves the first and last digits, review 17.11);
- *  - no API route: the director reads it with `npx tsx scripts/export-answer-samples.ts` (read only);
+ *  - no API route: the director reads it with `node dist/scripts/export-answer-samples.js` (built with the API: src/scripts/) (read only);
  *  - on by default in shadow AND live; `CUSTOMER_AGENT_ANSWER_SAMPLES=off` stops the writes;
  *  - detached from the turn: the caller never awaits it, every failure goes to the error journal and the turn goes on.
  */

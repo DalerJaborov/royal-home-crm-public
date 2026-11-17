@@ -32,6 +32,7 @@ export type TokenKind =
   | "INSTAGRAM"
   | "INSTAGRAM_MANAGE"
   | "META_ADS"
+  | "META_LOGIN"
   | "YOUTUBE"
   | "TIKTOK"
   | "THREADS";
@@ -103,6 +104,34 @@ export const TOKEN_SCOPE_CATALOG: Record<TokenKind, TokenScopeSpec> = {
   META_ADS: {
     title: "Маркер рекламного кабинета",
     scopes: [{ scope: "ads_read", forWhat: "расходы и заявки по рекламе" }],
+  },
+  META_LOGIN: {
+    // Кнопка «Войти через Facebook» в Настройках → Каналы (13.11.2026,
+    // lib/metaLogin.ts): один вход — и CRM находит Страницы, их Instagram и
+    // рекламные кабинеты. Просится, только когда в Настройках не задан номер
+    // конфигурации входа (metaLoginConfigId): с ним набор прав задаёт сама
+    // конфигурация в Meta — эти же права надо отметить и в ней.
+    //
+    // Пачка 2 (13.11.2026): номера WhatsApp Business и публикация в Instagram,
+    // подключённый через Страницу. instagram_content_publish нужен потому, что
+    // такой Instagram появляется в выборе «куда» у свободных роликов
+    // (lib/socialVideoChannels.ts) и публикуется маркером Страницы — без права
+    // Meta откажет при создании ролика. pages_manage_posts НЕ просим: публикация
+    // на Facebook идёт только в основную Страницу маркером из Настроек.
+    title: "Вход через Facebook",
+    scopes: [
+      { scope: "pages_show_list", forWhat: "найти ваши Страницы" },
+      { scope: "pages_manage_metadata", forWhat: "подписать Страницу на сообщения" },
+      { scope: "pages_messaging", forWhat: "отвечать клиентам в Messenger" },
+      { scope: "pages_read_engagement", forWhat: "читать Страницу и её Instagram" },
+      { scope: "instagram_basic", forWhat: "найти Instagram, привязанный к Странице" },
+      { scope: "instagram_manage_messages", forWhat: "отвечать клиентам в Direct через Страницу" },
+      { scope: "ads_read", forWhat: "расходы и заявки по рекламе" },
+      { scope: "business_management", forWhat: "Страницы, кабинеты и номера WhatsApp компании в Business Suite" },
+      { scope: "whatsapp_business_management", forWhat: "найти номера WhatsApp Business и подписать их на сообщения" },
+      { scope: "whatsapp_business_messaging", forWhat: "отвечать клиентам в WhatsApp" },
+      { scope: "instagram_content_publish", forWhat: "публиковать ролики в Instagram, подключённый через Страницу" },
+    ],
   },
   YOUTUBE: {
     title: "Ключ доступа к каналу YouTube",

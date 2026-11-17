@@ -98,6 +98,22 @@ async function releaseScan(token: string): Promise<void> {
   await prisma.somonMonitor.updateMany({ where: { id: "singleton", scanLeaseToken: token }, data: { scanLeaseToken: null, scanLeaseUntil: null } });
 }
 
+/**
+ * Тревога «очередь задерживается» (17.11.2026, разбор после снятия паузы площадок).
+ * Голова очереди — объявление с самым ранним `lastCheckedAt`. Если и оно отложено вперёд
+ * (добор `backfillFromMarket` ставит +2 суток, чтобы свежие шли первыми), то свежих в
+ * очереди нет и ждать некому — тревоги нет. Окно дедупа — 3 ч: после паузы или остановки
+ * первый проход разгребает сотню объявлений час-полтора, и запись каждые 10 минут была шумом
+ * (7 строк за 07:49–08:53 17.11). Пуш директору не шёл и так: ключ известен с 28.10.
+ */
+export const SOMON_PENDING_DELAY_MS = 15 * 60_000;
+export const SOMON_PENDING_DELAY_DEDUP_MS = 3 * 60 * 60_000;
+export function pendingDelayed(head: { seenAt: Date; lastCheckedAt: Date | null } | undefined, now: Date): boolean {
+  if (!head) return false;
+  if (head.lastCheckedAt && head.lastCheckedAt.getTime() > now.getTime()) return false;
+  return now.getTime() - head.seenAt.getTime() > SOMON_PENDING_DELAY_MS;
+}
+
 /** Bounded work per tick; no seller photos, texts or phone numbers are stored. */
 export async function runSomonMonitorTick(pause: (ms: number) => Promise<void> = wait): Promise<void> {
   const deadline = Date.now() + 45000;
@@ -172,8 +188,8 @@ export async function runSomonMonitorTick(pause: (ms: number) => Promise<void> =
       if (Date.now() < deadline) await pause(10200);
     }
     if (Date.now() < deadline) {
-      const pending = await prisma.somonSeenAdvert.findMany({ where: { status: "PENDING", baseline: false }, orderBy: [{ lastCheckedAt: { sort: "asc", nulls: "first" } }, { seenAt: "asc" }], take: 2, select: { advertId: true, seenAt: true } });
-      if (pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000) await logSystemError("cron", "Somon: очередь объявлений задерживается более 15 минут", { dedupKey: "somon-pending-delay" });
+      const pending = await prisma.somonSeenAdvert.findMany({ where: { status: "PENDING", baseline: false }, orderBy: [{ lastCheckedAt: { sort: "asc", nulls: "first" } }, { seenAt: "asc" }], take: 2, select: { advertId: true, seenAt: true, lastCheckedAt: true } });
+      if (pendingDelayed(pending[0], new Date())) await logSystemError("cron", "Somon: очередь объявлений задерживается более 15 минут", { dedupKey: "somon-pending-delay", dedupWindowMs: SOMON_PENDING_DELAY_DEDUP_MS });
       for (const item of pending) {
         if (Date.now() >= deadline) break;
         const result = await processSomonPending(item.advertId, pause);
