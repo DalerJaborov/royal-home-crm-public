@@ -72,6 +72,13 @@ describe("реестр инструментов помощника", () => {
       "cancel_showing",
       "add_client_note",
       "index_company_knowledge",
+      // «Мозг компании» (17.11.2026, tools/brainReadTools.ts).
+      "get_day_snapshot",
+      "get_unworked",
+      "get_my_day",
+      "get_missed_calls",
+      "get_team_load",
+      "get_stuck_work",
     ]) {
       expect(names).toContain(name);
     }
