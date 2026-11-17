@@ -217,6 +217,8 @@ function toPublic(r: BuyerRow): MarketBuyerListing {
     districtUnknown: r.districtName == null,
     publishedAt: (r.publishedAt ?? r.firstSeenAt).toISOString(),
     lastSeenAt: r.lastSeenAt.toISOString(),
+    // Отметку «уже связывались» добавляет вызывающий (routes/clients/matching.ts, lib/market/listingContacts.ts).
+    contact: null,
   };
 }
 

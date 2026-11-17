@@ -36,7 +36,8 @@ describe("openMarketWhatsApp", () => {
   it("номера нет — берётся у сервера по ссылке объявления", async () => {
     const { win, deps } = setup();
     await openMarketWhatsApp(target, deps);
-    expect(deps.requestPhone).toHaveBeenCalledWith(target.sourceUrl);
+    // Сервер ставит отметку «уже связывались»: передаём действие (и карточку клиента, если пишут из неё).
+    expect(deps.requestPhone).toHaveBeenCalledWith(target.sourceUrl, { clientId: undefined, action: "WHATSAPP" });
     expect(win.location.href).toContain("wa.me/992900000056");
   });
 

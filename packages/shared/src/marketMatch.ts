@@ -45,6 +45,26 @@ export const marketBuyerListingsQuerySchema = z
   .strict();
 export type MarketBuyerListingsQuery = z.infer<typeof marketBuyerListingsQuerySchema>;
 
+/**
+ * Кто уже связывался с продавцом объявления (17.11.2026): номер взяли кнопкой «Показать номер» (PHONE) или
+ * «Написать в WhatsApp» (WHATSAPP), либо продавца с Somon уже передали агенту поиском собственников (OWNER_LEAD).
+ * Последняя отметка; номера здесь нет.
+ */
+export interface MarketListingContactInfo {
+  action: "PHONE" | "WHATSAPP" | "OWNER_LEAD";
+  agentName: string;
+  /** Это сделал сам смотрящий агент. */
+  byMe: boolean;
+  at: string;
+}
+
+/** Отметка словами — одно место для экрана (ПК и телефон). */
+export function marketContactText(c: MarketListingContactInfo, dateText: string): string {
+  if (c.action === "OWNER_LEAD") return c.byMe ? `Этот продавец уже у вас (поиск собственников), ${dateText}` : `Продавца уже ведёт ${c.agentName} (поиск собственников), ${dateText}`;
+  if (c.byMe) return `Вы уже ${c.action === "PHONE" ? "брали номер" : "писали в WhatsApp"}, ${dateText}`;
+  return c.action === "PHONE" ? `Номер уже взят: ${c.agentName}, ${dateText}` : `Продавцу уже писали в WhatsApp: ${c.agentName}, ${dateText}`;
+}
+
 export interface MarketBuyerListing {
   /** Домен площадки: "somon.tj", "paydo.tj"… */
   source: string;
@@ -63,6 +83,8 @@ export interface MarketBuyerListing {
   publishedAt: string;
   /** Когда сбор последний раз видел объявление на площадке. */
   lastSeenAt: string;
+  /** Кто уже связывался с продавцом (null — никто): чтобы двое не звонили одному хозяину. */
+  contact: MarketListingContactInfo | null;
 }
 
 /**

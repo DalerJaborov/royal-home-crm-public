@@ -12,6 +12,7 @@ import { InteractionTimeline } from "../InteractionTimeline";
 import { WhatsAppFirstContact } from "../WhatsAppFirstContact";
 import { useDismissSimilarClient, type SimilarNotesClient } from "../../hooks/useDuplicates";
 import { relativeTime } from "../../lib/format";
+import { MarketBuyerListings } from "../MarketBuyerListings";
 import type { Client } from "../../types";
 
 /**
@@ -249,6 +250,10 @@ export function MobileClientCard({
               <ClientInsight client={client} />
               {intentConfirmation}
               {overviewProperties}
+              {/* «С площадок» под покупателем: те же объявления и действия, что на ПК (17.11.2026). */}
+              {canBuy && (
+                <div className="client-overview-properties"><MarketBuyerListings key={`market:${client.id}`} clientId={client.id} /></div>
+              )}
               {overviewNextStep}
               {propertyCounts}
               {canBuy && client.desiredPlaces && client.desiredPlaces.length > 0 && (

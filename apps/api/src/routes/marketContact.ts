@@ -27,7 +27,27 @@ export const marketContactRouter = Router();
  * обходным путём к закрытому телефону. Номер хранится и отдаётся единым видом +992XXXXXXXXX —
  * именно такой вид ищет сверка в lib/market/ownMatch.ts.
  */
-const bodySchema = z.object({ sourceUrl: z.string().url().max(600) });
+const bodySchema = z.object({
+  sourceUrl: z.string().url().max(600),
+  /** Какой кнопкой взяли номер (17.11.2026): «Показать номер» или «Написать в WhatsApp». */
+  action: z.enum(["PHONE", "WHATSAPP"]).optional(),
+  /** Для какого покупателя (карточка клиента) — чтобы в отметке было видно, по чьему запросу звонили. */
+  clientId: z.guid().optional(),
+});
+
+/**
+ * Отметка «номер продавца получен» (17.11.2026): другие агенты видят её в блоке «С площадок» и не звонят
+ * тому же хозяину второй раз. Пишется только когда номер действительно отдан. Сбой записи не мешает
+ * агенту получить номер: отметка вторична, ошибка — в журнал.
+ */
+async function recordListingContact(listingId: string, agentId: string, action: "PHONE" | "WHATSAPP", clientId: string | undefined): Promise<void> {
+  try {
+    const client = clientId ? await prisma.client.findUnique({ where: { id: clientId }, select: { id: true } }) : null;
+    await prisma.marketListingContact.create({ data: { listingId, agentId, action, clientId: client?.id ?? null } });
+  } catch (err) {
+    void logSystemError("api", `Отметка «номер продавца получен» не записана: ${err instanceof Error ? err.name : "ошибка"}`);
+  }
+}
 
 /** Не чаще одного запроса на сотрудника в 3 секунды: защита от залипшей кнопки. */
 const lastClickByAgent = new Map<string, number>();
@@ -81,6 +101,7 @@ marketContactRouter.post("/listing-contact", requireAuth, async (req, res) => {
   const stored = listing.sellerPhone ? normalizeListingPhone(listing.sellerPhone) : null;
   if (stored) {
     if (await phoneBelongsToHiddenOwner(req, stored)) return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
+    await recordListingContact(listing.id, agentId, parsed.data.action ?? "WHATSAPP", parsed.data.clientId);
     return res.json({ phone: stored, cached: true });
   }
 
@@ -95,6 +116,7 @@ marketContactRouter.post("/listing-contact", requireAuth, async (req, res) => {
     // Сохраняем всегда: так сверка с владельцами нашла бы этот номер при следующем прогоне.
     await prisma.marketListing.update({ where: { id: listing.id }, data: { sellerPhone: phone } });
     if (await phoneBelongsToHiddenOwner(req, phone)) return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
+    await recordListingContact(listing.id, agentId, parsed.data.action ?? "WHATSAPP", parsed.data.clientId);
     return res.json({ phone, cached: false });
   } catch (err) {
     if (err instanceof SomonSourceUnavailable && err.reason === "not_ready") {

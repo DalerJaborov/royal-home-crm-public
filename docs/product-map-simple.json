@@ -2790,11 +2790,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 120,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 125,
      "direct": false,
      "conf": "через общую часть"
@@ -2951,41 +2946,6 @@
     },
     {
      "i": 297,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 330,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 331,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 332,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 333,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 334,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 335,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 336,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -17997,7 +17957,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33481,7 +33440,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33554,7 +33512,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33608,7 +33565,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33636,7 +33592,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33703,7 +33658,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33757,7 +33711,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33811,7 +33764,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
