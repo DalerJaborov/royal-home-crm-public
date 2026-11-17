@@ -183,7 +183,7 @@ describe("Пересчёт по базе", () => {
     expect((await prisma.client.findUnique({ where: { id: seller.id } }))?.status).toBe("DEAL_CLOSED");
   });
 
-  it("все объекты сняты, сделок не было — в потерянные, агент сохраняется, lastAgentId — след остаётся", async () => {
+  it("все объекты сняты, сделок не было — карточка остаётся у агента, статус не меняется (16.11.2026: «Потерянных» нет)", async () => {
     const seller = await makeSeller();
     await makeProperty(seller.id, "WITHDRAWN");
 
@@ -191,9 +191,8 @@ describe("Пересчёт по базе", () => {
     expect(verdict).toEqual({ next: "LOST", reason: "SOLD_ELSEWHERE" });
 
     const after = await prisma.client.findUnique({ where: { id: seller.id } });
-    expect(after?.status).toBe("LOST");
+    expect(after?.status).toBe(seller.status);
     expect(after?.assignedAgentId).toBe(agentId);
-    expect(after?.lastAgentId).toBe(agentId);
     expect(after?.refusalReason).toBe("SOLD_ELSEWHERE");
   });
 

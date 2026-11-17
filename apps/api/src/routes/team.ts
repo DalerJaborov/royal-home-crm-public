@@ -10,8 +10,8 @@ import { propertyOwnerWhere } from "../lib/propertyOwner.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { sumPointsByAgent } from "../lib/pointsTotals.js";
-import { activeLeadCounts, loadLeadLimits, NO_LEADS } from "../lib/leadLimits.js";
-import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
+import { agentLoadCounts, NO_LOAD } from "../lib/agentLoad.js";
+import { noContactWhere } from "../lib/noContact.js";
 import { findSellerPropertyMissing } from "../lib/sellerPropertyMissingAntifraud.js";
 import { runLimited } from "../lib/concurrency.js";
 import { INCLUDE_FORMER_STAFF_PARAM, RATED_ROLES, wantsFormerStaff } from "@royal-home/shared";
@@ -26,7 +26,6 @@ import {
   overdueTasksWhere,
   RECENT_EVENTS_DAYS,
   RECENT_EVENTS_MS,
-  stalledClientsWhere,
 } from "./oversight.js";
 
 export const teamRouter = Router();
@@ -43,24 +42,12 @@ teamRouter.use(requireAuth, requirePermission("team.viewFull"));
  */
 const TEAM_MONTH_ROW_LIMIT = 50_000;
 
-/** Порядок статусов на матрице «Команда по этапам» — тот же порядок, в котором
- *  enum объявлен в schema.prisma, чтобы колонки не прыгали местами между открытиями. */
-const STAGE_STATUSES: ClientStatus[] = [
-  "NEW",
-  "CONTACTED",
-  "HOT",
-  "COLD",
-  "UNRESPONSIVE",
-  "LOST",
-  "DEAL_CLOSED",
-  "ARCHIVED",
-];
-
 /**
  * GET /team/stages — антифрод-экран «Команда по этапам» (мозговой штурм
- * владельца 20-21.08.2026): у какого агента сколько клиентов на каком статусе,
- * плюс сколько показов назначено и сколько сделок в работе — одним взглядом,
- * без открытия карточки каждого сотрудника.
+ * владельца 20-21.08.2026): сколько показов назначено и сколько сделок в работе
+ * у каждого агента — одним взглядом, без открытия карточки каждого сотрудника.
+ * Разбивки клиентов по статусам здесь больше нет (владелец 17.11.2026: статусы
+ * клиента не показываются нигде).
  *
  * Три независимых groupBy вместо загрузки всех клиентов/сделок в память (как
  * делает сводка ниже за текущий месяц) — здесь считаем ЗА ВСЁ ВРЕМЯ, а не за
@@ -75,15 +62,10 @@ teamRouter.get("/stages", async (req, res) => {
   });
   const agentIds = agents.map((a) => a.id);
   if (agentIds.length === 0) {
-    return res.json({ statuses: STAGE_STATUSES, agents: [] });
+    return res.json({ agents: [] });
   }
 
-  const [statusRows, showingRows, showingRowsBySubject, dealRows] = await Promise.all([
-    prisma.client.groupBy({
-      by: ["assignedAgentId", "status"],
-      where: { assignedAgentId: { in: agentIds }, deletedAt: null },
-      _count: { _all: true },
-    }),
+  const [showingRows, showingRowsBySubject, dealRows] = await Promise.all([
     // «Показов назначено» — живая задача показа: не отменена (declinedAt пуст),
     // ещё не отмечена выполненной (completedAt пуст) и остаётся в календаре
     // (nextAction не снят). Тот же смысл, что у findActiveShowing в
@@ -125,13 +107,6 @@ teamRouter.get("/stages", async (req, res) => {
     }),
   ]);
 
-  const byStatusMap = new Map<string, Record<string, number>>();
-  for (const row of statusRows) {
-    if (!row.assignedAgentId) continue;
-    const bucket = byStatusMap.get(row.assignedAgentId) ?? {};
-    bucket[row.status] = row._count._all;
-    byStatusMap.set(row.assignedAgentId, bucket);
-  }
   const showingsMap = new Map(showingRows.map((r) => [r.agentId, r._count._all]));
   for (const r of showingRowsBySubject) {
     if (!r.subjectAgentId) continue;
@@ -141,12 +116,11 @@ teamRouter.get("/stages", async (req, res) => {
 
   const agentsOut = agentIds.map((id) => ({
     id,
-    byStatus: byStatusMap.get(id) ?? {},
     showingsScheduled: showingsMap.get(id) ?? 0,
     dealsInProgress: dealsMap.get(id) ?? 0,
   }));
 
-  res.json({ statuses: STAGE_STATUSES, agents: agentsOut });
+  res.json({ agents: agentsOut });
 });
 
 
@@ -216,7 +190,7 @@ teamRouter.get("/", async (req, res) => {
   });
   const agentIds = agents.map((a) => a.id);
 
-  const [interactions, deals, clients, pointsTotals, money, loadCounts, limits] = await Promise.all([
+  const [interactions, deals, clients, pointsTotals, money, loadCounts] = await Promise.all([
     prisma.interaction.findMany({
       // agentId: { in } / subjectAgentId: { in } обязателен: без него выборка
       // тянула взаимодействия ВСЕЙ компании за месяц, включая руководителей и
@@ -261,14 +235,11 @@ teamRouter.get("/", async (req, res) => {
     sumPointsByAgent(agentIds),
     loadMoneyContext(),
     /**
-     * Нагрузка «сейчас» для карточки «Нагрузка» и колонки в таблице (макет
-     * владельца, экран «Команда»): те же счётчик и лимит, по которым раздача
-     * решает, дать ли агенту следующий лид (lib/leadLimits.ts). Считать здесь
-     * иначе нельзя: полоса «у лимита, лиды не идут» обязана совпадать с тем,
-     * что реально останавливает раздачу.
+     * Нагрузка «сейчас» для колонки в таблице (экран «Команда»): покупатели в
+     * работе тем же правилом, что очередь fair (lib/agentLoad.ts). Лимита нет
+     * с 16.11.2026 — число только показывается, раздачу оно не останавливает.
      */
-    activeLeadCounts(agentIds),
-    loadLeadLimits(),
+    agentLoadCounts(agentIds),
   ]);
   if (
     interactions.length >= TEAM_MONTH_ROW_LIMIT ||
@@ -358,8 +329,7 @@ teamRouter.get("/", async (req, res) => {
       points: pointsTotals.get(a.id) ?? 0,
       // Активные покупатели в работе (продавцы слот не занимают) и общий лимит;
       // лимит 0 = раздача без предела, полоса тогда не рисуется.
-      activeLoad: (loadCounts.get(a.id) ?? NO_LEADS).total,
-      leadLimit: limits.activeLimit,
+      activeLoad: (loadCounts.get(a.id) ?? NO_LOAD).total,
       month: {
         leads: b?.leads ?? 0,
         interactions: b?.interactions ?? 0,
@@ -445,12 +415,12 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
   // не заводим — тот же приём, что уже применён к findSilentAfterShowing и
   // соседям для mission-control.
   const now = new Date();
-  const hotScoreThreshold = await loadHotScoreThreshold();
   // subjectAgentId ?? agentId (П-10, 17.09.2026): просроченная задача, заведённая
   // ботом/системой от лица держателя карточки (agentId: null), остаётся ЕГО
   // хвостом — тот же приём, что computeDiscipline в kpi.ts.
   const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRole(req)), OR: [{ agentId: id }, { subjectAgentId: id }] };
-  const stalledClientsAgentWhere = { ...stalledClientsWhere(now, hotScoreThreshold), assignedAgentId: id };
+  // «Без контакта» — одно правило на всю CRM (lib/noContact.ts), здесь — по этому агенту.
+  const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(now), { assignedAgentId: id }] };
 
   const [
     propertiesTotal,
@@ -467,7 +437,7 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
     waitingClients,
     overdueTasksItems,
     overdueTasksTotal,
-    stalledClientsItems,
+    noContactItems,
     silentAfterShowing,
     refusedHighScore,
     endlessNegotiations,
@@ -584,12 +554,13 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
         },
       }),
       () => prisma.interaction.count({ where: overdueTasksAgentWhere }),
-      // Горячие клиенты без прогресса (высокий ИИ-скоринг, давно без контакта).
+      // Клиенты без контакта (одно правило на всю CRM, lib/noContact.ts) — сначала
+      // те, кто молчит дольше.
       () => prisma.client.findMany({
-        where: stalledClientsAgentWhere,
-        orderBy: { aiScore: "desc" },
+        where: noContactAgentWhere,
+        orderBy: [{ lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
         take: 5,
-        select: { id: true, shortId: true, fullName: true, status: true, aiScore: true, lastContactAt: true },
+        select: { id: true, shortId: true, fullName: true, createdAt: true, lastClientMessageAt: true },
       }),
       // Остальные красные флаги — общекомандные хелперы, отфильтрованные на этого
       // агента после загрузки (капы take(500) внутри них те же, что у «Контроля
@@ -723,7 +694,7 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
         total: overdueTasksTotal,
         items: overdueTasksItems.map((t) => ({ ...t, notes: maskText(t.notes), nextAction: maskText(t.nextAction), client: maskName(t.client) })),
       },
-      stalledClients: { total: stalledClientsItems.length, items: stalledClientsItems.map(maskName) },
+      noContactClients: { total: noContactItems.length, items: noContactItems.map(maskName) },
       silentAfterShowing: { total: silentAfterShowingForAgent.length, days: silentAfterShowing.days, items: silentAfterShowingForAgent.slice(0, 5).map(maskName) },
       refusedHighScore: {
         total: refusedHighScoreForAgent.length,

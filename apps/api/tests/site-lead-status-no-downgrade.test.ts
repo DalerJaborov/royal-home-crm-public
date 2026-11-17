@@ -59,12 +59,15 @@ describe("Статус с сайта", () => {
     expect((await prisma.client.findUniqueOrThrow({ where: { id } })).status).toBe("NEW");
   });
 
-  it("новый становится «на связи», и это видно в истории", async () => {
+  // 17.11.2026: статусов клиента в CRM нет — сайт статус не меняет вовсе, истории нет.
+  it("«на связи» с сайта статус не меняет и в историю не пишется", async () => {
     const id = await client("4", { status: "NEW" });
-    await send(id, "contacted");
-    expect((await prisma.client.findUniqueOrThrow({ where: { id } })).status).toBe("CONTACTED");
+    const res = await send(id, "contacted");
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(false);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id } })).status).toBe("NEW");
     const log = await prisma.interaction.findFirst({ where: { clientId: id, type: "STATUS_CHANGE" } });
-    expect(log?.notes).toContain("с сайта");
+    expect(log).toBeNull();
   });
 
   it("SYNC-03: агент перевёл клиента в HOT между чтением и записью: вебхук не затирает, applied=false, истории нет", async () => {

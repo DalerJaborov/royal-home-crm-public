@@ -31,6 +31,7 @@ const empty = (over: Partial<AgentTodoInput> = {}): AgentTodoInput => ({
   firstCall: [],
   tasks: [],
   portfolio: [],
+  noContact: [],
   now: NOW,
   ...over,
 });
@@ -48,12 +49,13 @@ describe("buildAgentTodo", () => {
     expect(todo.queue.map((i) => i.kind)).toEqual(["firstCall", "task"]);
   });
 
-  it("без срочного фокус берёт самого остывшего, а в очереди его нет", () => {
+  it("без срочного фокус берёт первого «без контакта» с сервера (общее правило), а в очереди его нет", () => {
     const fresh = client("c1", { lastContactAt: new Date(NOW - DAY).toISOString() });
     const cold = client("c2", { lastContactAt: new Date(NOW - 11 * DAY).toISOString() });
     const colder = client("c3", { lastContactAt: new Date(NOW - 20 * DAY).toISOString() });
-    const todo = buildAgentTodo(empty({ portfolio: [fresh, cold, colder] }));
-    expect(todo.focus).toMatchObject({ kind: "cold", days: 20 });
+    // lastContactAt больше не решает: порядок и состав «без контакта» даёт сервер.
+    const todo = buildAgentTodo(empty({ portfolio: [fresh, cold, colder], noContact: [colder, cold] }));
+    expect(todo.focus).toMatchObject({ kind: "cold", client: { id: "c3" } });
     expect(todo.queue.map((i) => (i.kind === "client" ? i.client.id : i.kind))).toEqual(["c1", "c2"]);
   });
 

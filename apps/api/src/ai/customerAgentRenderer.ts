@@ -31,6 +31,7 @@ import { customerStaffFollowUpLine, customerStaffFollowUpFixedLines, customerTha
   customerPartnershipOffer, customerPartnershipReply, customerCommissionAmountLine, customerSearchHandOffLine, customerPhoneAskLines,
   PHONE_ASK_TEXT, CUSTOMER_SELLER_WORDS, type FollowUpMemory } from "./customerAgentStaffFollowUp.js";
 import { detectOutsideCoverage } from "./coverageGuard.js";
+import { customerReplyLink } from "../lib/customerReplyLink.js";
 import { serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
 import { customerRecruitmentFollowUp, recruitmentFollowUpLine, recruitmentFollowUpFixedLines, RETIRED_TEMPLATE_LINES, AD_OPEN_QUESTION,
@@ -524,7 +525,8 @@ function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | 
     if (card.facts.characteristics) lines.push(...customerPropertyCharacteristicLines(card.facts.characteristics, language,
       language === "tg" ? "масоҳат ошёна таъмир" : "площадь этаж ремонт"));
     if (card.match.notes.length) lines.push(`${tg ? "Эзоҳ" : "Примечание"}: ${card.match.notes.map(note => notes[note][language]).join("; ")}.`);
-    if (value.linksAllowed !== false && card.facts.publicLink) lines.push(card.facts.publicLink);
+    const link = customerReplyLink(card.facts.publicLink, value.linksAllowed);
+    if (link) lines.push(link);
   }
   return lines;
 }
@@ -708,7 +710,8 @@ function renderDecisionCore(input: {
       if (parsed.data.cards.length > 1) lines.push(lang === "tg" ? "Объектҳо аз ҳамин нашрия:" : "Объекты из этой публикации:");
       for (const facts of parsed.data.cards) {
         appendFacts({ kind: "facts", facts, kinds: parsed.data.kinds });
-        if (parsed.data.linksAllowed !== false && parsed.data.cards.length > 1 && facts.publicLink) lines.push(facts.publicLink);
+        const link = parsed.data.cards.length > 1 ? customerReplyLink(facts.publicLink, parsed.data.linksAllowed) : null;
+        if (link) lines.push(link);
       }
     }
     if (item.value.kind === "property_unresolved") {

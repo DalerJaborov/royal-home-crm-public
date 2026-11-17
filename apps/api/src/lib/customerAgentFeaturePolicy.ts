@@ -47,3 +47,8 @@ export async function loadCustomerAgentFeaturePolicy(channel?: string) {
     // модели на этом ходе. Каталог инструментов в toolSchemaHash ревизии не меняется.
     callbacks: row?.botCanRequestCallback === true, ownerQuestions: row?.botCanAskOwner === true };
 }
+
+/** Same switch read from the settings for code that has no policy snapshot at hand (the server-built video answer). */
+export async function customerLinksAllowed(channel?: string): Promise<boolean> {
+  return (await loadCustomerAgentFeaturePolicy(channel)).links;
+}

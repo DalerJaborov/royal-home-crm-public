@@ -62,24 +62,28 @@ const LABELS = {
   ru: {
     check: (n: number) => `Проверьте ${n} ${plural(n, ["расход", "расхода", "расходов"])}`,
     total: "итого", paid: "оплачено", planned: "ждёт оплаты", rate: "доллары по курсу CRM",
+    contribution: "Взнос учредителя", contributions: (n: number) => `${n} ${plural(n, ["взнос", "взноса", "взносов"])} учредителей`,
     write: "Записать", fix: "Исправить", cancel: "Отмена", confirm: "Подтвердить",
     categories: EXPENSE_CATEGORY_LABELS,
   },
   tg: {
     check: (n: number) => `${n} харҷро санҷед`,
     total: "ҳамагӣ", paid: "пардохт шуд", planned: "интизори пардохт", rate: "доллар бо қурби CRM",
+    contribution: "Саҳми муассис", contributions: (n: number) => `${n} саҳми муассисон`,
     write: "Сабт кун", fix: "Ислоҳ", cancel: "Бекор", confirm: "Тасдиқ",
     categories: { ADVERTISING: "Реклама", SALARY: "Музди меҳнат", OFFICE: "Офис", OTHER: "Дигар" },
   },
   uz: {
     check: (n: number) => `${n} ta xarajatni tekshiring`,
     total: "jami", paid: "to'langan", planned: "to'lov kutilmoqda", rate: "dollar CRM kursida",
+    contribution: "Ta'sischi badali", contributions: (n: number) => `${n} ta ta'sischi badali`,
     write: "Yozish", fix: "Tuzatish", cancel: "Bekor", confirm: "Tasdiqlash",
     categories: { ADVERTISING: "Reklama", SALARY: "Ish haqi", OFFICE: "Ofis", OTHER: "Boshqa" },
   },
   en: {
     check: (n: number) => `Check ${n} ${n === 1 ? "expense" : "expenses"}`,
     total: "total", paid: "paid", planned: "awaiting payment", rate: "dollars at the CRM rate",
+    contribution: "Founder contribution", contributions: (n: number) => `${n} founder ${n === 1 ? "contribution" : "contributions"}`,
     write: "Record", fix: "Fix", cancel: "Cancel", confirm: "Confirm",
     categories: { ADVERTISING: "Advertising", SALARY: "Salary", OFFICE: "Office", OTHER: "Other" },
   },

@@ -21,11 +21,6 @@ vi.mock("../src/lib/clientAutopilot.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/clientAutopilot.js")>()),
   runClientAutopilotInBackground,
 }));
-const checkClientInactiveSignal = vi.fn(async () => {});
-vi.mock("../src/lib/clientInactiveTextDetector.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/clientInactiveTextDetector.js")>()),
-  checkClientInactiveSignal,
-}));
 
 const { prisma } = await import("../src/db.js");
 const { encryptSecret } = await import("../src/crypto.js");
@@ -103,7 +98,7 @@ beforeAll(async () => {
   }));
 });
 beforeEach(() => {
-  sendPushToAgent.mockClear(); runClientAutopilotInBackground.mockClear(); checkClientInactiveSignal.mockClear();
+  sendPushToAgent.mockClear(); runClientAutopilotInBackground.mockClear();
   resetClientMessageThrottle();
 });
 afterAll(async () => {
@@ -126,14 +121,13 @@ afterAll(async () => {
 });
 
 describe("действия CRM на входящее в полосе CORE", () => {
-  it("клиент ядра пишет — агенту уходит пуш «клиент написал», автопилот и детектор неактивности зовутся", async () => {
+  it("клиент ядра пишет — агенту уходит пуш «клиент написал», автопилот зовётся", async () => {
     const card = await client({ assigned: true });
     const f = await coreInput(card.id, "Здравствуйте, квартира ещё продаётся?");
     expect(await f.record()).toBe(true);
     await waitFor(() => pushesFor(agentId).length === 1, { label: "пуш агенту о сообщении клиента ядра" });
     expect(pushesFor(agentId)[0][1]).toMatchObject({ url: `/clients/${card.shortId}` });
     await waitFor(() => runClientAutopilotInBackground.mock.calls.some(call => call[0] === card.id && call[1] === "client_message"), { label: "автопилот" });
-    expect(checkClientInactiveSignal).toHaveBeenCalledWith(card.id, "Здравствуйте, квартира ещё продаётся?");
   });
 
   it("повторная доставка того же сообщения второго пуша не шлёт", async () => {

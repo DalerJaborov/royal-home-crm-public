@@ -7,7 +7,7 @@ import { classifyInbound } from "../../services/leads/intakePolicy.js";
 import { DIRECTION_UNCONFIRMED_NOTE, DIRECTION_UNCONFIRMED_REASON } from "../../ai/leadKind.js";
 import { logSystemError } from "../systemError.js";
 import { logTimeline } from "../timeline.js";
-import { inactiveExitData } from "../clientLifecycle.js";
+import { resumeWorkData } from "../clientLifecycle.js";
 import { describeError } from "../describeError.js";
 import { loadMoneyContext } from "../money.js";
 import { SERVICE_NUMBER_IRRELEVANT_MARKS } from "./incomingCallConstants.js";
@@ -344,11 +344,8 @@ async function decide(call: {
        * пока карточка не выйдет из этого статуса.
        */
       if (client.workStatus === "INACTIVE") {
-        // Поля светофора гасятся вместе с workStatus (23.09.2026) — тем же
-        // набором, что у обычного возврата (clientLifecycle.ts::inactiveExitData):
-        // иначе прошлый уровень, счётчик и inactiveSince оставались на живой
-        // карточке. status не трогаем: судьбу LOST решает inboundRouting.ts.
-        await prisma.client.update({ where: { id: client.id }, data: { ...inactiveExitData(), returnedAt: new Date() } });
+        // status не трогаем: судьбу LOST решает inboundRouting.ts.
+        await prisma.client.update({ where: { id: client.id }, data: { ...resumeWorkData(), returnedAt: new Date() } });
         // Актор — сам клиент (его звонок вернул карточку в работу), не агент
         // (П-10, 17.09.2026): агент к этому решению не притрагивался.
         await logTimeline({

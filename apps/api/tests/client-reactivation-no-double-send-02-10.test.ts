@@ -45,6 +45,8 @@ beforeAll(async () => {
         phone: `+992952${runId}`,
         source: "PHONE_CALL",
         status: "COLD",
+        // Давно без контакта по общему правилу (16.11.2026) — задание его перепроверяет.
+        createdAt: new Date(Date.now() - 400 * 86_400_000),
         assignedAgentId: agentId,
       },
     })
