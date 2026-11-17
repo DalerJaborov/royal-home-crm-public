@@ -1,0 +1,7 @@
+# На сервере рядом с Dockerfile лежат секреты и сертификаты (/opt/royalhome-wa-gateway).
+# В контекст сборки они не попадают: образ берёт только config/ и entrypoint.sh.
+*
+!Dockerfile
+!entrypoint.sh
+!config/
+!config/**
