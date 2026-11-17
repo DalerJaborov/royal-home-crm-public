@@ -1928,6 +1928,11 @@
       "label": null
     },
     {
+      "id": "missed-call-task-whatsapp-close",
+      "expr": "*/2 * * * *",
+      "label": null
+    },
+    {
       "id": "monthly-problem-report",
       "expr": "10 9 1 * *",
       "label": "Разбор проблемных мест за прошедший месяц"

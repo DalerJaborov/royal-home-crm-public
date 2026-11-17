@@ -38,6 +38,9 @@ const SETTINGS: FunctionStatusSettings = {
   alarmHoursEnd: "14:45",
   geminiSpareKeyInSettings: false,
   openaiEnabled: false,
+  missedCallSmsEnabled: false,
+  missedCallSmsSent7d: 0,
+  missedCallCallbackTaskEnabled: false,
 };
 
 function input(over: Partial<FunctionStatusInput> = {}, settings: Partial<FunctionStatusSettings> = {}): FunctionStatusInput {
@@ -310,5 +313,25 @@ describe("GET /api/v1/function-status: права", () => {
       expect(parsed.items.map((i) => i.key).sort()).toEqual(FUNCTION_REGISTRY.map((f) => f.key).sort());
       expect(parsed.summary.working + parsed.summary.preview + parsed.summary.off).toBe(parsed.items.length);
     }
+  });
+});
+
+describe("Отправка в Meta: метки «Meta не пропускает» (18.11.2026, lib/metaSendBlock.ts)", () => {
+  it("без меток — работает; с меткой — аккаунт, с какого времени, код и когда проба, с пометкой «внимание»", () => {
+    expect(item("meta-send-blocks", input({ metaSendBlocks: [] })).reason).toBe("Meta пропускает отправку со всех аккаунтов.");
+    const blocked = item("meta-send-blocks", input({ metaSendBlocks: [{
+      label: "Arvan Estate (Instagram)", surface: "dm", since: new Date("2026-11-17T07:31:00Z"), liftedAt: null,
+      nextProbeAt: new Date("2026-11-14T09:00:00Z"), lastCode: 368, lastSubcode: null,
+    }] }));
+    expect(blocked.state).toBe("working");
+    expect(blocked.attention).toBe(true);
+    expect(blocked.reason).toContain("Arvan Estate (Instagram), личные сообщения: Meta ограничила отправку с 2026-11-17 12:31 (код 368)");
+    expect(blocked.reason).toContain("следующая проба в 2026-11-14 14:00");
+    const due = item("meta-send-blocks", input({ metaSendBlocks: [{
+      label: "Arvan Estate (Instagram)", surface: "dm", since: new Date("2026-11-13T07:31:00Z"), liftedAt: null,
+      nextProbeAt: new Date("2026-11-14T07:00:00Z"), lastCode: 10, lastSubcode: 1893063,
+    }] }));
+    expect(due.reason).toContain("код 10/1893063");
+    expect(due.reason).toContain("проба — при следующей отправке");
   });
 });

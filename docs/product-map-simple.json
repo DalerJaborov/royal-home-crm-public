@@ -14,12 +14,12 @@
  "totals": {
   "screens": 49,
   "paths": 777,
-  "cron": 140,
+  "cron": 141,
   "jobs": 33,
-  "conditions": 4037,
+  "conditions": 4040,
   "untranslatedUnique": 464,
   "untranslatedTotal": 597,
-  "partialUnique": 1089,
+  "partialUnique": 1091,
   "translatedShare": 85
  },
  "untranslated": [
@@ -71626,6 +71626,39 @@
         {
          "t": "запись в журнал ошибок",
          "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "missed-call-task-whatsapp-close",
+   "when": "*/2 * * * *",
+   "label": "missed-call-task-whatsapp-close",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "и так по каждому",
+       "k": "loop",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: national",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: wrote",
+         "k": "if",
          "a": [],
          "c": []
         }
