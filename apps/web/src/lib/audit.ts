@@ -18,6 +18,7 @@
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "meta.send_block.rejected": "Meta не пропустила отправку по правилам",
   "meta.send_block.lifted": "Meta снова пропускает отправку",
+  "meta.send_block.warned": "Meta предупредила о навязчивой отправке",
   SOMON_DELIVERY_REVIEWED: "Отправка Somon проверена",
   SOMON_SELLER_REVIEWED: "Продавец Somon проверен",
   SOMON_MONITOR_DISABLED: "Мониторинг Somon остановлен",

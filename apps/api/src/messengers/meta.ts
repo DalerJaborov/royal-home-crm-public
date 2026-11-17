@@ -28,8 +28,10 @@ import {
   metaSendRecipientOf,
   metaSendSurfaceOf,
   MetaSendPolicyError,
+  MetaSendWarningError,
   parseMetaGraphError,
   recordMetaSendPolicyBlock,
+  recordMetaSendWarning,
   releaseMetaSendProbe,
   resolveMetaSendAccount,
   settleMetaSendAccepted,
@@ -1957,11 +1959,13 @@ export async function callGraph<T = unknown>(
        * до ветки нового ядра — она тоже должна её увидеть.
        */
       let policyBlock: MetaSendBlock | null = null;
+      let policyWarning: MetaSendBlock | null = null;
       if (policy && sendSurface && sendSurface !== "action") {
         gateSettled = true;
-        policyBlock = await recordMetaSendPolicyBlock({
-          account: await resolveSendAccount(), surface: sendSurface, graph: graphError, policy, gate, recipientId,
-        });
+        const record = { account: await resolveSendAccount(), surface: sendSurface, graph: graphError, policy, gate, recipientId };
+        // 613/2018338 — предупреждение: первое за час метку не ставит (бот работает), второе — ставит.
+        if (policy.warning) policyWarning = await recordMetaSendWarning(record);
+        if (!policyWarning) policyBlock = await recordMetaSendPolicyBlock(record);
       }
       /**
        * ОТКАТ НА ЛИЧНЫЙ КЛЮЧ (ревью #161). Путь Страницы получил ЧЁТКИЙ отказ
@@ -1970,7 +1974,7 @@ export async function callGraph<T = unknown>(
        * сюда не доходит. Учёт физической отправки отметил первую попытку
        * «отклонено», вторая допускается заново по тому же логическому сообщению.
        */
-      if (!policyBlock && routed.route !== "unchanged" && pageRouteFailed(routed, res.status, text)) {
+      if (!policyBlock && !policyWarning && routed.route !== "unchanged" && pageRouteFailed(routed, res.status, text)) {
         if (isMetaAuthFailure(res.status, text)) forgetPageToken(routed.token);
         routed = personal;
         traceKnownSecrets([routed.token]);
@@ -1991,10 +1995,12 @@ export async function callGraph<T = unknown>(
         // Запрет по правилам уже записан и передан людям (lib/metaSendBlock.ts) — для исходящего
         // нового ядра это задержание, а не «сбой при отправке» второй строкой в журнале.
         if (policyBlock) throw new MetaSendBlockedError(policyBlock);
+        if (policyWarning) throw new MetaSendWarningError(`Graph API HTTP ${res.status}: managed delivery rejected (Meta warning)`, graphError, policyWarning);
         throw new Error(`Graph API HTTP ${res.status}: managed delivery rejected`);
       }
       const message = `Graph API HTTP ${res.status}: ${readableGraphBody(text).slice(0, 300)}`;
       if (policyBlock) throw new MetaSendPolicyError(message, graphError, policyBlock);
+      if (policyWarning) throw new MetaSendWarningError(message, graphError, policyWarning);
       if (graphErrorSubcode(text) === UPLOAD_FAILED_SUBCODE && attempt < UPLOAD_FAILED_RETRY_DELAYS_MS.length) {
         await sleep(UPLOAD_FAILED_RETRY_DELAYS_MS[attempt]);
         continue;

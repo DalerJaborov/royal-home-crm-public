@@ -6017,6 +6017,10 @@ model MetaSendBlock {
   lastErrorType   String?
   lastFbtraceId   String?
   lastMessage     String?
+  /// Первое предупреждение Meta «навязчивая отправка» (613/2018338) в текущем часе. Само по себе
+  /// не запрет: второе в течение часа — уже метка. Строка, где были только предупреждения, —
+  /// `failures = 0` и `liftedAt` = `since` (запрета не было).
+  warningAt       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

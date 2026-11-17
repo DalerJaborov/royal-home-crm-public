@@ -14,7 +14,7 @@ import { processMessengerTurn } from "../messengers/conversation.js";
 import { asMetaChannel, sendMessage as sendMetaMessage } from "../messengers/meta.js";
 import { WEBSITE_CHANNEL } from "../messengers/channels.js";
 import { isOutboundBlockedError } from "./outboundShield.js";
-import { handOverBlockedConversation, isMetaSendBlockError, metaSendBlockCoveringMessage, withoutMetaSendProbe } from "./metaSendBlock.js";
+import { handOverBlockedConversation, isMetaSendBlockError, metaSendBlockCoveringMessage, metaSendWarnedTurn, withoutMetaSendProbe } from "./metaSendBlock.js";
 import { accountTokenById, listAccounts } from "../messengers/accounts.js";
 import { deliverBotVoiceReply } from "./conversationDelivery.js";
 import { sleep } from "../messengers/humanPacing.js";
@@ -254,6 +254,8 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
         traceOutcome("blocked");
         return "no-reply";
       }
+      // На этот ход Meta уже предупредила о навязчивой отправке (613/2018338): тому же получателю не повторяем.
+      if (await metaSendWarnedTurn(row.id)) { traceOutcome("blocked"); return "no-reply"; }
     }
     const account =
       metaChannel && row.accountId ? (await listAccounts(metaChannel)).find((a) => a.id === row.accountId) : null;

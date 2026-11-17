@@ -20,6 +20,7 @@ CREATE TABLE "MetaSendBlock" (
     "lastErrorType" TEXT,
     "lastFbtraceId" TEXT,
     "lastMessage" TEXT,
+    "warningAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

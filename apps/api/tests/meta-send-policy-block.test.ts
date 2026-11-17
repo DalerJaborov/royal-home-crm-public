@@ -68,6 +68,11 @@ const policy368 = () => json({ error: {
 } }, 400);
 
 // Каждый текст свой: учёт физической отправки не даёт повторить ровно то же сообщение тому же человеку.
+const warning613 = () => json({ error: {
+  message: "Warning! You are engaging in behavior that may be considered bothersome or abusive by users.",
+  type: "OAuthException", code: 613, error_subcode: 2018338, fbtrace_id: "Warn613",
+} }, 400);
+
 const dm = (peer = PEER, text = `Ассалому алейкум ${randomUUID().slice(0, 6)}`) => ({ recipient: { id: peer }, message: { text } });
 const originalFetch = globalThis.fetch;
 
@@ -77,10 +82,10 @@ async function cleanBlocks() {
   await prisma.auditLog.deleteMany({ where: { entityType: "MetaSendBlock", entityId: { in: rows.map((r) => r.id) } } });
   await prisma.metaSendBlock.deleteMany({ where: { accountKey: { in: keys } } });
   await prisma.pendingDirectorAlert.deleteMany({ where: { OR: [
-    { tag: { in: keys.flatMap((k) => [`meta-send-block:${k}:dm`, `meta-send-unblock:${k}:dm`, `meta-send-block:${k}:comment`]) } },
+    { tag: { in: keys.flatMap((k) => [`meta-send-block:${k}:dm`, `meta-send-unblock:${k}:dm`, `meta-send-block:${k}:comment`, `meta-send-warning:${k}:dm`]) } },
     { tag: { startsWith: "client-waiting-" }, body: { contains: run } },
   ] } });
-  await prisma.processedMessage.deleteMany({ where: { channel: "meta-send-block-handoff" } });
+  await prisma.processedMessage.deleteMany({ where: { channel: { in: ["meta-send-block-handoff", "meta-send-warning-turn"] } } });
   block.resetMetaSendBlockCache();
 }
 
@@ -140,6 +145,9 @@ describe("коды Meta — один список, сверенный с док�
     expect(of(10, 1893063)).not.toBeNull();
     expect(of(100, 2534029)).not.toBeNull();
     expect(of(613, 2018338)).not.toBeNull();
+    // 613/2018338 — предупреждение, не запрет; остальные — запрет.
+    expect(of(613, 2018338)?.warning).toBe(true);
+    expect(block.META_SEND_POLICY_BLOCKS.filter((b) => b.warning).map((b) => `${b.code}/${b.subcode}`)).toEqual(["613/2018338"]);
     expect(of(4, 2207051)).not.toBeNull();
     expect(of(25, 2207050)).not.toBeNull();
     // Не запрет по правилам: лимит запросов, нет права, закрытое окно 24 ч, плохой параметр, нет кода вовсе.
@@ -314,6 +322,74 @@ describe("проба после паузы", () => {
     expect(text).toContain(`Arvan Estate ${run}`);
     expect(text).toContain("приложения Instagram");
     expect(text).toContain("368");
+  });
+});
+
+describe("предупреждение 613/2018338 — не запрет, пока не повторилось за час", () => {
+  const warningAlarms = () => prisma.pendingDirectorAlert.count({ where: { tag: `meta-send-warning:account:${arvan.id}:dm` } });
+  const blockAlarms = () => prisma.pendingDirectorAlert.count({ where: { tag: `meta-send-block:account:${arvan.id}:dm` } });
+
+  it("одно предупреждение: метки нет, другие переписки аккаунта идут, тревога-предупреждение одна, этот ход не повторяется", async () => {
+    const chat = await waitingChat();
+    meta.set(arvan.token, warning613);
+    const err = await callGraph(IG_MESSAGES(), arvan.token, dm(), "POST", undefined, arvan.transport).catch((e) => e);
+    expect(err).toBeInstanceOf(block.MetaSendWarningError);
+    expect(block.isMetaSendBlockError(err)).toBe(true);
+    expect(block.metaSendBlockStaffText(err)).toContain("предупредила");
+    const row = await blockRow(arvan);
+    expect(row).toMatchObject({ failures: 0, lastCode: 613, lastSubcode: 2018338 });
+    expect(row?.liftedAt).not.toBeNull();
+    expect(row?.warningAt).not.toBeNull();
+    expect(await block.isAccountSendBlocked({ accountId: arvan.id, channel: "INSTAGRAM" })).toBe(false);
+    const audit = await waitFor(() => prisma.auditLog.findFirst({ where: { entityType: "MetaSendBlock", entityId: row!.id, action: "meta.send_block.warned" } }));
+    expect(audit?.meta).toMatchObject({ code: 613, subcode: 2018338, fbtraceId: "Warn613" });
+    expect(await warningAlarms()).toBe(1);
+    expect(await blockAlarms()).toBe(0);
+    const waiting = await prisma.pendingDirectorAlert.findMany({ where: { tag: `client-waiting-${chat.id}` } });
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0].body).toContain("предупредила о навязчивой отправке");
+
+    // Другая переписка того же аккаунта — в Meta, как обычно.
+    meta.set(arvan.token, ok);
+    fetchMock.mockClear();
+    await expect(callGraph(IG_MESSAGES(), arvan.token, dm(`${PEER}-other`), "POST", undefined, arvan.transport)).resolves.toBeTruthy();
+    expect(callsFor(arvan.token)).toBe(1);
+
+    // Повтор зависших этот ход тому же клиенту не досылает.
+    fetchMock.mockClear();
+    processMessengerTurn.mockResolvedValue({ reply: "Новый текст", shouldReply: true, ready: false, accepted: false });
+    const stored = await prisma.botConversation.findUniqueOrThrow({ where: { id: chat.id } });
+    await expect(retryStuckConversation({ id: chat.id, channel: "INSTAGRAM", subscriberId: PEER, name: stored.name, accountId: stored.accountId,
+      lastText: `Нарх чанд? ${run}`, lastMid: null, lastMessageAt: stored.lastMessageAt! }, "ai_retry")).resolves.toBe("no-reply");
+    expect(processMessengerTurn).not.toHaveBeenCalled();
+    expect(callsFor(arvan.token)).toBe(0);
+  });
+
+  it("второе предупреждение в течение часа — метка, как у остальных кодов (пауза 1 ч)", async () => {
+    meta.set(arvan.token, warning613);
+    await callGraph(IG_MESSAGES(), arvan.token, dm(`${PEER}-w1`), "POST", undefined, arvan.transport).catch(() => undefined);
+    const second = await callGraph(IG_MESSAGES(), arvan.token, dm(`${PEER}-w2`), "POST", undefined, arvan.transport).catch((e) => e);
+    expect(second).toBeInstanceOf(block.MetaSendPolicyError);
+    const row = await blockRow(arvan);
+    expect(row).toMatchObject({ liftedAt: null, failures: 1, probeStep: 0, lastCode: 613, warningAt: null });
+    expect(row!.nextProbeAt.getTime() - row!.since.getTime()).toBe(3_600_000);
+    expect(await block.isAccountSendBlocked({ accountId: arvan.id, channel: "INSTAGRAM" })).toBe(true);
+    expect(await blockAlarms()).toBe(1);
+    expect(await warningAlarms()).toBe(1);
+  });
+
+  it("два предупреждения с разрывом больше часа — метки нет", async () => {
+    meta.set(arvan.token, warning613);
+    await callGraph(IG_MESSAGES(), arvan.token, dm(`${PEER}-g1`), "POST", undefined, arvan.transport).catch(() => undefined);
+    await prisma.metaSendBlock.updateMany({ where: { accountKey: `account:${arvan.id}` },
+      data: { warningAt: new Date(Date.now() - block.META_SEND_WARNING_WINDOW_MS - 60_000) } });
+    const second = await callGraph(IG_MESSAGES(), arvan.token, dm(`${PEER}-g2`), "POST", undefined, arvan.transport).catch((e) => e);
+    expect(second).toBeInstanceOf(block.MetaSendWarningError);
+    const row = await blockRow(arvan);
+    expect(row?.failures).toBe(0);
+    expect(row?.liftedAt).not.toBeNull();
+    expect(await block.isAccountSendBlocked({ accountId: arvan.id, channel: "INSTAGRAM" })).toBe(false);
+    expect(await blockAlarms()).toBe(0);
   });
 });
 

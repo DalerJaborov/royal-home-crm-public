@@ -62,6 +62,12 @@ export interface MetaPolicyBlockCode {
   /** Смысл по документации Meta. */
   meaning: string;
   doc: string;
+  /**
+   * Не запрет, а предупреждение (613/2018338): может прийти из-за одного получателя.
+   * Первое — метки нет, бот работает; второе за META_SEND_WARNING_WINDOW_MS — метка.
+   * Владелец: «боты работают всегда» — час простоя аккаунта из-за одного человека недопустим.
+   */
+  warning?: true;
 }
 
 /**
@@ -75,7 +81,7 @@ export const META_SEND_POLICY_BLOCKS: readonly MetaPolicyBlockCode[] = [
   { code: 368, meaning: "Temporarily blocked for policies violations. Wait and retry the operation.", doc: META_ERROR_DOCS.graph },
   { code: 10, subcode: 1893063, meaning: "You are temporarily restricted from sending messages (Messaging Policies).", doc: META_ERROR_DOCS.messenger },
   { code: 100, subcode: 2534029, meaning: "The business has been blocked from sending messages via the IG Messaging API.", doc: META_ERROR_DOCS.messenger },
-  { code: 613, subcode: 2018338, meaning: "Behavior that may be considered bothersome or abusive; further misuse may result in messaging restrictions.", doc: META_ERROR_DOCS.messenger },
+  { code: 613, subcode: 2018338, meaning: "Behavior that may be considered bothersome or abusive; further misuse may result in messaging restrictions.", doc: META_ERROR_DOCS.messenger, warning: true },
   { code: 4, subcode: 2207051, meaning: "We restrict certain activity to protect our community (suspected spam).", doc: META_ERROR_DOCS.instagram },
   { code: 25, subcode: 2207050, meaning: "The Instagram account is restricted (inactive, checkpointed or restricted).", doc: META_ERROR_DOCS.instagram },
 ];
@@ -155,6 +161,8 @@ export function metaSendProbeDelayMs(step: number): number {
 }
 /** Проба держит замок столько — дольше любой отправки с таймаутом; умерший процесс замок не вешает навсегда. */
 const PROBE_LEASE_MS = 2 * 60_000;
+/** Второе предупреждение «навязчивая отправка» в пределах этого окна — уже закономерность, ставим метку. */
+export const META_SEND_WARNING_WINDOW_MS = 60 * 60_000;
 /** Тревога «запрет» / «снова отправляет» по одной метке не чаще: мигающий аккаунт не звонит директору каждые пять минут. */
 const ALARM_FLAP_MS = 30 * 60_000;
 
@@ -300,8 +308,21 @@ export class MetaSendBlockedError extends CustomerDeliveryHeldError {
   }
 }
 
-export function isMetaSendBlockError(err: unknown): err is MetaSendBlockedError | MetaSendPolicyError {
-  return err instanceof MetaSendBlockedError || err instanceof MetaSendPolicyError;
+/**
+ * Meta предупредила о навязчивой отправке (613/2018338), метки нет — бот работает дальше. Это
+ * сообщение не ушло, и этому получателю в этом ходе не повторяем: для исходящего нового ядра —
+ * задержание, для повтора зависших — «отвечать не нужно». Текст начинается как у отказа Graph.
+ */
+export class MetaSendWarningError extends CustomerDeliveryHeldError {
+  constructor(message: string, readonly graph: MetaGraphErrorFields, readonly block: MetaSendBlock) {
+    super("meta_send_policy_warning");
+    this.name = "MetaSendWarningError";
+    this.message = message;
+  }
+}
+
+export function isMetaSendBlockError(err: unknown): err is MetaSendBlockedError | MetaSendPolicyError | MetaSendWarningError {
+  return err instanceof MetaSendBlockedError || err instanceof MetaSendPolicyError || err instanceof MetaSendWarningError;
 }
 
 function codeText(block: Pick<MetaSendBlock, "lastCode" | "lastSubcode">): string {
@@ -321,8 +342,12 @@ function appName(channel: string): string {
 }
 
 /** Понятный текст для сотрудника: почему не ушло и что делать. */
-export function metaSendBlockStaffText(err: MetaSendBlockedError | MetaSendPolicyError): string {
+export function metaSendBlockStaffText(err: MetaSendBlockedError | MetaSendPolicyError | MetaSendWarningError): string {
   const b = err.block;
+  if (err instanceof MetaSendWarningError) {
+    return `Meta предупредила о навязчивой отправке с аккаунта ${b.label} (код 613/2018338): это сообщение не ушло. ` +
+      `Отправка с аккаунта продолжается; клиенту лучше ответить из приложения ${appName(b.channel)} или позвонить.`;
+  }
   return `Meta временно не пропускает отправку с аккаунта ${b.label}: ограничение по правилам (${codeText(b)}) с ${dushanbeDateTimeString(b.since)}. ` +
     `Ответьте клиенту из приложения ${appName(b.channel)} или позвоните.`;
 }
@@ -481,7 +506,8 @@ export async function recordMetaSendPolicyBlock(input: {
   const upsertEpisode = () => prisma.$transaction(async (tx) => {
     const existing = await tx.metaSendBlock.findUnique({ where: { accountKey_surface: { accountKey: account.key, surface } } });
     if (!existing || existing.liftedAt) {
-      const fresh = { ...fields, since: now, liftedAt: null, failures: 1, probeStep: 0, nextProbeAt: new Date(now.getTime() + metaSendProbeDelayMs(0)) };
+      const fresh = { ...fields, since: now, liftedAt: null, failures: 1, probeStep: 0, warningAt: null,
+        nextProbeAt: new Date(now.getTime() + metaSendProbeDelayMs(0)) };
       const saved = existing
         ? await tx.metaSendBlock.update({ where: { id: existing.id }, data: fresh })
         : await tx.metaSendBlock.create({ data: { accountKey: account.key, surface, ...fresh } });
@@ -542,6 +568,118 @@ export async function recordMetaSendPolicyBlock(input: {
     await handOverWaitingChat(b, account, input.recipientId);
   }
   return b;
+}
+
+/**
+ * ПРЕДУПРЕЖДЕНИЕ «НАВЯЗЧИВАЯ ОТПРАВКА» (613/2018338, ревью #273). Первое по аккаунту и виду
+ * отправки за час — метки нет: код и подкод в журнал, руководству одно не срочное «бот
+ * продолжает работать», этому получателю в этом ходе не повторяем. Второе в течение
+ * META_SEND_WARNING_WINDOW_MS (или запрет уже стоит) — возвращает null: вызывающий ставит
+ * метку обычным путём. Счёт — в той же строке MetaSendBlock (общий для всех процессов);
+ * на горячем пути запросов не добавляет: сюда попадаем только после отказа Meta.
+ */
+export async function recordMetaSendWarning(input: {
+  account: MetaSendAccount;
+  surface: MetaSendSurface;
+  graph: MetaGraphErrorFields;
+  policy: MetaPolicyBlockCode;
+  gate: MetaSendGate;
+  recipientId: string | null;
+  now?: Date;
+}): Promise<MetaSendBlock | null> {
+  const now = input.now ?? new Date();
+  const { account, surface, graph } = input;
+  const windowStart = new Date(now.getTime() - META_SEND_WARNING_WINDOW_MS);
+  const where = { accountKey_surface: { accountKey: account.key, surface } };
+  const tryFirst = async (): Promise<MetaSendBlock | null> => {
+    const existing = await prisma.metaSendBlock.findUnique({ where });
+    if (existing && !existing.liftedAt) return null; // запрет уже стоит — это отказ пробы или сотрудника
+    if (!existing) {
+      return prisma.metaSendBlock.create({ data: {
+        accountKey: account.key, surface, channel: account.channel, accountId: account.accountId, label: account.label,
+        since: now, liftedAt: now, lastFailureAt: now, failures: 0, probeStep: 0, nextProbeAt: now,
+        lastCode: graph.code ?? input.policy.code, lastSubcode: graph.subcode, lastErrorType: graph.type,
+        lastFbtraceId: graph.fbtraceId, lastMessage: graph.message, warningAt: now,
+      } });
+    }
+    // Атомарно между процессами: «первое за час» — только у того, кто сам поставил отметку.
+    const claimed = await prisma.metaSendBlock.updateMany({
+      where: { id: existing.id, liftedAt: { not: null }, OR: [{ warningAt: null }, { warningAt: { lt: windowStart } }] },
+      data: { warningAt: now, label: account.label },
+    });
+    return claimed.count === 1 ? prisma.metaSendBlock.findUnique({ where }) : null;
+  };
+  const warned = await tryFirst().catch((err: unknown) => {
+    // Два процесса создали строку одновременно: второму это уже «второе предупреждение».
+    if ((err as { code?: string })?.code === "P2002") return null;
+    throw err;
+  });
+  if (!warned) return null;
+
+  logSystemAudit("meta.send_block.warned", "MetaSendBlock", warned.id, {
+    accountKey: warned.accountKey, surface, label: warned.label, channel: warned.channel,
+    httpStatus: graph.status, code: graph.code, subcode: graph.subcode, type: graph.type, fbtraceId: graph.fbtraceId,
+    message: graph.message, meaning: input.policy.meaning, doc: input.policy.doc,
+  });
+  void logSystemError(
+    "meta",
+    `Meta предупредила о навязчивой отправке: ${warned.label}, ${surfaceName(surface)} — код ${graph.code ?? "?"}` +
+      `${graph.subcode !== null ? `, подкод ${graph.subcode}` : ""}${graph.fbtraceId ? `, fbtrace ${graph.fbtraceId}` : ""}. ` +
+      "Метки нет, бот работает; второе такое предупреждение за час поставит метку.",
+    { dedupKey: `meta-send-warning:${warned.accountKey}:${surface}`, silent: true }
+  );
+  await raiseCriticalAlarm({
+    tag: `meta-send-warning:${warned.accountKey}:${surface}`,
+    title: "⚠️ Meta предупредила о навязчивой отправке",
+    body: `Meta предупредила о навязчивой отправке в аккаунте ${warned.label} (${surfaceName(surface)}) — бот продолжает работать. ` +
+      "Повторится в течение часа — бот остановит отправку с аккаунта и сам попробует снова.",
+    url: "/settings?tab=system",
+    everyMs: META_SEND_WARNING_WINDOW_MS,
+    quiet: true,
+    now,
+  });
+  if (surface === "dm" && input.recipientId && !(input.gate.kind === "probe" && input.gate.staff)) {
+    await handOverWarnedChat(warned, account, input.recipientId);
+  }
+  return warned;
+}
+
+const WARNED_TURN_CLAIM_CHANNEL = "meta-send-warning-turn";
+
+/** Ход, на который Meta предупредила: человеку «клиент ждёт», автоматика этот ход не повторяет. Никогда не бросает. */
+async function handOverWarnedChat(row: MetaSendBlock, account: Pick<MetaSendAccountRef, "channel">, recipientId: string): Promise<void> {
+  try {
+    const chat = await prisma.botConversation.findUnique({
+      where: { channel_subscriberId: { channel: account.channel, subscriberId: recipientId } },
+      select: { id: true, messages: true },
+    });
+    const since = chat ? customerWaitingSince(chat.messages) : null;
+    if (!chat || !since) return;
+    const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+      VALUES (${randomUUID()},${WARNED_TURN_CLAIM_CHANNEL},${`${chat.id}:${since.toISOString()}`},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
+    if (claimed !== 1) return;
+    const { alertClientWaiting } = await import("./clientWaitingAlert.js");
+    await alertClientWaiting({
+      conversationId: chat.id, trigger: "failed", since,
+      why: `Meta предупредила о навязчивой отправке аккаунта ${row.label}, ответ этому клиенту не ушёл; ответьте вручную из приложения ${appName(row.channel)}`,
+    });
+  } catch (err) {
+    void logSystemError("meta", `Переписку после предупреждения Meta не удалось передать человеку (${row.label}): ${describeError(err)}`, {
+      dedupKey: `meta-send-warning-handoff-failed:${row.id}`,
+    });
+  }
+}
+
+/** Повтор зависших: на этот ход Meta уже предупредила — не повторять, решение за человеком. */
+export async function metaSendWarnedTurn(conversationId: string): Promise<boolean> {
+  const chat = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { messages: true } });
+  const since = chat ? customerWaitingSince(chat.messages) : null;
+  if (!since) return false;
+  const hit = await prisma.processedMessage.findFirst({
+    where: { channel: WARNED_TURN_CLAIM_CHANNEL, messageId: `${conversationId}:${since.toISOString()}` },
+    select: { id: true },
+  });
+  return !!hit;
 }
 
 // ─── Сигнал человеку: «клиент ждёт ответа», настоящая причина ───
@@ -626,7 +764,8 @@ export async function metaSendBlockCoveringMessage(ref: MetaSendAccountRef, mess
   const active = await currentMetaSendBlock(ref, surface);
   if (active) return active;
   const row = await prisma.metaSendBlock.findUnique({ where: { accountKey_surface: { accountKey: metaSendAccountKey(ref), surface } } });
-  if (!row) return null;
+  // Строка только с предупреждениями (failures = 0) — запрета не было, досылать можно.
+  if (!row || row.failures === 0) return null;
   if (row.liftedAt && messageAt.getTime() >= row.liftedAt.getTime()) return null;
   return row;
 }
@@ -634,7 +773,7 @@ export async function metaSendBlockCoveringMessage(ref: MetaSendAccountRef, mess
 /** Метки для реестра функций: действующие и снятые за трое суток. */
 export async function listMetaSendBlocksForStatus(now: Date = new Date()): Promise<MetaSendBlock[]> {
   return prisma.metaSendBlock.findMany({
-    where: { OR: [{ liftedAt: null }, { liftedAt: { gte: new Date(now.getTime() - 3 * 24 * HOUR_MS) } }] },
+    where: { OR: [{ liftedAt: null }, { liftedAt: { gte: new Date(now.getTime() - 3 * 24 * HOUR_MS) }, failures: { gt: 0 } }] },
     orderBy: { since: "desc" },
     take: 50,
   });
