@@ -9,7 +9,7 @@ import {
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
-import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
+import { customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaExecutionMode } from "./customerPropertyMedia.js";
 import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
@@ -139,6 +139,17 @@ const EVALUATORS: Record<string, Evaluator> = {
           state: "preview",
           reason: "Бот проверяет свои свободные фразы, но клиенту их не отправляет: отвечает готовыми шаблонами. Чтобы включить, на сервере нужно CUSTOMER_AGENT_SAY_MODE=live.",
         },
+
+  // «Один мозг», шаг 1 (#211): весь ответ своими словами вокруг проверенных фактов. Пусто — «тень».
+  "bot-answer-mode": ({ env }) => {
+    const mode = customerAgentAnswerMode(env);
+    if (mode === "live") return { state: "working", reason: "Бот отвечает клиентам своими словами вокруг проверенных фактов (CUSTOMER_AGENT_ANSWER_MODE=live)." };
+    if (mode === "off") return { state: "off", reason: "Выключено на сервере (CUSTOMER_AGENT_ANSWER_MODE=off): бот не пишет ответ своими словами, работают прежние короткие фразы." };
+    return {
+      state: "preview",
+      reason: "Бот пишет ответ своими словами только для проверки, клиенту уходит готовый шаблон. Чтобы включить, на сервере нужно CUSTOMER_AGENT_ANSWER_MODE=live.",
+    };
+  },
 
   "bot-photos": ({ settings }) => {
     const base = threeWay(customerPropertyMediaExecutionMode(), "CUSTOMER_PROPERTY_MEDIA_EXECUTION_MODE", settings.botCanSendPhotos, "Бот шлёт фото");
