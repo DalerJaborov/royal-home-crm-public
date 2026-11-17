@@ -6,7 +6,7 @@ import { emptyDynamics, findDynamics } from "../lib/market/dynamics.js";
 import { evaluatePropertyAgainstMarket, PROPERTY_MARKET_SELECT } from "../lib/market/propertyMarket.js";
 import { loadMoneyContext } from "../lib/money.js";
 import { findOverpricedPropertiesCached } from "../lib/market/overpriced.js";
-import { findSegments } from "../lib/market/segments.js";
+import { findSegmentsCached } from "../lib/market/segments.js";
 import { marketHistoryQuerySchema, marketSegmentsQuerySchema, type MarketHistoryResponse } from "@royal-home/shared";
 import { MIN_SAMPLE } from "../lib/market/comps.js";
 import { ANY_ROOMS, readMedianHistory } from "../lib/market/medianHistory.js";
@@ -60,7 +60,8 @@ marketRouter.get("/property/:id/dynamics", requireAuth, async (req, res) => {
 marketRouter.get("/segments", requireAuth, async (req, res) => {
   const parsed = marketSegmentsQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
-  res.json(await findSegments(parsed.data));
+  // Кэш на 10 минут на процесс (lib/market/segments.ts): каталог обновляется раз в 15 минут.
+  res.json(await findSegmentsCached(parsed.data));
 });
 
 /**
