@@ -585,6 +585,11 @@ export function startCronJobs() {
     const { runSomonMonitorTick } = await import("./lib/somonLeads/monitor.js");
     await runSomonMonitorTick();
   });
+  // Сторож тишины (17.11.2026): монитор включён, а заявок агентам нет сутки (на паузе — трое) → журнал ошибок.
+  scheduleTracked("somon-owner-leads-silence", "47 * * * *", async () => {
+    const { checkSomonOwnerLeadsSilence } = await import("./lib/somonLeads/silenceAlarm.js");
+    await checkSomonOwnerLeadsSilence();
+  });
   scheduleTracked("owner-exposure-verification-preview", "15 * * * *", async () => {
     const { runExposureOwnerPreviewTick } = await import("./lib/ownerVerificationSources.js");
     await runExposureOwnerPreviewTick();
