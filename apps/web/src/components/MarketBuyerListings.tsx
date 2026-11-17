@@ -1,9 +1,12 @@
 import { ExternalLink, Search } from "lucide-react";
-import type { MarketBuyerListing, MarketBuyerListingsResponse, MarketBuyerSummary } from "@royal-home/shared";
+import { useQueryClient } from "@tanstack/react-query";
+import { marketContactText, type MarketBuyerListing, type MarketBuyerListingsResponse, type MarketBuyerSummary } from "@royal-home/shared";
 import { useMarketBuyerListings } from "../hooks/useMarket";
 import { dushanbeDate } from "../lib/date";
 import { formatArea, formatMoney } from "../lib/format";
 import { marketSourceName } from "../lib/marketSource";
+import { MarketShowPhoneButton } from "./MarketShowPhoneButton";
+import { MarketWhatsAppButton } from "./MarketWhatsAppButton";
 import { Rh2EmptyState } from "./rh2/Rh2EmptyState";
 import { Rh2ErrorState } from "./rh2/Rh2ErrorState";
 
@@ -19,6 +22,12 @@ import { Rh2ErrorState } from "./rh2/Rh2ErrorState";
  * Узкий подбор (17.11.2026): сервер отдаёт лучшие десять (район, комнаты, цена около бюджета, только
  * собственники, только то, что сбор видел за последние дни); остальное — кнопкой «Показать ещё».
  * Объявление без района — внизу и с подписью «район не указан».
+ *
+ * Действия у каждого объявления (17.11.2026): «Написать в WhatsApp», «Показать номер» (Paydo — «Номер на сайте»)
+ * и ссылка на само объявление. Номер — одной дверью POST /market/listing-contact (темп Somon, закрытый номер
+ * владельца нашего объекта, отметка «номер брал такой-то»). Отметка видна всем агентам под строкой, чтобы двое
+ * не звонили одному хозяину; сюда же попадает «продавца уже ведёт агент» из поиска собственников.
+ * Один компонент на ПК и телефон: обе карточки клиента рисуют его сами (сторож lib/__tests__/cardActionParity.test.ts).
  */
 
 function listingMain(l: MarketBuyerListing): string {
@@ -65,10 +74,16 @@ export function MarketBuyerListingsView({
   data,
   listings = data.listings,
   more,
+  clientId,
+  onContacted,
 }: {
   data: MarketBuyerListingsResponse;
   listings?: MarketBuyerListing[];
   more?: MarketBuyerMore;
+  /** Карточка клиента: с ней сервер ставит отметку «уже связывались». */
+  clientId?: string;
+  /** Номер взяли — обновить отметки. */
+  onContacted?: () => void;
 }) {
   if (data.status === "not_buyer" || data.status === "pending_acceptance") return null;
   return (
@@ -123,6 +138,17 @@ export function MarketBuyerListingsView({
                       .filter(Boolean)
                       .join(" · ")}
                   </span>
+                  {l.contact && (
+                    <span className="warn" data-testid="market-contact-mark">{marketContactText(l.contact, dushanbeDate(l.contact.at))}</span>
+                  )}
+                  <span className="wrap" style={{ gap: 8, marginTop: 8 }}>
+                    <MarketWhatsAppButton sourceUrl={l.sourceUrl} source={l.source} title={l.title} clientId={clientId} onDone={onContacted} />
+                    <MarketShowPhoneButton sourceUrl={l.sourceUrl} source={l.source} clientId={clientId} onDone={onContacted} />
+                    <a className="pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]!" href={l.sourceUrl} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="w-3.5 h-3.5" aria-hidden />
+                      Объявление
+                    </a>
+                  </span>
                 </div>
                 <span className="chip">Чужое</span>
                 <span className="meta">
@@ -153,6 +179,7 @@ function daysWord(n: number): string {
 }
 
 export function MarketBuyerListings({ clientId }: { clientId: string }) {
+  const qc = useQueryClient();
   const query = useMarketBuyerListings(clientId);
   const { isLoading, refetch, isFetching } = query;
   const pages = query.data?.pages ?? [];
@@ -178,6 +205,8 @@ export function MarketBuyerListings({ clientId }: { clientId: string }) {
     <MarketBuyerListingsView
       data={data}
       listings={pages.flatMap((p) => p.listings)}
+      clientId={clientId}
+      onContacted={() => void qc.invalidateQueries({ queryKey: ["client-match", clientId, "market"] })}
       more={{ hasMore: !!query.hasNextPage, loading: query.isFetchingNextPage, failed: query.isFetchNextPageError, onMore: () => void query.fetchNextPage() }}
     />
   );

@@ -213,6 +213,26 @@ describe("GET /clients/:id/market-listings", () => {
     }
   });
 
+  it("отметка «уже связывались»: чужой агент брал номер — видно имя и действие; сам — «byMe»; поиск собственников — OWNER_LEAD", async () => {
+    await prisma.marketListingContact.create({ data: { listingId: ids.dismissed, agentId: agentIds[1], action: "PHONE", clientId: buyerId } });
+    await prisma.somonDelivery.upsert({
+      where: { advertId: `${runId}-withinTolerance` },
+      create: { advertId: `${runId}-withinTolerance`, agentId: agentIds[0], status: "DISPATCHED" },
+      update: { agentId: agentIds[0], status: "DISPATCHED" },
+    });
+    try {
+      const rows = (await get(buyerId)).body.listings as { sourceUrl: string; contact: Record<string, unknown> | null }[];
+      const by = (key: string) => rows.find((r) => r.sourceUrl === `https://somon.tj/adv/${runId}-${key}`)?.contact;
+      expect(by("dismissed")).toMatchObject({ action: "PHONE", agentName: `Чужой агент ${runId}`, byMe: false });
+      expect(by("withinTolerance")).toMatchObject({ action: "OWNER_LEAD", byMe: true });
+      expect(by("seen2d")).toBeNull();
+      expect(JSON.stringify(rows)).not.toContain("+992");
+    } finally {
+      await prisma.marketListingContact.deleteMany({ where: { listingId: ids.dismissed } });
+      await prisma.somonDelivery.deleteMany({ where: { advertId: `${runId}-withinTolerance` } });
+    }
+  });
+
   it("у клиента нет района: подбор по городу, сервер так и говорит (не выдумывает район)", async () => {
     const c = await prisma.client.create({
       data: {

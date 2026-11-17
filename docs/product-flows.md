@@ -3356,6 +3356,8 @@
     · ответ 200
 - const [{ total, totalIsLowerBound, listings, ownersOnly }, market] = await Promise.all([ loadOwnersFilter().t…
   · зовёт loadOwnersFilter()
+- const contacts = await loadListingContacts(listings.map((l)
+  · зовёт loadListingContacts()
 - const body: MarketBuyerListingsResponse = { status: "ok", criteria, total, totalIsLowerBound, budgetMaxTjs: w…
   · зовёт phoneSafeText()
 - return res.json(body);

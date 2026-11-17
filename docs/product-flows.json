@@ -14636,6 +14636,14 @@
     },
     {
      "k": "do",
+     "t": "const contacts = await loadListingContacts(listings.map((l)",
+     "a": [
+      "зовёт loadListingContacts()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const body: MarketBuyerListingsResponse = { status: \"ok\", criteria, total, totalIsLowerBound, budgetMaxTjs: w…",
      "a": [
       "зовёт phoneSafeText()"

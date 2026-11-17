@@ -11414,6 +11414,7 @@ model MarketListing {
   /// Совпадения с нашими объектами: только обратная сторона связи, колонок нет.
   ownMatches     PropertyMarketMatch[]
   buyerAlerts    BuyerMarketAlert[]
+  contacts       MarketListingContact[]
 
   @@unique([source, sourceId])
   @@index([dealType, propertyType, isActive])
@@ -11506,6 +11507,26 @@ model BuyerMarketAlert {
   @@unique([clientId, listingId])
   @@index([clientId, notifiedAt])
   @@index([listingId])
+}
+
+/// КТО УЖЕ СВЯЗЫВАЛСЯ С ПРОДАВЦОМ ЧУЖОГО ОБЪЯВЛЕНИЯ (17.11.2026). Пишет одна дверь — POST /market/listing-contact
+/// (кнопки «Показать номер» и «Написать в WhatsApp»), когда агент получил номер продавца. Блок «С площадок» под
+/// клиентом показывает это всем агентам, чтобы двое не звонили одному хозяину. Номера здесь нет — только кто,
+/// когда, каким действием и для какого клиента.
+model MarketListingContact {
+  id        String        @id @default(uuid())
+  listingId String
+  listing   MarketListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  /// Сотрудник, получивший номер (без внешнего ключа: уволенный не должен стирать историю).
+  agentId   String
+  /// Для какого покупателя (null — номер взяли не из карточки клиента).
+  clientId  String?
+  /// PHONE — «Показать номер», WHATSAPP — «Написать в WhatsApp».
+  action    String
+  createdAt DateTime      @default(now())
+
+  @@index([listingId, createdAt])
+  @@index([agentId, createdAt])
 }
 
 model PropertyMarketMatch {

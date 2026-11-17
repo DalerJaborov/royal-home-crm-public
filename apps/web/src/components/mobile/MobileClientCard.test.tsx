@@ -8,6 +8,8 @@ vi.mock("../../hooks/useDuplicates", () => ({ useDismissSimilarClient: () => ({ 
 vi.mock("../rh2/ShellOwnHeader", () => ({ ShellOwnHeader: () => null }));
 vi.mock("../ClientDesiredPlacesMap", () => ({ ClientDesiredPlacesMap: () => null }));
 vi.mock("../ClientInsight", () => ({ ClientInsight: () => null }));
+// «С площадок» у покупателя (17.11.2026) — свой запрос к серверу; здесь проверяется раскладка карточки, не блок.
+vi.mock("../MarketBuyerListings", () => ({ MarketBuyerListings: () => <span>С площадок</span> }));
 // «Написать в WhatsApp первыми» (аудит F1-1, 17.11.2026): статус «готово к отправке».
 vi.mock("../../hooks/useWhatsAppFirstContact", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../hooks/useWhatsAppFirstContact")>()),
