@@ -57,6 +57,8 @@ export interface FunctionStatusSettings {
   alarmHoursStart: string;
   alarmHoursEnd: string;
   geminiSpareKeyInSettings: boolean;
+  /** Рубильник OpenAI целиком (Settings.openaiEnabled, 14.11.2026). */
+  openaiEnabled: boolean;
 }
 
 export interface FunctionStatusSpend {
@@ -202,6 +204,11 @@ const EVALUATORS: Record<string, Evaluator> = {
     settings.groundedSearchEnabled
       ? { state: "off", reason: "Тумблер в Настройках включён, но функция пока не работает: код не подключает справочный поиск. Включение ничего не меняет.", attention: true }
       : { state: "off", reason: "Выключено, и включить пока нельзя: функция недоделана. Вопросы про законы и налоги Шабнам оставляет без ответа." },
+
+  openai: ({ settings }) =>
+    settings.openaiEnabled
+      ? { state: "working", reason: "Включено: обложки может рисовать ChatGPT, если он выбран в Настройках." }
+      : { state: "off", reason: "Выключено решением владельца 14.11: CRM не обращается к ChatGPT, обложки рисует наш шаблон, напоминаний об оплате OpenAI нет." },
 
   narration: ({ settings }) => {
     const mode = mediaExecutionMode("NARRATION");
@@ -412,6 +419,7 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
         alarmHoursStart: true,
         alarmHoursEnd: true,
         geminiApiKey2: true,
+        openaiEnabled: true,
       },
     }),
     prisma.cronHeartbeat.findMany({
@@ -448,6 +456,7 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
     alarmHoursStart: row?.alarmHoursStart ?? "09:50",
     alarmHoursEnd: row?.alarmHoursEnd ?? "14:45",
     geminiSpareKeyInSettings: !!decryptSecretSafe(row?.geminiApiKey2 ?? null),
+    openaiEnabled: row?.openaiEnabled ?? false,
   };
 
   return evaluateFunctions({

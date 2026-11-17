@@ -37,6 +37,7 @@ const SETTINGS: FunctionStatusSettings = {
   alarmHoursStart: "09:50",
   alarmHoursEnd: "14:45",
   geminiSpareKeyInSettings: false,
+  openaiEnabled: false,
 };
 
 function input(over: Partial<FunctionStatusInput> = {}, settings: Partial<FunctionStatusSettings> = {}): FunctionStatusInput {
@@ -143,6 +144,9 @@ describe("реестр функций и расчёт состояния", () =>
     expect(item("object-interest-pull", i).state).toBe("off");
     expect(item("gemini-spare-key", i).state).toBe("off");
     expect(item("gemini-spare-key", input({ env }, { geminiSpareKeyInSettings: true })).state).toBe("working");
+    // OpenAI выключен владельцем 14.11 — на странице честное «Выключено», включён — «Работает».
+    expect(item("openai", i).state).toBe("off");
+    expect(item("openai", input({ env }, { openaiEnabled: true })).state).toBe("working");
 
     vi.stubEnv("SELLER_CONTROL_INTERNAL_LIVE", "explicitly-approved");
     vi.stubEnv("SELLER_CONTROL_LIVE_FROM", "2026-11-15");

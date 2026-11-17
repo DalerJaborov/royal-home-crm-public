@@ -168,6 +168,13 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     group: "video",
     env: ["PUBLICATION_METADATA_EXECUTION"],
   },
+  {
+    key: "openai",
+    title: "ChatGPT (OpenAI) для обложек",
+    what: "ChatGPT рисует обложки объектов и перерисовывает фото. Выключен — обложки рисует наш шаблон.",
+    group: "video",
+    settingsTab: "channels",
+  },
   // ─── Контроль и проверки ───
   {
     key: "seller-control",
