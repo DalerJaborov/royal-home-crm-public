@@ -98,7 +98,7 @@ export const telegramReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
       phoneKnown,
     }, { channel: "TELEGRAM", repeat: "retry", // a repeat of an already-shadowed turn (the core runs again in `core` mode)
-      // the live turn was run 1: the core stops paying after its 3rd run of this turn (review #223 R1)
+      // the live turn was run 1: at most 3 core runs per customer message, up to 4 paid calls each (CHANNEL_CORE_MAX_ATTEMPTS)
       ...(context ? { attempt: context.attempt + 1 } : {}) });
     // Модель всё ещё лежит — исключение отдаёт задание очереди на следующую
     // ступень лесенки (см. aiReplyRetryPolicy.ts).

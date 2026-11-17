@@ -122,7 +122,7 @@ export const aiReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       lastText: last.content,
       lastMid: last.mid ?? null,
       lastMessageAt: conversation.lastMessageAt ?? new Date(),
-    }, "ai_retry", context ? context.attempt + 1 : undefined); // core: at most 3 runs of one turn (review #223 R1)
+    }, "ai_retry", context ? context.attempt + 1 : undefined); // core: at most 3 runs (up to 4 paid calls each) per message
     // Модель всё ещё лежит или отправка не удалась — исключение отдаёт задание
     // очереди на следующую ступень лесенки (см. aiReplyRetryPolicy.ts).
     if (outcome === "ai-down") throw new Error("ИИ всё ещё недоступен");

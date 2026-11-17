@@ -13,8 +13,9 @@ import type { ChannelCoreStaffReason } from "./customerChannelCore.js";
  *
  * Когда ядро на канале Telegram/сайт/YouTube зовёт сотрудника (или просит действие, которого на этом канале нет, не
  * может прочитать вход или отказывает так, что повтор ничего не даст), клиенту не уходит ответ по существу — значит,
- * человек обязан узнать сразу. Клиенту канал отправляет строку «передал сотруднику» всегда (ревью #223 R1-4); `skipped`
- * («уведомить некого», ошибка базы) дверь ядра пишет в журнал ошибок, `already` — человеку уже сказали раньше.
+ * человек обязан узнать сразу. Клиенту канал отправляет строку «передал сотруднику» (ревью #223 R1-4); `skipped`
+ * («уведомить некого», ошибка базы) дверь ядра пишет в журнал ошибок, `already` — человеку уже сказали раньше,
+ * `excluded` (отписался, клиент в корзине, чата нет) — сигнала нет намеренно, и дверь ядра молчит (ревью 0e463b02 N5).
  *  - Чаты BotConversation (сайт и Meta) — через ОДНУ дверь `alertClientWaiting` (lib/clientWaitingAlert.ts), повод
  *    `handover`: текст пуша говорит правду — клиенту уже сказано, что ответит человек (ревью #223 N8).
  *  - Telegram-бот (TelegramConversation) и личные сообщения канала (TelegramDirectConversation; канал `TELEGRAM_DIRECT`,
@@ -35,7 +36,7 @@ export async function alertChannelStaff(input: { channel: string;
   /** TelegramConversation.id for TELEGRAM, TelegramDirectConversation.id for TELEGRAM_DIRECT, BotConversation.id otherwise. */
   conversationId: string | null | undefined; text: string; why: ChannelStaffWhy;
   /** Provider message id of the customer's message (dedupe of one message); null = batch window. */
-  eventId?: string | null }): Promise<"sent" | "already" | "skipped"> {
+  eventId?: string | null }): Promise<"sent" | "already" | "skipped" | "excluded"> {
   try {
     if (!input.conversationId) return "skipped";
     if (input.channel !== "TELEGRAM" && input.channel !== "TELEGRAM_DIRECT") {
@@ -44,6 +45,7 @@ export async function alertChannelStaff(input: { channel: string;
         ? { conversationId: input.conversationId, trigger: "handover", why: `${WHY_TEXT[input.why]}${HANDED_OVER_NOTE}` }
         : { conversationId: input.conversationId, trigger: "failed", why: WHY_TEXT[input.why] });
       // «Уже сказали» (сторож молчания или прошлый ход занял эпизод) — не «некого»: клиенту можно сказать «передал» (R1-2).
+      // `excluded` (opted out, client in the trash): no signal by design — the door stays silent instead (review 0e463b02 N5).
       return outcome === "agent" || outcome === "director" ? "sent" : outcome;
     }
     const select = { id: true, username: true, clientId: true,
@@ -51,7 +53,7 @@ export async function alertChannelStaff(input: { channel: string;
     const direct = input.channel === "TELEGRAM_DIRECT";
     const chat = direct ? await prisma.telegramDirectConversation.findUnique({ where: { id: input.conversationId }, select })
       : await prisma.telegramConversation.findUnique({ where: { id: input.conversationId }, select });
-    if (!chat || chat.client?.deletedAt) return "skipped";
+    if (!chat || chat.client?.deletedAt) return "excluded";
     const owner = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
     const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
     if (!recipients.length) {
@@ -76,8 +78,10 @@ export async function alertChannelStaff(input: { channel: string;
       tag: `channel-staff-${chat.id}` });
     return "sent";
   } catch (error) {
-    void logSystemError("ai", `Уведомление «клиент ждёт человека» не отправлено: ${error instanceof Error ? error.message : String(error)}`,
-      { dedupKey: "channel-staff-alert-failed", quietPult: true });
+    // One entry per chat (review 0e463b02 N4): a channel-wide key swallowed every other chat for 10 minutes.
+    void logSystemError("ai", `Уведомление «клиент ждёт человека» не отправлено (чат ${input.conversationId ?? "без номера"}): ` +
+      `${error instanceof Error ? error.message : String(error)}`,
+      { dedupKey: "channel-staff-alert-failed", dedupScope: input.conversationId ?? undefined, quietPult: true });
     return "skipped";
   }
 }

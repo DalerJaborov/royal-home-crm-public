@@ -127,9 +127,11 @@ export function humanRepliedSince(messages: unknown, since: Date): boolean {
 }
 /**
  * `already` — this silence episode was claimed before (the watchdog, the core, an earlier tick): a person has been told, and a
- * caller that answers the customer with «передал сотруднику» may do so (review #223 R1-2). `skipped` — nobody was told.
+ * caller that answers the customer with «передал сотруднику» may do so (review #223 R1-2). If that earlier sender then fails,
+ * IT writes the per-chat error log below (review 0e463b02 N4). `skipped` — nobody was told. `excluded` — this chat gets no
+ * staff signal by design: the customer opted out, the client is in the trash, or the chat is gone (review 0e463b02 N5).
  */
-export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped";
+export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped" | "excluded";
 
 const CHANNEL_NAME: Record<string, string> = {
   INSTAGRAM: "Instagram",
@@ -244,7 +246,7 @@ export async function alertClientWaiting(input: {
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
   const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId);
-  if (!chat) return "skipped";
+  if (!chat) return "excluded";
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
   // истории; нет её (или нет времени) — для эскалации начало эпизода «сейчас».
@@ -303,10 +305,14 @@ export async function alertClientWaiting(input: {
   } catch (err) {
     // Сигнал не ушёл — снимаем метку эпизода, следующий тик попробует снова.
     await chat.release(since).catch(() => {});
+    // A caller that lost the mark to this send was told `already` and may have answered the customer «передал сотруднику»;
+    // that line closes the episode, so no later tick retries (review 0e463b02 N4). This entry is then the only signal: one
+    // per chat (dedupScope), not one per 10 minutes for all chats.
     void logSystemError(
       "api",
-      `Сигнал «клиент ждёт ответа» не отправлен: ${err instanceof Error ? err.message : String(err)}`,
-      { dedupKey: "client-waiting-alert-failed" }
+      `Сигнал «клиент ждёт ответа» не отправлен (переписка ${chat.openId}): ${err instanceof Error ? err.message : String(err)}. ` +
+        `Клиенту могли уже ответить «передал сотруднику» — откройте переписку и ответьте сами.`,
+      { dedupKey: "client-waiting-alert-failed", dedupScope: chat.openId, url }
     );
     return "skipped";
   }

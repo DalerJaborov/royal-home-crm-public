@@ -1,12 +1,13 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Review #223 R1-2 (17.11.2026, money): at most 3 paid core runs per customer message, wherever the repeat comes from.
+ * Review #223 R1-2 (17.11.2026, money): at most 3 core runs per customer message, wherever the repeat comes from (a run is
+ * one provider operation: up to 4 paid calls, so up to 12 per message — review 0e463b02 N3).
  *
  * The chain the review found on the website (`core` mode): the third run hands the chat to a person; the silence watchdog had
  * already claimed the episode, so the alert said `skipped` and the customer got NOTHING — the chat stayed «unanswered», and
  * the stuck-chat cron (`health-automation`, every 30 minutes) queued a NEW `ai-reply-retry` whose attempt count started
- * from 1 again: 2 paid runs per cron entry, up to ~94 a day on one chat.
+ * from 1 again: 2 core runs per cron entry, up to ~94 a day on one chat.
  *
  * Here the REAL pieces run against the database: the `ai-reply-retry` job (its own «still unanswered?» guard is the cron's
  * condition), the one door to the core (`runLegacyQualifyTurn` → `runChannelCoreTurn` with its per-message run count in
@@ -113,7 +114,7 @@ afterAll(async () => {
 });
 
 describe("R1-2: the stuck-chat cron cannot start the count again", () => {
-  it("live turn + 5 cron entries (each a new job) → 3 paid runs, ONE handover line, the chat is no longer waiting", async () => {
+  it("live turn + 5 cron entries (each a new job) → 3 core runs, ONE handover line, the chat is no longer waiting", async () => {
     const id = await waitingWebsiteChat("a");
     const stored = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { messages: true } });
     // the live turn: the model is down → null, the channel queues its retry
@@ -127,7 +128,7 @@ describe("R1-2: the stuck-chat cron cannot start the count again", () => {
     expect(f.log).not.toHaveBeenCalledWith("ai", expect.stringContaining("сигнал сотруднику не ушёл"), expect.anything());
   });
 
-  it("even when the reply never lands (the chat stays «unanswered»): 5 entries × 2 job runs → still 3 paid runs per message", async () => {
+  it("even when the reply never lands (the chat stays «unanswered»): 5 entries × 2 job runs → still 3 core runs per message", async () => {
     const id = await waitingWebsiteChat("b");
     f.persist.enabled = false;
     for (let entry = 0; entry < 5; entry++) await cronEntry(id, 2);
@@ -146,6 +147,48 @@ describe("R1-2: the stuck-chat cron cannot start the count again", () => {
       { role: "user", content: "Алло?", at: new Date(Date.now() - 6 * 60_000).toISOString() }] as never } });
     for (let entry = 0; entry < 4; entry++) await cronEntry(id);
     expect(f.modelTurn).toHaveBeenCalledTimes(6);
+  });
+});
+
+describe("review 0e463b02 N2: the count belongs to the message the run answers, not to the job", () => {
+  it("a job queued for M1 plays M2 after the customer wrote again: M2 gets its own 3 runs, the job's number spends none", async () => {
+    const id = await waitingWebsiteChat("n2");
+    const stored = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { messages: true } });
+    expect(await runLegacyQualifyTurn(stored.messages as never, { stage: "chatting" }, { conversationId: id, channel: "WEBSITE" } as never,
+      { channel: "WEBSITE" })).toBeNull();                          // M1, the live turn: run 1
+    const job = (attempt: number) => aiReplyRetryJob.run({ conversationId: id }, { attempt }).catch(() => {});
+    await job(1);                                                  // M1: run 2
+    expect(f.modelTurn).toHaveBeenCalledTimes(2);
+    // The customer writes again. The retry job is one per chat (dedupeKey), so it now plays M2's turn.
+    await prisma.botConversation.update({ where: { id }, data: { messages: [...(stored.messages as unknown[]),
+      { role: "user", content: "Алло, вы тут?", at: new Date(Date.now() - 60_000).toISOString() }] as never } });
+    await job(2);                                                  // before: run max(3, 1) = 3 → handover after ONE run of M2
+    expect(await assistantLines(id)).toEqual([]);
+    await job(3);                                                  // before: number 4 → handover with no run at all
+    expect(await assistantLines(id)).toEqual([]);
+    await job(4);                                                  // M2: run 3 → a person, the handover line
+    expect(f.modelTurn).toHaveBeenCalledTimes(5);
+    expect(await assistantLines(id)).toEqual([HANDOVER_RU]);
+    expect(await prisma.processedMessage.count({ where: { channel: "channel-core-run", messageId: { startsWith: `WEBSITE:${id}:` } } })).toBe(5);
+  });
+});
+
+describe("review 0e463b02 N5: an opted-out chat reaches the core turn", () => {
+  // Reachable: messengers/conversation.ts sets optedOutAt and still answers a direct message (the turn below it), while
+  // alertClientWaiting refuses opted-out chats. Before: «передал сотруднику» + a false «сигнал не ушёл» error, nobody told.
+  it("on `staff` it stays silent, as the old path did: no handover line, no false error log, no push", async () => {
+    const id = await waitingWebsiteChat("n5");
+    await prisma.botConversation.update({ where: { id }, data: { optedOutAt: new Date() } });
+    const stored = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { messages: true } });
+    const turn = (attempt?: number) => runLegacyQualifyTurn(stored.messages as never, { stage: "chatting" },
+      { conversationId: id, channel: "WEBSITE" } as never, { channel: "WEBSITE", ...(attempt ? { repeat: "retry" as const, attempt } : {}) });
+    expect(await turn()).toBeNull();
+    expect(await turn(2)).toBeNull();
+    const third = await turn(3);                                   // the third run: the core hands the chat to a person
+    expect(third).toMatchObject({ reply: [], silent: "intended" });
+    expect(f.modelTurn).toHaveBeenCalledTimes(3);
+    expect(f.push).not.toHaveBeenCalled();
+    expect(f.log).not.toHaveBeenCalledWith("ai", expect.stringContaining("сигнал сотруднику не ушёл"), expect.anything());
   });
 });
 
