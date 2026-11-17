@@ -100,6 +100,27 @@ if (unsafe.length) {
   process.exit(1);
 }
 
+// ── Третье правило (17.11.2026, аудит скорости P1) ───────────────────────────
+// Впереди nginx стоит Caddy, и он шлёт заголовок Via. Без `gzip_proxied any;` nginx
+// такие запросы не сжимает вовсе: CSS уходил 696 090 Б вместо 157 553 Б, JSON API —
+// тоже несжатым. И наоборот: поток событий (text/event-stream) в gzip_types попасть
+// не должен — сжатие копит буфер, и живые обновления CRM приходят пачками с опозданием.
+const gzipProblems = [];
+if (!/^\s*gzip_proxied\s+any\s*;/m.test(withoutComments)) {
+  gzipProblems.push("нет `gzip_proxied any;` — ответы для Caddy/Cloudflare (с заголовком Via) уходят несжатыми");
+}
+const gzipTypes = [...withoutComments.matchAll(/^\s*gzip_types\s+([^;]*);/gm)].map((m) => m[1].split(/\s+/).filter(Boolean)).flat();
+for (const must of ["text/css", "application/javascript", "application/json", "image/svg+xml"]) {
+  if (!gzipTypes.includes(must)) gzipProblems.push(`в gzip_types нет ${must}`);
+}
+if (gzipTypes.includes("text/event-stream") || gzipTypes.includes("*")) {
+  gzipProblems.push("text/event-stream (или «*») в gzip_types — поток /api/v1/events начнёт приходить пачками");
+}
+if (gzipProblems.length) {
+  for (const p of gzipProblems) console.error(`apps/web/nginx.conf: ${p}.`);
+  process.exit(1);
+}
+
 console.log(
-  `apps/web/nginx.conf: типов не глушит, ${proxiedLocations.length} прокси-location без временных файлов — ok`
+  `apps/web/nginx.conf: типов не глушит, ${proxiedLocations.length} прокси-location без временных файлов, сжатие для прокси включено — ok`
 );
