@@ -397,7 +397,7 @@
   "parsed.data.until && parsed.data.until.getTime() < Date.now()",
   "parsed.data.voiceId && !config.voices.some((v) => v.id === parsed.data.voiceId)",
   "path.dirname(path.resolve(full)) !== privateDirPath()",
-  "pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000",
+  "pendingDelayed(pending[0], new Date())",
   "photo.originalThumbUrl && photo.thumbUrl && photo.thumbUrl !== photo.originalThumbUrl",
   "photo.originalUrl && photo.url !== photo.originalUrl",
   "photos + videos > 0",
@@ -74205,11 +74205,11 @@
          "a": [],
          "c": [
           {
-           "t": "если pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000",
+           "t": "если pendingDelayed(pending[0], new Date())",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000",
+           "raw": "pendingDelayed(pending[0], new Date())",
            "more": true
           },
           {
