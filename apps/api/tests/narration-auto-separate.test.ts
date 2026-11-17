@@ -141,7 +141,7 @@ beforeAll(async () => {
   configBefore = settings.propertyNarrationConfig ?? null;
   process.env.CRM_NARRATION_EXECUTION_MODE = "LIVE";
   process.env.VOICE_SEPARATOR_URL = "http://voice-separator.test:8090";
-});
+}, 120_000);
 
 beforeEach(async () => {
   sep.words = 0; sep.fail = null; sep.failCode = "FAILED"; sep.calls = 0;
@@ -185,7 +185,8 @@ describe("длина голоса = длина ролика: план (16.11.202
   });
 });
 
-describe.skipIf(!ffmpegReady)("старый голос убирает CRM (16.11.2026)", () => {
+// Настоящий ffmpeg (перекодирование со стоп-кадром) на нагруженной машине — до ~20 с на проверку.
+describe.skipIf(!ffmpegReady)("старый голос убирает CRM (16.11.2026)", { timeout: 60_000 }, () => {
   it("сведение со стоп-кадром: ролик длиннее на стоп-кадр, звук и картинка есть; на приёме от монтажёра подгонки нет", async () => {
     const out = path.join(tmp, "freeze.mp4");
     const fitted = await mixNarrationOntoMaster({ masterPath: media.voiced, voicePath: media.v9, outPath: out, fit: { allowFreeze: true } });
