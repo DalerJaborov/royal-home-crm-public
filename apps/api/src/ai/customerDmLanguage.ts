@@ -77,25 +77,33 @@ const RU_REQUEST = [
   new RegExp(String.raw`^(?:(?:пожалуйста|давайте|лучше|а)[,\s]+)?${RU_PHRASE}(?:,?\s+пожалуйста)?$`, "u"),
 ];
 const TG_LANG = String.raw`(?:(?:бо|ба)\s+)?(?:забони\s+)?(?<l>рус[ӣи]|то[ҷч]ик[ӣи])(?:ш|ша)?`;
-const TG_VERB = String.raw`(?:навис(?:ед|ен|[ие]н)|гап\s+зан(?:ед|ен)?|гуфтугу\s+кун(?:ед|ен)|сухан\s+кун(?:ед|ен)|[ҷч]авоб\s+(?:дихед|диҳед|дихен|диҳен)|мегу?[ӯу]ед|мегед|метавонед|мешавад|шавад|мегрифт[ӣи])`;
-const TG_REQUEST = [
-  new RegExp(String.raw`${W}${TG_LANG}(?:\s+\p{L}+){0,2}\s+${TG_VERB}${E}`, "u"),
-  new RegExp(String.raw`${W}${TG_VERB}(?:\s+\p{L}+){0,2}\s+${TG_LANG}${E}`, "u"),
+const TG_VERB_IMPERATIVE = String.raw`(?:навис(?:ед|ен|[ие]н)|гап\s+зан(?:ед|ен)?|гуфтугу\s+кун(?:ед|ен)|сухан\s+кун(?:ед|ен)|[ҷч]авоб\s+(?:дихед|диҳед|дихен|диҳен))`;
+const TG_VERB_QUESTION = String.raw`(?:мегу?[ӯу]ед|мегед|метавонед|мешавад|шавад|мегрифт[ӣи])`;
+const tgRequests = (verb: string) => [
+  new RegExp(String.raw`${W}${TG_LANG}(?:\s+\p{L}+){0,2}\s+${verb}${E}`, "u"),
+  new RegExp(String.raw`${W}${verb}(?:\s+\p{L}+){0,2}\s+${TG_LANG}${E}`, "u"),
 ];
+const TG_REQUEST = tgRequests(`(?:${TG_VERB_IMPERATIVE}|${TG_VERB_QUESTION})`);
+const TG_REQUEST_PINNED = tgRequests(TG_VERB_IMPERATIVE);
 const LANG_RU_WORD = /(?<!\p{L})(?:русск\p{L}*|рус[ӣи])(?!\p{L})/u;
 const LANG_TG_WORD = /(?<!\p{L})(?:таджикск\p{L}*|то[ҷч]ик[ӣи]\p{L}*)(?!\p{L})/u;
 
-function languageRequestIn(sentence: string): "ru" | "tg" | null {
+/** `pinned`: only an explicit imperative («пишите по-таджикски», «нависед»); a question form («Вы говорите по-таджикски?»,
+ * «можно на русском?», «…бо русӣ мешавад?») acts for its own turn only and is never remembered for later turns. */
+function languageRequestIn(sentence: string, pinned = false): "ru" | "tg" | null {
   const ru = LANG_RU_WORD.test(sentence), tg = LANG_TG_WORD.test(sentence);
   if (ru === tg) return null; // none, or a choice between both
-  for (const pattern of RU_REQUEST) {
-    const groups = pattern.exec(sentence)?.groups;
-    if (!groups) continue;
+  for (const [index, pattern] of RU_REQUEST.entries()) {
+    if (pinned && index === 1) continue;
+    const match = pattern.exec(sentence);
+    const groups = match?.groups;
+    if (!match || !groups) continue;
     if (groups.neg) return null;
+    if (pinned && /(?:^|[\s,])(?:вы|ты)\s+$/u.test(sentence.slice(0, match.index))) return null;
     const lang = groups.a ?? groups.b;
     return lang ? (lang.startsWith("рус") ? "ru" : "tg") : null;
   }
-  for (const pattern of TG_REQUEST) {
+  for (const pattern of pinned ? TG_REQUEST_PINNED : TG_REQUEST) {
     const lang = pattern.exec(sentence)?.groups?.l;
     if (lang) return lang.startsWith("рус") ? "ru" : "tg";
   }
@@ -104,11 +112,13 @@ function languageRequestIn(sentence: string): "ru" | "tg" | null {
 
 /** A requested reply language is different from the language of the sentence
  * requesting it. Scope this to customer DM, leaving voice/legacy routing alone. */
-export function customerDmLanguagePreference(input: string): "ru" | "tg" | null {
+function scanLanguageRequest(input: string, pinned: boolean): "ru" | "tg" | null {
   const own = clientOwnWords(input);
   const text = own.normalize("NFKC").trim().toLowerCase();
-  for (const sentence of text.split(/[.!?;\n]+/u).map(part => part.trim()).filter(Boolean)) {
-    const found = languageRequestIn(sentence);
+  for (const part of text.matchAll(/[^.!?;\n]+[.!?;\n]*/gu)) {
+    const sentence = part[0].replace(/[.!?;\n]+$/u, "").trim();
+    if (!sentence || (pinned && part[0].includes("?"))) continue;
+    const found = languageRequestIn(sentence, pinned);
     if (found) return found;
   }
   const folded = foldCustomerText(own);
@@ -116,6 +126,9 @@ export function customerDmLanguagePreference(input: string): "ru" | "tg" | null 
   if (CANT_TG.some(pattern => pattern.test(folded))) return "ru";
   return null;
 }
+export function customerDmLanguagePreference(input: string): "ru" | "tg" | null { return scanLanguageRequest(input, false); }
+/** The requests that stay in force for later turns: explicit imperatives and «не понимаю…», never question forms. */
+export function customerDmPinnedLanguageRequest(input: string): "ru" | "tg" | null { return scanLanguageRequest(input, true); }
 
 export function detectCustomerDmLanguage(input: string) {
   return customerDmLanguagePreference(input) ?? detectClientLanguage(input);
@@ -174,7 +187,7 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
   const prior = [...priorUserTexts].reverse().map(customerHistoryOwnWords).filter(value => value && !isAdTemplateOpener(value));
   // An explicit request of an earlier turn stays in force until the client asks otherwise (nothing is stored for DM:
   // the history is the memory, like the dialogue language below).
-  const requestedEarlier = prior.map(customerDmLanguagePreference).find((value): value is "ru" | "tg" => value !== null);
+  const requestedEarlier = prior.map(customerDmPinnedLanguageRequest).find((value): value is "ru" | "tg" => value !== null);
   if (requestedEarlier) return requestedEarlier;
   const stored = storedLanguage === "ru" || storedLanguage === "tg" ? storedLanguage : undefined;
   // Window evidence is fresher than the stored value; the stored one keeps the language across a revision
@@ -198,7 +211,7 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
 export function customerDmDialogueLanguage(userTextsOldestFirst: readonly string[]): "ru" | "tg" | null {
   // The latest explicit request («пишите по-таджикски») outlives any later full sentence in the other language.
   for (const raw of [...userTextsOldestFirst].reverse()) {
-    const requested = customerDmLanguagePreference(customerHistoryOwnWords(raw));
+    const requested = customerDmPinnedLanguageRequest(customerHistoryOwnWords(raw));
     if (requested) return requested;
   }
   for (const raw of [...userTextsOldestFirst].reverse()) {
