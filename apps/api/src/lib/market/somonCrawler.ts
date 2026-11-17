@@ -24,6 +24,15 @@
  * `wrong_scope` с записью в журнал. Затем каждое объявление: пишется только рубрика из белого
  * списка раздела (`rubricIds`), тип сделки и объекта — из рубрики (`somonRubrics.ts`). Страница,
  * где нет ни одного объявления своей рубрики, — конец раздела.
+ *
+ * КОНЕЦ РАЗДЕЛА — ПО СЧЁТЧИКУ САЙТА, А НЕ ПО ССЫЛКАМ (17.11.2026). Недельный обход 15.11 прошёл квартиры
+ * меньше чем за минуту и назвал раздел «полным»: последняя страница бралась только из ссылок пагинации
+ * (`?page=N` в HTML), а страница без ссылок (так Somon иногда отдаёт список — 17.11 на ней же упал парсер
+ * лидов: «pagination is unavailable») давала «последняя страница = 1». Теперь последняя страница —
+ * наибольшее из ссылок и метаданных списка (`"total_pages":151`, `"count":9050`), а полная страница без
+ * пагинации вовсе — не «конец», а стоп `no_pagination`. После раздела сверяем, сколько уникальных
+ * объявлений собрали, с числом на сайте: меньше `MIN_SECTION_COVERAGE` — стоп `too_small` (обход неполный,
+ * «исчезнувшие» не ставятся, запись в журнал).
  */
 
 import { SomonSourceUnavailable, fetchSomon } from "../somonLeads/sourceClient.js";
@@ -41,6 +50,12 @@ const WAIT_STEP_MS = 5_000;
 const MAX_ATTEMPTS = 2;
 /** Страховка от бесконечного обхода при сломанной пагинации. */
 const MAX_PAGES = 400;
+/**
+ * Раздел «пройден», только если собрали не меньше этой доли объявлений, которые сайт называет в счётчике.
+ * Меньше 1: часть объявлений на сайте — чужих рубрик или без цены (не пишутся), а за час обхода выдача
+ * сдвигается. 15.11 обход собрал 1 493 при 10 722 в каталоге — такую дыру порог ловит с большим запасом.
+ */
+export const MIN_SECTION_COVERAGE = 0.8;
 
 export interface CrawlSection {
   /** Путь раздела без адреса сайта и без страницы. */
@@ -77,6 +92,8 @@ export type CrawlStop =
   | "layout_changed" // в странице нет данных объявлений: вёрстка сайта поменялась
   | "wrong_scope" // сайт отдал список чужой рубрики (общую ленту и т.п.): ничего не пишем
   | "page_limit" // дошли до страховочного предела страниц
+  | "no_pagination" // полная страница без ссылок пагинации и без счётчика: где конец раздела, неизвестно
+  | "too_small" // раздел дочитан, но объявлений заметно меньше, чем называет сайт
   | "save_failed" // не записалось в нашу базу
   | "deadline"; // вышло время, отведённое на прогон
 
@@ -89,6 +106,10 @@ export interface CrawlResult {
   complete: boolean;
   /** Сколько объявлений чужих рубрик пропущено (не записано). */
   foreignSkipped: number;
+  /** Сколько объявлений в разделе по счётчику сайта (первая страница); null — сайт счётчик не отдал. */
+  expectedCount: number | null;
+  /** Сколько разных объявлений раздела собрали (повторы VIP на каждой странице считаются один раз). */
+  uniqueSeen: number;
   stopReason?: CrawlStop;
 }
 
@@ -129,6 +150,52 @@ async function fetchPage(path: string, pause: (ms: number) => Promise<void>): Pr
 export function detectLastPage(html: string): number {
   const pages = [...html.matchAll(/[?&]page=(\d+)/g)].map((m) => Number(m[1]));
   return pages.length ? Math.min(Math.max(...pages), 1000) : 1;
+}
+
+/** Есть ли на странице хоть одна ссылка пагинации. */
+function hasPaginationLinks(html: string): boolean {
+  return /[?&]page=\d+/.test(html);
+}
+
+export interface SomonListingMeta {
+  /** Объявлений в списке по счётчику сайта. */
+  count: number | null;
+  /** Страниц по счётчику сайта. */
+  totalPages: number | null;
+  pageSize: number | null;
+}
+
+/**
+ * Счётчики списка из метаданных (`"next_page":"?…page_size=60","count":9050,…,"total_pages":151`). Чисел нет —
+ * null: сайт мог их убрать, и тогда остаются ссылки пагинации. Значения вне разумных границ — тоже null.
+ */
+export function somonListingMeta(payload: string): SomonListingMeta {
+  const start = payload.indexOf('"next_page":');
+  if (start < 0) return { count: null, totalPages: null, pageSize: null };
+  const advertsAt = payload.indexOf('"adverts":[', start);
+  const meta = payload.slice(start, advertsAt > start ? advertsAt : start + 4000);
+  const num = (re: RegExp, max: number): number | null => {
+    const m = re.exec(meta);
+    const n = m ? Number(m[1]) : NaN;
+    return Number.isSafeInteger(n) && n >= 0 && n <= max ? n : null;
+  };
+  return {
+    count: num(/"count":(\d{1,7})[,}]/, 1_000_000),
+    totalPages: num(/"total_pages":(\d{1,5})[,}]/, 10_000),
+    pageSize: num(/page_size=(\d{1,4})/, 1000),
+  };
+}
+
+/** Последняя страница раздела: наибольшее из ссылок пагинации и счётчика сайта (страниц или объявлений / размер страницы). */
+export function expectedLastPage(html: string, meta: SomonListingMeta): number {
+  const byCount = meta.count != null && meta.pageSize ? Math.ceil(meta.count / meta.pageSize) : 0;
+  return Math.min(Math.max(detectLastPage(html), meta.totalPages ?? 0, byCount, 1), 1000);
+}
+
+/** Покрытие раздела: собрали достаточно от счётчика сайта? Счётчика нет или он пуст — судить не по чему (true). */
+export function sectionCoverageOk(uniqueSeen: number, expectedCount: number | null): boolean {
+  if (expectedCount == null || expectedCount === 0) return true;
+  return uniqueSeen >= expectedCount * MIN_SECTION_COVERAGE;
 }
 
 /**
@@ -264,7 +331,10 @@ export interface CrawlOptions {
 export async function crawlSection(section: CrawlSection, options: CrawlOptions = {}): Promise<CrawlResult> {
   const pause = options.pause ?? wait;
   const limit = Math.min(options.maxPages ?? MAX_PAGES, MAX_PAGES);
-  const result: CrawlResult = { section: section.label, pagesFetched: 0, listingCount: 0, complete: false, foreignSkipped: 0 };
+  const result: CrawlResult = {
+    section: section.label, pagesFetched: 0, listingCount: 0, complete: false, foreignSkipped: 0, expectedCount: null, uniqueSeen: 0,
+  };
+  const seen = new Set<string>();
 
   const stop = async (reason: CrawlStop, page: number, status?: number): Promise<CrawlResult> => {
     result.stopReason = reason;
@@ -294,11 +364,19 @@ export async function crawlSection(section: CrawlSection, options: CrawlOptions 
 
     const { html } = outcome;
     result.pagesFetched++;
-    lastPage = Math.max(lastPage, detectLastPage(html));
     if (!html.includes("self.__next_f.push")) return stop("layout_changed", page);
     const parsed = parseSomonPage(html, section);
     // Сайт отдал не список раздела (общую ленту, чужой раздел): ни одной строки не пишем.
     if (!parsed.inScope) return stop("wrong_scope", page);
+    const meta = somonListingMeta(extractNextPayload(html));
+    if (page === 1) result.expectedCount = meta.count;
+    // Полная страница без ссылок пагинации и без счётчика — не «раздел из одной страницы», а список без
+    // навигации (15.11 так квартиры «закончились» на первой странице). Где конец, неизвестно: стоп.
+    const pageIsFull = meta.pageSize != null ? parsed.adsTotal >= meta.pageSize : parsed.adsTotal >= 20;
+    if (page >= lastPage && pageIsFull && !hasPaginationLinks(html) && meta.totalPages == null && meta.count == null) {
+      return stop("no_pagination", page);
+    }
+    lastPage = Math.max(lastPage, expectedLastPage(html, meta));
     if (parsed.adsTotal === 0) {
       // Пустая страница до известного конца — не «конец выдачи», а подозрительный разбор.
       if (page < lastPage || page === 1) return stop("layout_changed", page);
@@ -316,11 +394,23 @@ export async function crawlSection(section: CrawlSection, options: CrawlOptions 
       break;
     }
     result.listingCount += listings.length;
+    for (const l of listings) seen.add(l.sourceId);
+    result.uniqueSeen = seen.size;
     try {
       await options.onPage?.(listings, page, lastPage);
     } catch {
       return stop("save_failed", page);
     }
+  }
+  result.uniqueSeen = seen.size;
+  // Дошли до конца, но собрали заметно меньше, чем называет сайт: это не успех (обход неполный,
+  // «исчезнувшие» по нему не ставятся). Числа — в журнал, чтобы было видно, насколько не дошли.
+  if (!sectionCoverageOk(seen.size, result.expectedCount)) {
+    result.stopReason = "too_small";
+    await logSystemError("api", `Сбор Somon: «${section.label}» дочитан, но собрано ${seen.size} объявлений при ${result.expectedCount} на сайте (стр. ${result.pagesFetched} из ${lastPage}): обход неполный, исчезнувшие не помечены`, {
+      dedupKey: `market-somon-crawl-${section.path}-too_small`,
+    });
+    return result;
   }
   result.complete = true;
   return result;

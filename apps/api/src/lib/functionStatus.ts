@@ -11,6 +11,7 @@ import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { customerAgentAnswerLiveChannels, customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { customerAgentCoreChannels, customerAgentShadowChannels } from "./customerAgentChannelSwitch.js";
+import { CUSTOMER_AGENT_OFF_LABELS, parseCustomerAgentChannelOff } from "./customerAgentChannelOff.js";
 import { customerPropertyMediaExecutionMode } from "./customerPropertyMedia.js";
 import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
@@ -24,6 +25,7 @@ import { readLiveVoiceSpend } from "./liveVoiceSpend.js";
 import { visibleCronWhere } from "./investigationOperations.js";
 import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { maskPhonesInFreeText } from "./clientPhone.js";
+import { somonCrawlSchedule } from "./market/somonCrawlSchedule.js";
 
 /**
  * «СОСТОЯНИЕ ФУНКЦИЙ» (14.11.2026) — расчёт состояния по реестру из packages/shared/src/functionStatus.ts.
@@ -166,6 +168,17 @@ const EVALUATORS: Record<string, Evaluator> = {
     if (core.size) return { state: "working", reason: `Новое ядро отвечает клиентам: ${label(core)} (CUSTOMER_AGENT_CHANNEL_CORE).${shadow.length ? ` Только проверка рядом со старым ботом: ${label(new Set(shadow))}.` : ""}` };
     if (shadow.length) return { state: "preview", reason: `Отвечает старый бот; новое ядро только проверяется рядом с ним: ${label(new Set(shadow))} (CUSTOMER_AGENT_CHANNEL_SHADOW). Клиенту его ответы не уходят.` };
     return { state: "off", reason: "На сайте, в Telegram и YouTube отвечает старый бот. Новое ядро там выключено (CUSTOMER_AGENT_CHANNEL_CORE и CUSTOMER_AGENT_CHANNEL_SHADOW пусты)." };
+  },
+
+  // Аварийный рубильник CUSTOMER_AGENT_CHANNEL_OFF (18.11.2026, lib/customerAgentChannelOff.ts). Пусто — бот отвечает как обычно.
+  "bot-channel-off": ({ env }) => {
+    const { off, unknown } = parseCustomerAgentChannelOff(env.CUSTOMER_AGENT_CHANNEL_OFF);
+    const skipped = unknown.length ? ` Неизвестные имена пропущены: ${unknown.join(", ")}.` : "";
+    if (!off.size) return { state: "working", reason: `Аварийный рубильник не включён: бот отвечает клиентам на всех каналах как обычно.${skipped}`,
+      ...(unknown.length ? { attention: true } : {}) };
+    const label = [...off].map(key => CUSTOMER_AGENT_OFF_LABELS[key]).join(", ");
+    return { state: "off", reason: `Бот выключен на каналах: ${label} (CUSTOMER_AGENT_CHANNEL_OFF). Клиенту там уходит одна строка ` +
+      `«передал сотруднику», отвечают сотрудники.${skipped}`, attention: true };
   },
 
   "bot-photos": ({ settings }) => {
@@ -322,7 +335,7 @@ const EVALUATORS: Record<string, Evaluator> = {
 
   "market-crawl": ({ env }) =>
     env.MARKET_CRAWL_ENABLED === "1"
-      ? { state: "working", reason: "Сбор включён: Somon раз в неделю и по минутам, Paydo ночью и частями." }
+      ? { state: "working", reason: `Сбор включён: полный обход Somon ${somonCrawlSchedule(env).mode === "nightly" ? "каждую ночь" : "раз в неделю"} и по минутам, Paydo ночью и частями.` }
       : { state: "off", reason: `Выключено: ${ENV_NOT_SET("MARKET_CRAWL_ENABLED")} (нужно 1). Свежих объявлений рынка нет.`, attention: true },
 
   "gemini-spare-key": ({ env, settings }) =>

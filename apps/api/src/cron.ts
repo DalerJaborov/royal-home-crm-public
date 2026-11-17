@@ -39,6 +39,7 @@ import { calculateDailyKpiForAllAgents } from "./kpi.js";
 import { isWithinWorkingHours } from "./lib/workingHours.js";
 import { refreshUsdToTjsRateFromAlif } from "./lib/exchangeRate.js";
 import { logSystemError, type SystemErrorSource } from "./lib/systemError.js";
+import { somonCrawlSchedule } from "./lib/market/somonCrawlSchedule.js";
 import { dushanbeWallClock, DUSHANBE_OFFSET_MS } from "./lib/dushanbeTime.js";
 import { runDailyStoriesTick } from "./lib/dailyStories.js";
 import { prisma } from "./db.js";
@@ -1866,21 +1867,33 @@ export function startCronJobs() {
   );
 
   /**
-   * ПОЛНЫЙ ОБХОД SOMON РАЗ В НЕДЕЛЮ (владелец 02.11.2026): квартиры и дома в Душанбе.
-   * Свежие объявления Somon и так попадают в каталог из минутного парсера лидов; полный обход
-   * добирает остальное, обновляет цены и помечает ушедшие (порог 264 ч). Paydo с 03.11.2026 здесь
-   * НЕ ходит: у него свой ночной обход и инкремент ниже. Воскресенье 02:30. По умолчанию ВЫКЛЮЧЕН:
-   * MARKET_CRAWL_ENABLED=1 в .env сервера после первого ручного прогона. Весь трафик к Somon идёт
-   * через общий бюджет.
+   * ПОЛНЫЙ ОБХОД SOMON (владелец 02.11.2026): квартиры и дома в Душанбе. Частота — MARKET_SOMON_CRAWL_SCHEDULE
+   * (lib/market/somonCrawlSchedule.ts): по умолчанию раз в неделю (воскресенье 02:45), `nightly` — каждую ночь
+   * в 02:45 (17.11.2026: владелец частоту не выбрал, поведение прода по умолчанию не меняется). Имя тика прежнее,
+   * «weekly»: по нему живут отметка крона и карта продукта. Подбор под клиентов берёт только то, что сбор видел
+   * за 3 суток (Настройки, marketBuyerFreshDays). Около 180 страниц через общий бюджет fetchSomon
+   * (темп ≥ 10 с, уступает парсеру лидов) — примерно час. Paydo в 02:30 (около 10 минут) идёт раньше:
+   * замок обходов общий, и ночной Paydo в 03:00 при долгом Somon пропускался бы.
+   * Порог «исчезло» прежний (264 ч, marketStore.ts) — ночные обходы его только страхуют.
+   * Неполный обход (оборван, «собрано мало» против счётчика сайта или прежнего каталога) — НЕ успех тика:
+   * отметка крона краснеет, исчезнувшие не ставятся. По умолчанию ВЫКЛЮЧЕН: MARKET_CRAWL_ENABLED=1.
    */
+  const somonSchedule = somonCrawlSchedule();
+  if (somonSchedule.invalid !== undefined) {
+    void logSystemError("cron", `MARKET_SOMON_CRAWL_SCHEDULE «${somonSchedule.invalid}» не распознано (нужно weekly или nightly): полный обход Somon идёт раз в неделю`,
+      { dedupKey: `somon-crawl-schedule-invalid:${somonSchedule.invalid}` });
+  }
   scheduleTracked(
     "market-weekly-crawl",
-    "30 2 * * 0",
+    somonSchedule.cron,
     async () => {
       if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
       try {
         const { runMarketFullCrawl } = await import("./lib/market/nightly.js");
-        await runMarketFullCrawl();
+        const result = await runMarketFullCrawl();
+        if (result && !result.somon.complete) {
+          markCronTickFailed("Полный обход Somon неполный", new Error(`причина ${result.somon.stopReason ?? "неизвестна"}, страниц ${result.somon.pages}`));
+        }
       } catch (err) {
         markCronTickFailed("Ошибка недельного обхода рынка", err);
       }
@@ -1893,19 +1906,22 @@ export function startCronJobs() {
   );
 
   /**
-   * ПОЛНЫЙ ОБХОД PAYDO КАЖДУЮ НОЧЬ (владелец 03.11.2026): 03:00, оба раздела до конца выдачи,
-   * затем «исчезло» с порогом 72 ч (мимо трёх ночных обходов). Замок общий с Somon-обходом и
-   * инкрементом: занят — тик тихо пропускается (в воскресенье Somon-обход с 02:30 может ещё идти).
+   * ПОЛНЫЙ ОБХОД PAYDO КАЖДУЮ НОЧЬ (владелец 03.11.2026): с 17.11.2026 в 02:30 (до ночного Somon в 02:45),
+   * оба раздела до конца выдачи, затем «исчезло» с порогом 72 ч (мимо трёх ночных обходов). Замок общий с
+   * Somon-обходом и инкрементом: занят — тик тихо пропускается. Неполный обход — не успех тика.
    * Тот же флаг MARKET_CRAWL_ENABLED=1.
    */
   scheduleTracked(
     "market-paydo-daily",
-    "0 3 * * *",
+    "30 2 * * *",
     async () => {
       if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
       try {
         const { runPaydoFullCrawl } = await import("./lib/market/nightly.js");
-        await runPaydoFullCrawl();
+        const result = await runPaydoFullCrawl();
+        if (result && !result.complete) {
+          markCronTickFailed("Полный обход Paydo неполный", new Error(`причина ${result.stopReason ?? "неизвестна"}, страниц ${result.pages}`));
+        }
       } catch (err) {
         markCronTickFailed("Ошибка ночного обхода Paydo", err);
       }

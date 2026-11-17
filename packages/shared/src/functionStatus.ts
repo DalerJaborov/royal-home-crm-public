@@ -99,6 +99,14 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     errorSources: ["ai"],
   },
   {
+    key: "bot-channel-off",
+    title: "Аварийное выключение бота по каналам",
+    what: "Бот молчит на выбранных каналах (или только на аккаунтах «Арвана», ключ arvan) и не вызывает ИИ: клиенту одна строка «передал сотруднику», сотруднику — сигнал «клиент ждёт ответа». Пусто — бот работает как обычно.",
+    group: "bot",
+    env: ["CUSTOMER_AGENT_CHANNEL_OFF"],
+    errorSources: ["ai"],
+  },
+  {
     key: "bot-photos",
     title: "Фото объектов в чате",
     what: "Бот присылает клиенту фотографии объекта прямо в переписке.",
@@ -245,7 +253,7 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     title: "Сбор объявлений с Somon и Paydo",
     what: "CRM сама собирает объявления рынка и сопоставляет их с нашими объектами.",
     group: "market",
-    env: ["MARKET_CRAWL_ENABLED"],
+    env: ["MARKET_CRAWL_ENABLED", "MARKET_SOMON_CRAWL_SCHEDULE"],
     cron: ["market-weekly-crawl", "market-paydo-daily", "market-paydo-incremental", "market-somon-incremental", "market-own-match"],
   },
   // ─── ИИ и ключи ───
