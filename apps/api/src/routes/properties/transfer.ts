@@ -54,7 +54,7 @@ propertyTransferRouter.get("/handover/pending", requireAuth, async (req, res) =>
  * монтажёром не передают объект вовсе — даже без продавца: раньше (глубокая
  * проверка A4) им закрыли только передачу вместе с продавцом.
  */
-propertyTransferRouter.post("/:id/transfer", requireAuth, requirePermission("properties.editForeign"), async (req, res) => {
+propertyTransferRouter.post("/:id/transfer", requireAuth, async (req, res) => {
   // Тело — lib/propertyManualTransfer.ts: тот же путь зовёт помощница (10.11.2026).
   const outcome = await transferPropertyByManager(req.agent!, req.params.id, req.body);
   res.status(outcome.status).json(outcome.body);

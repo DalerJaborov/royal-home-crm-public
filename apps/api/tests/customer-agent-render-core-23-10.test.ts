@@ -152,7 +152,7 @@ describe("F07 the résumé is asked once", () => {
   });
   it("does not ask for it after a document or a photographed résumé", () => {
     const text = renderJob({ inputText: "", mediaPerception: perceived("document", "Резюме. Меня зовут Мадина. Опыт: три года ведения Instagram") });
-    expect(text).toContain("Сведения добавлены к отклику на вакансию."); expect(text).not.toContain("Пришлите резюме");
+    expect(text).toContain("Спасибо, записал."); expect(text).not.toContain("Пришлите резюме");
   });
   it("does not ask after the candidate described themselves in text", () => {
     const text = renderJob({ inputText: "Меня зовут Мадина, мне 26 лет, пять лет веду Instagram для магазинов и умею снимать Reels" });
@@ -200,7 +200,7 @@ ${question}`],
     const ask = (text: string) => customerBarePropertyAnswer("172", context([{ role: "assistant", text }]));
     expect(ask(rendered)).toBe(172);
     expect(ask(customerAgentPropertyQuestionTexts("ru")[1])).toBe(172);
-    expect(ask("Я уточнял, о каком объекте речь. Пришлёте номер объекта или ссылку?")).toBe(172);
+    expect(ask("Подскажите номер объекта или пришлите ссылку, и я всё расскажу.")).toBe(172);
     expect(ask("Спасибо")).toBeNull();
   });
   it("derives the reason from the held evidence only", () => {

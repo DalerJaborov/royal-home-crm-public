@@ -13,10 +13,12 @@ const name = `Фарход ${phone}`;
 let agentId = "", token = "", districtId = "", propertyId = "", conversationId = "", clientId = "";
 const get = (path: string) => request(app).get(`/api/v1${path}`).set("Authorization", `Bearer ${token}`);
 
-async function rights(origin: boolean, fullPhone: boolean) {
+// 16.11.2026 номера только директору: «полный номер» = роль DIRECTOR; asDirector=false при fullPhone=true
+// проверяет, что одно выданное право clients.viewPhone (granted) не-директору номер не открывает.
+async function rights(origin: boolean, fullPhone: boolean, asDirector = fullPhone) {
   const granted = [origin && "clients.viewOrigin", fullPhone && "clients.viewPhone"].filter(Boolean);
   const revoked = [!origin && "clients.viewOrigin", !fullPhone && "clients.viewPhone"].filter(Boolean);
-  await prisma.agent.update({ where: { id: agentId }, data: { permissions: { granted, revoked } } });
+  await prisma.agent.update({ where: { id: agentId }, data: { role: asDirector ? "DIRECTOR" : "AGENT", permissions: { granted, revoked } } });
   invalidateAgentAccess(agentId);
 }
 
@@ -101,8 +103,17 @@ describe("Источник WhatsApp не раскрывает телефон б�
     expect(JSON.stringify(res.body.messages)).toContain(phone);
   });
 
+  it("16.11.2026: выданное не-директору clients.viewPhone номер не открывает — маска", async () => {
+    await rights(true, true, false);
+    const res = await get(`/conversations/${conversationId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.subscriberId).toContain("•");
+    expect(JSON.stringify(res.body.messages)).not.toContain(phone);
+  });
+
   it("право на телефон не открывает закрытый источник", async () => {
-    await rights(false, true);
+    // 16.11.2026: директор всегда видит всё (права ему не режутся), поэтому «выданное право» проверяем на не-директоре.
+    await rights(false, true, false);
     const res = await get(`/conversations/${conversationId}`);
     expect(res.status).toBe(200);
     expect(res.body.channel).toBeNull();

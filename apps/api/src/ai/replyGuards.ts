@@ -654,8 +654,25 @@ const LEADING_GREETING =
 
 /** Убирает приветствие из начала короткой реплики. Пустой результат — вызывающий
  *  обязан выбросить такую реплику: сообщение из одного «салом» бессмысленно. */
+/**
+ * ПРИВЕТСТВИЕ ПОСЛЕ ПЕРВОЙ ФРАЗЫ (16.11.2026, аудит tone.md п.15): «Бубахшед, нафаҳмидам.
+ * Ассалому алейкум! Ин кадом хона аст…», «Бемалол, пурсед. Ассалому алейкум!» — посреди
+ * разговора. Срезалось только приветствие в самом начале реплики; то же приветствие после
+ * точки уходило клиенту. Тот же шаблон, только на границе предложения.
+ */
+// «Раҳмат! Салом ба оилаатон.» — привет семье, а не приветствие разговора (ревью #207, М2).
+const MID_GREETING = new RegExp(
+  `([.!?…]\\s+)${LEADING_GREETING.source.slice(1).replace("|салом(?!ат)|", "|салом(?!ат)(?!\\s+ба(?![\\p{L}]))|")}`,
+  "giu"
+);
+
 export function stripRepeatGreeting(text: string): string {
-  const out = text.replace(LEADING_GREETING, "").trim();
+  const out = text
+    .replace(LEADING_GREETING, "")
+    .replace(MID_GREETING, "$1\u0000")
+    .replace(/\u0000(\p{Ll})/gu, (_m, ch: string) => ch.toUpperCase())
+    .replace(/\u0000/g, "")
+    .trim();
   if (!out) return "";
   if (out === text) return out;
   // Счётчик (совет экспертов, п. 8): сколько раз промт не удержал правило и его
@@ -1098,8 +1115,52 @@ const NAME_MAX_LENGTH = 40;
  * «имя:», «Фаррух 🏠» — имя со значком. Отбрасывать их целиком значило бы терять ровно
  * то, ради чего всё это писалось.
  */
+/**
+ * ИМЯ ПОСЛЕ «АКА/АПА» — ЭТО ТОТ, К КОМУ КЛИЕНТ ОБРАЩАЕТСЯ, А НЕ САМ КЛИЕНТ (16.11.2026).
+ *
+ * Живой случай (Instagram Royal Home, аудит tone.md п.15): продавщица прислала номер со
+ * словами «… акаи тохир» — обратилась к сотруднику «брат Тохир». Имя легло ей в карточку,
+ * бот ответил «Раҳмат, Тоҳирҷон!», а через месяц — «Тоҳир! Дархости шуморо ба агент
+ * додам…». Человека трижды назвали чужим мужским именем.
+ */
+const HONORIFIC_BEFORE_NAME =
+  /(?<![\p{L}])(?:ака(?:и|ҷон|чон|джон)?|апа(?:и|ҷон|чон|джон)?|бародар(?:и)?|устод(?:и)?|муаллим(?:и)?)\s+(\p{L}{3,})/giu;
+
+/** Имена, к которым клиент обращался «акаи X», «апа X» — свёрнутые (ҳ→х и т.п.). */
+export function namesAddressedByClient(clientText: string): string[] {
+  const out: string[] = [];
+  for (const m of clientText.matchAll(HONORIFIC_BEFORE_NAME)) {
+    const name = foldTajik(m[1]);
+    if (!NOT_A_NAME.has(name) && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/** Это имя клиент дал другому человеку («акаи тохир» → «Тохир»)? */
+export function isAddresseeName(name: string, clientText: string): boolean {
+  return namesAddressedByClient(clientText).includes(foldTajik(name));
+}
+
+/**
+ * Обращение бота по имени, которым клиент назвал ДРУГОГО человека: «Тоҳир! …»,
+ * «Раҳмат, Тоҳирҷон!». Вырезается само обращение, остальная фраза остаётся.
+ */
+export function stripAddresseeVocative(text: string, clientText: string): string {
+  const names = namesAddressedByClient(clientText);
+  if (names.length === 0) return text;
+  const isTheirs = (word: string) => names.includes(foldTajik(word).replace(/(?:чон|джон)$/u, ""));
+  let out = text.replace(/^(\p{L}+)\s*[!,]\s*/u, (m, word: string) => (isTheirs(word) ? "" : m));
+  out = out.replace(/,\s*(\p{L}+)(?=\s*[!.?])/gu, (m, word: string) => (isTheirs(word) ? "" : m));
+  if (out === text) return text;
+  guardFired("addressee_vocative");
+  const trimmed = out.trim();
+  return trimmed ? trimmed[0].toUpperCase() + trimmed.slice(1) : "";
+}
+
 export function normalizeClientName(raw: string | null | undefined): string | null {
   if (!raw) return null;
+  // «908 88 94 27 акаи тохир» — обращение к сотруднику, а не имя клиента (см. выше).
+  if (namesAddressedByClient(raw).length > 0) return null;
   let value = raw
     // Значки, цифры и всё, что не буква: телефон рядом с именем, эмодзи из Instagram.
     .replace(/[^\p{L}\s'’-]/gu, " ")
@@ -1507,7 +1568,7 @@ export function cleanOutgoingReply(
   // как начало строки. Порядок наоборот оставил бы отчёт нетронутым.
   const cleaned = stripMachineTypography(
     stripFillerWords(
-      stripBannedWords(stripForeignWords(stripLeadingAck(stripGenderedAddress(stripSystemExcuses(withoutMarkup)))))
+      stripBannedWords(stripForeignWords(stripLeadingAck(stripAddresseeVocative(stripGenderedAddress(stripSystemExcuses(withoutMarkup)), clientText))))
     )
   )
     .replace(/[ \t]{2,}/g, " ")
