@@ -14,6 +14,7 @@ import { processMessengerTurn } from "../messengers/conversation.js";
 import { asMetaChannel, sendMessage as sendMetaMessage } from "../messengers/meta.js";
 import { WEBSITE_CHANNEL } from "../messengers/channels.js";
 import { isOutboundBlockedError } from "./outboundShield.js";
+import { handOverBlockedConversation, isMetaSendBlockError, metaSendBlockCoveringMessage, withoutMetaSendProbe } from "./metaSendBlock.js";
 import { accountTokenById, listAccounts } from "../messengers/accounts.js";
 import { deliverBotVoiceReply } from "./conversationDelivery.js";
 import { sleep } from "../messengers/humanPacing.js";
@@ -202,9 +203,13 @@ async function retryStuckConversationImpl(row: StuckRow, attempt?: number): Prom
   if (!stored || stored.channel !== row.channel || stored.subscriberId !== row.subscriberId || stored.accountId !== row.accountId ||
     stored.lastMessageAt?.getTime() !== row.lastMessageAt.getTime() || original?.role !== "user" ||
     original.content !== row.lastText || (original.mid ?? null) !== (row.lastMid ?? null)) return "no-reply";
-  return withLegacyMetaDmSource(row.lastMid, () => retryStuckConversationBody(row, row.lastMid ?? undefined, attempt));
+  const originalAt = typeof original.at === "string" && !Number.isNaN(Date.parse(original.at)) ? new Date(original.at) : row.lastMessageAt;
+  // Повтор — не проба «Meta снова пропускает?»: старый ответ клиенту, который ждал, решает человек (lib/metaSendBlock.ts).
+  return withLegacyMetaDmSource(row.lastMid, () =>
+    withoutMetaSendProbe(() => retryStuckConversationBody(row, row.lastMid ?? undefined, attempt, originalAt)));
 }
-async function retryStuckConversationBody(row: StuckRow, originalMid?: string, attempt?: number): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
+async function retryStuckConversationBody(row: StuckRow, originalMid?: string, attempt?: number,
+  originalAt: Date = row.lastMessageAt): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
   const metaChannel = asMetaChannel(row.channel);
   /**
    * ЧАТ НА САЙТЕ ТОЖЕ ЗАВИСАЕТ (11.09.2026).
@@ -234,6 +239,22 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
     if (!customerTransport) return "no-reply";
     if (metaChannel && await legacyMetaDmSourceAlreadyAttempted(customerTransport.endpointScopeId, originalMid)) return "no-reply";
     deliveryTransport = customerTransport;
+    /**
+     * META НЕ ПРОПУСКАЕТ ОТПРАВКУ АККАУНТА (18.11.2026, lib/metaSendBlock.ts). Реплика
+     * клиента ждала, пока действовал запрет (он идёт сейчас или снят уже после неё), —
+     * повтор её НЕ досылает и модель не зовёт: 17.11 этот путь готовил до 46 попыток
+     * с новым текстом каждый раз. Переписка уже у человека («клиент ждёт ответа» с
+     * настоящей причиной); здесь только убеждаемся, что сигнал был, и завершаем задание.
+     */
+    if (metaChannel) {
+      const block = await metaSendBlockCoveringMessage({ accountId: customerTransport.accountId ?? row.accountId, channel: metaChannel }, originalAt);
+      if (block) {
+        await handOverBlockedConversation(row.id, block).catch((err) =>
+          void logSystemError("meta", `Повтор зависшего ${row.id}: переписку не удалось передать человеку: ${describeError(err)}`));
+        traceOutcome("blocked");
+        return "no-reply";
+      }
+    }
     const account =
       metaChannel && row.accountId ? (await listAccounts(metaChannel)).find((a) => a.id === row.accountId) : null;
     traceBindAccount(account?.externalId, row.id);
@@ -292,6 +313,13 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
      * первое же сообщение живого человека снимет её само.
      */
     if (isOutboundBlockedError(err)) { traceOutcome("blocked"); return "no-reply"; }
+    // Meta не пропускает отправку по правилам — повторять нечего: очередь иначе пробовала бы
+    // ещё часами с новым текстом. Ответ помечен «не дошло», человек уже позван (lib/metaSendBlock.ts).
+    if (isMetaSendBlockError(err)) {
+      if (metaChannel) await markLastReplyUndelivered(metaChannel, row.subscriberId, deliveryTransport ?? row.accountId);
+      traceOutcome("blocked");
+      return "no-reply";
+    }
     /**
      * ОТВЕТ, КОТОРЫЙ НЕ УШЁЛ, НЕ ДОЛЖЕН ВЫГЛЯДЕТЬ ОТПРАВЛЕННЫМ — И В ПОВТОРЕ ТОЖЕ
      * (24.09.2026, ночная проверка).

@@ -16,6 +16,8 @@
  * в прогоне перед пушем и в CI): новое действие без подписи заворачивается.
  */
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
+  "meta.send_block.rejected": "Meta не пропустила отправку по правилам",
+  "meta.send_block.lifted": "Meta снова пропускает отправку",
   SOMON_DELIVERY_REVIEWED: "Отправка Somon проверена",
   SOMON_SELLER_REVIEWED: "Продавец Somon проверен",
   SOMON_MONITOR_DISABLED: "Мониторинг Somon остановлен",
@@ -300,6 +302,7 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   LeadMagnetCampaign: "Лид-магнит",
   LostConversation: "Потерянный разговор",
   MessengerAccount: "Аккаунт мессенджера",
+  MetaSendBlock: "Запрет Meta на отправку",
   FacebookPageSubscription: "Подписка Страницы Facebook на сообщения",
   MetaLogin: "Вход через Facebook",
   WhatsappBusinessSubscription: "Подписка WhatsApp Business на сообщения",

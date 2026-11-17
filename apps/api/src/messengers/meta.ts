@@ -17,6 +17,25 @@ import { projectBotIngressShape } from "../lib/botTurnTraceIngress.js";
 import { customerPropertyContextEnabled } from "../lib/customerPropertyContextFlag.js";
 import { beforeCustomerPropertyPost, customerPropertyProviderAccepted } from "../lib/customerPropertyTransport.js";
 import { currentCustomerDeliveryTransport } from "../lib/customerDeliveryTransport.js";
+import {
+  assertMetaSendNotBlocked,
+  gateMetaSend,
+  isMetaSendBlockError,
+  META_SEND_OPEN,
+  MetaGraphCallError,
+  MetaSendBlockedError,
+  metaPolicyBlockOf,
+  metaSendRecipientOf,
+  metaSendSurfaceOf,
+  MetaSendPolicyError,
+  parseMetaGraphError,
+  recordMetaSendPolicyBlock,
+  releaseMetaSendProbe,
+  resolveMetaSendAccount,
+  settleMetaSendAccepted,
+  type MetaSendAccount,
+} from "../lib/metaSendBlock.js";
+import type { MetaSendBlock } from "../generated/prisma/client.js";
 import { bindCustomerMetaSendCredentials, resolveLegacyMetaSendTransport } from "../lib/customerMetaTransport.js";
 import type { CustomerTransportReference } from "../lib/customerConversationScope.js";
 import type { MetaCredentials, MetaChannel } from "./metaTypes.js";
@@ -1862,7 +1881,14 @@ function graphErrorSubcode(text: string): number | undefined {
  */
 function logMetaSendError(label: string, err: unknown): void {
   if (err instanceof Error && isMessagingWindowClosedError(err.message)) return;
-  void logSystemError("meta", `${label}: ${describeError(err)}`);
+  // Запрет Meta по правилам журналирует lib/metaSendBlock.ts — один раз на эпизод, с кодом и подкодом отдельными полями.
+  if (isMetaSendBlockError(err)) return;
+  // Код и подкод — в начале строки: хвост текста журнал обрезает, а подкод — это и есть причина.
+  // fbtrace (свой у каждого запроса) — в конце: в начале он сломал бы склейку повторов журнала.
+  const g = err instanceof MetaGraphCallError ? err.graph : null;
+  const codes = g && g.code !== null ? `[код ${g.code}${g.subcode !== null ? `, подкод ${g.subcode}` : ""}] ` : "";
+  const trace = g?.fbtraceId ? ` (fbtrace ${g.fbtraceId})` : "";
+  void logSystemError("meta", `${label}: ${codes}${describeError(err)}${trace}`);
 }
 
 /**
@@ -1897,6 +1923,19 @@ export async function callGraph<T = unknown>(
   // смена пути между попытками (Страница ↔ личный маркер) дала бы другое тело и
   // одно и то же сообщение сошло бы за новое.
   const legacyTarget = method === "POST" ? legacyMetaPhysicalTarget(url, body, legacyTransport) : undefined;
+  /**
+   * META НЕ ПРОПУСКАЕТ ОТПРАВКУ ПО ПРАВИЛАМ (18.11.2026, lib/metaSendBlock.ts). Здесь,
+   * у физического вызова, — чтобы метку аккаунта видели ВСЕ пути отправки разом.
+   * Нет меток — проверка не делает ни одного запроса.
+   */
+  const sendSurface = method === "POST" ? metaSendSurfaceOf(url, body) : null;
+  const recipientId = sendSurface ? metaSendRecipientOf(body) : null;
+  let sendAccount: Promise<MetaSendAccount> | undefined;
+  const resolveSendAccount = () =>
+    (sendAccount ??= resolveMetaSendAccount({ token, url, body, transport: legacyTransport }));
+  const gate = sendSurface ? await gateMetaSend({ surface: sendSurface, resolveAccount: resolveSendAccount, recipientId }) : META_SEND_OPEN;
+  let gateSettled = false;
+  try {
   const personal: RoutedCall = { url, token, body, route: "unchanged" };
   let routed: RoutedCall = method === "POST" ? await routeMetaMessagingCall(url, token, body) : personal;
   traceKnownSecrets([routed.token]);
@@ -1909,6 +1948,21 @@ export async function callGraph<T = unknown>(
     }, CALL_TIMEOUT_MS, beforePost, legacyTarget);
     const text = await res.text();
     if (!res.ok) {
+      const graphError = parseMetaGraphError(res.status, text);
+      const policy = sendSurface && sendSurface !== "action" ? metaPolicyBlockOf(graphError) : null;
+      /**
+       * ОТКАЗ ПО ПРАВИЛАМ — НЕ ПОВТОРЯТЬ НИКАКИМ ПУТЁМ (18.11.2026). Ни личным
+       * ключом после пути Страницы, ни «Upload failed»-повтором: каждый лишний
+       * запрос к заблокированному аккаунту только продлевает запрет. Метка ставится
+       * до ветки нового ядра — она тоже должна её увидеть.
+       */
+      let policyBlock: MetaSendBlock | null = null;
+      if (policy && sendSurface && sendSurface !== "action") {
+        gateSettled = true;
+        policyBlock = await recordMetaSendPolicyBlock({
+          account: await resolveSendAccount(), surface: sendSurface, graph: graphError, policy, gate, recipientId,
+        });
+      }
       /**
        * ОТКАТ НА ЛИЧНЫЙ КЛЮЧ (ревью #161). Путь Страницы получил ЧЁТКИЙ отказ
        * Meta (4xx с телом error) — сообщение не принято, поэтому один повтор
@@ -1916,7 +1970,7 @@ export async function callGraph<T = unknown>(
        * сюда не доходит. Учёт физической отправки отметил первую попытку
        * «отклонено», вторая допускается заново по тому же логическому сообщению.
        */
-      if (routed.route !== "unchanged" && pageRouteFailed(routed, res.status, text)) {
+      if (!policyBlock && routed.route !== "unchanged" && pageRouteFailed(routed, res.status, text)) {
         if (isMetaAuthFailure(res.status, text)) forgetPageToken(routed.token);
         routed = personal;
         traceKnownSecrets([routed.token]);
@@ -1934,14 +1988,23 @@ export async function callGraph<T = unknown>(
       const durable = currentCustomerDeliveryTransport();
       if (durable && method === "POST") {
         await durable.rejected(res.status);
+        // Запрет по правилам уже записан и передан людям (lib/metaSendBlock.ts) — для исходящего
+        // нового ядра это задержание, а не «сбой при отправке» второй строкой в журнале.
+        if (policyBlock) throw new MetaSendBlockedError(policyBlock);
         throw new Error(`Graph API HTTP ${res.status}: managed delivery rejected`);
       }
+      const message = `Graph API HTTP ${res.status}: ${readableGraphBody(text).slice(0, 300)}`;
+      if (policyBlock) throw new MetaSendPolicyError(message, graphError, policyBlock);
       if (graphErrorSubcode(text) === UPLOAD_FAILED_SUBCODE && attempt < UPLOAD_FAILED_RETRY_DELAYS_MS.length) {
         await sleep(UPLOAD_FAILED_RETRY_DELAYS_MS[attempt]);
         continue;
       }
-      throw new Error(`Graph API HTTP ${res.status}: ${readableGraphBody(text).slice(0, 300)}`);
+      // Код, подкод и fbtrace — полями ошибки: обрезка текста до 300 знаков их больше не съедает.
+      throw new MetaGraphCallError(message, graphError);
     }
+    // Проба прошла (или сотрудник отправил во время запрета) — метка снята.
+    gateSettled = true;
+    await settleMetaSendAccepted(gate);
     // Тело успешного ответа Meta не гарантировано (у sender_action оно пустое) —
     // отсутствие JSON здесь не ошибка.
     let parsed: T | null;
@@ -1970,6 +2033,10 @@ export async function callGraph<T = unknown>(
       traceProviderAccepted(null);
       return null;
     }
+  }
+  } finally {
+    // Проба не состоялась не по правилам (сеть, 5xx, окно 24 ч, щит ядра) — замок отпускаем, ступень прежняя.
+    if (!gateSettled) await releaseMetaSendProbe(gate);
   }
 }
 
@@ -2013,6 +2080,9 @@ async function sendMessageImpl(
   const loaded = await loadCredentials();
   const captured = outbound?.transport ?? await resolveLegacyMetaSendTransport(loaded, channel, recipientId, tokenOverride);
   const bound = await bindCustomerMetaSendCredentials(loaded, channel, recipientId, tokenOverride, captured);
+  // Meta не пропускает отправку этого аккаунта (lib/metaSendBlock.ts) — решаем ДО щита:
+  // невыпущенная отправка не должна попадать в его счёт «бот написал N раз подряд».
+  await assertMetaSendNotBlocked({ account: { accountId: captured.accountId, channel }, recipientId });
   const verdict = await admitOutbound({
     channel,
     subscriberId: recipientId,

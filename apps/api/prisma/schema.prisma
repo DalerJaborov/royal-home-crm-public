@@ -5973,6 +5973,57 @@ model GeminiCache {
 /// Пишется best-effort из центрального обработчика ошибок API и с фронта
 /// (window.onerror). Директор получает утренний push-дайджест, если за сутки
 /// были ошибки. Чистится автоматически (90 дней), в отличие от AuditLog.
+/// META НЕ ПРОПУСКАЕТ ОТПРАВКУ С АККАУНТА (18.11.2026, lib/metaSendBlock.ts).
+///
+/// Отказ Meta «по правилам» (код 368 и родня, список — META_SEND_POLICY_BLOCKS) —
+/// не сбой, который лечится повтором: 17.11 Instagram Arvan получил четыре таких
+/// отказа за шесть минут, а повтор зависших диалогов готовился сделать до 46 попыток
+/// с новым текстом каждый раз. Строка — один аккаунт и один вид отправки:
+/// `dm` (личные сообщения, ответ на комментарий в личку) и `comment` (публичный
+/// ответ под постом) Meta ограничивает по отдельности.
+///
+/// Пока `liftedAt` пусто, автоматика бота в этот аккаунт не пишет; отправка
+/// сотрудника из CRM разрешена и служит пробой. После `nextProbeAt` одна настоящая
+/// отправка идёт пробой (замок `probeLeaseUntil` — одна на все процессы): прошла —
+/// `liftedAt`, не прошла — следующая ступень лесенки. Строка не удаляется: по
+/// `since`/`liftedAt` повтор зависших узнаёт, что реплика ждала во время запрета.
+model MetaSendBlock {
+  id              String    @id @default(uuid())
+  /// `account:<MessengerAccount.id>` или `settings:<CHANNEL>` (ключ из Настроек).
+  accountKey      String
+  /// `dm` | `comment`.
+  surface         String
+  /// INSTAGRAM | FACEBOOK | WHATSAPP.
+  channel         String
+  accountId       String?
+  /// Как аккаунт называется для людей: «Arvan Estate (Instagram)».
+  label           String
+  /// Начало последнего эпизода запрета.
+  since           DateTime
+  /// Когда запрет снят удачной пробой. Пусто — запрет действует.
+  liftedAt        DateTime?
+  lastFailureAt   DateTime
+  /// Отказов по правилам в этом эпизоде.
+  failures        Int       @default(1)
+  /// Ступень лесенки проб (0 — первая пауза).
+  probeStep       Int       @default(0)
+  /// С этого момента следующая настоящая отправка — проба.
+  nextProbeAt     DateTime
+  /// Проба уже идёт (другие ждут) до этого момента.
+  probeLeaseUntil DateTime?
+  /// Код и подкод ошибки Meta отдельными полями — текст ошибки в журнале обрезается.
+  lastCode        Int
+  lastSubcode     Int?
+  lastErrorType   String?
+  lastFbtraceId   String?
+  lastMessage     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([accountKey, surface])
+  @@index([liftedAt])
+}
+
 model ErrorLog {
   id           String    @id @default(uuid())
   /// "api" | "web"
