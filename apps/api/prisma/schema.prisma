@@ -1246,6 +1246,58 @@ model PropertyDeleteRequest {
   @@index([propertyId, status])
 }
 
+/// Что передаёт запрос на передачу с подтверждением хозяина (16.11.2026).
+enum TransferRequestKind {
+  PROPERTY
+  CLIENT
+}
+
+/// PENDING — ждёт хозяина; CONFIRMED — передано; DECLINED — хозяин отказал; EXPIRED — не ответил за срок
+/// или объект/клиент уже сменил хозяина; CANCELLED — отозвал тот, кто просил; FAILED — хозяин подтвердил,
+/// но существующая передача отказала (причина в resultNote).
+enum TransferRequestStatus {
+  PENDING
+  CONFIRMED
+  DECLINED
+  EXPIRED
+  CANCELLED
+  FAILED
+}
+
+/// ПЕРЕДАЧА РОП, ЖДУЩАЯ РЕШЕНИЯ ДИРЕКТОРА (владелец 16.11.2026, lib/ownershipTransferRequest.ts).
+/// РОП передал объект или клиента сразу (fromAgentId — прежний хозяин, toAgentId — новый), директору ушло
+/// уведомление; «Подтвердить» снимает вопрос, «Отклонить» возвращает карточку прежнему хозяину. Один ждущий
+/// запрос на объект и на клиента — частичный уникальный индекс в миграции (повторная передача снимает прежний).
+/// Связей на Agent/Property/Client нет намеренно: запись переживает их удаление, а при решении всё перепроверяется.
+model OwnershipTransferRequest {
+  id             String                @id @default(uuid())
+  kind           TransferRequestKind
+  status         TransferRequestStatus @default(PENDING)
+  propertyId     String?
+  clientId       String?
+  /// Хозяин на момент запроса — только он (и директор) отвечает.
+  fromAgentId    String
+  toAgentId      String
+  requestedById  String
+  reason         String
+  /// Срок ответа; не ответил — EXPIRED (cron lib/ownershipTransferRequest.ts).
+  expiresAt      DateTime
+  decidedById    String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  /// Почему подтверждённая передача не состоялась / почему запрос закрыт системой.
+  resultNote     String?
+  /// Повторные напоминания хозяину, пока не ответил.
+  lastRemindedAt DateTime?
+  remindCount    Int                   @default(0)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([fromAgentId, status])
+  @@index([requestedById, createdAt])
+  @@index([status, expiresAt])
+}
+
 /// Вид заявки агента на изменение ОПУБЛИКОВАННОГО объекта (07.10.2026) — зеркало
 /// PROPERTY_CHANGE_KINDS в packages/shared/src/propertyChangeRequest.ts.
 enum PropertyChangeKind {
@@ -4960,6 +5012,10 @@ model Interaction {
   buyerIntentAtCreation Boolean?
   /// Private investigation evidence; excluded from ordinary activity and timeline reads.
   investigationOnly Boolean @default(false)
+  /// Звонок руководителя клиенту ИЗ КОРЗИНЫ — «разбор удалённого клиента» (16.11.2026).
+  /// Не рабочий звонок агента: не идёт в счёт звонков, Royal Score, штрафы, статусы и задачи
+  /// карточки (см. lib/archiveReviewCall.ts). Пишется только через lib/timeline.ts.
+  archiveReview Boolean @default(false)
   id                     String              @id @default(uuid())
   customerBookingActionId String? @unique
   customerBookingAction CustomerAction? @relation(fields: [customerBookingActionId], references: [id], onDelete: Restrict)
@@ -5997,7 +6053,27 @@ model Settings {
   botWhatsappEnabled                Boolean   @default(true)
   botInstagramEnabled               Boolean   @default(true)
   botFacebookEnabled                Boolean   @default(true)
+  /// СВЕРКА ПЕРЕПИСОК С META (15.11.2026, lib/metaInboxReconcile.ts): сообщение, которое
+  /// видно в Messenger Страницы / Direct Instagram, но не дошло до CRM вебхуком, — пуш
+  /// «Ответьте вручную» тем, кто читает переписки. Свой рубильник у каждой площадки
+  /// (правило владельца). Включены: пушей единицы в день (Arvan Messenger ~4 чел./сутки).
+  messengerInboxReconcileEnabled    Boolean   @default(true)
+  instagramInboxReconcileEnabled    Boolean   @default(true)
   botTelegramEnabled                Boolean   @default(true)
+  /// СТОРОЖ «TELEGRAM: КЛИЕНТ БЕЗ ОТВЕТА» (15.11.2026, lib/clientWaitingAlert.ts):
+  /// реплика клиента в Telegram-боте или Telegram Direct без ответа дольше 30 минут —
+  /// пуш ответственному через ту же дверь, что у Meta. Включён: переписок в Telegram
+  /// единицы в неделю, массовых пушей не бывает.
+  telegramSilenceWatchEnabled       Boolean   @default(true)
+  /// СТОРОЖ «TELEGRAM НЕ ДОСТАВЛЯЕТ В CRM» (15.11.2026, lib/telegramDeliveryWatch.ts):
+  /// getWebhookInfo — вебхук не установлен, свежая ошибка доставки, очередь копится —
+  /// тревога руководству. Включён: пушей сотрудникам нет.
+  telegramDeliveryWatchEnabled      Boolean   @default(true)
+  /// СТОРОЖ «ВЕБХУК WHATSAPP ЗАМОЛЧАЛ» (15.11.2026, lib/whatsappWebhookWatch.ts):
+  /// входящие WhatsApp Meta отдаёт только вебхуком, сверить их не с чем. Номер жив,
+  /// а входящих в рабочие часы нет дольше обычного — тревога руководству в «Здоровье
+  /// системы» (не пуш сотрудникам). Включён.
+  whatsappWebhookWatchEnabled       Boolean   @default(true)
   /// ЧАТ НА САЙТЕ (23.08.2026) — виджет в углу royalhome.tj, тот же бот, что и в
   /// мессенджерах (см. messengers/websiteChat.ts). Отдельный рубильник, а не общий
   /// с каналами Meta: у сайта нет ни ключей, ни транспорта, гасить его приходится
@@ -6620,6 +6696,9 @@ model Settings {
   openaiApiKey                      String?
   /// Обложки ChatGPT вообще: выключено — публикация идёт без обложки.
   coverGenerationEnabled            Boolean   @default(true)
+  /// Рубильник OpenAI целиком (14.11.2026, владелец: «Опен ии полностью выключи»).
+  /// false — никаких вызовов api.openai.com, обложки только шаблоном, без тревог об оплате OpenAI.
+  openaiEnabled                     Boolean   @default(false)
   /// Качество gpt-image-1: low | medium | high.
   openaiImageQuality                String    @default("high") // не используется с 01.11.2026, константа в коде
   /// Потолок картинок ChatGPT за сутки по Душанбе (обложка = 2 картинки, повтор — ещё одна).
@@ -7021,6 +7100,16 @@ model Settings {
   botCanConfirmShowings             Boolean   @default(true)
   botCanFollowUp                    Boolean   @default(true)
   botCanAnswerComments              Boolean   @default(true)
+  /// КОММЕНТАРИЙ СО СБОЕМ БОТА — ЧЕЛОВЕКУ (15.11.2026, lib/commentWaitingAlert.ts, В2
+  /// владельца): ИИ недоступен после повторов, технический отказ ядра, комментарий
+  /// застрял в очереди дольше 30 минут — одна сводка за тик тем, кто читает
+  /// переписки. Включён: таких комментариев единицы, пушей по одному на каждый нет.
+  commentFailureWatchEnabled        Boolean   @default(true)
+  /// ПЕРЕДАЧА РОП — УВЕДОМЛЕНИЕ ДИРЕКТОРУ (16.11.2026, lib/ownershipTransferRequest.ts). Включено: когда РОП
+  /// передаёт объект или клиента, директору и администратору уходит окно в CRM и Telegram с кнопками
+  /// «Подтвердить» / «Отклонить» (отклонить = вернуть прежнему хозяину). Выключено — РОП передаёт молча.
+  /// Саму передачу рубильник не трогает.
+  ropTransferAlertEnabled           Boolean   @default(true)
   /// ЕСТЬ ЛИ ДЕЖУРНЫЙ ОПЕРАТОР / КОЛЛ-ЦЕНТР (смысл уточнён 23.08.2026).
   /// Включено — просьба «перезвоните мне» живёт отдельной записью: push дежурному,
   /// АТС соединяет его с клиентом, очередь видна баннером на главной.
@@ -10617,8 +10706,12 @@ model SocialVideoPost {
   /// Короткое описание ролика «своими словами» — по нему ИИ пишет подписи и рисует обложку
   /// (экран хранит его, чтобы «Перегенерировать» работало и после перезагрузки страницы).
   brief         String?
-  /// "/uploads/handoff/promo-<uuid>.mp4"
+  /// "/uploads/handoff/promo-<uuid>.mp4"; у фото-поста — путь первого фото (16.11.2026).
   videoPath     String
+  /// VIDEO — ролик | PHOTO — пост из фотографий с подписью (16.11.2026, владелец: «фото просто как пост с текстом»).
+  mediaKind     String    @default("VIDEO")
+  /// Фото поста по порядку, под /uploads (JPEG 1080 по ширине). Пусто у роликов.
+  imagePaths    String[]  @default([])
   originalName  String
   sizeBytes     Int
   /// Факты файла (ffprobe при загрузке); null — не удалось измерить.

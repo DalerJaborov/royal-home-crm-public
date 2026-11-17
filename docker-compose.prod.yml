@@ -281,6 +281,10 @@ services:
       # gemini-2.5-flash-lite, закрытая Google (404 на каждый вызов).
       GEMINI_MODEL: ${GEMINI_MODEL:-}
       GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-}
+      # Модели озвучки (цепочка через запятую; пусто = умолчание из кода). Проброшены,
+      # чтобы сменить модель правкой .env.production без выката кода.
+      GEMINI_TTS_MODELS: ${GEMINI_TTS_MODELS:-}
+      GEMINI_WHISPER_TTS_MODELS: ${GEMINI_WHISPER_TTS_MODELS:-}
       # Прямая интеграция с Meta (WhatsApp, Instagram). Окружение сюда передаётся
       # поимённым списком — дописать переменную только в .env.production мало,
       # контейнер её не увидит (на этом мы уже обожглись с Telegram).

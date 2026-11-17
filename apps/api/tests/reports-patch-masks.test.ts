@@ -27,23 +27,25 @@ let seeingToken = "";
 const periodStart = new Date(Date.UTC(2000, 0, 1) + (runId % 1_000) * 86_400_000);
 
 beforeAll(async () => {
-  const mk = async (phone: string, permissions: unknown) =>
+  const mk = async (phone: string, permissions: unknown, role = "MANAGER") =>
     (
       await prisma.agent.create({
-        data: { fullName: `Аналитик ${phone}`, phone, role: "MANAGER", passwordHash: "x", permissions: permissions as never },
+        data: { fullName: `Аналитик ${phone}`, phone, role: role as never, passwordHash: "x", permissions: permissions as never },
       })
     ).id;
   const blind = await mk(`+99271${tail}`, {
     granted: ["reports.view", "dashboard.analytics"],
     revoked: ["finance.view", "clients.viewPhone"],
   });
-  const seeing = await mk(`+99272${tail}`, {
-    granted: ["reports.view", "dashboard.analytics", "finance.view", "clients.viewPhone"],
-    revoked: [],
-  });
+  // 16.11.2026 номера только директору: «видящий» — DIRECTOR.
+  const seeing = await mk(
+    `+99272${tail}`,
+    { granted: ["reports.view", "dashboard.analytics", "finance.view", "clients.viewPhone"], revoked: [] },
+    "DIRECTOR",
+  );
   agentIds.push(blind, seeing);
   blindToken = signAccessToken({ sub: blind, role: "MANAGER" });
-  seeingToken = signAccessToken({ sub: seeing, role: "MANAGER" });
+  seeingToken = signAccessToken({ sub: seeing, role: "DIRECTOR" });
 
   monthlyId = (
     await prisma.monthlyReport.create({

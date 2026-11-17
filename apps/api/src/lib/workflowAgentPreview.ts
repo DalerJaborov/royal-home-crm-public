@@ -12,9 +12,9 @@ export async function previewWorkflowAgentCounts(now = new Date()) {
         AND (a.meta->>'fromAgentId' IS DISTINCT FROM a.meta->>'toAgentId'
           OR EXISTS (SELECT 1 FROM "ClientWorkflowObservation" o WHERE o.kind='ASSIGNMENT_SNAPSHOT' AND o."sourceType"='OWNERSHIP_AUDIT' AND o."sourceId"=a.id)))
       AND EXISTS (SELECT 1 FROM "Interaction" i WHERE i."clientId"=c.id AND i."investigationOnly"=false
-        AND i."createdAt" BETWEEN ${since} AND ${now} AND i.type='CALL' AND i."actorKind"='AGENT' AND i."callAttempt" IS NULL AND i."recordingUrl" IS NULL)
+        AND i."createdAt" BETWEEN ${since} AND ${now} AND i.type='CALL' AND i."archiveReview"=false AND i."actorKind"='AGENT' AND i."callAttempt" IS NULL AND i."recordingUrl" IS NULL)
       AND NOT EXISTS (SELECT 1 FROM "Interaction" i WHERE i."clientId"=c.id AND i."investigationOnly"=false
-        AND i."createdAt" BETWEEN ${since} AND ${now} AND i.type='CALL' AND (i."callAttempt" IS NOT NULL OR i."recordingUrl" IS NOT NULL))
+        AND i."createdAt" BETWEEN ${since} AND ${now} AND i.type='CALL' AND i."archiveReview"=false AND (i."callAttempt" IS NOT NULL OR i."recordingUrl" IS NOT NULL))
       AND NOT EXISTS (SELECT 1 FROM "SmsMessage" s WHERE s."clientId"=c.id AND s."createdAt" BETWEEN ${since} AND ${now} AND s.status='SENT' AND s."providerMessageId" IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM "CustomerOutboxPart" p JOIN "BotConversation" b ON b.id=p."conversationId"
         WHERE b."clientId"=c.id AND p.status='ACCEPTED' AND p."acceptedAt" BETWEEN ${since} AND ${now})

@@ -829,6 +829,10 @@ const settingsUpdateSchema = z.object({
   botCanConfirmShowings: z.boolean().optional(),
   botCanFollowUp: z.boolean().optional(),
   botCanAnswerComments: z.boolean().optional(),
+  /** Комментарий со сбоем бота (ИИ недоступен, отказ ядра, застрял) — сводкой человеку (15.11.2026). */
+  commentFailureWatchEnabled: z.boolean().optional(),
+  /** Передача РОП: уведомлять директора с кнопками «Подтвердить» / «Отклонить» (16.11.2026). */
+  ropTransferAlertEnabled: z.boolean().optional(),
   /** «Соедините с оператором»: бот записывает запрос звонка и зовёт агентов. */
   botCanRequestCallback: z.boolean().optional(),
   /** Дежурный оператор обратных звонков (сейчас Нурмухаммад, потом сменится —
@@ -875,9 +879,17 @@ const settingsUpdateSchema = z.object({
   botInstagramEnabled: z.boolean().optional(),
   botFacebookEnabled: z.boolean().optional(),
   botTelegramEnabled: z.boolean().optional(),
+  /** Сторожа «никого не пропустить» (15.11.2026): Telegram без ответа 30 мин — пуш ответственному;
+   *  вебхук WhatsApp замолчал в рабочие часы — тревога руководству. */
+  telegramSilenceWatchEnabled: z.boolean().optional(),
+  telegramDeliveryWatchEnabled: z.boolean().optional(),
+  whatsappWebhookWatchEnabled: z.boolean().optional(),
   botWebsiteChatEnabled: z.boolean().optional(),
   /** Рубильник прямой интеграции с Meta (WhatsApp, Instagram, Messenger). */
   metaEnabled: z.boolean().optional(),
+  /** Сверка переписок с Meta: не дошедшее до CRM — «Ответьте вручную» (15.11.2026), по площадке. */
+  messengerInboxReconcileEnabled: z.boolean().optional(),
+  instagramInboxReconcileEnabled: z.boolean().optional(),
   /** Ключи Meta. Пустая строка — очистить и вернуться на переменную окружения. */
   metaAppSecret: secretField(500),
   /** Номер приложения Meta — нужен, чтобы обменять маркер рекламы на 60-дневный. */
@@ -982,7 +994,7 @@ const settingsUpdateSchema = z.object({
   clipReviewEnabled: z.boolean().optional(),
   /** Готовый ролик подтверждает хозяин объекта, без ответа — автопубликация (11.11.2026). */
   clipOwnerApproveEnabled: z.boolean().optional(),
-  clipOwnerAutoPublishHours: z.number().int().min(1).max(48).optional(),
+  clipOwnerAutoPublishHours: z.number().int().min(0).max(48).optional(),
   // videoModeratorAgentId УБРАН из схемы (01.11.2026): интерфейс убран 23.09.2026,
   // ни одна строка сервера поле не читает. Колонка в базе остаётся до общего дропа.
   videoMontajerAgentId: z.string().max(64).nullable().optional(),
@@ -1940,6 +1952,10 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...(rest.botInstagramEnabled !== undefined ? { botInstagramEnabled: rest.botInstagramEnabled } : {}),
     ...(rest.botFacebookEnabled !== undefined ? { botFacebookEnabled: rest.botFacebookEnabled } : {}),
     ...(rest.botTelegramEnabled !== undefined ? { botTelegramEnabled: rest.botTelegramEnabled } : {}),
+    // Выключенный сторож — это «клиента без ответа никто не заметит»: кто и когда, должно быть видно.
+    ...(rest.telegramSilenceWatchEnabled !== undefined ? { telegramSilenceWatchEnabled: rest.telegramSilenceWatchEnabled } : {}),
+    ...(rest.telegramDeliveryWatchEnabled !== undefined ? { telegramDeliveryWatchEnabled: rest.telegramDeliveryWatchEnabled } : {}),
+    ...(rest.whatsappWebhookWatchEnabled !== undefined ? { whatsappWebhookWatchEnabled: rest.whatsappWebhookWatchEnabled } : {}),
     ...(rest.botWebsiteChatEnabled !== undefined ? { botWebsiteChatEnabled: rest.botWebsiteChatEnabled } : {}),
     // Момент включения и выключения сравнения — граница, за которой поведение бота
     // с клиентами меняется. Без отметки в журнале потом не понять, почему часть
@@ -1950,6 +1966,13 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     // Отключение транспорта обрывает связь с клиентами в Instagram и WhatsApp —
     // в журнале действий должно быть видно, кто и когда это сделал.
     ...(rest.metaEnabled !== undefined ? { metaEnabled: rest.metaEnabled } : {}),
+    // Выключенная сверка — «не дошедшее до CRM никто не увидит»: кто и когда, должно быть видно.
+    ...(rest.messengerInboxReconcileEnabled !== undefined ? { messengerInboxReconcileEnabled: rest.messengerInboxReconcileEnabled } : {}),
+    ...(rest.instagramInboxReconcileEnabled !== undefined ? { instagramInboxReconcileEnabled: rest.instagramInboxReconcileEnabled } : {}),
+    // Выключенный сторож — «комментарий со сбоем бота никто не заметит»: кто и когда, должно быть видно.
+    ...(rest.commentFailureWatchEnabled !== undefined ? { commentFailureWatchEnabled: rest.commentFailureWatchEnabled } : {}),
+    // Выключенное уведомление директору о передачах РОП — кто и когда выключил, должно быть видно.
+    ...(rest.ropTransferAlertEnabled !== undefined ? { ropTransferAlertEnabled: rest.ropTransferAlertEnabled } : {}),
     // Смена весов KPI меняет и рейтинг, и распределение лидов — в журнале
     // должно быть видно, кто и когда её сделал.
     ...(rest.kpiWeights !== undefined ? { kpiWeights: rest.kpiWeights } : {}),

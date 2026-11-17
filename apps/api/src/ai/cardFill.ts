@@ -1,3 +1,4 @@
+import { districtListForPrompt, districtPickAllowed } from "../lib/serviceArea.js";
 import {
   CARD_NOTE_TAGS,
   PROPERTY_TYPES,
@@ -10,7 +11,7 @@ import { prisma } from "../db.js";
 import { callAiText } from "./client.js";
 import { loadMoneyContext } from "../lib/money.js";
 import type { LeadDraft } from "./leadDraft.js";
-import { clientSelfStatedName, normalizeClientName } from "./replyGuards.js";
+import { clientSelfStatedName, isAddresseeName, normalizeClientName } from "./replyGuards.js";
 import { clipHeadTail } from "./untrustedContent.js";
 
 /**
@@ -240,7 +241,7 @@ function buildSystemPrompt(districtNames: string[], usdToTjs: number): string {
     "АДРЕС И ОРИЕНТИР. В Душанбе место называют ориентиром: «ДОК», «напротив кинотеатра Зебунисо», " +
     "«за рынком Саховат», «ЖК Пойтахт». Это и есть address — записывай его отдельным полем словами клиента. " +
     "Район при этом всё равно указывай в districtName. " +
-    (districtNames.length > 0 ? `Районы агентства: ${districtNames.join(", ")}. Другие названия в districtName не пиши. ` : "") +
+    (districtNames.length > 0 ? `Районы агентства: ${districtListForPrompt(districtNames)}. Другие названия в districtName не пиши. ` : "") +
     `Типы недвижимости: ${PROPERTY_TYPES.map((t) => `${t} = ${PROPERTY_TYPE_LABELS[t]}`).join("; ")}. ` +
     "notes пиши по-русски, коротко и по делу, без вводных слов и без тире. " +
     "Ответ передавай через инструмент submit_reply."
@@ -430,7 +431,7 @@ export async function buildCardFillSuggestion(clientId: string): Promise<CardFil
   // предложения ради старых карточек, но всегда пустое.
   suggestion.urgency = null;
 
-  const aiDistrict = resolveDistrict(extract.districtName);
+  const aiDistrict = districtPickAllowed(extract.districtName, transcript) ? resolveDistrict(extract.districtName) : null;
   if (aiDistrict && (fromCall || !suggestion.districtId)) {
     suggestion.districtId = aiDistrict.id;
     suggestion.districtName = aiDistrict.name;
@@ -450,7 +451,9 @@ export async function buildCardFillSuggestion(clientId: string): Promise<CardFil
   // Имя от модели побеждает найденное шаблоном: её ответ учитывает контекст разговора,
   // шаблон — нет. Промолчала — остаётся то, что нашёл код перед вызовом.
   const aiName = typeof extract.clientName === "string" ? normalizeClientName(extract.clientName) : null;
-  if (aiName) suggestion.clientName = aiName;
+  // «акаи тохир» — так клиент обращается к сотруднику; это не его имя (16.11.2026, ai/replyGuards.ts).
+  const clientWords = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+  if (aiName && !isAddresseeName(aiName, clientWords)) suggestion.clientName = aiName;
 
   const aiNotes = typeof extract.notes === "string" && extract.notes.trim() ? extract.notes.trim().slice(0, 500) : null;
   if (aiNotes && (fromCall || !suggestion.notes)) {

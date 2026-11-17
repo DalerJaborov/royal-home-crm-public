@@ -4,6 +4,7 @@ import { visibleInteractionWhere } from "./investigationPrivacy.js";
 import { canViewInvestigations } from "@royal-home/shared";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
+import { isOpenAiEnabled } from "../ai/openaiClient.js";
 import { dushanbeDayRange, dushanbeStartOfMonth, dushanbeStartOfToday, dushanbeWallClock } from "./dushanbeTime.js";
 import { centsToTjs, loadMoneyContext, roundMoney, toCents } from "./money.js";
 import { activeLeadCounts, loadLeadLimits, slotsTaken } from "./leadLimits.js";
@@ -286,7 +287,8 @@ export async function loadChannelsHealth(now: Date = new Date()): Promise<McChan
     items,
     problems,
     healthCheckedAt,
-    openaiOutOfMoney: openaiMoneyErrors > 0,
+    // OpenAI выключен рубильником (14.11.2026) — «кончились деньги» не показываем.
+    openaiOutOfMoney: openaiMoneyErrors > 0 && (await isOpenAiEnabled()),
     connectedCount,
     openErrors,
     autoPublishEnabled: settings?.autoPublishEnabled ?? false,
@@ -793,7 +795,7 @@ export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTea
     // routes/team.ts/lib/kpi.ts.
     prisma.interaction.groupBy({
       by: ["agentId"],
-      where: { ...visibleInteractionWhere(viewerRole), type: "CALL", createdAt: window, actorKind: "AGENT" },
+      where: { ...visibleInteractionWhere(viewerRole), type: "CALL", createdAt: window, actorKind: "AGENT", archiveReview: false },
       _count: { _all: true },
     }),
     prisma.interaction.groupBy({

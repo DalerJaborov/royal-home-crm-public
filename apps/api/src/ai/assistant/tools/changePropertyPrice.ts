@@ -24,7 +24,7 @@ const argsSchema = z.object({
 export const changePropertyPriceExecutor = makeChangeRequestExecutor<z.infer<typeof argsSchema>>({
   tool: "change_property_price",
   kind: "PRICE_CHANGE",
-  directForOwner: true,
+  directKinds: ["PRICE_CHANGE"],
   parseArgs: (raw) => argsSchema.parse(raw),
   async buildBody(args) {
     return {

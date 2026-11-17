@@ -22,6 +22,9 @@ import { dushanbeDateString, dushanbeWallClock } from "../lib/dushanbeTime.js";
 /** Ключи фиксированы: по ним строится таблица на экране «Обучение бота». */
 export type GuardName =
   | "repeat_greeting"
+  | "callback_promise"
+  | "addressee_vocative"
+  | "superseded_by_newer_message"
   | "repeated_question"
   | "duplicate_card_link"
   | "availability_promise"
@@ -144,6 +147,9 @@ export type GuardName =
  */
 export const GUARD_LABELS: Record<GuardName, string> = {
   repeat_greeting: "Повторное приветствие",
+  callback_promise: "Обещание звонка без номера или «прямо сейчас»",
+  addressee_vocative: "Обращение к клиенту чужим именем",
+  superseded_by_newer_message: "Ответ устарел: клиент написал ещё, пока бот думал",
   repeated_question: "Переспрошенный вопрос",
   duplicate_card_link: "Дубль ссылки на объект",
   availability_promise: "Обещание наличия",

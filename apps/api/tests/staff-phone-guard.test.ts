@@ -50,7 +50,7 @@ beforeAll(async () => {
   firedAgentId = fired.id;
 
   const admin = await prisma.agent.create({
-    data: { fullName: `Админ гварда ${runId}`, phone: `+992999${t}`, role: "ADMIN", passwordHash },
+    data: { fullName: `Админ гварда ${runId}`, phone: `+992999${t}`, role: "DIRECTOR", passwordHash },
   });
   guardAdminId = admin.id;
   const login = await request(app).post("/api/v1/auth/login").send({ phone: admin.phone, password });

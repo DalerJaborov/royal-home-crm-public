@@ -29,6 +29,7 @@ import { notifySiteLeadStatus } from "../../lib/notifySite.js";
 import { logAudit } from "../../lib/audit.js";
 import { cancelClientCallbackRequests } from "../../lib/callbackRequests.js";
 import { trashClient } from "../../lib/trashClient.js";
+import { restoreClientFromTrash } from "../../lib/restoreClient.js";
 import { changeClientAgent } from "../../lib/changeClientAgent.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { publishClientUpdated } from "../../lib/livePublish.js";
@@ -150,8 +151,9 @@ const CARD_TIMELINE_LIMIT = 200;
  * тех же id. Разбор разговора (callAnalysis) остаётся одним join'ом — он
  * на порядки легче расшифровки, а его счёт виден ещё до раскрытия записи.
  */
-const TIMELINE_INTERACTION_SELECT = {
+export const TIMELINE_INTERACTION_SELECT = {
   investigationOnly: true,
+  archiveReview: true,
   id: true,
   clientId: true,
   agentId: true,
@@ -204,7 +206,7 @@ const TIMELINE_INTERACTION_SELECT = {
  * догрузку, иначе догруженный разговор мог бы открыться тому, кому в карточке
  * он закрыт.
  */
-async function presentTimeline(
+export async function presentClientTimeline(
   req: Request,
   assignedAgentId: string | null,
   rows: Prisma.InteractionGetPayload<{ select: typeof TIMELINE_INTERACTION_SELECT }>[]
@@ -441,6 +443,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
           where: {
             clientId: client.id,
             type: "CALL",
+            archiveReview: false,
             ...visibleInteractionWhere(investigationViewerRole(req)),
             recordingDurationSec: { gte: s?.leadCallMinSeconds ?? 30 },
           },
@@ -464,7 +467,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
      * calls.transcripts. Признак `hasRecording` остаётся всем: по нему в хронологии
      * видно, что разговор записан, — без этого он казался бы пропавшим бесследно.
      */
-    interactions: await presentTimeline(req, client.assignedAgentId, client.interactions),
+    interactions: await presentClientTimeline(req, client.assignedAgentId, client.interactions),
     interactionsTotal: client._count.interactions,
     // Служебный счётчик Prisma наружу не отдаём — число уже лежит в interactionsTotal.
     _count: undefined,
@@ -568,7 +571,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   res.json(transferAccess ? { ...payload, access: transferAccess } : payload);
 });
 
-const timelineQuerySchema = z.object({
+export const timelineQuerySchema = z.object({
   /** Курсор — последняя уже показанная запись (createdAt, id); без него — с самой свежей. */
   before: z.coerce.date().optional(),
   beforeId: z.string().uuid().optional(),
@@ -630,7 +633,7 @@ cardRouter.get("/:id/timeline", requireAuth, async (req, res) => {
   ]);
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  res.json({ items: await presentTimeline(req, client.assignedAgentId, page), total, hasMore });
+  res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
 });
 
 /** Подпись реплики бота для .txt/.json экспорта — тот же словарь смысла, что и
@@ -824,104 +827,16 @@ cardRouter.delete("/:id", requireAuth, requirePermission("clients.delete"), asyn
  * это правило не перераспределяет.
  */
 cardRouter.post("/:id/restore", requireAuth, requirePermission("clients.delete"), async (req, res) => {
-  const client = await prisma.client.findUnique({ where: { id: req.params.id } });
-  if (!client || !client.deletedAt) return res.status(404).json({ error: "Клиент не найден в корзине" });
-
-  const eligible = (agent: { isActive: boolean; frozenAt: Date | null; role: string } | null | undefined) =>
-    !!agent?.isActive && agent.frozenAt === null && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role);
-  const owner = client.assignedAgentId
-    ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId }, select: { isActive: true, frozenAt: true, role: true } })
-    : null;
-  const historicalOwner = !eligible(owner) && client.lastAgentId && !client.assignmentRefusedAt && !client.assignmentCompletedAt
-    ? await prisma.agent.findUnique({ where: { id: client.lastAgentId }, select: { id: true, isActive: true, frozenAt: true, role: true } }) : null;
-  const restoredAgentId = client.kind !== "OTHER" && eligible(historicalOwner) ? historicalOwner!.id : null;
-  const completedAssignment = Boolean(client.assignmentRefusedAt || client.assignmentCompletedAt);
-  const ownerGone = !completedAssignment && client.assignedAgentId != null && !eligible(owner);
-  /**
-   * КАРТОЧКА БЕЗ АГЕНТА ПОСЛЕ ВОССТАНОВЛЕНИЯ — В РАЗДАЧУ, И РУКОВОДСТВО ЗНАЕТ
-   * (23.09.2026, проверка раздачи, пункты 20 и 24). Раньше при уволенном агенте
-   * ставился escalatedAt без агента: утренняя волна такие карточки пропускает,
-   * напоминаний нет, в счётчиках её нет, пуша не было — карточка пропадала из
-   * виду. Карточка, лежавшая в Корзине вовсе без агента, тоже восстанавливалась
-   * молча, а в режиме «Вручную» о ней не узнавал никто. Теперь карточка для
-   * агентов (не «Прочее») встаёт в очередь как новый лид: волна отдаст её
-   * агенту, и тот примет её сам. Руководство получает пуш «назначьте агента».
-   */
-  const endsWithoutAgent = !restoredAgentId && (ownerGone || client.assignedAgentId == null);
-  const toQueue = !completedAssignment && endsWithoutAgent && client.kind !== "OTHER";
-  const queueData = toQueue
-    ? { escalatedAt: null, acceptedAt: null, assignedAt: new Date(), triedAgentIds: [], reassignCount: 0 }
-    : {};
-
-  const restoreConflict = new Error("Restore conflict");
-  const restored = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
-    const current = await tx.client.findUnique({ where: { id: client.id } });
-    if (!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()) {
-      return false;
-    }
-    const checkedOwners = [[client.assignedAgentId, eligible(owner)], [historicalOwner?.id ?? null, eligible(historicalOwner)]] as const;
-    // Не назначать сотрудника, которого заморозили/уволили между выбором и записью.
-    // FOR SHARE удерживает eligibility до коммита; одинаковый порядок исключает
-    // взаимную блокировку двух восстановлений с обратной парой владельцев.
-    for (const [id, expected] of [...checkedOwners].sort((a, b) => (a[0] ?? "").localeCompare(b[0] ?? ""))) {
-      if (id && !completedAssignment) {
-        await tx.$queryRaw`SELECT id FROM "Agent" WHERE id = ${id} FOR SHARE`;
-        const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true, frozenAt: true, role: true } });
-        if (eligible(agent) !== expected) return false;
-      }
-    }
-    // Часы ночного переноса в Корзину — заново с момента восстановления
-    // (23.09.2026). Карточку, которую перенос убрал сам (Потерянный/Неактивный
-    // старше срока), он в ту же ночь уносил обратно: lostAt и inactiveSince
-    // оставались прежними. Статус не трогаем — это решение человека, а не кнопки.
-    const now = new Date();
-    await tx.client.update({
-      where: { id: client.id },
-      data: {
-        deletedAt: null,
-        deletedById: null,
-        ...(ownerGone ? {} : queueData),
-        ...(client.status === "LOST" ? { lostAt: now } : {}),
-        ...(client.workStatus === "INACTIVE" && client.inactiveSince ? { inactiveSince: now, inactivePingCount: 0 } : {}),
-      },
-    });
-    if (ownerGone || restoredAgentId) {
-      const changed = await changeClientAgent({
-        clientId: client.id,
-        toAgentId: restoredAgentId,
-        reason: restoredAgentId ? "Восстановление из Корзины: возвращена прежнему активному агенту" : "Восстановление из Корзины: агент карточки недоступен — карточка в очереди раздачи",
-        actorId: req.agent!.id,
-        source: "restore",
-        data: restoredAgentId ? { assignedAt: now, acceptedAt: null, escalatedAt: null } : toQueue ? queueData : { escalatedAt: new Date() },
-        tx,
-      });
-      if (!changed.ok) throw restoreConflict;
-    }
-    return true;
-  }).catch(error => { if (error === restoreConflict) return false; throw error; });
-  if (!restored) return res.status(409).json({ error: "Карточка изменилась. Обновите страницу" });
-  if (toQueue) {
-    const supervisors = (await findAgentsWithPermission("clients.assign")).filter((id) => id !== req.agent!.id);
-    sendPushToAgents(supervisors, {
-      title: "♻️ Карточка восстановлена без агента",
-      body: `${client.fullName} — вернулась из Корзины, агента у неё нет. Раздача отдаст её сама, либо назначьте вручную`,
-      url: `/clients/${client.shortId}`,
-      tag: `restore-no-agent-${client.id}`,
-    }).catch((err) => console.error("[push] восстановление без агента:", err));
-  }
-
-  logAudit(req, "RESTORE", "Client", client.id, {
-    shortId: client.shortId,
-    fullName: client.fullName,
-    phone: client.phone,
-    ownerReassignedToQueue: ownerGone,
+  // Само восстановление (проверка агента, очередь раздачи, пуш руководству) — lib/restoreClient.ts:
+  // ту же функцию зовёт кнопка «Восстановить» под сообщением Шабнам об удалении.
+  const result = await restoreClientFromTrash(req.params.id, req.agent!.id);
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  logAudit(req, "RESTORE", "Client", result.client.id, {
+    shortId: result.client.shortId,
+    fullName: result.client.fullName,
+    phone: result.client.phone,
+    ownerReassignedToQueue: result.ownerReassignedToQueue,
   });
-  // Живое обновление ПОСЛЕ коммита (аудит 11.09.2026, второй заход по осиротевшим
-  // спутникам, п.4 задания): карточка ушла из Корзины и снова видна в списках —
-  // ownerGone=true уже опубликовал changeClientAgent сам (через
-  // closeOwnershipSatellites), здесь покрываем и обычный случай «агент тот же».
-  publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId] });
   res.status(204).send();
 });
 

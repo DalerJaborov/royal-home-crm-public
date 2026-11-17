@@ -1,4 +1,5 @@
 import { getUpdates, isTelegramEnabled, telegramUpdateChatId, type TelegramUpdate } from "./api.js";
+import { telegramUpdatesMode } from "./updatesMode.js";
 import { ASSISTANT_DEADLINE_SEC } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { raiseCriticalAlarm } from "../lib/channelKeyAlarm.js";
@@ -34,7 +35,7 @@ export function startTelegramBot() {
     console.log("[telegram] TELEGRAM_BOT_TOKEN не задан — бот выключен");
     return;
   }
-  if (process.env.TELEGRAM_WEBHOOK_SECRET) {
+  if (telegramUpdatesMode() === "webhook") {
     console.log("[telegram] TELEGRAM_WEBHOOK_SECRET задан — работаем через вебхук, long polling не запущен");
     return;
   }

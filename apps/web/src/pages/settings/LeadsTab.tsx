@@ -4,6 +4,7 @@ import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { SwitchRow } from "../../components/Switch";
 import { KeywordTags } from "../../components/ui/KeywordTags";
 import { NumberRow, SaveRow } from "../../components/settings/SettingsRows";
+import { OwnerConfirmTransferSection } from "./OwnerConfirmTransferSection";
 import { Link } from "react-router-dom";
 import { MATCH_SCORE_WEIGHTS } from "@royal-home/shared";
 import {
@@ -589,6 +590,8 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
           <SaveRow pending={updateSettings.isPending} saved={savedReactivation} />
         </form>
       </section>
+
+      <OwnerConfirmTransferSection />
     </>
   );
 }

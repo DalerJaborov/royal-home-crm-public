@@ -158,6 +158,7 @@ export async function loadStaffLive(id: string, viewer: StaffLiveViewer) {
             where: {
               agentId: id,
               type: "CALL",
+              archiveReview: false,
               ...visibleInteractionWhere(viewerRole),
               client: { deletedAt: null },
               OR: [{ recordingUrl: { not: null } }, { transcript: { not: null } }],
