@@ -22,6 +22,9 @@ import {
   intakeText, knownBatch, normalizeReceiptPhoto, PDF_MAX_BYTES, PDF_MAX_PAGES, pdfPageNotesText, rowsFromPdf, rowsFromSpreadsheet, rowsFromTablePhoto, sourceHashOf, spreadsheetKind, stageExpenseBatch, type SpreadsheetKind,
 } from "./assistantExpenseBatchIntake.js";
 import { collectExpenseAlbumPhoto, hasExpenseAlbum } from "./assistantExpenseAlbum.js";
+import { mentionsExpenses } from "../ai/assistant/expenseIntent.js";
+import { expenseIntentPending } from "./assistantExpenseFollowup.js";
+import { withListMonth } from "./assistantExpenseTextList.js";
 
 const EXPENSE_CALLBACK = /^ef:(yes|no):(ru|tg):([0-9a-f-]{36})$/u;
 // Подпись-намерение на четырёх языках (10.11.2026): «расходы за октябрь», «харҷҳо», «xarajatlar», «expenses».
@@ -166,7 +169,11 @@ export async function handleTelegramExpenseReceipt(
   if (!parsed.success || parsed.data.chat.id !== parsed.data.from.id) return false;
   const { chat, message_id: messageId, photo, document } = parsed.data;
   const caption = parsed.data.caption?.trim() ?? "";
-  const explicit = expenseIntent.test(caption);
+  // Подпись-намерение: прежний шаблон («расходы…», «харҷ…» В НАЧАЛЕ подписи) ИЛИ слово «расход» где угодно
+  // («ҳамин хароҷотҳоро дар CRM ворид кун», 10–11.11.2026), ИЛИ без подписи, но минуту назад сказали
+  // «внеси расходы» (assistantExpenseFollowup.ts). Шаблон — подсказка пути; запись всё равно только кнопкой.
+  const explicit = expenseIntent.test(caption) || mentionsExpenses(caption)
+    || (!caption && await expenseIntentPending(String(chat.id), agentId));
   const sheet = document ? spreadsheetKind(document) : null;
   const albumPhoto = Boolean(msg.media_group_id && photo && !document && !msg.forward_origin && !msg.forward_from_message_id);
   if ((sheet && !msg.media_group_id) || albumPhoto) {
@@ -241,7 +248,7 @@ export async function handleTelegramExpenseReceipt(
             await send(intakeText(language).unreadablePhoto);
             return true;
           }
-          await stageExpenseBatch({ chatId: actor.chatId, agentId, rows: table.rows, lang: language, kind: pdf ? "pdf" : "photo", replyTo: messageId,
+          await stageExpenseBatch({ chatId: actor.chatId, agentId, rows: withListMonth(table.rows, caption), lang: language, kind: pdf ? "pdf" : "photo", replyTo: messageId,
             notes: { skipped: table.skipped, ...(table.readUpTo ? { readUpTo: table.readUpTo } : {}) } });
           return true;
         }
