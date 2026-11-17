@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4068,
+  "forks": 4069,
   "mounts": 87,
   "cron": 141,
   "jobs": 33,
@@ -83910,6 +83910,29 @@
                   {
                    "k": "do",
                    "t": "console.warn(`[щит] ${msg.channel}: ответ не отправлен — ${err.message}`);",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
+                {
+                 "k": "if",
+                 "t": "isMetaSendBlockError(err)",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "traceOutcome(\"blocked\");",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  },
+                  {
+                   "k": "do",
+                   "t": "if (!providerAcceptedReply) await markLastReplyUndelivered(msg.channel, msg.senderId, deliveryTransport ?? de…",
                    "a": [
                     "дословно из кода"
                    ],

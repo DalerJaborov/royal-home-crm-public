@@ -98,6 +98,7 @@ import { isOwnInFlightEcho, type EchoHistoryEntry } from "../messengers/inFlight
 import { isOwnCustomerOutboxEcho } from "../lib/customerOutboxEcho.js";
 import { isOwnAccountSender, ownAccountPauseUntil } from "../lib/ownAccountGuard.js";
 import { isOutboundBlockedError, noteRealInbound } from "../lib/outboundShield.js";
+import { isMetaSendBlockError } from "../lib/metaSendBlock.js";
 import { OPERATOR_ECHO_PAUSE_MS, applyDeliveryPause, deliverBotVoiceReply } from "../lib/conversationDelivery.js";
 import {
   noteFirstContactDelivery,
@@ -2809,6 +2810,20 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       if (isOutboundBlockedError(err)) {
         traceOutcome("blocked");
         console.warn(`[щит] ${msg.channel}: ответ не отправлен — ${err.message}`);
+        continue;
+      }
+      /**
+       * META НЕ ПРОПУСКАЕТ ОТПРАВКУ АККАУНТА ПО ПРАВИЛАМ (18.11.2026, lib/metaSendBlock.ts).
+       * Тоже решение, а не поломка: ответ помечаем «не дошло», но замок дубля НЕ
+       * снимаем (повторная доставка Meta иначе прогнала бы ход заново и снова
+       * упёрлась в запрет) и общий пуш «доставка требует проверки» не шлём — человеку
+       * уже ушёл «клиент ждёт ответа» с настоящей причиной, руководству — тревога.
+       */
+      if (isMetaSendBlockError(err)) {
+        traceOutcome("blocked");
+        if (!providerAcceptedReply) await markLastReplyUndelivered(msg.channel, msg.senderId, deliveryTransport ?? deliveryAccountId);
+        if (providerAcceptedReply) replySent = true;
+        console.warn(`[метка Meta] ${msg.channel}: ответ не отправлен — ${err.message.slice(0, 200)}`);
         continue;
       }
       console.error("[meta] обработка сообщения упала:", err);
