@@ -233,12 +233,54 @@ describe("property narration route boundaries", () => {
     expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{вид} барои фурӯш. Нархаш {цена}." }] })).status).toBe(200);
     expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{стоимость} барои фурӯш." }] })).status).toBe(400);
   });
+  it("settings PUT guards templates and endings (16.11.2026): digits in Tajik text, Direct in Latin, the word брон; types and endings are saved", async () => {
+    s.role = "ADMIN"; s.configSave.mockResolvedValue({});
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [], autoGenerate: true }, elevenLabsApiKey: "test" });
+    const template = { id: "tg-apt-1", name: "Квартира 1", lang: "tg", text: "{вид} барои фурӯш. Нархаш {цена}.", propertyTypes: ["APARTMENT"] };
+    const ending = { id: "end-a", lang: "tg", text: "Ба мо дар Директ нависед ё занг занед.", propertyTypes: ["APARTMENT", "HOUSE"] };
+    const put = (body: object) => request(app).put("/properties/narration-settings").send(body);
+    const ok = await put({ templates: [template], endings: [ending] });
+    expect(ok.status).toBe(200);
+    expect(s.configSave.mock.calls.at(-1)![0].update.propertyNarrationConfig).toMatchObject({ templates: [template], endings: [ending] });
+    for (const [field, bad] of [["Хона аз 3 ҳуҷра", /цифры/u], ["Ба мо дар Direct нависед", /Директ/u], ["Хонаро брон кунед, нархаш {цена}", /брон/u]] as const) {
+      const asTemplate = await put({ templates: [{ ...template, text: field }] });
+      expect(asTemplate.status, field).toBe(400);
+      expect(asTemplate.body.error).toMatch(bad);
+      expect(asTemplate.body.error).toContain("Квартира 1");
+      const asEnding = await put({ endings: [{ ...ending, text: `${field}.` }] });
+      expect(asEnding.status, field).toBe(400);
+      expect(asEnding.body.error).toMatch(bad);
+    }
+    expect((await put({ endings: [ending, ending] })).status).toBe(400);
+    expect((await put({ templates: [{ ...template, propertyTypes: ["GARAGE"] }] })).status).toBe(400);
+  });
+  it("review 17.11: new text rules apply only to new or changed texts; unreadable saved config blocks saving", async () => {
+    s.role = "ADMIN"; s.configSave.mockResolvedValue({});
+    const old = { id: "tg-old", name: "Старый", lang: "tg", text: "Хона аз 3 ҳуҷра. Нархаш {цена}." };
+    const put = (body: object) => request(app).put("/properties/narration-settings").send(body);
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [old], autoGenerate: true }, elevenLabsApiKey: "test" });
+    // Выключили автоозвучку: старый живой шаблон с цифрой не мешает.
+    expect((await put({ autoGenerate: false })).status).toBe(200);
+    // Тот же шаблон, другой текст с цифрой: новое правило.
+    expect((await put({ templates: [{ ...old, text: "Хона аз 4 ҳуҷра. Нархаш {цена}." }] })).status).toBe(400);
+    // Структурные ошибки (неизвестное слово) ловятся и у неизменённого.
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [{ ...old, text: "{стоимость} 3" }] }, elevenLabsApiKey: "test" });
+    expect((await put({ autoGenerate: false })).status).toBe(400);
+    // Сохранённая основа не читается схемой (больше 100 шаблонов): сохранение отклонено, ничего не записано.
+    s.configSave.mockClear();
+    const many = Array.from({ length: 101 }, (_, i) => ({ id: `t-${i}`, name: `Ш ${i}`, lang: "tg", text: "{вид} барои фурӯш." }));
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [{ id: "v", name: "В" }], templates: many }, elevenLabsApiKey: "test" });
+    const blocked = await put({ autoGenerate: true });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error).toMatch(/не читаются/u);
+    expect(s.configSave).not.toHaveBeenCalled();
+  });
   it("wizard options show templates and voices to any staff, without key or model", async () => {
     s.role = "AGENT";
     s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "secret-model", voices: [{ id: "voice", name: "Мадина", gender: "female" }], autoGenerate: true, templates: [] }, elevenLabsApiKey: "test" });
     const response = await request(app).get("/properties/narration-options");
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ templates: [], voices: [{ id: "voice", name: "Мадина", gender: "female" }], defaultTemplateId: null, defaultVoiceId: null, autoGenerate: true, lastChoice: {}, samples: [] });
+    expect(response.body).toEqual({ templates: [], endings: [], voices: [{ id: "voice", name: "Мадина", gender: "female" }], defaultTemplateId: null, defaultVoiceId: null, autoGenerate: true, lastChoice: {}, samples: [] });
   });
   it("an agent edit with generate is refused while auto narration is off", async () => {
     s.role = "AGENT";

@@ -39,7 +39,18 @@ describe("Настройки CRM: озвучка роликов", () => {
     const html = render(view({ canConfigure: false }));
     expect(html).toContain("Менять настройки озвучки может директор или администратор");
     expect(html).not.toContain("Сохранить настройки озвучки");
-    expect(html.match(/<fieldset[^>]*disabled/g)?.length).toBe(6);
+    // 7 = прежние 5 + «Концовки» (#216) + «Озвучка текста в помощнике» (#214).
+    expect(html.match(/<fieldset[^>]*disabled/g)?.length).toBe(7);
+  });
+  it("шаблоны и концовки (16.11.2026): у каждого галочки типов объекта, «только вручную», отдельный блок «Концовки»", () => {
+    const html = render(view({ config: { ...view().config,
+      templates: [{ id: "tg-apt-1", name: "Квартира 1", lang: "tg", text: "{вид} барои фурӯш.", propertyTypes: ["APARTMENT"] }, { id: "tg-short", name: "Кӯтоҳ", lang: "tg", text: "{вид} барои фурӯш.", manualOnly: true }],
+      endings: [{ id: "end-a", lang: "tg", text: "Ба мо дар Директ нависед ё занг занед.", propertyTypes: ["APARTMENT", "HOUSE"] }, { id: "end-b", lang: "tg", text: "Ба мо занг занед." }] } }));
+    for (const part of ["Концовки", "Добавить концовку", "Текст концовки", "Язык концовки", "Только вручную", "Подходит для", "Квартира", "Дом", "Участок", "Коммерция", "(любой объект)"]) expect(html).toContain(part);
+    // Отмечено только то, что сохранено: у «Квартира 1» одна галочка типа, у «Кӯтоҳ» «только вручную», у концовки А две; плюс три общих рубильника
+    // (третий — «Озвучка текста в помощнике» из #214, по умолчанию включён).
+    expect(html.match(/type="checkbox"[^>]*checked/g)?.length).toBe(1 + 1 + 2 + 3);
+    expect(html).toContain("Ба мо дар Директ нависед ё занг занед.");
   });
   it("озвучка текста в помощнике: тумблер и три числа с умолчаниями, из настроек подставляются свои", () => {
     const html = render(view());
