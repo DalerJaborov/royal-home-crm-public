@@ -16,7 +16,8 @@ import { scheduleLegacyCoreShadow } from "../lib/customerAgentLegacyShadow.js";
  *  - reply → `reply` (but a reply that sends the person to private messages is NOT posted: YouTube has no DMs — staff);
  *  - silent → `ignore`; moderation → `hide` (reversible; never `delete`, which the old path also uses to open an OTHER lead);
  *  - staff → `escalate` (posts nothing, pushes staff), including the core's own refusal (`core_refused`, review #223 N3);
- *    unavailable (a transient failure only) → null (the existing AI-down retry path).
+ *    unavailable (a transient failure only) → null (the existing AI-down retry path), at most until the comment's third run:
+ *    then staff (`core_unavailable`, review #223 R1).
  */
 const PRIVATE_MESSAGES = /личн\p{L}*\s+сообщени|в\s+директ|в\s+личк|паёми\s+шахсӣ|паёми\s+шахси|ба\s+директ|дар\s+директ|direct/iu;
 
@@ -26,6 +27,7 @@ const YOUTUBE_STAFF_REASON: Record<Extract<ChannelCoreOutcome, { status: "staff"
   action_needs_staff: "клиент просит действие, которое бот под роликом не оформляет",
   unreadable_input: "бот не смог прочитать комментарий",
   core_refused: "бот не смог ответить по существу",
+  core_unavailable: "ИИ не ответил после нескольких попыток",
 };
 
 export function youtubeCoreDecision(outcome: ChannelCoreOutcome): CommentDecision | null {
@@ -37,9 +39,11 @@ export function youtubeCoreDecision(outcome: ChannelCoreOutcome): CommentDecisio
   return { action: "reply", reply: outcome.text };
 }
 
-export async function decideYoutubeCommentWithCore(row: { id: string; commentId: string; text: string }): Promise<CommentDecision | null> {
+/** `attempts` is the queue row's value BEFORE this claim (messengers/comments.ts increments it on claim): this run is attempts + 1. */
+export async function decideYoutubeCommentWithCore(row: { id: string; commentId: string; text: string; attempts?: number }): Promise<CommentDecision | null> {
   const outcome = await runChannelCoreTurn({ channel: "YOUTUBE", channelKey: "youtube", surface: "public_comment",
-    conversationId: row.id, eventId: row.commentId, history: [{ role: "user", content: row.text }], phoneKnown: false }, { mode: "live" });
+    conversationId: row.id, eventId: row.commentId, history: [{ role: "user", content: row.text }], phoneKnown: false,
+    attempt: (row.attempts ?? 0) + 1 }, { mode: "live" });
   return youtubeCoreDecision(outcome);
 }
 

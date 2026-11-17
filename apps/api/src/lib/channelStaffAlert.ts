@@ -27,7 +27,7 @@ const BATCH_MS = 2 * 60 * 1000;
 
 export type ChannelStaffWhy = ChannelCoreStaffReason | "bot_retired";
 /** The channel answers the customer with the handover line after these (when the alert was not skipped). */
-const HANDED_OVER: ReadonlySet<ChannelStaffWhy> = new Set(["escalate", "action_needs_staff", "unreadable_input", "core_refused"]);
+const HANDED_OVER: ReadonlySet<ChannelStaffWhy> = new Set(["escalate", "action_needs_staff", "unreadable_input", "core_refused", "core_unavailable"]);
 const HANDED_OVER_NOTE = " Клиенту бот отвечает, что передал сообщение сотруднику.";
 
 export async function alertChannelStaff(input: { channel: string;
@@ -86,4 +86,5 @@ const WHY_TEXT: Record<ChannelStaffWhy, string> = {
   bot_retired: "Автоответ в этом канале выключен: ответьте клиенту сами.",
   unreadable_input: "Бот не смог прочитать сообщение (голосовое без расшифровки, фото или файл): посмотрите и ответьте сами.",
   core_refused: "Бот не смог ответить по существу: ответьте клиенту сами.",
+  core_unavailable: "ИИ не ответил после нескольких попыток: ответьте клиенту сами.",
 };

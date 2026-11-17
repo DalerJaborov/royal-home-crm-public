@@ -144,14 +144,23 @@ describe("N3 (re-review #223): a transient failure is repeated, the core's own r
       history: [{ role: "user", content: "Сколько стоит двушка в Сино?" }], phoneKnown: false }, { mode: "live" });
     expect(outcome).toEqual({ status: "unavailable", reason: "turn_unavailable" });
   });
-  it("only provider/runtime failures are repeated; every verdict of the core is a person; unknown = a person", () => {
-    for (const reason of ["turn_unavailable", "turn_deadline", "operation_stopped", "runtime_unavailable", "channel_core_failed"]) {
+  it("held REASONS: only provider/runtime failures are repeated; every verdict of the core is a person; unknown = a person", () => {
+    for (const reason of ["turn_deadline", "operation_stopped", "runtime_unavailable", "channel_core_failed"]) {
       expect(channelCoreRetryable(reason)).toBe(true);
     }
+    // These come back as the held reason itself (e.g. confirmCommitted("tool_limit") on a too-large batch).
     for (const reason of ["surface_decision_denied", "unsupported_decision_evidence", "facts_unavailable", "round_limit", "tool_limit",
       "output_limit", "invalid_model_decision", "invalid_model_turn", "input_limit", "effect_unknown", "some_reason_added_later"]) {
       expect(channelCoreRetryable(reason)).toBe(false);
     }
+  });
+  it("R1: `turn_unavailable` is every exception of the turn — its CAUSE decides (real exceptions: one-brain-core-retry-cap.test.ts)", () => {
+    // The core's own thrown limits arrive as turn_unavailable + cause, never as the reason: they must not be repeated.
+    for (const cause of ["tool_limit", "unavailable_tool", "call_id_reused", "public_write_denied", "invalid_server_observation", "effect_unknown"]) {
+      expect(channelCoreRetryable("turn_unavailable", cause), cause).toBe(false);
+    }
+    expect(channelCoreRetryable("turn_unavailable", "provider_http_503")).toBe(true);
+    expect(channelCoreRetryable("turn_unavailable", "TypeError")).toBe(true);
   });
   it("guard: every repeatable reason is really produced by the core or the adapter (no typo silently turns into «a person»)", () => {
     const code = readFileSync(new URL("../src/ai/customerAgentCore.ts", import.meta.url), "utf8") +

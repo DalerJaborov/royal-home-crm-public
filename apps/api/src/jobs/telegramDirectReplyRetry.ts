@@ -33,7 +33,7 @@ export const telegramDirectReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
   // мало, удавшийся ход засчитывался сорвавшейся попыткой (№169 ночной
   // проверки 24.09). Тот же срок, что у telegramReplyRetry/aiReplyRetry.
   timeoutMs: BOT_TURN_JOB_TIMEOUT_MS,
-  async run(payload) {
+  async run(payload, context) {
     const conversation = await prisma.telegramDirectConversation.findUnique({
       where: { id: payload.conversationId },
       select: {
@@ -85,7 +85,8 @@ export const telegramDirectReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       // память бота работала бы «в основном режиме, но не при повторе».
       contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
       phoneKnown,
-    }, { channel: "TELEGRAM_DIRECT", repeat: "retry" }); // a repeat of an already-shadowed turn; own switch key (review #223 N2)
+    }, { channel: "TELEGRAM_DIRECT", repeat: "retry", // a repeat of an already-shadowed turn; own switch key (review #223 N2)
+      ...(context ? { attempt: context.attempt + 1 } : {}) }); // core: at most 3 runs of one turn (review #223 R1)
     if (!result) throw new Error("ИИ всё ещё недоступен");
 
     try {

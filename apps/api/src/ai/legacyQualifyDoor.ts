@@ -44,6 +44,11 @@ export interface ChannelTurnSource {
    * the core's text is already server-verified, so in `core` mode there is no second run and the guard's own fallback applies).
    */
   repeat?: "retry" | "regeneration";
+  /**
+   * `retry` only: which run of this customer turn the repeat is (the live turn was 1; a retry job passes its own attempt + 1).
+   * In `core` mode it bounds the paid repeats (lib/customerChannelCore.ts CHANNEL_CORE_MAX_ATTEMPTS); `legacy` ignores it.
+   */
+  attempt?: number;
 }
 /** @deprecated step 2 name, kept for the callers' types. */
 export type LegacyShadowSource = ChannelTurnSource;
@@ -112,10 +117,11 @@ async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOp
     .map(item => ({ role: item.role as "user" | "assistant", content: typeof item.content === "string" ? item.content : "" }));
   const outcome = await runChannelCoreTurn({ channel: source.channel, channelKey: key, accountId: options.accountId ?? null,
     traceAccount: source.traceAccount ?? null, conversationId: options.conversationId ?? null, eventId: source.eventId ?? null,
-    history: turnHistory, phoneKnown: options.phoneKnown === true }, { mode: "live" });
-  // Only a TRANSIENT failure (provider, network, deadline) comes back as `unavailable`: the channel's AI-retry job plays the
-  // turn again later (and tells staff when it gives up). The core's own refusal is already `staff` (`core_refused`, review
-  // #223 N3): a repeat would reproduce it for ~13 hours, so a person is told now and the customer hears the handover line.
+    history: turnHistory, phoneKnown: options.phoneKnown === true, ...(source.repeat === "retry" && source.attempt ? { attempt: source.attempt } : {}) },
+    { mode: "live" });
+  // Only a TRANSIENT failure (provider, network, deadline) comes back as `unavailable`, and only before the third run of this
+  // turn: the channel's AI-retry job plays it again later. The core's own refusal (`core_refused`, review #223 N3/R1) and the
+  // used-up repeats (`core_unavailable`) are `staff`: a person is told now and the customer hears the handover line.
   if (outcome.status === "unavailable" || outcome.status === "moderate") return null;
   const ownTexts = turnHistory.filter(item => item.role === "user").map(item => channelOwnWords(item.content)).filter(Boolean);
   if (outcome.status === "staff") {

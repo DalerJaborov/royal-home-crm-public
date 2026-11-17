@@ -4203,7 +4203,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   if (!input.retryOfPaidTurn) await spendAiTurns(conversation.id, budget.dayKey);
   // One brain, step 2: the per-channel shadow (lib/customerAgentChannelSwitch.ts). A paid retry repeats an already-shadowed turn.
   const result = await runLegacyQualifyTurn(nextHistory, draft, qualifyOptions, { channel, traceAccount: input.accountExternalId ?? null,
-    eventId: input.skipSaveIncoming ? null : input.messageId ?? null, ...(input.retryOfPaidTurn ? { repeat: "retry" as const } : {}) });
+    eventId: input.skipSaveIncoming ? null : input.messageId ?? null,
+    ...(input.retryOfPaidTurn ? { repeat: "retry" as const, ...(input.retryAttempt ? { attempt: input.retryAttempt } : {}) } : {}) });
 
   if (!result) {
     /**

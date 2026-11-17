@@ -4,7 +4,7 @@ import { customerAgentApprovedFileStateSchema, customerAgentDecisionSchema, cust
   customerPropertyFactsSchema, customerPropertyFactKindSchema, type CustomerAgentDecision, type CustomerAgentSayDropReason, type CustomerAgentAnswerDropReason, type CustomerAgentSayMode, type CustomerAgentRevision, type CustomerAgentSurface,
   type CustomerAgentToolCall, type CustomerAgentVerifiedContext, type CustomerPropertyFactKind, type CustomerAgentApprovedFileState } from "@royal-home/shared";
 import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
-import type { ProviderOperation } from "./providerContract.js";
+import { isProviderOperationError, type ProviderOperation } from "./providerContract.js";
 import { renderCustomerAgentDecision, customerAgentAnswerVerdict, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, isCustomerCompanyInformation } from "./customerAgentPublicProtocol.js";
@@ -123,9 +123,40 @@ function liftSay(raw: unknown): { say: unknown; answer: unknown; rest: unknown }
 export function safeCauseCode(error: unknown): string {
   if (error instanceof Error) {
     if (error.message.length <= 48 && /^[a-z]+(?:_[a-z0-9]+)+$/.test(error.message)) return error.message;
+    // Closed provider stop reasons and HTTP statuses are codes, not text (review #223 R1): a retry must tell a deadline or a
+    // 503 (transient) from `budget_denied`, `unsupported` or a 400 (a repeat fails the same way).
+    if (isProviderOperationError(error) && /^[a-z]+(?:_[a-z]+)*$/.test(error.reason)) return `provider_${error.reason}`;
+    const status = (error as Error & { status?: unknown }).status;
+    if (Number.isInteger(status) && (status as number) >= 400 && (status as number) <= 599) return `provider_http_${status as number}`;
     if (/^[A-Za-z][A-Za-z0-9]{1,39}$/.test(error.name)) return error.name;
   }
   return "unknown_error";
+}
+/**
+ * Codes this core throws ITSELF (review #223 R1, 17.11.2026). Each `throw new Error("<code>")` in this file is listed here
+ * (CI guard: tests/one-brain-core-retry-cap.test.ts). A turn that ends in one of the `refusal` codes is the core's own
+ * verdict on these words and this state — a repeat reproduces it; `transient` ones are the clock (the original deadline or a
+ * stopped port) and a fresh run may pass.
+ */
+export const CUSTOMER_CORE_THROWN_CODES = {
+  transient: ["turn_deadline", "port_not_started", "port_deadline", "port_cancelled"],
+  refusal: ["unavailable_tool", "public_write_denied", "tool_limit", "call_id_reused", "invalid_server_observation", "effect_unknown",
+    "original_context_changed"],
+} as const;
+const TRANSIENT_PROVIDER_CAUSES: readonly string[] = ["provider_deadline", "provider_cancelled", "provider_attempt_budget", "provider_accounting_unavailable"];
+/**
+ * Pure: may a FRESH run of the same turn escape this failure (review #223 R1)? `cause` is `safeCauseCode` of the exception.
+ *  - yes: the clock (deadline, stopped port), provider 408/429/5xx, provider deadline/cancel/accounting, and an exception without
+ *    a code of its own (a class name such as `Error`/`TypeError`/`TimeoutError`, or `unknown_error`): network and provider
+ *    failures arrive that way, and so does a bug in our own reads — the CALLER bounds those repeats (3 attempts on channels);
+ *  - no: every other snake_case code — the core's own refusals and limits, the model's stops (`model_*`), `provider_unsupported`,
+ *    `provider_budget_denied`, provider 4xx. Protection by default: a code added later is a refusal, not a repeat.
+ */
+export function customerCoreFailureTransient(cause: string | undefined): boolean {
+  if (!cause || cause === "unknown_error") return true;
+  if ((CUSTOMER_CORE_THROWN_CODES.transient as readonly string[]).includes(cause) || TRANSIENT_PROVIDER_CAUSES.includes(cause)) return true;
+  if (/^provider_http_(?:408|429|5\d\d)$/.test(cause)) return true;
+  return !/^[a-z]+(?:_[a-z0-9]+)+$/.test(cause);
 }
 const decisionKindsFor = (surface: CustomerAgentSurface) => surface === "public_comment"
   ? ["reply", "clarify", "propose", "escalate", "skip", "moderation_proposal"] : ["reply", "clarify", "propose", "escalate"];

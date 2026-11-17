@@ -138,6 +138,11 @@ export interface MessengerTurnInput {
    * стоит попытка, а повтор доводит до конца ту же попытку (правило 03.08.2026).
    */
   retryOfPaidTurn?: boolean;
+  /**
+   * С `retryOfPaidTurn`: какой это прогон хода клиента (живой ход — 1; задание ai-reply-retry передаёт свою попытку + 1).
+   * Ядро на канале (режим `core`) по нему ограничивает платные повторы тремя прогонами (ревью #223 R1); старый бот не читает.
+   */
+  retryAttempt?: number;
 }
 
 export interface MessengerTurnResult {

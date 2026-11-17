@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { customerAgentVerifiedContextSchema, type CustomerAgentLegacyChannel, type CustomerAgentToolCall,
   type CustomerAgentVerifiedContext } from "@royal-home/shared";
 import { prisma } from "../db.js";
-import { runCustomerAgentTurn, type CustomerAgentToolResult, type CustomerCoreResult } from "../ai/customerAgentCore.js";
+import { runCustomerAgentTurn, customerCoreFailureTransient, type CustomerAgentToolResult, type CustomerCoreResult } from "../ai/customerAgentCore.js";
 import { customerAgentToolDefinitions } from "../ai/customerAgentToolDefinitions.js";
 import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
 import { customerPublicLanguage } from "../ai/customerAgentConversationPolicy.js";
@@ -52,6 +52,11 @@ export interface ChannelCoreTurn {
   history: readonly { role: "user" | "assistant"; content: string }[];
   /** The phone is already in the client's card: never ask it again. */
   phoneKnown: boolean;
+  /**
+   * Which run of THIS customer turn this is: 1 = the live turn (default), n = the (n-1)-th repeat of the channel's AI-retry
+   * (the job's own attempt + 1; YouTube: the comment row's attempt). Live mode only: see CHANNEL_CORE_MAX_ATTEMPTS.
+   */
+  attempt?: number;
 }
 /** What the conversation tells about the lead, from the customer's own words only (never the model). */
 export interface ChannelCoreIntake {
@@ -71,27 +76,36 @@ export type ChannelCoreOutcome =
   | { status: "moderate"; action: "hide" | "delete" }
   /** A transient failure (provider, network, deadline, revision being published): the channel's existing AI-retry takes over. */
   | { status: "unavailable"; reason: string };
-export type ChannelCoreStaffReason = "escalate" | "action_needs_staff" | "unreadable_input" | "core_refused";
+export type ChannelCoreStaffReason = "escalate" | "action_needs_staff" | "unreadable_input" | "core_refused" | "core_unavailable";
 
 /**
- * HELD REASONS WORTH A REPEAT (review #223 N3, 17.11.2026). The channels' AI-retry ladder plays a turn again for up to
- * ~13 hours (jobs/aiReplyRetryPolicy.ts, 46 attempts, each a paid model call). Only a failure that a later, fresh run can
- * escape belongs there: the provider or the network failed (`turn_unavailable` — every exception of the turn, provider
- * 5xx/timeouts arrive as ProviderOperationError), the deadline ran out, the runtime or the pinned revision is not available
- * right now. Every OTHER reason is the core's own verdict on these words (no supported answer, surface decision denied,
- * round/tool/output limit, malformed model output, input too large…): a repeat reproduces it, so a person answers at once.
- * Protection by default: a reason the core adds later is a person, not 13 hours of silence.
+ * HELD REASONS WORTH A REPEAT (review #223 N3 + R1, 17.11.2026). The channels' AI-retry ladder would play a turn again for up
+ * to ~13 hours (jobs/aiReplyRetryPolicy.ts, 46 attempts, each a paid model call); on the core it is cut to
+ * CHANNEL_CORE_MAX_ATTEMPTS. Only a failure that a later, fresh run can escape is repeated: the deadline ran out, the runtime
+ * or the pinned revision is not available right now, the adapter threw, or the turn failed (`turn_unavailable`) with a
+ * TRANSIENT cause — provider 408/429/5xx, network, timeout (customerCoreFailureTransient). `turn_unavailable` is EVERY
+ * exception of the turn, so its cause decides: the core's own limits and refusals (`tool_limit`, `unavailable_tool`,
+ * `call_id_reused`…), the model's stops and provider 4xx/budget/unsupported are a person now, like every other reason
+ * (no supported answer, surface decision denied, round/output limit, malformed model output, input too large…).
+ * Protection by default: a reason or code the core adds later is a person, not a repeat.
  */
 export const CHANNEL_CORE_RETRY_REASONS: readonly string[] = [
-  // the provider / the turn failed or was stopped by its deadline
+  // the turn failed (transient causes only, see above) or was stopped by its deadline
   "turn_unavailable", "turn_deadline", "operation_stopped",
   // the adapter could not start the core now (runtime, revision being published), or threw
   "runtime_unavailable", "no_active_revision", "revision_missing", "channel_core_failed",
 ];
-/** Pure: is this HELD reason a transient failure (repeat) rather than the core's refusal (a person now)? */
-export function channelCoreRetryable(reason: string): boolean {
-  return CHANNEL_CORE_RETRY_REASONS.includes(reason);
+/** Pure: is this HELD turn a transient failure (repeat) rather than the core's refusal (a person now)? */
+export function channelCoreRetryable(reason: string, cause?: string): boolean {
+  if (!CHANNEL_CORE_RETRY_REASONS.includes(reason)) return false;
+  return reason !== "turn_unavailable" || customerCoreFailureTransient(cause);
 }
+/**
+ * At most this many runs of ONE customer turn on the core (owner 17.11.2026, review #223 R1): the live turn and two repeats.
+ * After the last one a person is told at once and the customer hears the handover line; a run past the limit (a job that
+ * failed after the model answered, a re-queued retry) never calls the model again.
+ */
+export const CHANNEL_CORE_MAX_ATTEMPTS = 3;
 
 export const CHANNEL_CORE_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
 const MAX_DEADLINE_MS = 60_000;
@@ -133,7 +147,7 @@ export function channelCoreIntake(history: ChannelCoreTurn["history"]): ChannelC
 /** Pure: map a finished core turn to what the channel does. */
 export function channelCoreOutcome(result: CustomerCoreResult, intake: ChannelCoreIntake, surface: ChannelCoreSurface,
   language: "ru" | "tg" = "ru"): ChannelCoreOutcome {
-  if (result.status !== "ready") return channelCoreRetryable(result.reason) ? { status: "unavailable", reason: result.reason }
+  if (result.status !== "ready") return channelCoreRetryable(result.reason, result.cause) ? { status: "unavailable", reason: result.reason }
     : { status: "staff", reason: "core_refused", intake, language };
   const decision = result.decision;
   if (decision.kind === "skip") return { status: "silent", reason: decision.reason };
@@ -150,13 +164,35 @@ export function channelCoreOutcome(result: CustomerCoreResult, intake: ChannelCo
 
 type Runtime = Extract<Awaited<ReturnType<typeof openPinnedCustomerAgentRuntime>>, { status: "ready" }>["runtime"];
 
+type ChannelCoreRunOptions = { mode: "shadow" | "live";
+  afterCore?: (result: CustomerCoreResult, context: { historyTurns: number; toolsOffered: number }) => void; traceConfig?: TraceConfig };
+
+/** Pure: the staff outcome when the repeats of one turn are used up (language and lead facts from the customer's words). */
+function channelCoreRetriesExhausted(history: ChannelCoreTurn["history"]): ChannelCoreOutcome {
+  const { inputText, turns } = channelCoreTurns(history);
+  return { status: "staff", reason: "core_unavailable", intake: channelCoreIntake(history),
+    language: resolveCustomerDmLanguage(inputText, turns.filter(item => item.role === "user").map(item => item.text)) };
+}
+
 /**
- * One core turn on a channel history. Never throws: a transient failure is `unavailable` (the caller's retry plays it again),
- * the core's own refusal is `staff` (`core_refused`, see CHANNEL_CORE_RETRY_REASONS).
- * `afterCore` runs inside the trace scope (the shadow writes its comparison there).
+ * One core turn on a channel history. Never throws: a transient failure is `unavailable` (the caller's retry plays it again)
+ * until the CHANNEL_CORE_MAX_ATTEMPTS-th run, then `staff` (`core_unavailable`); the core's own refusal is `staff`
+ * (`core_refused`, see CHANNEL_CORE_RETRY_REASONS). `afterCore` runs inside the trace scope (the shadow writes its comparison there).
  */
-export async function runChannelCoreTurn(turn: ChannelCoreTurn, options: { mode: "shadow" | "live";
-  afterCore?: (result: CustomerCoreResult, context: { historyTurns: number; toolsOffered: number }) => void; traceConfig?: TraceConfig }): Promise<ChannelCoreOutcome> {
+export async function runChannelCoreTurn(turn: ChannelCoreTurn, options: ChannelCoreRunOptions): Promise<ChannelCoreOutcome> {
+  if (options.mode === "shadow") return runChannelCoreTurnOnce(turn, options);
+  const attempt = Number.isSafeInteger(turn.attempt) && (turn.attempt as number) >= 1 ? turn.attempt as number : 1;
+  // Past the limit: no model call at all — this turn's repeats are spent (a re-queued job, a job that failed after the core).
+  if (attempt > CHANNEL_CORE_MAX_ATTEMPTS) return channelCoreRetriesExhausted(turn.history);
+  const outcome = await runChannelCoreTurnOnce(turn, options);
+  if (outcome.status === "unavailable" && attempt >= CHANNEL_CORE_MAX_ATTEMPTS) {
+    console.error(`[one-brain] ${turn.channel}: ${attempt} runs of one turn unavailable (${outcome.reason}) — a person answers`);
+    return turn.history.some(item => item.role === "user") ? channelCoreRetriesExhausted(turn.history) : outcome;
+  }
+  return outcome;
+}
+
+async function runChannelCoreTurnOnce(turn: ChannelCoreTurn, options: ChannelCoreRunOptions): Promise<ChannelCoreOutcome> {
   try {
     const surface = turn.surface ?? "dm";
     const { inputText, turns } = channelCoreTurns(turn.history);
