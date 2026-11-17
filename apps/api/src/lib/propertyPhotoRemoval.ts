@@ -6,8 +6,8 @@
  */
 import path from "node:path";
 import fs from "node:fs/promises";
-import type { Property, PropertyPhoto } from "../generated/prisma/client.js";
-import { prisma } from "../db.js";
+import type { PropertyPhoto } from "../generated/prisma/client.js";
+import { prisma, type PropertyRecord } from "../db.js";
 import { uploadsDir } from "../upload.js";
 import { MIN_PROPERTY_PHOTOS } from "./propertyPipeline.js";
 import { resyncPhotosIfPublished, syncPropertiesToSite } from "./siteSync.js";
@@ -17,7 +17,7 @@ import { removeMessagePhoto } from "./messagePhoto.js";
 import { sendPushToAgent } from "../push.js";
 import { logTimeline } from "./timeline.js";
 
-export async function removePropertyPhoto(photo: PropertyPhoto, property: Property, actorId: string): Promise<void> {
+export async function removePropertyPhoto(photo: PropertyPhoto, property: PropertyRecord, actorId: string): Promise<void> {
   await prisma.propertyPhoto.delete({ where: { id: photo.id } });
 
   // Файлы улучшения ИИ (enhanced*/original*) — те же уровни диска, что и

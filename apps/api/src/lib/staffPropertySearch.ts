@@ -1,5 +1,5 @@
 import { distanceMeters } from "@royal-home/shared";
-import { prisma } from "../db.js";
+import { prisma, type PropertyDefaultOmit } from "../db.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { MIN_REAL_PURCHASE_TJS } from "../ai/moneyThresholds.js";
 import { boundingBoxAround, MAX_DESIRED_PLACE_RADIUS_M, ADAPTIVE_RADIUS_STEPS, MIN_ADAPTIVE_CANDIDATES } from "./geoDistance.js";
@@ -105,7 +105,7 @@ const INCLUDE = {
   deletedBy: { select: { fullName: true } },
 } as const;
 
-export type StaffPropertyRow = Prisma.PropertyGetPayload<{ include: typeof INCLUDE }>;
+export type StaffPropertyRow = Prisma.PropertyGetPayload<{ include: typeof INCLUDE; omit: PropertyDefaultOmit }>;
 
 export interface StaffPropertyHit {
   property: StaffPropertyRow;

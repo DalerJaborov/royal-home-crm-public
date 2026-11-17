@@ -13,7 +13,7 @@
  *  — «после обновления»: автоподбор покупателей на снижение цены, досылка на сайт,
  *    точечная перепись подписи в базе, цена в посты соцсетей.
  */
-import type { Property } from "../generated/prisma/client.js";
+import type { PropertyRecord } from "../db.js";
 import { generateSeoFields, type SeoFields } from "../ai/seoGenerator.js";
 import { notifyWaitingBuyersOfNewProperty } from "./propertyMatchFilter.js";
 import { loadMoneyContext, toTjs } from "./money.js";
@@ -66,7 +66,7 @@ export interface SeoPatch {
  * seoDesc идут на сайт и в поиск, «$» там неуместен.
  */
 export async function seoFieldsForUpdate(
-  existing: Property,
+  existing: PropertyRecord,
   data: SeoPatch,
   districtName: string | undefined,
   changedFields: readonly string[]
@@ -96,9 +96,9 @@ export async function seoFieldsForUpdate(
 
 export interface PostUpdateEffectsInput {
   /** Карточка ДО правки. */
-  existing: Property;
+  existing: PropertyRecord;
   /** Карточка ПОСЛЕ правки (свежая из базы). */
-  updated: Property;
+  updated: PropertyRecord;
   /** Что реально изменилось (changedPropertyFields). */
   changedFields: readonly string[];
   /** Цена или валюта реально изменились — даже если число то же, а валюта другая. */
