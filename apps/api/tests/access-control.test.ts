@@ -892,12 +892,12 @@ describe("Роль DIRECTOR — иерархия прав", () => {
         .patch("/api/v1/settings")
         .set("Authorization", `Bearer ${directorToken}`)
         .send({
-          royalScoreEventPoints: { deal_closed: 12, property_rework_fixed: 2.7 },
+          royalScoreEventPoints: { deal_closed: 12, photos_approved_first_try: 2.7 },
           royalScoreWindowDays: 45,
           royalScoreStartingScore: 80,
         });
       expect(res.status).toBe(200);
-      expect(res.body.royalScoreEventPoints).toEqual({ deal_closed: 12, property_rework_fixed: 2.7 });
+      expect(res.body.royalScoreEventPoints).toEqual({ deal_closed: 12, photos_approved_first_try: 2.7 });
       expect(res.body.royalScoreWindowDays).toBe(45);
       expect(res.body.royalScoreStartingScore).toBe(80);
     });
@@ -908,6 +908,22 @@ describe("Роль DIRECTOR — иерархия прав", () => {
         .set("Authorization", `Bearer ${directorToken}`)
         .send({ royalScoreEventPoints: { kpi_override: 99 } });
       expect(res.status).toBe(400);
+    });
+
+    it("отрицательная цена начисляемого события отклоняется — штрафов нет (16.11.2026)", async () => {
+      const res = await request(app)
+        .patch("/api/v1/settings")
+        .set("Authorization", `Bearer ${directorToken}`)
+        .send({ royalScoreEventPoints: { call_on_time: -2 } });
+      expect(res.status).toBe(400);
+    });
+
+    it("компенсации минус принимают: аннулированная сделка гасит свой плюс", async () => {
+      const res = await request(app)
+        .patch("/api/v1/settings")
+        .set("Authorization", `Bearer ${directorToken}`)
+        .send({ royalScoreEventPoints: { deal_closed_reversed: -12 } });
+      expect(res.status).toBe(200);
     });
 
     it("окно расчёта вне границ (0 дней) отклоняется", async () => {

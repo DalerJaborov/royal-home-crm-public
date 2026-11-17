@@ -752,8 +752,10 @@ export function PultContactReminders({ hero, canCalls, canClients }: {
       {canClients && <Reminder
         to="/clients"
         title="Первое касание — вчера"
-        sub={`${median === null ? "Медиана не рассчитана" : `Медиана ${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 }).format(median)} мин`} · без касания: ${hero.firstResponse.noneCountYesterday}`}
-        ring={<CChip tone={hero.firstResponse.noneCountYesterday > 0 ? "warn" : "gray"}>{hero.firstResponse.noneCountYesterday}</CChip>}
+        // «Без касания» убран 16.11.2026: «без контакта» — одно правило и один счётчик
+        // (packages/shared/src/clientNoContact.ts, «Контроль руководителя»). Здесь — только скорость.
+        sub={median === null ? "Медиана не рассчитана" : `Медиана ${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 }).format(median)} мин`}
+        ring={<CChip tone="gray">{median === null ? "—" : Math.round(median)}</CChip>}
       />}
     </>
   );

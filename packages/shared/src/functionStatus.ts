@@ -83,6 +83,14 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     errorSources: ["ai"],
   },
   {
+    key: "bot-answer-mode",
+    title: "Ответ бота своими словами",
+    what: "Бот пишет клиенту весь ответ своими словами вокруг проверенных фактов, а не только готовым шаблоном.",
+    group: "bot",
+    env: ["CUSTOMER_AGENT_ANSWER_MODE"],
+    errorSources: ["ai"],
+  },
+  {
     key: "bot-photos",
     title: "Фото объектов в чате",
     what: "Бот присылает клиенту фотографии объекта прямо в переписке.",

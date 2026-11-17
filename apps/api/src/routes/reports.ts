@@ -217,7 +217,10 @@ reportsRouter.get("/lost-by-channel", async (req, res) => {
   const [lostRows, totalRows] = await Promise.all([
     prisma.client.groupBy({
       by: ["source", "refusalReason"],
-      where: { status: "LOST", deletedAt: null, escalatedAt: { gte: since } },
+      // «Потеря» = оформленный отказ (16.11.2026, статуса LOST больше нет):
+      // отметку ставит одна дверь, lib/clientRefuse.ts. Убранные потом в
+      // Корзину по заявке тоже считаются — потеря от этого не исчезает.
+      where: { assignmentRefusedAt: { gte: since } },
       _count: { _all: true },
     }),
     // Знаменатель для доли — все лиды канала за тот же период (не только потерянные),

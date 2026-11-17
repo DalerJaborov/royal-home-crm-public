@@ -15,6 +15,8 @@ import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines, custom
 import { recruitmentPhoneLine, retiredRecruitmentPhoneLines } from "@royal-home/shared";
 import { clientOwnWords } from "./untrustedContent.js";
 import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
+import { validateCustomerAgentAnswer, type CustomerAgentAnswerVerdict, type CustomerAgentAnswerTemplate } from "./customerAgentAnswer.js";
+import { CUSTOMER_AGENT_ASK_KINDS, type CustomerAgentAskKind } from "./customerAgentHumanText.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
@@ -29,6 +31,7 @@ import { customerStaffFollowUpLine, customerStaffFollowUpFixedLines, customerTha
   customerPartnershipOffer, customerPartnershipReply, customerCommissionAmountLine, customerSearchHandOffLine, customerPhoneAskLines,
   PHONE_ASK_TEXT, CUSTOMER_SELLER_WORDS, type FollowUpMemory } from "./customerAgentStaffFollowUp.js";
 import { detectOutsideCoverage } from "./coverageGuard.js";
+import { customerReplyLink } from "../lib/customerReplyLink.js";
 import { serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
 import { customerRecruitmentFollowUp, recruitmentFollowUpLine, recruitmentFollowUpFixedLines, RETIRED_TEMPLATE_LINES, AD_OPEN_QUESTION,
@@ -517,7 +520,8 @@ function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | 
     if (card.facts.characteristics) lines.push(...customerPropertyCharacteristicLines(card.facts.characteristics, language,
       language === "tg" ? "масоҳат ошёна таъмир" : "площадь этаж ремонт"));
     if (card.match.notes.length) lines.push(`${tg ? "Эзоҳ" : "Примечание"}: ${card.match.notes.map(note => notes[note][language]).join("; ")}.`);
-    if (value.linksAllowed !== false && card.facts.publicLink) lines.push(card.facts.publicLink);
+    const link = customerReplyLink(card.facts.publicLink, value.linksAllowed);
+    if (link) lines.push(link);
   }
   return lines;
 }
@@ -701,7 +705,8 @@ function renderDecisionCore(input: {
       if (parsed.data.cards.length > 1) lines.push(lang === "tg" ? "Объектҳо аз ҳамин нашрия:" : "Объекты из этой публикации:");
       for (const facts of parsed.data.cards) {
         appendFacts({ kind: "facts", facts, kinds: parsed.data.kinds });
-        if (parsed.data.linksAllowed !== false && parsed.data.cards.length > 1 && facts.publicLink) lines.push(facts.publicLink);
+        const link = parsed.data.cards.length > 1 ? customerReplyLink(facts.publicLink, parsed.data.linksAllowed) : null;
+        if (link) lines.push(link);
       }
     }
     if (item.value.kind === "property_unresolved") {
@@ -1110,7 +1115,8 @@ function avoidRepeatedReply(text: string, input: RepeatInput): string {
   return text;
 }
 
-export function renderCustomerAgentDecision(input: Parameters<typeof renderDecisionCore>[0]): string | null {
+/** The server's own (template) reply; `plain` = the ordinary path, no special answer and no repeat/ack guard rewrote it. */
+function renderTemplateDecision(input: Parameters<typeof renderDecisionCore>[0]): { text: string | null; plain: boolean } {
   const d = input.decision;
   // A forwarded publication that is not ours, with nothing asked (nothing, a heart, like-exchange words): one short line, no fact.
   // Not in a job dialogue: a candidate's forwarded post is their material (the core now renders with the attachment too, review #206 В4).
@@ -1118,19 +1124,19 @@ export function renderCustomerAgentDecision(input: Parameters<typeof renderDecis
       customerAgentShareNotice(input.attachmentInput, input.language) !== null &&
       customerDmForeignShareNoise(input.inputText ?? "") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
     const line = customerAgentShareNotice(input.attachmentInput, input.language)!;
-    return line.length <= input.maxOutputChars ? line : null;
+    return { text: line.length <= input.maxOutputChars ? line : null, plain: false };
   }
   const said = (line: string) => lineSentBefore(input.verifiedContext, line);
   if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
     const abuse = customerDmAbuseKind(input.inputText ?? "");
     if (abuse) {
       const reply = customerDmAbuseReply(abuse, input.language);
-      return reply.length <= input.maxOutputChars ? reply : null;
+      return { text: reply.length <= input.maxOutputChars ? reply : null, plain: false };
     }
     // Somebody offers US a partnership: management decides, a person is told (15.11.2026, live: a design studio got "Спасибо!").
-    if (customerPartnershipOffer(input.inputText ?? "")) return customerPartnershipReply(input.language, input.knownPhoneSource, followUpMemory(input)).join("\n");
+    if (customerPartnershipOffer(input.inputText ?? "")) return { text: customerPartnershipReply(input.language, input.knownPhoneSource, followUpMemory(input)).join("\n"), plain: false };
     // A bare "thank you" is answered "you are welcome", never "if my question above was unclear" (15.11.2026, live).
-    if (customerThanksOnly(input.inputText ?? "")) return customerThanksReply(input.language, said);
+    if (customerThanksOnly(input.inputText ?? "")) return { text: customerThanksReply(input.language, said), plain: false };
   }
   const text = renderDecisionCore(input);
   // A barter question ("Мошин ҳам қабул мекунед?") is answered by the agent: what else is known stays, the hand-off
@@ -1139,11 +1145,98 @@ export function renderCustomerAgentDecision(input: Parameters<typeof renderDecis
     const questionLines = questionLineSet(), notices = noticeLineSet();
     const kept = text ? splitLines(avoidRepeatedReply(text, input)).filter(line => !questionLines.has(line) && !notices.has(line)) : [];
     const result = [...kept, customerStaffFollowUpLine(input.language, input.knownPhoneSource, followUpMemory(input))].join("\n");
-    return result.length <= input.maxOutputChars ? result : null;
+    return { text: result.length <= input.maxOutputChars ? result : null, plain: false };
   }
-  if (!text) return text;
-  const reply = avoidRepeatedReply(text, input);
-  return acknowledgementOnlyGuard(reply, input);
+  if (!text) return { text, plain: false };
+  const guarded = acknowledgementOnlyGuard(avoidRepeatedReply(text, input), input);
+  return { text: guarded, plain: guarded === text };
+}
+
+type RenderInput = Parameters<typeof renderDecisionCore>[0];
+const answerOf = (d: CustomerAgentDecision): unknown => d.kind === "reply" || d.kind === "clarify" || d.kind === "propose" ? d.answer : undefined;
+/** The decision without the model's own words: `answer` always; `say` too when the template is the base of a composed answer. */
+const withoutModelWords = (d: CustomerAgentDecision, say = false): CustomerAgentDecision => {
+  if (!("answer" in d) && !(say && "say" in d)) return d;
+  const { answer: _answer, say: _say, ...rest } = d as CustomerAgentDecision & { answer?: unknown; say?: string };
+  return (say || _say === undefined ? rest : { ...rest, say: _say }) as CustomerAgentDecision;
+};
+
+/**
+ * The template reply split for composition (customerAgentAnswer.ts): leading greeting/thanks/acknowledgement lines, the fact lines
+ * (copied verbatim) and the final fixed question the model may word itself — only the plain template of one of the ask kinds.
+ */
+function answerTemplateOf(input: RenderInput, text: string): CustomerAgentAnswerTemplate {
+  const lines = splitLines(text), social: string[] = [];
+  let index = 0;
+  while (index < lines.length && isSocialLine(lines[index])) social.push(lines[index++]);
+  const rest = lines.slice(index), last = rest.at(-1);
+  const kind = customerAgentRenderedQuestion(input);
+  const askKind = (CUSTOMER_AGENT_ASK_KINDS as readonly string[]).includes(kind) ? kind as CustomerAgentAskKind : null;
+  const replaceable = !!askKind && last !== undefined && last === questions[askKind][input.language];
+  const facts = replaceable ? rest.slice(0, -1) : rest;
+  return { social, facts, question: replaceable ? { line: last!, kind: askKind! } : null, negative: answerContextNegative(input, facts) };
+}
+/** A refusal or limit among the facts (review #211, round 2): «арендой не занимаемся», «уже продан», «в брони», the work area, «не могу
+ * подтвердить», nothing found. Next to such a line the model's words stay neutral («Понимаю вас.»), never «Вам повезло!». */
+const NEGATIVE_FACT = /(?:^|[^\p{L}])(?:не|нет|нельзя|без|продан\p{L}*|брон\p{L}*|занят\p{L}*|к сожалению|мутаассифона|нест|надор\p{L}*|на(?:ме|ш|т)\p{L}+|фурӯхта\p{L}*)(?=$|[^\p{L}])/iu;
+function answerContextNegative(input: RenderInput, facts: readonly string[]): boolean {
+  if (facts.some(line => NEGATIVE_FACT.test(line))) return true;
+  return input.evidence.some(e => e.value.kind === "company_policy" && e.value.topic !== "commission" ||
+    e.value.kind === "property_unresolved" ||
+    e.value.kind === "facts" && e.value.facts.availability !== "AVAILABLE" ||
+    e.value.kind === "publication_properties" && e.value.cards.some(card => card.availability !== "AVAILABLE") ||
+    e.value.kind === "property_search" && searchNeedsAgent(e.value));
+}
+
+/**
+ * The model's human words composed around the server's template for the SAME decision and evidence (customerAgentAnswer.ts).
+ * null when the decision carries no answer. Pure: the core, this renderer and the delivery seal reach the same verdict from the same inputs.
+ * Only the ordinary path is eligible: abuse, partnership, thanks, trade-in, foreign shares and any repeat/ack guard rewrite keep the template.
+ * A bug in the verifier is a verdict too (`error`): the template goes out, the turn never dies (review #211, п.9).
+ */
+export function customerAgentAnswerVerdict(input: RenderInput): CustomerAgentAnswerVerdict | null {
+  const d = input.decision, answer = answerOf(d);
+  if (answer === undefined) return null;
+  try {
+    if (input.surface !== "dm") return { ok: false, reason: "surface_disabled" };
+    const plain = { ...input, decision: withoutModelWords(d, true) };
+    const template = renderTemplateDecision(plain);
+    if (!template.plain || !template.text) return { ok: false, reason: "not_eligible" };
+    return validateCustomerAgentAnswer({ answer, template: answerTemplateOf(plain, template.text), language: input.language, surface: input.surface,
+      inputText: input.inputText, maxOutputChars: input.maxOutputChars,
+      priorAssistantTurns: (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text),
+      attachment: d.kind === "reply" && d.attachment !== undefined });
+  } catch { return { ok: false, reason: "error" }; }
+}
+
+export function renderCustomerAgentDecision(input: RenderInput): string | null {
+  const verdict = customerAgentAnswerVerdict(input);
+  return verdict?.ok ? verdict.text : renderTemplateDecision({ ...input, decision: withoutModelWords(input.decision) }).text;
+}
+
+/**
+ * A stored bot text whose sealed sideband says it asked this question: the question is its LAST line — the fixed sentence, or (since
+ * review #211) the model's own wording that the seal recorded structurally. The sideband marker is the record; this only checks that
+ * nothing follows the question.
+ */
+export function customerSealedQuestionLast(text: string, canonical: string): boolean {
+  if (text.endsWith(canonical)) return true;
+  const last = splitLines(text).at(-1) ?? "";
+  return /[?]$/u.test(last) && (last.match(/[?]/gu)?.length ?? 0) === 1;
+}
+
+/**
+ * The question the SENT text asks, recorded structurally for the delivery seal (review #211, п.4): the rendered question of the
+ * decision, when the text ends with its fixed template sentence OR with the model's own wording of that same question accepted by
+ * the answer verifier. A «да» to «Хотите, чтобы сотрудник вам позвонил?» is then consent like the template question.
+ */
+export function customerAgentSentQuestion(input: RenderInput, text: string): CustomerAgentRenderedQuestion {
+  const kind = customerAgentRenderedQuestion({ ...input, decision: withoutModelWords(input.decision) });
+  if (kind === "none" || kind === "confirmation") return "none";
+  const canonical = questions[kind][input.language];
+  if (canonical && text.endsWith(canonical)) return kind;
+  const verdict = customerAgentAnswerVerdict(input);
+  return verdict?.ok && verdict.text === text && verdict.asked === kind ? kind : "none";
 }
 
 /**

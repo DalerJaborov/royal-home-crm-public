@@ -11,10 +11,10 @@
 | Что | Сколько |
 |---|---|
 | Экранов (адресов в интерфейсе) | 70 |
-| Из них видно в меню | 36 |
-| Модулей сервера | 87 |
-| Адресов сервера всего | 766 |
-| Задач по расписанию | 137 |
+| Из них видно в меню | 33 |
+| Модулей сервера | 86 |
+| Адресов сервера всего | 757 |
+| Задач по расписанию | 130 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
 
@@ -38,10 +38,10 @@
 | `/calls` | Calls | **Звонки** | `apps/web/src/pages/Calls.tsx` |
 | `/clients` | Clients | **Клиенты** | `apps/web/src/pages/Clients.tsx` |
 | `/clients/:id` | ClientDetail | только по ссылке | `apps/web/src/pages/ClientDetail.tsx` |
-| `/clients/all-mine` | Clients | только по ссылке | `apps/web/src/pages/Clients.tsx` |
+| `/clients/all-mine` | Navigate | переход на `/clients` | — |
 | `/comments` | Comments | **Комментарии** | `apps/web/src/pages/Comments.tsx` |
 | `/deals` | Deals | **Сделки** | `apps/web/src/pages/Deals.tsx` |
-| `/deferred-clients` | DeferredClients | **Отложенные** | `apps/web/src/pages/DeferredClients.tsx` |
+| `/deferred-clients` | Navigate | переход на `/clients` | — |
 | `/dev/ask-panel` | — | только по ссылке | — |
 | `/dev/calls-port` | — | только по ссылке | — |
 | `/dev/design-lab` | — | только по ссылке | — |
@@ -55,14 +55,14 @@
 | `/hall-of-fame` | Team | только по ссылке | `apps/web/src/pages/Team.tsx` |
 | `/health` | Health | **Здоровье системы** | `apps/web/src/pages/Health.tsx` |
 | `/hot-clients` | Navigate | переход на `/clients` | — |
-| `/inactive-clients` | Clients | только по ссылке | `apps/web/src/pages/Clients.tsx` |
+| `/inactive-clients` | Navigate | переход на `/clients` | — |
 | `/insights` | Insights | **Инсайты от ИИ** | `apps/web/src/pages/Insights.tsx` |
 | `/integrations` | Integrations | **Интеграции и каналы** | `apps/web/src/pages/Integrations.tsx` |
 | `/integrations/:name` | ChannelDetail | только по ссылке | `apps/web/src/pages/ChannelDetail.tsx` |
 | `/l/:token` | — | только по ссылке | — |
-| `/lead-funnel` | LeadFunnel | **Воронка лидов** | `apps/web/src/pages/LeadFunnel.tsx` |
+| `/lead-funnel` | Navigate | переход на `/clients` | — |
 | `/login` | — | только по ссылке | — |
-| `/lost-clients` | LostClients | **Потерянные** | `apps/web/src/pages/LostClients.tsx` |
+| `/lost-clients` | Navigate | переход на `/clients` | — |
 | `/market` | MarketSegments | **Рынок: цены** | `apps/web/src/pages/MarketSegments.tsx` |
 | `/marketing` | MarketingCenter | только по ссылке | `apps/web/src/pages/MarketingCenter.tsx` |
 | `/messages` | Messages | **Чаты** | `apps/web/src/pages/Messages.tsx` |
@@ -107,9 +107,6 @@
 | inbox | Звонки | `/calls` | право `calls.transcripts` |
 | inbox | Телефония | `/telephony` | всем |
 | people | Клиенты | `/clients` | всем |
-| people | Воронка лидов | `/lead-funnel` | всем |
-| people | Отложенные | `/deferred-clients` | всем |
-| people | Потерянные | `/lost-clients` | всем |
 | people | Сделки | `/deals` | всем |
 | objects | Объекты | `/properties` | всем |
 | objects | Карта объектов | `/properties/map` | всем |
@@ -159,7 +156,7 @@
 | `/api/v1/property-offers` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/propertyOffers.ts` |
 | `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 129 | да (35 мест) | `apps/api/src/routes/properties.ts` |
 | `/api/v1/transfer-requests` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/transferRequests.ts` |
-| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 65 | да (13 мест) | `apps/api/src/routes/clients.ts` |
+| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 61 | да (13 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |
@@ -209,7 +206,6 @@
 | `/api/v1/contacts` | **без подписи** | 5 | да (2 мест) | `apps/api/src/routes/contacts.ts` |
 | `/api/v1/conversations` | Переписка по всем каналам | 11 | да (3 мест) | `apps/api/src/routes/conversations.ts` |
 | `/api/v1/audit-log` | Журнал действий сотрудников | 1 | да (1 мест) | `apps/api/src/routes/auditLog.ts` |
-| `/api/v1/royal-score-events` | Начисления и списания баллов агентам | 2 | да (1 мест) | `apps/api/src/routes/royalScoreEvents.ts` |
 | `/api/v1/morning-report` | Служебная выдача для внешней сессии, интерфейс её не зовёт | 1 | нет | `apps/api/src/routes/morningReport.ts` |
 | `/api/v1/errors` | Журнал ошибок системы | 8 | да (5 мест) | `apps/api/src/routes/errorLog.ts` |
 | `/api/v1/integrations` | Состояние внешних подключений | 1 | да (1 мест) | `apps/api/src/routes/integrations.ts` |
@@ -225,7 +221,7 @@
 | `/api/v1/instagram-comments` | Лента комментариев под публикациями | 4 | да (2 мест) | `apps/api/src/routes/instagramComments.ts` |
 | `/api/v1/lead-magnets` | Чек-листы и выдачи лид-магнитов | 10 | да (1 мест) | `apps/api/src/routes/leadMagnets.ts` |
 | `/api/v1/vacancies` | Кандидаты на вакансии | 19 | да (5 мест) | `apps/api/src/routes/vacancies.ts` |
-| `/api/v1/oversight` | Контроль руководителя | 19 | да (2 мест) | `apps/api/src/routes/oversight.ts` |
+| `/api/v1/oversight` | Контроль руководителя | 16 | да (2 мест) | `apps/api/src/routes/oversight.ts` |
 | `/api/v1/function-status` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/functionStatus.ts` |
 | `/api/v1/insights` | Инсайты от ИИ по звонкам | 4 | да (1 мест) | `apps/api/src/routes/insights.ts` |
 | `/api/v1/market/matches` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/marketMatches.ts` |
@@ -257,7 +253,6 @@
 | `call-insights` | `10 4 * * *` | Раз в сутки ИИ разбирает разговоры за месяц: где сильно, где просаживается |
 | `callback-connect` | `*/10 * * * *` | Соединяет самую старую просьбу «перезвоните» с дежурным оператором |
 | `candidate-phone-ask` | `*/15 * * * *` | Просит у кандидатов на вакансию телефон, как откроется окно Meta |
-| `client-auto-statuses` | `40 4 * * *` | Пересчитывает статусы клиентов, зависящие от времени |
 | `client-follow-ups` | `*/10 * * * *` | Напоминания клиентам, переставшим отвечать в переписке |
 | `client-property-count-alarm` | `0 * * * *` | Сравнивает заявленное клиентом число объектов со сделанным в CRM |
 | `client-scoring` | `0 2 * * *` | Ночная оценка ИИ всех активных клиентов |
@@ -275,7 +270,6 @@
 | `daily-kpi` | `5 0 * * *` | Пересчитывает показатели всех агентов за вчера |
 | `daily-stories` | `*/15 * * * *` | **без подписи** |
 | `deal-stale-pipeline` | `20 0 * * *` | Застой сделки дольше нормы — пуш руководству и задача агенту |
-| `deferred-clients-return` | `*/30 * * * *` | Возвращает в работу клиентов, отложенных до наступившей даты |
 | `director-alert-queue-flush` | `* * * * *` | Доставляет руководству накопленные тревоги в разрешённые часы |
 | `disk-cleanup` | `5 4 * * *` | **без подписи** |
 | `duplicate-fuzzy-scan` | `0 8 * * *` | Ежедневный поиск дублей по похожему имени и номеру |
@@ -286,8 +280,6 @@
 | `geo-match-nightly-sweep` | `5 8 * * *` | Ночной подбор объектов ждущим покупателям по району |
 | `health-automation` | `*/30 * * * *` | Переспрашивает бота по зависшим диалогам, схлопывает дубли ошибок |
 | `heartbeat-watchdog` | `*/15 * * * *` | Сторож: поднимает тревогу о любой задаче, замолчавшей дольше нормы |
-| `inactive-traffic-light` | `*/30 * * * *` | Светофор неактивных: напоминает по остывающим, переводит заглохших в потерянные |
-| `inactivity-check` | `20 9 * * *` | Предупреждает и штрафует агентов за бездействие по принятым клиентам |
 | `incoming-call-lead-sweep` | `*/10 * * * *` | Добирает входящие звонки, по которым не завелась карточка клиента |
 | `incoming-calls-silence` | `7 * * * *` | Поднимает тревогу, если входящие звонки перестали доходить или все обрываются сразу |
 | `insight-digest` | `0 9 15,28-31 * *` | Раз в две недели — находки ИИ к собранию директоров |
@@ -302,7 +294,6 @@
 | `live-voice-orphan-sweep` | `*/10 * * * *` | **без подписи** |
 | `log-cleanup` | `0 3 * * *` | Ночная уборка технических журналов и уведомлений |
 | `lost-conversations` | `45 2 * * *` | Разбирает переписки, кончившиеся ничем: на каком шаге теряются люди |
-| `lost-inactive-trash-sweep` | `30 0 * * *` | Убирает в корзину потерянных и неактивных старше трёх месяцев |
 | `market-buyer-alerts` | `12,27,42,57 * * * *` | **без подписи** |
 | `market-median-history` | `30 6 * * *` | **без подписи** |
 | `market-own-match` | `*/30 * * * *` | **без подписи** |
@@ -319,7 +310,6 @@
 | `morning-report` | `0 8 * * *` | Утренний дайджест директорам |
 | `narration-auto-flow` | `* * * * *` | **без подписи** |
 | `narration-version-delivery` | `* * * * *` | **без подписи** |
-| `no-answer-tail` | `*/30 * * * *` | Хвост дозвона: задачи по клиентам, до которых не дозвонились |
 | `operator-queue-presence` | `*/5 * * * *` | Сверяет очередь входящих на станции с реальным статусом агентов |
 | `outgoing-media-cleanup` | `58 3 * * *` | Удаляет исходящие фото и видео оператора старше недели |
 | `owner-exposure-verification-preview` | `15 * * * *` | **без подписи** |
@@ -341,7 +331,6 @@
 | `seller-work-stalled-alarm` | `20 * * * *` | Агент сам перестал пытаться: два дня тишины — пуш, три — строка владельцу |
 | `settings-snapshots-prune` | `40 3 * * *` | Обрезает устаревшие точки возврата настроек |
 | `showing-confirmations` | `*/5 * * * *` | Просит клиента подтвердить показ, сигналит агенту о неподтверждённых |
-| `silent-client-auto-deactivate` | `25 0 * * *` | Переводит в неактивные тех, кому мы писали последними и кто молчит |
 | `site-stats` | `7 * * * *` | **без подписи** |
 | `social-digests-tick` | `*/15 * * * *` | **без подписи** |
 | `social-reposts-tick` | `12 * * * *` | **без подписи** |

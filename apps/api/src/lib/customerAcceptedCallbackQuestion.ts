@@ -10,7 +10,7 @@ import { customerDeliveryFenceSchema } from "./customerDeliveryContracts.js";
 import { inspectAuthenticatedCustomerInput, readVerifiedCustomerFinalOrigin,
   type AuthenticatedCustomerInput } from "./customerIngressAuthority.js";
 import { isCustomerCallbackAffirmative } from "./customerCallbackConsent.js";
-import { customerAgentCallbackQuestionText } from "../ai/customerAgentRenderer.js";
+import { customerAgentCallbackQuestionText, customerSealedQuestionLast } from "../ai/customerAgentRenderer.js";
 import { decryptCustomerFinalOrigin } from "./customerOriginPayload.js";
 
 type Row = {
@@ -34,7 +34,7 @@ function hasSealedQuestion(row: Row): boolean {
     const stored = customerAgentStoredTextPayloadSchema.parse(JSON.parse(plaintext));
     const question = stored.publicData?.callbackQuestion;
     return !!question && stored.publicData?.agentRevisionId === row.agentRevisionId &&
-      stored.text.endsWith(customerAgentCallbackQuestionText(question.language));
+      customerSealedQuestionLast(stored.text, customerAgentCallbackQuestionText(question.language));
   } catch { return false; }
 }
 

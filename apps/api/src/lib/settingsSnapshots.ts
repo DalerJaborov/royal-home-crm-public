@@ -26,7 +26,6 @@ export const SECRET_SETTINGS_FIELDS = [
   "openaiApiKey",
   "geminiApiKey",
   "geminiApiKey2",
-  "openaiApiKey",
   // Список дополнительных ключей: каждый элемент зашифрован так же, как ключ выше.
   // Без этой строки точка возврата отдавала бы наружу шифротексты целиком — второй
   // способ прочитать секрет, ровно тот, который здесь и закрывается.
@@ -49,9 +48,6 @@ export const SECRET_SETTINGS_FIELDS = [
   "metaAdsToken",
   "googleBudgetToken",
   "youtubeClientSecret",
-  // Ключ OpenAI для обложек (#953, 25.09.2026) пришёл без этой строки — страж
-  // settings-snapshot-secrets краснел у всех правок сразу.
-  "openaiApiKey",
   "youtubeRefreshToken",
   "tiktokClientSecret",
   "tiktokRefreshToken",
@@ -62,7 +58,6 @@ export const SECRET_SETTINGS_FIELDS = [
   "yandexWebmasterRefreshToken",
   "callWhisperStationToken",
   "smsApiToken",
-  "openaiApiKey",
   // Ключ фида каталога (G12, 02.10.2026): GET /settings отдаёт его только маской,
   // а «чем отличается» в точке возврата показывал целиком — страж ловил «ApiKey».
   "metaCatalogFeedKey",

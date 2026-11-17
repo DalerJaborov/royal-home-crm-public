@@ -7,9 +7,7 @@ import { useNow } from "../../../hooks/useNow";
 import { mmss } from "../../../lib/countdown";
 import { clientDisplayName } from "../../../lib/clientFormat";
 import { dushanbeTime } from "../../../lib/date";
-import { pluralizeRu } from "../../../lib/format";
 import { initials } from "../../../lib/theme2026Person";
-import { NO_CONTACT_DAYS } from "../../../lib/agentDay";
 import { leadHint, nextStepLine, type AgentTodoItem } from "../../../lib/agentFocus";
 import { CallCircle, DuplicateReviewActions, PendingLeadActions, ReactivationActions } from "./AgentActions";
 
@@ -164,10 +162,8 @@ function QueueRow({ todo, index }: { todo: AgentTodoItem; index: number }) {
       const overdue = todo.kind === "client" && todo.urgency === "overdue";
       const chip = overdue ? (
         <Chip tone="crit">Позвонить сейчас</Chip>
-      ) : todo.days >= NO_CONTACT_DAYS ? (
-        <Chip tone="warn">
-          {todo.days} {pluralizeRu(todo.days, ["день", "дня", "дней"])}
-        </Chip>
+      ) : todo.kind === "cold" || todo.noContact ? (
+        <Chip tone="warn">без контакта</Chip>
       ) : undefined;
       return (
         <SwipeCall to={`/clients/${c.shortId}`} canCall={canCall}>

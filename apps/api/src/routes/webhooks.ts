@@ -27,7 +27,7 @@ import { detectSpam, sharedPostSpamContext } from "../lib/incomingSpam.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import type { ClientStatus, Prisma } from "../generated/prisma/client.js";
-import { CLIENT_STATUS_LABELS } from "@royal-home/shared";
+
 import { logTimeline } from "../lib/timeline.js";
 import { z } from "zod";
 import { prisma, type TxClient } from "../db.js";
@@ -144,6 +144,7 @@ import { findAgentsWithPermission } from "../lib/recipients.js";
 import { requestAgentAttention } from "../lib/agentAttention.js";
 import { sendPushToAgents } from "../push.js";
 import { ensureMetaAdKnown } from "../lib/ads/syncMetaAds.js";
+import { maskPhonesInFreeText } from "../lib/clientPhone.js";
 
 export const webhooksRouter = Router();
 
@@ -377,7 +378,8 @@ webhooksRouter.post("/website-lead", leadWebhookLimiter, async (req, res) => {
     void logSystemError(
       "ai",
       `Заявка с сайта заведена как «прочее обращение»: ${decision.reason}. Агенту не назначается. ` +
-        `Комментарий: «${(data.comment ?? "").replace(/\s+/g, " ").slice(0, 160)}»`
+        // Свободный текст клиента — с маской номеров и короче (аудит 17.11.2026, S3).
+        `Комментарий: «${maskPhonesInFreeText((data.comment ?? "").replace(/\s+/g, " ")).slice(0, 60)}»`
     );
   }
 
@@ -798,16 +800,19 @@ const SITE_STATUS_TO_CRM = {
  * сделка — «на связи». Теперь: карточку из Корзины и конечные статусы (потерян,
  * сделка, архив) сайт не трогает; «новый» и «на связи» только поднимают статус с
  * «нового», но никогда не понижают. Возвращает статус для записи или null.
+ *
+ * С 17.11.2026 — НИЧЕГО НЕ ПИШЕМ: статусов клиента в CRM больше нет (владелец:
+ * не показываются и не ставятся), «новый/на связи/закрыт» сайта к работе агента
+ * отношения не имеют. Вебхук отвечает 200 { applied: false }, чтобы сайт не
+ * повторял запрос.
  */
 export function siteLeadStatusToApply(
   client: { status: ClientStatus; deletedAt: Date | null },
   fromSite: ClientStatus,
 ): ClientStatus | null {
-  if (client.deletedAt) return null;
-  if (client.status === fromSite) return null;
-  if (client.status === "LOST" || client.status === "DEAL_CLOSED" || client.status === "ARCHIVED") return null;
-  if (fromSite === "ARCHIVED") return fromSite;
-  return client.status === "NEW" ? fromSite : null;
+  void client;
+  void fromSite;
+  return null;
 }
 
 webhooksRouter.post("/site-lead-status", syncWebhookLimiter, async (req, res) => {
@@ -846,7 +851,7 @@ webhooksRouter.post("/site-lead-status", syncWebhookLimiter, async (req, res) =>
         clientId,
         actor: { kind: "system", source: "siteLeadStatus", subjectAgentId: client.assignedAgentId },
         type: "STATUS_CHANGE",
-        notes: `Статус изменён с сайта: «${CLIENT_STATUS_LABELS[client.status]}» → «${CLIENT_STATUS_LABELS[crmStatus]}»`,
+        notes: "Статус изменён с сайта",
         tx,
       });
     });

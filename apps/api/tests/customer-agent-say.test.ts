@@ -110,7 +110,9 @@ describe("say validator: every refusal code, Russian", () => {
   it("echo: five words in a row from the customer's own message", () => {
     const inputText = "Мне нужна просторная светлая квартира возле парка";
     expect(reason("Понял: нужна просторная светлая квартира возле.", { inputText })).toBe("echo");
-    expect(reason("Понял: нужна просторная квартира для семьи.", { inputText })).toBe("ok");
+    expect(reason("Понял: нужна квартира для семьи.", { inputText })).toBe("ok");
+    // Praise of a flat is a claim since review #211, even in the customer's own words («светлая и просторная» to «она светлая?»).
+    expect(reason("Понял: нужна просторная квартира для семьи.", { inputText })).toBe("fact_claim");
   });
   it("echo ignores content the customer only forwarded (document, crm note)", () => {
     const inputText = `Вот файл ${wrapUntrusted("document", "нужна просторная светлая квартира возле парка")}`;
@@ -266,7 +268,9 @@ describe("mode and daily statistics", () => {
     const [source, message, context] = vi.mocked(logSystemError).mock.calls[0]!;
     expect(source).toBe("ai");
     expect(message).toContain("44%"); expect(message).toContain("promise 3"); expect(message).toContain("contact 1");
-    expect(context).toEqual({ dedupKey: "customer-agent-say:2026-10-24" });
+    // Prod log 13–16.11.2026: the day key alone kept the default 10-minute window, so a row every 10 minutes (47 in four days).
+    // The window must cover the day, and the quality line must not wake the director with a push every new day.
+    expect(context).toEqual({ dedupKey: "customer-agent-say:2026-10-24", dedupWindowMs: 24 * 60 * 60_000, silent: true });
     expect(String(message)).not.toMatch(/Понял|Спасибо/);
   });
   it("tells the owner how many phrases were switched off on purpose, beside (not inside) the percentage", async () => {

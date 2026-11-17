@@ -329,7 +329,10 @@ it("зависший ответ помощницы не держит offset ве
     expect(await prisma.processedMessage.count({ where: { channel: "TELEGRAM", messageId: id, completedAt: { not: null } } })).toBe(1);
     // Обработан один раз, хотя Telegram прислал апдейт несколько раз.
     expect(runner).toHaveBeenCalledTimes(1);
-    expect(await prisma.errorLog.count({ where: { message: { contains: `Ответ помощницы на апдейт ${id} не готов` } } })).toBeGreaterThan(0);
+    // Журнал ошибок маскирует 9-значные числа на «9…» как номера (lib/systemError.ts, 17.11.2026):
+    // номер апдейта из runId бывает таким — ищем текст в том виде, в каком его пишет журнал.
+    const { maskPhoneNumbersInText } = await import("../src/lib/clientPhone.js");
+    expect(await prisma.errorLog.count({ where: { message: { contains: maskPhoneNumbersInText(`Ответ помощницы на апдейт ${id} не готов`) } } })).toBeGreaterThan(0);
   } finally {
     setDeferredReplyCeilingForTests(null);
     // Отпускаем «зависший» ход: иначе очередь этого чата ждала бы его до потолка в соседних тестах.

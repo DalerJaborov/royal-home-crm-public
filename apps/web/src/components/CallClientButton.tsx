@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Phone, X } from "lucide-react";
+import { FOREIGN_PHONE_CALL_ERROR, isForeignPhone } from "@royal-home/shared";
 import { useCallClient } from "../hooks/useClients";
 import { useCallCandidate } from "../hooks/useVacancies";
 import { useActiveCallValue } from "../hooks/useActiveCall";
@@ -121,6 +122,17 @@ export function CallClientButton({
     if (stopPropagation) e.stopPropagation();
     if (readOnly) return;
     setError(null);
+    /**
+     * ИНОСТРАННЫЙ НОМЕР — ОБЪЯСНЕНИЕ ВМЕСТО ЗВОНКА (17.11.2026). Станция агентства
+     * звонит только по Таджикистану; раньше такой «звонок» кончался строкой
+     * «клиент не ответил», хотя телефон клиента не звонил. Сервер отказывает тем же
+     * текстом (packages/shared/tajikPhone.ts) — здесь только не гоняем запрос зря.
+     * Кандидата (вакансии) не трогаем: там номер проверяет свой маршрут.
+     */
+    if (!candidateId && isForeignPhone(callPhone ?? phone)) {
+      setError(FOREIGN_PHONE_CALL_ERROR);
+      return;
+    }
     try {
       await callClient.mutateAsync();
       // Окно звонка (CallWindow) читает состояние с сервера раз в секунду.

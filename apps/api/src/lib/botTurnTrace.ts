@@ -218,11 +218,14 @@ export function traceCustomerCoreResult(result: { status: "ready" | "held"; deci
   rejectedDecisionKind?: unknown; skipReason?: unknown;
   fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string;
   /** Verdict of the model's free phrase; the phrase itself never reaches the trace. */
-  say?: { status: "absent" | "used" | "dropped"; reason?: string } }): void {
+  say?: { status: "absent" | "used" | "dropped"; reason?: string };
+  /** Verdict of the model's whole reply (one-brain step 1); the text itself never reaches the trace. */
+  answer?: { status: "absent" | "used" | "dropped"; reason?: string } }): void {
   observe(ctx => {
     if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning") return;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ status: result.status,
       ...(result.say ? { sayStatus: result.say.status, ...(result.say.status === "dropped" ? { sayDropReason: result.say.reason } : {}) } : {}),
+      ...(result.answer ? { answerStatus: result.answer.status, ...(result.answer.status === "dropped" ? { answerDropReason: result.answer.reason } : {}) } : {}),
       ...(result.status === "ready" && result.decision ? { decisionKind: result.decision.kind } : {}),
       rounds: result.rounds, toolCalls: result.toolCalls,
       receiptOutcomes: [...new Set(result.evidence.filter(e => e.value.kind === "receipt").map(e => e.value.outcome))],

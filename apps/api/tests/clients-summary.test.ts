@@ -25,9 +25,10 @@ let agentId = "";
 /** Возраст непринятой карточки — считается по тому же правилу, что и фикстура. */
 let pendingWaitingMinutes = 0;
 
-// 10.11.2026: неактивные (светофор) — тоже «в работе», иначе агент не видел
-// часть своих клиентов, в том числе переданных от уволенного сотрудника.
-it("счётчик и список В работе включают неактивных, исключают закрытые назначения, поиск сохраняет историю", async () => {
+// 16.11.2026 (владелец: «удалить все папки и статусы»): список один. Старые
+// INACTIVE/LOST-строки — обычные клиенты списка; прячутся закрытая сделка, архив
+// («архив — та же корзина») и назначение с завершённой работой.
+it("один список: старые неактивные/потерянные видны, архив, закрытые сделка и назначение — нет", async () => {
   const token = await login(agentPhone);
   const get = (path: string) => request(app).get(path).set("Authorization", `Bearer ${token}`);
   const before = await get("/api/v1/clients/summary");
@@ -50,15 +51,16 @@ it("счётчик и список В работе включают неакти
       created.push(c.id);
     }
     const after = await get("/api/v1/clients/summary");
-    expect(after.body.buyers).toBe(before.body.buyers + 2);
+    expect(after.body.buyers).toBe(before.body.buyers + 3);
     const work = await get(`/api/v1/clients?scope=inWork&kind=BUYER&q=${marker}`);
     expect(work.status).toBe(200);
-    expect(work.body.items.map((c: { id: string }) => c.id).sort()).toEqual([created[0], created[1]].sort());
+    expect(work.body.items.map((c: { id: string }) => c.id).sort()).toEqual([created[0], created[1], created[2]].sort());
     const search = await get(`/api/v1/clients?q=${marker}`);
     expect(search.status).toBe(200);
     expect(search.body.items).toHaveLength(fixtures.length);
+    // Фильтра по workStatus больше нет: параметр молча отбрасывается.
     const inactive = await get(`/api/v1/clients?workStatus=INACTIVE&q=${marker}`);
-    expect(inactive.body.items.map((c: { id: string }) => c.id)).toEqual([created[1]]);
+    expect(inactive.body.items).toHaveLength(fixtures.length);
   } finally {
     await prisma.client.deleteMany({ where: { id: { in: created } } });
   }
@@ -179,81 +181,26 @@ describe("GET /clients/summary", () => {
     // (17.09.2026, закон о владении клиентом П-4/Р-3) — «Забрать из пула» больше
     // нет ни кнопки, ни смысла эту сводку показывать.
     expect(res.body.awaitingAgent.oldest.pool).toBeUndefined();
-    expect(res.body.lost).toBeNull();
     expect(res.body.other).toBeNull();
-    expect(res.body.freeAgents).toBeNull();
+    // «Потерянных», «Неактивных», «Отложенных», воронки и «свободных агентов» нет с 16.11.2026.
+    for (const gone of ["lost", "inactive", "deferred", "stages", "freeAgents"]) expect(res.body).not.toHaveProperty(gone);
     // «Мои» — согласовано со списком agentId=me (18.09.2026, задание В §f п.4,
     // §c разведки 17.09: счётчик расходился со списком, который показывает
     // ВСЁ назначенное, а не только принятое и нетерминальное) — обе карточки.
     expect(res.body.mine).toBe(2);
   });
 
-  it("директор: счётчики по всему агентству, «Потерянные» и свободные агенты отданы", async () => {
+  it("директор: счётчики по всему агентству", async () => {
     const token = await login(directorPhone);
     const res = await request(app).get("/api/v1/clients/summary").set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.buyers).toBeGreaterThanOrEqual(1);
     expect(res.body.awaitingAgent.count).toBeGreaterThanOrEqual(1);
-    expect(typeof res.body.lost).toBe("number");
-    expect(Array.isArray(res.body.freeAgents)).toBe(true);
-    // Список — ТРИ самых свободных агента базы (slice(0, 3) в routes/clients/summary.ts).
-    // На стенде и на проде рядом лежат чужие агенты, и тестовый — держит одного
-    // активного покупателя при лимите ≥ 2 — вытесняется теми, у кого запас больше.
-    // Проверяем то, что маршрут обещает на самом деле: не длиннее трёх, у каждого
-    // есть свободное место, и наш агент либо в списке, либо вытеснен полным списком.
-    const free = res.body.freeAgents as { id: string; slotsLeft: number }[];
-    expect(free.length).toBeLessThanOrEqual(3);
-    expect(free.every((a) => a.slotsLeft > 0)).toBe(true);
-    if (!free.some((a) => a.id === agentId)) expect(free).toHaveLength(3);
     expect(res.body.showings).toEqual({ today: expect.any(Number), tomorrow: expect.any(Number) });
   });
 
   it("без входа — 401", async () => {
     const res = await request(app).get("/api/v1/clients/summary");
     expect(res.status).toBe(401);
-  });
-
-  /**
-   * Стадии воронки (экран «Воронка лидов», docs/agent-briefs/
-   * mobile-c99db05f-step4-14-09.md) — по одной карточке на каждый статус,
-   * проверяем группировку по ДВУМ статусам сразу (CONTACTED+HOT,
-   * COLD+UNRESPONSIVE, DEAL_CLOSED+LOST), не только счёт как таковой.
-   */
-  it("stages: считает по группам статусов, а не по одному", async () => {
-    const stageIds: string[] = [];
-    const mk = (suffix: string, status: string) =>
-      prisma.client.create({
-        data: {
-          fullName: `Сводка Стадия ${suffix} ${runId}`,
-          phone: `+99296${suffix}${String(runId).slice(-6)}`,
-          source: "INSTAGRAM",
-          kind: "BUYER",
-          assignedAgentId: agentId,
-          acceptedAt: new Date(),
-          status,
-        },
-      });
-    try {
-      const created = await Promise.all([
-        mk("1", "CONTACTED"),
-        mk("2", "HOT"),
-        mk("3", "COLD"),
-        mk("4", "UNRESPONSIVE"),
-        mk("5", "DEAL_CLOSED"),
-        mk("6", "LOST"),
-      ]);
-      stageIds.push(...created.map((c) => c.id));
-
-      const token = await login(agentPhone);
-      const res = await request(app).get("/api/v1/clients/summary").set("Authorization", `Bearer ${token}`);
-      expect(res.status).toBe(200);
-      // «Новые» — исходная непринятая карточка из beforeAll (status по умолчанию NEW).
-      expect(res.body.stages.new).toBeGreaterThanOrEqual(1);
-      expect(res.body.stages.inProgress).toBeGreaterThanOrEqual(2); // CONTACTED + HOT
-      expect(res.body.stages.awaitingDecision).toBeGreaterThanOrEqual(2); // COLD + UNRESPONSIVE
-      expect(res.body.stages.closed).toBeGreaterThanOrEqual(2); // DEAL_CLOSED + LOST
-    } finally {
-      await prisma.client.deleteMany({ where: { id: { in: stageIds } } });
-    }
   });
 });

@@ -27,6 +27,7 @@
  * «operator_busy» до выката, а исход звонка не дописал бы никто.
  */
 
+import { isForeignPhone } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
 import { logTimeline } from "../timeline.js";
@@ -47,6 +48,7 @@ export type CallbackConnectOutcome =
   | "no_operator"
   | "operator_busy"
   | "no_phone"
+  | "not_dialable"
   | "off_hours"
   | "closed"
   | "failed";
@@ -133,6 +135,10 @@ export async function connectCallbackToOperator(requestId: string): Promise<Call
       }
       const phone = request.phone?.trim() || client?.phone?.trim();
       if (!phone) return "no_phone";
+      // Иностранный номер станция не наберёт: не звоним дежурному ради гудков в
+      // никуда и не пишем клиенту ложное «не ответил» (17.11.2026). Просьба остаётся
+      // открытой в баннере — человек свяжется с клиентом перепиской.
+      if (isForeignPhone(phone)) return "not_dialable";
 
       const creds = await loadAriCredentials();
       if (!creds) return "failed";
@@ -228,7 +234,7 @@ export async function autoConnectDueCallback(): Promise<CallbackConnectOutcome |
       channel: { in: [...OPERATOR_CALLBACK_CHANNELS] },
     },
     orderBy: { requestedAt: "asc" },
-    select: { id: true, clientId: true },
+    select: { id: true, clientId: true, phone: true },
     // Небольшой запас: карточка могла уехать в Корзину, пока просьба ждала
     // очереди (27.08.2026) — без этого крон дозванивался бы до удалённых людей.
     // CallbackRequest.clientId — обычная строка без relation (см. schema.prisma),
@@ -239,15 +245,25 @@ export async function autoConnectDueCallback(): Promise<CallbackConnectOutcome |
   if (candidates.length === 0) return "idle";
 
   const clientIds = candidates.map((c) => c.clientId).filter((id): id is string => !!id);
-  const liveIds = clientIds.length
-    ? new Set(
-        (await prisma.client.findMany({ where: { id: { in: clientIds }, deletedAt: null }, select: { id: true } })).map(
-          (c) => c.id
-        )
+  const livePhones = clientIds.length
+    ? new Map(
+        (
+          await prisma.client.findMany({ where: { id: { in: clientIds }, deletedAt: null }, select: { id: true, phone: true } })
+        ).map((c) => [c.id, c.phone] as const)
       )
-    : new Set<string>();
+    : new Map<string, string>();
 
-  const oldest = candidates.find((c) => !c.clientId || liveIds.has(c.clientId));
+  /**
+   * Иностранный номер дежурный не наберёт (17.11.2026, connectCallbackToOperator
+   * ниже отказывает «not_dialable»). Такой запрос остаётся в баннере людям, но
+   * автодозвон его пропускает: иначе он, самый старый, занимал бы каждый тик
+   * двое суток и очередь за ним не двигалась бы вовсе.
+   */
+  const oldest = candidates.find((c) => {
+    if (c.clientId && !livePhones.has(c.clientId)) return false;
+    const phone = c.phone?.trim() || (c.clientId ? livePhones.get(c.clientId) : undefined);
+    return !isForeignPhone(phone);
+  });
   if (!oldest) return "idle";
   return connectCallbackToOperator(oldest.id);
 }

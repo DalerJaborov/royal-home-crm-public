@@ -16,6 +16,8 @@ import { noteRealInbound } from "./outboundShield.js";
 export type PreparedCustomerDmCoreContext =
   | { status: "prepared"; lane: ScopedCustomerQualifierLane; focus: CustomerPropertyTurnContext | null;
       attachmentInput?: CustomerAgentAttachmentInput; attachmentPropertyReference: boolean;
+      /** Captions Meta sent with the shared posts of this input ("" for media without one). */
+      captions: readonly string[];
       /** Necessary condition for "somebody else's publication"; the lookup outcome decides the rest (see customerDmAgentTurn). */
       foreignShareCandidate: boolean;
       media: CustomerNormalizedIngressInput["media"] }
@@ -85,6 +87,7 @@ export async function prepareCustomerDmInboxCoreContext(eventKey: unknown): Prom
     return { status: "prepared", lane: { ...lane, context: current.context }, focus,
       attachmentInput, media: structuredClone(payload.payload.media),
       foreignShareCandidate: customerForeignShareCandidate({ kinds: attachmentInput?.kinds, propertyEvidence: payload.payload.propertyEvidence }),
+      captions: payload.payload.observations.classifier?.mediaCaptions ?? [],
       attachmentPropertyReference: payload.payload.propertyEvidence.some(item =>
         ["media", "url", "ad", "public_selector", "reply"].includes(item.kind)) };
   } catch {

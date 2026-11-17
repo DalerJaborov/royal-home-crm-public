@@ -5,7 +5,6 @@ const NOW = Date.parse("2026-10-06T10:00:00Z");
 const base = {
   kind: "BUYER" as const,
   status: "CONTACTED" as const,
-  workStatus: "ACTIVE" as const,
   pendingAcceptance: false,
   escalatedAt: null,
   acceptedAt: "2026-10-01T10:00:00Z",
@@ -44,8 +43,7 @@ describe("clientAction: один чип-действие по приоритет
   it("горячий сам по себе чипа не даёт", () => {
     expect(clientAction({ ...base, status: "HOT" }, NOW, false)).toBeNull();
   });
-  it("неактивный и прочие обращения без чипа", () => {
-    expect(clientAction({ ...base, workStatus: "INACTIVE", unread: true }, NOW, false)).toBeNull();
+  it("прочие обращения без чипа", () => {
     expect(clientAction({ ...base, kind: "OTHER", unread: true }, NOW, false)).toBeNull();
   });
 });
