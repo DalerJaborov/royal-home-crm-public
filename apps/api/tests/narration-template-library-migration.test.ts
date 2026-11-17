@@ -8,7 +8,7 @@ import { prisma } from "../src/db.js";
  * озвучки, не трогая голоса, модель, пределы и шаблоны владельца; шесть стартовых шаблонов 11.11 остаются, но
  * получают «только вручную». Тест гоняет настоящий текст миграции по строке Settings: повтор ничего не дублирует.
  */
-const sql = readFileSync(new URL("../prisma/migrations/20261117121000_narration_template_library/migration.sql", import.meta.url), "utf8");
+const sql = readFileSync(new URL("../prisma/migrations/20261117230000_narration_template_library/migration.sql", import.meta.url), "utf8");
 const starters = narrationTemplateSchema.array().parse(JSON.parse(readFileSync(new URL("../prisma/migrations/20261111120000_narration_flow/migration.sql", import.meta.url), "utf8").split("$json$")[1]));
 const STARTER_IDS = starters.map((t) => t.id);
 
