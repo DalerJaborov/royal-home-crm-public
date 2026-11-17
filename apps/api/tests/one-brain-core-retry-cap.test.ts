@@ -179,12 +179,12 @@ describe("R1: a transient failure is repeated, but one customer turn gets at mos
     expect(await telegramTurn()).toBeNull();           // the live turn: the channel queues its AI-retry job
     expect(await telegramTurn(2)).toBeNull();          // the job's first run
     expect(f.alert).not.toHaveBeenCalled();
-    const third = await telegramTurn(3);               // the job's second run: the last paid one
+    const third = await telegramTurn(3);               // the job's second run: the last one (each run is up to 4 paid calls)
     expect(third).toMatchObject({ reply: [HANDOVER_RU], verified: true });
     expect(f.alert).toHaveBeenCalledWith(expect.objectContaining({ channel: "TELEGRAM", conversationId: "tg-r1", why: "core_unavailable" }));
     expect(f.modelTurn).toHaveBeenCalledTimes(3);
     f.queryRaw.mockClear();
-    const late = await telegramTurn(4);                // e.g. the job failed after the core: never a 4th paid call
+    const late = await telegramTurn(4);                // e.g. the job failed after the core: never a 4th run
     expect(late).toMatchObject({ reply: [HANDOVER_RU], verified: true });
     expect(f.modelTurn).toHaveBeenCalledTimes(3);
     expect(f.queryRaw).not.toHaveBeenCalled();

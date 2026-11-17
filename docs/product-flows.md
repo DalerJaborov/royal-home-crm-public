@@ -29235,7 +29235,7 @@
         · читает в базе: telegramDirectConversation
         · читает в базе: telegramConversation
       - если !chat || chat.client?.deletedAt
-        - return "skipped";
+        - return "excluded";
           · дословно из кода
       - const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
         · зовёт findAgentsWithPermission()
@@ -29254,7 +29254,7 @@
       - await sendPushToAgents(recipients, { kind: "message", title: `Ответьте вручную: ${name}`, body: `«${excerpt}»…
         · push-уведомление
     - если сорвалось
-      - void logSystemError("ai", `Уведомление «клиент ждёт человека» не отправлено: ${error instanceof Error ? error…
+      - void logSystemError("ai", `Уведомление «клиент ждёт человека» не отправлено (чат ${input.conversationId ?? "б…
         · запись в журнал ошибок
   - return;
     · дальше не идёт, ничего не меняя
