@@ -58,10 +58,9 @@ describe("privacy and content", () => {
     expect(voice).toHaveBeenCalledWith("test", speech, undefined);
     expect(html.mock.calls[0][1]).toContain(area);
   });
-  it("keeps a decimal area and ambiguous number ranges in text", () => {
-    for (const text of ["Ҳоло майдонаш 68,5 м².", "Рақами объект 60-70."]) {
-      expect(prepareAssistantReply(text)).toMatchObject({ text, speech: "", language: "tg", needsText: true });
-    }
+  it("keeps ambiguous number ranges in text; a decimal area is spoken rounded (17.11.2026)", () => {
+    expect(prepareAssistantReply("Рақами объект 60-70.")).toMatchObject({ text: "Рақами объект 60-70.", speech: "", language: "tg", needsText: true });
+    expect(prepareAssistantReply("Ҳоло майдонаш 68,5 м².")).toMatchObject({ text: "Ҳоло майдонаш 68,5 м².", speech: "Ҳоло майдонаш шасту нӯҳ метри мураббаъ.", language: "tg" });
   });
   it("retains authorised private text, never recites contact", () => {
     const p = prepareAssistantReply('Телефон +992901234567');

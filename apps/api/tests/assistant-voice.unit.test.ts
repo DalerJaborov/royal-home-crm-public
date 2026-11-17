@@ -129,7 +129,11 @@ it('budget uses shared atomic reservations', async () => { await claimAssistantT
   expect(sql.strings.join(' ')).toContain('ON CONFLICT');
   expect(sql.strings.join(' ')).toContain('EXCLUDED."count" <=');
 } expect(query.mock.calls[0][0].values).toContain(10); expect(query.mock.calls[1][0].values).toContain(12); });
-it('speech retains amounts and dates', () => expect(speechTextFromReply('Бюджет 1 200 000 сомони, дата 03-11-2026')).toContain('1 200 000 сомони, дата 03-11-2026'));
+// 17.11.2026, владелец: «цифры всегда буквами» — сумма звучит словами; дату словами не собрать, поэтому голоса нет, ответ остаётся текстом.
+it('speech says amounts in words and leaves a dated reply as text', () => {
+  expect(speechTextFromReply('Бюджет 1 200 000 сомони.')).toBe('Бюджет один миллион двести тысяч сомони.');
+  expect(speechTextFromReply('Бюджет 1 200 000 сомони, дата 03-11-2026')).toBe('');
+});
 
 afterEach(async () => {
   if (!testCacheRoot.startsWith(path.join(os.tmpdir(), "assistant-voice-test-"))) throw new Error("Unsafe test cleanup path");
