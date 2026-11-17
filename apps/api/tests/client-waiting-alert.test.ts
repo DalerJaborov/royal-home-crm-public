@@ -208,17 +208,22 @@ describe("alertClientWaiting — «передать сотруднику» бе�
     expect(ownPush(id)).toHaveLength(1);
   });
 
-  it("отписавшийся клиент или клиент в корзине — не беспокоим, и это `excluded`, а не сбой (ревью 0e463b02 N5)", async () => {
+  it("отписка глушит только напоминания бота (silence, follow_up); клиент в корзине — `excluded` (ревью 0e463b02 N5)", async () => {
     const id = await conversation([{ role: "user", content: "стоп", at: minutesAgo(40) }]);
     await prisma.botConversation.update({ where: { id }, data: { optedOutAt: new Date() } });
     expect(await alertClientWaiting({ conversationId: id, trigger: "silence" })).toBe("excluded");
-    expect(await alertClientWaiting({ conversationId: id, trigger: "handover", why: "x" })).toBe("excluded");
     const trashed = await conversation([{ role: "user", content: "алло", at: minutesAgo(40) }]);
     const row = await prisma.botConversation.findUniqueOrThrow({ where: { id: trashed }, select: { clientId: true } });
     await prisma.client.update({ where: { id: row.clientId! }, data: { deletedAt: new Date() } });
     expect(await alertClientWaiting({ conversationId: trashed, trigger: "handover", why: "x" })).toBe("excluded");
     expect(ownPush(id)).toHaveLength(0);
     expect(ownPush(trashed)).toHaveLength(0);
+  });
+
+  it("отписавшийся клиент, который сам ждёт человека (handover), — сигнал сотруднику идёт: отписка = «бот не пишет первым»", async () => {
+    const id = await conversation([{ role: "user", content: "позвоните, хочу посмотреть квартиру", at: minutesAgo(1) }]);
+    await prisma.botConversation.update({ where: { id }, data: { optedOutAt: new Date() } });
+    expect(["agent", "director"]).toContain(await alertClientWaiting({ conversationId: id, trigger: "handover", why: "x" }));
   });
 
   /**
@@ -240,15 +245,15 @@ describe("alertClientWaiting — «передать сотруднику» бе�
     };
     const first = await raced();
     const second = await raced(); // within the same 10 minutes: its own entry, not swallowed by the first chat's
-    const entries = (id: string) => prisma.errorLog.count({ where: { dedupKey: "client-waiting-alert-failed", message: { contains: id } } });
+    const entries = (id: string) => prisma.errorLog.count({ where: { dedupKey: `client-waiting-alert-failed:${id}` } });
     await vi.waitFor(async () => {
       expect(await entries(first)).toBe(1);
       expect(await entries(second)).toBe(1);
     });
-    const logged = await prisma.errorLog.findFirstOrThrow({ where: { dedupKey: "client-waiting-alert-failed", message: { contains: second } } });
+    const logged = await prisma.errorLog.findFirstOrThrow({ where: { dedupKey: `client-waiting-alert-failed:${second}` } });
     expect(logged.message).toContain("передал сотруднику");
     expect(logged.url).toBe(`/messages?open=${second}`);
-    for (const id of [first, second]) await prisma.errorLog.deleteMany({ where: { dedupKey: "client-waiting-alert-failed", message: { contains: id } } });
+    for (const id of [first, second]) await prisma.errorLog.deleteMany({ where: { dedupKey: `client-waiting-alert-failed:${id}` } });
   });
 });
 

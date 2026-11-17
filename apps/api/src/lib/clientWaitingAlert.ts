@@ -172,14 +172,20 @@ interface WaitingChat {
 const activeAgent = (client: { assignedAgent: { id: string; isActive: boolean } | null } | null | undefined) =>
   client?.assignedAgent?.isActive ? client.assignedAgent.id : null;
 
-async function loadWaitingChat(source: WaitingChatSource, id: string): Promise<WaitingChat | null> {
+/**
+ * Opting out means «the bot does not write first» (messengers/conversation.ts): it silences the bot's own nudges (`silence`,
+ * `follow_up`), never a person when the customer is the one waiting (`handover`, `failed`, `escalate`; review N2–N5 #2).
+ */
+const OPT_OUT_SILENCES: ReadonlySet<ClientWaitingTrigger> = new Set(["silence", "follow_up"]);
+
+async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger): Promise<WaitingChat | null> {
   const client = { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } as const;
   if (source === "bot") {
     const chat = await prisma.botConversation.findUnique({
       where: { id },
       select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, silenceAlertFor: true, clientId: true, client },
     });
-    if (!chat || chat.optedOutAt || chat.client?.deletedAt) return null;
+    if (!chat || chat.optedOutAt && OPT_OUT_SILENCES.has(trigger) || chat.client?.deletedAt) return null;
     const previous = chat.silenceAlertFor;
     return {
       openId: chat.id,
@@ -245,7 +251,7 @@ export async function alertClientWaiting(input: {
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
-  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId);
+  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId, input.trigger);
   if (!chat) return "excluded";
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
@@ -307,12 +313,12 @@ export async function alertClientWaiting(input: {
     await chat.release(since).catch(() => {});
     // A caller that lost the mark to this send was told `already` and may have answered the customer «передал сотруднику»;
     // that line closes the episode, so no later tick retries (review 0e463b02 N4). This entry is then the only signal: one
-    // per chat (dedupScope), not one per 10 minutes for all chats.
+    // per chat: its own key, so every such chat is a «new problem» push, not a quiet repeat of one channel-wide entry.
     void logSystemError(
       "api",
       `Сигнал «клиент ждёт ответа» не отправлен (переписка ${chat.openId}): ${err instanceof Error ? err.message : String(err)}. ` +
         `Клиенту могли уже ответить «передал сотруднику» — откройте переписку и ответьте сами.`,
-      { dedupKey: "client-waiting-alert-failed", dedupScope: chat.openId, url }
+      { dedupKey: `client-waiting-alert-failed:${chat.openId}`, url }
     );
     return "skipped";
   }

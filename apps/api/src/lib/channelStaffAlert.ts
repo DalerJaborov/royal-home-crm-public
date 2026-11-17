@@ -15,7 +15,8 @@ import type { ChannelCoreStaffReason } from "./customerChannelCore.js";
  * может прочитать вход или отказывает так, что повтор ничего не даст), клиенту не уходит ответ по существу — значит,
  * человек обязан узнать сразу. Клиенту канал отправляет строку «передал сотруднику» (ревью #223 R1-4); `skipped`
  * («уведомить некого», ошибка базы) дверь ядра пишет в журнал ошибок, `already` — человеку уже сказали раньше,
- * `excluded` (отписался, клиент в корзине, чата нет) — сигнала нет намеренно, и дверь ядра молчит (ревью 0e463b02 N5).
+ * `excluded` (клиент в корзине, чата нет) — сигнала нет намеренно, и дверь ядра молчит (ревью 0e463b02 N5). Отписка сигнал
+ * сотруднику не глушит: клиент сам ждёт человека (отписка — только «бот не пишет первым»).
  *  - Чаты BotConversation (сайт и Meta) — через ОДНУ дверь `alertClientWaiting` (lib/clientWaitingAlert.ts), повод
  *    `handover`: текст пуша говорит правду — клиенту уже сказано, что ответит человек (ревью #223 N8).
  *  - Telegram-бот (TelegramConversation) и личные сообщения канала (TelegramDirectConversation; канал `TELEGRAM_DIRECT`,
@@ -45,7 +46,8 @@ export async function alertChannelStaff(input: { channel: string;
         ? { conversationId: input.conversationId, trigger: "handover", why: `${WHY_TEXT[input.why]}${HANDED_OVER_NOTE}` }
         : { conversationId: input.conversationId, trigger: "failed", why: WHY_TEXT[input.why] });
       // «Уже сказали» (сторож молчания или прошлый ход занял эпизод) — не «некого»: клиенту можно сказать «передал» (R1-2).
-      // `excluded` (opted out, client in the trash): no signal by design — the door stays silent instead (review 0e463b02 N5).
+      // `excluded` (client in the trash, no chat): no signal by design — the door stays silent instead (review 0e463b02 N5).
+      // An opted-out customer who waits for a person is still signalled (opt-out = the bot does not write first).
       return outcome === "agent" || outcome === "director" ? "sent" : outcome;
     }
     const select = { id: true, username: true, clientId: true,
@@ -81,7 +83,7 @@ export async function alertChannelStaff(input: { channel: string;
     // One entry per chat (review 0e463b02 N4): a channel-wide key swallowed every other chat for 10 minutes.
     void logSystemError("ai", `Уведомление «клиент ждёт человека» не отправлено (чат ${input.conversationId ?? "без номера"}): ` +
       `${error instanceof Error ? error.message : String(error)}`,
-      { dedupKey: "channel-staff-alert-failed", dedupScope: input.conversationId ?? undefined, quietPult: true });
+      { dedupKey: `channel-staff-alert-failed:${input.conversationId ?? "none"}`, quietPult: true });
     return "skipped";
   }
 }

@@ -174,9 +174,9 @@ describe("review 0e463b02 N2: the count belongs to the message the run answers, 
 });
 
 describe("review 0e463b02 N5: an opted-out chat reaches the core turn", () => {
-  // Reachable: messengers/conversation.ts sets optedOutAt and still answers a direct message (the turn below it), while
-  // alertClientWaiting refuses opted-out chats. Before: «передал сотруднику» + a false «сигнал не ушёл» error, nobody told.
-  it("on `staff` it stays silent, as the old path did: no handover line, no false error log, no push", async () => {
+  // Reachable: messengers/conversation.ts sets optedOutAt and still answers a direct message (the turn below it). Opting out
+  // means «the bot does not write first»: a customer who writes and needs a person is still handed over and staff are told.
+  it("on `staff` the customer hears the handover line and a person is signalled; no false «сигнал не ушёл» log", async () => {
     const id = await waitingWebsiteChat("n5");
     await prisma.botConversation.update({ where: { id }, data: { optedOutAt: new Date() } });
     const stored = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { messages: true } });
@@ -185,9 +185,8 @@ describe("review 0e463b02 N5: an opted-out chat reaches the core turn", () => {
     expect(await turn()).toBeNull();
     expect(await turn(2)).toBeNull();
     const third = await turn(3);                                   // the third run: the core hands the chat to a person
-    expect(third).toMatchObject({ reply: [], silent: "intended" });
+    expect(third?.reply).toHaveLength(1);
     expect(f.modelTurn).toHaveBeenCalledTimes(3);
-    expect(f.push).not.toHaveBeenCalled();
     expect(f.log).not.toHaveBeenCalledWith("ai", expect.stringContaining("сигнал сотруднику не ушёл"), expect.anything());
   });
 });
