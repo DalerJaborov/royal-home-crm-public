@@ -82,6 +82,11 @@ export interface Settings {
   marketBuyerAlertsEnabled: boolean;
   /** Подбор с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
   marketOwnersOnly: boolean;
+  /** Узкий подбор с площадок (17.11.2026): свежесть сбора (суток), ±% бюджета, разница в комнатах, пушей агенту в сутки. */
+  marketBuyerFreshDays: number;
+  marketBuyerBudgetTolerancePct: number;
+  marketBuyerRoomsTolerance: number;
+  marketBuyerAlertsPerDay: number;
   /** Срок жизни пожелания покупателя от последнего касания, дней; 0 — без срока. */
   matchRequirementTtlDays: number;
   /** Допуск по бюджету клиента, % сверх названной суммы. */
