@@ -377,12 +377,14 @@ const TOOLS: AssistantTool[] = [
   {
     name: "reschedule_task",
     description:
-      "Перенести ближайшую предстоящую задачу клиента на новую дату (команда «перенеси встречу с Умедом на пятницу» и подобные). Переносит самую свежую незавершённую задачу — если у клиента их несколько, уточни у пользователя, какую именно.",
+      "Перенести задачу клиента на новую дату (команда «перенеси встречу с Умедом на пятницу» и подобные). Без taskId переносит БЛИЖАЙШУЮ незавершённую задачу клиента; " +
+      "если у клиента их несколько — ничего не переносит, а возвращает короткий список (taskId, дата, суть): спроси у пользователя, какую именно, и повтори вызов с taskId.",
     parameters: {
       type: "object",
       properties: {
         clientId: { type: "string", description: "ID клиента (найди через search_clients)" },
         newDate: { type: "string", description: "Новая дата ISO YYYY-MM-DD" },
+        taskId: { type: "string", description: "ID задачи из списка, который вернул этот же инструмент. Необязательно: без него — ближайшая задача, если она у клиента одна." },
       },
       required: ["clientId", "newDate"],
     },
@@ -837,27 +839,63 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
     if (denied) return { error: denied };
     const date = parseModelDate(input.newDate);
     if (!date) return { error: "Некорректная дата" };
-    const task = await prisma.interaction.findFirst({
-      // Только те задачи, что REST дал бы тронуть (PATCH /interactions/:id/complete,
-      // foreignTaskWriteDenied): не отменённые, видимые роли, а рядовому агенту —
-      // только свои (subjectAgentId у записей ИИ/системы, иначе agentId).
-      where: {
-        clientId: client.id,
-        nextActionDate: { not: null },
-        completedAt: null,
-        taskCancelledAt: null,
-        ...visibleInteractionWhere(assistantInvestigationRole(actor)),
-        ...(ownScope ? { OR: [{ subjectAgentId: ownScope }, { subjectAgentId: null, agentId: ownScope }] } : {}),
-      },
-      orderBy: { nextActionDate: "desc" },
-    });
-    if (!task) return { error: "У клиента нет запланированных задач для переноса" };
+    // Только те задачи, что REST дал бы тронуть (PATCH /interactions/:id/complete,
+    // foreignTaskWriteDenied): не отменённые, видимые роли, а рядовому агенту —
+    // только свои (subjectAgentId у записей ИИ/системы, иначе agentId).
+    const taskScope = {
+      clientId: client.id,
+      nextActionDate: { not: null },
+      completedAt: null,
+      taskCancelledAt: null,
+      ...visibleInteractionWhere(assistantInvestigationRole(actor)),
+      ...(ownScope ? { OR: [{ subjectAgentId: ownScope }, { subjectAgentId: null, agentId: ownScope }] } : {}),
+    };
+    const wantedTaskId = typeof input.taskId === "string" && input.taskId.trim() ? input.taskId.trim() : null;
+    let task: NonNullable<Awaited<ReturnType<typeof prisma.interaction.findFirst>>>;
+    if (wantedTaskId) {
+      // Конкретная задача — из тех же разрешённых; чужой или закрытой id даёт «не найдена».
+      const wanted = await prisma.interaction.findFirst({ where: { ...taskScope, id: wantedTaskId } });
+      if (!wanted) return { error: "Такой задачи у клиента нет среди незавершённых — уточни список" };
+      task = wanted;
+    } else {
+      // Ближайшая по дате (раньше брали самую дальнюю — описание обещало обратное).
+      const candidates = await prisma.interaction.findMany({
+        where: taskScope,
+        orderBy: [{ nextActionDate: "asc" }, { createdAt: "asc" }],
+        take: 6,
+      });
+      if (candidates.length === 0) return { error: "У клиента нет запланированных задач для переноса" };
+      if (candidates.length > 1) {
+        // Несколько задач — не переносим наугад: модель спросит человека и повторит вызов с taskId.
+        return {
+          needClarification: true,
+          message: "У клиента несколько незавершённых задач — спроси, какую перенести, и повтори вызов с taskId.",
+          client: safeField(clientNamePhoneSafe(client.fullName, actor.canViewPhone)),
+          tasks: candidates.slice(0, 5).map((t) => ({
+            taskId: t.id,
+            date: t.nextActionDate ? dushanbeDateString(t.nextActionDate) : null,
+            task: safeField(t.nextAction),
+          })),
+          ...(candidates.length > 5 ? { more: true } : {}),
+        };
+      }
+      const nearest = candidates[0];
+      if (!nearest) return { error: "У клиента нет запланированных задач для переноса" };
+      task = nearest;
+    }
     const previousDate = task.nextActionDate;
     // Уже на этой дате (повторная доставка хода) — ничего не меняем и перенос второй раз не считаем.
     if (previousDate && previousDate.getTime() === date.getTime()) {
       return { ok: true, alreadyDone: true, client: safeField(clientNamePhoneSafe(client.fullName, actor.canViewPhone)), task: safeField(task.nextAction), newDate: input.newDate };
     }
     await prisma.interaction.update({ where: { id: task.id }, data: { nextActionDate: date } });
+    // След в журнале клиента — тем же способом, что у create_task (запись без nextAction: новой задачей не становится).
+    await logTimeline({
+      clientId: client.id,
+      actor: { kind: "ai", source: "assistant.reschedule_task", subjectAgentId: actor.id },
+      type: "SYSTEM",
+      notes: `Перенос задачи (ИИ-ассистент): «${String(task.nextAction ?? "").slice(0, 200)}» ${previousDate ? `с ${dushanbeDateString(previousDate)} ` : ""}на ${dushanbeDateString(date)}`,
+    }).catch((err) => console.error("[assistant] журнал переноса задачи:", err instanceof Error ? err.message : err));
     // Счётчик аномалий «перенос без контакта» (04.09.2026) — фоном, не задерживает
     // ответ ассистента. previousDate почти всегда есть (WHERE nextActionDate:{not:null}
     // уже отфильтровал task), null возможен только в редкой гонке параллельного
