@@ -7,6 +7,13 @@ import * as clientWaitingAlert from "../src/lib/clientWaitingAlert.js";
 import { readCustomerPropertyVideoAnswer } from "../src/lib/customerPropertyVideoAnswer.js";
 import { resetCustomerOwnBrandMarksCache } from "../src/lib/customerOwnBrandMarks.js";
 
+// «Only leads» mode (#262) asks its own small intent model once per turn (role / hot words: a forwarded post may still be «my
+// flat, sell it» or «we want to view it»); owner decision 13.11, 6 s cap. That call is not under test here, and the synthetic
+// core fixture rejects any unscripted model call: the classifier answers with its own fallback (the model-unavailable path).
+vi.mock("../src/ai/leadOnlyIntent.js", async importOriginal => {
+  const actual = await importOriginal<typeof import("../src/ai/leadOnlyIntent.js")>();
+  return { ...actual, classifyLeadOnlyIntent: vi.fn(async (input: { current: string }) => actual.leadOnlyIntentFallback(input.current, "model_unavailable")) };
+});
 vi.mock("node:dns/promises", async importOriginal => {
   const original = await importOriginal<typeof import("node:dns/promises")>();
   return { ...original, default: { ...original.default, lookup: async (hostname: string, options: unknown) =>

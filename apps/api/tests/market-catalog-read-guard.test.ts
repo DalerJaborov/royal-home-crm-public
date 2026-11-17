@@ -29,6 +29,7 @@ const ALLOWED: Record<string, { count: number; why: string }> = {
   "lib/market/purgeMarketRent.ts#groupBy": { count: 1, why: "скрипт чистки аренды считает, сколько её лежит, по площадкам" },
   "lib/market/runCrawl.ts#count": { count: 1, why: "ручной обход печатает размер таблицы целиком" },
   "routes/marketContact.ts#findFirst": { count: 1, why: "номер продавца по id объявления, которое агенту уже показали" },
+  "lib/market/listingContacts.ts#findMany": { count: 1, why: "отметки «уже связывались» по ссылкам объявлений, которые подбор уже показал (сам подбор — с правилом рубрик)" },
 };
 /** Файлы, которым разрешён сырой SQL по таблице каталога. */
 const RAW_SQL_ALLOWED = new Set(["lib/market/purgeSomonJunk.ts"]);

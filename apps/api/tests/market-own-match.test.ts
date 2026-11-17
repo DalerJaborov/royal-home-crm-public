@@ -615,6 +615,30 @@ describe("POST /market/listing-contact", () => {
     expect((await click(adminToken, listing.sourceUrl)).status).toBe(200);
   });
 
+  it("отметка «номер брал»: пишется только когда номер отдан, с действием и без номера; закрытый номер — без отметки", async () => {
+    const listing = await makeListing(26, { sellerPhone: `+9929${runId.slice(-4)}0992` });
+    clock += 10_000;
+    const res = await request(app).post("/api/v1/market/listing-contact").set("Authorization", `Bearer ${outsiderToken}`)
+      .send({ sourceUrl: listing.sourceUrl, action: "PHONE" });
+    expect(res.status).toBe(200);
+    const marks = await prisma.marketListingContact.findMany({ where: { listingId: listing.id } });
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toMatchObject({ action: "PHONE", clientId: null });
+    expect(JSON.stringify(marks[0])).not.toContain("0992");
+    // Неверное действие — 400, отметки нет.
+    clock += 10_000;
+    const bad = await request(app).post("/api/v1/market/listing-contact").set("Authorization", `Bearer ${outsiderToken}`)
+      .send({ sourceUrl: listing.sourceUrl, action: "SMS" });
+    expect(bad.status).toBe(400);
+    expect(await prisma.marketListingContact.count({ where: { listingId: listing.id } })).toBe(1);
+    // Номер совпал с закрытым контактом владельца: 403 и никакой отметки.
+    await makeProperty(27, `Совпадение-${runId}-контакт3`);
+    const closed = await makeListing(27);
+    expect((await click(outsiderToken, closed.sourceUrl)).status).toBe(403);
+    expect(await prisma.marketListingContact.count({ where: { listingId: closed.id } })).toBe(0);
+    await prisma.marketListingContact.deleteMany({ where: { listingId: { in: [listing.id, closed.id] } } });
+  });
+
   it("номер не совпал ни с одним владельцем — отдаётся всем", async () => {
     const listing = await makeListing(24, { sellerPhone: `+9929${runId.slice(-4)}0991` });
     const res = await click(outsiderToken, listing.sourceUrl);

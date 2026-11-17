@@ -11,6 +11,7 @@ import { fetchLastCallContactByClient, loadBotPauseWatchSettings } from "./botPa
 import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
 import { reportCronRowError } from "./cronHeartbeat.js";
+import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
 
 /**
  * «КЛИЕНТ НАПИСАЛ — ЕМУ НИКТО НЕ ОТВЕТИЛ» (14.11.2026, аудит скрытых механизмов №4).
@@ -177,8 +178,15 @@ const activeAgent = (client: { assignedAgent: { id: string; isActive: boolean } 
  * `follow_up`), never a person when the customer is the one waiting (`handover`, `failed`, `escalate`; review N2–N5 #2).
  */
 const OPT_OUT_SILENCES: ReadonlySet<ClientWaitingTrigger> = new Set(["silence", "follow_up"]);
+/**
+ * Lead-only mode (owner 13.11.2026: «никаких уведомлений не надо никому высылать пока он не станет лидом»): before a card
+ * the bot's own «the agent will tell» / «a person is needed» signals are not sent. The mode answers such turns itself (a phone
+ * ask, or a lead on a WhatsApp number). Failures (`failed`) and the 30-minute watchdog (`silence`) stay: those are faults, not
+ * leads. A vacancy chat keeps the recruiter's path (`jobTopic`).
+ */
+const LEAD_ONLY_QUIET: ReadonlySet<ClientWaitingTrigger> = new Set(["follow_up", "escalate"]);
 
-async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger): Promise<WaitingChat | null> {
+async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger, jobTopic = false): Promise<WaitingChat | null> {
   const client = { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } as const;
   if (source === "bot") {
     const chat = await prisma.botConversation.findUnique({
@@ -186,6 +194,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: C
       select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, silenceAlertFor: true, clientId: true, client },
     });
     if (!chat || chat.optedOutAt && OPT_OUT_SILENCES.has(trigger) || chat.client?.deletedAt) return null;
+    if (!chat.clientId && !jobTopic && LEAD_ONLY_QUIET.has(trigger) && await leadOnlyQuietBeforeLead(chat.channel)) return null;
     const previous = chat.silenceAlertFor;
     return {
       openId: chat.id,
@@ -248,10 +257,12 @@ export async function alertClientWaiting(input: {
   why?: string;
   /** Для follow_up: время реплики клиента, на которую бот пообещал агента (ключ эпизода). */
   since?: Date;
+  /** Разговор о вакансии: режим «только заявки» его сигналы не глушит (ведёт рекрутер). */
+  jobTopic?: boolean;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
-  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId, input.trigger);
+  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId, input.trigger, input.jobTopic === true);
   if (!chat) return "excluded";
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в

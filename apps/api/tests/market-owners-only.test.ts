@@ -16,6 +16,8 @@ import { catalogRaw } from "./helpers/somonPage.js";
 
 const runId = `${Date.now()}`.slice(-8);
 const DISTRICT = `Тест-собственники-${runId}`;
+/** Свой город: подбор берёт и объявления без района, а такие есть у соседних файлов при параллельном прогоне. */
+const CITY = `Тест-город-собств-${runId}`;
 const agentIds: string[] = [];
 const clientIds: string[] = [];
 const listingIds: string[] = [];
@@ -32,7 +34,7 @@ async function listing(key: string, over: Record<string, unknown>) {
   const l = await prisma.marketListing.create({
     data: {
       source: "somon.tj", sourceId: `${runId}-${key}`, sourceUrl: `https://somon.tj/adv/${runId}-${key}`, dealType: "SALE", propertyType: "APARTMENT",
-      city: "Душанбе", districtName: DISTRICT, rooms: 2, areaSqm: area, floor: 3, price, currency: "TJS", priceTjs: price,
+      city: CITY, districtName: DISTRICT, rooms: 2, areaSqm: area, floor: 3, price, currency: "TJS", priceTjs: price,
       pricePerSqmTjs: Math.round(price / area), title: `Объявление ${key}`, isActive: true, lastSeenAt: new Date(), raw: catalogRaw({}), ...rest,
     },
   });
@@ -51,11 +53,11 @@ beforeAll(async () => {
   const agent = await makeAgent(runId, "6");
   agentIds.push(agent.id);
   token = (await request(app).post("/api/v1/auth/login").send({ phone: agent.phone, password: "testpass123" })).body.accessToken;
-  districtId = (await prisma.district.create({ data: { name: DISTRICT } })).id;
+  districtId = (await prisma.district.create({ data: { name: DISTRICT, city: CITY } })).id;
   const buyer = await prisma.client.create({
     data: {
       fullName: `Покупатель собственники ${runId}`, phone: `+992997${runId.slice(-7)}`, source: "PHONE_CALL", kind: "BUYER", assignedAgentId: agent.id,
-      acceptedAt: new Date(), currency: "TJS", budgetMax: 600_000, desiredDistrictId: districtId, desiredRooms: 2,
+      acceptedAt: new Date(), currency: "TJS", budgetMin: 450_000, budgetMax: 520_000, desiredDistrictId: districtId, desiredRooms: 2,
     },
   });
   buyerId = buyer.id;

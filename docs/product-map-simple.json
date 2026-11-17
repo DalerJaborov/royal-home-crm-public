@@ -16,10 +16,10 @@
   "paths": 777,
   "cron": 140,
   "jobs": 33,
-  "conditions": 4029,
-  "untranslatedUnique": 464,
-  "untranslatedTotal": 597,
-  "partialUnique": 1087,
+  "conditions": 4031,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 596,
+  "partialUnique": 1088,
   "translatedShare": 85
  },
  "untranslated": [
@@ -140,7 +140,6 @@
   "!text.trim()",
   "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
-  "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
   "!verifyState(state)",
   "!verifyTotpCode(agent.phone, secret, parsed.data.code)",
   "!video || video.propertyId !== req.params.id",
@@ -2791,11 +2790,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 120,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 125,
      "direct": false,
      "conf": "через общую часть"
@@ -2952,41 +2946,6 @@
     },
     {
      "i": 297,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 330,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 331,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 332,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 333,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 334,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 335,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 336,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -17998,7 +17957,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33482,7 +33440,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33555,7 +33512,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33609,7 +33565,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33637,7 +33592,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33704,7 +33658,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33758,7 +33711,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -33812,7 +33764,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id",
     "/market",
     "/properties/:id"
    ],
@@ -70754,6 +70705,13 @@
            "more": true
           },
           {
+           "t": "если это не внутри dushanbe окно",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
            "t": "если raw listings количество — «0»",
            "k": "if",
            "a": [],
@@ -81008,15 +80966,34 @@
          "t": "если есть заявка",
          "k": "if",
          "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть телефон",
+         "k": "if",
+         "a": [],
          "c": [
           {
-           "t": "если scenario — «hot»",
+           "t": "если телефон заметка — «noted»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если телефон заметка — «no_card»",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           }
          ]
+        },
+        {
+         "t": "если scenario не «callback» и scenario не «no_call»",
+         "k": "if",
+         "a": [],
+         "c": []
         }
        ]
       },
@@ -81189,29 +81166,7 @@
          "a": [],
          "c": [
           {
-           "t": "если !urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
-           "more": true
-          },
-          {
-           "t": "если нет: переписка",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть назначен сотрудник (клиент)",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть объект",
+           "t": "если есть владелец",
            "k": "if",
            "a": [],
            "c": [],
