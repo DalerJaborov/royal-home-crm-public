@@ -1,0 +1,48 @@
+# Шлюз звонков WhatsApp -> АТС. ОТДЕЛЬНЫЙ файл compose, намеренно не в
+# docker-compose.prod.yml и не в ops/deploy.sh: выкат CRM (таймер
+# royalhome-auto-deploy) его не знает и не запускает. Шлюз поднимает только
+# человек, по runbook docs/whatsapp-calling-runbook.md, с «да» владельца.
+#
+# Запуск на сервере (из установленной копии, см. wa-install.sh):
+#   docker compose -f /opt/royalhome-wa-gateway/docker-compose.yml up -d --build
+# Откат:
+#   docker compose -f /opt/royalhome-wa-gateway/docker-compose.yml down
+name: royalhome-wa-gateway
+
+services:
+  gateway:
+    build: .
+    image: royalhome-wa-gateway:local
+    container_name: royalhome-wa-gateway
+    # СЕТЬ ХОСТА — НАМЕРЕННО. Порты, опубликованные docker (ports:), идут мимо
+    # ufw (цепочка DOCKER стоит раньше правил ufw), и «5061 только для сетей Meta»
+    # не работало бы вовсе. В сети хоста действуют обычные правила ufw (INPUT,
+    # политика DROP), а звук не ходит через docker-proxy с его NAT.
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - ${WA_GATEWAY_HOME:-/opt/royalhome-wa-gateway}/gateway.env
+    volumes:
+      - ${WA_GATEWAY_HOME:-/opt/royalhome-wa-gateway}/certs:/etc/wa-certs:ro
+      # Каталог, а не файл: если смонтировать отсутствующий файл, docker создаст
+      # на его месте КАТАЛОГ, и следующий шаг (запись пароля) упадёт.
+      # Только пароль Meta (secrets/meta). Ключ Cloudflare лежит рядом, в
+      # secrets/cloudflare.ini, и в шлюз НЕ монтируется — он нужен лишь certbot.
+      - ${WA_GATEWAY_HOME:-/opt/royalhome-wa-gateway}/secrets/meta:/run/wa-secrets:ro
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 512
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
