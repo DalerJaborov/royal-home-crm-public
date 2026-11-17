@@ -110,7 +110,9 @@ describe("say validator: every refusal code, Russian", () => {
   it("echo: five words in a row from the customer's own message", () => {
     const inputText = "Мне нужна просторная светлая квартира возле парка";
     expect(reason("Понял: нужна просторная светлая квартира возле.", { inputText })).toBe("echo");
-    expect(reason("Понял: нужна просторная квартира для семьи.", { inputText })).toBe("ok");
+    expect(reason("Понял: нужна квартира для семьи.", { inputText })).toBe("ok");
+    // Praise of a flat is a claim since review #211, even in the customer's own words («светлая и просторная» to «она светлая?»).
+    expect(reason("Понял: нужна просторная квартира для семьи.", { inputText })).toBe("fact_claim");
   });
   it("echo ignores content the customer only forwarded (document, crm note)", () => {
     const inputText = `Вот файл ${wrapUntrusted("document", "нужна просторная светлая квартира возле парка")}`;

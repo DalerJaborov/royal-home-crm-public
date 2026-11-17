@@ -428,6 +428,25 @@ describe("actual accepted callback question → real next signed IN", () => {
     expect(await prisma.callbackRequest.findUniqueOrThrow({ where: { customerActionId: action.id } })).toMatchObject({ phone: number });
   }, 60_000);
 
+  it("review #211 п.4: «да» to the model's OWN wording of the call question is consent (live answer, real seal, real yes)", async () => {
+    vi.stubEnv("CUSTOMER_AGENT_ANSWER_MODE", "live");
+    try {
+      const f = await fixture(), key = await f.intake("Хочу купить квартиру, нужна консультация.");
+      const ask = "Хотите, чтобы сотрудник вам позвонил?";
+      const part = await f.run(key, [[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "callback_consent",
+        answer: { lead: "Хорошо, понимаю вас.", ask } }) }]]);
+      const payload = decodeCustomerOutboxPayload(part);
+      expect(payload).toEqual({ kind: "text", text: `Хорошо, понимаю вас.\n${ask}` });
+      expect(ask.endsWith(customerAgentCallbackQuestionText("ru"))).toBe(false);
+      expect(decodeCustomerOutboxPublicData(part)).toMatchObject({ agentRevisionId: revisionId, observations: [],
+        callbackQuestion: { version: 1, kind: "callback_consent", language: "ru" } });
+      expect(await dispatchCustomerOutboxPart(part.id)).toEqual({ status: "accepted" });
+      const b = await f.intake("Да"), prepared = await f.beforeClaim(b);
+      expect(customerActionIntentsSchema.parse(prepared.inquiry.actionIntents).callback).toMatchObject({ status: "open",
+        consent: { originalEventKey: b, acceptedQuestion: { questionEventKey: key } } });
+    } finally { vi.stubEnv("CUSTOMER_AGENT_ANSWER_MODE", ""); }
+  }, 60_000);
+
   it("accepted yes with no phone keeps open generation; actual phone-only C completes that same intent", async () => {
     const f = await fixture(), a = await f.questionA("ru", null);
     expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });

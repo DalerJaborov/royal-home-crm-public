@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { customerAgentDecisionSchema, customerAgentSurfaceSchema, customerAgentSayDropReasonSchema, customerAgentSayStatusSchema } from "./customerAgent.js";
+import { customerAgentDecisionSchema, customerAgentSurfaceSchema, customerAgentSayDropReasonSchema, customerAgentSayStatusSchema, customerAgentAnswerDropReasonSchema } from "./customerAgent.js";
 import { customerMutationReceiptSchema } from "./customerMutation.js";
 
 export const BOT_TURN_TRACE_COVERAGE = "meta_website_customer_bot_v1" as const;
@@ -84,6 +84,8 @@ export const traceCustomerCoreSchema = z.strictObject({
   causeCode: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{1,47}$/).optional(),
   /** Grounded free-phrase channel: status and verdict code only. The text itself is never written to the trace. */
   sayStatus: customerAgentSayStatusSchema.optional(), sayDropReason: customerAgentSayDropReasonSchema.optional(),
+  /** The model's whole reply (one-brain step 1): status and verdict code only, never the text. */
+  answerStatus: customerAgentSayStatusSchema.optional(), answerDropReason: customerAgentAnswerDropReasonSchema.optional(),
 }).superRefine((value, ctx) => {
   if (value.skipReason !== undefined && value.rejectedDecisionKind !== "skip") {
     ctx.addIssue({ code: "custom", path: ["skipReason"], message: "skipReason requires rejectedDecisionKind=skip" });
