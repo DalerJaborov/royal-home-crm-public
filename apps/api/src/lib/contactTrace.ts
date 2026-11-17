@@ -21,12 +21,14 @@ export interface ContactTrace {
 export async function countContactTrace(clientId: string, minSeconds: number): Promise<ContactTrace> {
   const [talkedCalls, attemptCalls, client] = await Promise.all([
     prisma.interaction.count({
-      where: { clientId, type: "CALL", recordingDurationSec: { gte: minSeconds } },
+      // Звонок РОП «почему в Корзине» (#217) — разбор, а не попытка агента.
+      where: { clientId, type: "CALL", archiveReview: false, recordingDurationSec: { gte: minSeconds } },
     }),
     prisma.interaction.count({
       where: {
         clientId,
         type: "CALL",
+        archiveReview: false,
         OR: [
           // Станция довела вызов до телефона клиента — взял он трубку или нет.
           { callAttempt: { in: ["TALKED", "NO_ANSWER"] } },

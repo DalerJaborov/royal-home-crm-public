@@ -176,7 +176,7 @@ describe("POST /clients/:id/transfer", () => {
     await makeShowing(c.id);
     const res = await request(app)
       .post(`/api/v1/clients/${c.id}/transfer`)
-      .set("Authorization", `Bearer ${token}`)
+      .set("Authorization", `Bearer ${managerToken}`)
       .send({ reason: "NO_TRUST", comment: "не сложилось и у этого" });
     expect(res.status).toBe(200);
 

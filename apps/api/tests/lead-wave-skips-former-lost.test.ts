@@ -33,7 +33,7 @@ beforeAll(async () => {
   const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { leadDistributionStrategy: true, workHoursStart: true, workHoursEnd: true } });
   savedStrategy = s?.leadDistributionStrategy ?? null;
   savedHours = s ? { workHoursStart: s.workHoursStart, workHoursEnd: s.workHoursEnd } : null;
-  await prisma.settings.update({ where: { id: "singleton" }, data: { leadDistributionStrategy: "round_robin", workHoursStart: "00:00", workHoursEnd: "23:59" } });
+  await prisma.settings.update({ where: { id: "singleton" }, data: { leadDistributionStrategy: "round_robin", workHoursStart: "00:00", workHoursEnd: "24:00" } });
 });
 
 afterAll(async () => {
