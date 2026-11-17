@@ -26,7 +26,7 @@ import {
 import { prisma } from "../db.js";
 import { sendPushToAgent, sendPushToAgents, closeLeadPushNotifications } from "../push.js";
 import { findAgentsWithPermission } from "./recipients.js";
-import { logAudit, logSystemAudit } from "./audit.js";
+import { logAgentAudit, logAudit, logSystemAudit } from "./audit.js";
 import { isInstagramLink } from "./instagramLink.js";
 import { syncPropertiesToSite } from "./siteSync.js";
 import { logSystemError } from "./systemError.js";
@@ -619,10 +619,22 @@ async function notifyPublished(
  * транзакции менять статус — при автопути это та же транзакция, что и остальной
  * PATCH). Здесь — только сайд-эффекты публикации, которые нельзя завести дважды.
  */
+/** Автор «Готово» без HTTP-запроса: нажал сотрудник, но не на экране CRM (ИИ-помощник).
+ *  Аудит пишется от его имени, `meta` — источник (помощник, id действия). */
+export interface PublishAuditAuthor {
+  agentId: string;
+  meta?: Record<string, string | number | boolean | null>;
+}
+
+function isPublishAuditAuthor(req: Request | PublishAuditAuthor): req is PublishAuditAuthor {
+  return "agentId" in req;
+}
+
 export async function publishAfterEditingComplete(
   /** null — конвейер закрывает не HTTP-запрос, а фоновая публикация ролика от
-   *  монтажёра (lib/videoHandoff.ts): аудит пишется от имени «Система». */
-  req: Request | null,
+   *  монтажёра (lib/videoHandoff.ts): аудит пишется от имени «Система».
+   *  PublishAuditAuthor — нажал сотрудник через помощника (lib/propertyCompleteEditing.ts). */
+  req: Request | PublishAuditAuthor | null,
   property: {
     id: string;
     shortId: number;
@@ -635,7 +647,13 @@ export async function publishAfterEditingComplete(
   // Пишем в историю СРАЗУ после смены статуса, а не после успешной публикации на
   // сайт: то, что объект вышел из конвейера, — случившийся в CRM факт независимо
   // от того, ответит ли внешний сайт.
-  if (req) logAudit(req, "PROPERTY_EDITING_DONE", "Property", property.id, { shortId: property.shortId, title: property.title });
+  if (req && isPublishAuditAuthor(req)) {
+    logAgentAudit(req.agentId, "PROPERTY_EDITING_DONE", "Property", property.id, {
+      shortId: property.shortId,
+      title: property.title,
+      ...(req.meta ?? {}),
+    });
+  } else if (req) logAudit(req, "PROPERTY_EDITING_DONE", "Property", property.id, { shortId: property.shortId, title: property.title });
   else logSystemAudit("PROPERTY_EDITING_DONE", "Property", property.id, { shortId: property.shortId, title: property.title });
 
   // Тот же факт «объект вышел из конвейера» — повод уведомить того, кто его завёл.

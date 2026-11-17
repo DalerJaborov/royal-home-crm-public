@@ -133,6 +133,25 @@ describe("POST /properties/:id/complete-editing", () => {
     expect(after?.status).toBe("AVAILABLE");
   });
 
+  it("два одновременных «Готово» (двойной клик, экран + помощник) — одна публикация, второе 409 (17.11.2026: условный перевод статуса)", async () => {
+    const p = await makeProperty();
+    await addSixPhotos(p.id);
+    const press = () =>
+      request(app).post(`/api/v1/properties/${p.id}/complete-editing`).set("Authorization", `Bearer ${editorToken}`);
+    const [a, b] = await Promise.all([press(), press()]);
+    expect([a.status, b.status].sort()).toEqual([207, 409]);
+    const loser = a.status === 409 ? a : b;
+    expect(loser.body.error).toMatch(/Монтаж/);
+    const entries = await waitFor(
+      async () => {
+        const n = await prisma.auditLog.count({ where: { entityId: p.id, action: "PROPERTY_EDITING_DONE" } });
+        return n >= 1 ? n : 0;
+      },
+      { label: "запись PROPERTY_EDITING_DONE в журнале действий" }
+    );
+    expect(entries).toBe(1);
+  });
+
   it("вне PROPERTY_PIPELINE_STATUSES объект больше не считается в лимите активных (место освобождено)", async () => {
     // Свой агент-интейкер, без единого объекта до этого теста: остальные тесты
     // файла оставляют agentId с объектами в конвейере (тестируют именно отказы,

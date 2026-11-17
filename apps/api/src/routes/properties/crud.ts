@@ -56,6 +56,7 @@ import {
   skipVideoHandoffOnManualPublish,
 } from "../../lib/videoHandoff.js";
 import { describeError } from "../../lib/describeError.js";
+import { completeEditing } from "../../lib/propertyCompleteEditing.js";
 import { restorePropertyFromTrash, trashProperties, trashProperty } from "../../lib/trashProperty.js";
 import { propertyRemovalSchema, narrationWizardChoiceSchema } from "@royal-home/shared";
 import {
@@ -1525,38 +1526,17 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
  * молча разошедшийся с реальностью.
  */
 crudRouter.post("/:id/complete-editing", requireAuth, async (req, res) => {
-  const property = await prisma.property.findUnique({
-    where: { id: req.params.id },
-    include: { district: true, photos: { orderBy: { order: "asc" } } },
+  // Само «Готово» — lib/propertyCompleteEditing.ts: ту же дверь зовёт ИИ-помощник (complete_property_editing).
+  const outcome = await completeEditing({
+    propertyId: req.params.id,
+    actor: { agentId: req.agent!.id, can: (permission) => can(req, permission) },
+    audit: req,
   });
-  if (!property || property.deletedAt) return res.status(404).json({ error: "Объект не найден" });
-  if (!canManageProperty(req, property)) return res.status(403).json({ error: "Недостаточно прав" });
-
-  if (property.status !== "EDITING") {
-    return res.status(409).json({ error: "Кнопка «Готово» доступна только на этапе «Монтаж»" });
+  if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+  if (outcome.siteSyncError) {
+    return res.status(207).json({ ...presentProperty(outcome.property, req), siteSyncError: outcome.siteSyncError });
   }
-  const blockers = blockersForSale({ instagramUrl: property.instagramUrl, photoCount: property.photos.length });
-  if (blockers.length > 0) {
-    return res.status(409).json({ error: `Объект не готов: ${blockers.join(", ")}` });
-  }
-
-  const updated = await prisma.property.update({
-    where: { id: property.id },
-    data: { status: "AVAILABLE", stageEnteredAt: new Date() },
-    include: { district: true, photos: { orderBy: { order: "asc" } } },
-  });
-
-  const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
-  // См. комментарий у аналогичного вызова в автопубликации PATCH выше — та же
-  // защита от навсегда занятого места монтажёра, только для ручной кнопки «Готово».
-  void skipVideoHandoffOnManualPublish(published.id).catch((err) =>
-    console.error("[video-handoff] закрытие хендоффа при «Готово»:", err)
-  );
-  publishPropertyUpdated({ propertyId: published.id, agentId: published.assignedAgentId, stage: published.status, actorId: req.agent!.id });
-  if (siteSyncError) {
-    return res.status(207).json({ ...presentProperty(published, req), siteSyncError });
-  }
-  res.json(presentProperty(published, req));
+  res.json(presentProperty(outcome.property, req));
 });
 
 /**

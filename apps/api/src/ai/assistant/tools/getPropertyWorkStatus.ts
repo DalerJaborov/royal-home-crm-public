@@ -1,8 +1,10 @@
-import { formatPropertyCode } from "@royal-home/shared";
+import { PROPERTY_PIPELINE_STATUSES, formatPropertyCode, type PropertyStatus } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../../../db.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 import { dushanbeDateTimeString } from "../../../lib/dushanbeTime.js";
+import { PROPERTY_STATUS_LABEL_RU } from "../../../lib/propertyAutoStatus.js";
+import { saleBlockerAdvice, type SaleBlockerAdvice } from "../../../lib/propertyCompleteEditing.js";
 import { propertyOwnerWhere } from "../../../lib/propertyOwner.js";
 import { findPropertiesByRef } from "../../../lib/propertyRefLookup.js";
 import { videoHandoffPublishDedupeKey } from "../../../lib/videoHandoff.js";
@@ -100,6 +102,80 @@ export function summarizePropertyWork(row: WorkRow, now: Date, publishJobStatus?
   return { phase: "EDITING_PATH_UNCONFIRMED", elapsed: since(row.stageEnteredAt, now) };
 }
 
+/** Готовый ролик словами, с давностью: «принят 11 дн. назад», а не код фазы. */
+function clipSentence(phase: string, elapsedDays: number | null): string {
+  const ago = elapsedDays === null ? "" : elapsedDays === 0 ? " (сегодня)" : ` (${elapsedDays} дн. назад)`;
+  switch (phase) {
+    case "WAITING_FOR_EDITOR": return `исходники ждут очереди у монтажёра${ago}`;
+    case "EDITOR_QUEUE_ON_HOLD": return "очередь монтажёра на паузе";
+    case "SENDING_TO_EDITOR": return "исходники сейчас отправляются монтажёру";
+    case "EDITOR_DELIVERY_UNCONFIRMED": return `исходники отправлены, но доставка монтажёру не подтверждена${ago}`;
+    case "WITH_EDITOR": return `ролик сейчас у монтажёра${ago}`;
+    case "WAITING_FOR_MANUAL_UPLOAD": return `ждём, когда монтажёр загрузит готовый ролик вручную${ago}`;
+    case "FINAL_VIDEO_UNDER_REVIEW": return "готовый ролик ждёт решения агента: принять или вернуть на правку";
+    case "FINAL_VIDEO_REJECTED": return "готовый ролик отклонён — нужен новый";
+    case "FINAL_VIDEO_RECEIVED":
+    case "PUBLICATION_PENDING":
+    case "PUBLISHING": return `готовый ролик принят${ago}, публикация в Instagram ещё не завершена`;
+    case "PUBLICATION_FAILED": return `готовый ролик принят${ago}, но публикация в Instagram не удалась`;
+    case "PUBLICATION_SKIPPED": return `готовый ролик принят${ago}, автопубликация в соцсети пропущена`;
+    default: return phase.startsWith("AUTO_MONTAGE_") ? "идёт автомонтаж ролика" : "готового ролика пока нет";
+  }
+}
+
+export interface SaleReadiness {
+  inSale: false;
+  stage: string;
+  /** На монтаже и всё для продажи есть: объект можно выводить кнопкой «Готово» (complete_property_editing). */
+  readyForSale: boolean;
+  blockers: SaleBlockerAdvice[];
+  video: string;
+  nextStep: string;
+}
+
+const PIPELINE: readonly string[] = PROPERTY_PIPELINE_STATUSES;
+
+/**
+ * ПОЧЕМУ ОБЪЕКТ ЕЩЁ НЕ В ПРОДАЖЕ (17.11.2026, живой случай ОБ-000193: помощница не знала причины и
+ * предлагала заявку «сменить статус»). Только для объекта в конвейере: причины — те же условия,
+ * что у кнопки «Готово» (`blockersForSale` через `saleBlockerAdvice`), состояние ролика словами и
+ * следующий шаг. Вне конвейера — null.
+ */
+export function describeSaleReadiness(
+  row: { status: string; instagramUrl: string | null },
+  photoCount: number,
+  work: { phase: string; elapsed?: { elapsedDays: number } | null },
+): SaleReadiness | null {
+  if (!PIPELINE.includes(row.status)) return null;
+  const stage = PROPERTY_STATUS_LABEL_RU[row.status as PropertyStatus];
+  const blockers = saleBlockerAdvice({ instagramUrl: row.instagramUrl, photoCount });
+  const video = clipSentence(work.phase, work.elapsed?.elapsedDays ?? null);
+  const base = { inSale: false as const, stage, blockers, video };
+  if (row.status !== "EDITING") {
+    return {
+      ...base,
+      readyForSale: false,
+      nextStep: `Объект ещё готовится, этап «${stage}»: в продажу он выйдет после монтажа. Этапы подготовки двигает маркетинг, заявку на смену статуса не подавай.`,
+    };
+  }
+  if (blockers.length === 0) {
+    return {
+      ...base,
+      readyForSale: true,
+      nextStep:
+        "Для продажи всё есть, объект просто не нажали «Готово». Предложи вывести его в продажу инструментом complete_property_editing " +
+        "(«Монтаж готов»); заявку «Другое» не подавай.",
+    };
+  }
+  return {
+    ...base,
+    readyForSale: false,
+    nextStep:
+      `В продажу не выходит из-за: ${blockers.map((b) => b.problem).join("; ")}. Назови сотруднику эту причину и что сделать (поле blockers), ` +
+      "заявку на смену статуса не предлагай. Когда исправят — вывести в продажу можно инструментом complete_property_editing.",
+  };
+}
+
 function identity(row: Pick<WorkRow, "shortId" | "title">) {
   return { code: formatPropertyCode(row.shortId), href: propertyHref(row.shortId), title: safeField(row.title, 100) };
 }
@@ -157,7 +233,11 @@ export const getPropertyWorkStatusTool: AssistantReadToolPlugin = {
   description:
     "Текущий этап объекта и срок в нём: очередь, реально у монтажёра, исходники не доставлены, ручная загрузка, автомонтаж, готовый ролик, публикация. " +
     "Для конкретного объекта передай ref; для «где мой объект/мои объекты» — scope=mine; для «что/сколько на монтаже» — scope=queue. " +
-    "Если пользователь не назвал объект, уточни по списку; не выбирай из нескольких совпадений.",
+    "Если пользователь не назвал объект, уточни по списку; не выбирай из нескольких совпадений. " +
+    "Если объект ещё в подготовке, в ответе есть saleReadiness: ПОЧЕМУ он не в продаже (blockers: что не так и что сделать), " +
+    "состояние ролика (video) и следующий шаг (nextStep). Звать на «почему ОБ-193 не в продаже», «почему объект не вышел в продажу», " +
+    "«объект завис на монтаже», «когда выйдет в продажу»; по-таджикски «чаро ба фурӯш набаромад», «чаро ОБ-193 дар монтаж истодааст». " +
+    "Отвечай причиной из saleReadiness и шагом из nextStep; заявку на смену статуса не предлагай.",
   parameters: {
     type: "object",
     properties: {
@@ -190,7 +270,13 @@ export const getPropertyWorkStatusTool: AssistantReadToolPlugin = {
         },
         select: { status: true },
       }) : null;
-      return { ...identity(row), ...summarizePropertyWork(row, now, job?.status === "DONE" ? undefined : job?.status) };
+      const work = summarizePropertyWork(row, now, job?.status === "DONE" ? undefined : job?.status);
+      // Объект ещё в конвейере — отвечаем причиной, почему он не в продаже, а не одним этапом.
+      const photoCount = (PIPELINE as readonly string[]).includes(row.status)
+        ? await prisma.propertyPhoto.count({ where: { propertyId: row.id } })
+        : 0;
+      const saleReadiness = describeSaleReadiness(row, photoCount, work);
+      return { ...identity(row), ...work, ...(saleReadiness ? { saleReadiness } : {}) };
     }
     return getPropertyWorkList(actor, scope ?? "mine", now);
   },
