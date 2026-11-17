@@ -27,6 +27,7 @@
  *   8б. audit:mocks              ~1 с    нет новых узких подмен vi.mock без importOriginal (№204)
  *   8в. audit:functions          ~0 с    каждая переменная-рубильник названа в реестре «Состояние функций»
  *   8г. audit:fetch-timeout      ~0 с    каждый fetch в apps/api/src с signal (таймаут), охота 14.11.2026 №12
+ *   8д. audit:limits             ~0 с    одиночный приём файла не тяжелее потолка прокси 90 МБ (413 от Cloudflare)
  *   9. audit:журнал              ~0 с    у каждого действия журнала есть подпись по-русски
  *   9б. audit:secrets            ~1 с    нет ключей, .env и настоящих номеров клиентов в документах
  *  10. map:check                 ~0 с    карта продукта не отстала от кода (docs/product-map.md)
@@ -172,6 +173,9 @@ const steps = [
   // находка №204). Известные подмены — .vi-mock-baseline.json, валят только новые.
   { name: "audit:mocks (подмены vi.mock)", cmd: "npm", args: ["run", "audit:mocks"] },
   { name: "audit:fetch-timeout (fetch без таймаута)", cmd: "npm", args: ["run", "audit:fetch-timeout"] },
+  // Одиночный приём файла не тяжелее потолка прокси (90 МБ): тяжелее Cloudflare вернёт 413
+  // ещё до API, а на стенде прокси нет — ни сборка, ни тесты этого не видят (ролик 87 МБ, 17.11.2026).
+  { name: "audit:limits (файл одним запросом)", cmd: "npm", args: ["run", "audit:limits"] },
   { name: "audit:журнал", cmd: "npm", args: ["run", "audit:audit-labels"] },
   // Переменная-рубильник (*_LIVE, *_MODE, *_EXECUTION_MODE, *_ENABLED) без записи в реестре «Состояние функций»
   // (packages/shared/src/functionStatus.ts) не проходит: функция молча выключена, а директор о ней не знает.
