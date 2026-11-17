@@ -28,7 +28,8 @@ import {
 } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../../db.js";
-import { can, requireAuth, requirePermission } from "../../auth/middleware.js";
+import { can, requireAuth, requirePermission, scopeToOwnAgent } from "../../auth/middleware.js";
+import { decideClientCardAccess } from "../../lib/clientCardAccess.js";
 import { logAudit } from "../../lib/audit.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { sendPushToAgent, closeLeadPushNotifications } from "../../push.js";
@@ -483,8 +484,9 @@ deleteRequestsRouter.post("/:id/request-restore", requireAuth, async (req, res) 
     select: { id: true, shortId: true, fullName: true, kind: true, deletedAt: true, assignedAgentId: true, lastAgentId: true },
   });
   if (!client || !client.deletedAt) return res.status(404).json({ error: "Карточка не найдена в Корзине" });
-  const isHolder = client.assignedAgentId === req.agent!.id || client.lastAgentId === req.agent!.id;
-  if (!isHolder && !can(req, "clients.viewAll")) {
+  // Держатель (текущий или прежний) или тот, кто видит всех, — решает та же
+  // дверь, что у карточки (lib/clientCardAccess.ts); просьба данных не отдаёт.
+  if (decideClientCardAccess(scopeToOwnAgent(req), { ...client, acceptedAt: null }, false) === "denied") {
     return res.status(403).json({ error: "Попросить восстановить может только тот, кто вёл эту карточку" });
   }
 

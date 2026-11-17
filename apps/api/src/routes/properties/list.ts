@@ -6,7 +6,8 @@ import { Router, type Request } from "express";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { propertyQuerySchema, PROPERTY_PIPELINE_STATUSES, parseShortCode } from "@royal-home/shared";
 import { prisma } from "../../db.js";
-import { can, requireAuth, requirePermission } from "../../auth/middleware.js";
+import { can, requireAuth, requirePermission, scopeToOwnAgent } from "../../auth/middleware.js";
+import { decideClientCardAccess } from "../../lib/clientCardAccess.js";
 import { computeDemandCounts } from "../matching.js";
 import { loadPipelineDeadlines, stageState } from "../../lib/propertyPipeline.js";
 import { INSTAGRAM_LINK_CONTAINS } from "../../lib/instagramLink.js";
@@ -455,8 +456,9 @@ async function loadSellerClientRef(sellerClientId: string | null, req: Request) 
     select: { id: true, shortId: true, fullName: true, assignedAgentId: true, lastAgentId: true, deletedAt: true },
   });
   if (!seller || seller.deletedAt) return null;
-  const me = req.agent!.id;
-  const canOpen = can(req, "clients.viewAll") || seller.assignedAgentId === me || seller.lastAgentId === me;
+  // Та же дверь, что у GET /clients/:id (lib/clientCardAccess.ts): прежнему агенту
+  // карточка откроется экраном «передана», постороннему — нет.
+  const canOpen = decideClientCardAccess(scopeToOwnAgent(req), { ...seller, acceptedAt: null }, false) !== "denied";
   return { id: seller.id, shortId: seller.shortId, fullName: seller.fullName, canOpen };
 }
 

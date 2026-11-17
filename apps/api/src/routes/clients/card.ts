@@ -65,6 +65,12 @@ import { removeClientAvatarFile } from "../../lib/clientAvatar.js";
 import { deleteDealDocumentFile } from "../../lib/dealDocumentFiles.js";
 import { loadClientCardActivity } from "../../lib/clientCardActivity.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
+import {
+  CLIENT_CARD_HISTORY_HIDDEN,
+  CLIENT_PROFILE_HIDDEN,
+  CLIENT_TRANSFERRED_HIDDEN,
+  resolveClientCardAccess,
+} from "../../lib/clientCardAccess.js";
 
 export const cardRouter = Router();
 
@@ -291,24 +297,15 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
     },
   });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
-  // Пачка 16 (11.09.2026, docs/archive/agent-briefs/ownership-security-11-09.md): агент,
-  // у которого клиента забрали (lastAgentId — тот же самый), не должен получать
-  // 403 «Недостаточно прав» — карточка у него уже открыта в списках/пуше, а
-  // ссылка на нового владельца нужна, чтобы объяснить, что произошло. Доступ
-  // read-only, без переписки и требований дальше по коду не режется — режется
-  // только на фронте (кнопки скрыты) и на мутациях (foreignWriteDenied).
-  let transferAccess: TransferAccess | null = null;
-  if (ownAgentId && client.assignedAgentId !== ownAgentId) {
-    // Клиент закреплён за другим агентом, но у текущего может быть сделка с ним
-    // (например, её так назначил админ) — тогда карточку видеть можно, иначе
-    // невозможно работать по собственной же сделке.
-    const hasDeal = client.deals.some((d) => d.agentId === ownAgentId);
-    const wasMine = client.lastAgentId === ownAgentId;
-    if (!hasDeal && !wasMine) return res.status(403).json({ error: "Недостаточно прав" });
-    if (!hasDeal && wasMine) {
-      transferAccess = await loadTransferAccess(client.id, ownAgentId);
-    }
-  }
+  // Кто что видит — одна дверь lib/clientCardAccess.ts (аудит 17.11.2026, S1/S2).
+  // Агент, у которого клиента забрали, получает не 403, а карточку «передана» —
+  // кому, когда и почему (Пачка 16, 11.09.2026): ссылка у него уже открыта в
+  // списках/пуше. Но только это и имя: контакты, требования, история и
+  // переписка закрыты на СЕРВЕРЕ, а не только кнопками на фронте.
+  const access = await resolveClientCardAccess(req, client);
+  if (access === "denied") return res.status(403).json({ error: "Недостаточно прав" });
+  const transferAccess: TransferAccess | null =
+    access === "transferred" && ownAgentId ? await loadTransferAccess(client.id, ownAgentId) : null;
   // ОТКРЫЛ КАРТОЧКУ = ПРОЧИТАЛ ПЕРЕПИСКУ (владелец 31.08.2026: красный
   // индикатор в списке своих клиентов должен гаснуть, как в вотсапе). Только
   // когда карточку открывает СВОЙ агент — admin/director, заглянувший в чужую
@@ -502,38 +499,17 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
    * чужого клиента (эта ветка выше уже требует `hasDeal`, там `acceptedAt`
    * обычно не пуст, а если пуст — сделки без принятия лида не бывает).
    */
-  const gateUntilAccepted = !!ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt;
-  const responseClient = gateUntilAccepted
-    ? {
-        ...withMessages,
-        budgetMin: null,
-        budgetMax: null,
-        requirementsNotes: null,
-        desiredDistrictId: null,
-        desiredDistrict: null,
-        desiredRooms: null,
-        desiredType: null,
-        // Сводка ИИ — пересказ той самой переписки и хронологии, которые ниже
-        // закрыты: оставить её значило бы отдать закрытое содержимое коротким
-        // текстом. Скоринг (aiScore) при этом остаётся: как и matchScore, он
-        // помогает решить, принимать ли, и ничего о клиенте не рассказывает.
-        aiInsight: null,
-        aiInsightAt: null,
-        // matchScore НЕ прячем — это не требование клиента, а «совпадает ли он с
-        // ВАШИМ объектом», показывается прямо на кнопке «Принять» (Путь покупателя,
-        // п.5.1-5.2) и специально помогает решить, стоит ли принимать, а не наоборот.
-        interactions: [],
-        interactionsTotal: 0,
-        // История закрыта целиком — факты о ней не раскрываем.
-        hadConductedShowing: false,
-        callsCount: 0,
-        hadRealCall: false,
-        deals: [],
-        botConversation: [],
-        telegramConversation: null,
-        telegramDirectConversations: [],
-      }
-    : withMessages;
+  // Скоринг (aiScore) и matchScore до приёма НЕ прячем: это не требование
+  // клиента, а «совпадает ли он с ВАШИМ объектом» — показывается на кнопке
+  // «Принять» (Путь покупателя, п.5.1-5.2) и помогает решить, принимать ли.
+  // Бывшему агенту (transferred) не нужно и это — см. CLIENT_TRANSFERRED_HIDDEN.
+  const gateUntilAccepted = access === "nameOnly" || access === "transferred";
+  const responseClient =
+    access === "transferred"
+      ? { ...withMessages, ...CLIENT_PROFILE_HIDDEN, ...CLIENT_CARD_HISTORY_HIDDEN, ...CLIENT_TRANSFERRED_HIDDEN }
+      : access === "nameOnly"
+        ? { ...withMessages, ...CLIENT_PROFILE_HIDDEN, ...CLIENT_CARD_HISTORY_HIDDEN }
+        : withMessages;
 
   // canSeePhone форсированно снят тем же гейтом, что выше собрал responseClient:
   // право `clients.viewPhone` у агента почти всегда есть, но контакты (и
@@ -542,8 +518,9 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   // Отображаемое имя шапки («Джахонгир · Маяковский», владелец 21.09.2026) — тот
   // же расчёт, что в списке клиентов (routes/clients/list.ts), плюс адрес объекта
   // продавца одним точечным запросом (тут один клиент, а не страница — батч не нужен).
+  // Бывшему агенту адрес объекта продавца не отдаём — это тоже «где его найти».
   const sellerPropertyAddress =
-    client.kind === "SELLER" ? await loadSellerPropertyAddress(client.id) : null;
+    client.kind === "SELLER" && access !== "transferred" ? await loadSellerPropertyAddress(client.id) : null;
   const presentedClient = presentClient(
     responseClient,
     can(req, "clients.viewPhone") && !gateUntilAccepted,
@@ -603,19 +580,16 @@ cardRouter.get("/:id/timeline", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Курсор задаётся парой before и beforeId" });
   }
 
-  const ownAgentId = scopeToOwnAgent(req);
   const client = await prisma.client.findUnique({
     where: cardWhere,
     select: { id: true, deletedAt: true, assignedAgentId: true, lastAgentId: true, acceptedAt: true },
   });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
-  if (ownAgentId && client.assignedAgentId !== ownAgentId) {
-    const hasDeal = (await prisma.deal.count({ where: { clientId: client.id, agentId: ownAgentId } })) > 0;
-    if (!hasDeal && client.lastAgentId !== ownAgentId) return res.status(403).json({ error: "Недостаточно прав" });
-  }
-  if (ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt) {
-    return res.json({ items: [], total: 0, hasMore: false });
-  }
+  // Та же дверь, что у GET /:id (lib/clientCardAccess.ts): до приёма своего лида
+  // и после передачи клиента другому агенту история закрыта целиком.
+  const access = await resolveClientCardAccess(req, client);
+  if (access === "denied") return res.status(403).json({ error: "Недостаточно прав" });
+  if (access !== "full") return res.json({ items: [], total: 0, hasMore: false });
 
   const baseWhere: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ? { type } : {}) };
   const where: Prisma.InteractionWhereInput =
@@ -683,7 +657,6 @@ interface ExportRow {
 cardRouter.get("/:id/conversation-export", requireAuth, async (req, res) => {
   const shortId = Number(req.params.id);
   if (!Number.isInteger(shortId)) return res.status(404).json({ error: "Клиент не найден" });
-  const ownAgentId = scopeToOwnAgent(req);
 
   const client = await prisma.client.findUnique({
     where: { shortId },
@@ -706,15 +679,13 @@ cardRouter.get("/:id/conversation-export", requireAuth, async (req, res) => {
   });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
 
-  if (ownAgentId && client.assignedAgentId !== ownAgentId) {
-    const hasDeal = client.deals.some((d) => d.agentId === ownAgentId);
-    const wasMine = client.lastAgentId === ownAgentId;
-    if (!hasDeal && !wasMine) return res.status(403).json({ error: "Недостаточно прав" });
-  }
-  // До приёма лида переписка не открыта агенту даже в самой карточке (см. GET
-  // /:id, gateUntilAccepted) — экспорт не должен открывать закрытое экрану.
-  if (ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Лид ещё не принят — переписка не открыта" });
+  // Та же дверь, что у GET /:id (lib/clientCardAccess.ts): экспорт не может
+  // открыть то, что закрыто экрану — до приёма лида и после передачи клиента.
+  const access = await resolveClientCardAccess(req, client);
+  if (access === "denied") return res.status(403).json({ error: "Недостаточно прав" });
+  if (access === "nameOnly") return res.status(403).json({ error: "Лид ещё не принят — переписка не открыта" });
+  if (access === "transferred") {
+    return res.status(403).json({ error: "Клиент передан другому агенту — переписка закрыта" });
   }
 
   const attachmentsAllowed = can(req, "messages.viewAttachments");
