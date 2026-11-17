@@ -14,6 +14,7 @@ import { logSystemError } from "../systemError.js";
 import { describeError } from "../describeError.js";
 import { buildAgentsReport, buildFunnelReport, buildSourcesReport, parseReportRange } from "../teamReports.js";
 import { FinanceReport } from "./financeDocument.js";
+import { founderTotals } from "../founderContributions.js";
 import { TeamReport } from "./teamDocument.js";
 import { renderReportPdf, withReportPdfSlot } from "./render.js";
 import { dayTitle, dushanbeStamp, monthTitle } from "./theme.js";
@@ -77,8 +78,15 @@ async function assembleReportPdf(kind: ReportPdfKind, rawQuery: unknown, viewer:
         void logSystemError("api", `PDF финансов: прогноз не посчитан, блок пропущен — ${describeError(err)}`);
       }
     }
+    // Взносы учредителей — свой блок; не посчитались — отчёт всё равно нужен, без блока.
+    let founders = null;
+    try {
+      founders = await founderTotals(month);
+    } catch (err) {
+      void logSystemError("api", `PDF финансов: взносы учредителей не посчитаны, блок пропущен — ${describeError(err)}`);
+    }
     const buffer = await renderReportPdf(
-      <FinanceReport month={month} summary={summary} forecast={forecast} inProgress={month === currentDushanbeMonth(now)} preparedBy={viewer.name} generatedAtLabel={generatedAtLabel} />,
+      <FinanceReport month={month} summary={summary} forecast={forecast} founders={founders} inProgress={month === currentDushanbeMonth(now)} preparedBy={viewer.name} generatedAtLabel={generatedAtLabel} />,
     );
     return { buffer, filename: reportPdfFilename(kind, month), periodLabel: monthTitle(month), periodKey: month };
   }
