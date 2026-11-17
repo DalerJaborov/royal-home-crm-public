@@ -326,8 +326,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         // Lead-only mode: no «the agent will tell» and no staff signal before a lead (owner 13.11.2026). The mode's own
         // hand-off answers instead: a phone ask (Instagram/Facebook), a lead (WhatsApp number) or a short line on a card.
         // A vacancy chat gets null here and keeps the ordinary line below (the recruiter path is unchanged).
+        // The model failed on the question (not its own escalate, not a repeat): WhatsApp with a known number gets one lead per
+        // conversation with the note «бот не справился с вопросом» (owner 17.11.2026).
         if (leadOnly.enabled) {
-          const plan = await leadOnlyTurn("escalate");
+          const plan = await leadOnlyTurn("escalate", why !== "staff_or_supported_reply_required" && why !== "repeat_shield");
           if (plan) return await planLeadOnly(plan);
         }
         const assistantTexts = remembered.context.turns.filter(turn => turn.role === "assistant").map(turn => turn.text);
@@ -346,10 +348,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         return null;
       }
     };
-    const leadOnlyTurn = (forced?: "escalate") => planCustomerLeadOnlyTurn({ config: leadOnly,
+    const leadOnlyTurn = (forced?: "escalate", modelFailed = false) => planCustomerLeadOnlyTurn({ config: leadOnly,
       channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer, conversationId: lane.ticket.conversationId,
       eventKey: claim.eventKey, language, inputText: fullInput(), focusPropertyId: leadOnlyFocusId, focusFromThisMessage: leadOnlyFocusFresh,
-      turns: remembered.context.turns, sentTexts: leadOnlySent, jobTopic: remembered.context.publicState.topic === "job", ...(forced ? { forced } : {}) });
+      turns: remembered.context.turns, sentTexts: leadOnlySent, jobTopic: remembered.context.publicState.topic === "job", ...(forced ? { forced } : {}),
+      ...(modelFailed ? { modelFailed: true } : {}) });
     if (leadOnly.enabled) {
       const plan = await leadOnlyTurn();
       if (plan) return await planLeadOnly(plan);
@@ -643,9 +646,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // The same for «это скажет агент» / «агент позвонит» (live words or template): before a lead it is a promise nobody
     // keeps and a staff signal the owner forbade; the mode's hand-off asks for the phone or makes the lead instead.
     // A reply that carries a committed receipt is never replaced (its confirmation must reach the customer).
-    if (leadOnly.enabled && (leadOnlyFilterReply(sealed.text).changed ||
-        mutations.receipts.length === 0 && customerReplyCallsStaff(sealed.text))) {
-      const plan = await leadOnlyTurn("escalate");
+    const callsStaff = mutations.receipts.length === 0 && customerReplyCallsStaff(sealed.text);
+    if (leadOnly.enabled && (leadOnlyFilterReply(sealed.text).changed || callsStaff)) {
+      // «Это уточнит агент» = the bot could not answer from its facts: the same «bot failed» lead as above.
+      const plan = await leadOnlyTurn("escalate", callsStaff);
       if (plan) return await planLeadOnly(plan);
     }
     // The repeat shield would cut this reply at send time (the same threshold as the transport): the customer would get

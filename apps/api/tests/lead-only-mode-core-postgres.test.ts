@@ -22,6 +22,7 @@ import { customerLeadOnlyIntakeJob } from "../src/jobs/customerLeadOnlyIntake.js
 import { decryptSecret } from "../src/crypto.js";
 import { ensureScopedBotConversation } from "../src/lib/customerConversationScope.js";
 import { leadOnlyNotificationsSince } from "./helpers/leadOnlyQuiet.js";
+import { LEAD_MODEL_FAILED_NOTE } from "../src/services/leads/intentUnknown.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
 
 /**
@@ -97,10 +98,13 @@ async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP") {
   }));
   return { eventKey, peer, endpoint, io, bodies, setReplies(value: unknown[][]) { replies = value; generated = 0; },
     onGenerate(hook: (round: number) => Promise<void>) { beforeGenerate = hook; },
-    /** Следующее подписанное сообщение того же собеседника (только Instagram). */
+    /** Следующее подписанное сообщение того же собеседника (Instagram или WhatsApp). */
     async receive(nextText: string): Promise<string> {
-      const nextBody = { object: "instagram", entry: [{ id: externalId, messaging: [{ sender: { id: peer }, recipient: { id: externalId },
-        timestamp: Date.now(), message: { mid: randomUUID(), text: nextText } }] }] };
+      const nextBody = channel === "INSTAGRAM" ? { object: "instagram", entry: [{ id: externalId, messaging: [{ sender: { id: peer }, recipient: { id: externalId },
+        timestamp: Date.now(), message: { mid: randomUUID(), text: nextText } }] }] }
+        : { object: "whatsapp_business_account", entry: [{ id: externalId, changes: [{ field: "messages", value: {
+          metadata: { phone_number_id: externalId, display_phone_number: "+992 918 999 999" }, contacts: [{ wa_id: peer, profile: { name: "Synthetic customer" } }],
+          messages: [{ from: peer, id: randomUUID(), timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: nextText } }] } }] }] };
       const raw = Buffer.from(JSON.stringify(nextBody));
       const next = { rawBody: raw, get: () => `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}` };
       registerAuthenticatedMetaCustomerRequest(next);
@@ -161,7 +165,8 @@ afterAll(async () => {
     const linked = await prisma.botConversation.findMany({ where: { id: { in: nativeIds } }, select: { clientId: true } });
     clientIds.push(...linked.flatMap(row => row.clientId ? [row.clientId] : []));
     await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: [...events.map(key => `customer-inbox-consume:${key}`),
-      ...events.map(key => `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${key}`), ...parts.map(row => `customer-outbox-dispatch:${row.id}`)] } } });
+      ...events.map(key => `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${key}`), ...parts.map(row => `customer-outbox-dispatch:${row.id}`),
+      ...nativeIds.map(id => `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:model-failed:${id}`)] } } });
     await prisma.customerDeliveryAttempt.deleteMany({ where: { partId: { in: parts.map(row => row.id) } } });
     await prisma.customerOutboxPart.deleteMany({ where: { id: { in: parts.map(row => row.id) } } });
     await prisma.customerPropertyIngressTicket.deleteMany({ where: { eventKey: { in: events } } });
@@ -413,12 +418,46 @@ describe("пятое ревью, ядро", () => {
     expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
   });
 
-  it("№4: WhatsApp — пустой ответ модели не из-за просьбы номера остаётся обычным held, заявки нет", async () => {
-    const f = await coreFixture("У меня вопрос по документам на собственность", "WHATSAPP");
+  // Правило изменено решением владельца 17.11.2026 (через координатора): «WhatsApp: when the model fails on a question,
+  // create the lead (the number is known)» — не больше одной такой заявки на разговор, с пометкой в карточке. Прежнее
+  // «пустой ответ модели — обычный held, заявки нет» (пятое ревью №4) остаётся для того, что вопросом не является.
+  it("№4 (17.11): WhatsApp — модель не справилась с вопросом: заявка на номер отправителя, с пометкой «бот не справился»", async () => {
+    const f = await coreFixture("Какие документы нужны у нотариуса?", "WHATSAPP");
+    f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none" }) }]]);
+    const text = await plannedText(f.eventKey);
+    expect(text).not.toMatch(/номер телефона|оставьте/i);
+    const id = await conversationOf(f.eventKey);
+    const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:model-failed:${id}` } });
+    expect(job.payload).toMatchObject({ scenario: "escalate", modelFailed: true });
+    await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date() } });
+    expect(await runCustomerLeadOnlyIntake(job.payload)).toEqual({ status: "accepted" });
+    const conv = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: conv.clientId! }, select: { kind: true, requirementsNotes: true } });
+    expect(client.kind).not.toBe("OTHER");
+    expect(client.requirementsNotes ?? "").toContain(LEAD_MODEL_FAILED_NOTE);
+  });
+
+  it("№4 (17.11): вторая неудача модели в том же разговоре — вторая заявка не ставится", async () => {
+    const f = await coreFixture("Какие документы нужны у нотариуса?", "WHATSAPP");
+    f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none" }) }]]);
+    await plannedText(f.eventKey);
+    const id = await conversationOf(f.eventKey);
+    await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date(), acceptedAt: new Date() } });
+    const second = await f.receive("А сколько стоит услуга нотариуса?");
+    f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none" }) }]]);
+    await runCustomerDmAgentTurn(second);
+    expect(await prisma.backgroundJob.count({ where: { dedupeKey: { startsWith: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:model-failed:${id}` } } })).toBe(1);
+    expect(await prisma.backgroundJob.count({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${second}` } })).toBe(0);
+  });
+
+  it("№4: WhatsApp — пустой ответ модели на то, что вопросом не является, остаётся обычным held, заявки нет", async () => {
+    const f = await coreFixture("Асалом", "WHATSAPP");
     f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none" }) }]]);
     const result = await runCustomerDmAgentTurn(f.eventKey);
     expect(result.status).toBe("held");
-    expect(await prisma.backgroundJob.count({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } })).toBe(0);
+    const id = await conversationOf(f.eventKey);
+    expect(await prisma.backgroundJob.count({ where: { dedupeKey: { in: [`${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}`,
+      `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:model-failed:${id}`] } } })).toBe(0);
   });
 
   it("№5: сбой записи памяти просьбы номера не откатывает ответ клиенту (точка сохранения)", async () => {

@@ -38,10 +38,10 @@ describe("№3: горячие слова и вопрос к агенту без
   it("отказ дать номер: «Хорошо, без проблем» первым, потом «Показ назначает агент» и номер офиса", () => {
     const text = leadOnlyReply({ ...base, scenario: "hot", language: "ru",
       phone: { kind: "ask", asksSoFar: 1, maxAsks: 2, officeAlreadyOffered: false, refused: true } });
-    expect(text).toBe(`Хорошо, без проблем. Показ назначает агент. Если захотите, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);
+    expect(text).toBe(`Понял вас. Показ назначает агент. Если захотите, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);
   });
   it("номер есть (WhatsApp) — прежнее «передаю агенту», режим офиса не включается", () => {
-    expect(leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "whatsapp" } })).toMatch(/^Хорошо, передаю агенту\./u);
+    expect(leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "whatsapp" } })).toMatch(/^Передаю агенту ваш запрос\./u);
   });
 });
 
@@ -59,7 +59,7 @@ describe("№2: карточка без агента — честное «зап
 describe("память ядра узнаёт новые ответы режима", () => {
   it.each([
     `Договориться о показе можно по телефону ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
-    `Хорошо, без проблем. Показ назначает агент. Если захотите, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
+    `Понял вас. Показ назначает агент. Если захотите, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
     "Показ объекта №112 назначает агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.",
     "Записали, с вами свяжутся завтра после 09:30.",
     "Саволатон сабт шуд, пагоҳ баъд аз соати 09:30 бо шумо тамос мегиранд.",

@@ -59,7 +59,7 @@ import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadablePhoneAttempt, type UnreadablePhone } from "../lib/shared/phoneText.js";
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
-import { leadOnlyAppliesTo, leadOnlyEscalateLine, leadOnlyFilterReply, leadOnlyGivenLineAvoidingRepeat, leadOnlyStripPhoneAsk } from "../ai/leadOnlyMode.js";
+import { leadOnlyAppliesTo, leadOnlyEscalateLine, leadOnlyFilterReply, leadOnlyGivenLineAvoidingRepeat, leadOnlyOutgoing, leadOnlyStripPhoneAsk } from "../ai/leadOnlyMode.js";
 import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, noteLeadOnlyOnCard } from "../lib/leadOnlyHandover.js";
 import { leadOnlyQuietBeforeLead } from "../lib/leadOnlyConfig.js";
 import { applyLeadOnlyPending, readLeadOnlyPending } from "../lib/leadOnlyPending.js";
@@ -820,6 +820,11 @@ export async function acceptLead(
      */
     extraPhones?: string[];
     /**
+     * A staff note for the card's requirements (services/leads/intentUnknown.ts, e.g. LEAD_MODEL_FAILED_NOTE). Written only
+     * when the card is not «Прочее»: a confident «other» keeps its old handling and needs no first-call hint.
+     */
+    leadNote?: string;
+    /**
      * ЗАЯВКУ ОФОРМИТЬ, НО НЕ ЗАГОВОРИТЬ (03.09.2026, ступень 2 защиты от потерянных
      * номеров). Диалог на паузе у оператора, рубильник канала выключен или суточный
      * предел ИИ исчерпан — бот в такой момент отвечать НЕ должен, но номер, который
@@ -1045,8 +1050,9 @@ export async function acceptLead(
   // район ниже («просит подробную информацию по объекту» у клиента 315, который
   // не написал ни слова). Метку (label) оставляем: она объясняет руководителю,
   // почему карточка без агента.
+  const leadNote = decision.kind !== "OTHER" ? options?.leadNote : undefined;
   const requirementsNotes =
-    [callbackNote, label, adWithoutWords ? undefined : draft.notes].filter(Boolean).join("\n") || undefined;
+    [leadNote, callbackNote, label, adWithoutWords ? undefined : draft.notes].filter(Boolean).join("\n") || undefined;
 
   // job/other, продажа вне города, чужой город у покупателя, услуги, земля и
   // коммерция — не покупка и не обычная продажа: руководство разбирает их
@@ -3140,10 +3146,10 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         extraPhones: extractAllPhones(saidWithPhone || text),
         // Режим «только заявки»: короткое «номер получил, агент позвонит» вместо реплики модели.
         // Без дословного повтора: щит не выпускает третий одинаковый текст (второе ревью 13.11, №9).
-        ...(leadOnlyChannel ? { fixedReply: leadOnlyGivenLineAvoidingRepeat(leadOnlyWhen(leadOnlyConfig),
-          // Голый номер языка не несёт: берём язык прежних слов клиента.
-          ((lang) => (lang === "unknown" ? lastClientLanguage(history) : lang))(detectClientLanguage(saidWithPhone || text)) === "ru"
-            ? "ru" : "tg", history.filter((m) => m.role === "assistant").map((m) => String(m.content ?? ""))) } : {}),
+        // Голый номер языка не несёт: берём язык прежних слов клиента. Через последнюю дверь текста режима (leadOnlyOutgoing).
+        ...(leadOnlyChannel ? { fixedReply: ((language: "ru" | "tg") => leadOnlyOutgoing(leadOnlyGivenLineAvoidingRepeat(leadOnlyWhen(leadOnlyConfig),
+          language, history.filter((m) => m.role === "assistant").map((m) => String(m.content ?? ""))), language))(
+          ((lang) => (lang === "unknown" ? lastClientLanguage(history) : lang))(detectClientLanguage(saidWithPhone || text)) === "ru" ? "ru" : "tg") } : {}),
       });
     } catch (err) {
       console.error("[messenger] acceptLead", err instanceof Error ? err.message : err);
@@ -4153,8 +4159,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       }
       // Вакансия (режим её не ведёт): без обещания, если карточки нет.
       const askedLanguage = detectClientLanguage(text);
-      reply = leadOnlyEscalateLine((askedLanguage === "unknown" ? lastClientLanguage(history) : askedLanguage) === "ru" ? "ru" : "tg",
-        !!conversation.clientId, history.filter((m) => m.role === "assistant").map((m) => String(m.content ?? ""))); reply2 = "";
+      const escalateLanguage = (askedLanguage === "unknown" ? lastClientLanguage(history) : askedLanguage) === "ru" ? "ru" as const : "tg" as const;
+      reply = leadOnlyOutgoing(leadOnlyEscalateLine(escalateLanguage, !!conversation.clientId,
+        history.filter((m) => m.role === "assistant").map((m) => String(m.content ?? ""))), escalateLanguage); reply2 = "";
     };
     if (capabilities.leadOnly) {
       const first = leadOnlyFilterReply(reply), second = reply2 ? leadOnlyFilterReply(reply2) : { text: "", changed: false };

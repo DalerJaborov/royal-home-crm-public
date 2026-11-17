@@ -24,7 +24,7 @@ import { z } from "zod";
 import { prisma, type TxClient } from "../db.js";
 import { encryptSecret, decryptSecret } from "../crypto.js";
 import { AGENCY_FACTS } from "../ai/agencyFacts.js";
-import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyAppliesTo, leadOnlyCallbackNotedLine, leadOnlyCallbackTime, leadOnlyCallDeclined,
+import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyOutgoing, leadOnlyAppliesTo, leadOnlyCallbackNotedLine, leadOnlyCallbackTime, leadOnlyCallDeclined,
   leadOnlyGivenLineAvoidingRepeat, leadOnlyNoCallNotedLine, leadOnlyNoteWithCallbackTime, leadOnlyPhoneAskHistory, leadOnlyPhoneRefused,
   leadOnlyNoAgentLine, leadOnlyRecentCallbackTime, leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
   type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
@@ -43,6 +43,7 @@ import { contactWhenWithoutAgent } from "./handoffPromise.js";
 import { leadOnlyPendingOf, leadOnlyPendingOfRow, type LeadOnlyPending } from "./leadOnlyPending.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
+import { LEAD_MODEL_FAILED_NOTE } from "../services/leads/intentUnknown.js";
 
 export const CUSTOMER_LEAD_ONLY_INTAKE_JOB = "customer-lead-only-intake";
 
@@ -70,6 +71,8 @@ export const customerLeadOnlyIntakeSchema = z.object({
   // «callback» — клиент с карточкой назвал удобное время звонка (третье ревью 13.11, №4); «no_call» — просит не звонить (четвёртое, №1).
   scenario: z.enum(["hot", "property", "seller", "buyer", "escalate", "callback", "no_call"]),
   propertyId: z.string().uuid().nullable(),
+  /** The model failed on the customer's question (WhatsApp, number known): one such lead per conversation, with a card note. */
+  modelFailed: z.literal(true).optional(),
   sealed: z.string().min(1).max(8000),
 }).strict();
 export type CustomerLeadOnlyIntake = z.infer<typeof customerLeadOnlyIntakeSchema>;
@@ -100,6 +103,8 @@ export interface CustomerLeadOnlyTurnInput {
   jobTopic: boolean;
   /** Модель решила «передать сотруднику» или фильтр вырезал подборку — в этом режиме это ответ (и заявка, если номер есть), а не молчание. */
   forced?: "escalate";
+  /** The model could not answer this turn (owner 17.11.2026): with a known number the lead is made once, with a note. */
+  modelFailed?: boolean;
   /** Только для тестов: подмена двери ai/leadOnlyIntent.ts (по умолчанию — она сама, с моделью). */
   classifyIntent?: (text: string, earlier: readonly string[]) => Promise<LeadOnlyIntent>;
 }
@@ -149,6 +154,11 @@ function storedUserMessages(raw: unknown): Array<{ text: string; at: string | nu
 
 /** null — ход не про заявку: его отвечает обычное ядро (без подборок, фото и ссылок). */
 export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput, now: Date = new Date()): Promise<CustomerLeadOnlyTurnPlan | null> {
+  const plan = await planCustomerLeadOnlyTurnText(input, now);
+  // The last door of the reply text (ai/leadOnlyMode.ts::leadOnlyOutgoing): no consent opening ever leaves this mode.
+  return plan ? { ...plan, text: leadOnlyOutgoing(plan.text, input.language) } : null;
+}
+async function planCustomerLeadOnlyTurnText(input: CustomerLeadOnlyTurnInput, now: Date): Promise<CustomerLeadOnlyTurnPlan | null> {
   if (!input.config.enabled || !leadOnlyAppliesTo(input.channel)) return null;
   const own = clientOwnWords(input.inputText);
   // Вакансии ведёт рекрутер (Ноза) прежним путём: ни «передаю агенту», ни карточки покупателя (ревью 13.11, №4).
@@ -270,7 +280,7 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
   const intakePropertyId = scenario === "property" || scenario === "hot" ? propertyId : null;
   // Задание — только для заявки или для нового номера у карточки (пометка). Без номера никого не зовём.
   const intake = newLead || linked && !!volunteered ? sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId,
-    scenario, propertyId: intakePropertyId },
+    scenario, propertyId: intakePropertyId, ...(input.modelFailed && newLead ? { modelFailed: true as const } : {}) },
   { phone: linked ? volunteered : phone, whatsappPhone, clientText: own.slice(0, 1500), promised: phoneState.kind === "ask" || otherInquiry ? "chat" : "call",
     lead: newLead, callbackWhen: refused ? null : callbackWhen, ...(refused && !volunteered ? { noCall: true } : {}) }) : null;
   // Бот просит номер (или клиент отказал) — запомнить тему и объект: следующий ход с одним номером возьмёт их отсюда.
@@ -281,8 +291,15 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
 
 /** Ставится в той же транзакции, что и ответ хода: ответ без заявки или заявка без ответа не остаются. */
 export async function enqueueCustomerLeadOnlyIntakeTx(tx: TxClient, intake: CustomerLeadOnlyIntake): Promise<void> {
+  const dedupeKey = customerLeadOnlyIntakeDedupeKey(intake);
+  // «Bot failed» leads: at most one per conversation (owner 17.11.2026). An earlier one, pending or done, is enough.
+  if (intake.modelFailed && await tx.backgroundJob.findUnique({ where: { dedupeKey }, select: { id: true } })) return;
   await tx.backgroundJob.create({ data: { type: CUSTOMER_LEAD_ONLY_INTAKE_JOB, payload: intake, maxAttempts: CUSTOMER_LEAD_ONLY_INTAKE_ATTEMPTS,
-    dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${intake.eventKey}` } });
+    dedupeKey } });
+}
+/** One job per turn; a «bot failed» lead — one per conversation. */
+export function customerLeadOnlyIntakeDedupeKey(intake: Pick<CustomerLeadOnlyIntake, "eventKey" | "conversationId" | "modelFailed">): string {
+  return intake.modelFailed ? `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:model-failed:${intake.conversationId}` : `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${intake.eventKey}`;
 }
 /** С лесенкой задания (10, 20, затем по 30 с) это около 11 минут: дольше всех повторов отправки (≈2,5 мин). */
 export const CUSTOMER_LEAD_ONLY_INTAKE_ATTEMPTS = 24;
@@ -335,7 +352,7 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
   const noCall = sealed.noCall === true && intake.scenario !== "no_call";
   const promise = intake.scenario === "escalate" || intake.scenario === "callback" || intake.scenario === "no_call" ? ""
     : noCall ? `. ${LEAD_ONLY_NO_CALL_NOTE}` : PROMISE_NOTE[sealed.promised];
-  const note = leadOnlyNoteWithCallbackTime(`${SCENARIO_NOTE[intake.scenario]}${promise}: «${sealed.clientText.replace(/\s+/g, " ").slice(0, 200)}»`,
+  const note = leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? "Вопрос, на который бот не ответил" : SCENARIO_NOTE[intake.scenario]}${promise}: «${sealed.clientText.replace(/\s+/g, " ").slice(0, 200)}»`,
     sealed.callbackWhen);
   if (conversation.clientId) {
     // Заявку уже завела прошлая попытка этого же задания (или параллельный приём): агента уведомил сам приём.
@@ -367,6 +384,7 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
       deferAssignment: intake.propertyId ? false : !(await isWithinWorkingHours()),
       ...(sealed.whatsappPhone ? { whatsappPhone: sealed.whatsappPhone } : {}),
       clientText: sealed.clientText, silent: true, fromHistory: true,
+      ...(intake.modelFailed ? { leadNote: LEAD_MODEL_FAILED_NOTE } : {}),
     });
   const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id },
     select: { client: { select: { kind: true, assignedAgentId: true } } } });

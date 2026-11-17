@@ -178,7 +178,7 @@ export function channelCoreToolNames(leadOnly: boolean): readonly (typeof CUSTOM
   return leadOnly ? CUSTOMER_AGENT_CHANNEL_CORE_TOOLS.filter(name => name !== "search_public_properties") : CUSTOMER_AGENT_CHANNEL_CORE_TOOLS;
 }
 /** Lead-only mode applies to this channel right now. A settings failure reads as "off" (loadLeadOnlyConfig). */
-async function channelLeadOnly(channel: string): Promise<boolean> {
+export async function channelCoreLeadOnly(channel: string): Promise<boolean> {
   return leadOnlyAppliesTo(channel) && (await loadLeadOnlyConfig()).enabled;
 }
 const MAX_DEADLINE_MS = 60_000;
@@ -315,7 +315,7 @@ async function runChannelCoreTurnOnce(turn: ChannelCoreTurn, options: ChannelCor
         const linkPreference = turn.channel === "WEBSITE" ? "site" as const : "social" as const;
         const knownPhoneSource = turn.phoneKnown ? "scoped_contact" as const
           : extractTypedPhone(inputText) || extractVolunteeredPhone(inputText) ? "current_input" as const : "none" as const;
-        const toolNames = channelCoreToolNames(await channelLeadOnly(turn.channel));
+        const toolNames = channelCoreToolNames(await channelCoreLeadOnly(turn.channel));
         const result = await runCustomerAgentTurn({ surface, language, inputText, knownPhoneSource, requestedFacts: [], revision, startedAt,
           operation: runtime.operation, tools: customerAgentToolDefinitions([...toolNames]),
           ...(context.success ? { verifiedContext: context.data } : {}), ...(brand ? { brand } : {}),

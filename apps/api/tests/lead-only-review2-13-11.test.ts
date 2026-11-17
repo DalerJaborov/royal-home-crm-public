@@ -26,14 +26,14 @@ describe("№2: фраза об объекте звучит один раз, «�
     }
     expect(replies.filter(r => r.includes("Это объект №112")).length).toBe(1);
     expect(new Set(replies).size).toBe(4);
-    expect(replies.join(" ")).not.toContain("без проблем");
+    expect(replies.join(" ")).not.toMatch(/Понял вас\. (?:Если|Показ)/u);
     expect(replies[2]).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
     // Номера нет — людей не звали (решение владельца 13.11.2026): ни «агент в курсе», ни «ответит здесь».
     expect(replies[3]).toBe("Понял вас, спасибо.");
     expect(replies.join(" ")).not.toMatch(/в курсе|ответит вам здесь|передаю/iu);
   });
   it("отказ дать номер: больше не просим, «хорошо, без проблем» и номер офиса", () => {
-    expect(leadOnlyPhoneLine(ask(1, { refused: true }), soon, "ru")).toBe(`Хорошо, без проблем. Если захотите, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);
+    expect(leadOnlyPhoneLine(ask(1, { refused: true }), soon, "ru")).toBe(`Понял вас. Если захотите, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);
     expect(leadOnlyPhoneLine(ask(0, { refused: true }), soon, "ru")).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
     expect(leadOnlyPhoneLine(ask(2), soon, "ru")).toBe(`Если удобнее, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);
   });

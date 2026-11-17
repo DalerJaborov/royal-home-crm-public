@@ -12,7 +12,7 @@ import { AGENCY_FACTS } from "../ai/agencyFacts.js";
 import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyAppliesTo, leadOnlyCallbackNotedLine, leadOnlyCallbackTime, leadOnlyCallDeclined,
   leadOnlyGivenLineAvoidingRepeat, leadOnlyNoAgentLine, leadOnlyNoCallNotedLine, leadOnlyNoteWithCallbackTime, leadOnlyPhoneAskHistory, leadOnlyPhoneRefused, leadOnlyRecentCallbackTime,
   leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
-  type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
+  type LeadOnlyScenario, leadOnlyOutgoing } from "../ai/leadOnlyMode.js";
 import { classifyLeadOnlyIntent, leadOnlyIntentOnce, type LeadOnlyIntent } from "../ai/leadOnlyIntent.js";
 import { customerSearchContinuation, customerSearchIntent } from "../ai/customerAgentSearchIntent.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
@@ -87,7 +87,13 @@ function callbackTimeOf(own: string, history: readonly ChatMessage[], now: Date)
   return leadOnlyRecentCallbackTime(own, earlier, now);
 }
 
-export async function planLegacyLeadOnlyTurn(input: {
+type LegacyLeadOnlyTurnInput = Parameters<typeof planLegacyLeadOnlyTurnText>[0];
+export async function planLegacyLeadOnlyTurn(input: LegacyLeadOnlyTurnInput): Promise<LegacyLeadOnlyPlan | null> {
+  const plan = await planLegacyLeadOnlyTurnText(input);
+  // The last door of the reply text (ai/leadOnlyMode.ts::leadOnlyOutgoing): no consent opening ever leaves this mode.
+  return plan ? { ...plan, reply: leadOnlyOutgoing(plan.reply, input.language) } : null;
+}
+async function planLegacyLeadOnlyTurnText(input: {
   config: LeadOnlyConfig;
   channel: string;
   subscriberId: string;

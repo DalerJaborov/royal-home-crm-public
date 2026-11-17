@@ -223,7 +223,7 @@ describe("ревью 13.11: фильтр и каналы", () => {
     expect(leadOnlyFilterReply("Здравствуйте!\n\n\n\nЧем помочь?").changed).toBe(false);
   });
   it("режим только для WhatsApp, Instagram и Facebook: сайт и Telegram — прежние (№11)", () => {
-    expect(["WHATSAPP", "INSTAGRAM", "FACEBOOK"].every(leadOnlyAppliesTo)).toBe(true);
+    expect(["WHATSAPP", "INSTAGRAM", "FACEBOOK"].every(channel => leadOnlyAppliesTo(channel))).toBe(true);
     expect(["WEBSITE", "TELEGRAM", undefined, null, ""].some(channel => leadOnlyAppliesTo(channel))).toBe(false);
   });
 });

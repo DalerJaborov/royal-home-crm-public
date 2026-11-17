@@ -307,7 +307,7 @@ describe("третье ревью: ядро и память просьбы", () 
     const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Не звоните сейчас, позвоните завтра" }));
     expect(plan?.scenario).toBe("callback");
     expect(plan?.text).toContain("в удобное вам время");
-    expect(plan?.text).not.toContain("без проблем");
+    expect(plan?.text).not.toMatch(/Понял вас\. Если/u);
     const since = new Date();
     expect(await runCustomerLeadOnlyIntake(plan!.intake!, { force: true })).toEqual({ status: "noted" });
     expect(await prisma.interaction.findFirst({ where: { clientId, notes: { contains: "позвоните завтра" } } })).not.toBeNull();

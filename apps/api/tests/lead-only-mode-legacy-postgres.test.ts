@@ -129,7 +129,7 @@ describe("режим «только заявки», старый путь", () =
   it("WhatsApp, горячие слова по-таджикски: заявка сразу", async () => {
     const peer = digits();
     const result = await turn(whatsapp, peer, "Салом, дидан мехоҳем, куҷо биёем?");
-    expect(result.reply).toContain("Хуб, ба агент мерасонам.");
+    expect(result.reply).toContain("Дархостатонро ба агент мерасонам.");
     expect(replyModelCalls()).toEqual([]);
     expect(await clientOf(peer)).not.toBeNull();
   });
@@ -271,11 +271,12 @@ describe("второе ревью, старый путь", () => {
     expect(replies.join(" ")).not.toMatch(/в курсе|ответит вам здесь|передаю/iu);
     expect(replies.filter((reply) => reply.includes(`№${propertyShortId}`)).length).toBe(1);
     expect(new Set(replies).size).toBe(replies.length);
-    expect(replies.join(" ")).not.toContain("без проблем");
+    expect(replies.join(" ")).not.toMatch(/Понял вас\. (?:Если|Показ)/u);
     const refused = await turn(instagram, `lead-only-ig-refuse-${runId}`, "Здравствуйте", { sharedPropertyId: propertyId });
     expect(refused.reply).toContain("номер");
     const after = await turn(instagram, `lead-only-ig-refuse-${runId}`, "Не хочу давать номер");
-    expect(after.reply).toContain("Хорошо, без проблем");
+    // 17.11.2026: no consent opening («Хорошо, без проблем» read as «да»), the refusal is acknowledged with «Понял вас.»
+    expect(after.reply).toContain("Понял вас.");
     expect(after.reply).toContain("777 070 100");
     expect(replyModelCalls()).toEqual([]);
   });
@@ -361,7 +362,7 @@ describe("третье ревью, старый путь", () => {
     expect(card).not.toBeNull();
     await prisma.client.update({ where: { id: card!.id }, data: { assignedAgentId: ownerId } });
     const result = await turn(whatsapp, peer, "Не звоните сейчас, позвоните завтра");
-    expect(result.reply).not.toMatch(/без проблем|777 070 100/);
+    expect(result.reply).not.toMatch(/Понял вас\. Если|777 070 100/u);
     expect(result.reply).toContain("в удобное вам время");
     const note = await prisma.interaction.findFirst({ where: { clientId: card!.id, notes: { contains: "позвоните завтра" } } });
     expect(note).not.toBeNull();
