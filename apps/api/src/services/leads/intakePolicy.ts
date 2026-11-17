@@ -3,6 +3,9 @@ import { decideLeadKind, type LeadKindDecision, type LeadKindInput } from "../..
 import type { LeadIntent } from "../../ai/botContract.js";
 import { assignAgentForLead } from "./assignment.js";
 import type { LeadAssignContext, LeadAssignment, LeadAssignReason } from "./assignmentTypes.js";
+import { INTENT_UNKNOWN_NOTE, INTENT_UNKNOWN_REASON } from "./intentUnknown.js";
+
+export { INTENT_UNKNOWN_NOTE, INTENT_UNKNOWN_REASON } from "./intentUnknown.js";
 
 /**
  * ЕДИНАЯ ОБВЯЗКА ВОКРУГ РЕШЕНИЯ «ТИП ОБРАЩЕНИЯ» И «КОМУ ДОСТАЁТСЯ ЛИД»
@@ -184,8 +187,7 @@ const NO_INTENT_REASON = "намерение не определено";
  * уверена») остаются «прочими» как были. Звонок и форма сайта — свои правила.
  */
 const UNKNOWN_INTENT_TO_QUEUE: ReadonlySet<InboundChannel> = new Set(["chat", "comment"]);
-export const INTENT_UNKNOWN_NOTE = "❓ ТИП ОБРАЩЕНИЯ НЕ ОПРЕДЕЛЁН — уточните первым звонком: покупает или продаёт";
-export const INTENT_UNKNOWN_REASON = "тип обращения не определён — в общей раздаче";
+// INTENT_UNKNOWN_NOTE / INTENT_UNKNOWN_REASON — в ./intentUnknown.ts (без импортов: иначе intake.ts замыкал круг).
 
 export interface ResolveOwnerAgentLead {
   clientId?: string;
