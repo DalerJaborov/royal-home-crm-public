@@ -27,6 +27,7 @@ import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
+import { handleNarrationPreviewCallback } from "./narrationPreviewBot.js";
 import { handleFreeNarrationCallback, handleFreeNarrationMessage } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
@@ -1742,6 +1743,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
   if (await handleTelegramPropertyDraftCallback(query)) return true;
   if (await handlePropertyOfferCallback(query)) return true;
   if (await handleNarrationCallback(query)) return true;
+  if (await handleNarrationPreviewCallback(query)) return true;
   if (await handleFreeNarrationCallback(query)) return true;
   if (await handleStaffClipCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;

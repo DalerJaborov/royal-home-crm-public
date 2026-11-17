@@ -76,7 +76,8 @@ const propertyIds: string[] = [];
 const env = { mode: process.env.CRM_NARRATION_EXECUTION_MODE, url: process.env.VOICE_SEPARATOR_URL };
 const longT = { id: "ru-sep-long", name: "Длинный", lang: "ru" as const, text: "В продаже {вид}, светлая и тёплая, с хорошим ремонтом и видом на горы. Площадь {площадь} метров. Цена {цена}. Звоните, покажем в любое время." };
 const shortT = { id: "ru-sep-short", name: "Короткий", lang: "ru" as const, text: "{вид}, {площадь} метров, {цена}." };
-const baseConfig = { modelId: "eleven_v4", voices: [{ id: "voiceA", name: "А" }], templates: [longT, shortT], autoGenerate: true };
+// previewBeforeRepublish: false — здесь проверяется сам перемикс и подмена; «прослушать перед выпуском» — narration-preview.test.ts.
+const baseConfig = { modelId: "eleven_v4", voices: [{ id: "voiceA", name: "А" }], templates: [longT, shortT], autoGenerate: true, previewBeforeRepublish: false };
 
 function ff(args: string[]) {
   const r = spawnSync(process.env.FFMPEG_BIN || "ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...args], { stdio: "ignore" });

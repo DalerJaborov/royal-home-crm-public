@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 777,
-  "forks": 4062,
+  "endpoints": 778,
+  "forks": 4066,
   "mounts": 87,
-  "cron": 140,
+  "cron": 141,
   "jobs": 33,
   "hidden": 0
  },
@@ -49566,6 +49566,95 @@
     {
      "k": "do",
      "t": "res.json({ active: false });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/narration/preview",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/preview",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!canDecidePreview(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Решение по ролику принимает тот, кто ведёт объект\" });",
+       "a": [
+        "ответ 403 — «Решение по ролику принимает тот, кто ведёт объект»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const parsed = narrationPreviewDecisionSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой narrationPreviewDecisionSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректное решение\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Некорректное решение»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = parsed.data.decision === \"RELEASE\" ? await releaseNarrationPreview(p.id, parsed.data.versionId…",
+     "a": [
+      "зовёт releaseNarrationPreview()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "result === \"STALE\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Этот ролик уже решён или устарел. Обновите карточку.\" });",
+       "a": [
+        "ответ 409 — «Этот ролик уже решён или устарел. Обновите карточку.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, result });",
      "a": [
       "ответ 200"
      ],
@@ -104131,6 +104220,75 @@
       }
      ],
      "from": "runMachineMastersTick() — apps/api/src/lib/narrationAutoFlow.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "narration-preview-due",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await releaseDueNarrationPreviews();",
+     "a": [
+      "зовёт releaseDueNarrationPreviews()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const due = await prisma.property.findMany({ where: { narrationPreviewDueAt: { lte: now }, narrationPreviewVe…",
+       "a": [
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of due",
+       "a": [],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: \"auto\" }, now)…",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "released++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"video-handoff\", `Новый ролик с озвучкой не выпущен по сроку прослушивания: ${err instanc…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": "releaseDueNarrationPreviews() — apps/api/src/lib/narrationPreview.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"

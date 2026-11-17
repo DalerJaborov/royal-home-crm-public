@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
 import { narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
+import { isReadOnlyRole, narrationPreviewDecisionSchema } from "@royal-home/shared";
 import { prisma } from "../../db.js";
+import { declineNarrationPreview, releaseNarrationPreview } from "../../lib/narrationPreview.js";
 import { requireAuth } from "../../auth/middleware.js";
 import { hasMarketingRole } from "../marketing.js";
 import { canManageProperty } from "./shared.js";
@@ -30,6 +32,18 @@ const manager = (agent?: { permissions: ReadonlySet<string> } | null) => hasMark
 const configuration = loadNarrationConfiguration;
 /** Образец объекта для проверки шаблона при сохранении: цена и ошибки ловятся до первой оплаты. */
 const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD" };
+/** Кто решает по новому ролику: тот, кто ведёт объект (canManageProperty проверен), не монтажёр и не «только чтение». */
+const canDecidePreview = (role: string) => role !== "EDITOR" && !isReadOnlyRole(role);
+function previewView(p: { narrationPreviewPath: string | null; narrationPreviewVersionId: string | null; videoHandoffFinalPath: string | null; videoMasterNarrationVersionId: string | null;
+  narrationPreviewAt: Date | null; narrationPreviewDueAt: Date | null; narrationPreviewVoiceSec: number | null; narrationPreviewClipSec: number | null },
+  versions: ReadonlyArray<{ id: string; revision: number; mixNote: string | null }>, role: string) {
+  if (!p.narrationPreviewPath || !p.narrationPreviewVersionId || !p.narrationPreviewAt) return null;
+  const v = versions.find((x) => x.id === p.narrationPreviewVersionId);
+  if (!v) return null;
+  return { versionId: v.id, revision: v.revision, previewPath: p.narrationPreviewPath, currentPath: p.videoHandoffFinalPath, oldVersionId: p.videoMasterNarrationVersionId,
+    createdAt: p.narrationPreviewAt.toISOString(), dueAt: p.narrationPreviewDueAt?.toISOString() ?? null,
+    voiceSec: p.narrationPreviewVoiceSec, clipSec: p.narrationPreviewClipSec, note: v.mixNote, canDecide: canDecidePreview(role) };
+}
 // This static path is mounted before /properties/:id.
 narrationRouter.get("/narration-settings", async (req, res) => {
   if (!manager(req.agent)) return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
@@ -232,6 +246,9 @@ narrationRouter.get("/:id/narration", async (req, res) => {
       problem: p.videoMasterMixError && p.videoMasterMixErrorVersionId && p.videoMasterMixErrorVersionId === versions[0]?.id
         ? (p.videoMasterMixError.includes(NARRATION_VOICE_LONGER_MARK) ? "VOICE_LONGER" as const : "FAILED" as const) : null,
       note: await narrationMixNoteFor(p, versions[0] ?? null) },
+    // ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026): новый ролик с новой озвучкой ждёт решения (lib/narrationPreview.ts).
+    preview: previewView(p, versions, req.agent!.role),
+    previewDeclined: !!versions[0] && p.narrationPreviewDeclinedVersionId === versions[0].id,
     quotaExceeded: manager(req.agent) ? !!await narrationQuotaExceededSince() : undefined });
 });
 
@@ -286,6 +303,23 @@ narrationRouter.post("/:id/narration/:versionId/approve", async (req, res) => {
   if (outcome === "FORBIDDEN") return res.status(403).json({ error: "Эту озвучку одобряет маркетинг, руководство или владелец" });
   if (outcome === "CONFLICT") return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
   res.json({ ok: true, ...(outcome === "AUDIO_APPROVED" ? { delivery: await afterNarrationApproved(p.id, versionId.data) } : {}) });
+});
+
+/**
+ * ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026): решение по новому ролику — та же функция, что кнопки Шабнам.
+ * CHANGE отказывается от наложения этой версии; карточка сразу открывает выбор голоса и текста.
+ */
+narrationRouter.post("/:id/narration/preview", async (req, res) => {
+  if (!canDecidePreview(req.agent!.role)) return res.status(403).json({ error: "Решение по ролику принимает тот, кто ведёт объект" });
+  const parsed = narrationPreviewDecisionSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Некорректное решение", details: parsed.error.flatten() });
+  const p = res.locals.narrationProperty;
+  const actor = { agentId: req.agent!.id, source: "crm" as const };
+  const result = parsed.data.decision === "RELEASE"
+    ? await releaseNarrationPreview(p.id, parsed.data.versionId, actor)
+    : await declineNarrationPreview(p.id, parsed.data.versionId, actor, parsed.data.decision);
+  if (result === "STALE") return res.status(409).json({ error: "Этот ролик уже решён или устарел. Обновите карточку." });
+  res.json({ ok: true, result });
 });
 
 /**

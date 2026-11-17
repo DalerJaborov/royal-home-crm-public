@@ -30,7 +30,7 @@ import {
   type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton,
 } from "./api.js";
 
-type Lang = "ru" | "tg";
+export type Lang = "ru" | "tg";
 const EDIT_WINDOW_MS = 15 * 60_000;
 const MAX_CHOICES = 8;
 /** Кнопка «🎲 Случайный другой шаблон»: `nar:m:<версия>:r`; обычная — `nar:m:<версия>:<код шаблона>` (по коду, а не по номеру). */
@@ -246,8 +246,8 @@ export async function sendVoiceSamples(chatId: string, config: Awaited<ReturnTyp
   }
 }
 
-type Clicker = { agentId: string; isManager: boolean; role: string };
-async function clickerFor(chatId: string, propertyId: string): Promise<Clicker | null> {
+export type Clicker = { agentId: string; isManager: boolean; role: string };
+export async function clickerFor(chatId: string, propertyId: string): Promise<Clicker | null> {
   const agent = await findAgentByTelegramChatId(chatId);
   const access = agent && await loadAgentAccess(agent.id);
   if (!agent || !access?.isActive || isReadOnlyRole(access.role) || access.role === "EDITOR") return null;
