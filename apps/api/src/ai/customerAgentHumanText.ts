@@ -221,13 +221,27 @@ const PHRASE_INDEX = phraseIndexOf(HUMAN_PHRASES);
  * Matched in the Tajik fold («ҳа» = «ха»). Not «хайр» («Хайр, саломат бошед!» is a farewell) and not «понял / фаҳмидам» (an
  * acknowledgement, not consent).
  */
-const AGREEMENT = new RegExp(`${BW}(?:хорошо|ладно|договорились|конечно|разумеется|непременно|да|ок|окей|согласн${TAIL}|согласен|отлично|можно|` +
+// Round 7: «ага» and Latin «ok / okay» too (the last door already cut them; the word checks did not see them).
+const AGREEMENT_SOURCE = `${BW}(?:хорошо|ладно|договорились|конечно|разумеется|непременно|да|ага|ок|окей|ok|okay|согласн${TAIL}|согласен|отлично|можно|` +
   `с\\s+удовольствием|обязательно|без\\s+проблем|принято|сделаем|` +
-  `хуб|майлаш|бале|ха|албатта|рози|мумкин|мешавад|хоп|хатман|бешубха|кабул\\s+шуд)${EW}`, "iu");
+  `хуб|майлаш|бале|ха|албатта|рози|мумкин|мешавад|хоп|хатман|бешубха|кабул\\s+шуд)${EW}`;
+const AGREEMENT = new RegExp(AGREEMENT_SOURCE, "iu");
+const AGREEMENT_ALL = new RegExp(AGREEMENT_SOURCE, "giu");
+const BEMALOL_ALL = new RegExp(`${BW}бемалол${EW}`, "giu");
 const SENTENCE_SPLIT = /(?<=[.!?…])\s+/u;
 export function humanPhraseAgrees(text: string): boolean {
   const folded = tgFold(lower(text));
   return AGREEMENT.test(folded) || folded.split(SENTENCE_SPLIT).some(sentence => words(sentence).join(" ") === "бемалол");
+}
+/**
+ * The whole text is a «да» and nothing else («Конечно!», «Да.», «Бале.», «Албатта.», «Ҳатман.», «Отлично!», «Договорились.», «Сделаем.»,
+ * «Да, конечно!»): no letter is left once the agreement words are taken out. It states no fact of its own, so the drop reason is
+ * `agree`, not `claim` (review #211, round 7, п.5: 18 of 52 agreement-only phrases were counted as claims). «Да, свободен.» keeps
+ * «свободен» and stays a claim.
+ */
+export function humanPhraseOnlyAgrees(text: string): boolean {
+  const folded = tgFold(lower(text));
+  return /\p{L}/u.test(folded) && !/\p{L}/u.test(folded.replace(AGREEMENT_ALL, " ").replace(BEMALOL_ALL, " "));
 }
 
 /**
@@ -241,19 +255,32 @@ export function humanPhraseAgrees(text: string): boolean {
  *    нависед»: «пожалуйста»).
  * Whatever the customer wrote: the request detector misses offers («Беру», «Приеду», «Мегирам»), so no customer-side condition.
  * Pure: the core, the renderer and the delivery seal get the same text. `removed`: the sentences that had a consent opening.
+ *
+ * Round 7 (п.2): only a consent word that STANDS ALONE is cut, i.e. a punctuation mark (closing quotes allowed in between) or the end
+ * of the sentence follows it. The door cut the first word whatever followed: «Согласны ли вы на звонок?» → «Ли вы на звонок?»,
+ * «Розӣ ҳастед, ки …?» → «Ҳастед, ки …?», «Хуб аст, ки …» → «Аст, ки …», «Принято считать …» → «Считать …». A word followed by the
+ * next word is part of the sentence, not a «да». A «?» is a question («Хорошо?»), and «Хорошо, что вы написали.» / «Хуб, ки
+ * навиштед.» (a comma, then «что / чтобы / ки / если / агар») say «good that…», not «yes»: both stay.
  */
+const CONSENT_ALONE = `(?=[»"”’')]*\\s*(?:[.!…:;—–]|,(?!\\s*(?:что|чтобы|ки|если|агар)${EW})|-(?![\\p{L}\\p{N}])|$))`;
 const CONSENT_OPENING = new RegExp(`^(?:хорошо|ладно|договорились|конечно|разумеется|непременно|ок|окей|ok|okay|согласен|согласна|согласны|отлично|` +
-  `с\\s+удовольствием|обязательно|без\\s+проблем|принято|сделаем|хеле\\s+хуб|хуб|майлаш|хоп|рози|албатта|хатман|бешубха|кабул\\s+шуд)${EW}`, "iu");
+  `с\\s+удовольствием|обязательно|без\\s+проблем|принято|сделаем|хеле\\s+хуб|хуб|майлаш|хоп|рози|албатта|хатман|бешубха|кабул\\s+шуд)${EW}${CONSENT_ALONE}`, "iu");
 const BARE_YES = new Set(["да", "ага", "ха", "бале", "можно", "мумкин", "мешавад", "бемалол"]);
 function withoutConsentOpening(sentence: string): string {
   let rest = sentence;
   for (;;) {
-    const body = rest.normalize("NFKC").replace(/^[^\p{L}\p{N}]+/u, "");
-    // `lower` / `tgFold` keep the length of Cyrillic and Latin letters, so the match length cuts the original text.
+    const start = rest.replace(/^[^\p{L}\p{N}]+/u, ""), body = start.normalize("NFKC");
+    // `lower` / `tgFold` keep the length of Cyrillic and Latin letters, so the match length cuts the text. The original text is cut
+    // when its opening normalizes to the same letters, so the rest keeps its own characters («м²» stays «м²», review #211 round 7 п.7).
     const opening = CONSENT_OPENING.exec(tgFold(lower(body)));
-    if (opening) { rest = body.slice(opening[0].length).replace(/^[^\p{L}\p{N}]+/u, ""); continue; }
+    if (opening) {
+      const length = opening[0].length, source = start.slice(0, length).normalize("NFKC") === body.slice(0, length) ? start : body;
+      rest = source.slice(length).replace(/^[^\p{L}\p{N}]+/u, "");
+      continue;
+    }
+    // A number keeps the sentence: «Можно: {список}» lists the options (review #211, round 7: the CI guard over all literals found it).
     const own = words(body);
-    return own.length && own.every(word => BARE_YES.has(tgFold(word))) ? "" : rest;
+    return own.length && !/\p{N}/u.test(body) && own.every(word => BARE_YES.has(tgFold(word))) ? "" : rest;
   }
 }
 export function withoutAgreementOpenings(text: string): { text: string; removed: string[] } {

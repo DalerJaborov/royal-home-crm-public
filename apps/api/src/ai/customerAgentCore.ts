@@ -23,8 +23,9 @@ export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./custom
 
 /**
  * The ONE way the core renders a customer text (review #211, round 6): the renderer's last door removes any sentence that opens with
- * a consent word («Хорошо, принято.» from a template, «Хорошо, …» from a `say` phrase), and the removal goes to «Журнал ошибок» once per
- * sentence (dedup), so a template or phrase that still says «да» gets fixed. A source guard keeps every core render on this door.
+ * a consent word («Хорошо, принято.»). Only a cut of the SERVER's template goes to «Журнал ошибок», once per sentence (dedup), so a
+ * template that still says «да» gets fixed; the model's agreement words are refused by the say / answer checks (reason `agree`, a
+ * counter) and never reach the journal (round 7, п.3). A source guard keeps every core render on this door.
  */
 export function renderCustomerAgentText(input: Parameters<typeof renderCustomerAgentDecisionChecked>[0]): string | null {
   const rendered = renderCustomerAgentDecisionChecked(input);

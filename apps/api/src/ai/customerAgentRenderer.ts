@@ -16,7 +16,7 @@ import { recruitmentPhoneLine, retiredRecruitmentPhoneLines } from "@royal-home/
 import { clientOwnWords } from "./untrustedContent.js";
 import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
 import { validateCustomerAgentAnswer, type CustomerAgentAnswerVerdict, type CustomerAgentAnswerTemplate } from "./customerAgentAnswer.js";
-import { CUSTOMER_AGENT_ASK_KINDS, withoutAgreementOpenings, type CustomerAgentAskKind } from "./customerAgentHumanText.js";
+import { CUSTOMER_AGENT_ASK_KINDS, withoutAgreementOpenings, humanPhraseGroups, type CustomerAgentAskKind, type HumanPhraseGroup } from "./customerAgentHumanText.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
@@ -929,8 +929,13 @@ function renderDecisionCore(input: {
  *    "Конечно." / "Бале.", which read as «да» to a repeated «Скидку сделаете?»).
  * Never "I wrote this above" or "I repeat" (owner 15.11.2026: 30 such replies in 19 chats in a week, rude and robotic).
  * Hostile or promotional input is answered by one neutral line before any of this (no company fact for a threat).
+ *
+ * The lead is the MARKER of «already said once more» (asked.has below), so it is never a phrase the model may write itself: «Ташаккур
+ * барои саволатон.» was also a vetted model lead, and a model that said it made the next repeat skip the lead and go to a person
+ * (review #211, round 7, п.4). A guard test keeps AGAIN_LEAD out of HUMAN_PHRASES. «Раҳмат барои …» is the phrasebook's pattern
+ * («Раҳмат барои сабр»); 40a472cb with the old wording was never pushed, so no older chat carries it.
  */
-const AGAIN_LEAD = { ru: "Спасибо за ваш вопрос.", tg: "Ташаккур барои саволатон." };
+export const AGAIN_LEAD = { ru: "Спасибо за ваш вопрос.", tg: "Раҳмат барои саволатон." } as const;
 /** The lead before review #211 round 6: older chats still carry it (a third ask then goes to a person). */
 const RETIRED_AGAIN_LEAD = { ru: "Конечно.", tg: "Бале." };
 /** The customer's message asks something (a question mark or a question word, RU/TG, colloquial spelling too). */
@@ -1153,8 +1158,27 @@ function renderTemplateDecision(input: Parameters<typeof renderDecisionCore>[0])
     return { text: result.length <= input.maxOutputChars ? result : null, plain: false };
   }
   if (!text) return { text, plain: false };
-  const guarded = acknowledgementOnlyGuard(avoidRepeatedReply(text, input), input);
+  const guarded = templateOneMeaningOnce(acknowledgementOnlyGuard(avoidRepeatedReply(text, input), input));
   return { text: guarded, plain: guarded === text };
+}
+
+/**
+ * One meaning once in the SERVER's text too, by the rule the model's words obey (humanPhrasesClash; review #211, round 7, п.1): the
+ * repeat lead went in front of the template's own thanks, «Спасибо за ваш вопрос.\nСпасибо!\nЦена…», «Раҳмат барои саволатон.\nТашаккур!…».
+ * Only a whole greeting / thanks / acknowledgement line (or the repeat lead, the neutral thanks) is ever dropped, and only when an
+ * earlier such line already said that meaning; the first one stays (the repeat lead is the marker the next turn reads). A fact line
+ * is never touched.
+ */
+function templateOneMeaningOnce(text: string): string {
+  const lines = splitLines(text), seen = new Set<HumanPhraseGroup>();
+  const kept = lines.filter(line => {
+    if (!isSocialLine(line) && line !== AGAIN_LEAD.ru && line !== AGAIN_LEAD.tg && line !== NEUTRAL_THANKS.ru && line !== NEUTRAL_THANKS.tg) return true;
+    const groups = humanPhraseGroups(line);
+    if (groups.some(group => seen.has(group))) return false;
+    for (const group of groups) seen.add(group);
+    return true;
+  });
+  return kept.length === lines.length ? text : kept.join("\n");
 }
 
 type RenderInput = Parameters<typeof renderDecisionCore>[0];
@@ -1218,22 +1242,38 @@ export function customerAgentAnswerVerdict(input: RenderInput): CustomerAgentAns
 /** What goes out when the last door removed every sentence: a neutral thanks from the vetted list (nothing was agreed or saved). */
 const NEUTRAL_THANKS = { ru: "Спасибо за ваше сообщение.", tg: "Ташаккур барои паёматон." } as const;
 /** The last door on the whole text (template + model words): no sentence opens with a consent word (customerAgentHumanText.ts). */
-function agreementChecked(text: string, input: RenderInput): { text: string | null; agreement: string[] } {
+function agreementChecked(text: string, input: Pick<RenderInput, "language" | "maxOutputChars">): { text: string | null; removed: string[] } {
   const checked = withoutAgreementOpenings(text);
-  if (!checked.removed.length) return { text, agreement: [] };
+  if (!checked.removed.length) return { text, removed: [] };
   const result = checked.text.trim() ? checked.text : NEUTRAL_THANKS[input.language];
-  return { text: result.length <= input.maxOutputChars ? result : null, agreement: checked.removed };
+  return { text: result.length <= input.maxOutputChars ? result : null, removed: checked.removed };
 }
 
 /**
- * The text the customer gets and the consent openings the last door removed from it (review #211, round 6). The core logs a
- * non-empty `agreement` to the error journal (a template or a phrase must be fixed); the text is the same either way, so the
- * renderer, the core and the delivery seal agree.
+ * The last door and what of its cuts is a SERVER bug (review #211, round 7, п.3). `agreement` = only the sentences the door cut that
+ * the server's own template (the same decision without any model words) carries: a template line that says «да» is a code error for
+ * the journal. The model's words never reach the journal: `say` and `answer` refuse an agreement word in their own checks (reason
+ * `agree`, a counter), so a cut of a model sentence here would be a checker bug the tests catch, not a journal line per wording.
+ * `template` is read only when the door cut something (rare), so the ordinary turn renders once.
+ */
+export function customerAgentLastDoor(text: string, template: () => string | null, input: Pick<RenderInput, "language" | "maxOutputChars">): { text: string | null; agreement: string[] } {
+  const checked = agreementChecked(text, input);
+  if (!checked.removed.length) return { text: checked.text, agreement: [] };
+  const own = template();
+  const serverCut = new Set(own ? withoutAgreementOpenings(own).removed : []);
+  return { text: checked.text, agreement: checked.removed.filter(sentence => serverCut.has(sentence)) };
+}
+
+/**
+ * The text the customer gets and the consent openings of the SERVER's template the last door removed from it (review #211, rounds
+ * 6–7). The core logs a non-empty `agreement` to the error journal (a template line must be fixed); the text is the same either way,
+ * so the renderer, the core and the delivery seal agree.
  */
 export function renderCustomerAgentDecisionChecked(input: RenderInput): { text: string | null; agreement: string[] } {
   const verdict = customerAgentAnswerVerdict(input);
   const raw = verdict?.ok ? verdict.text : renderTemplateDecision({ ...input, decision: withoutModelWords(input.decision) }).text;
-  return raw === null ? { text: null, agreement: [] } : agreementChecked(raw, input);
+  if (raw === null) return { text: null, agreement: [] };
+  return customerAgentLastDoor(raw, () => renderTemplateDecision({ ...input, decision: withoutModelWords(input.decision, true) }).text, input);
 }
 export function renderCustomerAgentDecision(input: RenderInput): string | null {
   return renderCustomerAgentDecisionChecked(input).text;

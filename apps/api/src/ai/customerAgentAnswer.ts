@@ -3,7 +3,7 @@ import { clientOwnWords } from "./untrustedContent.js";
 import { detectClientLanguage } from "./clientLanguage.js";
 import { findBannedWords } from "./bannedWordsGuard.js";
 import { normalizeSayText, SAY_LEXICON, foldSayText, foldSayPattern, sayTokens, sayComparable, sayEchoes } from "./customerAgentSay.js";
-import { informalAddress, foreignLanguageWord, SERVICE_CLAIM_SOURCE, humanPhraseKinds, humanPhraseMatch, humanPhraseAgrees, humanPhraseAcknowledges, humanPhraseSentences, humanPhraseRepeats, humanPhrasesClash, approvedAsk, APPROVED_ASKS, HUMAN_PHRASES,
+import { informalAddress, foreignLanguageWord, SERVICE_CLAIM_SOURCE, humanPhraseKinds, humanPhraseMatch, humanPhraseAgrees, humanPhraseOnlyAgrees, humanPhraseAcknowledges, humanPhraseSentences, humanPhraseRepeats, humanPhrasesClash, approvedAsk, APPROVED_ASKS, HUMAN_PHRASES,
   type CustomerAgentAskKind } from "./customerAgentHumanText.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 
@@ -189,6 +189,8 @@ function humanPartIssue(raw: string, role: Role, opts: { kind?: CustomerAgentAsk
   const outside = !kinds || !!opts.neutralOnly && kinds.includes("warm");
   if (!outside) return opts.own && sayEchoes(text, opts.own) ? "echo" : null;
   if (!kinds && humanPhraseRepeats(text)) return "repeat";
+  // Only a «да» and nothing else («Конечно!», «Да.», «Бале.», «Албатта.»): its own counter, not `claim` (review #211, round 7, п.5).
+  if (humanPhraseOnlyAgrees(text)) return "agree";
   const reason = lexiconReason(text, folded);
   if (reason) return reason;
   // Its own counter (review #211, round 6): how often the model still writes «Хорошо» / «Хуб» / «С удовольствием» is visible in shadow.

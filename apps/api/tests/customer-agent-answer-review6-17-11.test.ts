@@ -64,7 +64,8 @@ describe("п.1 the template never opens a sentence with consent (two «Поня�
     for (const [language, inputText] of [["ru", "Цена объекта 123?"], ["tg", "Нархи объекти 123 чанд?"]] as const) {
       const first = renderCustomerAgentDecision(input({ language, inputText, evidence: price }))!;
       const again = renderCustomerAgentDecision(input({ language, inputText, evidence: price, turns: [{ role: "user", text: inputText }, { role: "assistant", text: first }] }))!;
-      expect(again).toBe(`${language === "ru" ? "Спасибо за ваш вопрос." : "Ташаккур барои саволатон."}\n${first}`);
+      // Round 7 (п.4): the Tajik lead is «Раҳмат барои саволатон.», never a phrase the model may write itself.
+      expect(again).toBe(`${language === "ru" ? "Спасибо за ваш вопрос." : "Раҳмат барои саволатон."}\n${first}`);
       expect(again).not.toMatch(CONSENT_START);
     }
   });
@@ -74,7 +75,7 @@ describe("п.1 the last door: withoutAgreementOpenings on the whole text", () =>
   it.each([
     ["Хорошо, принято.", ""], ["Хуб, қабул шуд.", ""], ["Хорошо, записал.", "Записал."], ["Конечно.", ""], ["Бале.", ""], ["Да.", ""], ["Бемалол.", ""],
     ["Хеле хуб!", ""], ["Майлаш", ""], ["Ok, понял.", "Понял."], ["«Хорошо», понял.", "Понял."], ["С удовольствием! Объект №5.", "Объект №5."],
-    ["Спасибо!\nКонечно, цена 900 000.\nКакой бюджет?", "Спасибо!\nЦена 900 000.\nКакой бюджет?"], ["Без проблем, обязательно позвоним.", "Позвоним."],
+    ["Спасибо!\nКонечно, цена 900 000.\nКакой бюджет?", "Спасибо!\nЦена 900 000.\nКакой бюджет?"], ["Без проблем, обязательно позвоним.", "Обязательно позвоним."], // round 7: no mark after «обязательно»
   ])("%j → %j", (text, expected) => {
     const checked = withoutAgreementOpenings(text);
     expect(checked.text).toBe(expected);
@@ -91,12 +92,12 @@ describe("п.1 the last door: withoutAgreementOpenings on the whole text", () =>
       for (const list of Object.values(APPROVED_ASKS[language])) for (const text of list) expect(withoutAgreementOpenings(text).removed).toEqual([]);
     }
   });
-  it("a `say` phrase «Хорошо, понимаю вас.» (the say channel has no agreement list) is cut at the door and reported", () => {
+  it("a `say` phrase «Хорошо, понимаю вас.» is refused by the say check (round 7, п.3): the template goes out, nothing to report", () => {
     const rendered = renderCustomerAgentDecisionChecked(input({ language: "ru", inputText: "Беру за 900", say: "Хорошо, понимаю вас.", social: "acknowledge" }));
-    expect(rendered.text).toBe("Понимаю вас.");
-    expect(rendered.agreement).toEqual(["Хорошо, понимаю вас."]);
+    expect(rendered.text).toBe("Понял.");
+    expect(rendered.agreement).toEqual([]);
     // The seal re-renders the same text (one door).
-    expect(renderCustomerAgentDecision(input({ language: "ru", inputText: "Беру за 900", say: "Хорошо, понимаю вас.", social: "acknowledge" }))).toBe("Понимаю вас.");
+    expect(renderCustomerAgentDecision(input({ language: "ru", inputText: "Беру за 900", say: "Хорошо, понимаю вас.", social: "acknowledge" }))).toBe("Понял.");
   });
   it("the core door logs the removal to the error journal (logSystemError), once per sentence (dedup)", async () => {
     const sentence = `Хорошо, проверка ${Date.now()}.`;
@@ -106,10 +107,8 @@ describe("п.1 the last door: withoutAgreementOpenings on the whole text", () =>
     await expect.poll(async () => (await prisma.errorLog.findMany({ where: { message: { contains: sentence } } })).length, { timeout: 15_000, interval: 200 }).toBe(1);
     const row = await prisma.errorLog.findFirst({ where: { message: { contains: sentence } } });
     expect(row?.message).toContain("Слово согласия в начале фразы убрано");
-    // Through the core's render door: the text is cut and the journal gets the sentence.
-    expect(renderCustomerAgentText(input({ language: "ru", inputText: "Беру за 900", say: "Хорошо, понимаю вас.", social: "acknowledge" }))).toBe("Понимаю вас.");
-    await expect.poll(async () => (await prisma.errorLog.findMany({ where: { message: { contains: "«Хорошо, понимаю вас.»" } } })).length,
-      { timeout: 15_000, interval: 200 }).toBeGreaterThan(0);
+    // Round 7 (п.3): the model's «Хорошо, …» never reaches the journal (the say check refuses it); review7 checks that no row is written.
+    expect(renderCustomerAgentText(input({ language: "ru", inputText: "Беру за 900", say: "Хорошо, понимаю вас.", social: "acknowledge" }))).toBe("Понял.");
   });
   it("source guard: the core renders customer text only through renderCustomerAgentText (the checked door)", () => {
     const core = readFileSync(new URL("../src/ai/customerAgentCore.ts", import.meta.url), "utf8");
@@ -177,8 +176,8 @@ describe("п.4 an agreement word is its own drop reason (answer_dropped_agree)",
     "%s lead %j → agree", (language, lead) => {
       expect(verdict({ language, inputText: language === "ru" ? "Беру" : "Мегирам", question: "budget", answer: { lead } })).toEqual({ ok: false, reason: "agree" });
     });
-  it("a fact claim keeps its own (serious) reason: «Да, свободен.», «Албатта.» are claims first", () => {
+  it("a fact claim keeps its own (serious) reason: «Да, свободен.» is a claim first; «Албатта.» alone is an agreement (round 7, п.5)", () => {
     expect(verdict({ language: "ru", inputText: "Свободен?", question: "budget", answer: { lead: "Да, свободен." } })?.reason).toBe("claim");
-    expect(verdict({ language: "tg", inputText: "Мегирам", question: "budget", answer: { lead: "Албатта." } })?.reason).toBe("claim");
+    expect(verdict({ language: "tg", inputText: "Мегирам", question: "budget", answer: { lead: "Албатта." } })?.reason).toBe("agree");
   });
 });

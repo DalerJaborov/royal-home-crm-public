@@ -198,6 +198,7 @@ export const GUARD_LABELS: Record<GuardName, string> = {
   say_dropped_double_greet: "Живая фраза отброшена: второе приветствие",
   say_dropped_shadow: "Живая фраза годная, но режим «тень» её не отправил",
   say_dropped_rude: "Живая фраза отброшена: на «ты»",
+  say_dropped_agree: "Живая фраза отброшена: слово согласия («Хорошо», «Конечно», «Да») — клиент прочтёт его как «да»",
   answer_used: "Слова модели вокруг фактов ушли клиенту",
   answer_dropped_surface_disabled: "Ответ модели не отправлен: не личные сообщения",
   answer_dropped_language_disabled: "Ответ модели не отправлен: язык не включён",
