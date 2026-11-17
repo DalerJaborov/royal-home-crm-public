@@ -198,13 +198,13 @@ describe("runClientSilenceSweep — сторож молчания", () => {
 });
 
 describe("alertClientWaiting — «передать сотруднику» без ответа", () => {
-  it("эскалация из ядра зовёт агента сразу, повтор того же эпизода (сторож) — молчит", async () => {
+  it("эскалация из ядра зовёт агента сразу, повтор того же эпизода (сторож) — молчит и говорит «уже сказали» (R1-2)", async () => {
     const id = await conversation([{ role: "user", content: "позовите человека", at: minutesAgo(1) }]);
     expect(await alertClientWaiting({ conversationId: id, trigger: "escalate" })).toBe("agent");
     const pushed = ownPush(id);
     expect(pushed).toHaveLength(1);
     expect((pushed[0][1] as { body: string }).body).toContain("нужен сотрудник");
-    expect(await alertClientWaiting({ conversationId: id, trigger: "silence" })).toBe("skipped");
+    expect(await alertClientWaiting({ conversationId: id, trigger: "silence" })).toBe("already");
     expect(ownPush(id)).toHaveLength(1);
   });
 

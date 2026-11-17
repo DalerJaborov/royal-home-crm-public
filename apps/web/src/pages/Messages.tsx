@@ -64,7 +64,6 @@ import { rh2AvatarTone } from "../lib/rh2Avatar";
 import { Rh2DialogRow } from "../components/Rh2DialogRow";
 import { useNarrowScreen } from "../hooks/useNarrowScreen";
 import { useConversationSearch } from "../hooks/useConversationSearch";
-import { useDraftBeforeUpdate } from "../hooks/useDraftBeforeUpdate";
 import { useCleanChatDraft } from "../hooks/useCleanChatDraft";
 import { useChatReadingPosition } from "../hooks/useChatReadingPosition";
 import { highlightText } from "../lib/highlightText";
@@ -1109,8 +1108,13 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
   // потолок ожидания (см. UpdatePrompt.tsx) стирал набранный, но не
   // отправленный текст. Ключ — id разговора, чтобы черновик восстановился
   // именно в него, а не в первый открытый после перезагрузки.
-  useDraftBeforeUpdate(clean ? null : id, text, setText);
-  useCleanChatDraft({ enabled: clean, conversationId: id, text, restore: setText });
+  //
+  // С 17.11.2026 (аудит F2-5) черновик по диалогу хранится во ВСЕХ оболочках, а
+  // не только в чистой: агент уходил в карточку клиента проверить цену,
+  // возвращался — поле пустое. Хранилище (lib/cleanChatDraft.ts, sessionStorage)
+  // привязано к сотруднику и сессии, переживает и уход с экрана, и перезагрузку
+  // при обновлении (сброс на pagehide); очищается отправкой.
+  useCleanChatDraft({ enabled: true, conversationId: id, text, restore: setText });
   // Последний пресет ("Бессрочно") — длительность паузы по умолчанию после ручного
   // ответа (решение владельца 18.08.2026); то же значение зашито на сервере в
   // OPERATOR_REPLY_PAUSE_MS. Агент по-прежнему может выбрать более короткую паузу.

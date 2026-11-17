@@ -162,9 +162,11 @@ describe("автоответ «ещё уточняю у собственника
   });
 
   it("протухшая пауза у потерянного клиента не держит автоответ — то же исключение, что у хода бота", async () => {
-    // messengers/conversation.ts::isPaused: старая пауза (isStalePause) у карточки
-    // LOST/ARCHIVED/INACTIVE не считается — бот отвечает как обычно.
-    const lost = await makeClient("Потерянный", { status: "LOST" });
+    // messengers/conversation.ts::isPaused: старая пауза (isStalePause) у брошенной
+    // карточки не считается — бот отвечает как обычно. «Брошена» с 16.11.2026 —
+    // по общему правилу «без контакта»: неделю и больше ни одного разговора
+    // (lib/conversationState.ts::isClientLostOrAbandoned), а не статус LOST.
+    const lost = await makeClient("Брошенный", { createdAt: new Date(Date.now() - 30 * 24 * HOUR) });
     const conv = await makeConversation(lost.id, {
       pausedUntil: new Date(Date.now() + HOUR),
       botPausedAt: new Date(Date.now() - 30 * 24 * HOUR),

@@ -152,6 +152,36 @@ const HOT_THROTTLE_MS = 10_000;
  *  отдельная от счётчиков (свой таймер), чтобы частые события не тормозили друг друга. */
 const PULT_THROTTLE_MS = 3_000;
 const hotThrottleFor = (root: string): number => (root === "mission-control" ? PULT_THROTTLE_MS : HOT_THROTTLE_MS);
+/**
+ * СПИСКИ «ЧАТОВ» — НЕ ЧАЩЕ РАЗА В 5 С (17.11.2026, аудит скорости P1).
+ *
+ * message.new / conversation.updated гасили весь корень ["conversations"] через
+ * секунду: и открытый диалог, и списки со счётчиками срезов. Список на сервере —
+ * самый тяжёлый запрос инбокса (разворот JSON всей переписки, 135–400 мс базы),
+ * и при потоке входящих каждая вкладка с открытыми «Чатами» дёргала его раз в
+ * секунду. Теперь открытый диалог — как раньше, через COALESCE_MS; списки
+ * собирают события и уходят одним запросом не чаще CONVERSATION_LIST_THROTTLE_MS.
+ * Первое событие после затишья приходит в список так же через секунду — задержка
+ * появляется только на потоке. Задний фронт гарантирован, как у HOT_KEYS.
+ *
+ * Список — это ключ со вторым элементом-ОБЪЕКТОМ (["conversations", filters],
+ * hooks/useConversations.ts) и очереди пульта ["conversations", "pult-inbox", …]
+ * (они ходят в тот же /conversations). Всё остальное под корнем — открытый
+ * диалог (["conversations", id], ["conversations", "groups", id]) и любой
+ * будущий ключ — остаётся на прежней секунде: незнакомая форма не замедляется.
+ * Мутации (ответ, пауза бота) гасят ключи сами, мимо этого модуля, — их это не касается.
+ */
+const CONVERSATION_LIST_THROTTLE_MS = 5_000;
+const CONVERSATIONS_ROOT = "conversations";
+export function isConversationListKey(queryKey: readonly unknown[]): boolean {
+  if (queryKey[0] !== CONVERSATIONS_ROOT) return false;
+  const second = queryKey[1];
+  return (typeof second === "object" && second !== null) || second === "pult-inbox";
+}
+type QueryLike = { queryKey: readonly unknown[] };
+const isOpenConversation = (query: QueryLike) => !isConversationListKey(query.queryKey);
+const isConversationList = (query: QueryLike) => isConversationListKey(query.queryKey);
+
 /** Сколько последних id событий помнить для отсева повторов. */
 const SEEN_IDS_MAX = 500;
 const HOT_KEYS = new Set(["counters", "dashboard-summary", "mission-control"]);
@@ -216,8 +246,30 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
   /** Был ли уже успешный коннект: повторный открывается после обрыва. */
   let everOpened = false;
 
+  /** Медленная волна списков «Чатов» — см. CONVERSATION_LIST_THROTTLE_MS. */
+  let conversationListTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastConversationListRunAt = 0;
+  const runConversationLists = () => {
+    conversationListTimer = null;
+    lastConversationListRunAt = Date.now();
+    void queryClient.invalidateQueries({ queryKey: [CONVERSATIONS_ROOT], exact: false, predicate: isConversationList });
+  };
+  const scheduleConversationLists = () => {
+    if (conversationListTimer) return;
+    const delay = CONVERSATION_LIST_THROTTLE_MS - (Date.now() - lastConversationListRunAt);
+    // После затишья — сразу, той же волной, что и открытый диалог.
+    if (delay <= 0) runConversationLists();
+    else conversationListTimer = setTimeout(runConversationLists, delay);
+  };
+
   const runInvalidation = (keys: string[][]) => {
     for (const queryKey of keys) {
+      if (queryKey.length === 1 && queryKey[0] === CONVERSATIONS_ROOT) {
+        // Открытый диалог — сейчас, списки — медленной волной.
+        void queryClient.invalidateQueries({ queryKey, exact: false, predicate: isOpenConversation });
+        scheduleConversationLists();
+        continue;
+      }
       // exact: false — ключи в CRM составные (["clients", filters]), гасить
       // надо всё семейство. refetchType по умолчанию "active": невидимые
       // экраны помечаются протухшими и перезапросятся при открытии, а не
@@ -393,6 +445,8 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
       coalesceTimer = null;
       for (const t of hotTimers.values()) clearTimeout(t);
       hotTimers.clear();
+      if (conversationListTimer) clearTimeout(conversationListTimer);
+      conversationListTimer = null;
       disconnect();
       if (current === manager) current = null;
     },

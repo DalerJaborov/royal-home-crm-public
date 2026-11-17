@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { SendTargetInfo as TargetInfo } from "@royal-home/shared";
 import { Copy, MessageSquareText, Share2 } from "lucide-react";
 import type { SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared";
-import { api } from "../../lib/api";
+import { sendToClient } from "../../lib/clientSend";
+import { useSendIntent } from "../../hooks/useSendIntent";
 import { ApiError } from "../../lib/apiError";
 import { toast } from "../../store/toast";
 import { useIsReadOnly } from "../../lib/permissions";
@@ -53,6 +54,8 @@ export function SendFallback({
   disabled?: boolean; onBusyChange?: (busy: boolean) => void; layer?: "above-chat";
 }) {
   const qc = useQueryClient();
+  // СМС клиенту — с ключом повтора: обрыв связи и второе нажатие не шлют дубль (lib/clientSend.ts).
+  const smsIntent = useSendIntent();
   const accountReadOnly = useIsReadOnly();
   const readOnlyRef = useRef(accountReadOnly);
   readOnlyRef.current = accountReadOnly;
@@ -104,8 +107,8 @@ export function SendFallback({
       for (const link of remainingLinks) {
         if (readOnlyRef.current) break;
         try {
-          const res = await api<{ sent: number; items: { status: string; reason?: string }[] }>(
-            `/properties/${link.propertyId}/sms-share`, { method: "POST", body: { clientIds: [clientId] } });
+          const res = await sendToClient<{ sent: number; items: { status: string; reason?: string }[] }>(
+            smsIntent, `/properties/${link.propertyId}/sms-share`, { clientIds: [clientId] });
           if (res.sent > 0 && res.items.some(item => item.status === "sent")) accepted.push(link.propertyId);
           else problems.push(`№${link.shortId}: ${res.items[0]?.reason ?? "не отправлено"}`);
         } catch (err) {

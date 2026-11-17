@@ -1013,6 +1013,14 @@ async function loadGroupedInboxRows(input: {
   // Telegram Direct is a read-only source: it has no safe CRM reply transport.
   const includeDirect = (!channel || channel === "TELEGRAM_DIRECT") && !accountId;
   const botScope = ownBotConversationSql(ownAgentId);
+  // ТИПЫ СТОЛБЦОВ ОБЪЕДИНЕНИЯ (17.11.2026, 42804 «UNION types ClientKind and
+  // text cannot be matched» в журнале прода). Любой фильтр по каналу или по
+  // аккаунту заменяет часть веток заглушкой `NULL::text ... WHERE FALSE`, а
+  // настоящая ветка отдавала `cl.kind`/`cl.source` типом перечисления базы, —
+  // Postgres не сводит enum с text, и экран «Чаты» падал 500. Поэтому каждый
+  // столбец настоящих веток обязан иметь ТОТ ЖЕ тип, что у заглушки: enum —
+  // только через `::text`. Сторож — `grouped-conversations.test.ts`, фильтры
+  // по каждому каналу и по аккаунту.
   const ownClientScope = ownAgentId
     ? Prisma.sql`cl.id IS NOT NULL AND cl."assignedAgentId" = ${ownAgentId} AND cl."deletedAt" IS NULL AND cl."acceptedAt" IS NOT NULL`
     : Prisma.sql`cl.id IS NULL OR cl."deletedAt" IS NULL`;
@@ -1023,7 +1031,7 @@ async function loadGroupedInboxRows(input: {
       CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
       CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
       cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
-      cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind AS "clientKind", cl.source AS "clientSource",
+      cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind::text AS "clientKind", cl.source::text AS "clientSource",
       cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
     FROM "BotConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
     LEFT JOIN "MessengerAccount" acc ON acc.id = c."accountId"
@@ -1044,7 +1052,7 @@ async function loadGroupedInboxRows(input: {
       c."pausedUntil", c."botPausedAt", CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
       CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
       cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
-      cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind AS "clientKind", cl.source AS "clientSource",
+      cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind::text AS "clientKind", cl.source::text AS "clientSource",
       cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
     FROM "TelegramConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
     WHERE (${like}::text IS NULL OR cl."fullName" ILIKE ${like} OR c.username ILIKE ${like} OR c.messages::text ILIKE ${like})
@@ -1063,7 +1071,7 @@ async function loadGroupedInboxRows(input: {
       CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
       CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
       cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
-      cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind AS "clientKind", cl.source AS "clientSource",
+      cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind::text AS "clientKind", cl.source::text AS "clientSource",
       cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
     FROM "TelegramDirectConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
     WHERE (${like}::text IS NULL OR cl."fullName" ILIKE ${like} OR c.username ILIKE ${like} OR c.messages::text ILIKE ${like})

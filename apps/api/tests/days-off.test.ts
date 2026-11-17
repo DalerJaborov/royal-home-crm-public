@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
+import { missedFirstCallMarks } from "./helpers/missedFirstCall.js";
 
 /**
  * ВЫХОДНЫЕ — ИЗ НАСТРОЕК, ПО УМОЛЧАНИЮ ИХ НЕТ (владелец 11.10.2026).
@@ -21,7 +22,7 @@ const { signAccessToken } = await import("../src/auth/jwt.js");
 const { grantElevation } = await import("../src/lib/stepUp.js");
 const shared = await import("@royal-home/shared");
 const { acceptingLeadsWhere, isAgentAvailableForLead } = await import("../src/services/leads/selection.js");
-const { firstCallPauses, firstCallDueAt, penalizeMissedFirstCalls } = await import("../src/services/leads/firstCall.js");
+const { firstCallPauses, firstCallDueAt, handleMissedFirstCalls } = await import("../src/services/leads/firstCall.js");
 const { pickTransferAgent } = await import("../src/lib/telephony/liveCallTransfer.js");
 const { pickCallbackAgent } = await import("../src/lib/telephony/consultantCallbackTarget.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
@@ -190,19 +191,19 @@ describe("раздача, первый звонок и закрепление (�
     }
   });
 
-  it("закрепление не меняется: в свой выходной агент не получает штрафа «не позвонил за 15 мин», лид не уходит", async () => {
+  it("закрепление не меняется: в свой выходной срыв «не позвонил за 15 мин» не засчитывается, лид не уходит", async () => {
     // Keep acceptance and its deadline inside today's holiday. After midnight,
     // real now-minus-30 puts the deadline on yesterday's working day instead.
     const reference = dushanbe(`${dushanbeDateString()}T12:00`);
     const own = await ownClient(offAgent, 30, reference);
     const control = await ownClient(workingAgent, 30, reference);
-    await penalizeMissedFirstCalls(reference);
+    await handleMissedFirstCalls(reference);
     const ownAfter = await prisma.client.findUniqueOrThrow({ where: { id: own }, select: { assignedAgentId: true } });
     expect(ownAfter.assignedAgentId).toBe(offAgent);
-    expect(await prisma.royalScoreEvent.count({ where: { agentId: offAgent, kind: "call_15min_missed" } })).toBe(0);
+    // Штраф снят 16.11.2026 — признак срыва теперь запись в хронологии.
+    expect(await missedFirstCallMarks(own)).toBe(0);
     // Контроль: у агента на смене то же правило срабатывает (тест умеет краснеть).
-    await waitFor(() => prisma.royalScoreEvent.count({ where: { agentId: workingAgent, kind: "call_15min_missed" } }));
-    expect(await prisma.royalScoreEvent.count({ where: { agentId: workingAgent, kind: "call_15min_missed" } })).toBeGreaterThan(0);
+    expect(await missedFirstCallMarks(control)).toBeGreaterThan(0);
     expect(control).toBeTruthy();
   });
 

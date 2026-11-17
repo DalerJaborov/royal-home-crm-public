@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { dushanbeDateString } from "../src/lib/dushanbeTime.js";
-import { computeHiddenReason, deferredReturnMessage } from "../src/routes/clients/shared.js";
+import { computeHiddenReason } from "../src/routes/clients/shared.js";
 import { loadGuardStats } from "../src/ai/guardMetrics.js";
 
 /**
@@ -39,14 +39,8 @@ describe("даты в подписях — по Душанбе", () => {
     expect(computeHiddenReason(client({ deletedAt: NIGHT }))?.detail).toBe("Удалена 2026-10-02");
   });
 
-  it("«Отложен»: до какой даты — по Душанбе", () => {
-    const info = computeHiddenReason(client({ workStatus: "DEFERRED", deferredUntil: NIGHT }));
-    expect(info?.detail).toBe("До 2026-10-02");
-  });
-
-  it("сообщение агенту после «отложить» — дата возврата по Душанбе", () => {
-    expect(deferredReturnMessage(NIGHT)).toContain("автоматически 2026-10-02 ");
-  });
+  // «Отложенных» больше нет (владелец 16.11.2026): подписи «До <даты>» и сообщения
+  // «вернётся автоматически <дата>» сняты вместе с состоянием.
 });
 
 describe("loadGuardStats: граница дней по Душанбе (№175)", () => {

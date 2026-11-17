@@ -13,7 +13,6 @@ vi.mock("../../lib/permissions", () => ({ useCan: () => () => mocks.canRestore }
 vi.mock("../useClients", () => ({
   useRestoreClient: () => ({ mutate: mocks.restore }), useRequestRestoreClient: () => ({ mutate: mocks.request }),
   useAcceptLead: () => ({ mutate: mocks.accept }), useDeclineLead: () => ({ mutate: mocks.decline }),
-  isRequiresRelease: (error: unknown) => error === "requires-release",
 }));
 function fixture(patch: Partial<Client> = {}): Client {
   return { id: "client-1", shortId: 42, kind: "BUYER", assignedAgentId: "agent-1", pendingAcceptance: true, phone: "•••", ...patch } as Client;
@@ -48,14 +47,10 @@ describe("shared client row workflow", () => {
     expect(actions.canAcceptRow).toBe(accept);
     expect(actions.canCall).toBe(call);
   });
-  it("navigates to the selected lead only for the portfolio-release error", () => {
+  it("accepts the lead in place: no portfolio-release detour (limit removed 16.11.2026)", () => {
     read().acceptClient();
-    const [input, options] = mocks.accept.mock.calls[0];
-    expect(input).toBeUndefined();
-    options.onError("network-error");
+    expect(mocks.accept).toHaveBeenCalledExactlyOnceWith();
     expect(mocks.navigate).not.toHaveBeenCalled();
-    options.onError("requires-release");
-    expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith("/clients/42");
   });
   it("restores or requests restoration for this client and preserves the permission", () => {
     expect(read().canRestore).toBe(false);

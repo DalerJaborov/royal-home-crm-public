@@ -2,6 +2,7 @@ import { collectSellerFacts, SELLER_FACT_ORDER, type SellerFactKey } from "./sel
 import { customerRoleSignals } from "./customerAgentRole.js";
 import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "./untrustedContent.js";
+import { detectForeignPlace, detectOutsideCoverage } from "./coverageGuard.js";
 import { buyerNeedsFromMessages, buyerNeedsKnown, compactBuyerNeeds, customerSearchRequested, readBuyerNeeds } from "./customerBuyerNeeds.js";
 
 const NEGATED_WISH = /(?<![\p{L}\p{N}])(?:не|ни|на)\s*(?:\p{L}+\s+)?(?:хочу|хотим|хотел\p{L}*|ищу|ищем|нужн\p{L}*|планирую|собираюсь|куплю|покупаю|мехоҳам|меҷӯям|мехарам)/iu;
@@ -60,6 +61,26 @@ export function customerAgentIntake(turns: readonly { role: "user" | "assistant"
     ? compactBuyerNeeds(buyerNeedsFromMessages(relevant.map((text, index) => ({ text, asked: asked[start + index] })))) : undefined;
   return { role, sellerKnown: SELLER_FACT_ORDER.filter(key => facts[key]), statements,
     buyerKnown: buyerNeedsKnown(buyerNeeds), ...(buyerNeeds ? { buyerNeeds } : {}) };
+}
+
+/**
+ * WHERE THE PROPERTY IS — the two lead-draft fields the old bot filled from its model schema (one brain, step 3):
+ * `locationOutsideDushanbe` (another city or district of Tajikistan: the lead goes to «Прочие обращения», the phone is still
+ * taken) and `locationDifferentCountry` (a SELLER's property POSSIBLY abroad: a word-level guess, so it never refuses a lead —
+ * the card is always created and the agent gets a «уточнить» note, review #223 H1/N8; lib/customerNewLeadBridge.ts). Code
+ * decides from the customer's own words only (ai/coverageGuard.ts); a mention of Dushanbe or Rudaki anywhere lifts both.
+ * Zone: Dushanbe + Rudaki. Meta DMs (the new-lead bridge) use it only with CUSTOMER_AGENT_INTAKE_LOCATION=on; the channel
+ * adapter (lib/customerChannelCore.ts, `core` channels only) fills the same lead fields the old bot filled there.
+ * A buyer who lives abroad is our normal client, so "other country" is a seller-only verdict, exactly like the old field.
+ */
+export function customerIntakeLocation(ownTexts: readonly string[], role: "buyer" | "seller" | "unknown"):
+  { locationOutsideDushanbe?: true; locationDifferentCountry?: true; place?: string } {
+  const own = ownTexts.map(text => clientOwnWords(text)).filter(Boolean).join("\n");
+  if (!own.trim()) return {};
+  const outside = detectOutsideCoverage(own);
+  if (outside) return { locationOutsideDushanbe: true, place: outside.place };
+  const foreign = role === "seller" ? detectForeignPlace(own) : null;
+  return foreign ? { locationDifferentCountry: true, place: foreign.place } : {};
 }
 
 const labels: Record<SellerFactKey, { ru: string; tg: string }> = {

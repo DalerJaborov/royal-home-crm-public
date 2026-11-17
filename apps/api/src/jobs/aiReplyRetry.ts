@@ -62,7 +62,7 @@ export const aiReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
   backoff: aiReplyRetryBackoffMs,
   // Ход бота: окно модели до 75 с плюс подготовка — минуты общего срока мало.
   timeoutMs: BOT_TURN_JOB_TIMEOUT_MS,
-  async run(payload) {
+  async run(payload, context) {
     const conversation = await prisma.botConversation.findUnique({
       where: { id: payload.conversationId },
       select: {
@@ -122,7 +122,7 @@ export const aiReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       lastText: last.content,
       lastMid: last.mid ?? null,
       lastMessageAt: conversation.lastMessageAt ?? new Date(),
-    }, "ai_retry");
+    }, "ai_retry", context ? context.attempt + 1 : undefined); // core: at most 3 runs of one turn (review #223 R1)
     // Модель всё ещё лежит или отправка не удалась — исключение отдаёт задание
     // очереди на следующую ступень лесенки (см. aiReplyRetryPolicy.ts).
     if (outcome === "ai-down") throw new Error("ИИ всё ещё недоступен");

@@ -3,7 +3,6 @@ import { waitFor } from "./helpers/waitFor.js";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
 import { reactivateClientFromLost } from "../src/lib/clientLifecycle.js";
-import { reactivateClient } from "../src/lib/clientWorkStatus.js";
 
 /**
  * Регрессионный тест на баг B3 (docs/audit-02-09-2026/01-lifecycle.md):
@@ -73,9 +72,6 @@ async function makeInactiveClient() {
       kind: "BUYER",
       status: "NEW",
       workStatus: "INACTIVE",
-      inactiveLevel: "YELLOW",
-      inactiveSince: new Date(Date.now() - 48 * 60 * 60 * 1000),
-      inactivePingCount: 1,
       assignedAgentId: agentId,
       lastAgentId: agentId,
       acceptedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
@@ -192,9 +188,6 @@ describe("reactivateClientFromLost (B3)", () => {
 
     const reloaded = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
     expect(reloaded.workStatus).toBe("ACTIVE");
-    expect(reloaded.inactiveLevel).toBeNull();
-    expect(reloaded.inactiveSince).toBeNull();
-    expect(reloaded.inactivePingCount).toBe(0);
   });
 
   it("повторная реактивация уже активного клиента идемпотентна", async () => {
@@ -209,35 +202,5 @@ describe("reactivateClientFromLost (B3)", () => {
     });
     // Только одна запись от первого вызова; второй вызов не должен создавать дубль.
     expect(interactions).toHaveLength(1);
-  });
-});
-
-/**
- * Второй путь возврата — кнопка «Вернуть в работу» на карточке
- * (routes/clients/lifecycle.ts → clientWorkStatus.ts::reactivateClient).
- *
- * До 07.09.2026 он писал только workStatus=ACTIVE и оставлял поля светофора от
- * прошлой жизни карточки — находка №25 в docs/audit-findings-2026-09-05.md.
- * Видно это было сразу (у вернувшегося клиента висел красный уровень), но вредило
- * тихо: inactivePingCount продолжал считать со старого значения, и при следующем
- * переводе в неактивные «предел попыток исчерпан» наступал досрочно, отправляя
- * карточку в LOST раньше срока.
- */
-describe("reactivateClient — кнопка «Вернуть в работу» чистит светофор", () => {
-  it("снимает уровень, причину, точку отсчёта и счётчик попыток", async () => {
-    const client = await makeInactiveClient();
-    // Исходное состояние — именно то, что оставил перевод в неактивные.
-    expect(client.inactiveLevel).toBe("YELLOW");
-    expect(client.inactivePingCount).toBe(1);
-
-    const result = await reactivateClient({ clientId: client.id, agentId });
-    expect(result.ok).toBe(true);
-
-    const after = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
-    expect(after.workStatus).toBe("ACTIVE");
-    expect(after.inactiveLevel).toBeNull();
-    expect(after.inactiveReasonKey).toBeNull();
-    expect(after.inactiveSince).toBeNull();
-    expect(after.inactivePingCount).toBe(0);
   });
 });

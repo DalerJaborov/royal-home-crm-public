@@ -228,7 +228,9 @@ function collectApiCalls() {
   const calls = new Map(); // путь (первый сегмент) → Set файлов
   for (const f of walk(WEB_SRC)) {
     const s = read(f);
-    for (const m of s.matchAll(/\bapi[a-zA-Z]*[<(][\s\S]{0,40}?["'`]\/([\w-]+)/g)) {
+    // `sendToClient(intent, "/…")` (web/lib/clientSend.ts, 17.11.2026) — отправка
+    // клиенту с ключом повтора; адрес у неё вторым аргументом, после ключа.
+    for (const m of s.matchAll(/\b(?:api[a-zA-Z]*[<(][\s\S]{0,40}?|sendToClient\s*[<(][\s\S]{0,160}?)["'`]\/([\w-]+)/g)) {
       const seg = `/${m[1]}`;
       if (!calls.has(seg)) calls.set(seg, new Set());
       calls.get(seg).add(repoPath(f));

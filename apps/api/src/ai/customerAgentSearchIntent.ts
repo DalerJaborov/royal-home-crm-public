@@ -1,6 +1,7 @@
 import { customerAgentPropertySearchCallSchema, type CustomerAgentPropertySearchArgs, type CustomerBuyerNeeds } from "@royal-home/shared";
 import { BW, TAIL } from "./wordBoundary.js";
 import { customerAgentQuestionCatalog } from "./customerAgentRenderer.js";
+import { customerAgentAskKindOf, customerAgentHumanLineSafe } from "./customerAgentAnswer.js";
 import { buyerNeedsFromMessages, customerRentOnlyWords, customerSearchRequested, customerSellerOrJobWords, readBuyerNeeds,
   type BuyerNeedKey, type BuyerNeedsReading, type BuyerPropertyType } from "./customerBuyerNeeds.js";
 
@@ -87,7 +88,7 @@ export function customerSearchContinuation(text: string, turns: ReadonlyArray<{ 
   const lines = last.text.split("\n").map(line => line.trim());
   const askedQuestion = (["ru", "tg"] as const).flatMap(language => customerAgentQuestionCatalog(language).filter(({ question, text: sentence }) =>
     ASKED_KEY[question] !== undefined && lines.includes(sentence)).map(({ question }) => question))[0];
-  const asked = askedQuestion ? ASKED_KEY[askedQuestion] : undefined;
+  const asked = askedQuestion ? ASKED_KEY[askedQuestion] : modelAskedCondition(lines);
   const own = norm(text);
   if (!asked || !own.trim() || own.length > 120 || !hasCondition(readBuyerNeeds(text, asked))) return null;
   const earlier = turns.filter(turn => turn.role === "user").slice(-2).map(turn => ({ text: turn.text }));
@@ -119,6 +120,14 @@ export function customerSearchIntentWithKnownNeeds(intent: CustomerSearchIntent 
   // A ceiling bounds the list; «cheapest first» is only for a search without one.
   if (merged.budget && merged.sort === "cheap" && !intent.sort) delete merged.sort;
   return merged;
+}
+
+/** The bot's last line is the model's own wording of the location / rooms / budget question (one-brain step 1, review #211): one topic, no fact. */
+function modelAskedCondition(lines: readonly string[]): BuyerNeedKey | undefined {
+  const last = lines.filter(Boolean).at(-1);
+  if (!last || !/[?]$/u.test(last)) return undefined;
+  const kind = customerAgentAskKindOf(last);
+  return (kind === "location" || kind === "rooms" || kind === "budget") && customerAgentHumanLineSafe(last) ? kind : undefined;
 }
 
 /**

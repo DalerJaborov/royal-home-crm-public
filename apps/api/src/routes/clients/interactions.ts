@@ -15,10 +15,10 @@ import { prisma } from "../../db.js";
 import { can, requireAuth, requirePermission, scopeToOwnAgent } from "../../auth/middleware.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { logAudit } from "../../lib/audit.js";
-import { refreshClientStatus } from "../../lib/clientAutoStatus.js";
 import { notifyNoAnswerEscalation, planNoAnswerStep } from "../../lib/noAnswerStreak.js";
 import { runClientAutopilotInBackground } from "../../lib/clientAutopilot.js";
 import { foreignWriteDenied } from "./shared.js";
+import { trashClient } from "../../lib/trashClient.js";
 import { checkAgentPhoneAsk } from "../../lib/agentPhoneAskDetector.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { closeLeadPushNotifications, sendPushToAgents } from "../../push.js";
@@ -179,14 +179,6 @@ interactionsRouter.post("/:id/interactions", requireAuth, async (req, res) => {
     })().catch((err) => console.error("[push] пересечение показов:", err instanceof Error ? err.message : err));
   }
 
-  // Статус клиента переставляется сам по тому, что произошло: поговорили —
-  // «На контакте», назначили показ — «Горячий», три недозвона подряд — «Не
-  // отвечает» (см. lib/clientAutoStatus.ts). Не ждём результата: агенту важно
-  // сохранить запись и идти дальше, а статус догонит через мгновение.
-  void refreshClientStatus(client.id).catch((err) =>
-    console.error("[clients] автостатус:", err instanceof Error ? err.message : err)
-  );
-
   // Детектор «агент спросил номер» в заметке/комментарии к взаимодействию
   // (требование 11 аудита 02.09.2026). Проверяем только текстовые заметки,
   // не системные записи. Фоново — не задерживаем ответ агенту.
@@ -262,26 +254,13 @@ interactionsRouter.post("/:id/interactions", requireAuth, async (req, res) => {
 });
 
 /**
- * GET /clients/lost — раздел «Потерянные клиенты» (решение владельца 11.08.2026,
- * свой раздел рядом с «Горячими»).
- *
- * Клиент попадает сюда, когда предел передач (Settings.leadMaxTransfers) исчерпан:
- * несколько агентов подряд не смогли его закрыть, и автоматика прекращает
- * назначать его дальше — это не оценка клиента, а факт про нас.
- *
- * Цепочка отказов строится по записям SYSTEM/NEGATIVE в хронологии: их же создают
- * POST /clients/:id/refuse и «Итог объекта: Неактивный» (routes/me.ts) — оба пути
- * закрытия карточки сведены к одному маркеру, чтобы раздел видел обоих. Отдельных
- * полей для истории заводить не пришлось: то, что уже пишется в хронологию,
- * оказалось достаточно.
- */
-/**
  * Решение службы безопасности по закрытой карточке.
  *
  * Два исхода, и оба закрывают карточку — разница в том, ЧТО зафиксировано.
  * «Проверено, вопросов нет» — обычное закрытие, сделка действительно прошла мимо
- * нас. «Нарушение подтверждено» — тот же архив, но в истории остаётся запись, по
- * которой потом разбираются с человеком.
+ * нас. «Нарушение подтверждено» — то же закрытие, но в истории остаётся запись, по
+ * которой потом разбираются с человеком. Закрытие — обычная Корзина (16.11.2026:
+ * «Архива» как состояния больше нет), восстановимо.
  *
  * Решение необратимо только в одну сторону: перепроверить карточку можно, снова
  * отправив её на проверку через обычный отказ. Возвращать «в PENDING» отдельной
@@ -309,7 +288,7 @@ interactionsRouter.post(
     const reviewed = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
       const current = await tx.client.findUnique({ where: { id: client.id } });
-      if (!current || current.deletedAt || current.securityReview !== "PENDING") return false;
+      if (!current || current.deletedAt || current.securityReview !== "PENDING") return null;
       const openDeal = await tx.deal.findFirst({ where: { clientId: client.id,
         stage: { notIn: ["COMPLETED", "CANCELLED"] } }, select: { id: true } });
       await tx.client.update({
@@ -319,9 +298,6 @@ interactionsRouter.post(
           securityReviewedAt: new Date(),
           securityReviewedById: req.agent!.id,
           securityNote: note?.trim() || null,
-          // Карточка закрывается только ПОСЛЕ вердикта — до него она висела в
-          // прежнем статусе нарочно, чтобы не выглядеть решённой.
-          ...(!current.dualIntent && !openDeal ? { status: "ARCHIVED" as const } : {}),
         },
       });
       await logTimeline({
@@ -344,11 +320,19 @@ interactionsRouter.post(
       });
       await syncLegacyInvestigationVerdict(tx, { clientId: client.id, assignmentAt: current.assignedAt,
         subjectAgentId: current.assignedAgentId, actorId: req.agent!.id, verdict, note: note?.trim() || `Решение руководителя: ${label}` });
-      return true;
+      // Карточка закрывается только ПОСЛЕ вердикта — до него она висела как есть
+      // нарочно, чтобы не выглядеть решённой. Вторая роль или открытая сделка —
+      // работа с клиентом продолжается, закрывать нечего.
+      return { close: !current.dualIntent && !openDeal };
     });
     if (!reviewed) return res.status(409).json({ error: "Проверка уже завершена или карточка изменилась — обновите страницу" });
 
     logAudit(req, "CLIENT_SECURITY_REVIEW", "Client", client.id, { verdict });
+
+    if (reviewed.close) {
+      const trashed = await trashClient(client.id, req.agent!.id, { notifyHolder: false });
+      if (!trashed.ok) console.error("[security-review] карточка не убрана в Корзину:", trashed.error);
+    }
 
     // Вердикт вынес один проверяющий — у ОСТАЛЬНЫХ с правом clients.securityReview
     // «⚠️ закрытие требует проверки» по этой карточке без этого висело бы вечно

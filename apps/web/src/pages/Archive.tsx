@@ -602,8 +602,8 @@ export function Archive() {
     isLoading: archivedLoading,
     isError: archivedError,
     refetch: refetchArchivedClients,
-  } = useClients({ status: "ARCHIVED", page: archivedPage }, canView);
-  const { data: archivedHead } = useClients({ status: "ARCHIVED", page: 1 }, canView && archivedPage > 1);
+  } = useClients({ archived: true, page: archivedPage }, canView);
+  const { data: archivedHead } = useClients({ archived: true, page: 1 }, canView && archivedPage > 1);
   const archivedItems = useAccumulatedPages(archivedClients?.items, archivedPage, null, archivedHead?.items);
 
   const [auditPage, setAuditPage] = useState(1);

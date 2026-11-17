@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { sendToClient } from "../lib/clientSend";
+import { useSendIntent } from "./useSendIntent";
 
 /**
  * СМС (23.09.2026): подключены ли, раздел в Настройках, рассылка объекта.
@@ -50,9 +52,9 @@ export interface SmsShareResult {
 
 export function useSmsShareProperty(propertyId: string) {
   const qc = useQueryClient();
+  const intent = useSendIntent();
   return useMutation({
-    mutationFn: (clientIds: string[]) =>
-      api<SmsShareResult>(`/properties/${propertyId}/sms-share`, { method: "POST", body: { clientIds } }),
+    mutationFn: (clientIds: string[]) => sendToClient<SmsShareResult>(intent, `/properties/${propertyId}/sms-share`, { clientIds }),
     // Появились личные ссылки клиентов — список «открыл/не открыл» на карточке объекта.
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["property", propertyId, "share-links"] });

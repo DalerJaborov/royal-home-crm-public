@@ -18,11 +18,43 @@ export function foldCustomerText(text: string): string {
     .replace(/[ъʼ’'`]/gu, "").replace(/[.,;:!?…«»"()[\]{}\\/|_*~—–-]+/gu, " ").replace(/\s+/gu, " ").trim();
 }
 
+/**
+ * ТАДЖИКСКИЙ (И РУССКИЙ) ЛАТИНИЦЕЙ (17.11.2026, журнал прода: «xonai furushi
+ * dorum» — продавец — ушёл в «прочее обращение» без агента, потому что все
+ * правила ниже написаны кириллицей). Латинские слова переводятся в тот же
+ * свёрнутый кириллический алфавит, что и `foldCustomerText`, — правила остаются
+ * одни на оба письма. Только для чтения роли: `foldCustomerText` трогать нельзя,
+ * по латинице в нём узнают язык (customerDmLanguage.ts) и чужой текст
+ * (customerAgentAbuse.ts). Слово со смесью букв и цифр не трогаем.
+ */
+const LATIN_DIGRAPHS: Array<[string, string]> = [
+  ["sh", "ш"], ["ch", "ч"], ["zh", "ж"], ["kh", "х"], ["gh", "г"], ["yo", "е"], ["yu", "ю"], ["ya", "я"], ["ye", "е"],
+];
+const LATIN_LETTERS: Record<string, string> = {
+  a: "а", b: "б", c: "с", d: "д", e: "е", f: "ф", g: "г", h: "х", i: "и", j: "ч", k: "к", l: "л", m: "м", n: "н",
+  o: "о", p: "п", q: "к", r: "р", s: "с", t: "т", u: "у", v: "в", w: "в", x: "х", y: "й", z: "з",
+};
+function latinWordToFolded(word: string): string {
+  let out = "";
+  for (let i = 0; i < word.length; ) {
+    const pair = LATIN_DIGRAPHS.find(([latin]) => word.startsWith(latin, i));
+    if (pair) { out += pair[1]; i += 2; continue; }
+    out += LATIN_LETTERS[word[i]!] ?? word[i];
+    i += 1;
+  }
+  return out;
+}
+/** Свёрнутый текст, в котором чисто латинские слова переписаны кириллицей. */
+export function foldCustomerTextForRole(text: string): string {
+  return foldCustomerText(text).split(" ").map((word) => (/^[a-z]+$/u.test(word) ? latinWordToFolded(word) : word)).join(" ");
+}
+
 const HOUSING = `(?:хона\\p{L}*|хавли\\p{L}*|квартир\\p{L}*|кувартир\\p{L}*|дом(?:а|у|е|ом)?|двор(?:а|у|е)?|участ\\p{L}*|котлован\\p{L}*|замин\\p{L}*|манзил\\p{L}*|жиль\\p{L}*|недвижим\\p{L}*|офис\\p{L}*|магазин\\p{L}*|имарат\\p{L}*|объект\\p{L}*)`;
-const HAVE = `(?:дорам|дорем|доштам|доштем|доштм)`;
+// «дорум»/«дорим» — северный говор («хонаи фуруши дорум», журнал 17.11.2026). «Дорен» сюда НЕ входит: это «у вас есть?» — вопрос покупателя.
+const HAVE = `(?:дорам|дорем|дорум|дорим|доштам|доштем|доштм)`;
 const re = (source: string) => new RegExp(source, "gu");
 
-const SELL_ACTIVE = re(`${BW}(?:продам|продаю|продаем|продать|продавать|(?:ме)?фур[уо]ш(?:ам|ем)?|фурухт\\p{L}*)${EW}`);
+const SELL_ACTIVE = re(`${BW}(?:продам|продаю|продаем|продать|продат|продавать|(?:ме)?фур[уо]ш(?:ам|ем)?|фурухт\\p{L}*)${EW}`);
 const SELL_PASSIVE = re(`${BW}(?:продается|продаются)${EW}`);
 const OWN_HOUSING = [re(`${BW}${HOUSING}${EW}.{0,25}?${BW}${HAVE}${EW}`), re(`${BW}${HAVE}${EW}.{0,25}?${BW}${HOUSING}${EW}`)];
 const HOUSING_WORD = new RegExp(`${BW}${HOUSING}${EW}`, "u");
@@ -35,13 +67,22 @@ const LANDLORD_PASSIVE = re(`${BW}(?:сдается|сдаются)${EW}`);
 const LANDLORD_TG = re(`${BW}(?:ба )?ичора (?:медихам|медихем|медам|медем)${EW}`);
 const RENT_HINT = new RegExp(`аренд|наем|ичора`, "u");
 const BUY_STRONG = [
-  re(`${BW}(?:хочу|хотим|планирую|собираюсь|хотел\\p{L}* бы)(?: бы)? (?:купить|приобрести)${EW}`),
+  re(`${BW}(?:хочу|хотим|планирую|собираюсь|хотел\\p{L}* бы)(?: бы)? (?:купить|купит|приобрести)${EW}`),
   re(`${BW}(?:куплю|покупаю|покупаем|приобрету|мехарам|мехарем|харидорам)${EW}`),
   re(`${BW}харидан мехох\\p{L}*${EW}`),
 ];
+const ASK_OPTIONS = `(?:пешниход (?:кунед|кун|кунетон)|равон (?:кунед|кун)|фиристед|фирист|скинь|скиньте|покажи|покажите|предложите)`;
 const BUY_WEAK = [
   re(`${BW}ищу (?:квартир\\p{L}*|дом(?:а|у|е)?|участ\\p{L}*|жиль\\p{L}*|хавли\\p{L}*|хона\\p{L}*|котлован\\p{L}*)${EW}`),
   re(`${BW}${HOUSING}${EW}.{0,30}?${BW}(?:мечу|мекоб)\\p{L}*${EW}`), re(`${BW}(?:мечу|мекоб)\\p{L}*${EW}.{0,30}?${BW}${HOUSING}${EW}`),
+  // «Хами хонара видеоша дорен» — «у вас есть видео этого дома?»: «дорен/доред»
+  // (у вас есть) спрашивает покупатель, продавец так агентству не пишет (журнал 17.11.2026).
+  re(`${BW}(?:${HOUSING}|видео\\p{L}*|фото\\p{L}*|сурат\\p{L}*|вариант\\p{L}*)${EW}.{0,25}?${BW}(?:дорен|доред|доретон)${EW}`),
+  // «…вариант пешниход кунед», «скиньте варианты», «вариантхо фиристед» — ПРОСЬБА
+  // (повелительное наклонение) подобрать, значит покупатель. «Пешниход мекунам» /
+  // «предлагаю вариант» — это предложение продавца, оно сюда не попадает.
+  re(`${BW}вариант\\p{L}*${EW}.{0,25}?${BW}${ASK_OPTIONS}${EW}`),
+  re(`${BW}${ASK_OPTIONS}${EW}.{0,25}?${BW}вариант\\p{L}*${EW}`),
 ];
 const RENT_TENANT = re(`${BW}(?:аренд\\p{L}*|снять|снимать|сниму|ичора)${EW}`);
 // "is it for sale / do you sell" is a buyer's question, not an offer to sell.
@@ -63,7 +104,7 @@ function plain(norm: string, patterns: RegExp | readonly RegExp[]): boolean {
 
 export type CustomerRoleSignals = { buyStrong: boolean; buyWeak: boolean; sell: boolean; landlord: boolean; rent: boolean };
 export function customerRoleSignals(text: string): CustomerRoleSignals {
-  const norm = foldCustomerText(text);
+  const norm = foldCustomerTextForRole(text);
   const question = /[?؟]/u.test(text) || ASKING.test(norm);
   const passive = plain(norm, SELL_PASSIVE);
   const buyerAsk = plain(norm, BUYER_ASK) || (passive && question) || (question && plain(norm, FOR_SALE));

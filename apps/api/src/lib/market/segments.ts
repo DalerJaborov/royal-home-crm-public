@@ -160,6 +160,70 @@ export async function findSegments(q: MarketSegmentsQuery): Promise<MarketSegmen
 }
 
 /**
+ * КЭШ ЭКРАНА «РЫНОК: ЦЕНЫ» (17.11.2026, аудит скорости P1) — тем же приёмом, что у
+ * findOverpricedPropertiesCached (overpriced.ts). Каждое открытие и каждая смена фильтра тянули
+ * в процесс API до 20 000 объявлений (Душанбе — ~16,6 тыс. строк с тремя Decimal) и считали
+ * медианы в JS; на это время цикл событий занят для всех. Сборщик обновляет каталог раз в 15 мин,
+ * поэтому ответ на 10 минут честен: в нём нет данных, зависящих от человека.
+ *
+ * Сброс — только по сроку (и resetSegmentsCache для тестов): сборщик живёт в контейнере worker,
+ * а кэш — в памяти процесса API, сигнала «каталог обновлён» между ними нет; ровно так же
+ * устроен кэш «дороже рынка».
+ *
+ * Ключ — ВСЕ поля запроса (а не перечисленные руками): новое поле фильтра в схеме само попадёт
+ * в ключ и не получит чужой ответ. Город и район — свободный текст, поэтому число ключей
+ * ограничено: при переполнении уходят протухшие, затем самые старые.
+ */
+export const SEGMENTS_CACHE_MS = 10 * 60_000;
+export const SEGMENTS_CACHE_MAX_KEYS = 100;
+const segmentsCache = new Map<string, { at: number; body: MarketSegmentsResponse }>();
+const segmentsInflight = new Map<string, Promise<MarketSegmentsResponse>>();
+
+export function resetSegmentsCache(): void {
+  segmentsCache.clear();
+  segmentsInflight.clear();
+}
+
+export function segmentsCacheKey(q: MarketSegmentsQuery): string {
+  return JSON.stringify(
+    Object.entries(q)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b))
+  );
+}
+
+function rememberSegments(key: string, at: number, body: MarketSegmentsResponse): void {
+  segmentsCache.delete(key);
+  segmentsCache.set(key, { at, body });
+  if (segmentsCache.size <= SEGMENTS_CACHE_MAX_KEYS) return;
+  for (const [k, v] of segmentsCache) if (at - v.at >= SEGMENTS_CACHE_MS) segmentsCache.delete(k);
+  // Map хранит порядок вставки: первые — самые старые.
+  for (const k of segmentsCache.keys()) {
+    if (segmentsCache.size <= SEGMENTS_CACHE_MAX_KEYS) break;
+    segmentsCache.delete(k);
+  }
+}
+
+export async function findSegmentsCached(q: MarketSegmentsQuery, now: number = Date.now()): Promise<MarketSegmentsResponse> {
+  const key = segmentsCacheKey(q);
+  const hit = segmentsCache.get(key);
+  if (hit && now - hit.at < SEGMENTS_CACHE_MS) return hit.body;
+  // Параллельные запросы с одним фильтром в момент протухания делят один расчёт.
+  const running = segmentsInflight.get(key);
+  if (running) return running;
+  const job = findSegments(q)
+    .then((body) => {
+      rememberSegments(key, now, body);
+      return body;
+    })
+    .finally(() => {
+      segmentsInflight.delete(key);
+    });
+  segmentsInflight.set(key, job);
+  return job;
+}
+
+/**
  * ИНДЕКС РЫНКА ДЛЯ СРАВНЕНИЯ В ПАМЯТИ (14.11.2026): статистика района × комнаты «по всем ремонтам» и
  * района × комнаты × ремонт. Строится ОДНИМ проходом по строкам, поэтому список «дороже рынка» не
  * считает рынок заново на каждый объект (N+1 нет). Правила те же, что у buildSegments: порог, выбросы,
