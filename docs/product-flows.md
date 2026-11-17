@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **760**. Развилок в самих путях: **2495**; вместе с задачами по расписанию и фоновыми заданиями — **4128**. Модулей: **85**.
+Путей: **760**. Развилок в самих путях: **2496**; вместе с задачами по расписанию и фоновыми заданиями — **4129**. Модулей: **85**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -13961,7 +13961,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- const view: NarrationOptionsView = { templates: config.templates ?? [], voices: config.voices.map((v)
+- const view: NarrationOptionsView = { templates: config.templates ?? [], endings: config.endings ?? [], voices…
   · зовёт narrationAutoEnabled()
 - res.json(view);
   · ответ 200
@@ -14000,6 +14000,10 @@
   - если problem
     - return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
       · ответ 400 — «Шаблон «${template.name}»: ${problem}»
+- для каждого: const ending of parsed.data.endings ?? []
+  - если problem
+    - return res.status(400).json({ error: `Концовка «${ending.text.slice(0, 40)}…»: ${problem}` });
+      · ответ 400 — «Концовка «${ending.text.slice(0, 40)}…»: ${problem}»
 - если spoken(existing) !== spoken(saved) || neverSynced
   - const sync = await syncPronunciationDictionary(saved, (await configuration()).key);
     · зовёт syncPronunciationDictionary()
