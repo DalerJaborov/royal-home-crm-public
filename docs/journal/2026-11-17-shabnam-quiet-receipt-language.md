@@ -17,3 +17,8 @@
 ## Чем проверено
 - `tests/shabnam-quiet-receipt-language-17-11.unit.test.ts` (57 проверок: регулярка, инструмент, язык, подпись) — красный без правки (30 падений на старых файлах), зелёный с ней.
 - `tests/assistant-knowledge.unit.test.ts` (+1), `tests/assistant-fast-path.unit.test.ts` (+1). Тест `assistant-telegram.test.ts` («файл с подписью…») переписан под новое поведение; на базе не запускался.
+
+## 18.11 — облачный прогон ship #268
+- `assistant-language-routing`: «Переведи на таджикский: …» снова ведёт свой ход по-таджикски (разовая задача не закрепляется только для СЛЕДУЮЩИХ ходов, `pinnable`); цитата команды в «…» больше не переключает язык.
+- `ai-assistant-tool-registry`: `set_group_quiet` объявляется только при прямом обращении в группе — сверка реестра его не ждёт у лички/CRM, отдельный тест на группу.
+- Проверено на стенде: language-routing + tool-registry 42, batch2/batch2-review/fast-path/group-callback-gate/assistant-telegram 176, unit 102 — зелёные.

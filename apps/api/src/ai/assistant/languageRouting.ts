@@ -27,9 +27,11 @@ const ONE_OFF_LANGUAGE_TASK = /(?<!\p{L})(?:перевед\p{L}*|перевод\
  * таджикские («Бо русӣ нависед») и ответ «не понимаю по-русски» (общий разбор клиентского бота:
  * ai/customerDmLanguage.ts). Название языка само по себе не просьба.
  */
-export function explicitAssistantLanguageRequest(message: string): "ru" | "tg" | null {
-  const text = clientOwnWords(message);
-  if (ONE_OFF_LANGUAGE_TASK.test(text)) return null;
+export function explicitAssistantLanguageRequest(message: string, options: { pinnable?: boolean } = {}): "ru" | "tg" | null {
+  // Цитата — не просьба: «Как сказать «ответь на таджикском» по-английски?».
+  const text = clientOwnWords(message).replace(/«[^»]*»|"[^"]*"|“[^”]*”/gu, " ");
+  // Разовая работа над текстом («переведи на таджикский: …») задаёт язык только своему ходу.
+  if (options.pinnable && ONE_OFF_LANGUAGE_TASK.test(text)) return null;
   for (const clause of text.split(/[,.!?;\n]/u).reverse()) {
     const russian = RUSSIAN_FORM_COMMAND.exec(clause);
     if (russian) return /таджик/iu.test(russian[0]) ? "tg" : "ru";
@@ -46,8 +48,8 @@ export function explicitAssistantLanguageRequest(message: string): "ru" | "tg" |
  */
 export function assistantLanguage(messages: readonly { role: string; content: string }[]): ClientLanguage {
   const own = [...messages].reverse().filter(message => message.role === "user");
-  for (const message of own.slice(0, LANGUAGE_REQUEST_LOOKBACK)) {
-    const requested = explicitAssistantLanguageRequest(message.content);
+  for (const [index, message] of own.slice(0, LANGUAGE_REQUEST_LOOKBACK).entries()) {
+    const requested = explicitAssistantLanguageRequest(message.content, { pinnable: index > 0 });
     if (requested) return requested;
   }
   for (const message of own) {

@@ -155,7 +155,7 @@ describe("разовые задачи над текстом не закрепл�
     "переведи на таджикский: дом продаётся", "Напиши по-таджикски объявление", "Напишите клиенту по-таджикски",
     "ответь по-русски клиенту", "Ба забони тоҷикӣ эълон нависед", "тарҷума кун бо тоҷикӣ ҷавоб деҳ", "напиши на таджикском текст поста",
   ])("%s", (text) => {
-    expect(explicitAssistantLanguageRequest(text)).toBeNull();
+    expect(explicitAssistantLanguageRequest(text, { pinnable: true })).toBeNull();
     expect(assistantLanguage([{ role: "user", content: text }, { role: "assistant", content: "Готово." },
       { role: "user", content: "Сколько стоит ОБ-12 и когда показ?" }])).toBe("ru");
   });
@@ -185,5 +185,14 @@ describe("файл в запросе: записи без карточки за�
     ] as const) {
       expect(await runTool(name, args, actor)).toEqual({ error: "Этот инструмент недоступен в этом чате" });
     }
+  });
+});
+
+describe("ревью облака #268: свой ход разовой задачи — на её языке, цитата — не просьба", () => {
+  it("«Переведи на таджикский: …» — этот ход по-таджикски", () => {
+    expect(assistantLanguage([{ role: "user", content: "Переведи на таджикский: какие есть объекты?" }])).toBe("tg");
+  });
+  it("цитата команды не переключает язык", () => {
+    expect(assistantLanguage([{ role: "user", content: "Как сказать «ответь на таджикском» по-английски?" }])).not.toBe("tg");
   });
 });
