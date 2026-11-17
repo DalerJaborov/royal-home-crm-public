@@ -130,7 +130,7 @@ describe("auto narration after property creation", () => {
   });
   it("keeps the agent's wizard choice, including a price the agent typed (spoken price, owner 11.11.2026)", async () => {
     await startNarrationForNewProperty(propertyId, "agent", { templateId: "ru-short", voiceId: "voiceB" });
-    expect(s.versions[0]).toMatchObject({ templateId: "ru-short", voiceId: "voiceB", language: "ru", script: "В продаже квартира. Площадь 62 метров." });
+    expect(s.versions[0]).toMatchObject({ templateId: "ru-short", voiceId: "voiceB", language: "ru", script: "В продаже квартира. Площадь шестьдесят два метров." });
     s.versions = [];
     await startNarrationForNewProperty(propertyId, "agent", { script: "Квартира за 90 000 сомони, звоните." });
     expect(s.versions[0].script).toBe("Квартира за 90 000 сомони, звоните.");

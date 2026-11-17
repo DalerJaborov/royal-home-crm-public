@@ -1,6 +1,7 @@
 import { clientLanguageScores, detectClientLanguage } from "../ai/clientLanguage.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
 import { tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
+import { russianSpeechNumbers, ruPlural } from "@royal-home/shared";
 function publicBase(): string | null {
   const raw = process.env.CRM_PUBLIC_URL?.trim();
   return raw ? raw.replace(/\/+$/, "") : null;
@@ -325,12 +326,14 @@ export function prepareAssistantReply(text: string, maskContacts = false, fallba
   const russian = scores.russian > 0 || /(?:^|[^\p{L}])(?:готово|нашла|нашёл|нашел|добавила|добавил|ответ|данные|бюджет|источник|подробности|контакт|телефон|дата|помочь|помогу|сделано|хорошо|отлично|проверила|записала)(?=$|[^\p{L}])/iu.test(cleaned);
   const ambiguousLanguage = scores.tajik > 0 && scores.russian > 0 && detectClientLanguage(cleaned) === "mixed";
   const language = ambiguousLanguage ? "text-only" : tajik ? "tg" : russian ? "ru" : fallbackLanguage ?? "text-only";
+  // Русский тоже без цифр (17.11.2026, владелец: «цифры всегда буквами, ИИ не справляется»);
+  // не вышло (дата, дробь) — как и у таджикского, голос не отправляется, остаётся текст.
   const expanded = language === "tg"
     ? tajikSpeechNumbers(cleaned.replaceAll("контакт в карточке", "тамос дар корт").replace(DOLLAR_PREFIX, "$1 доллар"))
-    : cleaned;
+    : language === "ru" ? russianSpeechNumbers(cleaned.replace(DOLLAR_PREFIX, (_m, amount: string) => `${amount} ${ruPlural(Number(amount.replace(/[   ]/gu, "")), "доллар", "доллара", "долларов")}`)) : cleaned;
   const truncated = expanded !== null && expanded.length > VOICE_MAX_CHARS;
   let speech = expanded ?? "";
-  if (truncated && language === "tg" && /\p{N}/u.test(cleaned)) {
+  if (truncated && (language === "tg" || language === "ru") && /\p{N}/u.test(cleaned)) {
     // A cut inside a written-out amount or time could change the value.
     speech = "";
   } else if (truncated) {
