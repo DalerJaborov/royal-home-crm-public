@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Phone } from "lucide-react";
 import { CallClientButton } from "./CallClientButton";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
+import { isMaskedClientPhone } from "@royal-home/shared";
 import { isCallableClientPhone, waLink } from "../lib/phone";
 
 /** Один номер клиента для шторки выбора: подпись + номер, как его показывать
@@ -84,7 +85,9 @@ export function CallPhoneChooser({ clientId, phones, variant = "full", label, cl
                   <span>{p.phone}</span>
                   {p.detail && <span className="text-xs text-slate-500">{p.detail}</span>}
                 </span>
-                {isCallableClientPhone(p.phone) ? (
+                {/* Закрытый номер (маска) в WhatsApp не открыть — цифр нет; для него
+                    остаётся кнопка: на иностранный она объяснит, почему звонка не будет. */}
+                {isCallableClientPhone(p.phone) || isMaskedClientPhone(p.phone) ? (
                   <CallClientButton
                     clientId={clientId}
                     phone={p.phone}

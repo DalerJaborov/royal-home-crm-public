@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **763**. Развилок в самих путях: **2474**; вместе с задачами по расписанию и фоновыми заданиями — **4049**. Модулей: **86**.
+Путей: **763**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4051**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2882,8 +2882,8 @@
     - return res.status(400).json({ error: "Этот номер не принадлежит карточке клиента" });
       · ответ 400 — «Этот номер не принадлежит карточке клиента»
   - если !isDialableTajikNumber(requestedPhone)
-    - return res.status(400).json({ error: "Номер не таджикский — станция не сможет его набрать" });
-      · ответ 400 — «Номер не таджикский — станция не сможет его набрать»
+    - return res.status(400).json({ error: stationDialRefusal(requestedPhone), code: "not_dialable" });
+      · ответ 400
   - если requestedTail !== phoneTail(client.phone)
     - phoneOverride = requestedPhone;
       · дословно из кода
@@ -2896,7 +2896,7 @@
   - если result.status === 502 && !archiveReview
     - await markAgentAttempt(client.id, new Date(), req.agent!.id);
       · зовёт markAgentAttempt()
-  - return res.status(result.status).json({ error: result.error });
+  - return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });
     · ответ (код зависит от условия)
 - res.json({ ok: true, channelId: result.channelId, dialing: result.dialing });
   · ответ 200
@@ -4433,6 +4433,9 @@
 - если digits.replace(/\D/g, "").length < 5
   - return res.status(400).json({ error: "Слишком короткий номер" });
     · ответ 400 — «Слишком короткий номер»
+- если isForeignPhone(digits)
+  - return res.status(422).json({ error: FOREIGN_PHONE_CALL_ERROR, code: "not_dialable" });
+    · ответ 422
 - const existing = await findClientByPhoneDigits(digits);
   · зовёт findClientByPhoneDigits()
 - если existing
@@ -20031,8 +20034,12 @@
     - если candidates.length === 0
       - return "idle";
         · дословно из кода
-    - const liveIds = clientIds.length ? new Set( (await prisma.client.findMany({ where: { id: { in: clientIds }, d…
+    - const livePhones = clientIds.length ? new Map( ( await prisma.client.findMany({ where: { id: { in: clientIds …
       · читает в базе: client
+    - const oldest = candidates.find((c)
+      - если c.clientId && !livePhones.has(c.clientId)
+        - return false;
+          · дословно из кода
     - если !oldest
       - return "idle";
         · дословно из кода
