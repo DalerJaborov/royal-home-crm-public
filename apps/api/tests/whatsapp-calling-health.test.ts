@@ -93,6 +93,18 @@ describe("сторож звонков WhatsApp через SIP", () => {
     expect(await open(WA_CALLING_SIP_ALARM_KEY)).toHaveLength(0);
   });
 
+  it("поля can_receive_call_sip нет — без тревоги, открытая тревога не гаснет", async () => {
+    const noField = { body: { health_status: { entities: [{ entity_type: "PHONE_NUMBER", id: "1", can_send_message: "AVAILABLE" }] } } };
+    const res = await runWhatsappCallingHealthCheck(graph(enabled, noField).get);
+    expect(res).toMatchObject({ alarmed: false, sipAvailability: null });
+    expect(await open(WA_CALLING_SIP_ALARM_KEY)).toHaveLength(0);
+    await runWhatsappCallingHealthCheck(graph(enabled, healthOf("BLOCKED")).get);
+    await runWhatsappCallingHealthCheck(graph(enabled, noField).get);
+    expect(await open(WA_CALLING_SIP_ALARM_KEY)).toHaveLength(1);
+    await runWhatsappCallingHealthCheck(graph(enabled, healthOf("AVAILABLE")).get);
+    expect(await open(WA_CALLING_SIP_ALARM_KEY)).toHaveLength(0);
+  });
+
   it("звонки или SIP выключены — запроса о состоянии нет и тревоги нет", async () => {
     for (const body of [{ calling: { status: "DISABLED" } }, { calling: { status: "ENABLED", sip: { status: "DISABLED" } } }, {}]) {
       const { get, calls } = graph({ body });

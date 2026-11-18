@@ -139,19 +139,32 @@ describe("поле calls: разбор событий звонка", () => {
 });
 
 describe("служебные события WhatsApp мимо бота", () => {
-  it("ответ на разрешение звонить и любой ответ на звонок (context wacid.) — не реплика", () => {
+  it("ответ на разрешение звонить и пустой ответ на звонок (context wacid.) — не реплика", () => {
     expect(parseIncoming(waBody({ messages: [permissionReplyMessage("79160000002", "wamid.X")] }))).toEqual([]);
-    const textOnCall = { from: "79160000002", id: "wamid.Y", type: "text", text: { body: "?" }, context: { id: "wacid.ABC" } };
-    expect(parseIncoming(waBody({ messages: [textOnCall] }))).toEqual([]);
+    // Тот же ответ без поля interactive.type, только по ссылке на звонок.
+    const bareOnCall = { from: "79160000002", id: "wamid.Z", type: "interactive", context: { id: "wacid.ABC" }, interactive: {} };
+    expect(parseIncoming(waBody({ messages: [bareOnCall] }))).toEqual([]);
+  });
+
+  it("слова человека «ответом» на пузырь звонка — обычная реплика, текстом", () => {
+    const textOnCall = { from: "79160000002", id: "wamid.Y", type: "text", text: { body: "Почему не берёте?" }, context: { id: "wacid.ABC" } };
+    const [reply] = parseIncoming(waBody({ messages: [textOnCall] }));
+    expect(reply).toMatchObject({ text: "Почему не берёте?", attachmentType: undefined, replyToMessageId: "wacid.ABC" });
+    const voiceOnCall = { from: "79160000002", id: "wamid.V", type: "audio", audio: { id: "media-1" }, context: { id: "wacid.ABC" } };
+    expect(parseIncoming(waBody({ messages: [voiceOnCall] }))).toEqual([expect.objectContaining({ attachmentType: "audio", mediaId: "media-1" })]);
   });
 
   it.each([
     ["system", { type: "system", system: { body: "Пользователь сменил номер", type: "user_changed_number" } }],
     ["request_welcome", { type: "request_welcome" }],
-    ["unsupported", { type: "unsupported", errors: [{ code: 131051, title: "Message type unknown" }] }],
     ["reaction", { type: "reaction", reaction: { message_id: "wamid.OUT", emoji: "❤️" } }],
   ])("%s — не реплика", (_name, extra) => {
     expect(parseIncoming(waBody({ messages: [{ from: "79160000003", id: `wamid.${_name}`, ...extra }] }))).toEqual([]);
+  });
+
+  it("unsupported — остаётся событием с пометкой «только записать» (след в переписке без хода бота)", () => {
+    const [msg] = parseIncoming(waBody({ messages: [{ from: "79160000003", id: "wamid.unsup", type: "unsupported", errors: [{ code: 131051, title: "Message type unknown" }] }] }));
+    expect(msg).toMatchObject({ recordOnly: true, attachmentType: "unsupported", text: "" });
   });
 
   it("ответ кнопкой/строкой списка и кнопка шаблона — слова человека, не вложение", () => {
@@ -208,6 +221,17 @@ describe("вебхук целиком: ответ на разрешение зв
     expect(processTurn).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
     expect(await prisma.botConversation.count({ where: { channel: "WHATSAPP", subscriberId: from } })).toBe(0);
+  });
+
+  it("unsupported: 200, ход только «записать» (silent), исходящего нет", async () => {
+    const from = `7917${String(runId).slice(-7)}`;
+    const body = waBody({ contacts: [{ wa_id: from, profile: { name: "Клиент" } }], messages: [{ from, id: `wamid.unsup-${runId}`, type: "unsupported", errors: [{ code: 131051, title: "Message type unknown" }] }] }, "messages", whatsapp.externalId);
+    const res = await request(app).post("/api/v1/webhooks/meta").set("x-hub-signature-256", whatsapp.sign(body)).send(body);
+    expect(res.status).toBe(200);
+    await drainBackgroundTasks(5_000);
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(processTurn.mock.calls[0]![0]).toMatchObject({ silent: true });
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("событие звонка terminate: 200, ни хода бота, ни исходящего", async () => {

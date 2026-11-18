@@ -71,24 +71,63 @@ certbot_run() {
 }
 
 ACME_RULE_OPEN=0
+ACME_TAG="rh-wa-acme"
+# Номера НАШИХ правил (с комментарием rh-wa-acme) в `ufw status numbered`, по убыванию:
+# удалять с конца, иначе номера сдвигаются после первого удаления. Удаляем ТОЛЬКО по
+# номеру с нашим комментарием — `ufw delete allow … port 80` снёс бы и чужое правило
+# с той же записью (ufw сравнивает правило без комментария).
+acme_rule_numbers() {
+  ufw status numbered 2>/dev/null | awk -v tag="# $ACME_TAG" 'index($0, tag) { gsub(/[][]/, " "); print $1 }' | sort -rn
+}
+acme_rules_delete() {
+  local n left
+  for n in $(acme_rule_numbers); do
+    ufw --force delete "$n" >/dev/null 2>&1 || true
+  done
+  left="$(acme_rule_numbers | wc -l)"
+  [ "$left" = "0" ]
+}
+# Порт 80 уже открыт ВСЕМ чужим правилом (не нашим) — тогда ничего не добавляем и не удаляем.
+port80_open_by_others() {
+  ufw status 2>/dev/null | grep -v "# $ACME_TAG" | grep -Eq '^80(/tcp)?( \(v6\))?[[:space:]]+ALLOW( IN)?[[:space:]]+Anywhere'
+}
 acme_port_close() {
   if [ "$ACME_RULE_OPEN" = "1" ]; then
-    ufw delete allow proto tcp to any port 80 >/dev/null 2>&1 || wa_alert "не удалось закрыть порт 80 после проверки сертификата — закрыть руками: ufw delete allow proto tcp to any port 80"
+    if acme_rules_delete; then
+      wa_log "порт 80 снова закрыт для всех, кроме Cloudflare"
+    else
+      wa_alert "не удалось закрыть порт 80 после проверки сертификата — закрыть руками: ufw status numbered, удалить правила с комментарием $ACME_TAG"
+    fi
     ACME_RULE_OPEN=0
-    wa_log "порт 80 снова закрыт для всех, кроме Cloudflare"
   fi
 }
 acme_port_open() {
   [ "$ACME_METHOD" = "http" ] || return 0
   if [ "$DRY_RUN" = "1" ]; then
-    printf '  [dry-run] ufw allow proto tcp to any port 80 comment rh-wa-acme   (на время certbot, потом delete)\n'
+    printf '  [dry-run] ufw allow proto tcp to any port 80 comment %s   (на время certbot, потом удаление по номеру)
+' "$ACME_TAG"
+    return 0
+  fi
+  if port80_open_by_others; then
+    wa_log "порт 80 уже открыт всем чужим правилом — своё не добавляю и чужое не трогаю"
     return 0
   fi
   trap acme_port_close EXIT
-  ufw allow proto tcp to any port 80 comment rh-wa-acme >/dev/null
+  # Флаг ДО команды: если ufw добавил правило и упал на выходе, ловушка всё равно его снимет.
   ACME_RULE_OPEN=1
+  ufw allow proto tcp to any port 80 comment "$ACME_TAG" >/dev/null
   wa_log "порт 80 открыт на время проверки Let's Encrypt"
 }
+
+# Остатки прошлого запуска (SIGKILL, перезагрузка посреди certbot — ловушка выхода не
+# сработала): наше правило висит и держит порт 80 открытым всем. Снимаем в начале.
+if [ "$ACME_METHOD" = "http" ] && [ "$DRY_RUN" != "1" ] && [ -n "$(acme_rule_numbers)" ]; then
+  if acme_rules_delete; then
+    wa_log "снято оставшееся от прошлого запуска правило $ACME_TAG (порт 80)"
+  else
+    wa_alert "осталось правило $ACME_TAG (порт 80 открыт всем) и снять его не удалось — ufw status numbered"
+  fi
+fi
 
 before=""
 [ -f "$live/cert.pem" ] && before="$(openssl x509 -in "$live/cert.pem" -noout -fingerprint -sha256)"
@@ -122,11 +161,9 @@ else
     wa_log "до конца срока больше 30 дней — продлевать рано, порт 80 не трогаю"
   else
     acme_port_open
-    if [ "$ACME_METHOD" = "dns" ]; then
-      certbot_run renew --non-interactive --cert-name "$WA_SIP_HOST" --dns-cloudflare-credentials /run/cloudflare.ini
-    else
-      certbot_run renew --non-interactive --cert-name "$WA_SIP_HOST"
-    fi
+    # Способ проверки — ТЕКУЩИЙ (auth), а не тот, что certbot запомнил при выпуске:
+    # сертификат, впервые выпущенный через dns, после перехода на http продлевается по http.
+    certbot_run renew --non-interactive --cert-name "$WA_SIP_HOST" "${auth[@]}"
     acme_port_close
   fi
 fi

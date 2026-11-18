@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4110,
+  "forks": 4111,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -83661,7 +83661,7 @@
                 },
                 {
                  "k": "if",
-                 "t": "bot.channels[msg.channel] && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silentForeignShare &&…",
+                 "t": "bot.channels[msg.channel] && !recordOnly && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silent…",
                  "a": [],
                  "c": [
                   {
@@ -117720,6 +117720,21 @@
              "t": "return result;",
              "a": [
               "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "availability !== \"BLOCKED\" && availability !== \"LIMITED\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.log(`[whatsapp-звонки] Meta не сообщила can_receive_call_sip (значение: ${availability ?? \"нет поля\"}…",
+             "a": [
+              "пишет строку в журнал сервера"
              ],
              "c": []
             }

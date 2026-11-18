@@ -55,15 +55,32 @@ afterAll(async () => {
 
 describe("офисный аппарат", () => {
   it("не на связи в рабочее время две проверки подряд — одна тревога с временем; третья не дублирует", async () => {
-    expect((await watchOfficeDeskPhone(at("10:00"), deps)).alarmed).toBe(false);
+    expect((await watchOfficeDeskPhone(at("11:00"), deps)).alarmed).toBe(false);
     expect(await openAlarms()).toHaveLength(0);
-    expect((await watchOfficeDeskPhone(at("10:15"), deps)).alarmed).toBe(true);
+    expect((await watchOfficeDeskPhone(at("11:15"), deps)).alarmed).toBe(true);
     const [alarm] = await openAlarms();
     expect(alarm?.message).toBe(
-      "Офисный аппарат 2020 не на связи с 10:00 — незнакомые звонки и звонки из WhatsApp сейчас никто не примет. Включите трубку и проверьте Wi-Fi в офисе."
+      "Офисный аппарат 2020 не на связи с 11:00 — незнакомые звонки и звонки из WhatsApp сейчас никто не примет. Включите трубку и проверьте Wi-Fi в офисе."
     );
-    await watchOfficeDeskPhone(at("10:30"), deps);
+    await watchOfficeDeskPhone(at("11:30"), deps);
     expect(await openAlarms()).toHaveLength(1);
+  });
+
+  it("утром 45 минут отсрочки: выключен с начала дня — тревога только после неё, время — с первой проверки", async () => {
+    expect((await watchOfficeDeskPhone(at("09:30"), deps)).skipped).toBe("morning_grace");
+    expect((await watchOfficeDeskPhone(at("10:00"), deps)).skipped).toBe("morning_grace");
+    expect((await watchOfficeDeskPhone(at("10:15"), deps)).alarmed).toBe(false);
+    expect(await openAlarms()).toHaveLength(0);
+    expect((await watchOfficeDeskPhone(at("10:30"), deps)).alarmed).toBe(true);
+    expect((await openAlarms())[0]?.message).toContain("не на связи с 09:30");
+  });
+
+  it("включили в отсрочку — тревоги нет", async () => {
+    await watchOfficeDeskPhone(at("09:30"), deps);
+    endpointState = "online";
+    await watchOfficeDeskPhone(at("09:45"), deps);
+    await watchOfficeDeskPhone(at("10:30"), deps);
+    expect(await openAlarms()).toHaveLength(0);
   });
 
   it("ночью и в общий выходной — не судит", async () => {
@@ -76,20 +93,20 @@ describe("офисный аппарат", () => {
   });
 
   it("снова на связи — тревога закрывается сама", async () => {
-    await watchOfficeDeskPhone(at("10:00"), deps);
-    await watchOfficeDeskPhone(at("10:15"), deps);
+    await watchOfficeDeskPhone(at("11:00"), deps);
+    await watchOfficeDeskPhone(at("11:15"), deps);
     expect(await openAlarms()).toHaveLength(1);
     endpointState = "online";
-    expect((await watchOfficeDeskPhone(at("10:30"), deps)).online).toBe(true);
+    expect((await watchOfficeDeskPhone(at("11:30"), deps)).online).toBe(true);
     expect(await openAlarms()).toHaveLength(0);
   });
 
   it("одно моргание не тревога; станция не ответила — не судит; приём на очередь — молчит", async () => {
-    await watchOfficeDeskPhone(at("10:00"), deps);
+    await watchOfficeDeskPhone(at("11:00"), deps);
     endpointState = "online";
-    await watchOfficeDeskPhone(at("10:15"), deps);
+    await watchOfficeDeskPhone(at("11:15"), deps);
     endpointState = "offline";
-    await watchOfficeDeskPhone(at("10:30"), deps);
+    await watchOfficeDeskPhone(at("11:30"), deps);
     expect(await openAlarms()).toHaveLength(0);
 
     const broken = {
@@ -98,12 +115,12 @@ describe("офисный аппарат", () => {
         throw new Error("туннель");
       },
     };
-    expect((await watchOfficeDeskPhone(at("10:45"), broken)).skipped).toBe("station_unreachable");
+    expect((await watchOfficeDeskPhone(at("11:45"), broken)).skipped).toBe("station_unreachable");
 
     await prisma.settings.update({ where: { id: "singleton" }, data: { incomingPrimaryTarget: "queue" } });
     try {
-      expect((await watchOfficeDeskPhone(at("11:00"), deps)).skipped).toBe("not_extension");
-      expect((await watchOfficeDeskPhone(at("11:15"), deps)).skipped).toBe("not_extension");
+      expect((await watchOfficeDeskPhone(at("12:00"), deps)).skipped).toBe("not_extension");
+      expect((await watchOfficeDeskPhone(at("12:15"), deps)).skipped).toBe("not_extension");
       expect(await openAlarms()).toHaveLength(0);
     } finally {
       await prisma.settings.update({ where: { id: "singleton" }, data: { incomingPrimaryTarget: "extension" } });

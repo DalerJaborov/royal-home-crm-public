@@ -2607,8 +2607,11 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // (QA 02.10.2026). Окончательно спам решает ход (conversation.ts), здесь —
       // та же проверка заранее, только ради «прочитано».
       const looksSpam = Boolean(detectSpam(text, spamContext));
+      // WhatsApp `unsupported` (meta.ts, recordOnly): след в переписке, без хода и без «прочитано».
+      const recordOnly = msg.recordOnly === true;
       if (
         bot.channels[msg.channel] &&
+        !recordOnly &&
         !reactionOnly &&
         !moneyRequestOnly &&
         !guardSilentOnly &&
@@ -2687,7 +2690,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         // дальше до карточки (ROMI по объявлению). Раньше выбрасывался здесь.
         adExternalId: msg.adId,
         adClickId: msg.adClickId,
-        silent: reactionOnly || moneyRequestOnly || silentForeignShare,
+        silent: reactionOnly || moneyRequestOnly || silentForeignShare || recordOnly,
         name: msg.name ?? (await resolveInstagramName(msg.channel, msg.senderId, account.token, account.id, customerTransport)),
         attachments,
         // Для цитат в переписке CRM: чем это сообщение было у Meta и на что клиент

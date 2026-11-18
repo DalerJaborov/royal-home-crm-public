@@ -151,8 +151,13 @@ export async function runWhatsappCallingHealthCheck(get: CallingGraphGet = defau
       await resolveAlarm(WA_CALLING_SIP_ALARM_KEY);
       return result;
     }
-    const state =
-      availability === "BLOCKED" ? "заблокированы" : availability === "LIMITED" ? "ограничены" : `в неизвестном состоянии (${availability ?? "Meta не сообщила"})`;
+    if (availability !== "BLOCKED" && availability !== "LIMITED") {
+      // Поля нет (или значение новое): Meta о звонках ничего не сказала — это не поломка.
+      // Тревогу не поднимаем и не гасим: открытая останется до настоящего AVAILABLE.
+      console.log(`[whatsapp-звонки] Meta не сообщила can_receive_call_sip (значение: ${availability ?? "нет поля"}) — тревоги нет`);
+      return result;
+    }
+    const state = availability === "BLOCKED" ? "заблокированы" : "ограничены";
     await raiseAlarm(
       WA_CALLING_SIP_ALARM_KEY,
       `Звонки WhatsApp на станцию ${state}: клиенты могут не дозвониться через WhatsApp. Meta: ${phone ? describeBlock(phone) : "номера нет в ответе о состоянии"}.`

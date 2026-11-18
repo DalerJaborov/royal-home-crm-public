@@ -626,6 +626,13 @@ export interface MetaIncoming {
    * её для них (messengers/metaPeerMemory.ts) и сам ход не запускает.
    */
   referralOnly?: boolean;
+  /**
+   * Записать в переписку CRM, но без хода бота и без ответа (18.11.2026). Сейчас —
+   * только WhatsApp `unsupported`: Meta сама не смогла передать сообщение (опрос,
+   * «просмотр один раз»), отвечать «не открывается вложение» нечего, а след
+   * обращения в переписке нужен. Вебхук передаёт его ходу как `silent`.
+   */
+  recordOnly?: boolean;
   /** Клиент ответил на нашу историю: тут её адрес. Без этого признака ответ на
    *  историю выглядел пустым сообщением, и бот молчал. */
   replyToStoryUrl?: string;
@@ -987,31 +994,47 @@ type WhatsAppIncomingMessage = NonNullable<WhatsAppValue["messages"]>[number];
  * Класс поломки один: событие без слов человека уходило боту «вложением», и бот
  * отвечал «не получается открыть вложение». По типам (ФАКТ — webhook reference
  * WhatsApp Cloud API и calling/callback-permissions):
- *  - `interactive.call_permission_reply` и всё, что отвечает на ЗВОНОК
- *    (`context.id` начинается с `wacid.`): разрешение звонить — служебный ответ;
+ *  - `interactive.call_permission_reply`;
+ *  - ответ на ЗВОНОК (`context.id` начинается с `wacid.`), в котором НЕТ слов и
+ *    содержимого человека. Текст, голосовое или фото, присланные «ответом» на
+ *    пузырь звонка («почему не берёте?»), — обычная реплика и идут боту;
  *  - `system` — Meta сообщает о смене номера/личности пользователя, не он пишет;
  *  - `request_welcome` — человек впервые открыл чат и ещё ничего не написал;
- *  - `unsupported` — Meta сама не смогла передать сообщение (опрос, «просмотр
- *    один раз»), открывать нечего; причина уходит в журнал ошибок отдельно;
  *  - `reaction` отсекается выше отдельно (01.08.2026).
+ * `unsupported` — не здесь: его след нужен в переписке, он идёт с `recordOnly`.
  * Ответы кнопкой и строкой списка (`button_reply`/`list_reply`) — реплики, не сюда.
  */
 export function whatsappServiceEventReason(msg: WhatsAppIncomingMessage): string | null {
-  if (msg.context?.id?.startsWith("wacid.")) return "ответ на звонок";
   if (msg.type === "interactive" && msg.interactive?.type === "call_permission_reply") return "разрешение на звонок";
+  if (msg.context?.id?.startsWith("wacid.") && !whatsappMessageHasHumanContent(msg)) return "ответ на звонок";
   if (msg.type === "system") return "системное уведомление Meta";
   if (msg.type === "request_welcome") return "человек открыл чат, ещё не написал";
-  if (msg.type === "unsupported") {
-    // Причина — в журнал ошибок: без неё «не дошло» не объяснить (22.09.2026).
-    const reason = msg.errors?.[0];
-    void logSystemError(
-      "meta",
-      `WhatsApp не доставил сообщение клиента ${msg.from ?? "?"}: ${reason?.title ?? "тип не поддерживается"}` +
-        `${reason?.code ? ` (код ${reason.code})` : ""}${reason?.message ? `. ${reason.message}` : ""}`
-    );
-    return "Meta не смогла передать сообщение";
-  }
   return null;
+}
+
+/** Есть ли в сообщении то, что сказал или прислал сам человек: слова, файл, геометка, визитка. */
+function whatsappMessageHasHumanContent(msg: WhatsAppIncomingMessage): boolean {
+  const words = [
+    msg.text?.body,
+    msg.button?.text,
+    whatsappInteractiveReplyText(msg),
+    whatsappOrderText(msg),
+    msg.image?.caption,
+    msg.video?.caption,
+    msg.document?.caption,
+  ].some((v) => typeof v === "string" && v.trim().length > 0);
+  const media = !!(msg.image ?? msg.audio ?? msg.voice ?? msg.video ?? msg.document ?? msg.sticker);
+  return words || media || !!msg.location || !!msg.contacts?.length;
+}
+
+/** `unsupported`: причина Meta — в журнал ошибок (22.09.2026), без неё «не дошло» не объяснить. */
+function logWhatsappUnsupported(msg: WhatsAppIncomingMessage): void {
+  const reason = msg.errors?.[0];
+  void logSystemError(
+    "meta",
+    `WhatsApp не доставил сообщение клиента ${msg.from ?? "?"}: ${reason?.title ?? "тип не поддерживается"}` +
+      `${reason?.code ? ` (код ${reason.code})` : ""}${reason?.message ? `. ${reason.message}` : ""}`
+  );
 }
 
 /** Слова человека из ответа на интерактивное сообщение; undefined — слов нет. */
@@ -1148,8 +1171,12 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
           // ATTACHMENT_HINTS (sharedMedia.ts) знает "location"/"contact" в единственном
           // числе; WhatsApp шлёt тип "contacts" во множественном — приводим к общему ключу.
           const attachmentType = isText ? undefined : msg.type === "contacts" ? "contact" : msg.type;
-          // «unsupported» (отказ самой Meta, 22.09.2026) отсекается выше —
-          // whatsappServiceEventReason пишет причину в журнал ошибок и молчит перед ботом.
+          // «unsupported» — отказ САМОЙ META, а не наша неудача с файлом (22.09.2026,
+          // живой случай: бот ответил «ин вложенияро кушода наметавонам», хотя
+          // открывать было нечего). Причина — в журнал ошибок; в переписку CRM —
+          // след (recordOnly), но без хода бота и без ответа (18.11.2026).
+          const recordOnly = msg.type === "unsupported";
+          if (recordOnly) logWhatsappUnsupported(msg);
           out.push({
             channel: "WHATSAPP",
             ...(includeTraceShape ? { traceIngressShape: projectBotIngressShape(null, msg, !!msg.referral) } : {}),
@@ -1166,6 +1193,7 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
             // ctwa_clid клика (04.10.2026): только для будущей отдачи событий в Meta, пока лишь хранится.
             adClickId: msg.referral?.ctwa_clid || undefined,
             adRef: [msg.referral?.headline, msg.referral?.body].filter(Boolean).join(" ") || undefined,
+            ...(recordOnly ? { recordOnly: true } : {}),
           });
         }
       }

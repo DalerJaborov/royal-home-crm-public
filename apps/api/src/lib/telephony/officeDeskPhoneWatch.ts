@@ -12,7 +12,8 @@
 //  - аппарат не online на станции (GET /ari/endpoints, тот же признак, что у
 //    agentDeviceOnline) в рабочее время компании (Settings.workHoursStart/End по
 //    Душанбе, без общих выходных Settings.companyDaysOff) две проверки подряд —
-//    тревога в «Здоровье системы»; одна открытая запись на поломку;
+//    тревога в «Здоровье системы»; одна открытая запись на поломку. Первые 45 минут
+//    рабочего дня не судим: аппарат утром включают не в первую минуту;
 //  - аппарат снова на связи — запись закрывается сама;
 //  - ночью и в выходной — не судит (аппарат вправе быть выключен), счётчик сброшен;
 //  - станция не ответила — не судит: обрыв связи со станцией ловит своя сводная
@@ -27,6 +28,13 @@ import { incomingPrimaryExtension } from "./agentMobileFallback.js";
 export const OFFICE_DESK_OFFLINE_ALARM_KEY = "telephony-office-desk-offline";
 /** Сколько проверок подряд аппарат должен молчать: одно моргание Wi-Fi — не тревога. */
 export const OFFICE_DESK_CONFIRM_TICKS = 2;
+/** Утром аппарат включают не в первую минуту: первые 45 минут рабочего дня не судим. */
+export const OFFICE_DESK_MORNING_GRACE_MIN = 45;
+
+const toMinutes = (hhmm: string): number => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+};
 
 export interface OfficeDeskWatchDeps {
   loadCreds?: typeof loadAriCredentials;
@@ -34,7 +42,7 @@ export interface OfficeDeskWatchDeps {
 }
 
 export interface OfficeDeskWatchResult {
-  skipped: "not_extension" | "no_station" | "station_unreachable" | "off_hours" | null;
+  skipped: "not_extension" | "no_station" | "station_unreachable" | "off_hours" | "morning_grace" | null;
   extension: string;
   online: boolean | null;
   alarmed: boolean;
@@ -102,8 +110,11 @@ export async function watchOfficeDeskPhone(now: Date = new Date(), deps: OfficeD
     return { ...result, skipped: "off_hours" };
   }
 
-  offlineStreak += 1;
+  // «С какого времени» — с первой проверки рабочего дня, где он молчал (и в утренней отсрочке тоже).
   offlineSince ??= now;
+  const sinceStart = (toMinutes(dushanbeTimeString(now)) - toMinutes(start) + 1440) % 1440;
+  if (sinceStart < OFFICE_DESK_MORNING_GRACE_MIN) return { ...result, skipped: "morning_grace" };
+  offlineStreak += 1;
   if (offlineStreak < OFFICE_DESK_CONFIRM_TICKS) return result;
 
   const open = await prisma.errorLog.findFirst({

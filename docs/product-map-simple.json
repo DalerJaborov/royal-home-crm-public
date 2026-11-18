@@ -16,10 +16,10 @@
   "paths": 777,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4083,
+  "conditions": 4084,
   "untranslatedUnique": 466,
   "untranslatedTotal": 601,
-  "partialUnique": 1100,
+  "partialUnique": 1101,
   "translatedShare": 85
  },
  "untranslated": [
@@ -77771,6 +77771,13 @@
           },
           {
            "t": "если availability — «AVAILABLE»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если availability не «BLOCKED» и availability не «LIMITED»",
            "k": "if",
            "a": [],
            "c": [],

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4110**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4111**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18918,7 +18918,7 @@
               · зовёт looksLikeMoneyRequest()
             - const guardSilentOnly = !reactionOnly && !moneyRequestOnly && screenIncomingText(text).action === "silent";
               · зовёт screenIncomingText()
-            - если bot.channels[msg.channel] && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silentForeignShare &&…
+            - если bot.channels[msg.channel] && !recordOnly && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silent…
               - void sleep(800 + Math.random() * 1700).then(() => showMetaReadAndTyping(msg.channel, msg.senderId, msg.messag…
                 · дословно из кода
             - если !bot.channels[msg.channel]
@@ -26221,6 +26221,9 @@
           · дословно из кода
         - return result;
           · дословно из кода
+      - если availability !== "BLOCKED" && availability !== "LIMITED"
+        - console.log(`[whatsapp-звонки] Meta не сообщила can_receive_call_sip (значение: ${availability ?? "нет поля"}…
+          · пишет строку в журнал сервера
     - если сорвалось
       - если !(err instanceof GraphCheckError)
         - throw err;
