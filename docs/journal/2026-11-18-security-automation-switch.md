@@ -15,7 +15,7 @@
 ## Что изменилось
 
 1. **Рубильник** `Settings.securityAutomationEnabled` (миграция
-   `20261118190000_security_automation_switch`, `ADD COLUMN ... DEFAULT false` —
+   `20261118200000_security_automation_switch`, `ADD COLUMN ... DEFAULT false` —
    после выката выключено). Экран: Настройки → «Сроки», блок «Служба безопасности»
    под «Работа с продавцами» (`SecurityAutomationSection.tsx`). Подписи и
    умолчание — `packages/shared/src/securityAutomationSwitch.ts`, чтение — одна
