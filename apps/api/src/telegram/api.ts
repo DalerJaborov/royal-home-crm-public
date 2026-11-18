@@ -235,7 +235,10 @@ export async function sendMessage(
       try {
         last = await sendTextPart(part);
       } catch (err) {
-        if (err instanceof TelegramApiError) void noteOutboundUndelivered(verdict);
+        // Только явный отказ Telegram (4xx): 5xx — исход неизвестен, счёт не возвращаем (ревью #283, Н1).
+        if (err instanceof TelegramApiError && typeof err.errorCode === "number" && err.errorCode >= 400 && err.errorCode < 500) {
+          void noteOutboundUndelivered(verdict);
+        }
         throw err;
       }
       first = false;

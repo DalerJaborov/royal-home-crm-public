@@ -134,7 +134,9 @@ describe("номер из комментария: ответ клиента в �
 describe("щит исходящих: счёт возвращает только ЯВНЫЙ отказ провайдера", () => {
   it("HTTP-ответ Graph с ошибкой (368) — точно не ушло; таймаут/обрыв — могло уйти", () => {
     expect(isDefinitiveSendRejection(new Error('Graph API HTTP 400: {"error":{"code":368}}'))).toBe(true);
-    expect(isDefinitiveSendRejection(new Error("Graph API HTTP 500: managed delivery rejected"))).toBe(true);
+    // 5xx — исход неизвестен (могло дойти): счёт не возвращаем, иначе повтор пройдёт щит и будет дубль (ревью #283, Н1).
+    expect(isDefinitiveSendRejection(new Error("Graph API HTTP 500: managed delivery rejected"))).toBe(false);
+    expect(isDefinitiveSendRejection(new Error("Graph API HTTP 503: upstream"))).toBe(false);
     expect(isDefinitiveSendRejection(new Error("The operation was aborted due to timeout"))).toBe(false);
     expect(isDefinitiveSendRejection(new Error("Graph API returned a contradictory message response"))).toBe(false);
   });

@@ -2136,7 +2136,9 @@ async function sendMessageImpl(
 export function isDefinitiveSendRejection(err: unknown): boolean {
   // Блокировка Meta (#273): не отправляли вовсе, отказ по правилам или предупреждение — сообщение у клиента не появилось.
   if (err instanceof CustomerReplyHeldError || isMetaSendBlockError(err)) return true;
-  return /^Graph API HTTP \d{3}:/.test(err instanceof Error ? err.message : "");
+  // Только 4xx: Meta отклонила запрос. 5xx и таймаут — исход неизвестен (могло дойти), счёт щита не возвращаем, иначе
+  // повтор того же текста пройдёт щит и клиент получит дубль (ревью #283, Н1).
+  return /^Graph API HTTP 4\d{2}:/.test(err instanceof Error ? err.message : "");
 }
 
 /**

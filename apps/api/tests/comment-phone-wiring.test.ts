@@ -37,7 +37,9 @@ const phones: string[] = [];
 let accountId = "";
 let accountExternalId = "";
 let sequence = 0;
-let savedSettings: { workHoursStart: string | null; workHoursEnd: string | null; botAnswersItself: boolean } | null = null;
+let savedSettings: { workHoursStart: string | null; workHoursEnd: string | null; botAnswersItself: boolean; botCommentPhoneConversation: boolean } | null = null;
+let fbAccountId = "";
+const fbAccountExternalId = `${tag}-FACEBOOK`;
 const decisions: unknown[] = [];
 /** Решение модели по комментарию: она не узнала рекламу/спам/собственника — дальше решает дверь номера. */
 const REPLY = { action: "reply", reply: "Салом! Агент ба шумо занг мезанад." };
@@ -48,12 +50,12 @@ const clientsWith = (digits: string) => prisma.client.findMany({ where: { phone:
   select: { id: true, phone: true, source: true, commentPhoneHoldUntil: true, requirementsNotes: true } });
 const notesOf = async (clientId: string) => (await prisma.interaction.findMany({ where: { clientId }, select: { notes: true } })).map((i) => i.notes ?? "");
 
-async function instagramTurn(text: string, decision: unknown, opts: { parentId?: string; createdAt?: Date; channel?: "INSTAGRAM" | "YOUTUBE" } = {}) {
+async function instagramTurn(text: string, decision: unknown, opts: { parentId?: string; createdAt?: Date; channel?: "INSTAGRAM" | "FACEBOOK" | "YOUTUBE" } = {}) {
   const peer = `${tag}-${sequence++}`; peers.push(peer);
   if (decision !== undefined) decisions.push(decision);
   const channel = opts.channel ?? "INSTAGRAM";
   const row = await prisma.instagramComment.create({ data: { channel, commentId: peer, mediaId: `${tag}-media`,
-    accountExternalId: channel === "YOUTUBE" ? null : accountExternalId, authorId: peer, text, parentId: opts.parentId ?? null,
+    accountExternalId: channel === "YOUTUBE" ? null : channel === "FACEBOOK" ? fbAccountExternalId : accountExternalId, authorId: peer, text, parentId: opts.parentId ?? null,
     replyDueAt: new Date(), ...(opts.createdAt ? { createdAt: opts.createdAt } : {}) } });
   return { id: row.id, peer, run: () => handleComment(row as QueuedComment) };
 }
@@ -66,9 +68,13 @@ const hides = () => graphBodies().filter((b) => b && ("hide" in b || "is_hidden"
 const commentModelCalls = () => mocks.model.mock.calls.filter(([p]) => /-comment$/.test((p as { endpoint?: string }).endpoint ?? ""));
 
 beforeAll(async () => {
-  savedSettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { workHoursStart: true, workHoursEnd: true, botAnswersItself: true } });
-  await prisma.settings.upsert({ where: { id: "singleton" }, update: { workHoursStart: "00:00", workHoursEnd: "23:59", botAnswersItself: false },
-    create: { id: "singleton", workHoursStart: "00:00", workHoursEnd: "23:59" } });
+  savedSettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { workHoursStart: true, workHoursEnd: true, botAnswersItself: true,
+    botCommentPhoneConversation: true } });
+  // Разговор по номеру из комментария — ВКЛ для этого файла (по умолчанию ВЫКЛ, его ветка — в «оба тумблера ВЫКЛ» ниже).
+  await prisma.settings.upsert({ where: { id: "singleton" }, update: { workHoursStart: "00:00", workHoursEnd: "23:59", botAnswersItself: false,
+    botCommentPhoneConversation: true }, create: { id: "singleton", workHoursStart: "00:00", workHoursEnd: "23:59", botCommentPhoneConversation: true } });
+  fbAccountId = (await prisma.messengerAccount.create({ data: { channel: "FACEBOOK", externalId: fbAccountExternalId, title: "cphone fb synthetic",
+    token: encryptSecret("fake-no-provider-access") } })).id;
   accountExternalId = `${tag}-INSTAGRAM`;
   const account = await prisma.messengerAccount.create({ data: { channel: "INSTAGRAM", externalId: accountExternalId, title: "cphone synthetic", token: encryptSecret("fake-no-provider-access") } });
   accountId = account.id;
@@ -111,7 +117,7 @@ afterAll(async () => {
   await prisma.telegramGroupComment.deleteMany({ where: { postMessageId: tag } });
   await prisma.processedMessage.deleteMany({ where: { channel: "comment-phone-lead", OR: [{ messageId: { contains: tag } }, { messageId: { startsWith: `TELEGRAM:${groupChatId}:` } }] } });
   await prisma.aiBudgetCounter.deleteMany({ where: { peerId: { in: peers } } });
-  await prisma.messengerAccount.deleteMany({ where: { id: accountId } }); resetAccountsCache();
+  await prisma.messengerAccount.deleteMany({ where: { id: { in: [accountId, fbAccountId] } } }); resetAccountsCache();
 });
 
 describe("Instagram: номер в комментарии → карточка, одно личное, скрыть", () => {
@@ -314,21 +320,30 @@ describe("ревью 1b: постоянный клиент, рубильники
     expect((await prisma.botConversation.findUnique({ where: { id: peerChat.id } }))?.clientId).toBe(card.id);
   });
 
-  it("№4: рубильник «Номер под постом» ВЫКЛ — только заявка с пометкой: ни личного, ни ответа, ни скрытия", async () => {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { botCommentPhoneConversation: false } });
-    try {
-      const digits = freshDigits(); phones.push(digits);
-      const turn = await instagramTurn(`Нархаш? ${digits}`, REPLY);
-      expect(await turn.run()).toBe("skipped");
-      expect(mocks.privateReply).not.toHaveBeenCalled();
-      expect(publicReplies()).toHaveLength(0);
-      expect(hides()).toHaveLength(0);
-      const [card] = await clientsWith(digits);
-      expect(card!.commentPhoneHoldUntil).toBeNull();
-      expect((await notesOf(card!.id)).some((n) => /выключен в Настройках/.test(n))).toBe(true);
-    } finally {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { botCommentPhoneConversation: true } });
-    }
+  it("Н2: «уже разбирали», а карточки нет — дверь не скрывает и не пишет, разбор прежним путём", async () => {
+    const digits = freshDigits(); phones.push(digits);
+    const text = `Нархаш? ${digits}`;
+    const turn = await instagramTurn(text, { action: "reply", reply: "Салом! Нархаш 41 000$." });
+    await prisma.botConversation.create({ data: { channel: "INSTAGRAM", subscriberId: turn.peer, accountId,
+      messages: [{ role: "user", content: `${COMMENT_HISTORY_PREFIX}${text}` }] } });
+    expect(await turn.run()).toBe("replied");
+    expect(mocks.privateReply).not.toHaveBeenCalled();
+    expect(hides()).toHaveLength(0);
+    expect(await clientsWith(digits)).toHaveLength(0);
+  });
+
+  it("Н3: у клиента карточка и действующий агент — общего личного нет, номер в карточку, комментарий скрыт", async () => {
+    const agent = await prisma.agent.findFirstOrThrow({ where: { isActive: true }, select: { id: true } });
+    const known = freshDigits(); phones.push(known);
+    const card = await prisma.client.create({ data: { fullName: `Свой агент ${tag}`, phone: `+992${known}`, source: "INSTAGRAM", assignedAgentId: agent.id } });
+    const fresh = freshDigits(); phones.push(fresh);
+    const turn = await instagramTurn(`Ещё номер ${fresh}`, REPLY);
+    await prisma.botConversation.create({ data: { channel: "INSTAGRAM", subscriberId: turn.peer, accountId, clientId: card.id, messages: [] } });
+    expect(await turn.run()).toBe("hidden");
+    expect(mocks.privateReply).not.toHaveBeenCalled();
+    expect(publicReplies()).toHaveLength(0);
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: card.id }, select: { extraPhones: true } });
+    expect(after.extraPhones.some((p) => p.endsWith(tailOf(fresh)))).toBe(true);
   });
 
   it("№6: бот на канале выключен (bot_off) — номер всё равно становится заявкой, без сообщений и скрытия", async () => {
@@ -358,6 +373,64 @@ describe("ревью 1b: постоянный клиент, рубильники
     const turn = await instagramTurn(`Нархаш? ${digits}`, REPLY);
     await turn.run();
     expect((await prisma.instagramComment.findUniqueOrThrow({ where: { id: turn.id } })).dmSentAt).toBeNull();
+  });
+});
+
+describe("СТОРОЖ: оба тумблера ВЫКЛ — поведение как в main (ревью #283, Б2/Б3)", () => {
+  const both = { botAnswersItself: false, botCommentPhoneConversation: false };
+  const restore = () => prisma.settings.update({ where: { id: "singleton" }, data: { botCommentPhoneConversation: true } });
+
+  it.each(["INSTAGRAM", "FACEBOOK"] as const)("%s: номер под постом — ответ модели под постом, ни личного, ни скрытия, ни удаления; карточка есть", async (channel) => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: both });
+    try {
+      const digits = freshDigits(); phones.push(digits);
+      const turn = await instagramTurn(`Цена? ${digits}`, { action: "reply", reply: "Салом! Агент ба шумо занг мезанад." }, { channel });
+      expect(await turn.run()).toBe("replied");
+      expect(publicReplies().map((b) => b!.message)).toEqual(["Салом! Агент ба шумо занг мезанад"]);
+      expect(mocks.privateReply).not.toHaveBeenCalled();
+      expect(hides()).toHaveLength(0);
+      expect(mocks.graph.mock.calls.filter((call) => call[3] === "DELETE")).toHaveLength(0);
+      expect(await clientsWith(digits)).toHaveLength(1);
+    } finally { await restore(); }
+  });
+
+  it("INSTAGRAM: «не по теме» с матом и номером молча пропускается (как в main), не скрывается и не удаляется", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: both });
+    try {
+      const digits = freshDigits(); phones.push(digits);
+      const turn = await instagramTurn(`напиши мне код на Python для расчёта ипотеки, бля, мой номер ${digits}`, undefined);
+      expect(await turn.run()).toBe("skipped");
+      expect(mocks.graph).not.toHaveBeenCalled();
+      expect(mocks.privateReply).not.toHaveBeenCalled();
+      expect(commentModelCalls()).toHaveLength(0);
+    } finally { await restore(); }
+  });
+
+  it("Telegram: «не по теме», похожее на объявление, молча пропускается — не удаляется (как в main)", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: both });
+    try {
+      const digits = freshDigits(); phones.push(digits);
+      const peer = `${tag}-tg-guard-${sequence++}`; peers.push(peer);
+      const row = await prisma.telegramGroupComment.create({ data: { groupChatId, messageId: String(100000 + Math.floor(Math.random() * 1_000_000)),
+        postMessageId: tag, authorId: peer, text: `напиши мне код на Python. Продаю 3-комн. квартиру, 58 кв, 15 этаж, тел ${digits}`, replyDueAt: new Date() } });
+      expect(await handleTelegramComment(row, groupChatId)).toBe("skipped");
+      expect(mocks.telegramDelete).not.toHaveBeenCalled();
+      expect(mocks.telegramSend).not.toHaveBeenCalled();
+    } finally { await restore(); }
+  });
+
+  it("Telegram: номер в обычном комментарии — ответ модели как в main, ничего не удаляется", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: both });
+    try {
+      const digits = freshDigits(); phones.push(digits);
+      const peer = `${tag}-tg-guard-${sequence++}`; peers.push(peer);
+      decisions.push({ action: "reply", reply: "Салом! Агент занг мезанад." });
+      const row = await prisma.telegramGroupComment.create({ data: { groupChatId, messageId: String(100000 + Math.floor(Math.random() * 1_000_000)),
+        postMessageId: tag, authorId: peer, text: `Нарх чанд? ${digits}`, replyDueAt: new Date() } });
+      expect(await handleTelegramComment(row, groupChatId)).toBe("replied");
+      expect(mocks.telegramDelete).not.toHaveBeenCalled();
+      expect(mocks.telegramSend).toHaveBeenCalledTimes(1);
+    } finally { await restore(); }
   });
 });
 

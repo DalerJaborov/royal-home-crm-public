@@ -423,8 +423,14 @@ export async function handleTelegramComment(
   }
 
   const screen = screenIncomingText(row.text, { checkSpam: false });
-  // Решение сторожа применяется ниже, после проверок спама/мата/объявлений (17.11.2026):
-  // молчание не должно уносить с собой номер, оставленный в комментарии.
+  // Отсечка сторожа — на прежнем месте, выше спама/мата/объявлений (ревью #283, Б3): «не по теме» молча пропускается и не
+  // удаляется. Номер перед ней — заявкой (createLeadFromCommentPhone сам отсекает деньги, рассылку, мат и объявления).
+  if (screen.action === "silent") {
+    // id сообщения уникален только внутри группы: ключ повтора — группа + сообщение (ревью 1b).
+    await createLeadFromCommentPhone({ ...row, commentId: `${groupChatId}:${row.messageId}`, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
+    await finish(row.id, { status: "SKIPPED", note: screen.reason.slice(0, 120) });
+    return "skipped";
+  }
 
   /**
    * СПАМ И ЧАСТНЫЕ ОБЪЯВЛЕНИЯ — КОДОМ, КАК ПОД ПОСТАМИ INSTAGRAM (24.09.2026).
@@ -455,18 +461,6 @@ export async function handleTelegramComment(
     const outcome = await removeComment(row, groupChatId, listingAd.reason);
     await leadFromAd(row, "SELLER");
     return outcome;
-  }
-
-  /**
-   * ОТСЕЧКА СТОРОЖА ВХОДЯЩЕГО — ПРИМЕНЯЕТСЯ ЗДЕСЬ (17.11.2026). Молчим как и раньше, но номер
-   * человека становится заявкой (messengers/commentPhoneLead.ts): в переписке Meta
-   * молчание номер не уносило, а здесь уносило.
-   */
-  if (screen.action === "silent") {
-    // id сообщения уникален только внутри группы: ключ повтора — группа + сообщение (ревью 1b).
-    await createLeadFromCommentPhone({ ...row, commentId: `${groupChatId}:${row.messageId}`, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
-    await finish(row.id, { status: "SKIPPED", note: screen.reason.slice(0, 120) });
-    return "skipped";
   }
 
   const { row: budgetRow, budget } = await loadPeerAiBudget("TELEGRAM_COMMENTS", row.authorId, null);

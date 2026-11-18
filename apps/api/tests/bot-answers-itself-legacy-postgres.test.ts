@@ -86,7 +86,7 @@ describe("№12: Meta запретила аккаунту личные — мо�
 
 describe("второе ревью 1b, №4: номер под постом → личное → ответ клиента в личке, режим «только заявки» ВКЛ", () => {
   it("ответ засчитан, карточка уходит в раздачу с целью, номер у клиента не просим", async () => {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: true, botAnswersItself: false } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: true, botAnswersItself: false, botCommentPhoneConversation: true } });
     try {
       m.ai.mockImplementation(async (p: { endpoint?: string }) => /-comment$/.test(p.endpoint ?? "") ? { action: "reply", reply: "Салом!" } : null);
       m.privateReply.mockResolvedValue(`dm-${runId}`);
@@ -112,7 +112,7 @@ describe("второе ревью 1b, №4: номер под постом → �
       expect(notes.some((n) => n.includes("Хона мехарам"))).toBe(true);
     } finally {
       await prisma.instagramComment.deleteMany({ where: { commentId: { startsWith: `cphone-lo-${runId}` } } });
-      await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false } });
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false, botCommentPhoneConversation: false } });
     }
   }, 90_000);
 });
