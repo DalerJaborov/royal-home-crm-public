@@ -1,7 +1,7 @@
 import {
   SELLER_AUTOMATION_MASTER_KEY,
   SELLER_AUTOMATION_MASTER_LABEL,
-  SELLER_SWITCH_KEYS,
+  SELLER_SWITCH_VISIBLE_KEYS,
   SELLER_SWITCH_LABELS,
 } from "@royal-home/shared";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
@@ -42,7 +42,7 @@ export function SellerAutomationSection() {
         hint={masterOn ? SELLER_AUTOMATION_MASTER_LABEL.on : SELLER_AUTOMATION_MASTER_LABEL.off}
       />
       {masterOn &&
-        SELLER_SWITCH_KEYS.map((key) => {
+        SELLER_SWITCH_VISIBLE_KEYS.map((key) => {
           const on = settings[key] ?? true;
           const label = SELLER_SWITCH_LABELS[key];
           return (

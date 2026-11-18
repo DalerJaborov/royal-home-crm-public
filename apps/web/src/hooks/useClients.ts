@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "../store/toast";
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import type { ClientPropertyMatchEvidence, ClientPropertyMatchSummary, ClientKind, ClientSort, RobotCallStopState, SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared";
 import { api, ApiError } from "../lib/api";
@@ -847,7 +848,10 @@ export function useSecurityReview(clientId: string) {
         method: "POST",
         body,
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Итог вердикта (18.11.2026): осталась ли карточка в работе и почему — панель
+      // проверки после ответа исчезает, иначе проверяющий этого не узнал бы.
+      if (data?.message) toast.success(data.message);
       qc.invalidateQueries({ queryKey: ["client"] });
       qc.invalidateQueries({ queryKey: ["clients"] });
     },

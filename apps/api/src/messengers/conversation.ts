@@ -136,7 +136,6 @@ import { notifyAgentOfClientMessage } from "../lib/clientMessageAlert.js";
 import { notifyPropertyChatMessage } from "../lib/propertyChatMessageAlert.js";
 import { propertyChatLeadPropertyId } from "../lib/ownBotConversationScope.js";
 import { firstTouchAdPatch, persistFirstTouchAdAttribution } from "../lib/adAttribution.js";
-import { analyzeMessageForPropertyCounts } from "../ai/chatPropertyCount.js";
 import { scrubMentionedClientPhonesInText } from "../lib/clientPhoneMasking.js";
 import { isClosingMessage, isOptOutMessage } from "../lib/botFollowUps.js";
 import { isConfusedMessage, recordLesson } from "../lib/botLessons.js";
@@ -424,7 +423,6 @@ export async function recoverStuckPendingMessages(): Promise<number> {
     ]);
     if (row.clientId) void notifyAgentOfClientMessage(row.clientId, content, undefined, undefined, row.id);
     void notifyPropertyChatMessage(row.id);
-    if (row.clientId) void analyzeMessageForPropertyCounts(row.clientId, content);
     recovered++;
     void logSystemError(
       "meta",

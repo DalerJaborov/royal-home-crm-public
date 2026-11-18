@@ -32,7 +32,6 @@ import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
 import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
 import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
 import { runTransferRequestTick } from "./lib/ownershipTransferRequest.js";
-import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
 import { runBuyerThinkingSlowTrackTick } from "./lib/buyerThinkingSlowTrack.js";
@@ -2886,25 +2885,6 @@ export function startCronJobs() {
       if (stuck + reminded > 0) console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);
     } catch (err) {
       reportCronTickError("Ошибка тика запросов передачи", err);
-    }
-  });
-
-  /**
-   * АЛАРМ «ЗАЯВЛЕНО N, СДЕЛАНО M» — ПРОДАВЕЦ И ПОКУПАТЕЛЬ, ОДНО УВЕДОМЛЕНИЕ НА
-   * КЛИЕНТА (владелец 06.09.2026 п.3, объединено 07.09.2026, срок растянут по
-   * числу объектов 07.09.2026). Число ИИ услышал из разговора или переписки
-   * (sellerDeclaredPropertyCount / buyerDesiredPropertyCount) — если срок
-   * (2 дня на объект продавцу, 5 дней на объект покупателю) истёк, а в CRM
-   * меньше добавленных объектов/закрытых сделок, чем заявлено, директору
-   * уходит ОДНО уведомление на клиента с перечислением всех активных
-   * расхождений. См. lib/clientPropertyCountAlarm.ts.
-   */
-  scheduleTracked("client-property-count-alarm", "0 * * * *", async () => {
-    try {
-      const { alerted } = await runClientPropertyCountAlarmTick();
-      if (alerted > 0) console.log(`[cron] Аларм «заявлено/сделано объектов»: ${alerted}`);
-    } catch (err) {
-      reportCronTickError("Ошибка аларма «заявлено/сделано объектов»", err);
     }
   });
 
