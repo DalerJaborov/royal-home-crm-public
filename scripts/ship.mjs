@@ -910,6 +910,43 @@ export async function main(argv = process.argv.slice(2)) {
   return 0;
 }
 
+/**
+ * Не дать процессу выката тихо умереть с кодом 0 посреди ожидания (18.11.2026).
+ *
+ * Node завершается сам, как только в цикле событий не остаётся ни одного
+ * «держащего» таймера или сокета, даже если main() ещё ждёт обещание. Код
+ * выхода при этом 0, финальной строки нет. Таймер AbortSignal.timeout у чтений
+ * GitHub (см. github() выше) намеренно не держит процесс, и если сокет запроса
+ * повис или закрылся без ошибки, держать становится нечего. За 18.11 так
+ * оборвались четыре выката (#286, #288, #272, #290): дважды на 9-й минуте
+ * облачного прогона, дважды в «жду завершения обязательных проверок». Чаты
+ * читали код 0 как «готово», а в main ничего не попало.
+ *
+ * Пока обещание не решено, держим один пустой интервал: процесс живёт, таймауты
+ * чтений срабатывают, и зависание кончается громкой остановкой «связь оборвалась»,
+ * а не молчанием. Если процесс всё же уходит, не дождавшись итога (beforeExit),
+ * пишем об этом и ставим код 1.
+ */
+export function holdProcessUntilSettled(promise, { proc = process, intervalMs = 30_000 } = {}) {
+  let settled = false;
+  const keepAlive = setInterval(() => {}, intervalMs);
+  const onBeforeExit = () => {
+    if (settled) return;
+    console.error("\n\x1b[31m✘ Выкат оборвался: процесс завершился, не дождавшись итога.\x1b[0m\n  • Что влито — смотри main на GitHub; повтори npm run ship.");
+    proc.exitCode = 1;
+  };
+  proc.on("beforeExit", onBeforeExit);
+  const done = () => {
+    settled = true;
+    clearInterval(keepAlive);
+    proc.off("beforeExit", onBeforeExit);
+  };
+  return Promise.resolve(promise).then(
+    (value) => { done(); return value; },
+    (err) => { done(); throw err; },
+  );
+}
+
 // Запуск как команды (а не импорт из теста).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   // Встроенный fetch Node не читает HTTPS_PROXY без NODE_USE_ENV_PROXY=1 (облачные
@@ -921,7 +958,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     });
     process.exit(again.status ?? 1);
   }
-  main().finally(() => state.cleanup?.()).then(
+  holdProcessUntilSettled(main()).finally(() => state.cleanup?.()).then(
     (code) => process.exit(code),
     (err) => {
       if (err instanceof Stop) {
