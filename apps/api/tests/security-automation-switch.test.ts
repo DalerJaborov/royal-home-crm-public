@@ -182,6 +182,23 @@ describe("вердикт СБ не закрывает карточку в раб
     expect(after.securityReview).toBe("CLEARED");
   });
 
+  it("карточка в работе, но агент её «закрыл» отказом — после вердикта возвращена агенту", async () => {
+    automation.on = false;
+    const done = new Date(Date.now() - 3_600_000);
+    const seller = await makeClient({ kind: "SELLER", securityReview: "PENDING", assignmentRefusedAt: done,
+      assignmentRefusedByAgentId: agentId, assignmentCompletedAt: done });
+    await makeProperty(seller.id, "AVAILABLE");
+    const res = await verdict(seller.id, "CLEARED");
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain("возвращена агенту");
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: seller.id } });
+    expect(after.deletedAt).toBeNull();
+    expect(after.assignedAgentId).toBe(agentId);
+    expect(after.assignmentCompletedAt).toBeNull();
+    expect(after.assignmentRefusedAt).toBeNull();
+    expect(await prisma.clientDeleteRequest.count({ where: { clientId: seller.id } })).toBe(0);
+  });
+
   it("«вопросов нет» не закрывает даже карточку без объектов и работы — только заявка руководителю", async () => {
     automation.on = true;
     const buyer = await makeClient({ securityReview: "PENDING", assignmentRefusedAt: new Date(Date.now() - 3_600_000) });

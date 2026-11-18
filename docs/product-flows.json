@@ -16702,7 +16702,7 @@
       },
       {
        "k": "do",
-       "t": "await tx.client.update({ where: { id: client.id }, data: { securityReview: verdict, securityReviewedAt: new D…",
+       "t": "await tx.client.update({ where: { id: client.id }, data: { ...(reopen ? { assignmentRefusedAt: null, assignme…",
        "a": [
         "меняет в базе: client"
        ],

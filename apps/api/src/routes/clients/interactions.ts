@@ -307,9 +307,14 @@ interactionsRouter.post(
       const blocker = await securityReviewCloseBlocker(tx, current);
       const outcome: "keep" | "trash" | "delete-request" = blocker ? "keep"
         : verdict === "CONFIRMED" && automationOn ? "trash" : "delete-request";
+      // Карточка осталась в работе, а отказ агента уже закрыл его назначение — без
+      // возврата она повисла бы ничьей: агент писать в неё не может, новое сообщение
+      // клиента её не оживляет (ревью 18.11.2026, случай ПР-000714). Возвращаем агенту.
+      const reopen = outcome === "keep" && current.assignmentCompletedAt !== null && current.assignedAgentId !== null;
       await tx.client.update({
         where: { id: client.id },
         data: {
+          ...(reopen ? { assignmentRefusedAt: null, assignmentRefusedByAgentId: null, assignmentCompletedAt: null } : {}),
           securityReview: verdict,
           securityReviewedAt: new Date(),
           securityReviewedById: req.agent!.id,
@@ -324,7 +329,7 @@ interactionsRouter.post(
         investigationOnly: true,
         investigationOrigin: { sourceType: "investigation-decision", sourceId: client.id, independenceKey: `manual:${req.agent!.id}`, kind: "verdict" },
         notes: [`Служба безопасности: ${label}`, note?.trim() ? `Установлено: ${note.trim()}` : null,
-          outcome === "keep" ? `Карточка осталась в работе: ${blocker}`
+          outcome === "keep" ? `Карточка осталась в работе${reopen ? " и возвращена агенту" : ""}: ${blocker}`
             : outcome === "trash" ? "Работы по карточке нет — убирается в Корзину"
             : "Работы по карточке нет — руководителю отправлена заявка на удаление"]
           .filter(Boolean)
@@ -341,13 +346,13 @@ interactionsRouter.post(
         subjectAgentId: current.assignedAgentId, actorId: req.agent!.id, verdict, note: note?.trim() || `Решение руководителя: ${label}` });
       // Карточка закрывается только ПОСЛЕ вердикта — до него она висела как есть
       // нарочно, чтобы не выглядеть решённой.
-      return { outcome, blocker };
+      return { outcome, blocker, reopen };
     });
     if (!reviewed) return res.status(409).json({ error: "Проверка уже завершена или карточка изменилась — обновите страницу" });
 
     logAudit(req, "CLIENT_SECURITY_REVIEW", "Client", client.id, { verdict });
 
-    let message = `${label}. Карточка осталась в работе: ${reviewed.blocker}`;
+    let message = `${label}. Карточка осталась в работе${reviewed.reopen ? " и возвращена агенту" : ""}: ${reviewed.blocker}`;
     if (reviewed.outcome === "trash") {
       const trashed = await trashClient(client.id, req.agent!.id, { notifyHolder: false });
       if (trashed.ok) message = `${label}. Карточка ушла в Корзину`;

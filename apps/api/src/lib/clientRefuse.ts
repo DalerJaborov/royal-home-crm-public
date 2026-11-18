@@ -399,7 +399,7 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
    */
   // Автоматика СБ выключена (18.11.2026): проверки не будет, а карточка без передачи
   // висела бы ничьей — конец работы, заявка на удаление руководителю, решает человек.
-  if (needsSecurityReview && !securityAutoOn) {
+  if (needsSecurityReview && !securityAutoOn && !needsManagementDecision) {
     await fileEndOfWorkDeleteRequest(client, input.actorAgentId ?? client.assignedAgentId,
       `Отказ клиента: ${reasonLabel}. Работа по карточке завершена.` +
         (comment?.trim() ? ` Комментарий агента: ${comment.trim()}` : ""));
