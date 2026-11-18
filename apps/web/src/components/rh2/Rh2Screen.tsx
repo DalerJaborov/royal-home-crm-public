@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useShellClaim } from "../../store/shell";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
 
 /**
  * Обёртка экрана темы «Royal Home 2026»: `.rh2` включает эталонный CSS
@@ -34,8 +35,10 @@ export function Rh2Screen({ children, title, back, onBack, actions, className }:
   // Только если экран хоть что-то сообщил: иначе заявка пустая, а пустая заявка
   // затёрла бы чужую (вложенный Rh2Screen внутри экрана с title).
   const claims = title !== undefined || back !== undefined || actions !== undefined;
+  // Метка раздела «Нового вида» (RoyalSection над экраном); без признака — пусто.
+  const section = useRoyalSectionName();
   return (
-    <div className={className ? `rh2 screens ${className}` : "rh2 screens"}>
+    <div className={className ? `rh2 screens ${className}` : "rh2 screens"} data-ry-section={section}>
       {claims && <ShellClaim title={title} back={back} onBack={onBack} actions={actions} />}
       <div className="scr" style={{ padding: 0 }}>
         {children}

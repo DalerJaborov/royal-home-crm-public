@@ -3,6 +3,11 @@ import { useClientRowActions } from "../hooks/useClientRowActions";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientRow, cleanClientColumns } from "../components/clean/CleanClientRow";
 import { CButton, cn } from "../components/clean/ui";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalClientListHead, RoyalClientRow } from "../components/look/clients/RoyalClients";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RhButton } from "../components/look/ui";
+import { RoyalIcon } from "../components/look/RoyalIcon";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { clientListScope } from "../lib/clientListScope";
 const MobileClientsList = lazyWithReload(() => import("../components/mobile/MobileClientsList").then((m) => ({ default: m.MobileClientsList })));
@@ -130,15 +135,19 @@ export function Clients({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER
     kind !== "OTHER" && formParams.get("new") === "1"
       ? readKindParam(formParams.get("kind")).sectionKind ?? kind : null);
   const [newClientPhone] = useState(() => formParams.get("phone") ?? undefined);
+  // «Новый вид»: метка раздела на экране и на всех его окнах (RoyalSection) — слой
+  // theme-look-royal-clients.css действует только на неё.
+  const shellClean = useCleanShell();
+  const royalSection = useRoyalLook() && shellClean ? "clients" : undefined;
   if (kind !== "OTHER" && (gateRole === "MARKETING" || gateRole === "EDITOR")) {
     return <RoleGate title="Клиенты" text="Раздел недоступен этой роли." />;
   }
-  return <>
+  return <RoyalSection name={royalSection}>
     {legacyAgentMobile
       ? kind === "OTHER" ? <MobileInquiries /> : <MobileClientsList kind={kind} onAddClient={() => setFormKind(kind)} />
       : <ClientsList kind={kind} onAddClient={setFormKind} />}
     {formKind && !readOnly && <ClientFormModal kind={formKind} initialPhone={newClientPhone} onClose={() => setFormKind(null)} />}
-  </>;
+  </RoyalSection>;
 }
 
 /** Экран роли без доступа — тихой строкой прототипа (договор §6.12), а не пустотой. */
@@ -155,6 +164,8 @@ function RoleGate({ title, text }: { title: string; text: string }) {
 
 function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER" | "OTHER"; onAddClient: (kind: "BUYER" | "SELLER") => void }) {
   const clean = useCleanShell();
+  // «Новый вид» (пачка clients): только разметка и оформление, данные и действия те же.
+  const royal = useRoyalLook() && clean;
   const isSeller = kind === "SELLER";
   const isOther = kind === "OTHER";
   const role = useAuthStore((s) => s.agent?.role);
@@ -423,7 +434,21 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
 
   return (
     <Rh2Screen title={title} back={isAllMineRoute ? sectionPath(section) : undefined} actions={shellActions} className={clean ? "clean-clients-page" : undefined}>
-      {mobile ? (
+      {royal ? (
+        <div className="ry-clients-head">
+          {mobile
+            ? <h1 className="sr-only">{title}</h1>
+            : <div className="ry-clients-title"><h1>{title}</h1><p>{sub}</p></div>}
+          <div className="ry-clients-tools">
+            {segment}
+            {!isOther && !readOnly && (
+              <RhButton variant="primary" aria-label="Добавить клиента" onClick={() => onAddClient(section)}>
+                <RoyalIcon name="user-plus" />{mobile ? "Клиент" : "Добавить клиента"}
+              </RhButton>
+            )}
+          </div>
+        </div>
+      ) : mobile ? (
         // Заголовок на телефоне стоит в шапке оболочки; для скринридера он остаётся.
         clean && !isOther && !readOnly ? <div className="flex justify-end"><h1 className="sr-only">{title}</h1><CButton onClick={() => onAddClient(section)}><Plus size={18} aria-hidden />Добавить клиента</CButton></div> : <h1 className="sr-only">{title}</h1>
       ) : clean ? (
@@ -458,7 +483,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
         />
       )}
 
-      {mobile && segment}
+      {mobile && !royal && segment}
 
       {/* Тихие строки вместо карточек-уведомлений (договор §6.1): ждёт агента, похожие карточки */}
       {!isOther && ((oldest && summary) || (duplicates && duplicates.length > 0) || !!summary?.neverContacted) && (
@@ -469,9 +494,17 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
           {!!summary?.neverContacted && (
             <div className="quiet crit">
               <span className="dot crit" />
-              <span className="txt">
-                {NO_CONTACT_TEXT.title}: {num(summary.neverContacted)} — ни звонка, ни сообщения сотрудника, ни показа.
-              </span>
+              {royal ? (
+                // Новый вид: одна строка «Не связывались: 4», полное пояснение — подсказкой и для чтеца.
+                <span className="txt" title={`${NO_CONTACT_TEXT.title}: ${num(summary.neverContacted)} — ни звонка, ни сообщения сотрудника, ни показа.`}>
+                  {NO_CONTACT_TEXT.title}: <b>{num(summary.neverContacted)}</b>
+                  <span className="sr-only"> — ни звонка, ни сообщения сотрудника, ни показа.</span>
+                </span>
+              ) : (
+                <span className="txt">
+                  {NO_CONTACT_TEXT.title}: {num(summary.neverContacted)} — ни звонка, ни сообщения сотрудника, ни показа.
+                </span>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -501,7 +534,14 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
           {section === "BUYER" && duplicates && duplicates.length > 0 && (
             <div className="quiet warn">
               <span className="dot warn" />
-              <span className="txt">Похожих карточек: {duplicates.length}. Возможно, это один и тот же человек.</span>
+              {royal ? (
+                <span className="txt" title={`Похожих карточек: ${duplicates.length}. Возможно, это один и тот же человек.`}>
+                  Похожих карточек: <b>{duplicates.length}</b>
+                  <span className="sr-only">. Возможно, это один и тот же человек.</span>
+                </span>
+              ) : (
+                <span className="txt">Похожих карточек: {duplicates.length}. Возможно, это один и тот же человек.</span>
+              )}
               <Button variant="ghost" size="sm" onClick={() => setShowDuplicates(true)}>
                 Сравнить
               </Button>
@@ -512,7 +552,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
 
       <Card tight id="clients-list">
         {showSearch && (
-          <div className={clean ? "mb-4 flex items-center gap-3" : "filters"}>
+          <div className={royal ? "ry-clients-search" : clean ? "mb-4 flex items-center gap-3" : "filters"}>
             <input
               className="inp"
               type="search"
@@ -522,7 +562,9 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
               value={filters.q ?? ""}
               onChange={(e) => patchFilters({ q: e.target.value || undefined })}
             />
-            {clean && <CButton variant="outline" aria-haspopup="dialog" onClick={() => setShowFilters(true)}><SlidersHorizontal size={18} aria-hidden />Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</CButton>}
+            {royal
+              ? <RhButton variant="gray" aria-haspopup="dialog" onClick={() => setShowFilters(true)}>Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</RhButton>
+              : clean && <CButton variant="outline" aria-haspopup="dialog" onClick={() => setShowFilters(true)}><SlidersHorizontal size={18} aria-hidden />Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</CButton>}
           </div>
         )}
 
@@ -557,14 +599,16 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
         {listGuard.broken && <EmptyListGuardBanner guard={listGuard} variant="desktop" />}
 
         {data && visibleItems.length > 0 && (
-          <List aria-label="Клиенты">
-            {clean && <div aria-hidden className={cn("hidden items-center gap-4 px-4 pb-2 pt-3 text-[14px] text-gray-500 lg:grid", cleanClientColumns(can("clients.viewAll")))}><span>Клиент</span><span>Запрос</span><span>Следующее действие</span>{can("clients.viewAll") && <span>Ответственный</span>}<span>Действия</span></div>}
+          <List aria-label="Клиенты" className={royal ? "ry-clist" : undefined}>
+            {royal && <RoyalClientListHead showAgent={can("clients.viewAll")} />}
+            {clean && !royal && <div aria-hidden className={cn("hidden items-center gap-4 px-4 pb-2 pt-3 text-[14px] text-gray-500 lg:grid", cleanClientColumns(can("clients.viewAll")))}><span>Клиент</span><span>Запрос</span><span>Следующее действие</span>{can("clients.viewAll") && <span>Ответственный</span>}<span>Действия</span></div>}
             {visibleItems.map((c) => (
               <ClientRow
                 key={c.id}
                 client={c}
                 mobile={mobile}
                 clean={clean}
+                royal={royal}
                 showKind={searchAcrossKinds || allKinds}
                 showAgent={can("clients.viewAll")}
               />
@@ -769,6 +813,7 @@ function ClientRow({
   showAgent = false,
   inSheet = false,
   clean = false,
+  royal = false,
 }: {
   client: Client;
   mobile: boolean;
@@ -777,6 +822,8 @@ function ClientRow({
   /** Строка внутри шторки «Не на виду»: смахивание там конфликтует со смахиванием шторки. */
   inSheet?: boolean;
   clean?: boolean;
+  /** «Новый вид»: та же строка Clean, другая разметка (RoyalClientRow). */
+  royal?: boolean;
 }) {
   const daysSinceContact = Math.floor((Date.now() - new Date(c.lastContactAt).getTime()) / 86400000);
   const stale = daysSinceContact > 14;
@@ -904,25 +951,26 @@ function ClientRow({
   );
 
   const visibleNextStep = !isTrashed && !c.hiddenReason && !pending ? c.nextStep : null;
-  const row = clean && !inSheet ? (
-    <CleanClientRow
-      id={c.id}
-      name={name}
-      href={isTrashed ? undefined : `/clients/${c.shortId}`}
-      avatar={<ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />}
-      identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · ")}
-      request={isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен"}
-      source={CLIENT_SOURCE_LABELS[c.source] ?? c.source}
-      nextAction={canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null)}
-      nextActionDate={!canAcceptRow && !chip ? visibleNextStep?.nextActionDate : null}
-      lastContact={relativeTime(c.lastContactAt)}
-      staleContact={stale && !chip && !canAcceptRow}
-      showAgent={showAgent}
-      agentName={c.assignedAgent?.fullName}
-      agentAssigned={!!c.assignedAgentId}
-      actions={actions}
-      deleted={isTrashed}
-    />
+  const cleanRowProps = clean && !inSheet ? {
+    id: c.id,
+    name,
+    href: isTrashed ? undefined : `/clients/${c.shortId}`,
+    avatar: <ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />,
+    identity: [formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · "),
+    request: isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен",
+    source: CLIENT_SOURCE_LABELS[c.source] ?? c.source,
+    nextAction: canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null),
+    nextActionDate: !canAcceptRow && !chip ? visibleNextStep?.nextActionDate : null,
+    lastContact: relativeTime(c.lastContactAt),
+    staleContact: stale && !chip && !canAcceptRow,
+    showAgent,
+    agentName: c.assignedAgent?.fullName,
+    agentAssigned: !!c.assignedAgentId,
+    actions,
+    deleted: isTrashed,
+  } : null;
+  const row = cleanRowProps ? (
+    royal ? <RoyalClientRow {...cleanRowProps} /> : <CleanClientRow {...cleanRowProps} />
   ) : (
     <Row
       className={canAcceptRow ? "rh-row-wrap" : undefined}

@@ -77,8 +77,13 @@ export function CleanRecordTabs<Id extends string>({ tabs, value, onChange, aria
   );
 }
 
+/** Вкладки карточки клиента: порядок, подписи и короткие подписи — одно место для Clean и «Нового вида». */
+export function cleanClientTabList(objectsLabel = "Объекты"): { id: CleanClientTab; label: string; short: string }[] {
+  return sections.map(({ id, label }) => ({ id, label: id === "props" ? objectsLabel : label, short: id === "chat" ? "Чаты" : id === "props" ? "По объектам" : label }));
+}
+
 export function CleanClientDetailTabs({ value, onChange, objectsLabel = "Объекты" }: { value: CleanClientTab; onChange: (value: CleanClientTab) => void; objectsLabel?: string }) {
-  const tabs = sections.map(({ id, label }) => ({ id, icon: tabIcons[id], label: id === "props" ? objectsLabel : label, short: id === "chat" ? "Чаты" : id === "props" ? "По объектам" : label }));
+  const tabs = cleanClientTabList(objectsLabel).map((tab) => ({ ...tab, icon: tabIcons[tab.id] }));
   return <CleanRecordTabs tabs={tabs} value={value} onChange={onChange} ariaLabel="Разделы карточки клиента" idPrefix="clean-client" />;
 }
 
