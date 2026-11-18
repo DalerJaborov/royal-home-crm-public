@@ -70,10 +70,6 @@ export const dealReviewAskJob: JobHandler<z.infer<typeof schema>> = {
   schema,
   backoff: (attempt) => Math.min(2 ** attempt, 8) * 60_000,
   async run(payload) {
-    // Выключатель владельца «сообщения после сделки» (14.11.2026, lib/sellerSwitches.ts):
-    // выключено — задание завершается молча, никого не спрашиваем. Сама сделка
-    // закрыта раньше и от этого задания не зависит.
-    if (!(await sellerSwitchOn("dealAfterCloseMessagesEnabled"))) return;
     const deal = await prisma.deal.findUnique({
       where: { id: payload.dealId },
       select: {
@@ -90,7 +86,14 @@ export const dealReviewAskJob: JobHandler<z.infer<typeof schema>> = {
     if (!isDealStillClosed(deal)) return;
 
     await askSide(deal.id, deal.clientId);
-    if (deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId) {
+    // Выключатель владельца «сообщения после сделки» (14.11.2026, lib/sellerSwitches.ts)
+    // касается только ПРОДАВЦА: покупателя «как всё прошло» спрашиваем всегда, иначе
+    // главный выключатель «автоматика по продавцам» молча гасил бы и покупателей.
+    if (
+      deal.property.sellerClientId &&
+      deal.property.sellerClientId !== deal.clientId &&
+      (await sellerSwitchOn("dealAfterCloseMessagesEnabled"))
+    ) {
       await askSide(deal.id, deal.property.sellerClientId);
     }
   },

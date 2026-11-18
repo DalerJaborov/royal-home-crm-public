@@ -61,8 +61,6 @@ const { signAccessToken } = await import("../src/auth/jwt.js");
 const { grantElevation } = await import("../src/lib/stepUp.js");
 const { sellerSwitchOn } = await import("../src/lib/sellerSwitches.js");
 const { sellerFactsJob } = await import("../src/jobs/sellerFacts.js");
-const { runSellerWorkStalledAlarmTick } = await import("../src/lib/sellerWorkStalledAlarm.js");
-const { runClientPropertyCountAlarmTick } = await import("../src/lib/clientPropertyCountAlarm.js");
 const { sendDirectorDigest } = await import("../src/cron.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
 const { deleteAgentsWithTraces } = await import("./helpers/cleanupAgents.js");
@@ -169,21 +167,21 @@ describe("сохранение через PATCH /settings", () => {
     expect(got.status).toBe(200);
     for (const key of SELLER_AUTOMATION_FIELDS) expect(typeof got.body[key], key).toBe("boolean");
 
-    // Заглушка (рассылку убрали 02.10.2026): её выключение не меняет ничего у соседних файлов.
+    // Строки в утренней сводке: их выключение не трогает соседние тесты.
     const startedAt = new Date();
-    const off = await request(app).patch("/api/v1/settings").set(auth).send({ sellerWorkStalledAlarmEnabled: false });
+    const off = await request(app).patch("/api/v1/settings").set(auth).send({ morningSellerLinesEnabled: false });
     expect(off.status).toBe(200);
     try {
-      expect(off.body.sellerWorkStalledAlarmEnabled).toBe(false);
+      expect(off.body.morningSellerLinesEnabled).toBe(false);
       const audit = await waitFor(() =>
         prisma.auditLog.findFirst({
           where: { action: "SETTINGS_UPDATE", agentId: directorId, createdAt: { gte: startedAt } },
           orderBy: { createdAt: "desc" },
         })
       );
-      expect(audit?.meta).toMatchObject({ sellerWorkStalledAlarmEnabled: false });
+      expect(audit?.meta).toMatchObject({ morningSellerLinesEnabled: false });
     } finally {
-      const back = await request(app).patch("/api/v1/settings").set(auth).send({ sellerWorkStalledAlarmEnabled: true });
+      const back = await request(app).patch("/api/v1/settings").set(auth).send({ morningSellerLinesEnabled: true });
       expect(back.status).toBe(200);
     }
   });
@@ -206,16 +204,6 @@ describe("разбор фактов продавца (jobs/sellerFacts.ts)", () 
     switchesOff.clear();
     await sellerFactsJob.run({ clientId: "stand-seller-facts" });
     expect(refreshSellerFacts).toHaveBeenCalledWith("stand-seller-facts");
-  });
-});
-
-describe("заглушки с убранной рассылкой спрашивают свой выключатель", () => {
-  it("«работа встала» и «заявлено больше, чем добавлено» — ноль в обоих положениях", async () => {
-    switchesOff.add("sellerWorkStalledAlarmEnabled");
-    switchesOff.add("clientPropertyCountAlarmEnabled");
-    expect(await runSellerWorkStalledAlarmTick()).toEqual({ pokedAgents: 0, reportedToDirector: 0, skipped: 0 });
-    expect(await runClientPropertyCountAlarmTick()).toEqual({ alerted: 0 });
-    expect(askedKeys).toEqual(["sellerWorkStalledAlarmEnabled", "clientPropertyCountAlarmEnabled"]);
   });
 });
 

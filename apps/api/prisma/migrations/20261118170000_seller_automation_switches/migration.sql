@@ -9,5 +9,3 @@ ALTER TABLE "Settings" ADD COLUMN "sellerProbeCallEnabled" BOOLEAN NOT NULL DEFA
 ALTER TABLE "Settings" ADD COLUMN "dealAfterCloseMessagesEnabled" BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE "Settings" ADD COLUMN "sellerAiAnalysisEnabled" BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE "Settings" ADD COLUMN "morningSellerLinesEnabled" BOOLEAN NOT NULL DEFAULT true;
-ALTER TABLE "Settings" ADD COLUMN "sellerWorkStalledAlarmEnabled" BOOLEAN NOT NULL DEFAULT true;
-ALTER TABLE "Settings" ADD COLUMN "clientPropertyCountAlarmEnabled" BOOLEAN NOT NULL DEFAULT true;

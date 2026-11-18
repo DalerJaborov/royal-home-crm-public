@@ -1,5 +1,3 @@
-import { sellerSwitchOn } from "./sellerSwitches.js";
-
 /**
  * АЛАРМ «ЗАЯВЛЕНО N, СДЕЛАНО M» — ОДИН НА КЛИЕНТА (владелец 06.09.2026, разбор
  * слепых зон п.3; расширено 07.09.2026: «пусть у покупателя будет тоже самое»
@@ -70,8 +68,5 @@ export function sellerGraceWorkingDays(declared: number): number {
  * по-прежнему пишет ИИ и читают другие экраны; выдержки выше экспортируются.
  */
 export async function runClientPropertyCountAlarmTick(_now: Date = new Date()): Promise<{ alerted: number }> {
-  // Выключатель владельца (14.11.2026, lib/sellerSwitches.ts) стоит и у заглушки:
-  // вернут рассылку — дверь уже на месте, и выключенное не оживёт само.
-  if (!(await sellerSwitchOn("clientPropertyCountAlarmEnabled"))) return { alerted: 0 };
   return { alerted: 0 };
 }

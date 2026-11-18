@@ -2,7 +2,6 @@ import { prisma } from "../db.js";
 import { sellersWithPropertyInWork } from "./sellerCardState.js";
 import { evaluateWorkStalled } from "./clientWorkStalled.js";
 import { calendarFor, loadCompanyDaysOff } from "./daysOffCalendar.js";
-import { sellerSwitchOn } from "./sellerSwitches.js";
 import {
   loadWorkWindow,
   outagesBetween,
@@ -186,8 +185,5 @@ export async function runSellerWorkStalledAlarmTick(
   reportedToDirector: number;
   skipped: number;
 }> {
-  // Выключатель владельца (14.11.2026, lib/sellerSwitches.ts) стоит и у заглушки:
-  // вернут рассылку — дверь уже на месте, и выключенное не оживёт само.
-  if (!(await sellerSwitchOn("sellerWorkStalledAlarmEnabled"))) return { pokedAgents: 0, reportedToDirector: 0, skipped: 0 };
   return { pokedAgents: 0, reportedToDirector: 0, skipped: 0 };
 }

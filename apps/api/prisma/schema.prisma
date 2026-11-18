@@ -7222,8 +7222,6 @@ model Settings {
   dealAfterCloseMessagesEnabled         Boolean @default(true)
   sellerAiAnalysisEnabled               Boolean @default(true)
   morningSellerLinesEnabled             Boolean @default(true)
-  sellerWorkStalledAlarmEnabled         Boolean @default(true)
-  clientPropertyCountAlarmEnabled       Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из

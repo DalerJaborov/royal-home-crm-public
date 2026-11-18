@@ -199,21 +199,44 @@ describe("JOB-03: отказ доставки вопроса об отзыве",
 });
 
 describe("выключатель «сообщения после сделки» (14.11.2026)", () => {
-  it("выключен — вопрос об отзыве не уходит и отметки нет; включили — уходит", async () => {
-    findClientDeliveryTarget.mockResolvedValue({ kind: "telegram", id: "c1" });
-    deliverToConversation.mockResolvedValue({ ok: true });
-    switchesOff.add("dealAfterCloseMessagesEnabled");
+  it("выключен — покупателя спрашиваем, продавца нет; включили — продавца тоже", async () => {
+    // Выключатель касается только продавца: главный «автоматика по продавцам» не
+    // должен молча гасить вопрос «как всё прошло» у покупателя (ревью 18.11.2026).
+    const sellerId = (
+      await prisma.client.create({
+        data: {
+          fullName: `Продавец c1 ${runId}`,
+          phone: `+992973${String(runId).slice(-9)}`,
+          source: "PHONE_CALL",
+          assignedAgentId: agentId,
+          acceptedAt: new Date(),
+        },
+      })
+    ).id;
+    await prisma.property.update({ where: { id: propertyId }, data: { sellerClientId: sellerId } });
     try {
-      await expect(dealReviewAskJob.run({ dealId })).resolves.toBeUndefined();
-      expect(findClientDeliveryTarget).not.toHaveBeenCalled();
-      expect(deliverToConversation).not.toHaveBeenCalled();
-      const rows = await prisma.$queryRaw<{ id: string }[]>`SELECT "id" FROM "DealReview" WHERE "dealId" = ${dealId}`;
-      expect(rows).toHaveLength(0);
+      findClientDeliveryTarget.mockResolvedValue({ kind: "telegram", id: "c1" });
+      deliverToConversation.mockResolvedValue({ ok: true });
+      switchesOff.add("dealAfterCloseMessagesEnabled");
+      try {
+        await expect(dealReviewAskJob.run({ dealId })).resolves.toBeUndefined();
+      } finally {
+        switchesOff.delete("dealAfterCloseMessagesEnabled");
+      }
+      expect(findClientDeliveryTarget.mock.calls.map((c) => c[0])).toEqual([buyerId]);
+      expect(deliverToConversation).toHaveBeenCalledOnce();
+      const asked = await prisma.$queryRaw<{ clientId: string }[]>`SELECT "clientId" FROM "DealReview" WHERE "dealId" = ${dealId}`;
+      expect(asked.map((r) => r.clientId)).toEqual([buyerId]);
+
+      findClientDeliveryTarget.mockClear();
+      await dealReviewAskJob.run({ dealId });
+      expect(findClientDeliveryTarget.mock.calls.map((c) => c[0])).toEqual([buyerId, sellerId]);
+      expect(deliverToConversation).toHaveBeenCalledTimes(2);
     } finally {
-      switchesOff.delete("dealAfterCloseMessagesEnabled");
+      await prisma.property.update({ where: { id: propertyId }, data: { sellerClientId: null } });
+      await prisma.$executeRaw`DELETE FROM "DealReview" WHERE "dealId" = ${dealId}`;
+      await prisma.client.deleteMany({ where: { id: sellerId } });
     }
-    await dealReviewAskJob.run({ dealId });
-    expect(deliverToConversation).toHaveBeenCalledOnce();
   });
 
   it("выключен — закрытие сделки не ломается: объект снимается с сайта, сторона продавца пересчитана", async () => {

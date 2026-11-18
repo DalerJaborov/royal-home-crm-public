@@ -32,8 +32,6 @@ export const SELLER_SWITCH_KEYS = [
   "dealAfterCloseMessagesEnabled",
   "sellerAiAnalysisEnabled",
   "morningSellerLinesEnabled",
-  "sellerWorkStalledAlarmEnabled",
-  "clientPropertyCountAlarmEnabled",
 ] as const;
 
 export type SellerSwitchKey = (typeof SELLER_SWITCH_KEYS)[number];
@@ -100,8 +98,8 @@ export const SELLER_SWITCH_LABELS: Record<SellerSwitchKey, SellerSwitchLabel> = 
   },
   agentUnansweredAlarmEnabled: {
     title: "Агент не отвечает продавцу",
-    on: "Продавец написал, а агент 2 рабочих дня не ответил — агенту приходит напоминание и задача. Покупателей не касается.",
-    off: "По продавцам напоминания нет. По покупателям — как раньше.",
+    on: "Продавец написал, а агент 2 рабочих дня не ответил — агенту ставится задача. Покупателей не касается.",
+    off: "По продавцам задача не ставится. По покупателям — как раньше.",
   },
   dealStaleSellersEnabled: {
     title: "Застой: продавец без объекта",
@@ -115,8 +113,8 @@ export const SELLER_SWITCH_LABELS: Record<SellerSwitchKey, SellerSwitchLabel> = 
   },
   dealAfterCloseMessagesEnabled: {
     title: "Сообщения после сделки",
-    on: "Через 3 дня покупателю и продавцу уходит вопрос «как всё прошло», агенту — уведомление, что его объект продан.",
-    off: "Вопрос и уведомление не отправляются. Сделка закрывается и объект снимается с сайта как обычно.",
+    on: "Через 3 дня продавцу уходит вопрос «как всё прошло», агенту — уведомление, что его объект продан.",
+    off: "Продавцу вопрос и агенту уведомление не отправляются. Покупателя спрашиваем как раньше. Сделка закрывается и объект снимается с сайта как обычно.",
   },
   sellerAiAnalysisEnabled: {
     title: "ИИ разбирает фото и переписку продавца",
@@ -125,17 +123,7 @@ export const SELLER_SWITCH_LABELS: Record<SellerSwitchKey, SellerSwitchLabel> = 
   },
   morningSellerLinesEnabled: {
     title: "Продавцы в утренней сводке",
-    on: "В утренней сводке есть строки «продавцы без объекта дольше недели» и «объект снят из-за потерянного продавца».",
-    off: "Этих строк в утренней сводке нет.",
-  },
-  sellerWorkStalledAlarmEnabled: {
-    title: "Работа с продавцом встала",
-    on: "Сейчас ничего не присылает: эту рассылку убрали 2 октября. Выключатель на случай, если её вернут.",
-    off: "Не проверяется.",
-  },
-  clientPropertyCountAlarmEnabled: {
-    title: "Заявлено объектов больше, чем добавлено",
-    on: "Сейчас ничего не присылает: эту рассылку убрали 2 октября. Выключатель на случай, если её вернут.",
-    off: "Не проверяется.",
+    on: "В утренней сводке есть строки «продавцы без объекта дольше недели» и «объект снят из-за потерянного продавца», в голосовом брифинге — первая из них.",
+    off: "Этих строк в сводке и брифинге нет.",
   },
 };
