@@ -7226,6 +7226,19 @@ model Settings {
   /// стирается: включили обратно — история на месте. @default(true), чтобы
   /// поведение на проде не изменилось само в момент выката миграции.
   royalScoreEnabled                 Boolean   @default(true)
+  /// ВЫКЛЮЧАТЕЛИ АВТОМАТИКИ «РАБОТА С ПРОДАВЦАМИ» (владелец 14.11.2026). Список,
+  /// правило «главный И свой» и подписи — packages/shared/src/sellerAutomationSwitches.ts,
+  /// проверка — apps/api/src/lib/sellerSwitches.ts в начале каждого тика/задания.
+  /// Все @default(true): выкат миграции поведение не меняет, выключает человек.
+  sellerAutomationMasterEnabled         Boolean @default(true)
+  sellerNoPropertyAlarmEnabled          Boolean @default(true)
+  sellerPropertyMissingAntifraudEnabled Boolean @default(true)
+  agentUnansweredAlarmEnabled           Boolean @default(true)
+  dealStaleSellersEnabled               Boolean @default(true)
+  sellerProbeCallEnabled                Boolean @default(true)
+  dealAfterCloseMessagesEnabled         Boolean @default(true)
+  sellerAiAnalysisEnabled               Boolean @default(true)
+  morningSellerLinesEnabled             Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из
@@ -9294,6 +9307,12 @@ model IncomingCall {
   /// Номер звонящего в том виде, в каком его хранит CRM (+992…). Станция сообщает
   /// девять цифр без кода страны — приводится при записи (см. lib/telephony/incomingCalls.ts).
   phone             String
+  /// Откуда пришёл звонок: "phone" — обычная линия, "whatsapp" — голосовой звонок
+  /// WhatsApp через шлюз SIP (канал станции `PJSIP/whatsapp-gw-…`, 18.11.2026).
+  /// Строка, а не enum — по той же причине, что routeDecision: новый канал не
+  /// требует миграции типа. Значения — INCOMING_CALL_SOURCES в packages/shared,
+  /// решает lib/telephony/callSource.ts.
+  source            String    @default("phone")
   startedAt         DateTime  @default(now())
   endedAt           DateTime?
   /// Разговор состоялся: кто-то из операторов снял трубку. Ответ самой очереди

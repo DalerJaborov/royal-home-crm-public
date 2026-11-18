@@ -9,6 +9,17 @@ import { runSellerNoPropertyAlarmTick, ALARM_DAYS } from "../src/lib/sellerNoPro
 import { loadHotScoreThreshold } from "../src/lib/hotScoreThreshold.js";
 
 /**
+ * Выключатели «работа с продавцами» (14.11.2026) — подменяются ТОЛЬКО в этом файле:
+ * по умолчанию всё включено, как в базе, а выключение не трогает общую строку
+ * Settings, которую в тот же момент читают тесты других файлов.
+ */
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/sellerSwitches.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/sellerSwitches.js")>()),
+  sellerSwitchOn: async (key: string) => !switchesOff.has(key),
+}));
+
+/**
  * Регрессионный тест аларма «продавец без объекта после съёмки» (требование 7,
  * аудит 02.09.2026). Проверяет логику детектора через возвращаемое значение alerted,
  * а не через записи в Notification (те зависят от внутренней гонки upsertByTag
@@ -161,6 +172,20 @@ describe("runSellerNoPropertyAlarmTick", () => {
     expect(alerted).toBeGreaterThanOrEqual(1);
     const note = await prisma.notification.findFirst({ where: { tag: `alarm-seller-no-prop-${c.id}` } });
     expect(note).not.toBeNull();
+  });
+
+  it("выключатель владельца выключен — уведомления нет; включили — приходит", async () => {
+    const c = await makeSeller({ daysSinceMeeting: ALARM_DAYS + 1, aiScore: HIGH_SCORE_THRESHOLD });
+    switchesOff.add("sellerNoPropertyAlarmEnabled");
+    try {
+      expect(await runSellerNoPropertyAlarmTick(NOW)).toEqual({ alerted: 0 });
+      expect(checkClientExplainedPause).not.toHaveBeenCalled();
+      expect(await alarmSentFor(c.id)).toBe(false);
+    } finally {
+      switchesOff.delete("sellerNoPropertyAlarmEnabled");
+    }
+    await runSellerNoPropertyAlarmTick(NOW);
+    expect(await alarmSentFor(c.id)).toBe(true);
   });
 
   it("ни встречи, ни propertyAcceptedAt → отсчитывать не от чего, аларма нет", async () => {

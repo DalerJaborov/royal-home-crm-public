@@ -31,8 +31,9 @@ if [ "$op" = "enable" ] && [ "$DRY_RUN" != "1" ]; then
   # и открытые чаты) звонят в пустоту, а Meta штрафует за неотвеченные.
   docker inspect -f '{{.State.Health.Status}}' "$WA_CONTAINER" 2>/dev/null | grep -qx healthy \
     || wa_die "шлюз $WA_CONTAINER не в состоянии healthy — сначала шаг «запустить шлюз»"
-  echo | timeout 10 openssl s_client -quiet -verify_hostname "$WA_SIP_HOST" -connect "$WA_SIP_HOST:${WA_TLS_PORT:-5061}" 2>&1 \
-    | grep -q "verify return:1" || wa_die "сертификат $WA_SIP_HOST:${WA_TLS_PORT:-5061} не проходит проверку openssl — Meta его тоже не примет"
+  # Без -quiet и без grep -q — см. wa-health.sh (18.11.2026: проверка всегда падала по таймауту).
+  echo | timeout 10 openssl s_client -verify_hostname "$WA_SIP_HOST" -connect "$WA_SIP_HOST:${WA_TLS_PORT:-5061}" 2>&1 \
+    | grep "Verify return code: 0 (ok)" >/dev/null || wa_die "сертификат $WA_SIP_HOST:${WA_TLS_PORT:-5061} не проходит проверку openssl — Meta его тоже не примет"
 fi
 
 wa_log "операция у Meta: $op (номер ${WA_PHONE_ID:-?})"

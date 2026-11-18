@@ -2230,6 +2230,11 @@
       "label": "Недельная сводка безопасности: отказы, похожие на сделку на стороне"
     },
     {
+      "id": "whatsapp-calling-health",
+      "expr": "23 * * * *",
+      "label": null
+    },
+    {
       "id": "whatsapp-webhook-watch",
       "expr": "8-59/20 * * * *",
       "label": null

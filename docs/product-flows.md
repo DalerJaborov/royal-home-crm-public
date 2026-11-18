@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **778**. Развилок в самих путях: **2488**; вместе с задачами по расписанию и фоновыми заданиями — **4078**. Модулей: **87**.
+Путей: **778**. Развилок в самих путях: **2488**; вместе с задачами по расписанию и фоновыми заданиями — **4126**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18692,6 +18692,8 @@
       · пишет строку в журнал сервера
     - return res.json({ ok: true });
       · ответ 200
+- handleWhatsappCallEvents(req.body);
+  · зовёт handleWhatsappCallEvents()
 - const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   · зовёт persistVerifiedCustomerIngressBatch()
 - если durableIngress.status === "denied" || durableIngress.status === "unavailable"
@@ -18939,7 +18941,7 @@
               · зовёт looksLikeMoneyRequest()
             - const guardSilentOnly = !reactionOnly && !moneyRequestOnly && screenIncomingText(text).action === "silent";
               · зовёт screenIncomingText()
-            - если bot.channels[msg.channel] && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silentForeignShare &&…
+            - если bot.channels[msg.channel] && !recordOnly && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silent…
               - void sleep(800 + Math.random() * 1700).then(() => showMetaReadAndTyping(msg.channel, msg.senderId, msg.messag…
                 · дословно из кода
             - если !bot.channels[msg.channel]
@@ -19688,7 +19690,9 @@
     - если !(await isWithinAlarmHours(now))
       - return { alerted: 0 };
         · дословно из кода
-    - const items = await findUnansweredClients(now);
+    - const sellersOn = await sellerSwitchOn("agentUnansweredAlarmEnabled");
+      · зовёт sellerSwitchOn()
+    - const items = (await findUnansweredClients(now)).filter((i)
       · зовёт findUnansweredClients()
     - если items.length === 0
       - return { alerted: 0 };
@@ -19719,6 +19723,9 @@
   - const settings = await prisma.settings.findUnique({ where: { id: 'singleton' }, select: { liveVoiceEnabled: t…
     · читает в базе: settings
   - если !settings?.liveVoiceEnabled || !settings.postShowingCallEnabled
+    - return 0;
+      · дословно из кода
+  - если !(await sellerSwitchOn("sellerProbeCallEnabled"))
     - return 0;
       · дословно из кода
   - await loadCompanyDaysOff();
@@ -20925,6 +20932,8 @@
     · зовёт runDealStalePipeline()
     - const rules = await loadDealStaleRules();
       · зовёт loadDealStaleRules()
+    - const sellersOn = await sellerSwitchOn("dealStaleSellersEnabled");
+      · зовёт sellerSwitchOn()
     - для каждого: const client of sellers
       - пробует
       - если сорвалось
@@ -24226,6 +24235,9 @@
 - пробует
   - const { alerted } = await runSellerNoPropertyAlarmTick();
     · зовёт runSellerNoPropertyAlarmTick()
+    - если !(await sellerSwitchOn("sellerNoPropertyAlarmEnabled"))
+      - return { alerted: 0 };
+        · дословно из кода
     - если !(await isWithinAlarmHours(now))
       - return { alerted: 0 };
         · дословно из кода
@@ -24310,6 +24322,9 @@
     - если !settings?.postShowingCallEnabled || !settings.liveVoiceEnabled
       - return 0;
         · дословно из кода
+    - если !(await sellerSwitchOn("sellerProbeCallEnabled"))
+      - return 0;
+        · дословно из кода
     - await loadCompanyDaysOff();
       · зовёт loadCompanyDaysOff()
     - await scheduleSellerProbeCalls(now);
@@ -24342,6 +24357,9 @@
 - пробует
   - const { escalated } = await escalateSellerPropertyMissing();
     · зовёт escalateSellerPropertyMissing()
+    - если !(await sellerSwitchOn("sellerPropertyMissingAntifraudEnabled"))
+      - return { escalated: 0 };
+        · дословно из кода
     - если !(await isWithinAlarmHours(now))
       - return { escalated: 0 };
         · дословно из кода
@@ -25432,6 +25450,12 @@
       - если ariCreds
         - checks.push(await probeLiveVoiceApp(ariCreds));
           · дословно из кода
+      - пробует
+        - await watchOfficeDeskPhone(now);
+          · зовёт watchOfficeDeskPhone()
+      - если сорвалось
+        - void logSystemError("telephony", `Проверка офисного аппарата не выполнена: ${describeError(err)}`, { dedupKey…
+          · запись в журнал ошибок
       - если silence
         - checks.push(silence);
           · дословно из кода
@@ -26246,6 +26270,50 @@
     · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка недельной сводки СБ", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### whatsapp-calling-health — 23 * * * *
+
+- пробует
+  - const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();
+    · зовёт runWhatsappCallingHealthCheck()
+    - если !(await isMetaChannelEnabled("WHATSAPP"))
+      - return { ...result, skipped: "channel_off" };
+        · дословно из кода
+    - const creds = await loadCredentials();
+      · зовёт loadCredentials()
+    - const token = creds.waPhoneId ? (await resolveIncomingAccount("WHATSAPP", creds.waPhoneId)).token || creds.wa…
+      · зовёт resolveIncomingAccount()
+    - если !creds.waPhoneId || !token
+      - return { ...result, skipped: "not_configured" };
+        · дословно из кода
+    - пробует
+      - если !callingOn
+        - await resolveAlarm(WA_CALLING_CHECK_ALARM_KEY);
+          · дословно из кода
+        - return { ...result, skipped: "calling_off" };
+          · дословно из кода
+      - если availability === "AVAILABLE"
+        - await resolveAlarm(WA_CALLING_SIP_ALARM_KEY);
+          · дословно из кода
+        - return result;
+          · дословно из кода
+      - если availability !== "BLOCKED" && availability !== "LIMITED"
+        - console.log(`[whatsapp-звонки] Meta не сообщила can_receive_call_sip (значение: ${availability ?? "нет поля"}…
+          · пишет строку в журнал сервера
+    - если сорвалось
+      - если !(err instanceof GraphCheckError)
+        - throw err;
+          · пробрасывает ошибку дальше
+  - если alarmed
+    - console.log(`[cron] Звонки WhatsApp через SIP: ${sipAvailability ?? "состояние неизвестно"} — тревога руковод…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «звонки WhatsApp»", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
@@ -28477,7 +28545,7 @@
 - если !isDealStillClosed(deal)
   - return;
     · дальше не идёт, ничего не меняя
-- если deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId
+- если deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn("deal…
   - await askSide(deal.id, deal.property.sellerClientId);
     · дословно из кода
 - когда попытки кончились
@@ -29106,6 +29174,9 @@
 
 `apps/api/src/jobs/sellerFacts.ts`
 
+- если !(await sellerSwitchOn("sellerAiAnalysisEnabled"))
+  - return;
+    · дальше не идёт, ничего не меняя
 - await refreshSellerFacts(payload.clientId);
   · зовёт refreshSellerFacts()
   - const client = await prisma.client.findUnique({ where: { id: clientId }, select: { kind: true, dualIntent: tr…
@@ -29190,6 +29261,9 @@
 
 `apps/api/src/jobs/sellerPhotoInsight.ts`
 
+- если !(await sellerSwitchOn("sellerAiAnalysisEnabled"))
+  - return;
+    · дальше не идёт, ничего не меняя
 - const attachments = await listSellerAttachments(payload.clientId);
   · зовёт listSellerAttachments()
   - для каждого: const msg of messages
@@ -29329,6 +29403,183 @@
         · пишет строку в журнал сервера
       - void logSystemError( "api", `Не удалось поставить аларм руководству в очередь («${params.title}»): ${err inst…
         · запись в журнал ошибок
+
+### socialPublishRetryJob
+
+`apps/api/src/jobs/socialPublishRetry.ts`
+
+- const property = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { id: true, sh…
+  · читает в базе: property
+- если property?.clipReviewStatus === "PENDING"
+  - return;
+    · дальше не идёт, ничего не меняя
+- если !property || property.deletedAt || !property.videoHandoffFinalPath
+  - return;
+    · дальше не идёт, ничего не меняя
+- const blocked = handoffStatusBlockReason(property.status);
+  · зовёт handoffStatusBlockReason()
+  - если HANDOFF_PUBLISHABLE_STATUSES.includes(status)
+    - return null;
+      · дословно из кода
+- если blocked
+  - void logSystemError("meta", `Объект №${property.shortId}: отложенный повтор (${label}) отменён — ${blocked}`);
+    · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
+    - если isShuttingDown()
+      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+        · пишет строку в журнал сервера
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+        · читает в базе: errorLog
+      - если recent
+        - return;
+          · дальше не идёт, ничего не меняя
+      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+        · читает в базе: errorLog
+      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+        · создаёт в базе: errorLog
+      - если !context?.quietPult
+        - requestPultSnapshot();
+          · зовёт requestPultSnapshot()
+      - если !everSeen && !context?.silent
+        - пробует
+        - если сорвалось
+    - если сорвалось
+      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+        · пишет строку в журнал сервера
+  - return;
+    · дальше не идёт, ничего не меняя
+- const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { autoPublishEnabled:…
+  · читает в базе: settings
+- если !settings?.autoPublishEnabled
+  - void logSystemError("meta", `Объект №${property.shortId}: отложенный повтор (${label}) отменён — автопубликац…
+    · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
+    - если isShuttingDown()
+      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+        · пишет строку в журнал сервера
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+        · читает в базе: errorLog
+      - если recent
+        - return;
+          · дальше не идёт, ничего не меняя
+      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+        · читает в базе: errorLog
+      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+        · создаёт в базе: errorLog
+      - если !context?.quietPult
+        - requestPultSnapshot();
+          · зовёт requestPultSnapshot()
+      - если !everSeen && !context?.silent
+        - пробует
+        - если сорвалось
+    - если сорвалось
+      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+        · пишет строку в журнал сервера
+  - return;
+    · дальше не идёт, ничего не меняя
+- const diskPath = videoHandoffFinalDiskPath(property.videoHandoffFinalPath);
+  · зовёт videoHandoffFinalDiskPath()
+  - если !publicPath.startsWith("/uploads/handoff/")
+    - return null;
+      · дословно из кода
+- если !diskPath || !(await fileExists(diskPath))
+  - void logSystemError("meta", `Объект №${property.shortId}: отложенный повтор (${label}) отменён — файла ролика…
+    · запись в журнал ошибок
+  - return;
+    · дальше не идёт, ничего не меняя
+- const mainRunning = await prisma.backgroundJob.findFirst({ where: { dedupeKey: videoHandoffPublishDedupeKey(p…
+  · читает в базе: backgroundJob
+- если mainRunning
+  - throw new RetryLater(`Идёт основная публикация объекта №${property.shortId} — повторим ${label} позже`);
+    · ошибка RetryLater — «Идёт основная публикация объекта №${property.shortId} — повторим ${lab»
+- если payload.channel === "INSTAGRAM_STORIES"
+  - return;
+    · дальше не идёт, ничего не меняя
+- если (property.publishedChannels ?? []).includes(channel)
+  - return;
+    · дальше не идёт, ничего не меняя
+- const [result] = await publishApprovedPost({ propertyId: property.id, localVideoPath: property.videoHandoffFi…
+  · зовёт publishApprovedPost()
+- если !result
+  - return;
+    · дальше не идёт, ничего не меняя
+- если result.ok
+  - await applySucceededPublishResults( property.id, [{ channel, postId: result.postId, secondaryPostId: result.s…
+    · зовёт applySucceededPublishResults()
+  - если channel === "INSTAGRAM"
+    - await enqueueSocialPublishRetry(property.id, "INSTAGRAM_STORIES", { now: true });
+      · зовёт enqueueSocialPublishRetry()
+  - return;
+    · дальше не идёт, ничего не меняя
+- если result.pending
+  - return;
+    · дальше не идёт, ничего не меняя
+- если result.outcomeUnknown
+  - return;
+    · дальше не идёт, ничего не меняя
+- если result.retriable
+  - throw new RetryLater(`${label} снова не смог скачать ролик объекта №${property.shortId}: ${result.error ?? "б…
+    · ошибка RetryLater — «${label} снова не смог скачать ролик объекта №${property.shortId}: ${r»
+- void logSystemError( "meta", `Публикация в ${label} (объект ${property.id}) не удалась при отложенном повторе…
+  · запись в журнал ошибок
+- когда попытки кончились
+  - если !parsed.success
+    - return;
+      · дальше не идёт, ничего не меняя
+  - void logSystemError("meta", text);
+    · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
+    - если isShuttingDown()
+      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+        · пишет строку в журнал сервера
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+        · читает в базе: errorLog
+      - если recent
+        - return;
+          · дальше не идёт, ничего не меняя
+      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+        · читает в базе: errorLog
+      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+        · создаёт в базе: errorLog
+      - если !context?.quietPult
+        - requestPultSnapshot();
+          · зовёт requestPultSnapshot()
+      - если !everSeen && !context?.silent
+        - пробует
+        - если сорвалось
+    - если сорвалось
+      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+        · пишет строку в журнал сервера
 
 ### socialRepostPublishJob
 
@@ -29838,7 +30089,7 @@
   - если Boolean(params.propertyId) === Boolean(params.freeVideoId)
     - throw new Error("publishApprovedPost: нужно передать ровно одно из propertyId / freeVideoId");
       · ошибка Error — «publishApprovedPost: нужно передать ровно одно из propertyId / freeVid»
-  - async function noteStarted(channel: PublishChannel, destinationKey: string = channel): Promise<void> { if (!p…
+  - function metaFailureText(label: string, result: PublishResult): string { if (!result.retriable) return `Публи…
     · запись в журнал ошибок
   - const coverUrl = params.localCoverPath ? publicUploadUrl(params.localCoverPath) : null;
     · зовёт publicUploadUrl()
@@ -29885,7 +30136,7 @@
         - result.destinationKey = igKey;
           · дословно из кода
       - если !result.ok && !result.pending
-        - void logSystemError("meta", `Публикация в Instagram (${ownerText}) не удалась: ${result.error}`);
+        - void logSystemError("meta", metaFailureText("Instagram", result));
           · запись в журнал ошибок
     - иначе
       - если igKey
@@ -29913,7 +30164,7 @@
         - appendNote(result, await setFacebookVideoThumbnail(result.postId, creds.pageToken, squareAbsolutePath));
           · дословно из кода
       - если !result.ok
-        - void logSystemError("meta", `Публикация в Facebook (${ownerText}) не удалась: ${result.error}`);
+        - void logSystemError("meta", metaFailureText("Facebook", result));
           · запись в журнал ошибок
   - const extraChatIds = parseTelegramChatIds(settings?.telegramExtraChatIds ?? null, channelId);
     · зовёт parseTelegramChatIds()
@@ -29981,7 +30232,7 @@
     - const result = await publishThreadsVideo(threadsCreds, videoUrl, params.caption);
       · зовёт publishThreadsVideo()
     - если !result.ok && !result.pending
-      - void logSystemError("threads", `Публикация в Threads (${ownerText}) не удалась: ${result.error}`);
+      - void logSystemError("threads", metaFailureText("Threads", result));
         · запись в журнал ошибок
 - если result?.ok
   - await applySucceededPublishResults(property.id, [{ channel: "TIKTOK", postId: result.postId }]);

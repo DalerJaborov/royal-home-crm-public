@@ -90,6 +90,7 @@ import {
   whatsAppMediaSource,
   type MetaChannel,
 } from "../messengers/meta.js";
+import { handleWhatsappCallEvents } from "../messengers/whatsappCalls.js";
 import { emojiThanksReply, ingestInstagramComments, reactionHeart, RUDE_EMOJI } from "../messengers/comments.js";
 import { resolveIncomingAccount } from "../messengers/accounts.js";
 import { brandForAccount } from "../ai/brandName.js";
@@ -1700,6 +1701,12 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
     }
     lateHanded = incoming;
   }
+  // ЗВОНКИ WHATSAPP (18.11.2026, messengers/whatsappCalls.ts): поле `calls` раньше
+  // пропускалось молча. Сам звонок CRM записывает со стороны станции; здесь — одна
+  // строка в журнал контейнера на событие (connect/terminate), без записи в базу и
+  // без ответа клиенту. До сохранения входящих — чтобы событие было видно, даже если
+  // сохранение ответит 503 (повтор Meta даст лишь повтор строки).
+  handleWhatsappCallEvents(req.body);
   // Short durable intake precedes the provider ACK when the scoped rollout
   // is enabled. No model/provider call occurs here. OFF follows legacy intake.
   const durableIngress = await persistVerifiedCustomerIngressBatch(req);
@@ -2600,8 +2607,11 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // (QA 02.10.2026). Окончательно спам решает ход (conversation.ts), здесь —
       // та же проверка заранее, только ради «прочитано».
       const looksSpam = Boolean(detectSpam(text, spamContext));
+      // WhatsApp `unsupported` (meta.ts, recordOnly): след в переписке, без хода и без «прочитано».
+      const recordOnly = msg.recordOnly === true;
       if (
         bot.channels[msg.channel] &&
+        !recordOnly &&
         !reactionOnly &&
         !moneyRequestOnly &&
         !guardSilentOnly &&
@@ -2680,7 +2690,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         // дальше до карточки (ROMI по объявлению). Раньше выбрасывался здесь.
         adExternalId: msg.adId,
         adClickId: msg.adClickId,
-        silent: reactionOnly || moneyRequestOnly || silentForeignShare,
+        silent: reactionOnly || moneyRequestOnly || silentForeignShare || recordOnly,
         name: msg.name ?? (await resolveInstagramName(msg.channel, msg.senderId, account.token, account.id, customerTransport)),
         attachments,
         // Для цитат в переписке CRM: чем это сообщение было у Meta и на что клиент

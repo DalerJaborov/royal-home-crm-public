@@ -72,6 +72,11 @@ import {
   TIKTOK_PUBLISH_RETRY_FIRST_DELAY_MS,
   tiktokPublishRetryDedupeKey,
 } from "../jobs/tiktokPublishRetryPolicy.js";
+import {
+  enqueueSocialPublishRetry,
+  isSocialPublishRetryTarget,
+  socialPublishRetryDedupeKeys,
+} from "../jobs/socialPublishRetryPolicy.js";
 import { nextPublishSlot } from "./publishSchedule.js";
 import { loadOccupiedPublishSlots } from "./publishSlots.js";
 import { updatePublishedMarks, type PublishedMarks } from "./publishedMarks.js";
@@ -1998,10 +2003,20 @@ export function handoffSkippedByStatusReason(status: string): string {
  * его, а вышедший канал записывает только в конце своего шага — любое действие
  * посреди этого либо теряется молча, либо старый ролик выходит после «удалили».
  */
+/**
+ * ВСЕ задания, которые публикуют принятый ролик объекта: основная публикация,
+ * повтор TikTok и повторы Meta-каналов (18.11.2026). Одна точка: «идёт ли
+ * публикация» и «снять ждущие при отзыве ролика» не должны разъехаться, когда
+ * появится ещё один вид повтора (lib/publishedVideoFix.ts зовёт её же).
+ */
+export function handoffPublishJobDedupeKeys(propertyId: string): string[] {
+  return [videoHandoffPublishDedupeKey(propertyId), tiktokPublishRetryDedupeKey(propertyId), ...socialPublishRetryDedupeKeys(propertyId)];
+}
+
 export async function isHandoffPublishRunning(propertyId: string, db: TxClient = prisma): Promise<boolean> {
   const running = await db.backgroundJob.findFirst({
     where: {
-      dedupeKey: { in: [videoHandoffPublishDedupeKey(propertyId), tiktokPublishRetryDedupeKey(propertyId)] },
+      dedupeKey: { in: handoffPublishJobDedupeKeys(propertyId) },
       status: "RUNNING",
     },
     select: { id: true },
@@ -2900,7 +2915,7 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
   const now = new Date();
   await prisma.$transaction(async (tx) => {
     await tx.backgroundJob.deleteMany({
-      where: { dedupeKey: { in: [videoHandoffPublishDedupeKey(propertyId), tiktokPublishRetryDedupeKey(propertyId)] }, status: "PENDING" },
+      where: { dedupeKey: { in: handoffPublishJobDedupeKeys(propertyId) }, status: "PENDING" },
     });
     await tx.property.update({
       where: { id: propertyId },
@@ -3374,8 +3389,15 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
     }
     for (const result of retriable) {
       if (result.channel !== "TIKTOK") {
-        // Признак пока ставит только TikTok. Появится второй канал — ему нужно
-        // своё задание повтора, а не тихое попадание в «ожидает» без того, кто
+        // Meta не смогла скачать наш файл (18.11.2026, объект №208: публикация
+        // совпала с перезапуском nginx при выкате) — повтор через несколько
+        // минут, своё задание на каждый канал (jobs/socialPublishRetry.ts).
+        if (isSocialPublishRetryTarget(result.channel)) {
+          await enqueueSocialPublishRetry(property.id, result.channel);
+          continue;
+        }
+        // YouTube и Telegram признак не ставят (читают файл с диска). Если
+        // появится — ему нужно своё задание, а не тихое «ожидает» без того, кто
         // это ожидание доведёт до конца.
         void logSystemError(
           "video-handoff",
@@ -3428,7 +3450,10 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
       // Отказ не должен ронять уже случившуюся публикацию Reels — поэтому свой try.
       if (igResult?.ok) {
         try {
-          await publishPropertyInstagramStories(property.id, localVideoPath);
+          const stories = await publishPropertyInstagramStories(property.id, localVideoPath);
+          // Часть не вышла, потому что Meta не смогла скачать файл (№208, часть 1/3) —
+          // повтор через несколько минут доделает серию с упавшей части.
+          if (stories.retriable) await enqueueSocialPublishRetry(property.id, "INSTAGRAM_STORIES");
         } catch (err) {
           void logSystemError("meta", `Истории Instagram (объект ${property.id}) упали неожиданно: ${describeError(err)}`);
         }
@@ -3446,7 +3471,8 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
     // одного, а доделать серию всё равно надо.
     if (!igResult?.ok) {
       try {
-        await publishPropertyInstagramStories(property.id, localVideoPath, { resumeOnly: true });
+        const stories = await publishPropertyInstagramStories(property.id, localVideoPath, { resumeOnly: true });
+        if (stories.retriable) await enqueueSocialPublishRetry(property.id, "INSTAGRAM_STORIES");
       } catch (err) {
         void logSystemError("meta", `Истории Instagram (объект ${property.id}) упали неожиданно: ${describeError(err)}`);
       }

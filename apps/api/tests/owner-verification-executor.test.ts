@@ -11,6 +11,8 @@ vi.mock('../src/lib/telephony/stationBlacklist.js', async importOriginal => ({ .
 vi.mock('../src/lib/scenarioCallEligibility.js', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/scenarioCallEligibility.js')>(), scenarioCallBlockReason: vi.fn(async () => null) }));
 vi.mock('../src/lib/daysOffCalendar.js', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/daysOffCalendar.js')>(), loadCompanyDaysOff: vi.fn(async () => []), companyDaysOffSnapshot: () => [] }));
 vi.mock('../src/lib/telephony/scenarioVoice.js', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/telephony/scenarioVoice.js')>(), scenarioVoice: vi.fn(async () => ({ gender: 'female', voiceName: 'stand-voice', forceRussianOnly: true })) }));
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock('../src/lib/sellerSwitches.js', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/sellerSwitches.js')>(), sellerSwitchOn: async (key: string) => !switchesOff.has(key) }));
 import { runNewOwnerVerificationTick } from '../src/lib/sellerProbeCall.js';
 const now = new Date('2026-10-26T10:00:00Z');
 beforeEach(() => {
@@ -27,6 +29,13 @@ afterEach(() => vi.unstubAllEnvs());
 describe('new owner verification executor gates and unknown outcome', () => {
   it('requires the caller gate even when environment is LIVE', async () => {
     expect(await runNewOwnerVerificationTick(now)).toBe(0); expect(s.settings).not.toHaveBeenCalled(); expect(s.originate).not.toHaveBeenCalled();
+  });
+  it('owner switch «robot calls the owner» off: nothing is dialled or touched (14.11.2026)', async () => {
+    switchesOff.add('sellerProbeCallEnabled');
+    try {
+      expect(await runNewOwnerVerificationTick(now, { allowLive: true })).toBe(0);
+      expect(s.find).not.toHaveBeenCalled(); expect(s.update).not.toHaveBeenCalled(); expect(s.originate).not.toHaveBeenCalled();
+    } finally { switchesOff.delete('sellerProbeCallEnabled'); }
   });
   it('never drains preview even when a due query incorrectly returns one', async () => {
     s.row.previewOnly = true;

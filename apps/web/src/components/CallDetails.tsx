@@ -271,6 +271,13 @@ export interface CallDetailsProps {
   recordingDurationSec?: number | null;
   /** Кем подписывать реплики агента в чате расшифровки вместо родового «Агент». */
   agentName?: string | null;
+  /**
+   * «Новый вид» (пачка calls, 18.11.2026): реплики расшифровки — пузырями с
+   * классами слоя `theme-look-royal-calls.css`, а не инлайн-цветами старой темы.
+   * Передаёт только раздел «Звонки» при включённом виде; хронология карточки
+   * клиента и все остальные места не передают — у них ни пикселя не меняется.
+   */
+  royal?: boolean;
 }
 
 /**
@@ -292,6 +299,7 @@ export function CallDetails({
   notes,
   recordingDurationSec,
   agentName,
+  royal = false,
 }: CallDetailsProps) {
   // Перевод не готов заранее, а считается по клику (см. translatedRu ниже) —
   // ИИ-разбору он не нужен вовсе, тот и так читает оригинал. Само переключение
@@ -475,6 +483,7 @@ export function CallDetails({
               durationSec={recordingDurationSec}
               onRetranscribe={hasRecording ? requestRetranscribe : undefined}
               retranscribing={retranscribing}
+              royal={royal}
             />
             {retranscribeMessage && <div className="note" style={{ marginTop: 8 }}>{retranscribeMessage}</div>}
             {retranscribeError && (

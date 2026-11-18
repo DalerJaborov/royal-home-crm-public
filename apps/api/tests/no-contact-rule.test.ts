@@ -5,6 +5,7 @@ import bcrypt from "bcrypt";
 import { NO_CONTACT_TEXT, noContactTileTone } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
 import { INCOMING_CALL_NOTE_PREFIX, noContactWhere } from "../src/lib/noContact.js";
+import { inboundCallNotePrefix } from "../src/lib/telephony/callSource.js";
 
 /**
  * «НЕ СВЯЗЫВАЛИСЬ» — ОДНО ПРАВИЛО (17.11.2026, жалоба РОП Нозы: «Пятьдесят без
@@ -40,9 +41,19 @@ describe("сторож: пропущенный входящий узнаётся
     const start = src.indexOf("notes: byConsultant");
     expect(start).toBeGreaterThan(0);
     const block = src.slice(start, src.indexOf("/**", start));
-    const literals = [...block.matchAll(/[`"](Входящ[^`"]*|[А-ЯЁ][^`"]{10,})[`"]/g)].map((m) => m[1]);
+    const literals = [...block.matchAll(/[`"](Входящ[^`"]*|[А-ЯЁ][^`"]{10,}|\$\{[^`"]*)[`"]/g)].map((m) => m[1]);
     expect(literals.length).toBeGreaterThanOrEqual(5);
-    for (const text of literals) expect(text.startsWith(INCOMING_CALL_NOTE_PREFIX)).toBe(true);
+    // С 18.11.2026 начало строки собирает callSource.ts::inboundCallNotePrefix («…из WhatsApp»
+    // дописывается после): шаблон обязан начинаться с переменной, взятой из этой функции.
+    const prefixVars = [...src.matchAll(/const (\w+) = inboundCallNotePrefix\(/g)].map((m) => m[1]);
+    for (const text of literals) {
+      const viaHelper = prefixVars.some((v) => text.startsWith(`\${${v}}`));
+      expect(viaHelper || text.startsWith(INCOMING_CALL_NOTE_PREFIX)).toBe(true);
+    }
+    for (const source of ["phone", "whatsapp", undefined]) {
+      expect(inboundCallNotePrefix(source, true).startsWith(INCOMING_CALL_NOTE_PREFIX)).toBe(true);
+      expect(inboundCallNotePrefix(source, false).startsWith(INCOMING_CALL_NOTE_PREFIX)).toBe(true);
+    }
   });
 });
 

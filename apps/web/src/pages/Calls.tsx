@@ -43,6 +43,11 @@ import {
 } from "../components/proto/ProtoIcons";
 import { ScreenTabs } from "../components/ScreenTabs";
 import { InboxTabs } from "../components/SectionTabs";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RoyalCallFlag, RoyalCallListen, RoyalCallRow, scoreFlagTone } from "../components/look/calls/RoyalCallRow";
+import { CallSourceMark } from "../components/look/calls/CallSourceMark";
+import { RoyalCallsTop } from "../components/look/calls/RoyalCallsTop";
 
 /**
  * «Звонки» — как агентство разговаривает с клиентами.
@@ -88,7 +93,7 @@ function missingAnalysisReason(call: CallRow): string {
  * внутри кнопки — сломанная разметка для экранного диктора. С клавиатуры раскрывает
  * настоящая кнопка `.pill.ghost.sm` справа, она же несёт aria-expanded.
  */
-function CallRowItem({ call, showAgent }: { call: CallRow; showAgent: boolean }) {
+function CallRowItem({ call, showAgent, royal = false }: { call: CallRow; showAgent: boolean; royal?: boolean }) {
   const [open, setOpen] = useState(false);
   const analysis = call.analysis;
   const detailsId = `call-details-${call.id}`;
@@ -97,6 +102,62 @@ function CallRowItem({ call, showAgent }: { call: CallRow; showAgent: boolean })
   // недозвон, а не как разговор с «0:00» и вечным «разбор ещё готовится».
   const noAnswer = !!call.callAttempt && call.callAttempt !== "TALKED";
   const attemptLabel = noAnswer ? (CALL_ATTEMPT_LABELS[call.callAttempt!] ?? "Не дозвонились") : null;
+
+  // «Новый вид» (пачка calls): та же строка — те же данные, пометки и действия,
+  // одна кнопка справа («Слушать» раскрывает тот же разбор, «Перезвонить» — та
+  // же кнопка CRM-звонка). Без признака вида — прежняя разметка ниже.
+  if (royal) {
+    const duration = formatCallDuration(call.durationSec);
+    return (
+      <RoyalCallRow
+        dir={noAnswer ? "missed" : "out"}
+        dirLabel={noAnswer ? attemptLabel! : "Исходящий"}
+        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{call.client.fullName}</Link> : "Клиент удалён"}
+        meta={[
+          noAnswer ? attemptLabel : "Исходящий",
+          relativeTime(call.createdAt),
+          noAnswer ? null : duration,
+          showAgent && call.agent ? call.agent.fullName : null,
+        ]}
+        note={!noAnswer && analysis ? analysis.summary : undefined}
+        flags={!noAnswer && (
+          analysis ? <>
+            <RoyalCallFlag tone={scoreFlagTone(scoreTone(analysis.score))}>Балл {analysis.score}</RoyalCallFlag>
+            {!analysis.agreedNextStep && <RoyalCallFlag tone="crit">Без договорённости</RoyalCallFlag>}
+          </> : (
+            <RoyalCallFlag tone="mute">{call.transcriptionStage ? "Расшифровываем" : missingAnalysisReason(call)}</RoyalCallFlag>
+          )
+        )}
+        action={noAnswer ? (
+          call.client && (
+            <CallClientButton clientId={call.client.id} phone="" variant="full" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-act" />
+          )
+        ) : (
+          <RoyalCallListen open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={duration} />
+        )}
+        details={open && !noAnswer && (
+          <div className="ry-call-details" id={detailsId}>
+            {!analysis && call.transcriptionStage && (
+              <TranscriptionStatus stage={call.transcriptionStage} progress={call.transcriptionProgress} />
+            )}
+            <CallDetails
+              interactionId={call.id}
+              createdAt={call.createdAt}
+              hasRecording={call.hasRecording}
+              canHear={call.canHear}
+              transcript={call.transcript}
+              transcriptRu={call.transcriptRu}
+              analysis={analysis}
+              notes={call.notes}
+              recordingDurationSec={call.durationSec}
+              agentName={call.agent?.fullName ?? null}
+              royal
+            />
+          </div>
+        )}
+      />
+    );
+  }
 
   return (
     <>
@@ -203,8 +264,42 @@ function CallRowItem({ call, showAgent }: { call: CallRow; showAgent: boolean })
  * «Перезвонить» стоит ТОЛЬКО у пропущенного (правило владельца): у состоявшегося
  * разговора перезванивать нечего, там есть карточка клиента.
  */
-function IncomingRowItem({ call }: { call: IncomingCallRow }) {
+function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal?: boolean }) {
   const needsQualifying = call.answered && !!call.client && !call.qualifiedAt;
+  // «Новый вид»: те же пометки и действия. У принятого входящего своей записи в
+  // CRM нет — кнопки «Слушать» нет и не было; «Перезвонить» — только у
+  // пропущенного (правило владельца), «Больше не звонить» — строкой меток.
+  if (royal) {
+    return (
+      <RoyalCallRow
+        dir={call.answered ? "in" : "missed"}
+        dirLabel={call.answered ? "Входящий" : "Пропущенный входящий"}
+        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{call.client.fullName}</Link> : call.phone}
+        meta={[
+          call.answered ? "Входящий" : "Пропущенный",
+          relativeTime(call.startedAt),
+          call.answered ? formatCallDuration(call.talkSeconds) : "до оператора не дозвонился",
+          call.answered ? (call.answeredByName ? `принял ${call.answeredByName}` : call.answeredBy ? `оператор ${call.answeredBy}` : null) : null,
+          call.client ? null : "в базе нет",
+          call.qualifiedBy ? `разобрал ${call.qualifiedBy.fullName}` : null,
+        ]}
+        flags={<>
+          <CallSourceMark source={call.source} look="royal" />
+          {call.irrelevant && <RoyalCallFlag tone="mute">не по делу</RoyalCallFlag>}
+          {needsQualifying && <RoyalCallFlag tone="warn">без разбора</RoyalCallFlag>}
+          {!call.answered && (call.callbackAgent
+            ? <RoyalCallFlag tone="warn">перезвонит {call.callbackAgent.fullName}</RoyalCallFlag>
+            : <RoyalCallFlag tone="crit">Никто не перезвонил</RoyalCallFlag>)}
+          {call.missingCallback && <RoyalCallFlag tone="crit">без перезвона {call.missedCallbackHours}ч+</RoyalCallFlag>}
+          {call.client && <Link className="ry-call-more" to={`/clients/${call.client.shortId}`}>Открыть клиента</Link>}
+          <BlockCallerButton callId={call.id} known={!!call.client} />
+        </>}
+        action={!call.answered && (
+          <CallClientButton clientId={call.client?.id} phone={call.phone} variant="full" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-act" />
+        )}
+      />
+    );
+  }
   return (
     <div className="call-row">
       <span className={`dirn${call.answered ? "" : " miss"}`} aria-label={call.answered ? "Входящий" : "Пропущенный входящий"}>
@@ -242,6 +337,7 @@ function IncomingRowItem({ call }: { call: IncomingCallRow }) {
       ) : (
         <span className="dur crit">не дошёл</span>
       )}
+      <CallSourceMark source={call.source} look="chip" />
       {call.irrelevant && <span className="chip mute">не по делу</span>}
       {needsQualifying && <span className="chip warn">без разбора</span>}
       {!call.answered &&
@@ -319,6 +415,9 @@ export function Calls() {
   // порог тот же, что у мобильной ветки «Сообщений».
   const narrow = useNarrowScreen();
   const clean = useCleanShell();
+  // «Новый вид» (пачка calls): только поверх чистой оболочки, как у «Чатов».
+  const royalLook = useRoyalLook();
+  const royal = clean && royalLook;
   const [searchParams, setSearchParams] = useSearchParams();
   /**
    * Срез читается из адреса (`?slice=missed` и т.п.) — так плитки «Телефонии» и
@@ -460,7 +559,16 @@ export function Calls() {
 
   // Мобильные ветки — свои экраны прототипа; десктоп ниже не тронут.
   if (narrow) {
-    return supervisor ? <MobileCallsSupervisor /> : <MobileCallsAgent />;
+    const mobileScreen = supervisor ? <MobileCallsSupervisor /> : <MobileCallsAgent />;
+    // Метка раздела «Нового вида»: обёртка без своей коробки (display: contents),
+    // раскладка мобильного экрана не меняется; шторки и наборщик получают метку
+    // через контекст RoyalSection. Без признака — прежнее дерево без обёртки.
+    if (!royal) return mobileScreen;
+    return (
+      <RoyalSection name="calls">
+        <div className="ry-calls-m" data-ry-section="calls" style={{ display: "contents" }}>{mobileScreen}</div>
+      </RoyalSection>
+    );
   }
 
   const missedNobody = incoming?.items.filter((c) => !c.answered && !c.callbackAgent).length ?? 0;
@@ -469,8 +577,14 @@ export function Calls() {
   const retry = callsSlice ? refetch : refetchIncoming;
 
   return (
-    <div className="rh2 screens">
+    <RoyalSection name={royal ? "calls" : undefined}>
+    <div className={royal ? "rh2 screens ry-calls" : "rh2 screens"} data-ry-section={royal ? "calls" : undefined}>
       <div className="scr">
+        {royal ? (
+          // Шапка нового вида: тот же переключатель разделов, что у «Чатов», и
+          // тот же наборщик (право прежнее — только администрация).
+          <RoyalCallsTop title={supervisor ? "Звонки" : "Мои звонки"} onDial={supervisor ? () => setDialOpen(true) : undefined} />
+        ) : <>
         <div className={clean ? "flex items-start justify-between gap-5" : "pg-h"}>
           <div>
             <h1 className={clean ? "!text-[28px] !leading-tight !mb-2" : undefined}>{supervisor ? "Звонки" : "Мои звонки"}</h1>
@@ -494,6 +608,7 @@ export function Calls() {
         </div>
 
         <InboxTabs />
+        </>}
 
         {/* Идущие сейчас разговоры робота: слушать вживую. Блока нет, пока на линии пусто.
             Права проверяет сам блок (те же три, что у записи разговора робота). */}
@@ -635,7 +750,7 @@ export function Calls() {
           </CallsInsightsDisclosure>
         )}
 
-        <div className={clean ? "card !p-5 [&_.inp]:!text-[16px] [&_.seg_button]:!text-[14px] [&_.note]:!text-[14px] [&_.call-row_.t_b]:!text-[16px] [&_.call-row_.t_span]:!text-[14px] [&_.call-row_.pill]:!text-[14px]" : "card"} id="call-log">
+        <div className={royal ? "card ry-calls-log" : clean ? "card !p-5 [&_.inp]:!text-[16px] [&_.seg_button]:!text-[14px] [&_.note]:!text-[14px] [&_.call-row_.t_b]:!text-[16px] [&_.call-row_.t_span]:!text-[14px] [&_.call-row_.pill]:!text-[14px]" : "card"} id="call-log">
           {clean && <h2 className="!mb-4 !text-[18px]">Журнал звонков</h2>}
           <div className="hscroll">
             <div className="seg" role="tablist" aria-label="Срезы звонков">
@@ -885,8 +1000,8 @@ export function Calls() {
 
           <div className="list" style={{ marginTop: 8 }}>
             {callsSlice
-              ? visibleCallsFeed.map((call) => <CallRowItem key={call.id} call={call} showAgent={supervisor} />)
-              : visibleIncomingFeed.map((call) => <IncomingRowItem key={call.id} call={call} />)}
+              ? visibleCallsFeed.map((call) => <CallRowItem key={call.id} call={call} showAgent={supervisor} royal={royal} />)
+              : visibleIncomingFeed.map((call) => <IncomingRowItem key={call.id} call={call} royal={royal} />)}
           </div>
 
           {callsSlice
@@ -907,5 +1022,6 @@ export function Calls() {
         {dialOpen && <DialPadModal onClose={() => setDialOpen(false)} />}
       </div>
     </div>
+    </RoyalSection>
   );
 }

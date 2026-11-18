@@ -67,6 +67,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   "seller-facts": "Разбор фактов из переписки с продавцом",
   "seller-photo-insight": "Оценка фото продавца",
   "site-resync": "Обновление объекта на сайте",
+  "social-publish-retry": "Повторная публикация ролика в Instagram, Facebook или Threads",
   "social-repost-publish": "Повторный показ объекта в соцсетях",
   "social-video-publish": "Публикация свободного ролика в соцсети",
   "telegram-dm-reply-retry": "Повтор ответа в личных сообщениях Telegram",
@@ -122,6 +123,8 @@ async function describeJob(type: string, payload: unknown): Promise<{ label: str
       // Повторный показ объекта (28.09.2026, jobs/socialRepostPublish.ts) —
       // тот же payload {propertyId, ...}, хозяин ищется так же.
       case "tiktok-publish-retry":
+      // Повтор Meta-каналов (18.11.2026) — payload {propertyId, channel}, хозяин тот же.
+      case "social-publish-retry":
       case "photo-post-publish":
       case "social-repost-publish":
       case "video-handoff-publish": {

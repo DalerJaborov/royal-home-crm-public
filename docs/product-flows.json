@@ -2,10 +2,10 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 778,
-  "forks": 4078,
+  "forks": 4126,
   "mounts": 87,
-  "cron": 142,
-  "jobs": 33,
+  "cron": 143,
+  "jobs": 34,
   "hidden": 0
  },
  "hidden": [],
@@ -82655,6 +82655,14 @@
     },
     {
      "k": "do",
+     "t": "handleWhatsappCallEvents(req.body);",
+     "a": [
+      "зовёт handleWhatsappCallEvents()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const durableIngress = await persistVerifiedCustomerIngressBatch(req);",
      "a": [
       "зовёт persistVerifiedCustomerIngressBatch()"
@@ -83757,7 +83765,7 @@
                 },
                 {
                  "k": "if",
-                 "t": "bot.channels[msg.channel] && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silentForeignShare &&…",
+                 "t": "bot.channels[msg.channel] && !recordOnly && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silent…",
                  "a": [],
                  "c": [
                   {
@@ -87152,7 +87160,15 @@
         },
         {
          "k": "do",
-         "t": "const items = await findUnansweredClients(now);",
+         "t": "const sellersOn = await sellerSwitchOn(\"agentUnansweredAlarmEnabled\");",
+         "a": [
+          "зовёт sellerSwitchOn()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const items = (await findUnansweredClients(now)).filter((i)",
          "a": [
           "зовёт findUnansweredClients()"
          ],
@@ -87294,6 +87310,21 @@
       {
        "k": "if",
        "t": "!settings?.liveVoiceEnabled || !settings.postShowingCallEnabled",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
        "a": [],
        "c": [
         {
@@ -92914,6 +92945,14 @@
          "t": "const rules = await loadDealStaleRules();",
          "a": [
           "зовёт loadDealStaleRules()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const sellersOn = await sellerSwitchOn(\"dealStaleSellersEnabled\");",
+         "a": [
+          "зовёт sellerSwitchOn()"
          ],
          "c": []
         },
@@ -108411,6 +108450,21 @@
        "c": [
         {
          "k": "if",
+         "t": "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { alerted: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "!(await isWithinAlarmHours(now))",
          "a": [],
          "c": [
@@ -108807,6 +108861,21 @@
          ]
         },
         {
+         "k": "if",
+         "t": "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return 0;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
          "t": "await loadCompanyDaysOff();",
          "a": [
@@ -108954,6 +109023,21 @@
         "зовёт escalateSellerPropertyMissing()"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "!(await sellerSwitchOn(\"sellerPropertyMissingAntifraudEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { escalated: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "!(await isWithinAlarmHours(now))",
@@ -114025,6 +114109,36 @@
            ]
           },
           {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await watchOfficeDeskPhone(now);",
+             "a": [
+              "зовёт watchOfficeDeskPhone()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"telephony\", `Проверка офисного аппарата не выполнена: ${describeError(err)}`, { dedupKey…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "if",
            "t": "silence",
            "a": [],
@@ -117850,6 +117964,214 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка недельной сводки СБ\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "whatsapp-calling-health",
+   "when": "23 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();",
+       "a": [
+        "зовёт runWhatsappCallingHealthCheck()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await isMetaChannelEnabled(\"WHATSAPP\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"channel_off\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const creds = await loadCredentials();",
+         "a": [
+          "зовёт loadCredentials()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const token = creds.waPhoneId ? (await resolveIncomingAccount(\"WHATSAPP\", creds.waPhoneId)).token || creds.wa…",
+         "a": [
+          "зовёт resolveIncomingAccount()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!creds.waPhoneId || !token",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"not_configured\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!callingOn",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await resolveAlarm(WA_CALLING_CHECK_ALARM_KEY);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return { ...result, skipped: \"calling_off\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "availability === \"AVAILABLE\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await resolveAlarm(WA_CALLING_SIP_ALARM_KEY);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return result;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "availability !== \"BLOCKED\" && availability !== \"LIMITED\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.log(`[whatsapp-звонки] Meta не сообщила can_receive_call_sip (значение: ${availability ?? \"нет поля\"}…",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!(err instanceof GraphCheckError)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw err;",
+             "a": [
+              "пробрасывает ошибку дальше"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runWhatsappCallingHealthCheck() — apps/api/src/lib/whatsappCallingHealth.ts"
+      },
+      {
+       "k": "if",
+       "t": "alarmed",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Звонки WhatsApp через SIP: ${sipAvailability ?? \"состояние неизвестно\"} — тревога руковод…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «звонки WhatsApp»\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -128237,7 +128559,7 @@
     },
     {
      "k": "if",
-     "t": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId",
+     "t": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn(\"deal…",
      "a": [],
      "c": [
       {
@@ -131141,6 +131463,21 @@
    "file": "apps/api/src/jobs/sellerFacts.ts",
    "tree": [
     {
+     "k": "if",
+     "t": "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "await refreshSellerFacts(payload.clientId);",
      "a": [
@@ -131509,6 +131846,21 @@
    "kind": "sellerPhotoInsightJob",
    "file": "apps/api/src/jobs/sellerPhotoInsight.ts",
    "tree": [
+    {
+     "k": "if",
+     "t": "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const attachments = await listSellerAttachments(payload.clientId);",
@@ -132173,6 +132525,848 @@
         }
        ],
        "from": "enqueueDirectorAlert() — apps/api/src/lib/directorAlertQueue.ts"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "socialPublishRetryJob",
+   "file": "apps/api/src/jobs/socialPublishRetry.ts",
+   "tree": [
+    {
+     "k": "do",
+     "t": "const property = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { id: true, sh…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "property?.clipReviewStatus === \"PENDING\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!property || property.deletedAt || !property.videoHandoffFinalPath",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const blocked = handoffStatusBlockReason(property.status);",
+     "a": [
+      "зовёт handoffStatusBlockReason()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "HANDOFF_PUBLISHABLE_STATUSES.includes(status)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "handoffStatusBlockReason() — apps/api/src/lib/videoHandoff.ts"
+    },
+    {
+     "k": "if",
+     "t": "blocked",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"meta\", `Объект №${property.shortId}: отложенный повтор (${label}) отменён — ${blocked}`);",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { autoPublishEnabled:…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!settings?.autoPublishEnabled",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"meta\", `Объект №${property.shortId}: отложенный повтор (${label}) отменён — автопубликац…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const diskPath = videoHandoffFinalDiskPath(property.videoHandoffFinalPath);",
+     "a": [
+      "зовёт videoHandoffFinalDiskPath()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!publicPath.startsWith(\"/uploads/handoff/\")",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "videoHandoffFinalDiskPath() — apps/api/src/lib/videoHandoff.ts"
+    },
+    {
+     "k": "if",
+     "t": "!diskPath || !(await fileExists(diskPath))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"meta\", `Объект №${property.shortId}: отложенный повтор (${label}) отменён — файла ролика…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const mainRunning = await prisma.backgroundJob.findFirst({ where: { dedupeKey: videoHandoffPublishDedupeKey(p…",
+     "a": [
+      "читает в базе: backgroundJob"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "mainRunning",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new RetryLater(`Идёт основная публикация объекта №${property.shortId} — повторим ${label} позже`);",
+       "a": [
+        "ошибка RetryLater — «Идёт основная публикация объекта №${property.shortId} — повторим ${lab»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "payload.channel === \"INSTAGRAM_STORIES\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "(property.publishedChannels ?? []).includes(channel)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const [result] = await publishApprovedPost({ propertyId: property.id, localVideoPath: property.videoHandoffFi…",
+     "a": [
+      "зовёт publishApprovedPost()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!result",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "result.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await applySucceededPublishResults( property.id, [{ channel, postId: result.postId, secondaryPostId: result.s…",
+       "a": [
+        "зовёт applySucceededPublishResults()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "channel === \"INSTAGRAM\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await enqueueSocialPublishRetry(property.id, \"INSTAGRAM_STORIES\", { now: true });",
+         "a": [
+          "зовёт enqueueSocialPublishRetry()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "result.pending",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "result.outcomeUnknown",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "result.retriable",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new RetryLater(`${label} снова не смог скачать ролик объекта №${property.shortId}: ${result.error ?? \"б…",
+       "a": [
+        "ошибка RetryLater — «${label} снова не смог скачать ролик объекта №${property.shortId}: ${r»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "void logSystemError( \"meta\", `Публикация в ${label} (объект ${property.id}) не удалась при отложенном повторе…",
+     "a": [
+      "запись в журнал ошибок"
+     ],
+     "c": []
+    },
+    {
+     "k": "catch",
+     "t": "когда попытки кончились",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!parsed.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "void logSystemError(\"meta\", text);",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
       }
      ]
     }
@@ -134559,7 +135753,7 @@
       },
       {
        "k": "do",
-       "t": "async function noteStarted(channel: PublishChannel, destinationKey: string = channel): Promise<void> { if (!p…",
+       "t": "function metaFailureText(label: string, result: PublishResult): string { if (!result.retriable) return `Публи…",
        "a": [
         "запись в журнал ошибок"
        ],
@@ -134768,7 +135962,7 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError(\"meta\", `Публикация в Instagram (${ownerText}) не удалась: ${result.error}`);",
+             "t": "void logSystemError(\"meta\", metaFailureText(\"Instagram\", result));",
              "a": [
               "запись в журнал ошибок"
              ],
@@ -134904,7 +136098,7 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError(\"meta\", `Публикация в Facebook (${ownerText}) не удалась: ${result.error}`);",
+             "t": "void logSystemError(\"meta\", metaFailureText(\"Facebook\", result));",
              "a": [
               "запись в журнал ошибок"
              ],
@@ -135250,7 +136444,7 @@
          "c": [
           {
            "k": "do",
-           "t": "void logSystemError(\"threads\", `Публикация в Threads (${ownerText}) не удалась: ${result.error}`);",
+           "t": "void logSystemError(\"threads\", metaFailureText(\"Threads\", result));",
            "a": [
             "запись в журнал ошибок"
            ],

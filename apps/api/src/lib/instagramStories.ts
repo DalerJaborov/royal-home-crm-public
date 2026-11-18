@@ -103,6 +103,9 @@ export interface StoriesPublishSummary {
   publishedParts: number;
   totalParts: number;
   error?: string;
+  /** Часть не вышла, потому что Meta не смогла скачать наш файл (18.11.2026, объект №208):
+   *  повтор пройдёт сам — его ставит lib/videoHandoff.ts (jobs/socialPublishRetry.ts). */
+  retriable?: boolean;
 }
 
 /** force bypasses scheduling switches, never the property's privacy boundary. */
@@ -258,9 +261,18 @@ export async function publishPropertyInstagramStories(
         // серию частей здесь же, как и при честном отказе — следующая часть всё
         // равно не может уйти, не зная, опубликуется ли эта.
         if (!result.pending) {
-          void logSystemError("meta", `Истории Instagram (объект ${propertyId}), часть ${i + 1}/${segments.length}: ${result.error}`);
+          void logSystemError(
+            "meta",
+            `Истории Instagram (объект ${propertyId}), часть ${i + 1}/${segments.length}: ${result.retriable ? "Meta не смогла скачать ролик, повторим сами через несколько минут — " : ""}${result.error}`
+          );
         }
-        return { attempted: true, publishedParts, totalParts: segments.length, error: result.error };
+        return {
+          attempted: true,
+          publishedParts,
+          totalParts: segments.length,
+          error: result.error,
+          ...(result.retriable ? { retriable: true } : {}),
+        };
       }
       await prisma.propertyStoryPost.create({
         data: { propertyId, channel: "INSTAGRAM", mediaId: result.postId ?? "", partIndex: i },

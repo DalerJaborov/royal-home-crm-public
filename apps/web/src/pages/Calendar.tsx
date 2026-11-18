@@ -35,6 +35,8 @@ import { scrollableRegion } from "../lib/a11y";
 import { anchorOutsideGrid, shiftedAnchor, weekDays } from "../lib/calendarWeek";
 import { useAuthStore } from "../store/auth";
 import { useIsReadOnly } from "../lib/permissions";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 
 const WEEKDAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 const MONTH_NAMES = [
@@ -184,6 +186,11 @@ export function Calendar() {
   const goBack = useGoBack("/more");
   const mobile = useMobileUx();
   const clean = useCleanShell();
+  // «Новый вид» (пачка calendar, 18.11.2026): только поверх чистой оболочки;
+  // запросы, права и действия те же — меняется только оформление слоем
+  // theme-look-royal-calendar.css под меткой раздела.
+  const royalLook = useRoyalLook();
+  const royal = clean && royalLook;
   // Открытие раздела гасит красный счётчик в сайдбаре (у текущего агента).
   useMarkSectionSeen("calendar");
   const complete = useCompleteTask();
@@ -495,7 +502,8 @@ export function Calendar() {
       // второго уровня, а сетка месяца перенесена в область `.mh` правилами
       // блока 7.6 theme-2026-mobile-shell.css — без неё она осталась бы вовсе
       // без стилей: класс `.cal` описан только для области пульта.
-      <div className={clean ? "rh2 clean-calendar-page" : "rh2"} style={clean ? undefined : MH_HOST}>
+      <RoyalSection name={royal ? "calendar" : undefined}>
+      <div className={royal ? "rh2 clean-calendar-page ry-calendar" : clean ? "rh2 clean-calendar-page" : "rh2"} style={clean ? undefined : MH_HOST} data-ry-section={royal ? "calendar" : undefined}>
         <div className="mh">
           {clean ? <CleanCalendarShellTitle /> : <ShellOwnHeader />}
           <div className="top" aria-hidden={clean || undefined}>
@@ -697,12 +705,14 @@ export function Calendar() {
           </div>
         </div>
       </div>
+      </RoyalSection>
     );
   }
 
   // ---------- Десктоп ----------
   return (
-    <div className={clean ? "rh2 screens clean-calendar-page" : "rh2 screens"}>
+    <RoyalSection name={royal ? "calendar" : undefined}>
+    <div className={royal ? "rh2 screens clean-calendar-page ry-calendar" : clean ? "rh2 screens clean-calendar-page" : "rh2 screens"} data-ry-section={royal ? "calendar" : undefined}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -921,6 +931,7 @@ export function Calendar() {
         {cancelDialog}
       </div>
     </div>
+    </RoyalSection>
   );
 }
 

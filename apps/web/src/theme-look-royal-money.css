@@ -84,7 +84,7 @@
   flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px; background: var(--rh-ui-card); color: var(--rh-ui-hint);
   font-size: 15px; font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs button:hover { color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs button:not(:disabled):not([aria-disabled="true"]):hover { color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs button[aria-selected="true"] {
   background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none;
 }
@@ -110,14 +110,14 @@
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-add { min-height: 48px; padding: 0 20px; font-size: 16px; }
 /* Опасное остаётся красным: «Удалить», значок корзины. */
 :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger) {
-  background: var(--ry-money-crit-soft); color: var(--rh-ui-crit-text); box-shadow: none;
+  background: color-mix(in srgb, var(--rh-ui-crit) 12%, transparent); color: var(--rh-ui-crit-text); box-shadow: none;
 }
 @media (hover: hover) {
   :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):not(:disabled):not([aria-disabled="true"]):hover { filter: none; background-color: var(--rh-ui-hover); }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)):not(:disabled):not([aria-disabled="true"]):hover { background: var(--ry-money-solid-hover); }
   :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger):not(:disabled):not([aria-disabled="true"]):hover { background: color-mix(in srgb, var(--rh-ui-crit) 18%, transparent); }
 }
-:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn, .cef-chip):active { transform: scale(.97); }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn, .cef-chip):not(:disabled):not([aria-disabled="true"]):active { transform: scale(.97); }
 
 /* Месяц и инструменты (категории, CSV, PDF, архив). */
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-tools { gap: 8px 12px; margin-bottom: 16px; }
@@ -517,7 +517,7 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.cef-btn, .cef-icon-btn) { min-height: 48px; border-radius: 999px; font-size: 15px; font-weight: 600; background: var(--rh-ui-press); color: var(--rh-ui-text); box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-icon-btn { width: 48px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)) { background: var(--ry-money-solid); color: #ffffff; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger) { background: var(--ry-money-crit-soft, rgba(179, 38, 30, .12)); color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger) { background: color-mix(in srgb, var(--rh-ui-crit) 12%, transparent); color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-row-button { min-height: var(--rh-ui-row-h); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-budget { accent-color: var(--rh-ui-primary); }
 
@@ -553,7 +553,7 @@
     width: 100%; min-height: 48px; justify-content: flex-start; gap: 12px; padding: 0 14px; border-radius: 14px;
     background: transparent; box-shadow: none; text-align: left;
   }
-  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-tool-actions :is(.cef-btn, .cef-icon-btn):active { background: var(--rh-ui-press); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-tool-actions :is(.cef-btn, .cef-icon-btn):not(:disabled):not([aria-disabled="true"]):active { background: var(--rh-ui-press); }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-tool-actions { border-radius: 20px; background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
   :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-card, .cef-table, .cef-calendar-day-panel, .cef-subscription-detail) { padding: 16px; border-radius: var(--rh-ui-r-card); }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: clamp(13px, 11cqi, 34px); }

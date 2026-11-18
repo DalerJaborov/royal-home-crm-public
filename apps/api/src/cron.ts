@@ -27,6 +27,7 @@ import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
 import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
 import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
+import { runWhatsappCallingHealthCheck } from "./lib/whatsappCallingHealth.js";
 import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
 import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
 import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
@@ -139,6 +140,7 @@ import { checkAdAccountAlerts, checkAdAlerts, checkAdDisapprovedAlerts } from ".
 import { autoResolveDuplicateErrors } from "./lib/autoResolveDuplicateErrors.js";
 import { autoRefreshCustomerAgentRevision } from "./lib/customerAgentAutoRefresh.js";
 import { backfillInstagramUrls } from "./lib/backfillInstagramUrls.js";
+import { sellerSwitchOn } from "./lib/sellerSwitches.js";
 const MAX_REMINDER_HISTORY = 12;
 
 /**
@@ -416,9 +418,14 @@ export async function sendDirectorDigest(): Promise<number> {
       adsYesterday,
     },
     directors,
+    // Выключатель владельца «продавцы в утренней сводке» (14.11.2026,
+    // lib/sellerSwitches.ts): выключено — две строки о продавцах ниже не пишутся,
+    // остальная сводка уходит как обычно.
+    sellerLinesOn,
   ] = await Promise.all([
     loadMorningNumbers({ ads: true }),
     prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } }),
+    sellerSwitchOn("morningSellerLinesEnabled"),
   ]);
 
   const body = [
@@ -460,7 +467,7 @@ export async function sendDirectorDigest(): Promise<number> {
     // Пачка 9 (11.09.2026): грубый градусник, не замена runSellerNoPropertyAlarmTick
     // (тот алармит директору лично по одному клиенту, от даты встречи) — см.
     // doc-comment у MorningNumbers.sellersWithoutPropertyOver7Days.
-    ...(sellersWithoutPropertyOver7Days > 0
+    ...(sellerLinesOn && sellersWithoutPropertyOver7Days > 0
       ? [
           `🏚️ ${sellersWithoutPropertyOver7Days} ${pluralizeRu(sellersWithoutPropertyOver7Days, ["продавец", "продавца", "продавцов"])} без объекта дольше недели`,
         ]
@@ -523,7 +530,7 @@ export async function sendDirectorDigest(): Promise<number> {
     // назад не поднимает никогда (см. doc-comment у
     // MorningNumbers.propertiesWithdrawnSellerRecovered), строка нужна, чтобы
     // разъезд не лежал незамеченным до случайной находки.
-    ...(propertiesWithdrawnSellerRecovered > 0
+    ...(sellerLinesOn && propertiesWithdrawnSellerRecovered > 0
       ? [
           `🏠↩️ ${propertiesWithdrawnSellerRecovered} ${pluralizeRu(propertiesWithdrawnSellerRecovered, ["объект снят", "объекта снято", "объектов снято"])} из-за «потерянного» продавца, хотя продавец уже не «Потерянный» — проверить возврат в продажу`,
         ]
@@ -2809,6 +2816,22 @@ export function startCronJobs() {
       if (alarmed) console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководству`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа «вебхук WhatsApp замолчал»", err);
+    }
+  });
+
+  /**
+   * ЗВОНКИ WHATSAPP НЕ ДОХОДЯТ ДО СТАНЦИИ (18.11.2026, lib/whatsappCallingHealth.ts).
+   * Раз в час, только чтение Graph: звонки и SIP у номера включены, а Meta говорит,
+   * что номер не может принимать звонки через SIP (`can_receive_call_sip`), —
+   * тревога в «Здоровье системы» с причиной от Meta; снова AVAILABLE — гаснет сама.
+   * Звонки у номера выключены — сторож молчит.
+   */
+  scheduleTracked("whatsapp-calling-health", "23 * * * *", async () => {
+    try {
+      const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();
+      if (alarmed) console.log(`[cron] Звонки WhatsApp через SIP: ${sipAvailability ?? "состояние неизвестно"} — тревога руководству`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «звонки WhatsApp»", err);
     }
   });
 
