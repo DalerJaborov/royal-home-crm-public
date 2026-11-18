@@ -1,0 +1,261 @@
+/* «НОВЫЙ ВИД» — раздел «Календарь» (пачка calendar, 18.11.2026).
+ *
+ * Обычный, НЕ генерируемый файл. Подключён после theme-look-royal.css, и КАЖДОЕ
+ * правило стоит под :root[data-ui-look="royal"] и под меткой раздела
+ * [data-ry-section="calendar"] (сторож theme-look-royal.test.ts). Метку ставит только
+ * pages/Calendar.tsx при useRoyalLook() — на корень экрана (ПК: .rh2.screens, телефон:
+ * .rh2 с областью .mh) и, через RoyalSection, на корень окна «Отменить показ?».
+ * Разметка и действия прежние: сетка месяца .cal, неделя таблицей (ПК) или строками
+ * (телефон), список дня строками .row с «Сделано / Перенести / Отменить» и звонком.
+ * Выбранный день — синим (общий акцент), сегодня — кольцом, просроченное — красным
+ * словом и меткой; смысловые кнопки (danger и т. п.) не перекрашиваются.
+ */
+
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] {
+  color: var(--rh-ui-text);
+  font-family: var(--font-sans, "Onest", system-ui, sans-serif);
+  --ry-cal-show: var(--rh-ui-a0); --ry-cal-show-fg: var(--rh-ui-a0f);
+  --ry-cal-task: var(--rh-ui-a4); --ry-cal-task-fg: var(--rh-ui-a4f);
+}
+:root[data-ui-look="royal"] .ry-calendar.rh2.screens[data-ry-section="calendar"] > .scr { display: grid; gap: 16px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-calendar.rh2.screens[data-ry-section="calendar"] > .scr > * { min-width: 0; margin-top: 0; margin-bottom: 0; }
+
+/* Шапка ПК: заголовок 32, строка-сводка, справа «День / Неделя / Месяц» и синяя «Назначить показ». */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pg-h { align-items: center; gap: 12px 16px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pg-h h1 {
+  margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pg-h .sub { margin-top: 6px; max-width: 70ch; font-size: 16px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pg-h .acts { align-items: center; gap: 10px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .seg {
+  display: inline-flex; gap: 2px; padding: 4px; border: 0; border-radius: 999px; background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .seg > button {
+  min-height: 40px; min-width: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-hint);
+  font: inherit; font-size: 15px; font-weight: 600; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .seg > button[aria-selected="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
+
+/* Кнопки раздела: главная (без варианта) — синяя, тихие (.ghost) — светлые; смысловые варианты не трогаем. */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pill:not(.ghost):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .call)) {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 20px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font-size: 15px; font-weight: 600; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pill:not(.ghost):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .call)):hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pill.ghost:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .call)) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; min-width: 44px; padding: 0 16px; border: 0;
+  border-radius: 999px; background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: 15px; font-weight: 600; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pill.ghost:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .call)):hover:not(:disabled) { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pill { max-width: 100%; white-space: normal; text-align: center; line-height: 1.25; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pill.icon { width: 44px; padding: 0; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pill .i { width: 20px; height: 20px; }
+/* Выключенные — приглушены всегда (вес выше старой темы `.pill:disabled{opacity:1}`). */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .scr .pill:disabled,
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .pill:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Карточки: одно скругление 24. */
+:root[data-ui-look="royal"] .ry-calendar.rh2.screens[data-ry-section="calendar"] .card,
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .card {
+  padding: 20px; border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-calendar.rh2[data-ry-section="calendar"] :is(.scr, .mh) .card.tight { padding: 8px 20px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .sec-h {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .sec-h h2 {
+  margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .sec-h .note { font-size: 15px; color: var(--rh-ui-hint); }
+/* Легенда «показ / задача» — теми же пастелями, что метки в клетках. */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .sec-h .note .chip:first-child { background: var(--ry-cal-show) !important; color: var(--ry-cal-show-fg) !important; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .sec-h .note .chip:last-child { background: var(--ry-cal-task) !important; color: var(--ry-cal-task-fg) !important; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .sec-h .note .chip { min-height: 28px; padding: 0 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .sec-h > .wrap { gap: 6px; margin-left: auto; }
+
+/* Тихие строки: просрочено, отказ сохранения. */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .quiet {
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 48px; padding: 6px 0; font-size: 15px; line-height: 1.4; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .quiet > .dot { position: static; flex: none; width: 12px; height: 12px; margin: 0; border-radius: 999px; background: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .card.tight > .quiet { margin: 0; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .quiet > .dot.crit { width: 14px; height: 14px; background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .quiet > .dot.warn { background: var(--rh-ui-warn-soft); box-shadow: inset 0 0 0 2px var(--rh-ui-warn); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .quiet.crit .txt { color: var(--rh-ui-crit-text); font-weight: 700; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .quiet .txt { flex: 1 1 auto; min-width: 0; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .quiet .lnk {
+  flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; font-size: 15px; font-weight: 700;
+  color: var(--rh-ui-primary-ink); text-decoration: none;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .state { display: flex; align-items: center; gap: 10px; min-height: 48px; font-size: 16px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .state.err { color: var(--rh-ui-crit-text); font-weight: 600; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .empty {
+  display: grid; justify-items: center; gap: 12px; padding: 24px 12px; text-align: center; font-size: 16px; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .empty .ic {
+  display: grid; place-items: center; width: 60px; height: 60px; border-radius: 999px; background: var(--rh-ui-a5); color: var(--rh-ui-a5f);
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .empty .ic .i { width: 28px; height: 28px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .empty p { margin: 0; font-size: 16px; line-height: 1.45; }
+
+/* ================================ месяц ================================ */
+
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal { gap: 6px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .hd {
+  padding-bottom: 4px; font-size: 13px; font-weight: 700; color: var(--rh-ui-hint); text-transform: uppercase; letter-spacing: .04em;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d {
+  border: 0; border-radius: 16px; background: var(--rh-ui-bg); color: var(--rh-ui-text); outline: 0; box-shadow: none;
+  transition: background-color 160ms;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d:hover { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d .n { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d.out { opacity: 1; background: transparent; box-shadow: inset 0 0 0 1px var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d.out .n { color: var(--rh-ui-hint); font-weight: 500; }
+/* Сегодня — кольцом цвета текста; выбранный день — сплошным синим (инлайн-цвет старой темы перебивается). */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d.today { outline: 0; box-shadow: inset 0 0 0 2px var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d[aria-current="date"] { background: var(--rh-ui-primary) !important; box-shadow: none; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d[aria-current="date"] .n { color: var(--rh-ui-primary-fg) !important; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d .ev {
+  border-radius: 999px; background: var(--ry-cal-show); color: var(--ry-cal-show-fg); font-size: 13px; font-weight: 700; line-height: 1.3;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d .ev.task { background: var(--ry-cal-task); color: var(--ry-cal-task-fg); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d[aria-current="date"] .ev { background: rgba(255, 255, 255, .92); color: var(--rh-ui-primary-ink); }
+/* Подпись события в клетке ПК переносится, а не режется многоточием («2 показа» — данные). */
+:root[data-ui-look="royal"] .ry-calendar.rh2.screens[data-ry-section="calendar"] .cal .d .ev {
+  max-width: 100%; padding: 2px 8px; white-space: normal; overflow: visible; text-overflow: clip; text-align: center;
+}
+
+/* ================================ неделя ================================ */
+
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .tbl-wrap { overflow-x: auto; margin: 0; border: 0; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .tbl { width: 100%; border-collapse: collapse; font-size: 16px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .tbl th {
+  padding: 0 12px 10px 0; border: 0; text-align: left; font-size: 14px; font-weight: 700; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .tbl td {
+  padding: 14px 12px 14px 0; border: 0; box-shadow: inset 0 1px 0 var(--rh-ui-sep); color: var(--rh-ui-text); vertical-align: top; line-height: 1.4;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .tbl td:first-child { font-weight: 700; white-space: nowrap; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .tbl td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .tbl th:last-child { text-align: right; }
+
+/* ============================== список дня ============================== */
+
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list { display: grid; gap: 0; }
+/* Строка дела — сеткой: время слева, текст справа; подтверждение и действия — ниже, под текстом.
+   Так узкая панель дня (ПК, половина экрана) и телефон не сжимают текст в столбик букв. */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list > .row:not(button) {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 8px 12px;
+  min-height: var(--rh-ui-row-h); padding: 14px 0; border: 0; border-radius: 0; background: transparent;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list > .row:not(button) > .chip:not(:first-child) { grid-column: 2; justify-self: start; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list > .row:not(button) > .act {
+  grid-column: 2; display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; min-width: 0;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .t > b,
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .t > span { display: block; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list > .row:not(:first-child) { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list > .row:hover { background: transparent; }
+/* Время — круглой плиткой слева (табличные цифры), просрочено — сплошной красной. */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list > .row > .chip:first-child {
+  display: grid; place-items: center; min-width: 64px; height: 48px; padding: 0 10px; border: 0; border-radius: 999px;
+  background: var(--ry-cal-show); color: var(--ry-cal-show-fg); font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list > .row > .chip.crit:first-child { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .t { min-width: 0; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .t b,
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .t span {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .t b { font-size: 17px; font-weight: 600; line-height: 1.3; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .t b .lk {
+  display: inline; padding: 0; border: 0; background: transparent; color: var(--rh-ui-text); font: inherit; text-align: left; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .t b .lk:hover { text-decoration: underline; text-underline-offset: 3px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .t > span { margin-top: 2px; font-size: 15px; line-height: 1.4; color: var(--rh-ui-hint); }
+/* Подтверждение показа — метка со смыслом: ждём — янтарная, подтвердил — зелёная, отказ — красная. */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row > .chip:not(:first-child) {
+  min-height: 28px; padding: 0 10px; border: 0; border-radius: 999px; font-size: 13px; font-weight: 700; white-space: normal;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row > .chip.ok:not(:first-child) { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row > .chip.warn:not(:first-child) {
+  background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent);
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row > .chip.crit:not(:first-child) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row > .chip.mute:not(:first-child) { background: var(--rh-ui-raised); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .act { gap: 8px; align-items: center; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .act .lnk {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; border: 0; background: transparent;
+  color: var(--rh-ui-crit-text); font-size: 15px; font-weight: 600; cursor: pointer;
+}
+/* Звонок из строки — зелёный круг (та же кнопка CRM-звонка). */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .act button.call {
+  display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 999px; background: #0b7a41; color: #ffffff;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .act button.call svg { width: 20px; height: 20px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .row .act button.call:disabled { opacity: .5; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list > p.state { margin: 4px 0; font-size: 15px; }
+
+/* Перенос показа: поля в строку, переносятся. */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list > form.wrap { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 14px !important; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .list > form .inp {
+  flex: 1 1 200px; min-width: 0; height: 48px; padding: 0 16px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 16px; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+
+/* ================================ телефон ================================ */
+
+/* Область .mh: фон страницы, сводка, переключатель «День / Неделя / Месяц». */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh { background: transparent; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .clean-calendar-summary { margin: 0 0 12px; font-size: 16px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .lane {
+  display: flex; gap: 2px; margin: 0 0 12px; padding: 4px; border-radius: 999px; background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .lane [role="tab"] {
+  flex: 1; min-height: 44px; border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-hint); font-size: 15px; font-weight: 600;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .lane [aria-selected="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .card { padding: 16px; margin-bottom: 12px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .cal { gap: 4px; margin: 0; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .cal .d { min-height: 48px; border-radius: 14px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .cal .hd { font-size: 13px; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .cal .d { min-width: 0; padding: 6px 4px; }
+/* Телефон: событие в клетке — точкой (как было: подпись в клетку не помещается), цвет — показ/задача. */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .cal .d .ev {
+  width: 8px; height: 8px; min-height: 0; min-width: 0; padding: 0; line-height: 0; font-size: 13px; border-radius: 999px; align-self: flex-start;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .cal .d .ev { background: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .cal .d .ev.task { background: var(--rh-ui-a4f); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .cal .d[aria-current="date"] .ev { background: #ffffff; }
+/* Строки недели на телефоне — кнопки-строки, выбранный день подсвечен. */
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .list > button.row {
+  width: 100%; min-height: var(--rh-ui-row-h); padding: 10px 4px; text-align: left; color: var(--rh-ui-text); border-radius: 14px;
+}
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] :where(.mh .list) > button.row[aria-current="true"] { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .list > button.row .n { font-size: 17px; font-weight: 600; }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .list > button.row .s { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .calendar-task-row .act :is(button, a) { min-height: 44px; }
+
+@media (max-width: 820px) {
+  :root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pg-h h1 { font-size: 28px; }
+  :root[data-ui-look="royal"] .ry-calendar.rh2.screens[data-ry-section="calendar"] .card { padding: 16px; }
+}
+
+/* Тихая строка в области телефона: прежняя тема ставит её столбцом — здесь строкой с переносом. */
+:root[data-ui-look="royal"] .ry-calendar.rh2[data-ry-section="calendar"] :is(.scr, .mh) .card .quiet {
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 12px; text-align: left;
+}
+:root[data-ui-look="royal"] .ry-calendar.rh2[data-ry-section="calendar"] :is(.scr, .mh) .card .quiet > .txt { flex: 1 1 200px; }
+/* Строки недели на телефоне — в одной карточке, разделены линией, без своих плашек. */
+:root[data-ui-look="royal"] .ry-calendar.rh2[data-ry-section="calendar"] .mh .list > button.row {
+  margin: 0; border: 0; background: transparent; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-calendar.rh2[data-ry-section="calendar"] .mh .list > button.row:not(:first-child) { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-calendar.rh2[data-ry-section="calendar"] :where(.mh .list) > button.row[aria-current="true"] { background: var(--rh-ui-primary-soft); box-shadow: none; }
+/* Окна раздела (портал с меткой раздела): выключенная кнопка приглушена всегда — вес выше старой темы. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="calendar"] .scr :is(.pill, .rh-btn, button):disabled { opacity: .5; }
+/* Выключенная кнопка раздела приглушена не слабее самой тяжёлой перекраски (общий сторож веса). */
+:root[data-ui-look="royal"] .ry-calendar.rh2[data-ry-section="calendar"] :is(.scr, .mh) :is(.card, .list, .act, .pg-h, .sec-h, .wrap, .lane, .seg) :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]) { opacity: .5; cursor: not-allowed; }
