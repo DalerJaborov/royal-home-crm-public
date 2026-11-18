@@ -10,10 +10,8 @@
  * что у маршрута approve), новая версия — requestAutoNarration (та же дверь
  * генерации и тот же дневной потолок).
  */
-import { formatPropertyCode, isReadOnlyRole, narrationVariants, type NarrationConfig, type PermissionId } from "@royal-home/shared";
-import { loadAgentAccess } from "../auth/middleware.js";
+import { formatPropertyCode, narrationVariants, type NarrationConfig } from "@royal-home/shared";
 import { prisma } from "../db.js";
-import { hasMarketingRole } from "../lib/marketingRole.js";
 import { localVideoFilePath } from "../lib/localVideoStorage.js";
 import { afterNarrationApproved, approveNarrationVersion, NARRATION_OWNER_ROLES, requestAutoNarration, type NarrationDeliveryStart } from "../lib/narrationAutoFlow.js";
 import { isWithinDushanbeWindow } from "../lib/dushanbeTime.js";
@@ -22,7 +20,7 @@ import { loadNarrationConfiguration, readyVoiceSamples } from "../lib/narrationG
 import { ownMusicReady } from "../lib/narrationMusic.js";
 import { isPublishedClip } from "../lib/narrationPreview.js";
 import { createNotification } from "../lib/notifications.js";
-import { canManagePropertyAs } from "../lib/propertyAccess.js";
+import { narrationAccessForAgent, type NarrationClicker } from "../lib/staffNarration.js";
 import { logSystemError } from "../lib/systemError.js";
 import { findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
 import { sendPushToAgent } from "../push.js";
@@ -92,6 +90,14 @@ export async function chatLang(chatId: string): Promise<Lang> {
   return state?.payload && typeof state.payload === "object" && "lang" in state.payload && state.payload.lang === "tg" ? "tg" : "ru";
 }
 
+/** Готовая озвучка файлом: одна дверь и для карточки «прослушайте и одобрите», и для просьбы «пришли озвучку». */
+async function sendVersionAudioFile(chatId: string, path: string, code: string, revision: number): Promise<void> {
+  await sendDocumentFile(chatId, { path }, `${code}-ovoz-v${revision}.mp3`, `${code} · v${revision}`, 60_000, true);
+}
+
+/** Что произошло после одобрения, бытовыми словами (та же фраза, что под кнопкой «Одобрить»). */
+export const narrationApprovedText = (delivery: NarrationDeliveryStart, lang: Lang = "ru"): string => copy[lang].approved(delivery);
+
 const crmUrl = (propertyId: string) => `${process.env.CRM_PUBLIC_URL?.trim().replace(/\/+$/, "") || "https://crm.royalhome.tj"}/properties/${propertyId}`;
 const approvalButtons = (versionId: string, lang: Lang): TelegramInlineButton[][] => [
   [{ text: copy[lang].b.approve, callback_data: `nar:a:${versionId}` }, { text: copy[lang].b.edit, callback_data: `nar:e:${versionId}` }],
@@ -160,7 +166,7 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
     const head = reason === "remind" ? c.remind(code) : reason === "escalate" ? c.escalate(code, ownerName) : c.ready(code);
     // Напоминание — без повторного файла: он уже есть в чате выше (или в карточке CRM).
     if (reason === "ready" || reason === "backfill" || reason === "escalate") {
-      await sendDocumentFile(agent.telegramChatId, { path }, `${code}-ovoz-v${version.revision}.mp3`, `${code} · v${version.revision}`, 60_000, true);
+      await sendVersionAudioFile(agent.telegramChatId, path, code, version.revision);
     }
     const text = [head, reason === "backfill" ? c.backfill : "", "", `${c.text}: ${version.script}`, voice ? `${c.voice}: ${voice}` : "", remade ? `\n${crmVoice ? c.remadeCrm : c.remade}` : ""].filter((line) => line !== "").join("\n");
     await sendMessageWithButtons(agent.telegramChatId, text.slice(0, 3800), [...approvalButtons(version.id, lang), [{ text: `CRM ${code}`, url: crmUrl(p.id) }]]);
@@ -235,28 +241,47 @@ export async function remindPendingNarrationApprovals(now: Date = new Date()): P
 }
 
 /** Образцы голосов файлами — только уже готовые (их платно один раз готовит руководство). */
-export async function sendVoiceSamples(chatId: string, config: Awaited<ReturnType<typeof loadNarrationConfiguration>>["config"], lang: Lang, intro: string): Promise<void> {
+export async function sendVoiceSamples(chatId: string, config: Awaited<ReturnType<typeof loadNarrationConfiguration>>["config"], lang: Lang, intro: string, onlyVoiceId?: string): Promise<number> {
   const ready = new Map((await readyVoiceSamples(config)).filter((s) => s.lang === lang).map((s) => [s.voiceId, s.storageKey]));
-  const voices = config.voices.slice(0, MAX_CHOICES).filter((v) => ready.has(v.id));
-  if (!voices.length) return;
+  const voices = config.voices.slice(0, MAX_CHOICES).filter((v) => ready.has(v.id) && (!onlyVoiceId || v.id === onlyVoiceId));
+  if (!voices.length) return 0;
   await sendMessage(chatId, intro);
+  let sent = 0;
   for (const voice of voices) {
     const path = localVideoFilePath(ready.get(voice.id)!);
     if (!path) continue;
-    await sendDocumentFile(chatId, { path }, `ovoz-${voice.id.slice(0, 12)}.mp3`, voice.name, 60_000, true)
-      .catch((err) => logSystemError("telegram", `Образец голоса не ушёл в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-voice-sample-send" }));
+    const ok = await sendDocumentFile(chatId, { path }, `ovoz-${voice.id.slice(0, 12)}.mp3`, voice.name, 60_000, true).then(() => true)
+      .catch((err) => { void logSystemError("telegram", `Образец голоса не ушёл в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-voice-sample-send" }); return false; });
+    if (ok) sent++;
   }
+  return sent;
 }
 
-export type Clicker = { agentId: string; isManager: boolean; role: string };
+/**
+ * Файлы озвучки по ПРОСЬБЕ человека словами (инструмент send_narration_audio, 18.11.2026): готовая версия
+ * объекта или образцы голосов в его личный чат. Тот же файл и подпись, что у карточки «прослушайте и одобрите».
+ */
+export async function sendNarrationAudioToAgent(agentId: string, what: { versionId: string } | { samples: { voiceId?: string } }): Promise<{ sent: number; reason?: "NO_CHAT" | "NO_FILE" }> {
+  const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { telegramChatId: true } });
+  if (!agent?.telegramChatId || !isTelegramEnabled()) return { sent: 0, reason: "NO_CHAT" };
+  const chatId = agent.telegramChatId;
+  if ("versionId" in what) {
+    const version = await prisma.propertyNarrationVersion.findUnique({ where: { id: what.versionId }, select: { revision: true, status: true, storageKey: true, property: { select: { shortId: true } } } });
+    const path = version?.status === "READY" && version.storageKey ? localVideoFilePath(version.storageKey) : null;
+    if (!version || !path) return { sent: 0, reason: "NO_FILE" };
+    await sendVersionAudioFile(chatId, path, formatPropertyCode(version.property.shortId), version.revision);
+    return { sent: 1 };
+  }
+  const lang = await chatLang(chatId);
+  const { config } = await loadNarrationConfiguration();
+  const sent = await sendVoiceSamples(chatId, config, lang, copy[lang].samples, what.samples.voiceId);
+  return sent ? { sent } : { sent: 0, reason: "NO_FILE" };
+}
+
+export type Clicker = NarrationClicker;
 export async function clickerFor(chatId: string, propertyId: string): Promise<Clicker | null> {
   const agent = await findAgentByTelegramChatId(chatId);
-  const access = agent && await loadAgentAccess(agent.id);
-  if (!agent || !access?.isActive || isReadOnlyRole(access.role) || access.role === "EDITOR") return null;
-  const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { assignedAgentId: true, intakeAgentId: true, createdById: true, deletedAt: true } });
-  if (!property || property.deletedAt) return null;
-  if (!canManagePropertyAs({ agentId: agent.id, can: (perm: PermissionId) => access.permissions.has(perm) }, property)) return null;
-  return { agentId: agent.id, isManager: hasMarketingRole(access), role: access.role };
+  return agent ? narrationAccessForAgent(agent.id, propertyId) : null;
 }
 
 /**
@@ -337,8 +362,15 @@ export async function handleNarrationCallback(query: TelegramCallbackQuery): Pro
   return true;
 }
 
-/** Текст после «Править текст» (15 минут) — новая версия озвучки. true — сообщение наше. */
-export async function handleNarrationTextReply(msg: TelegramIncomingMessage, agent: { id: string }): Promise<boolean> {
+/** Голосовое → текст (в Шабнам это её расшифровка с дневным потолком и учётом денег); без неё голосовое просит текст. */
+export type NarrationTranscriber = (msg: TelegramIncomingMessage) => Promise<{ text: string } | { error: string }>;
+
+/**
+ * Текст после «Править текст» (15 минут) — новая версия озвучки. true — сообщение наше. Голосовое сообщение
+ * расшифровывается и идёт тем же путём (18.11.2026: «правь голосом»): сказанное читается словами человека, а не
+ * пересказом, и сразу уходит в новую версию, как набранный текст.
+ */
+export async function handleNarrationTextReply(msg: TelegramIncomingMessage, agent: { id: string }, transcribe?: NarrationTranscriber): Promise<boolean> {
   if (msg.chat.type !== "private") return false;
   const chatId = String(msg.chat.id);
   const pending = await prisma.propertyNarrationVersion.findFirst({
@@ -348,10 +380,16 @@ export async function handleNarrationTextReply(msg: TelegramIncomingMessage, age
   if (!pending) return false;
   const lang = await chatLang(chatId);
   const c = copy[lang];
-  const text = (msg.text ?? "").trim();
+  let text = (msg.text ?? "").trim();
   if (!text) {
-    if (msg.voice || msg.audio) { await sendMessage(chatId, c.voiceOnly); return true; }
-    return false;
+    if (!msg.voice && !msg.audio) return false;
+    const heard: { text: string } | { error: string } = transcribe
+      ? await transcribe(msg).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }))
+      : { error: "" };
+    const heardText = "text" in heard ? heard.text.trim() : "";
+    // Не расшифровалось (или расшифровщика нет): причина человеку, окно правки остаётся — можно повторить.
+    if (!heardText) { await sendMessage(chatId, ("error" in heard && heard.error) || c.voiceOnly); return true; }
+    text = heardText;
   }
   // Ожидание снимается сразу: следующий обычный вопрос Шабнам уже не станет озвучкой.
   await prisma.propertyNarrationVersion.updateMany({ where: { id: pending.id }, data: { editRequestedAt: null } });
