@@ -35,6 +35,17 @@ export const SELLER_SWITCH_KEYS = [
 ] as const;
 
 export type SellerSwitchKey = (typeof SELLER_SWITCH_KEYS)[number];
+
+/**
+ * Скрытые с экрана (владелец 18.11.2026 про «Робот звонит собственнику»: «выключи эту
+ * функцию полностью, она не нужна… и саму видимость убери, чтобы не было путаницы»).
+ * Колонка и проверка в коде остаются, значение на проде — «выкл»; строки на экране нет.
+ */
+export const SELLER_SWITCH_HIDDEN_KEYS: readonly SellerSwitchKey[] = ["sellerProbeCallEnabled"];
+/** То, что показывает блок «Работа с продавцами», — в порядке SELLER_SWITCH_KEYS. */
+export const SELLER_SWITCH_VISIBLE_KEYS: readonly SellerSwitchKey[] = SELLER_SWITCH_KEYS.filter(
+  (key) => !SELLER_SWITCH_HIDDEN_KEYS.includes(key)
+);
 export type SellerAutomationSwitchField = typeof SELLER_AUTOMATION_MASTER_KEY | SellerSwitchKey;
 
 /** Все поля Settings этой темы — главный первым. */
@@ -109,7 +120,7 @@ export const SELLER_SWITCH_LABELS: Record<SellerSwitchKey, SellerSwitchLabel> = 
   sellerProbeCallEnabled: {
     title: "Робот звонит собственнику для проверки",
     on: "Если похоже на сделку в обход, робот звонит собственнику. Работает, только когда включены звонки робота.",
-    off: "Робот собственникам не звонит.",
+    off: "Робот собственникам не звонит и проверки не готовит.",
   },
   dealAfterCloseMessagesEnabled: {
     title: "Сообщения после сделки",

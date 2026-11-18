@@ -15100,6 +15100,8 @@
 
 `apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
+- const ownerProbeOn = await sellerSwitchOn("sellerProbeCallEnabled");
+  · зовёт sellerSwitchOn()
 - const [buyers, sellers] = await Promise.all([ prisma.postShowingCall.findMany({ where: { previewOnly: true },…
   · читает в базе: postShowingCall
   · читает в базе: sellerProbeCall
