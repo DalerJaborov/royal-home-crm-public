@@ -1,8 +1,20 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
 import { applySellerRefusal } from "../src/lib/sellerRefusalReview.js";
 import { propertyDeleteRequestSchema } from "@royal-home/shared";
+
+/**
+ * Рубильник «Служба безопасности: автоматика» (18.11.2026) после выката выключен.
+ * Этот файл проверяет поведение ВКЛЮЧЁННОЙ автоматики СБ (карточка уходит «на
+ * проверку»), поэтому включает её только у себя, не трогая общую строку Settings.
+ * Выключенное положение — tests/security-automation-switch.test.ts.
+ */
+vi.mock("../src/lib/securityAutomation.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/securityAutomation.js")>()),
+  securityAutomationOn: async () => true,
+}));
+
 
 /**
  * Отказ продавца, оформленный снятием объекта (владелец 09.09.2026).

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4110**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4111**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3819,7 +3819,6 @@
   · всё внутри — одной транзакцией
   · обращается к базе своим SQL
   · читает в базе: client
-  · читает в базе: deal
   · меняет в базе: client
   - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
     · обращается к базе своим SQL
@@ -3828,8 +3827,10 @@
   - если !current || current.deletedAt || current.securityReview !== "PENDING"
     - return null;
       · дословно из кода
-  - const openDeal = await tx.deal.findFirst({ where: { clientId: client.id, stage: { notIn: ["COMPLETED", "CANCE…
-    · читает в базе: deal
+  - const automationOn = await securityAutomationOn(tx);
+    · зовёт securityAutomationOn()
+  - const keepReason = verdict === "CLEARED" ? "проверка не нашла нарушения" : !automationOn ? "автоматика СБ вык…
+    · зовёт securityReviewCloseBlocker()
   - await tx.client.update({ where: { id: client.id }, data: { securityReview: verdict, securityReviewedAt: new D…
     · меняет в базе: client
   - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", ou…
@@ -3852,7 +3853,7 @@
     · зовёт findAgentsWithPermission()
   - await closeLeadPushNotifications(reviewers.map((id)
     · зовёт closeLeadPushNotifications()
-- res.json({ ok: true, verdict, message: label });
+- res.json({ ok: true, verdict, message: reviewed.keepReason ? `${label}. Карточка осталась в работе: ${reviewe…
   · ответ 200
 
 ### GET /api/v1/clients/:id/seller-object
@@ -24301,6 +24302,10 @@
     - если critical.length === 0
       - return { escalated: 0 };
         · дословно из кода
+    - если !(await securityAutomationOn())
+      - для каждого: const c of critical
+        - await reportSecuritySignal({ clientId: c.id, subjectAgentId: c.assignedAgent?.id ?? null, source: "sellerProp…
+          · зовёт reportSecuritySignal()
     - для каждого: const c of critical
       - const result = await prisma.client.updateMany({ where: { id: c.id, securityReview: null }, data: { securityRe…
         · меняет в базе: client

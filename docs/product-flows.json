@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4110,
+  "forks": 4111,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -16650,7 +16650,6 @@
       "всё внутри — одной транзакцией",
       "обращается к базе своим SQL",
       "читает в базе: client",
-      "читает в базе: deal",
       "меняет в базе: client"
      ],
      "c": [
@@ -16687,9 +16686,17 @@
       },
       {
        "k": "do",
-       "t": "const openDeal = await tx.deal.findFirst({ where: { clientId: client.id, stage: { notIn: [\"COMPLETED\", \"CANCE…",
+       "t": "const automationOn = await securityAutomationOn(tx);",
        "a": [
-        "читает в базе: deal"
+        "зовёт securityAutomationOn()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const keepReason = verdict === \"CLEARED\" ? \"проверка не нашла нарушения\" : !automationOn ? \"автоматика СБ вык…",
+       "a": [
+        "зовёт securityReviewCloseBlocker()"
        ],
        "c": []
       },
@@ -16797,7 +16804,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ok: true, verdict, message: label });",
+     "t": "res.json({ ok: true, verdict, message: reviewed.keepReason ? `${label}. Карточка осталась в работе: ${reviewe…",
      "a": [
       "ответ 200"
      ],
@@ -108761,6 +108768,28 @@
             "дословно из кода"
            ],
            "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!(await securityAutomationOn())",
+         "a": [],
+         "c": [
+          {
+           "k": "loop",
+           "t": "для каждого: const c of critical",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await reportSecuritySignal({ clientId: c.id, subjectAgentId: c.assignedAgent?.id ?? null, source: \"sellerProp…",
+             "a": [
+              "зовёт reportSecuritySignal()"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         },

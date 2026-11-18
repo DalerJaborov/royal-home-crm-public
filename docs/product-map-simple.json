@@ -16,9 +16,9 @@
   "paths": 777,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4083,
-  "untranslatedUnique": 469,
-  "untranslatedTotal": 606,
+  "conditions": 4084,
+  "untranslatedUnique": 470,
+  "untranslatedTotal": 607,
   "partialUnique": 1098,
   "translatedShare": 85
  },
@@ -30,6 +30,7 @@
   "!(await filterInvestigationRecipients([agentId], payload)).length",
   "!(await loadBotCapabilities()).comments",
   "!(await metaCatalogKeyOk(req))",
+  "!(await securityAutomationOn())",
   "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
   "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
   "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
@@ -73963,6 +73964,21 @@
          "k": "if",
          "a": [],
          "c": []
+        },
+        {
+         "t": "если !(await securityAutomationOn())",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ],
+         "raw": "!(await securityAutomationOn())"
         },
         {
          "t": "и так по каждому",
