@@ -88,8 +88,6 @@ export const INVALIDATION: Record<LiveEventType, string[][]> = {
     ["property-delete-request"],
     // Заявки агента на изменение опубликованного объекта (07.10.2026): тот же зритель.
     ["property-change-requests"],
-    ["property-count-disputes"],
-    ["client-property-count-dispute"],
     ["counters"],
     ["mission-control"],
   ],
@@ -116,7 +114,6 @@ const ON_RESUME: string[][] = [
   ["delete-requests"],
   ["property-delete-requests"],
   ["property-change-requests"],
-  ["property-count-disputes"],
   // Ночной аудит 24.09.2026 (№12): те же четыре семейства, что в client.updated
   // выше, — иначе возврат из фона их не гасил.
   ["clients-lost"],

@@ -19,13 +19,10 @@ import { useAuditLog } from "../hooks/useAuditLog";
 import {
   useApproveDeleteRequest,
   useApprovePropertyDeleteRequest,
-  useApprovePropertyCountDispute,
   useDeleteRequests,
-  usePropertyCountDisputes,
   usePropertyDeleteRequests,
   useRejectDeleteRequest,
   useRejectPropertyDeleteRequest,
-  useRejectPropertyCountDispute,
 } from "../hooks/useDeleteRequests";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
@@ -268,152 +265,6 @@ function DeleteRequestsQueue() {
       {rejecting && (
         <RejectSheet
           title="Отклонить заявку"
-          pending={rejectRequest.isPending}
-          error={decisionError}
-          onCancel={() => {
-            setRejecting(null);
-            setDecisionError(null);
-          }}
-          onSubmit={(note) => void handleReject(rejecting, note)}
-        />
-      )}
-    </section>
-  );
-}
-
-/**
- * ЗАЯВКИ АГЕНТОВ НА ПЕРЕСМОТР ЧИСЛА ОБЪЕКТОВ (владелец 06.09.2026, разбор слепых
- * зон п.3) — третья очередь на этом экране, устроенная как две выше: агент не
- * может исправить число, которое услышал ИИ, он только предлагает своё и
- * объясняет почему; решает руководитель с правом `clients.merge` — тот же круг,
- * что уже разбирает споры о дублях клиентов.
- *
- * Почему рядом с заявками на удаление, а не на карточке клиента: руководитель
- * разбирает очередь, а не обходит карточки. Заявка, живущая только там, где её
- * подали, ждала бы, пока кто-нибудь случайно откроет ту карточку.
- */
-function PropertyCountDisputesQueue() {
-  const can = useCan();
-  const canDecide = can("archive.view") && can("clients.merge");
-  const { data, isLoading, isError, refetch } = usePropertyCountDisputes(canDecide);
-  const requests = data?.items ?? [];
-  const approveRequest = useApprovePropertyCountDispute();
-  const rejectRequest = useRejectPropertyCountDispute();
-  const [rejecting, setRejecting] = useState<string | null>(null);
-  const [decisionError, setDecisionError] = useState<string | null>(null);
-
-  async function handleApprove(id: string) {
-    setDecisionError(null);
-    try {
-      await approveRequest.mutateAsync({ id });
-    } catch (err) {
-      setDecisionError(err instanceof Error ? err.message : "Не удалось принять число агента");
-    }
-  }
-
-  async function handleReject(id: string, note: string) {
-    setDecisionError(null);
-    try {
-      await rejectRequest.mutateAsync({ id, decisionNote: note });
-      setRejecting(null);
-    } catch (err) {
-      setDecisionError(err instanceof Error ? err.message : "Не удалось отклонить заявку");
-    }
-  }
-
-  if (!canDecide) return null;
-
-  return (
-    <section className="card" id="property-count-disputes">
-      <div className="sec-h stack">
-        <h2>Заявки на пересмотр числа объектов</h2>
-        <span className="note">Число слышит ИИ из разговоров — менять его может только руководитель</span>
-      </div>
-
-      {decisionError && !rejecting && (
-        <div className="state err">
-          <span className="dot crit" />
-          {decisionError}
-        </div>
-      )}
-
-      {isLoading && (
-        <div className="state">
-          <span className="sk av" />
-          <span className="sk w28" />
-          <span className="sk w22" /> Загружаем заявки
-        </div>
-      )}
-
-      {isError && (
-        <Rh2ErrorState
-          message="Не удалось загрузить очередь заявок. Это не значит, что заявок нет — попробуйте ещё раз."
-          onRetry={() => refetch()}
-        />
-      )}
-
-      {!isLoading && !isError && requests.length === 0 && (
-        <Rh2EmptyState icon={BarChart3} title="Споров о числе объектов нет." />
-      )}
-
-      {requests.length > 0 && (
-        <div className="list">
-          {requests.map((r) => (
-            <div className="row" key={r.id}>
-              <span className="av" style={{ background: "var(--blue)", color: "var(--blue-ink)" }}>
-                {initials(r.client.fullName)}
-              </span>
-              <div className="t">
-                <b>
-                  <Link className="lk" to={`/clients/${r.client.shortId}`}>
-                    {r.client.fullName}
-                  </Link>
-                </b>
-                <span>
-                  {r.role === "SELLER" ? "Продажа" : "Покупка"}: ИИ насчитал {r.aiCount}, агент предлагает {r.proposedCount}.
-                  {` «${r.reason}»`}
-                  {r.requestedBy ? `. Просит ${r.requestedBy.fullName}` : ""}, {relativeTime(r.createdAt)}
-                </span>
-              </div>
-              <span className="chip only-wide">
-                {r.aiCount} → {r.proposedCount}
-              </span>
-              <div className="act">
-                {/* Подписи с ЧИСЛАМИ, а не «Принять число агента»/«Оставить число ИИ»:
-                    два таких длинных ярлыка не помещаются в строку на телефоне
-                    (замерено: 322 px на 271 доступных, строка уезжала вбок — `.act`
-                    в прототипе не переносится). Числа короче слов и заодно
-                    возвращают то, что прячет `only-wide`-чип на узком экране.
-                    Полная формулировка остаётся в aria-label — для чтения вслух. */}
-                <button
-                  className="pill sm"
-                  type="button"
-                  disabled={approveRequest.isPending}
-                  aria-label={`Принять число агента: ${r.proposedCount}`}
-                  onClick={() => void handleApprove(r.id)}
-                >
-                  Принять {r.proposedCount}
-                </button>
-                <button
-                  className="pill ghost sm"
-                  type="button"
-                  aria-label={`Оставить число ИИ: ${r.aiCount}`}
-                  onClick={() => {
-                    setRejecting(r.id);
-                    setDecisionError(null);
-                  }}
-                >
-                  Оставить {r.aiCount}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {rejecting && (
-        <RejectSheet
-          title="Оставить число ИИ"
           pending={rejectRequest.isPending}
           error={decisionError}
           onCancel={() => {
@@ -790,7 +641,6 @@ export function Archive() {
         <DeleteRequestsQueue />
         <PropertyDeleteRequestsQueue />
         <PropertyChangeRequestsInbox />
-        <PropertyCountDisputesQueue />
 
         {bin === "properties" && (
           <section className="card">

@@ -54,7 +54,9 @@ const HOUSING = `(?:хона\\p{L}*|хавли\\p{L}*|квартир\\p{L}*|ку
 const HAVE = `(?:дорам|дорем|дорум|дорим|доштам|доштем|доштм)`;
 const re = (source: string) => new RegExp(source, "gu");
 
-const SELL_ACTIVE = re(`${BW}(?:продам|продаю|продаем|продать|продат|продавать|(?:ме)?фур[уо]ш(?:ам|ем)?|фурухт\\p{L}*)${EW}`);
+// Опечатки продавца из живых чатов (18.11.2026: «Я хочу продоват свою квартиру» читалось покупателем): продоват/продовать,
+// прадать/прадаю/прадам.
+const SELL_ACTIVE = re(`${BW}(?:продам|продаю|продаем|продать|продат|продавать|прод[ао]ват\\p{L}*|прадат\\p{L}*|прадаю|прадам|(?:ме)?фур[уо]ш(?:ам|ем)?|фурухт\\p{L}*)${EW}`);
 const SELL_PASSIVE = re(`${BW}(?:продается|продаются)${EW}`);
 const OWN_HOUSING = [re(`${BW}${HOUSING}${EW}.{0,25}?${BW}${HAVE}${EW}`), re(`${BW}${HAVE}${EW}.{0,25}?${BW}${HOUSING}${EW}`)];
 const HOUSING_WORD = new RegExp(`${BW}${HOUSING}${EW}`, "u");
@@ -110,7 +112,7 @@ function plain(norm: string, patterns: RegExp | readonly RegExp[]): boolean {
  */
 const HOUSING_WISH = re(`${BW}(${HOUSING})${EW}( (?:ман|худам)${EW})? мехо(?:х|ст)\\p{L}*${EW}`);
 const POSSESSIVE_HOUSING = /(?:ам|амро|ем|емро|имро)$/u;
-const SELL_WORD = /фур[уо]ш|фурух|продат|продаю|продам|продаж|сдам|сдаю|сдат|ичора ме/u;
+const SELL_WORD = /фур[уо]ш|фурух|продат|прод[ао]ват|прадат|прадаю|прадам|продаю|продам|продаж|сдам|сдаю|сдат|ичора ме/u;
 function housingWish(norm: string): boolean {
   if (SELL_WORD.test(norm)) return false;
   for (const match of norm.matchAll(HOUSING_WISH)) {

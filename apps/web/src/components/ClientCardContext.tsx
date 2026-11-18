@@ -2,12 +2,6 @@ import { clientIntents } from "@royal-home/shared";
 import { formatMoney, PROPERTY_TYPE_LABELS, relativeTime } from "../lib/format";
 import type { Client } from "../types";
 
-export function clientPropertyCountVisible(client: Client, role: "BUYER" | "SELLER") {
-  const intents = clientIntents(client);
-  return role === "SELLER" ? intents.sells && client.sellerDeclaredPropertyCount != null
-    : intents.buys && client.buyerDesiredPropertyCount != null;
-}
-
 export function ClientCardFacts({ client }: { client: Client }) {
   if (!clientIntents(client).buys) return null;
   if (client.requirementsFieldsKind && client.requirementsFieldsKind !== "BUYER") {
