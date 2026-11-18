@@ -8,7 +8,7 @@
   умолчанию (`@default(true)`), поэтому после выката ничего не меняется —
   выключает владелец сам. Действующее значение = главный И свой. Пока главный
   выключен, свои строки на экране скрыты (их значения запомнены).
-  - Поля `Settings` (миграция `20261118150000_seller_automation_switches`, только
+  - Поля `Settings` (миграция `20261118170000_seller_automation_switches`, только
     `ADD COLUMN ... BOOLEAN NOT NULL DEFAULT true`): `sellerAutomationMasterEnabled`,
     `sellerNoPropertyAlarmEnabled`, `sellerPropertyMissingAntifraudEnabled`,
     `agentUnansweredAlarmEnabled`, `dealStaleSellersEnabled`, `sellerProbeCallEnabled`,
