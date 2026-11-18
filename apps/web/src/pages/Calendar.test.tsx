@@ -3,11 +3,13 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Calendar } from "./Calendar";
 
-const state = vi.hoisted(() => ({ role: "AGENT", readOnly: false, mobile: false, failed: false }));
+const state = vi.hoisted(() => ({ role: "AGENT", readOnly: false, mobile: false, failed: false, royal: false }));
 vi.mock("../store/auth", () => ({ useAuthStore: (select: (s: { agent: { role: string } }) => unknown) => select({ agent: { role: state.role } }) }));
 vi.mock("../lib/permissions", () => ({ useIsReadOnly: () => state.readOnly || state.role === "SHAREHOLDER" }));
 vi.mock("../hooks/useMobileUx", () => ({ useMobileUx: () => state.mobile }));
 vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => true }));
+// «Новый вид» (пачка calendar): признак подменяется, как и чистая оболочка выше.
+vi.mock("../hooks/useRoyalLook", async (importOriginal) => ({ ...(await importOriginal<typeof import("../hooks/useRoyalLook")>()), useRoyalLook: () => state.royal }));
 vi.mock("../hooks/useCounters", () => ({ useMarkSectionSeen: () => undefined }));
 vi.mock("../store/shell", () => ({ useShellClaim: () => undefined }));
 vi.mock("../components/rh2/ShellOwnHeader", () => ({ ShellOwnHeader: () => null }));
@@ -24,7 +26,7 @@ beforeEach(() => {
   // Keep the task on today in Dushanbe so role checks do not depend on the run date.
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-03T06:00:00Z"));
-  state.role = "AGENT"; state.readOnly = false; state.mobile = false; state.failed = false;
+  state.role = "AGENT"; state.readOnly = false; state.mobile = false; state.failed = false; state.royal = false;
 });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -54,5 +56,24 @@ describe("calendar role actions", () => {
   it("shows a failed completion rather than silently leaving the task", () => {
     state.failed = true;
     expect(html()).toContain("Действие запрещено");
+  });
+});
+
+describe("calendar in the royal look (пачка calendar)", () => {
+  for (const mobile of [false, true]) {
+    it(`marks the section and keeps the same actions, mobile=${mobile}`, () => {
+      state.royal = true; state.mobile = mobile; state.role = "MANAGER";
+      const view = html();
+      expect(view).toContain('data-ry-section="calendar"');
+      for (const action of ["Сделано", "Перенести", "Отменить", "Позвонить", "Назначить показ"]) expect(view).toContain(action);
+    });
+    it(`read-only roles stay read-only in the royal look, mobile=${mobile}`, () => {
+      state.royal = true; state.mobile = mobile; state.role = "SECURITY";
+      const view = html();
+      for (const action of ["Сделано", "Перенести", "Отменить", "Позвонить", "Назначить показ"]) expect(view).not.toContain(action);
+    });
+  }
+  it("without the look there is no section mark", () => {
+    expect(html()).not.toContain("data-ry-section");
   });
 });
