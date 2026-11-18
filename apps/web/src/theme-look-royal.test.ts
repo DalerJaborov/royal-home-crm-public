@@ -294,6 +294,19 @@ describe("слои разделов: смысловые кнопки, запас
     expect(lookFiles).toContain("theme-look-royal-objects.css");
     expect(lookSectionOf("theme-look-royal-objects.css")).toBe("objects");
   });
+  it("знает слой раздела «Сделки» и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-deals.css");
+    expect(lookSectionOf("theme-look-royal-deals.css")).toBe("deals");
+    const css = readFileSync(new URL("./theme-look-royal-deals.css", import.meta.url), "utf8");
+    const P = ':root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"]';
+    // чужая метка, правило без метки, смысловая кнопка чужим цветом, запас iPhone, сосед метки
+    expect(unscopedSelectors(`${css}\n:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .dcard { color: red; }\n:root[data-ui-look="royal"] .kan-col { color: red; }`, "deals"))
+      .toEqual([':root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .dcard', ':root[data-ui-look="royal"] .kan-col']);
+    expect(semanticButtonLeaks(`${css}\n${P} .card.tight > .wrap .pill { background: var(--rh-ui-press); }`)).toEqual([`${P} .card.tight > .wrap .pill`]);
+    expect(safeAreaOverrides(`${css}\n:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-f { padding: 0; }`))
+      .toEqual([':root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-f']);
+    expect(siblingEscapes(`${css}\n${P} ~ .rh2 .pill { color: red; }`, "deals")).toEqual([`${P} ~ .rh2 .pill`]);
+  });
   it.each(sectionFiles)("%s: смысловые кнопки не перекрашены, запас iPhone не тронут, из раздела не выходит", (file) => {
     const css = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
     expect(semanticButtonLeaks(css)).toEqual(KNOWN_DEBT[file] ?? []);
