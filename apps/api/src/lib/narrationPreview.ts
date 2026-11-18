@@ -106,8 +106,10 @@ export type PlacedMix =
  * объекта. SKIPPED — пока сводили, всё поменялось (ничего не записано; файл удаляет вызывающий).
  */
 export async function placeMixedClip(input: {
-  propertyId: string; publicPath: string; masterKey: string; seenVersionId: string | null; versionId: string; revision: number;
+  propertyId: string; publicPath: string; masterKey: string | null; seenVersionId: string | null; versionId: string; revision: number;
   requestedById: string; previewEnabled: boolean; voiceSec: number; clipSec: number; now?: Date;
+  /** Своя музыка (18.11.2026): сведено из вышедшего ролика, мастера нет. Ролик сменился — SKIPPED; трек запоминается. */
+  music?: { sourceFinalPath: string; trackId: string };
 }): Promise<PlacedMix> {
   const now = input.now ?? new Date();
   const dueAt = input.previewEnabled ? await previewDueAt(now) : null;
@@ -119,6 +121,9 @@ export async function placeMixedClip(input: {
       || cur.videoMasterNarrationVersionId !== input.seenVersionId || stillLatest.id !== input.versionId) return { kind: "SKIPPED" };
     // Пока шёл ffmpeg, включили «Без озвучки», объект закрыли или цена поменялась — ни подмены, ни кандидата.
     if (voiceBlocked(cur, stillLatest)) return { kind: "SKIPPED" };
+    if (input.music && cur.videoHandoffFinalPath !== input.music.sourceFinalPath) return { kind: "SKIPPED" };
+    // Трек, который лёг в этот ролик (кандидат или сразу подмена): следующий раз — другой.
+    const musicData = input.music ? { narrationMusicTrackId: input.music.trackId } : {};
     if (await isHandoffPublishRunning(input.propertyId, tx)) return { kind: "SKIPPED" };
     const published = isPublishedClip(cur);
     if (input.previewEnabled && published) {
@@ -126,11 +131,13 @@ export async function placeMixedClip(input: {
         narrationPreviewPath: input.publicPath, narrationPreviewVersionId: input.versionId, narrationPreviewMasterKey: input.masterKey,
         narrationPreviewAt: now, narrationPreviewDueAt: dueAt, narrationPreviewVoiceSec: input.voiceSec, narrationPreviewClipSec: input.clipSec,
         narrationPreviewNotifiedAt: null, narrationPreviewDeclinedVersionId: null, videoMasterMixError: null, videoMasterMixErrorVersionId: null,
+        ...musicData,
       } });
       return { kind: "PREVIEW", oldPreview: cur.narrationPreviewPath };
     }
     await replaceFinalWithMix(tx, { propertyId: input.propertyId, publicPath: input.publicPath, versionId: input.versionId, revision: input.revision,
       requestedById: input.requestedById, published, viaPreview: false });
+    if (input.music) await tx.property.update({ where: { id: input.propertyId }, data: musicData });
     return { kind: "REPLACED", oldFinal: cur.videoHandoffFinalPath, oldPreview: cur.narrationPreviewPath, reviewPending: cur.clipReviewStatus === "PENDING" };
   });
 }

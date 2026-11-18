@@ -116,6 +116,10 @@ const narrationConfigBase = z.object({
    *  старый»), молчит — выходит сам через часы из «Ролик подтверждает хозяин». По умолчанию ВКЛЮЧЁН;
    *  false — как раньше, новый ролик сразу заменяет вышедший. */
   previewBeforeRepublish: z.boolean().optional(),
+  /** Рубильник (18.11.2026, «своя музыка при перемонтаже»): у вышедшего ролика нет ролика без голоса, а озвучка
+   *  поменялась — CRM снимает со старого ролика весь звук и кладёт случайный трек библиотеки (Настройки → Озвучка)
+   *  и новый голос. По умолчанию ВЫКЛЮЧЕН: треки подбирает владелец; выключен или треков нет — монтажёру. */
+  ownMusicRemix: z.boolean().optional(),
   /** Словарь произношения: «слово → как читать» (alias; phoneme — если модель его понимает). Правит
    *  владелец; синхронизация с ElevenLabs — только для моделей из NARRATION_PRONUNCIATION_MODELS. */
   pronunciationRules: z.array(z.object({
@@ -184,6 +188,11 @@ export function narrationTtsOptions(config: Pick<NarrationConfig, "voices" | "vo
  *  (12.11.2026: по умолчанию голос вклеивает монтажёр). */
 export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): boolean {
   return config.mixByCrm === true;
+}
+
+/** Своя музыка при перемонтаже (18.11.2026): только если руководство включило. */
+export function narrationOwnMusicRemix(config: Pick<NarrationConfig, "ownMusicRemix">): boolean {
+  return config.ownMusicRemix === true;
 }
 
 /** Новая озвучка на вышедший ролик сначала идёт хозяину послушать (17.11.2026): включено, пока не выключили. */
