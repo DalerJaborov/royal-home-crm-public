@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 777,
-  "forks": 4119,
+  "endpoints": 778,
+  "forks": 4128,
   "mounts": 87,
-  "cron": 142,
+  "cron": 143,
   "jobs": 34,
   "hidden": 0
  },
@@ -49575,6 +49575,110 @@
   },
   {
    "method": "POST",
+   "path": "/:id/narration/preview",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/preview",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!canDecidePreview(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Решение по ролику принимает тот, кто ведёт объект\" });",
+       "a": [
+        "ответ 403 — «Решение по ролику принимает тот, кто ведёт объект»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const parsed = narrationPreviewDecisionSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой narrationPreviewDecisionSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректное решение\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Некорректное решение»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = parsed.data.decision === \"RELEASE\" ? await releaseNarrationPreview(p.id, parsed.data.versionId…",
+     "a": [
+      "зовёт releaseNarrationPreview()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "result === \"STALE\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Этот ролик уже решён или устарел. Обновите карточку.\" });",
+       "a": [
+        "ответ 409 — «Этот ролик уже решён или устарел. Обновите карточку.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "result === \"BUSY\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару ми…",
+       "a": [
+        "ответ 409 — «Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, result });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/:id/narration/publication-preview",
    "mount": "/api/v1/properties",
    "full": "/api/v1/properties/:id/narration/publication-preview",
@@ -93293,7 +93397,7 @@
            "c": [
             {
              "k": "do",
-             "t": "properties.set(row.id, { trashed: row.deletedAt !== null, finalPath: row.videoHandoffFinalPath, coverSquareUr…",
+             "t": "properties.set(row.id, { trashed: row.deletedAt !== null, finalPath: row.videoHandoffFinalPath, previewPath: …",
              "a": [
               "дословно из кода"
              ],
@@ -104355,6 +104459,206 @@
       }
      ],
      "from": "runMachineMastersTick() — apps/api/src/lib/narrationAutoFlow.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "narration-preview-due",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await releaseDueNarrationPreviews();",
+     "a": [
+      "зовёт releaseDueNarrationPreviews()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const waiting = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null } }, select:…",
+       "a": [
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of waiting",
+       "a": [],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "orphan",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const res = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationP…",
+             "a": [
+              "меняет в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "res.count",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "cleared++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "await removeClipFiles(row.narrationPreviewPath);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: \"auto\" }, now)…",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "released++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"video-handoff\", `Новый ролик с озвучкой не выпущен по сроку прослушивания: ${err instanc…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": "releaseDueNarrationPreviews() — apps/api/src/lib/narrationPreview.ts"
+    },
+    {
+     "k": "do",
+     "t": "await notifyPendingNarrationPreviews(notifyNarrationPreview);",
+     "a": [
+      "зовёт notifyPendingNarrationPreviews()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…",
+       "a": [
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of rows.filter((r) => r.narrationPreviewMasterKey === r.videoMasterStorageKey).slice(0, 5)",
+       "a": [],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrati…",
+           "a": [
+            "меняет в базе: property"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "marked.count",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "notified++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"video-handoff\", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор че…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": "notifyPendingNarrationPreviews() — apps/api/src/lib/narrationPreview.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
