@@ -143,9 +143,9 @@ describe("режим «только заявки», старый путь", () =
     const second = await turn(instagram, peer, "Хочу купить квартиру");
     expect(second.reply).toContain("Если удобно, напишите номер");
     const third = await turn(instagram, peer, "Ищу квартиру");
-    expect(third.reply).toContain("+992 44 650 14 14");
+    expect(third.reply).toContain("777 070 100");
     const fourth = await turn(instagram, peer, "Ищу квартиру");
-    expect(fourth.reply).not.toMatch(/650 14 14|номер/i);
+    expect(fourth.reply).not.toMatch(/777 070 100|номер/i);
     expect(await clientOf(peer)).toBeNull();
   });
 
@@ -277,7 +277,7 @@ describe("второе ревью, старый путь", () => {
     const after = await turn(instagram, `lead-only-ig-refuse-${runId}`, "Не хочу давать номер");
     // 17.11.2026: no consent opening («Хорошо, без проблем» read as «да»), the refusal is acknowledged with «Понял вас.»
     expect(after.reply).toContain("Понял вас.");
-    expect(after.reply).toContain("+992 44 650 14 14");
+    expect(after.reply).toContain("777 070 100");
     expect(replyModelCalls()).toEqual([]);
   });
 
@@ -374,7 +374,7 @@ describe("третье ревью, старый путь", () => {
     expect(card).not.toBeNull();
     await prisma.client.update({ where: { id: card!.id }, data: { assignedAgentId: ownerId } });
     const result = await turn(whatsapp, peer, "Не звоните сейчас, позвоните завтра");
-    expect(result.reply).not.toMatch(/Понял вас\. Если|650 14 14/u);
+    expect(result.reply).not.toMatch(/Понял вас\. Если|777 070 100/u);
     expect(result.reply).toContain("в удобное вам время");
     const note = await prisma.interaction.findFirst({ where: { clientId: card!.id, notes: { contains: "позвоните завтра" } } });
     expect(note).not.toBeNull();

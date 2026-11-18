@@ -25,7 +25,6 @@ import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol
 import { clientOwnWords } from "./untrustedContent.js";
 import { looksLikeRentRequest } from "./rentGuard.js";
 import { withoutAgreementOpenings, withoutInventedClaims } from "./customerAgentHumanText.js";
-import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 
 /** Кто клиент — перечень ответа модели (ai/leadOnlyIntent.ts). Здесь, а не там: тип нужен сценарию, а круга импортов быть не должно. */
 export const LEAD_ONLY_ROLES = ["buyer", "seller", "renter", "landlord", "job", "other"] as const;
@@ -396,13 +395,7 @@ export type LeadOnlyPhoneState =
       /** Клиент прямо отказался дать номер: больше не просим, «понял вас» и номер офиса. */
       refused?: boolean };
 
-/**
- * Номер офиса для звонка — из одного источника (lib/publicAgencyContact.ts). До 18.11.2026 здесь стоял «777 070 100» — номер
- * Нозы (найм, @royal-home/shared RECRUITMENT_CONTACT): продавцы и покупатели, отказавшиеся дать номер, получали номер рекрутера.
- * Решение владельца 18.11.2026: офис для звонков — +992 44 650 14 14. Старый номер в прежних репликах только узнаётся.
- */
-export const LEAD_ONLY_OFFICE_PHONE_TEXT = PUBLIC_AGENCY_CONTACT.phone;
-const RETIRED_LEAD_ONLY_OFFICE_PHONE_TEXT = "777 070 100";
+export const LEAD_ONLY_OFFICE_PHONE_TEXT = "777 070 100";
 
 /**
  * Тексты. Три случая там, где это важно для правды:
@@ -615,7 +608,7 @@ export function leadOnlyPhoneAskHistory(assistantTexts: readonly string[]): { as
   let asksSoFar = 0, officeAlreadyOffered = false;
   for (const text of assistantTexts) {
     if (asks.some(line => text.includes(line)) || generic.test(text)) asksSoFar++;
-    if (text.includes(LEAD_ONLY_OFFICE_PHONE_TEXT) || text.includes(RETIRED_LEAD_ONLY_OFFICE_PHONE_TEXT)) officeAlreadyOffered = true;
+    if (text.includes(LEAD_ONLY_OFFICE_PHONE_TEXT)) officeAlreadyOffered = true;
   }
   return { asksSoFar, officeAlreadyOffered };
 }

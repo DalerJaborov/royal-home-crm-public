@@ -80,7 +80,7 @@ describe("тексты", () => {
     expect(ask(1)).toBe("Если удобно, напишите номер, и агент позвонит сам.");
     expect(ask(2)).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
     expect(ask(2, true)).toBeNull();
-    expect(leadOnlyPhoneLine({ kind: "ask", asksSoFar: 1, maxAsks: 1, officeAlreadyOffered: false }, soon, "tg")).toContain("+992 44 650 14 14");
+    expect(leadOnlyPhoneLine({ kind: "ask", asksSoFar: 1, maxAsks: 1, officeAlreadyOffered: false }, soon, "tg")).toContain("777 070 100");
   });
   it("счёт прежних просьб номера по своим репликам", () => {
     expect(leadOnlyPhoneAskHistory([

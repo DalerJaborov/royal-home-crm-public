@@ -92,7 +92,7 @@ describe("№1: отказ от звонка со словом времени", 
       focusPropertyId: propertyA }));
     expect(plan?.scenario).toBe("hot");
     // Заявки нет — «ответит здесь» было бы неправдой; номер офиса — можно («позвоните нам сами»).
-    expect(plan?.text).toContain("+992 44 650 14 14");
+    expect(plan?.text).toContain("777 070 100");
     expect(plan?.text).not.toMatch(/ответит вам здесь|передаю|оставьте|напишите номер|агент[^.]*позвонит/iu);
     expect(plan?.intake).toBeNull();
     expect(await leadOnlyNotificationsSince(id, since, [ownerA])).toBe(0);

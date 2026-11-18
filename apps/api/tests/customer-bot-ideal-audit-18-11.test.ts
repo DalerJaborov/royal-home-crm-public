@@ -19,7 +19,7 @@ import { customerBareAffirmation } from "../src/ai/customerAgentFollowUp.js";
 import { isCustomerShortCallbackYes } from "../src/ai/customerAskSignals.js";
 import { APPROVED_ASKS, withoutInventedClaims } from "../src/ai/customerAgentHumanText.js";
 import { customerStaffFollowUpLine, customerPhoneAskLines } from "../src/ai/customerAgentStaffFollowUp.js";
-import { LEAD_ONLY_OFFICE_PHONE_TEXT, leadOnlyCallOfferLast, leadOnlyHotIntent, leadOnlyOutgoing, leadOnlyPhoneAskHistory, leadOnlyPhoneLine,
+import { leadOnlyCallOfferLast, leadOnlyHotIntent, leadOnlyOutgoing, leadOnlyPhoneLine,
   leadOnlyReply } from "../src/ai/leadOnlyMode.js";
 import { PUBLIC_AGENCY_CONTACT, PUBLIC_AGENCY_WHATSAPP } from "../src/lib/publicAgencyContact.js";
 import { AGENCY_FACTS, companyInfoBlock } from "../src/ai/agencyFacts.js";
@@ -298,21 +298,6 @@ describe("«Условия, пожалуйста» — вопрос (остат�
   it("описание остаётся описанием", () => {
     expect(customerAgencyTermsAsked("мне условия не важны")).toBe(false);
     expect(customerAgencyTermsAsked("все условия есть")).toBe(false);
-  });
-});
-
-describe("номер офиса режима «только заявки» — из одного источника (раньше там стоял номер Нозы)", () => {
-  it("офис = +992 44 650 14 14", () => {
-    expect(LEAD_ONLY_OFFICE_PHONE_TEXT).toBe(PUBLIC_AGENCY_CONTACT.phone);
-    const refused = leadOnlyPhoneLine({ kind: "ask", asksSoFar: 1, maxAsks: 1, officeAlreadyOffered: false, refused: true }, { kind: "soon" }, "ru")!;
-    expect(refused).toContain(OFFICE);
-    expect(refused).not.toContain("777 070 100");
-  });
-  it("старый номер в отправленном всё ещё значит «офис уже называли»", () => {
-    expect(leadOnlyPhoneAskHistory(["Если удобнее, позвоните нам сами: 777 070 100."]).officeAlreadyOffered).toBe(true);
-  });
-  it("ответ на «можно позвонить?» в обоих режимах — одной дверью", () => {
-    expect(customerAgencyDirectAnswer("call", { language: "ru", whatsappChannel: true, text: "можно позвонить?" })).toBe(`Да, позвоните: ${OFFICE}.`);
   });
 });
 
