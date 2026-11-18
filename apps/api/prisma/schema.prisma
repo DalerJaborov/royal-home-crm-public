@@ -2462,15 +2462,13 @@ model Property {
   /// CRM прямо сейчас накладывает новую озвучку на этот ролик (ffmpeg до 9 минут): второй тик
   /// не запускает вторую копию; метка старше 15 минут считается брошенной (12.11.2026).
   videoMasterMixingAt            DateTime?
-  /// Откуда мастер (16.11.2026): EDITOR — монтажёр прислал ролик без голоса; MACHINE — CRM сама
-  /// отделила старый голос от музыки вышедшего ролика (lib/narrationAutoMaster.ts). null — старые записи (монтажёр).
+  /// Откуда мастер (16.11.2026): EDITOR — монтажёр прислал ролик без голоса; null — старые записи (монтажёр).
+  /// MACHINE (CRM сама отделяла старый голос) больше не пишется: машинное отделение убрано 18.11.2026.
   videoMasterSource              String?
-  /// Отделить голос от этого готового ролика не получилось (текст для руководства) — для этого же
-  /// файла повтора нет, объект ушёл монтажёру. Новый готовый ролик — новая попытка.
+  // не используется с 18.11, удалить следующим выкатом (машинное отделение голоса убрано; черновик SQL —
+  // docs/journal/2026-11-18-narration-drop-voice-separator.md). Код эти колонки не читает и не пишет.
   videoMasterAutoError           String?
   videoMasterAutoErrorFinalPath  String?
-  /// Временные сбои сервиса (не ответил, перезапускался при выкате) на этом готовом ролике: после
-  /// трёх подряд — отказ и монтажёру; до того — повтор не раньше videoMasterAutoRetryAt.
   videoMasterAutoAttempts        Int       @default(0)
   videoMasterAutoRetryAt         DateTime?
   /// ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026, lib/narrationPreview.ts). CRM наложила новую озвучку на
@@ -2490,6 +2488,9 @@ model Property {
   /// Хозяин отказался от наложения этой версии («Оставить старый» / «Другой голос или текст») —
   /// эту версию CRM больше не накладывает; новая версия озвучки — новый кандидат.
   narrationPreviewDeclinedVersionId String?
+  /// СВОЯ МУЗЫКА (18.11.2026, lib/narrationMusic.ts): трек библиотеки, положенный в последний перемонтаж
+  /// (ролик или кандидат «прослушать»). Следующий перемонтаж берёт другой. Без связи: трек могут удалить.
+  narrationMusicTrackId          String?
   /// МОМЕНТ, КОГДА ГОТОВЫЙ РОЛИК РЕАЛЬНО ПОЛУЧЕН (21.09.2026, случай №114 — ролик
   /// принят, файл лёг на диск, но рестарт контейнеров посреди публикации оборвал
   /// её молча, publishedChannels остался пуст, объект завис в EDITING навсегда).
@@ -3096,6 +3097,21 @@ model StaffClipIntake {
   updatedAt      DateTime  @updatedAt
   @@index([chatId, status, createdAt])
   @@index([fileUniqueId])
+}
+
+/// СВОЯ МУЗЫКА ДЛЯ ПЕРЕМОНТАЖА (18.11.2026, lib/narrationMusic.ts): треки без авторских прав, которые
+/// подбирает владелец (Настройки → Озвучка). Файл — в закрытом хранилище роликов (storageKey,
+/// lib/localVideoStorage.ts); тип проверен по содержимому, длина — ffprobe.
+model NarrationMusicTrack {
+  id          String   @id @default(uuid())
+  title       String
+  storageKey  String   @unique
+  /// mp3 | m4a
+  format      String
+  durationSec Float
+  sizeBytes   Int
+  createdById String?
+  createdAt   DateTime @default(now())
 }
 
 model NarrationVoiceSample {

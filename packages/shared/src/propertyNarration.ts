@@ -111,15 +111,21 @@ const narrationConfigBase = z.object({
   /** Рубильник (12.11.2026): озвучка к роликам, которые уже стоят в монтаже, на одобрение владельцу.
    *  По умолчанию ВЫКЛЮЧЕН и сам с автоозвучкой не включается (решение владельца — завтра). */
   backfillMontageQueue: z.boolean().optional(),
-  /** Рубильник (16.11.2026, решение владельца «старый голос убирает ИИ, монтажёр не нужен»): у вышедшего
-   *  ролика нет версии без голоса, а озвучка поменялась — CRM сама отделяет старый голос от музыки
-   *  (сервис voice-separator) и накладывает новый. По умолчанию ВКЛЮЧЁН; false — как раньше, монтажёру. */
-  autoSeparateVoice: z.boolean().optional(),
   /** Рубильник (17.11.2026, «прослушать перед выпуском»): CRM наложила новую озвучку на ВЫШЕДШИЙ ролик —
    *  новый ролик сначала уходит хозяину объекта послушать («Выпустить / Другой голос или текст / Оставить
    *  старый»), молчит — выходит сам через часы из «Ролик подтверждает хозяин». По умолчанию ВКЛЮЧЁН;
    *  false — как раньше, новый ролик сразу заменяет вышедший. */
   previewBeforeRepublish: z.boolean().optional(),
+  /** Рубильник (18.11.2026, «своя музыка при перемонтаже»): у вышедшего ролика нет ролика без голоса, а озвучка
+   *  поменялась — CRM снимает со старого ролика весь звук и кладёт случайный трек библиотеки (Настройки → Озвучка)
+   *  и новый голос. По умолчанию ВЫКЛЮЧЕН: треки подбирает владелец; выключен или треков нет — монтажёру. */
+  ownMusicRemix: z.boolean().optional(),
+  /** Когда «своя музыка» включена (ставит сервер при включении, ревью 18.11): сама CRM перемонтирует только
+   *  озвучки, одобренные ПОСЛЕ этого момента — без волны перевыпуска старых роликов. Экран это поле не шлёт. */
+  ownMusicRemixSince: z.string().datetime().optional(),
+  /** Рубильник (18.11.2026, «изменяемый текст на ролике»): при каждой сборке ролика CRM сама рисует плашку с ценой из
+   *  карточки объекта и субтитры по тексту озвучки (lib/video/narrationOverlay.ts). По умолчанию ВЫКЛЮЧЕН. */
+  textOverlay: z.boolean().optional(),
   /** Словарь произношения: «слово → как читать» (alias; phoneme — если модель его понимает). Правит
    *  владелец; синхронизация с ElevenLabs — только для моделей из NARRATION_PRONUNCIATION_MODELS. */
   pronunciationRules: z.array(z.object({
@@ -190,9 +196,25 @@ export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): bo
   return config.mixByCrm === true;
 }
 
-/** Старый голос из вышедшего ролика убирает CRM (16.11.2026): включено, пока руководство не выключило. */
-export function narrationAutoSeparate(config: Pick<NarrationConfig, "autoSeparateVoice">): boolean {
-  return config.autoSeparateVoice !== false;
+/** Цена и субтитры на ролике рисует CRM (18.11.2026): только если руководство включило. */
+export function narrationTextOverlay(config: Pick<NarrationConfig, "textOverlay">): boolean {
+  return config.textOverlay === true;
+}
+
+/**
+ * Момент включения «своей музыки» при сохранении настроек (ревью 18.11): включили сейчас — сейчас; уже было
+ * включено — прежний момент; выключили — нет момента. Присланное с экрана значение не принимается.
+ */
+export function ownMusicRemixSinceAfterSave(prev: Pick<NarrationConfig, "ownMusicRemix" | "ownMusicRemixSince">,
+  next: Pick<NarrationConfig, "ownMusicRemix">, now: Date): string | undefined {
+  if (next.ownMusicRemix !== true) return undefined;
+  if (prev.ownMusicRemix === true && prev.ownMusicRemixSince) return prev.ownMusicRemixSince;
+  return now.toISOString();
+}
+
+/** Своя музыка при перемонтаже (18.11.2026): только если руководство включило. */
+export function narrationOwnMusicRemix(config: Pick<NarrationConfig, "ownMusicRemix">): boolean {
+  return config.ownMusicRemix === true;
 }
 
 /** Новая озвучка на вышедший ролик сначала идёт хозяину послушать (17.11.2026): включено, пока не выключили. */

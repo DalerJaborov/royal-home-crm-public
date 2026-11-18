@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
+import { ownMusicRemixSinceAfterSave, narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
 import { isReadOnlyRole, narrationPreviewDecisionSchema } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { declineNarrationPreview, releaseNarrationPreview } from "../../lib/narrationPreview.js";
@@ -12,8 +12,7 @@ import { localVideoFilePath } from "../../lib/localVideoStorage.js";
 import { generateNarrationVersion, generateVoiceSamples, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince, readyVoiceSamples } from "../../lib/narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
 import { NARRATION_VOICE_LONGER_MARK } from "../../lib/narrationMix.js";
-import { narrationMixNoteFor } from "../../lib/narrationAutoMaster.js";
-import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAutoEnabled, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
+import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAutoEnabled, narrationMixNoteFor, ownMusicRemixApplies, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
 import { setPropertyNarrationOff } from "../../lib/narrationOptOut.js";
 import { syncPronunciationDictionary } from "../../lib/narrationPronunciation.js";
 import { narrationLastChoiceFor } from "../../lib/narrationLastChoice.js";
@@ -160,7 +159,12 @@ narrationRouter.put("/narration-settings", async (req, res) => {
   // Поле, которого нет в запросе, остаётся прежним: старый экран не стирает шаблоны и пределы.
   const { config: existing, unreadable } = await configuration();
   if (unreadable) return res.status(409).json({ error: "Сохранённые настройки озвучки не читаются, поэтому сохранение остановлено: оно стёрло бы голоса и шаблоны. Сообщите разработчику (запись в журнале ошибок)." });
-  const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data).filter(([, v]) => v !== undefined)) });
+  // Момент включения своей музыки ставит только сервер (ревью 18.11): с экрана не принимается.
+  const { ownMusicRemixSince: _ignoredSince, ...patchData } = patch.data;
+  const merged = { ...existing, ...Object.fromEntries(Object.entries(patchData).filter(([, v]) => v !== undefined)) } as typeof existing;
+  const since = ownMusicRemixSinceAfterSave(existing, merged, new Date());
+  const { ownMusicRemixSince: _oldSince, ...withoutSince } = merged;
+  const parsed = narrationConfigSchema.safeParse(since ? { ...withoutSince, ownMusicRemixSince: since } : withoutSince);
   if (!parsed.success) return res.status(400).json({ error: "Проверьте модель и список голосов", details: parsed.error.flatten() });
   const modelProblem = narrationModelError(parsed.data);
   if (modelProblem) return res.status(400).json({ error: modelProblem });
@@ -248,7 +252,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
       // 14.11.2026: агент видит, что новая озвучка на вышедший ролик не легла, а не только руководство в журнале.
       problem: p.videoMasterMixError && p.videoMasterMixErrorVersionId && p.videoMasterMixErrorVersionId === versions[0]?.id
         ? (p.videoMasterMixError.includes(NARRATION_VOICE_LONGER_MARK) ? "VOICE_LONGER" as const : "FAILED" as const) : null,
-      note: await narrationMixNoteFor(p, versions[0] ?? null) },
+      note: narrationMixNoteFor(p, versions[0] ?? null, { ownMusicPending: !p.videoMasterStorageKey && await ownMusicRemixApplies(p.id) }) },
     // ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026): новый ролик с новой озвучкой ждёт решения (lib/narrationPreview.ts).
     preview: previewView(p, versions, req.agent!.role),
     previewDeclined: !!versions[0] && p.narrationPreviewDeclinedVersionId === versions[0].id,

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NARRATION_PROPERTY_TYPES, NARRATION_PROPERTY_TYPE_LABELS, NARRATION_TAJIK_MODELS, type NarrationConfig, type NarrationEnding, type NarrationPropertyType, type NarrationSettingsView, type NarrationTemplate } from "@royal-home/shared";
 import { api } from "../../lib/api";
+import { NarrationMusicLibrary } from "./NarrationMusicLibrary";
 
 /**
  * НАСТРОЙКИ CRM → «ОЗВУЧКА РОЛИКОВ» (14.11.2026, владелец: «всю техническую часть полностью
@@ -22,8 +23,9 @@ export function NarrationSettingsPanel() {
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const [modelId, setModelId] = useState<string | null>(null), [voicesText, setVoicesText] = useState<string | null>(null);
   const [autoGenerate, setAutoGenerate] = useState<boolean | null>(null), [mixByCrm, setMixByCrm] = useState<boolean | null>(null);
-  const [autoSeparate, setAutoSeparate] = useState<boolean | null>(null);
   const [previewBefore, setPreviewBefore] = useState<boolean | null>(null);
+  const [ownMusic, setOwnMusic] = useState<boolean | null>(null);
+  const [textOverlay, setTextOverlay] = useState<boolean | null>(null);
   const [backfill, setBackfill] = useState<boolean | null>(null), [monthlyPreview, setMonthlyPreview] = useState<boolean | null>(null), [freeEnabled, setFreeEnabled] = useState<boolean | null>(null);
   const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string; freePerson?: string; freeMax?: string; freeShare?: string }>({});
   const [templatesDraft, setTemplatesDraft] = useState<NarrationTemplate[] | null>(null), [endingsDraft, setEndingsDraft] = useState<NarrationEnding[] | null>(null);
@@ -80,11 +82,13 @@ export function NarrationSettingsPanel() {
         <legend className="text-sm font-semibold">Как работает</legend>
         <Check checked={autoGenerate ?? !!config.autoGenerate} onChange={setAutoGenerate}>Автоозвучка: аудио готовится само после создания объекта и после правки его данных, агент слушает и одобряет</Check>
         <Check checked={mixByCrm ?? config.mixByCrm === true} onChange={setMixByCrm}>Голос накладывает CRM: монтажёр присылает только ролик без голоса. Выключено: монтажёр вклеивает mp3 сам</Check>
-        <Check checked={autoSeparate ?? config.autoSeparateVoice !== false} onChange={setAutoSeparate}>Новая цена у вышедшего ролика: CRM сама убирает из него старый голос и кладёт новую озвучку, монтажёр сдаёт один готовый файл. Не получилось — ролик уходит монтажёру. Выключено: монтажёра просят присылать ещё ролик без голоса</Check>
         <Check checked={previewBefore ?? config.previewBeforeRepublish !== false} onChange={setPreviewBefore}>Новую озвучку на вышедший ролик сначала слушает агент объекта: новый ролик ждёт его решения и выходит сам, если он не ответил. Выключено: новый ролик сразу заменяет вышедший</Check>
+        <Check checked={textOverlay ?? config.textOverlay === true} onChange={setTextOverlay}>Цену и субтитры на ролике рисует CRM: при перемонтаже CRM сама кладёт плашку с ценой из карточки и субтитры по тексту озвучки</Check>
         <Check checked={backfill ?? config.backfillMontageQueue === true} onChange={setBackfill}>Озвучка к роликам, которые уже в монтаже: готовить по шаблону и голосу по умолчанию, одобряет владелец</Check>
         <Check checked={monthlyPreview ?? !!config.ownerReportPreviewEnabled} onChange={setMonthlyPreview}>Готовить черновик каждого месяца для уже согласованных отчётов собственнику. SMS не отправлять</Check>
       </fieldset>
+
+      <NarrationMusicLibrary enabled={ownMusic ?? config.ownMusicRemix === true} onEnabledChange={setOwnMusic} disabled={readOnly || busy} />
 
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Пределы расхода</legend>
@@ -170,7 +174,7 @@ export function NarrationSettingsPanel() {
         });
         const number = (text: string | undefined, fallback: number | undefined) => text === undefined ? fallback : Math.max(0, Math.round(Number(text) || 0));
         const patch: Partial<NarrationConfig> = { modelId: model, voices, ownerReportPreviewEnabled: monthlyPreview ?? !!config.ownerReportPreviewEnabled,
-          autoGenerate: autoGenerate ?? !!config.autoGenerate, mixByCrm: mixByCrm ?? config.mixByCrm === true, backfillMontageQueue: backfill ?? config.backfillMontageQueue === true, autoSeparateVoice: autoSeparate ?? config.autoSeparateVoice !== false, previewBeforeRepublish: previewBefore ?? config.previewBeforeRepublish !== false,
+          autoGenerate: autoGenerate ?? !!config.autoGenerate, mixByCrm: mixByCrm ?? config.mixByCrm === true, backfillMontageQueue: backfill ?? config.backfillMontageQueue === true, previewBeforeRepublish: previewBefore ?? config.previewBeforeRepublish !== false, ownMusicRemix: ownMusic ?? config.ownMusicRemix === true, textOverlay: textOverlay ?? config.textOverlay === true,
           ...(rulesDraft ? { pronunciationRules: rulesDraft.filter((r) => r.word.trim() && (r.alias?.trim() || r.phoneme?.trim())) } : {}),
           dailyCharLimit: number(limitsText.chars, config.dailyCharLimit), dailyGenerationLimit: number(limitsText.gens, config.dailyGenerationLimit),
           debounceMinutes: number(limitsText.pause, config.debounceMinutes),
