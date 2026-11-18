@@ -279,8 +279,11 @@
     display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; min-height: 72px; padding: 12px;
   }
   :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-top { display: contents; }
-  :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-top > .ry-circle { grid-column: 1; grid-row: 1; }
-  :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-top > .ry-swt-ctl { grid-column: 3; grid-row: 1; }
+  :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-top > .ry-circle { grid-column: 1; grid-row: 1 / span 2; align-self: start; }
+  /* Узко: переключатель справа от названия, слово состояния — под названием (не отнимает ширину). */
+  :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-top > .ry-swt-ctl { display: contents; }
+  :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-ctl > .tgl { grid-column: 3; grid-row: 1; }
+  :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-ctl > .chip { grid-column: 2; grid-row: 2; justify-self: start; }
   :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-t { grid-column: 2; grid-row: 1; align-items: center; justify-content: flex-start; text-wrap: pretty; }
   :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt :is(.ry-hint, .ry-swt-warn) { grid-column: 1 / -1; }
 }
