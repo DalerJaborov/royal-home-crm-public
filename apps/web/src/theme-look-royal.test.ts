@@ -300,29 +300,77 @@ export function specificity(selector: string): [number, number, number] {
 }
 
 const specOrder = (s: [number, number, number]) => s[0] * 1e6 + s[1] * 1e3 + s[2];
-const BUTTON_SUBJECT = /\.(pill|rh-btn|ry-btn)\b|(^|[\s(,>])button\b/;
+
+const DISABLED_IN = /:disabled|\[disabled\]/;
+const EXCLUDES_DISABLED = /:not\((:disabled|\[disabled\]|:is\(:disabled[^)]*\))\)|:enabled/;
+/** Вид/смысл кнопки, а не сама кнопка: в «свои классы кнопок» не попадают. */
+const NOT_A_CONTROL = (cls: string) => SEMANTIC_VARIANTS.includes(cls) || /^(ghost|soft|sm|icon|is-loading)$/.test(cls);
+
+/** Свои классы кнопок слоя: у которых в том же слое есть своё правило `:disabled`. */
+function controlClasses(rules: { selector: string }[]): Set<string> {
+  const capable = new Set<string>();
+  for (const rule of rules) for (const selector of splitTopLevel(rule.selector)) {
+    const subject = subjectOf(selector);
+    if (!DISABLED_IN.test(subject) || EXCLUDES_DISABLED.test(subject)) continue;
+    for (const m of notGroups(subject).rest.matchAll(/\.([\w-]+)/g)) if (!NOT_A_CONTROL(m[1])) capable.add(m[1]);
+  }
+  return capable;
+}
+
+/** «Тип цели» кнопки: `.pill`, `.rh-btn`, `.ry-btn`, `button` и свои классы кнопок слоя. */
+function targetTypes(rest: string, capable: Set<string>): string[] {
+  const types = [...rest.matchAll(/\.([\w-]+)/g)].map((m) => m[1]).filter((c) => /^(pill|rh-btn|ry-btn)$/.test(c) || capable.has(c));
+  if (/(^|[\s(,>])button\b/.test(rest)) types.push("button");
+  return [...new Set(types)];
+}
+
+/** Без частей «выключена» и веса-заглушки: по нему правило приглушения сверяется с перекраской «один к одному». */
+const withoutDisabled = (selector: string) => selector
+  .replace(/:is\(\s*(:disabled|\[disabled\]|\[aria-disabled="true"\])(\s*,\s*(:disabled|\[disabled\]|\[aria-disabled="true"\]))*\s*\)/g, "")
+  .replace(/:disabled|\[disabled\]|:not\(#ry-dim\)/g, "").replace(/\s+/g, " ").trim();
+
+/** Префикс правила — только корень вида и метка раздела (и, может быть, `.scr`): правило на весь раздел. */
+const SECTION_WIDE = /^:root\[data-ui-look="royal"\](\[data-mobile-ux\])?(\s+[\w.-]*(\[data-ry-section="[\w-]+"\])[\w.-]*)?(\s+\.scr)?$/;
 
 /**
- * Выключенная кнопка (третье ревью PR 279): слой, перекрашивающий кнопку (фон или цвет у
- * `.pill`/`.rh-btn`/`.ry-btn`/`button`), обязан сам держать правило приглушения
- * `:disabled` (с `opacity`) не легче самого тяжёлого перекрашивающего — иначе недоступная
- * «Сохранить» горит синим, как доступная. Возвращает недостачу или null.
+ * Выключенная кнопка (третье ревью PR 279, ревью PR 286). Каждое правило слоя,
+ * перекрашивающее кнопку (фон или цвет у `.pill`/`.rh-btn`/`.ry-btn`/`button` или у своего
+ * класса кнопки), обязано быть ПОКРЫТО правилом приглушения `:disabled` с `opacity`:
+ *  - либо правилом на весь раздел, в списке которого есть тип цели перекраски и которое не
+ *    легче её (иначе недоступная «Сохранить» горит синим, как доступная);
+ *  - либо её же селектором с `:disabled` («один к одному», как в слое team).
+ * Сравнивать один вес мало: правило с весом id тяжелее всего, но не покрывает кнопку,
+ * которой нет в его списке (`.ry-zzz button` при правиле только для `.pill`).
+ * Возвращает непокрытые перекраски.
  */
-export function disabledDimGap(css: string): { heaviest: string; weight: number; dim: number } | null {
-  let heaviest = ""; let weight = 0; let dim = -1;
-  for (const rule of cssRules(css)) {
+export function disabledDimGaps(css: string): string[] {
+  const rules = cssRules(css);
+  const capable = controlClasses(rules);
+  const broad: { types: string[]; weight: number }[] = [];
+  const exact = new Set<string>();
+  const repaints: string[] = [];
+  for (const rule of rules) {
     const decls = declarations(rule.body);
     for (const selector of splitTopLevel(rule.selector)) {
       const subject = subjectOf(selector);
-      if (!BUTTON_SUBJECT.test(notGroups(subject).rest)) continue;
-      // Правило, которое само не берёт выключенную кнопку, её и не перекрашивает.
-      if (/:not\((:disabled|\[disabled\])\)|:enabled/.test(subject)) continue;
-      const w = specOrder(specificity(selector));
-      if (/:disabled|\[disabled\]/.test(subject) && decls.some(([prop]) => prop === "opacity")) dim = Math.max(dim, w);
-      else if (decls.some(([prop, value]) => COLOR_PROP.test(prop) && !NEUTRAL_COLOR.test(value)) && w > weight) { weight = w; heaviest = selector; }
+      const rest = notGroups(subject).rest;
+      const types = targetTypes(rest, capable);
+      if (!types.length || EXCLUDES_DISABLED.test(subject)) continue;
+      if (DISABLED_IN.test(subject)) {
+        // своё оформление выключенной кнопки — не перекраска; приглушение — только с opacity
+        if (!decls.some(([prop]) => prop === "opacity")) continue;
+        exact.add(withoutDisabled(selector));
+        const prefix = topLevel(selector.slice(0, selector.length - subject.length)).replace(/[\s>]+$/, "");
+        if (SECTION_WIDE.test(prefix)) broad.push({ types, weight: specOrder(specificity(selector)) });
+      } else if (decls.some(([prop, value]) => COLOR_PROP.test(prop) && !NEUTRAL_COLOR.test(value))) repaints.push(selector);
     }
   }
-  return weight > 0 && dim < weight ? { heaviest, weight, dim } : null;
+  return repaints.filter((selector) => {
+    if (exact.has(withoutDisabled(selector))) return false;
+    const types = targetTypes(notGroups(subjectOf(selector)).rest, capable);
+    const weight = specOrder(specificity(selector));
+    return !broad.some((dim) => dim.weight >= weight && types.some((t) => dim.types.includes(t)));
+  });
 }
 
 /** Поверхность (карточка, фон страницы) — не смысл и не чужой смысл: фоном смысловой плашки допустима. */
@@ -353,7 +401,6 @@ export function semanticColorLeaks(css: string): string[] {
   return bad;
 }
 
-const NOT_DISABLED = /:not\((:disabled|\[disabled\]|:is\(:disabled[^)]*\))\)|:enabled/;
 const REACTION_PROP = /^(background(-color)?|color|transform|box-shadow|border(-color)?|opacity)$/;
 
 /**
@@ -365,55 +412,152 @@ const REACTION_PROP = /^(background(-color)?|color|transform|box-shadow|border(-
  */
 export function disabledReactions(css: string): string[] {
   const rules = cssRules(css);
-  const capable = new Set<string>();
-  for (const rule of rules) for (const selector of splitTopLevel(rule.selector)) {
-    const subject = subjectOf(selector);
-    if (!/:disabled|\[disabled\]/.test(subject) || NOT_DISABLED.test(subject)) continue;
-    for (const m of notGroups(subject).rest.matchAll(/\.([\w-]+)/g)) {
-      // смысловой вариант или вид (.crit, .ghost) — не сама кнопка
-      if (!SEMANTIC_VARIANTS.includes(m[1]) && !/^(ghost|soft|sm)$/.test(m[1])) capable.add(m[1]);
-    }
-  }
+  const capable = controlClasses(rules);
   const bad: string[] = [];
   for (const rule of rules) {
     if (!declarations(rule.body).some(([prop, value]) => REACTION_PROP.test(prop) && !/^none$/i.test(value))) continue;
     for (const selector of splitTopLevel(rule.selector)) {
       const subject = subjectOf(selector);
-      if (!/:(hover|active)\b/.test(subject) || NOT_DISABLED.test(subject)) continue;
-      const rest = notGroups(subject).rest;
-      const control = BUTTON_SUBJECT.test(rest) || [...rest.matchAll(/\.([\w-]+)/g)].some((m) => capable.has(m[1]));
-      if (control) bad.push(selector);
+      if (!/:(hover|active)\b/.test(subject) || EXCLUDES_DISABLED.test(subject)) continue;
+      if (targetTypes(notGroups(subject).rest, capable).length) bad.push(selector);
     }
   }
   return bad;
 }
 
 /**
- * Тихая плашка-предупреждение (`.quiet`: «Уведомления заблокированы браузером…») не
- * обрезается ни многоточием, ни зажимом строк (18.11, пачка debt: на 1024 и телефоне
- * съедалась инструкция, где их включить). Длинный текст переносится.
+ * СТОРОЖ СКРЫТИЯ ТЕКСТА — общий для всех слоёв нового вида (перенесён из пачки team,
+ * ревью PR 279 и PR 286). Ни одно правило не прячет и не режет текст: ни `display:none`,
+ * ни нулевой размер/высота/прозрачность, ни зажим строк, ни многоточие. Разрешены только
+ * перечисленные ЦЕЛИКОМ селекторы, и только чисто декоративное или дубль, у которого текст
+ * есть рядом (заголовок-дубль, полосы прокрутки, маркер раскрытия, шапка таблицы, подписи
+ * цифр на своём месте, имя человека в меню). Строку с данными чинят в слое: перенос.
  */
-export function truncatedNotices(css: string): string[] {
-  return cssRules(css).flatMap((rule) => {
-    if (!declarations(rule.body).some(([prop, value]) => (prop === "text-overflow" && /ellipsis/.test(value)) || /line-clamp$/.test(prop))) return [];
-    return splitTopLevel(rule.selector).filter((selector) => /\.quiet\b/.test(topLevel(selector)));
-  });
+const HIDING = /display:\s*none|visibility:\s*hidden|font-size:\s*0(?![.\d])|max-height:\s*0(?![.\d])|opacity:\s*0(?![.\d])|line-clamp|clip-path|text-overflow:\s*ellipsis|clip:\s*rect\(0/;
+const R = ':root[data-ui-look="royal"]';
+export const HIDING_ALLOWED = new Set<string>([
+  // team: заголовок-дубль на телефоне, полосы прокрутки, крестик поиска, шапка таблицы и
+  // подписи цифр на своих местах, маркер раскрытия, имя в меню профиля
+  `${R}[data-mobile-ux] [data-ry-section="team"] .ry-title[data-dup]`,
+  `${R} [data-ry-section="team"]:is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .seg-ai::-webkit-scrollbar`,
+  `${R} [data-ry-section="team"] .ry-search input::-webkit-search-cancel-button`,
+  `${R}[data-mobile-ux] [data-ry-section="team"] .ry-set-tasks::-webkit-scrollbar`,
+  `${R} [data-ry-section="team"] .ry-mhead`,
+  `${R} [data-ry-section="team"] .ry-mhead > :last-child`,
+  `${R} [data-ry-section="team"] .ry-mrow .ry-stat small`,
+  `${R} .ry-teamp[data-ry-section="team"] details.clean-team-recognition > summary::-webkit-details-marker`,
+  `${R} .ry-activity[data-ry-section="team"] .scr .seg::-webkit-scrollbar`,
+  `${R} [data-ry-section="team"] .ry-pmenu-head b`,
+  // Полосы прокрутки, маркеры раскрытия, пустая распорка, точки галереи при ленте миниатюр,
+  // линия под шапкой до прокрутки — декор.
+  `${R} .ry-chats[data-ry-section="chats"] .ry-chats-more > summary::-webkit-details-marker`,
+  `${R} .ry-chats[data-ry-section="chats"] .ry-chat-quick::-webkit-scrollbar`,
+  `${R} .rh2[data-ry-section="clients"] .scr.clean-client-detail .ry-ctabs::-webkit-scrollbar`,
+  `${R} [data-ry-section="deals"] .ry-deals-stages::-webkit-scrollbar`,
+  `${R} .ry-objects-page.rh2.screens[data-ry-section="objects"] .seg-ai::-webkit-scrollbar`,
+  `${R} .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog > .hscroll::-webkit-scrollbar`,
+  `${R} .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-tools > summary::-webkit-details-marker`,
+  `${R} .ry-objects-page.rh2.screens[data-ry-section="objects"] .bulk .spacer`,
+  `${R} .ry-object-page.rh2.screens[data-ry-section="objects"] .ry-gal .rh-gallery-dots`,
+  `${R} [data-ry-section="objects"] .ry-gal-thumbs::-webkit-scrollbar`,
+  `${R} .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-deal-disclosure > summary::-webkit-details-marker`,
+  `${R} .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-tabs-scroll::-webkit-scrollbar`,
+  `${R} .clean-shell .clean-header::after`,
+  // Значки при подписи (подпись рядом видна): кнопки инструментов, вкладки карточки на
+  // телефоне, значок тихой плашки на телефоне, аватар ответственного на ПК (имя — в колонке),
+  // «Нет фото» в списке объектов (значок «нет фото» на месте).
+  `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-clients-tools .ry-btn svg`,
+  `${R}[data-mobile-ux] .rh2[data-ry-section="clients"] .scr.clean-client-detail .ry-ctab svg`,
+  `${R}[data-mobile-ux] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > svg`,
+  `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent-av`,
+  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-nophoto-text`,
+  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-nophoto-text`,
+  // Дубли: заголовок экрана на телефоне (он же в шапке; для чтеца остаётся), короткая и
+  // длинная подпись вкладки (видна одна из двух), подписи колонок для чтеца и шапка таблицы
+  // на телефоне (на ПК — видимая шапка), имя отправителя в пузыре (оно в шапке переписки),
+  // состояние объекта: пилюлей на фото или текстом в строке — одно из двух, свёрнутая
+  // кнопка «Фильтры» (тело фильтров раскрыто в «Ещё»), название CRM при узком меню (значок).
+  `${R}[data-mobile-ux] [data-ry-section="deals"] .ry-deals-head h1`,
+  `${R}[data-mobile-ux] [data-ry-section="objects"] .ry-objects-head h1`,
+  `${R} .rh2[data-ry-section="clients"] .scr.clean-client-detail .ry-ctab-short`,
+  `${R}[data-mobile-ux] .rh2[data-ry-section="clients"] .scr.clean-client-detail .ry-ctab-long`,
+  `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-label-phone`,
+  `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-label`,
+  `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-clist-head`,
+  `${R} .ry-chats[data-ry-section="chats"] .clean-conversation .bub:not(.me) > .who`,
+  `${R} [data-ry-section="objects"] .ry-obj-state`,
+  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo > .ry-obj-pill`,
+  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo > .ry-obj-pill`,
+  `${R} .ry-chats[data-ry-section="chats"] .ry-chats-more-body .clean-inbox-filters > summary`,
+  `${R}:not([data-mobile-ux]) .clean-shell .clean-brand b`,
+  // Узкое меню ПК (< 1200) — одни значки; подпись в title и для чтеца (решение основы).
+  `${R}:not([data-mobile-ux]) .clean-shell .ry-nav-label`,
+  // Телефонная навигация «список ↔ переписка ↔ карточка»: экран переключён, а не текст скрыт.
+  `${R} .ry-chats[data-ry-section="chats"][data-chat-active="thread"] .ry-chats-head`,
+  `${R} .ry-chats[data-ry-section="chats"] .two[data-conversation-selected] > section[aria-label="Диалоги"]`,
+  `${R} .ry-chats[data-ry-section="chats"] .two > section.clean-conversation-placeholder`,
+  `${R} .ry-chats[data-ry-section="chats"] .clean-conversation-workspace[data-context-open] > .clean-conversation-timeline`,
+  // Имена людей в списках можно резать многоточием (бриф переноса, «Дополнение 18.11»);
+  // имя клиента в строке списка — вместе с запросом, который весь повторён строкой ниже.
+  // Ответственный в строке клиента на ≤390 — кружок с инициалами (ревью PR 286).
+  `${R} .ry-chats[data-ry-section="chats"] .ry-chat-name`,
+  `${R} .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b`,
+  `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-name`,
+  `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent > .ry-crow-text`,
+  `${R} [data-ry-section="objects"] .ry-obj-agent > span:last-child`,
+  `${R} .ry-team-person b`,
+  // ПОД ВОПРОСОМ (вынесено владельцу пачек в отчёте PR 286): последняя реплика в списке
+  // чатов — одной строкой (полный текст в переписке); номер карточки и источник в строке
+  // клиента на телефоне (они в карточке; так закреплено e2e new-look-clients).
+  `${R} .ry-chats[data-ry-section="chats"] .ry-chat-last`,
+  `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-pc-only`,
+]);
+export function hiddenTextSelectors(css: string): string[] {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  return [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, , body]) => HIDING.test(body))
+    .flatMap(([, head]) => splitTopLevel(head.trim()))
+    .filter((selector) => !selector.startsWith("@") && !/^(from|to|\d+%)$/.test(selector) && !HIDING_ALLOWED.has(selector));
 }
 
 describe("все слои нового вида: смысловые цвета, выключенные кнопки, запас iPhone, соседи метки", () => {
-  it.each(lookFiles)("%s: тихие плашки-предупреждения не обрезаны", (file) => {
-    expect(truncatedNotices(readFileSync(new URL(`./${file}`, import.meta.url), "utf8"))).toEqual([]);
+  it.each(lookFiles)("%s: ничего не прячет и не режет текст, кроме белого списка точных селекторов", (file) => {
+    expect(hiddenTextSelectors(readFileSync(new URL(`./${file}`, import.meta.url), "utf8"))).toEqual([]);
   });
-  it("сторож обрезанной плашки проверен поломкой", () => {
-    const Q = ':root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > .txt';
-    expect(truncatedNotices(`${Q} { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([Q]);
-    expect(truncatedNotices(`${Q} { display: -webkit-box; -webkit-line-clamp: 2; }`)).toEqual([Q]);
-    expect(truncatedNotices(`${Q} { white-space: normal; text-overflow: clip; }`)).toEqual([]);
+  it.each([
+    "display: none", "visibility: hidden", "font-size: 0", "max-height: 0", "opacity: 0",
+    "-webkit-line-clamp: 2", "clip-path: inset(50%)", "text-overflow: ellipsis", "clip: rect(0 0 0 0)",
+  ])("сторож скрытия ловит «%s» в любом слое (проверен поломкой)", (declaration) => {
+    for (const file of lookFiles) {
+      const css = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+      const section = lookSectionOf(file);
+      const leak = `${R} ${section ? `[data-ry-section="${section}"] ` : ""}.ry-zzz-text`;
+      expect(hiddenTextSelectors(`${css}\n${leak} { ${declaration}; }`), file).toEqual([leak]);
+    }
+    // в белом списке — только ТОЧНЫЙ селектор: соседний под тем же классом краснеет
+    expect(hiddenTextSelectors(`${R} [data-ry-section="team"] .ry-mrow .ry-stat small.x { ${declaration}; }`)).toHaveLength(1);
   });
-  const sectionFiles = lookFiles.filter((f) => lookSectionOf(f));
+  it("плашка «Уведомления заблокированы» снова обрезана — красный (ровно ошибка до 18.11)", () => {
+    const base = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
+    const Q = `${R} .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > .txt`;
+    expect(hiddenTextSelectors(`${base}\n${Q} { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([Q]);
+  });  const sectionFiles = lookFiles.filter((f) => lookSectionOf(f));
   it("знает слой раздела «Объекты»", () => {
     expect(lookFiles).toContain("theme-look-royal-objects.css");
     expect(lookSectionOf("theme-look-royal-objects.css")).toBe("objects");
+  });
+  it("знает слой раздела «Сделки» и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-deals.css");
+    expect(lookSectionOf("theme-look-royal-deals.css")).toBe("deals");
+    const css = readFileSync(new URL("./theme-look-royal-deals.css", import.meta.url), "utf8");
+    const P = ':root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"]';
+    // чужая метка, правило без метки, смысловая кнопка чужим цветом, запас iPhone, сосед метки
+    expect(unscopedSelectors(`${css}\n:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .dcard { color: red; }\n:root[data-ui-look="royal"] .kan-col { color: red; }`, "deals"))
+      .toEqual([':root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .dcard', ':root[data-ui-look="royal"] .kan-col']);
+    expect(semanticButtonLeaks(`${css}\n${P} .card.tight > .wrap .pill { background: var(--rh-ui-press); }`)).toEqual([`${P} .card.tight > .wrap .pill`]);
+    expect(safeAreaOverrides(`${css}\n:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-f { padding: 0; }`))
+      .toEqual([':root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-f']);
+    expect(siblingEscapes(`${css}\n${P} ~ .rh2 .pill { color: red; }`, "deals")).toEqual([`${P} ~ .rh2 .pill`]);
   });
   // Без списков долга (KNOWN_DEBT / DISABLED_DIM_DEBT закрыты 18.11, пачка debt): каждый
   // слой, основа тоже, обязан быть чистым. Находка чинится в слое, а не вписывается сюда.
@@ -429,7 +573,7 @@ describe("все слои нового вида: смысловые цвета, 
   });
   it.each(lookFiles)("%s: выключенная кнопка приглушена не слабее перекраски и не отзывается на мышь и палец", (file) => {
     const css = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
-    expect(disabledDimGap(css)).toBeNull();
+    expect(disabledDimGaps(css)).toEqual([]);
     expect(disabledReactions(css)).toEqual([]);
   });
   it("списков долга у сторожа нет: находку чинят в слое, а не прощают", () => {
@@ -458,18 +602,31 @@ describe("все слои нового вида: смысловые цвета, 
     for (const css of [clients, objects]) {
       const weak = css.replace(/:not\(#ry-dim\)/g, "");
       expect(weak).not.toBe(css);
-      expect(disabledDimGap(weak)).not.toBeNull();
-      expect(disabledDimGap(css)).toBeNull();
+      expect(disabledDimGaps(weak)).not.toEqual([]);
+      expect(disabledDimGaps(css)).toEqual([]);
     }
   });
   it("сторож выключенной кнопки проверен поломкой (без правила приглушения — красный)", () => {
     const team = readFileSync(new URL("./theme-look-royal-team.css", import.meta.url), "utf8");
     const broken = team.replace(/\/\* Выключенная кнопка[\s\S]*?\}\n/, "");
     expect(broken).not.toBe(team);
-    expect(disabledDimGap(broken)).not.toBeNull();
+    expect(disabledDimGaps(broken)).not.toEqual([]);
     // и правило слабее перекраски не засчитывается
     const weak = ':root[data-ui-look="royal"] .pill:not(.ghost):not(.danger) { background: red; }\n:root[data-ui-look="royal"] .pill:disabled { opacity: .5; }';
-    expect(disabledDimGap(weak)?.dim).toBeLessThan(disabledDimGap(weak)!.weight);
+    expect(disabledDimGaps(weak)).toEqual([':root[data-ui-look="royal"] .pill:not(.ghost):not(.danger)']);
+    // ревью PR 286: правило с весом id тяжелее всего, но покрывает только свой список кнопок
+    const chats = readFileSync(new URL("./theme-look-royal-chats.css", import.meta.url), "utf8");
+    const H = ':root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"]';
+    expect(disabledDimGaps(`${chats}\n${H} .ry-zzz button { background: var(--rh-ui-primary); }`)).toEqual([]);
+    const narrow = chats.replace(":is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]):not(#ry-dim)", ":is(.pill, .rh-btn):is(:disabled, [disabled]):not(#ry-dim)");
+    expect(narrow).not.toBe(chats);
+    expect(disabledDimGaps(`${narrow}\n${H} .ry-zzz button { background: var(--rh-ui-primary); }`)).toContain(`${H} .ry-zzz button`);
+    // своя кнопка слоя (класс со своим :disabled) — тоже тип цели
+    expect(disabledDimGaps(`${H} .ry-zzz-btn:disabled { color: grey; }\n${H} .ry-zzz-btn { background: var(--rh-ui-primary); }`)).toEqual([`${H} .ry-zzz-btn`]);
+    // узкое правило приглушения не покрывает кнопку в другом месте раздела
+    expect(disabledDimGaps(`${H} .ry-menu > button:disabled { opacity: .5; }\n${H} .ry-zzz button { background: var(--rh-ui-primary); }`)).toEqual([`${H} .ry-zzz button`]);
+    // «один к одному», как в слое team, — покрыто
+    expect(disabledDimGaps(`${H} .ry-zzz button { background: var(--rh-ui-primary); }\n${H} .ry-zzz button:is(:disabled, [disabled]) { opacity: .5; }`)).toEqual([]);
     expect(specificity(':root[data-ui-look="royal"] .a:where(.b, .c) > :is(.d, #e)')).toEqual([1, 3, 0]);
   });
   it("сторожа проверены поломкой", () => {
