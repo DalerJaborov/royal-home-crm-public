@@ -6,6 +6,7 @@ import { fullPhoneIdentity } from './clientPhoneFacts.js';
 import { loadExposurePairEvidence } from './exposurePairEvidence.js';
 import { checkClientExplainedPause } from '../ai/offCrmPauseCheck.js';
 import { recordInvestigationSignal } from './investigationCases.js';
+import { sellerSwitchOn } from './sellerSwitches.js';
 import { assignmentSourceEpochIsCurrent, resolveInvestigationAssignmentEpoch } from './investigationAssignmentEpoch.js';
 export const sellerProbeSourcePhoneHash = (clientId: string, phone: string) => mediaRecipientHash(`owner-probe:${clientId}`, fullPhoneIdentity(phone));
 export const newOwnerProbeMode = () => process.env.CRM_OWNER_VERIFICATION_EXECUTION_MODE === 'LIVE' ? 'LIVE' : 'PREVIEW';
@@ -26,6 +27,9 @@ export async function ownerProbeAssignmentCurrent(tx: TxClient, input: {
 }
 /** Actual creation transaction only: no historical sweep, no external effect. */
 export async function scheduleManualOwnerVerification(tx: TxClient, propertyId: string, actorId: string) {
+  // Выключатель владельца «Робот звонит собственнику» (18.11.2026: «выключи эту
+  // функцию полностью, она не нужна»): выключено — не готовим даже черновик проверки.
+  if (!(await sellerSwitchOn('sellerProbeCallEnabled', tx))) return;
   const property = await tx.property.findUnique({ where: { id: propertyId }, select: {
     id: true, sellerClientId: true, createdById: true, createdAt: true, deletedAt: true,
   } });
@@ -55,6 +59,9 @@ export async function scheduleExposureOwnerVerifications(now = new Date(), after
     ...(afterId ? { id: { gt: afterId } } : {}),
   }, orderBy: { id: 'asc' }, take: 50, select: { id: true } });
   let created = 0;
+  // Тот же выключатель: черновик звонка собственнику не заводится, а сигнал
+  // расследования по покупателю ниже пишется как раньше — это не звонок.
+  const probeOn = await sellerSwitchOn('sellerProbeCallEnabled');
   for (const row of rows) {
     const before = await loadExposurePairEvidence(row.id, now);
     if (!before || !before.facts.isOffMarket || before.facts.hasNonCancelledDeal || before.facts.reserved
@@ -93,7 +100,7 @@ export async function scheduleExposureOwnerVerifications(now = new Date(), after
         payload: { exposureId: after.exposure.id, sentAt: after.exposure.sentAt.toISOString(),
           withdrawalAt: after.facts.leftSaleAt?.toISOString() ?? null, signals: after.decision.signals, reasons: after.decision.reasons, viewed: 'UNKNOWN' },
       }, tx);
-      if (!after.decision.mayAskOwner || !seller.phone) return;
+      if (!probeOn || !after.decision.mayAskOwner || !seller.phone) return;
       const inserted = await tx.sellerProbeCall.createMany({ data: [{ sourceKind: 'EXPOSURE_PAIR', sourceId: after.exposure.id,
         sourceKey, anchorAt: after.exposure.sentAt, assignmentAt: seller.assignedAt, buyerClientId: after.buyer.id,
         propertyId: after.property.id, sellerClientId: after.seller.id, agentId: after.buyer.assignedAgentId!,

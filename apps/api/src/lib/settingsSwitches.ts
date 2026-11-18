@@ -143,7 +143,7 @@ export const FORBIDDEN_SWITCH_PATTERNS: readonly RegExp[] = [
 ];
 
 /** Приватные поля расследований — их правит только директор с правом СБ, не помощница. */
-const PRIVATE_FIELDS = new Set(["postShowingCallEnabled", "investigationCaseConfig", "sellerControlConfig", "postShowingCohortConfig", "buyerSellerAutomationMode"]);
+const PRIVATE_FIELDS = new Set(["postShowingCallEnabled", "investigationCaseConfig", "sellerControlConfig", "postShowingCohortConfig", "buyerSellerAutomationMode", "securityAutomationEnabled"]);
 
 export function isForbiddenSwitchKey(key: string): boolean {
   return PRIVATE_FIELDS.has(key) || FORBIDDEN_SWITCH_PATTERNS.some((re) => re.test(key));

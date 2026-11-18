@@ -84,7 +84,6 @@ describe("Первый уровень — то, что блокирует раб
    */
   const sources = [
     ["заявка на удаление клиента", "apps/api/src/routes/clients/deleteRequests.ts"],
-    ["спор о числе объектов", "apps/api/src/routes/clients/propertyCountDisputes.ts"],
     ["фото и видео объекта на проверку", "apps/api/src/lib/propertyPipeline.ts"],
   ] as const;
 

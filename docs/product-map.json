@@ -968,7 +968,7 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 134,
+      "endpoints": 137,
       "label": "Объекты: список, карточка, фото, видео, публикация",
       "usedBy": 36
     },
@@ -984,7 +984,7 @@
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 61,
+      "endpoints": 56,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
       "usedBy": 13
     },
@@ -1680,11 +1680,6 @@
       "label": "Напоминания клиентам, переставшим отвечать в переписке"
     },
     {
-      "id": "client-property-count-alarm",
-      "expr": "0 * * * *",
-      "label": "Сравнивает заявленное клиентом число объектов со сделанным в CRM"
-    },
-    {
       "id": "client-scoring",
       "expr": "0 2 * * *",
       "label": "Ночная оценка ИИ всех активных клиентов"
@@ -1956,11 +1951,6 @@
     },
     {
       "id": "narration-auto-flow",
-      "expr": "* * * * *",
-      "label": null
-    },
-    {
-      "id": "narration-auto-master",
       "expr": "* * * * *",
       "label": null
     },
@@ -2398,7 +2388,7 @@
     {
       "name": "Сайт royalhome.tj",
       "keys": 6,
-      "files": 20
+      "files": 19
     },
     {
       "name": "Телефония FreePBX / Asterisk",

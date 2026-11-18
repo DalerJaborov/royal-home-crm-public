@@ -59,8 +59,10 @@ vi.mock("../src/db.js", async (importOriginal) => {
     $queryRaw: vi.fn().mockResolvedValue([]), $disconnect: vi.fn(),
     property: {
       findUnique: vi.fn(async () => s.property), findUniqueOrThrow: vi.fn(async () => s.property),
-      findMany: vi.fn(async () => []), findFirst: vi.fn(async () => null),
+      findMany: vi.fn(async () => []), findFirst: vi.fn(async () => null), updateMany: vi.fn(async () => ({ count: 0 })),
     },
+    // Идущая замена постов (lib/publishedClip.ts, 18.11.2026): у подделки её нет.
+    videoRemakeRequest: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
     // Последний выбор голоса сотрудника (12.11.2026): у подделки его нет.
     agent: { findUnique: vi.fn(async () => null), update: vi.fn(async () => ({})) },
     settings: { findUnique: vi.fn(async () => ({ propertyNarrationConfig: s.config, elevenLabsApiKey: "test-key" })) },
@@ -318,18 +320,9 @@ describe("spoken price (owner 11.11.2026): new version on price change, sound-on
     s.mode = "LIVE";
     s.property = { ...s.property, status: "AVAILABLE", publishedChannels: ["FACEBOOK"], videoHandoffStatus: "RECEIVED" };
     const v = await approveNewPrice();
-    // Машина «CRM сама убирает голос» выключена — тогда монтажёра просят и о ролике без голоса.
-    s.config = { ...s.config, autoSeparateVoice: false };
+    // Машинное отделение голоса убрано 18.11.2026: монтажёра снова просят и о ролике без голоса.
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("SOUND_REMAKE");
     expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringMatching(/только голос.*музыку и монтаж не трогайте.*без голоса/su), null, { removeFromSocial: "on-new-video" });
-  });
-  it("16.11.2026 by default: the editor gets ONE task — replace the voice; no second clip without voice is asked", async () => {
-    s.mode = "LIVE";
-    s.property = { ...s.property, status: "AVAILABLE", publishedChannels: ["FACEBOOK"], videoHandoffStatus: "RECEIVED" };
-    const v = await approveNewPrice();
-    expect(await afterNarrationApproved(propertyId, v.id)).toBe("SOUND_REMAKE");
-    expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringMatching(/только голос/u), null, { removeFromSocial: "on-new-video" });
-    expect(s.sendBack).not.toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringMatching(/без голоса/iu), null, expect.anything());
   });
   it("same template and voice after a price change: approves itself, nothing to the agent", async () => {
     s.property = { ...s.property, status: "AVAILABLE", videoHandoffStatus: "NONE" };

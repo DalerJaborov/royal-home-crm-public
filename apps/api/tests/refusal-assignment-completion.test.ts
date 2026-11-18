@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
@@ -11,6 +11,18 @@ import { upsertAutoTask, claimAutoTaskSlot } from "../src/lib/autoTasks.js";
 import { canTransferClient, transferClientByAgent } from "../src/lib/clientTransfer.js";
 import { logTimeline } from "../src/lib/timeline.js";
 import { classifyClientLossFaultBatch } from "../src/lib/clientLossFault.js";
+
+/**
+ * Рубильник «Служба безопасности: автоматика» (18.11.2026) после выката выключен.
+ * Этот файл проверяет поведение ВКЛЮЧЁННОЙ автоматики СБ (карточка уходит «на
+ * проверку»), поэтому включает её только у себя, не трогая общую строку Settings.
+ * Выключенное положение — tests/security-automation-switch.test.ts.
+ */
+vi.mock("../src/lib/securityAutomation.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/securityAutomation.js")>()),
+  securityAutomationOn: async () => true,
+}));
+
 
 /** Одиночная версия удалена 16.11.2026 (жила ради штрафа за потерю клиента) —
  *  кабинет СБ зовёт пакетную, ею и проверяем то же правило. */

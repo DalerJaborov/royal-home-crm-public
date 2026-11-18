@@ -158,6 +158,14 @@ export async function runPostUpdateEffects(input: PostUpdateEffectsInput): Promi
     void resyncPhotosIfPublished(updated.id, input.resyncReason);
   }
 
+  // НОВАЯ ОЗВУЧКА СРАЗУ ПОСЛЕ ПРАВКИ (18.11.2026, владелец: «поменял данные — послушал — утвердил»). Поменялось то,
+  // что звучит в озвучке (вид, комнаты, площадь, этаж, этажность, район, цена), — черновик ставится сейчас, а не
+  // через минуту обхода; карточка тут же показывает «Готовим озвучку». Ремонт, ориентир, документы ролик не трогают:
+  // хэш фактов озвучки от них не зависит. Импорт динамический — без цикла через ролики и публикацию.
+  // Ждём (это одна запись в базу): ответ на правку возвращается, когда черновик уже есть, и карточка его видит.
+  await import("./narrationAutoFlow.js").then((m) => m.requestNarrationAfterEdit(updated.id)).catch((err) =>
+    console.error("[озвучка] черновик после правки:", err instanceof Error ? err.message : err));
+
   let captionRewritten = input.priceCaptionStage?.captionRewritten ?? null;
   if (!input.priceCaptionStage && changedFields.some((f) => (CAPTION_FACT_FIELDS as readonly string[]).includes(f))) {
     captionRewritten = await rewriteStoredCaptionAfterEdit(existing, updated).catch(async (err) => {

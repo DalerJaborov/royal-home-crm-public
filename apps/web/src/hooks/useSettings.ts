@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CoverProvider, LiveVoiceSpendPeriod, SellerAutomationSwitches } from "@royal-home/shared";
+import type { CoverProvider, LiveVoiceSpendPeriod, SecurityAutomationSwitch, SellerAutomationSwitches } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
 import { FALLBACK_USD_TO_TJS } from "../lib/format";
@@ -18,7 +18,7 @@ export type MetaKeySource = "settings" | "env" | null;
 export type ModelSource = "settings" | "env" | "default";
 
 /** Выключатели «работа с продавцами» (14.11.2026) — поля и тип из packages/shared, здесь не повторяются. */
-export interface Settings extends SellerAutomationSwitches {
+export interface Settings extends SellerAutomationSwitches, SecurityAutomationSwitch {
   id: string;
   /** Структура комиссии: доли риелтора/компании, % от цены объекта.
    *  commissionIntakePercent («за приём объекта», отменено 11.09.2026) сервер ещё

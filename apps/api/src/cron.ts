@@ -32,7 +32,6 @@ import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
 import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
 import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
 import { runTransferRequestTick } from "./lib/ownershipTransferRequest.js";
-import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
 import { runBuyerThinkingSlowTrackTick } from "./lib/buyerThinkingSlowTrack.js";
@@ -629,23 +628,15 @@ export function startCronJobs() {
     const { notifyNarrationApproval, remindPendingNarrationApprovals } = await import("./telegram/assistantNarration.js");
     await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval, remindApprovals: remindPendingNarrationApprovals });
   }, undefined, undefined, { timeoutMs: 170_000 });
-  // Новая озвучка на вышедший ролик без монтажёра (16.11.2026): CRM сама убирает старый голос
-  // (сервис voice-separator) и накладывает новый. Один объект за тик — это минуты процессора;
-  // отдельной задачей, чтобы не держать черновики и одобрения озвучки (narration-auto-flow).
-  scheduleTracked("narration-auto-master", "* * * * *", async () => {
-    const { runMachineMastersTick } = await import("./lib/narrationAutoFlow.js");
-    await runMachineMastersTick();
-    // Звук + отделение (до 15 мин) + мастер + перемикс: с запасом; замок объекта живёт 40 мин.
-  }, undefined, undefined, { timeoutMs: 30 * 60_000 });
-  // Прослушать перед выпуском (17.11.2026): новый ролик — хозяину в Шабнам (с повтором после падения);
-  // хозяин не решил до срока — новый ролик выходит сам.
+  // Новая озвучка вышла (18.11.2026): старые посты снимаются в каждой сети после нового там же — дозревший
+  // Instagram и повторы TikTok и Meta доводит этот обход (lib/remakeOldPosts.ts). Имя задачи прежнее («прослушать
+  // перед выпуском» убран тем же числом): заодно убирает кандидатов, оставшихся от него на момент выката.
   scheduleTracked("narration-preview-due", "* * * * *", async () => {
-    const { notifyPendingNarrationPreviews, releaseDueNarrationPreviews } = await import("./lib/narrationPreview.js");
-    const { notifyNarrationPreview } = await import("./telegram/narrationPreviewBot.js");
-    // Сначала срок и уборка устаревших, потом уведомления (ревью 18.11): иначе хозяину пришёл бы кандидат,
-    // которого в ту же минуту уберут, а отправка видео задерживала бы самовыпуск.
-    await releaseDueNarrationPreviews();
-    await notifyPendingNarrationPreviews(notifyNarrationPreview);
+    const { clearLeftoverNarrationPreviews, reopenAutoApprovalsOnPublishedClips } = await import("./lib/narrationPreview.js");
+    const { finishOldPostsSweep } = await import("./lib/remakeOldPosts.js");
+    await clearLeftoverNarrationPreviews();
+    await reopenAutoApprovalsOnPublishedClips();
+    await finishOldPostsSweep();
   }, undefined, undefined, { timeoutMs: 170_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {
     const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");
@@ -2886,25 +2877,6 @@ export function startCronJobs() {
       if (stuck + reminded > 0) console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);
     } catch (err) {
       reportCronTickError("Ошибка тика запросов передачи", err);
-    }
-  });
-
-  /**
-   * АЛАРМ «ЗАЯВЛЕНО N, СДЕЛАНО M» — ПРОДАВЕЦ И ПОКУПАТЕЛЬ, ОДНО УВЕДОМЛЕНИЕ НА
-   * КЛИЕНТА (владелец 06.09.2026 п.3, объединено 07.09.2026, срок растянут по
-   * числу объектов 07.09.2026). Число ИИ услышал из разговора или переписки
-   * (sellerDeclaredPropertyCount / buyerDesiredPropertyCount) — если срок
-   * (2 дня на объект продавцу, 5 дней на объект покупателю) истёк, а в CRM
-   * меньше добавленных объектов/закрытых сделок, чем заявлено, директору
-   * уходит ОДНО уведомление на клиента с перечислением всех активных
-   * расхождений. См. lib/clientPropertyCountAlarm.ts.
-   */
-  scheduleTracked("client-property-count-alarm", "0 * * * *", async () => {
-    try {
-      const { alerted } = await runClientPropertyCountAlarmTick();
-      if (alerted > 0) console.log(`[cron] Аларм «заявлено/сделано объектов»: ${alerted}`);
-    } catch (err) {
-      reportCronTickError("Ошибка аларма «заявлено/сделано объектов»", err);
     }
   });
 

@@ -56,7 +56,6 @@ export interface MobileClientCardProps {
    *  разметке, просто вставленный сюда, а не второй источник. */
   commonMiddle: ReactNode;
   /** Готовые узлы из ClientDetail.tsx — см. пояснение у аргументов ниже. */
-  propertyCounts: ReactNode;
   similarWarning: ReactNode;
   phoneOptions: CallPhoneOption[];
   conversations: ClientConversation[];
@@ -109,7 +108,6 @@ export function MobileClientCard({
   // который сам подключает этот файл, и импорт обратно замыкал круг
   // (audit:deps ловит такое ошибкой — порядок инициализации становится
   // неявным, и правка на одном конце отзывается на другом).
-  propertyCounts,
   similarWarning,
   phoneOptions,
   conversations,
@@ -255,7 +253,6 @@ export function MobileClientCard({
                 <div className="client-overview-properties"><MarketBuyerListings key={`market:${client.id}`} clientId={client.id} /></div>
               )}
               {overviewNextStep}
-              {propertyCounts}
               {canBuy && client.desiredPlaces && client.desiredPlaces.length > 0 && (
                 <details className="cd-about" style={{ marginTop: 12 }}>
                   <summary>Где ищет</summary>

@@ -21,12 +21,7 @@ import { NewDealSheet } from "../components/NewDealSheet";
 import { MergeClientModal } from "../components/MergeClientModal";
 import { useSimilarNotes, useDismissSimilarClient, type SimilarNotesClient } from "../hooks/useDuplicates";
 import { RequestDeleteClientModal } from "../components/RequestDeleteClientModal";
-import {
-  usePendingDeleteRequest,
-  usePendingPropertyCountDisputes,
-  useDisputePropertyCount,
-  type PropertyCountDisputeRole,
-} from "../hooks/useDeleteRequests";
+import { usePendingDeleteRequest } from "../hooks/useDeleteRequests";
 import { CLIENT_KINDS, DEAL_STAGE_LABELS, canViewInvestigations, clientIntents, clientCardCanWrite, type ClientKind, robotCallClientReasonsRu } from "@royal-home/shared";
 import { useAgents } from "../hooks/useAgents";
 import { assignableStaff, notAgentConfirmText, notAgentWarningText, staffOptionLabel } from "../lib/assignableStaff";
@@ -76,7 +71,7 @@ import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
 import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
 import { ClientBuyerRequirementsEditor } from "../components/ClientBuyerRequirementsEditor";
 import { MarketBuyerListings } from "../components/MarketBuyerListings";
-import { ClientNextStep, clientPropertyCountVisible } from "../components/ClientCardContext";
+import { ClientNextStep } from "../components/ClientCardContext";
 import "../theme-client-workspace.css";
 
 
@@ -1431,12 +1426,6 @@ function ClientDetailCard() {
             overviewProperties={overviewProperties}
             intentConfirmation={clientIntentConfirmation}
             overviewNextStep={overviewNextStep}
-            propertyCounts={
-              <>
-                <PropertyCountRow client={client} role="SELLER" />
-                <PropertyCountRow client={client} role="BUYER" />
-              </>
-            }
             similarWarning={
               similarNotes && similarNotes.length > 0 ? (
                 <SimilarNotesWarning clients={similarNotes} onMerge={(c) => setShowMerge(c)} dismissSimilar={dismissSimilar} />
@@ -1796,12 +1785,6 @@ function ClientDetailCard() {
               )}
               {overviewNextStep}
 
-              {/* Число объектов от ИИ — тихой строкой, не карточкой-уведомлением
-                  (решение владельца 03.09.2026). Обе стороны независимы: у клиента
-                  с dualIntent показываются обе. */}
-              <PropertyCountRow client={client} role="SELLER" />
-              <PropertyCountRow client={client} role="BUYER" />
-
               {pending && locked ? (
                 <p className="state">Запрос клиента, бюджет и история откроются, когда вы примете лид.</p>
               ) : (
@@ -1955,138 +1938,6 @@ function ClientDetailCard() {
  * там (десктоп, без изменений), и внутри MobileActionSheet (телефон, «Ещё» → «Похожая
  * карточка») — общий код, чтобы предупреждение не разошлось между двумя местами.
  */
-/**
- * ЧИСЛО ОБЪЕКТОВ ОТ ИИ — ТИХОЙ СТРОКОЙ (владелец 06.09.2026, разбор слепых зон
- * п.3; покупатель добавлен 07.09.2026 — «вдруг решит купить не одну, а две»).
- *
- * «Не агент решает, сколько у клиента объектов — ИИ сам понимает это из разговора
- * и вносит. Агент может оспорить, решение с подтверждением руководителя.»
- *
- * Строка `.quiet`, а не цветная карточка-баннер: правило владельца 03.09.2026 —
- * карточек-уведомлений в интерфейсе нет, даже срочное показывается тихой строкой.
- * Форма спора уезжает в правую шторку, как отклонение заявки в «Архиве», а не
- * разворачивается прямо в карточке: это редкое действие, и место под него в
- * самом читаемом блоке карточки было бы занято всегда.
- *
- * Показываем только когда число по ЭТОЙ роли уже есть — не по `kind`:
- * клиент с dualIntent, ставший покупателем, но всё ещё продающий, должен видеть
- * и строку продавца.
- */
-export function PropertyCountRow({ client, role }: { client: Client; role: PropertyCountDisputeRole }) {
-  const accountReadOnly = useIsReadOnly();
-  const isSeller = role === "SELLER";
-  const aiCount = isSeller ? client.sellerDeclaredPropertyCount : client.buyerDesiredPropertyCount;
-  const hasCount = clientPropertyCountVisible(client, role);
-  const { data } = usePendingPropertyCountDisputes(client.id, hasCount);
-  const [open, setOpen] = useState(false);
-
-  if (!hasCount) return null;
-  const pending = data?.requests.find((r) => r.role === role);
-
-  return (
-    <>
-      <div className="quiet">
-        <span className="txt">
-          ИИ насчитал объектов {isSeller ? "на продажу" : "на покупку"}: <b>{aiCount}</b>
-          {pending && ` · заявка на пересмотр (${pending.proposedCount}) ждёт решения руководства`}
-        </span>
-        {!accountReadOnly && !pending && (
-          <button className="pill ghost sm" type="button" onClick={() => setOpen(true)}>
-            Оспорить
-          </button>
-        )}
-      </div>
-      {!accountReadOnly && open && <PropertyCountDisputeSheet client={client} role={role} onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
-/** Шторка спора — то же устройство, что у RejectSheet в «Архиве». */
-function PropertyCountDisputeSheet({
-  client,
-  role,
-  onClose,
-}: {
-  client: Client;
-  role: PropertyCountDisputeRole;
-  onClose: () => void;
-}) {
-  const accountReadOnly = useIsReadOnly();
-  const dispute = useDisputePropertyCount(client.id);
-  const [proposedCount, setProposedCount] = useState("");
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit() {
-    if (accountReadOnly) return;
-    setError(null);
-    const n = Number(proposedCount);
-    if (proposedCount.trim() === "" || !Number.isInteger(n) || n < 0) {
-      setError("Введите целое число, ноль или больше");
-      return;
-    }
-    if (!reason.trim()) {
-      setError("Объясните, почему число ИИ неверное");
-      return;
-    }
-    try {
-      await dispute.mutateAsync({ role, proposedCount: n, reason: reason.trim() });
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось отправить заявку");
-    }
-  }
-
-  const title = role === "SELLER" ? "Оспорить число объектов на продажу" : "Оспорить число объектов на покупку";
-
-  // Общий корпус окон CRM, а не своя разметка: ловушки фокуса у ручной шторки
-  // не было. Кнопки действий остаются в теле, а не переезжают в подвал
-  // `.sheet-f`: задача — дать окну ловушку фокуса, а не переверстать его.
-  return (
-    <Rh2Sheet onClose={onClose} title={title}>
-      <p className="sub" style={{ fontSize: "var(--fs-14)", color: "var(--muted)" }}>
-        Число меняет не агент, а руководитель — вы предлагаете своё и объясняете почему.
-      </p>
-      <div className={proposedCount.trim() ? "fld" : "fld bad"} style={{ marginTop: 16 }}>
-        <span className="lab">Сколько объектов на самом деле</span>
-        <input
-          autoFocus
-          className="inp"
-          type="number"
-          min={0}
-          max={999}
-          value={proposedCount}
-          onChange={(e) => setProposedCount(e.target.value)}
-        />
-      </div>
-      <div className={reason.trim() ? "fld" : "fld bad"} style={{ marginTop: 16 }}>
-        <span className="lab">Почему число ИИ неверное</span>
-        <textarea
-          rows={3}
-          maxLength={1000}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Увидит руководитель"
-        />
-      </div>
-      {error && (
-        <div className="state err" style={{ marginTop: 12 }}>
-          <span className="dot crit" />
-          {error}
-        </div>
-      )}
-      <div className="act" style={{ marginTop: 20, display: "flex", gap: 8 }}>
-        <button className="pill sm" type="button" disabled={dispute.isPending} onClick={() => void submit()}>
-          Отправить
-        </button>
-        <button className="pill ghost sm" type="button" onClick={onClose}>
-          Отмена
-        </button>
-      </div>
-    </Rh2Sheet>
-  );
-}
-
 export function SimilarNotesWarning({
   clients,
   onMerge,
@@ -2157,9 +2008,9 @@ function MobileActionSheet({
  *
  * Конфиденциальный блок: доступен только руководству с правом проверки.
  *
- * Два исхода, и оба закрывают карточку. Разница в том, что остаётся в истории:
- * «вопросов нет» — обычное закрытие, «нарушение подтверждено» — запись, по которой
- * потом разбираются с человеком.
+ * Два исхода (18.11.2026): «вопросов нет» карточку не закрывает никогда;
+ * «нарушение подтверждено» убирает её в Корзину, только если автоматика СБ
+ * включена и карточка не в работе (сервер: lib/securityAutomation.ts).
  */
 function SecurityReviewPanel({ client }: { client: Client }) {
   const can = useCan();

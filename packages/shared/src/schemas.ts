@@ -1116,8 +1116,8 @@ export type SecurityReviewState = (typeof SECURITY_REVIEW_STATES)[number];
 
 export const SECURITY_REVIEW_LABELS: Record<SecurityReviewState, string> = {
   PENDING: "Ждёт проверки СБ",
-  CLEARED: "Закрыт после проверки СБ",
-  CONFIRMED: "Закрыт: нарушение подтверждено",
+  CLEARED: "Проверено СБ: вопросов нет",
+  CONFIRMED: "Нарушение подтверждено",
 };
 
 /**
@@ -1427,32 +1427,6 @@ export const propertyDeleteRequestRejectSchema = z.object({
 
 /** Одобрение — комментарий необязателен: решение и так видно по Корзине. */
 export const propertyDeleteRequestApproveSchema = z.object({
-  decisionNote: z.string().trim().max(1000).optional(),
-});
-
-/**
- * ЗАЯВКА НА ПЕРЕСМОТР ЧИСЛА ОБЪЕКТОВ (владелец 06.09.2026, разбор слепых зон
- * п.3; роль добавлена 07.09.2026 для симметрии с покупателем) — зеркало
- * clientDeleteRequestSchema выше: число пишет ИИ, агент может только
- * предложить своё и объяснить почему, решает руководитель. role различает
- * сторону: SELLER — sellerDeclaredPropertyCount, BUYER — buyerDesiredPropertyCount
- * (у клиента с dualIntent это разные, независимые заявки).
- */
-export const propertyCountDisputeRoleSchema = z.enum(["SELLER", "BUYER"]);
-
-export const propertyCountDisputeSchema = z.object({
-  role: propertyCountDisputeRoleSchema,
-  proposedCount: z.number().int().min(0).max(999),
-  reason: z.string().trim().min(1, "Объясните, почему число ИИ неверное").max(1000),
-});
-
-/** Отказ — причина обязательна, см. clientDeleteRequestRejectSchema. */
-export const propertyCountDisputeRejectSchema = z.object({
-  decisionNote: z.string().trim().min(1, "Напишите, почему заявка отклонена").max(1000),
-});
-
-/** Одобрение — комментарий необязателен. */
-export const propertyCountDisputeApproveSchema = z.object({
   decisionNote: z.string().trim().max(1000).optional(),
 });
 
