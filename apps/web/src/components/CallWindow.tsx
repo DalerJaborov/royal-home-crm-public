@@ -9,6 +9,8 @@ import type { ActiveCall } from "../hooks/useActiveCall";
 import { IconClose, IconHangUp, IconMinimize } from "./proto/ProtoIcons";
 import { initials } from "./proto/protoAvatar";
 import { Rh2Inline } from "./rh2/Rh2Scope";
+import { useCleanShell } from "../hooks/useCleanShell";
+import { useRoyalLook } from "../hooks/useRoyalLook";
 
 /**
  * ОКНО ЗВОНКА — ТОЛЬКО ИСХОДЯЩИЙ.
@@ -181,6 +183,12 @@ export function CallWindow() {
 /** Шторка исходящего звонка — экран вызова обычного телефона, облик `.cw2`. */
 function OutgoingCard({ call, onClose }: { call: ActiveCall; onClose: () => void }) {
   const cancel = useCancelActiveCall();
+  // «Новый вид» (пачка calls): окно живёт в рамке приложения, вне экранов
+  // раздела, поэтому метку раздела ставит само (обёртка ниже). Кнопки, их
+  // обработчики и состояния — прежние; меняется только оформление слоем.
+  const clean = useCleanShell();
+  const royalLook = useRoyalLook();
+  const royal = clean && royalLook;
   // Свёрнутое окно — та же мысль, что у `.cw.min` в эталоне: полоска остаётся,
   // работать не мешает. Звонок при этом продолжается, как и обещает подпись.
   const [minimized, setMinimized] = useState(false);
@@ -241,7 +249,7 @@ function OutgoingCard({ call, onClose }: { call: ActiveCall; onClose: () => void
             ? `Запись и разбор появятся в карточке клиента. ${CLOSES_ITSELF}`
             : `Станция звонит вам на ${call.dialingTo}, поднимите трубку. Окно можно свернуть, звонок продолжится.`;
 
-  return (
+  const card = (
     <Rh2Inline>
       <div className="cw2-stage live">
         <section
@@ -327,5 +335,12 @@ function OutgoingCard({ call, onClose }: { call: ActiveCall; onClose: () => void
         </section>
       </div>
     </Rh2Inline>
+  );
+  // Без признака вида — прежнее дерево без обёртки (ни узла, ни пикселя).
+  if (!royal) return card;
+  return (
+    <div className="ry-cw" data-ry-section="calls" data-state={stateTone || "dial"}>
+      {card}
+    </div>
   );
 }

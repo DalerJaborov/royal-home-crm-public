@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQueuePause, useSetQueuePause, useTelephonyDashboard } from "../hooks/useCalls";
+import { useQueuePause, useSetQueuePause, useTelephonyDashboard, type TelephonyDashboard } from "../hooks/useCalls";
 import { DialPadModal } from "../components/DialPad";
 import { useCan } from "../lib/permissions";
 import { OUTGOING_STATE, formatLiveSeconds } from "../lib/callLive";
@@ -17,6 +17,12 @@ import { scrollableRegion } from "../lib/a11y";
 import { StatTile } from "../components/ui/StatTile";
 import { ScreenTabs } from "../components/ScreenTabs";
 import { InboxTabs } from "../components/SectionTabs";
+import { useCleanShell } from "../hooks/useCleanShell";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RoyalCallsTop } from "../components/look/calls/RoyalCallsTop";
+import { RoyalCallFlag, RoyalCallRow } from "../components/look/calls/RoyalCallRow";
+import { RhAvatar, RhButton, RhCircle, RhGroup, RhRow } from "../components/look/ui";
 
 /**
  * ДАШБОРД ТЕЛЕФОНИИ — «как у настоящей АТС» (владелец 11.08.2026).
@@ -52,6 +58,10 @@ export function Telephony() {
   const [dialOpen, setDialOpen] = useState(false);
   // Полоса «Обращения» — тот же набор, что на Сообщениях/Комментариях/Звонках
   // (docs/archive/menu-wave2-brief-15-09.md). Хук зовём до раннего return ниже.
+  // «Новый вид» (пачка calls): только поверх чистой оболочки; запросы те же.
+  const clean = useCleanShell();
+  const royalLook = useRoyalLook();
+  const royal = clean && royalLook;
 
   if (!allowed) {
     return (
@@ -81,8 +91,14 @@ export function Telephony() {
         : "Нет связи со станцией.";
 
   return (
-    <div className="rh2 screens">
+    <RoyalSection name={royal ? "calls" : undefined}>
+    <div className={royal ? "rh2 screens ry-calls ry-telephony" : "rh2 screens"} data-ry-section={royal ? "calls" : undefined}>
       <div className="scr">
+        {royal ? (
+          // Новый вид: тот же переключатель разделов, что у «Чатов», наборщик —
+          // синей кнопкой; строка под заголовком — состояние станции (данные).
+          <RoyalCallsTop title="Телефония" sub={subtitle} onDial={() => setDialOpen(true)} />
+        ) : <>
         <div className="pg-h">
           <div>
             <h1>Телефония</h1>
@@ -99,6 +115,7 @@ export function Telephony() {
         </div>
 
         <InboxTabs />
+        </>}
 
         {/* Плохие новости — тихой строкой, не карточкой (память 01.09). */}
         {data && ((data.station.configured && !data.station.online) || unknownToStation > 0) && (
@@ -130,7 +147,7 @@ export function Telephony() {
           </div>
         )}
 
-        <QueuePauseCard />
+        <QueuePauseCard royal={royal} />
 
         {isLoading && (
           <div className="card tight">
@@ -217,6 +234,8 @@ export function Telephony() {
                     Набрать номер
                   </button>
                 </div>
+              ) : royal ? (
+                <RoyalLiveCalls live={data.live} />
               ) : (
                 <div className="list">
                   {/**
@@ -314,6 +333,22 @@ export function Telephony() {
                     Открыть настройки
                   </Link>
                 </div>
+              ) : royal ? (
+                // Новый вид: строки со значком-аватаром, состояние меткой справа
+                // (норма — зелёная, «нет на станции» — красная с пламенем).
+                <RhGroup label="Телефоны сотрудников">
+                  {data.extensions.map((ext) => (
+                    <RhRow
+                      key={ext.agentId}
+                      lead={<span className="ry-tel-av" data-online={ext.online ? "" : undefined}><RhAvatar name={ext.fullName} /></span>}
+                      title={ext.fullName}
+                      sub={`Номер ${ext.extension}`}
+                      right={<RoyalCallFlag tone={ext.online ? "ok" : ext.knownToStation ? "mute" : "crit"}>
+                        {ext.online ? "на связи" : ext.knownToStation ? "не подключён" : "нет на станции"}
+                      </RoyalCallFlag>}
+                    />
+                  ))}
+                </RhGroup>
               ) : (
                 <div className="devs">
                   {data.extensions.map((ext, i) => {
@@ -433,6 +468,45 @@ export function Telephony() {
         {dialOpen && <DialPadModal onClose={() => setDialOpen(false)} />}
       </div>
     </div>
+    </RoyalSection>
+  );
+}
+
+/**
+ * «Сейчас в эфире» в новом виде (пачка calls): та же строка звонка, что в
+ * журнале, — круг направления, кто, кто принял, состояние меткой, справа таймер
+ * (табличные цифры, чтобы строка не дёргалась каждую секунду). Ждущий ответа
+ * входящий — красной меткой «Ждёт ответа» с пламенем, не только цветом.
+ */
+function RoyalLiveCalls({ live }: { live: TelephonyDashboard["live"] }) {
+  return (
+    <div className="ry-calls-list">
+      {live.incoming.map((call) => {
+        const name = call.clientName ?? call.phone;
+        return (
+          <RoyalCallRow
+            key={call.channelId}
+            dir="in"
+            dirLabel="Входящий"
+            title={call.clientShortId ? <Link className="ry-call-name" to={`/clients/${call.clientShortId}`}>{name}</Link> : name}
+            meta={[call.answered ? `Входящий, принял ${call.answeredByName ?? call.answeredBy ?? "оператор"}` : "Входящий, трубку ещё не сняли"]}
+            flags={<RoyalCallFlag tone={call.answered ? "ok" : "crit"}>{call.answered ? "Разговор" : "Ждёт ответа"}</RoyalCallFlag>}
+            action={<span className="ry-call-tick ry-num" data-tone={call.answered ? undefined : "crit"}>{formatLiveSeconds(call.seconds)}</span>}
+          />
+        );
+      })}
+      {live.outgoing.map((call) => (
+        <RoyalCallRow
+          key={call.channelId}
+          dir="out"
+          dirLabel="Исходящий"
+          title={<Link className="ry-call-name" to={`/clients/${call.clientShortId}`}>{call.clientName}</Link>}
+          meta={["Исходящий, звоним клиенту"]}
+          flags={<RoyalCallFlag tone="warn">{OUTGOING_STATE[call.state] ?? call.state}</RoyalCallFlag>}
+          action={<span className="ry-call-tick ry-num">{formatLiveSeconds(call.seconds)}</span>}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -450,7 +524,7 @@ export function Telephony() {
  *
  * Облик — блок `.solve` эталона (`telephony.html`, «Приём звонков»).
  */
-function QueuePauseCard() {
+function QueuePauseCard({ royal = false }: { royal?: boolean }) {
   const { data: state } = useQueuePause();
   const setPaused = useSetQueuePause();
   if (!state) return null;
@@ -475,6 +549,33 @@ function QueuePauseCard() {
   }
 
   const paused = !!state.paused;
+  // Новый вид: тот же переключатель приёма — круг-значок со смыслом (принимаю —
+  // зелёный, отошёл — янтарный), две строки и одна кнопка; та же мутация.
+  if (royal) {
+    return (
+      <section className="ry-tel-queue" aria-label="Приём звонков">
+        <div className="ry-tel-queue-row">
+          <RhCircle icon={paused ? "hourglass" : "headphones"} tone={paused ? "warn" : "ok"} />
+          <div className="ry-tel-queue-t">
+            <b>{paused ? "Вы отошли" : "Вы принимаете звонки"}</b>
+            <span>
+              {paused
+                ? "Станция не звонит вам по входящим, клиентов принимают остальные операторы."
+                : `Входящие приходят вам${state.queue ? `, очередь ${state.queue}` : ""}.`}
+            </span>
+          </div>
+          <RhButton variant={paused ? "primary" : "gray"} onClick={() => setPaused.mutate(!paused)} disabled={setPaused.isPending}>
+            {setPaused.isPending ? "Меняю…" : paused ? "Я на месте" : "Отошёл"}
+          </RhButton>
+        </div>
+        {setPaused.isError && (
+          <p className="ry-tel-queue-err" role="alert">
+            {setPaused.error instanceof Error ? setPaused.error.message : "Станция не ответила"}
+          </p>
+        )}
+      </section>
+    );
+  }
   return (
     <div className="card tight">
       <div className="solve">
