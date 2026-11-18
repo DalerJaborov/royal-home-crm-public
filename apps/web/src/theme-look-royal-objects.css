@@ -273,7 +273,7 @@
 /* Строкой: фото слева 104, текст справа (макет, телефон). Так же — список «Строками» и любой узкий список. */
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-card { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px; padding: 8px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo { width: 104px; border-radius: 16px; }
-:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo > .ry-obj-pill,
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo > .ry-obj-pill { display: none; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-count { right: 4px; bottom: 4px; gap: 2px; padding: 2px 6px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-state { display: inline; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-nophoto-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -284,7 +284,7 @@
 @container ry-objects (max-width: 599.98px) {
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-card { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px; padding: 8px; }
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo { width: 104px; border-radius: 16px; }
-  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo > .ry-obj-pill,
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo > .ry-obj-pill { display: none; }
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-count { right: 4px; bottom: 4px; gap: 2px; padding: 2px 6px; }
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-state { display: inline; }
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-nophoto-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -515,7 +515,7 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .lab { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .chk { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; }
 /* Отключённая кнопка (до выбора причины в «Удалить объект?» и т.п.) — приглушена, в том числе красная. */
-:root[data-ui-look="royal"] [data-ry-section="objects"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
 /* Опасная кнопка в новом виде — сплошная красная таблетка; смысл старой темы не теряется. */
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]),
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
