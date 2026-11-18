@@ -1,9 +1,12 @@
 import { Router } from "express";
 import { z } from "zod";
 import { ownMusicRemixSinceAfterSave, narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
-import { isReadOnlyRole, narrationPreviewDecisionSchema } from "@royal-home/shared";
+import { narrationFactsChanges, type NarrationFacts, type NarrationReleaseView } from "@royal-home/shared";
 import { prisma } from "../../db.js";
-import { declineNarrationPreview, releaseNarrationPreview } from "../../lib/narrationPreview.js";
+import { isPublishedClip } from "../../lib/narrationPreview.js";
+import { measuredNarrationCharsPerSec, narrationClipSec } from "../../lib/narrationLengthCalibration.js";
+import { releaseChannelsView } from "../../lib/remakeOldPosts.js";
+import { estimateNarrationPublishAt, isHandoffPublishRunning } from "../../lib/videoHandoff.js";
 import { requireAuth } from "../../auth/middleware.js";
 import { hasMarketingRole } from "../marketing.js";
 import { canManageProperty } from "./shared.js";
@@ -31,20 +34,26 @@ const manager = (agent?: { permissions: ReadonlySet<string> } | null) => hasMark
 const configuration = loadNarrationConfiguration;
 /** Образец объекта для проверки шаблона при сохранении: цена и ошибки ловятся до первой оплаты. */
 const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD" };
-/** Кто решает по новому ролику: тот, кто ведёт объект (canManageProperty проверен), не монтажёр и не «только чтение». */
-const canDecidePreview = (role: string) => role !== "EDITOR" && !isReadOnlyRole(role);
-function previewView(p: { videoHandoffStatus: string | null; narrationOff: boolean; narrationPreviewMasterKey: string | null; videoMasterStorageKey: string | null; narrationPreviewPath: string | null; narrationPreviewVersionId: string | null; videoHandoffFinalPath: string | null; videoMasterNarrationVersionId: string | null;
-  narrationPreviewAt: Date | null; narrationPreviewDueAt: Date | null; narrationPreviewVoiceSec: number | null; narrationPreviewClipSec: number | null },
-  versions: ReadonlyArray<{ id: string; revision: number; mixNote: string | null }>, role: string) {
-  if (!p.narrationPreviewPath || !p.narrationPreviewVersionId || !p.narrationPreviewAt) return null;
-  // Кандидат к прежнему ролику (ролик вернули монтажёру, сменился ролик без голоса, «Без озвучки») — не показываем:
-  // кнопка всё равно ответила бы «устарел», а задача по сроку его уберёт.
-  if (p.videoHandoffStatus !== "RECEIVED" || p.narrationOff || p.narrationPreviewMasterKey !== p.videoMasterStorageKey) return null;
-  const v = versions.find((x) => x.id === p.narrationPreviewVersionId);
-  if (!v) return null;
-  return { versionId: v.id, revision: v.revision, previewPath: p.narrationPreviewPath, currentPath: p.videoHandoffFinalPath, oldVersionId: p.videoMasterNarrationVersionId,
-    createdAt: p.narrationPreviewAt.toISOString(), dueAt: p.narrationPreviewDueAt?.toISOString() ?? null,
-    voiceSec: p.narrationPreviewVoiceSec, clipSec: p.narrationPreviewClipSec, note: v.mixNote, canDecide: canDecidePreview(role) };
+/**
+ * ХОД ВЫПУСКА НОВОЙ ОЗВУЧКИ (18.11.2026) для блока карточки: CRM накладывает голос → ждёт своего времени →
+ * уходит в сети → вышло (по сетям: новый пост, старый снят / удалите сами). null — показывать нечего.
+ */
+async function releaseView(p: { id: string; videoHandoffStatus: string | null; videoMasterNarrationVersionId: string | null; videoMasterMixErrorVersionId: string | null; scheduledPublishAt: Date | null; scheduledPublishReason: string | null;
+  publishedChannels: string[]; instagramUrl: string | null }, latest: { id: string; status: string; approvedAt: Date | null } | undefined): Promise<NarrationReleaseView | null> {
+  if (!latest || latest.status !== "READY" || !latest.approvedAt) return null;
+  const request = await prisma.videoRemakeRequest.findFirst({ where: { propertyId: p.id, reason: "NARRATION_CHANGED", replaceOldPostsOnPublish: true, createdAt: { gte: latest.approvedAt } },
+    orderBy: { createdAt: "desc" }, select: { oldPosts: true, oldPostsOutcome: true, oldPostsReplacedAt: true } });
+  const channels = releaseChannelsView(request?.oldPostsOutcome ?? null);
+  const base = { versionId: latest.id, at: p.scheduledPublishAt?.toISOString() ?? null, reason: p.scheduledPublishReason, channels };
+  if (p.videoMasterNarrationVersionId !== latest.id) {
+    // Ещё не наложена: только если ролик вышел и наложение не упало (упало — строка mix.problem).
+    if (!request && p.videoHandoffStatus === "RECEIVED" && isPublishedClip(p) && p.videoMasterMixErrorVersionId !== latest.id) return { ...base, stage: "MIXING", at: null, reason: null };
+    return null;
+  }
+  if (!request) return null;
+  if (request.oldPostsReplacedAt) return { ...base, stage: "DONE", at: null };
+  if (request.oldPosts !== null || await isHandoffPublishRunning(p.id)) return { ...base, stage: "PUBLISHING" };
+  return { ...base, stage: "SCHEDULED" };
 }
 // This static path is mounted before /properties/:id.
 narrationRouter.get("/narration-settings", async (req, res) => {
@@ -253,9 +262,10 @@ narrationRouter.get("/:id/narration", async (req, res) => {
       problem: p.videoMasterMixError && p.videoMasterMixErrorVersionId && p.videoMasterMixErrorVersionId === versions[0]?.id
         ? (p.videoMasterMixError.includes(NARRATION_VOICE_LONGER_MARK) ? "VOICE_LONGER" as const : "FAILED" as const) : null,
       note: narrationMixNoteFor(p, versions[0] ?? null, { ownMusicPending: !p.videoMasterStorageKey && await ownMusicRemixApplies(p.id) }) },
-    // ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026): новый ролик с новой озвучкой ждёт решения (lib/narrationPreview.ts).
-    preview: previewView(p, versions, req.agent!.role),
-    previewDeclined: !!versions[0] && p.narrationPreviewDeclinedVersionId === versions[0].id,
+    // ОДНО УТВЕРЖДЕНИЕ (18.11.2026): длина ролика для «укладывается ли текст», что поменялось, ход выпуска.
+    clipSec: await narrationClipSec(p), charsPerSec: await measuredNarrationCharsPerSec(), published: isPublishedClip(p),
+    changed: narrationFactsChanges(versions.find((v) => v.approvedAt && v.status === "READY")?.factsSnapshot as NarrationFacts | undefined, facts),
+    release: await releaseView(p, versions[0]),
     quotaExceeded: manager(req.agent) ? !!await narrationQuotaExceededSince() : undefined });
 });
 
@@ -271,6 +281,7 @@ narrationRouter.post("/:id/narration", async (req, res) => {
     if (!narrationAutoEnabled(config)) return res.status(409).json({ error: "Автоозвучка выключена в настройках. Сохраните текст без генерации." });
     const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", script: parsed.data.script, templateId: parsed.data.templateId, endingId: parsed.data.endingId,
       voiceId: parsed.data.voiceId, expectedRevision: parsed.data.expectedRevision, requestKey: parsed.data.requestKey, debounceMs: 0 });
+    // Текст длиннее ролика тоже здесь (18.11.2026): 400 до ElevenLabs, кредиты не тратятся.
     if (outcome.status === "INVALID") return res.status(400).json({ error: outcome.error });
     if (outcome.status === "DISABLED") return res.status(409).json({ error: "Для объекта выбрано «Без озвучки». Сначала включите озвучку." });
     if (outcome.status === "UNCHANGED") return res.status(409).json({ error: "Текст и голос такие же, как в текущей озвучке." });
@@ -309,25 +320,10 @@ narrationRouter.post("/:id/narration/:versionId/approve", async (req, res) => {
   const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: req.agent!.id, isManager: manager(req.agent), actorRole: req.agent!.role });
   if (outcome === "FORBIDDEN") return res.status(403).json({ error: "Эту озвучку одобряет маркетинг, руководство или владелец" });
   if (outcome === "CONFLICT") return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
-  res.json({ ok: true, ...(outcome === "AUDIO_APPROVED" ? { delivery: await afterNarrationApproved(p.id, versionId.data) } : {}) });
-});
-
-/**
- * ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026): решение по новому ролику — та же функция, что кнопки Шабнам.
- * CHANGE отказывается от наложения этой версии; карточка сразу открывает выбор голоса и текста.
- */
-narrationRouter.post("/:id/narration/preview", async (req, res) => {
-  if (!canDecidePreview(req.agent!.role)) return res.status(403).json({ error: "Решение по ролику принимает тот, кто ведёт объект" });
-  const parsed = narrationPreviewDecisionSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Некорректное решение", details: parsed.error.flatten() });
-  const p = res.locals.narrationProperty;
-  const actor = { agentId: req.agent!.id, source: "crm" as const };
-  const result = parsed.data.decision === "RELEASE"
-    ? await releaseNarrationPreview(p.id, parsed.data.versionId, actor)
-    : await declineNarrationPreview(p.id, parsed.data.versionId, actor, parsed.data.decision);
-  if (result === "STALE") return res.status(409).json({ error: "Этот ролик уже решён или устарел. Обновите карточку." });
-  if (result === "BUSY") return res.status(409).json({ error: "Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару минут." });
-  res.json({ ok: true, result });
+  const delivery = outcome === "AUDIO_APPROVED" ? await afterNarrationApproved(p.id, versionId.data) : undefined;
+  // Ролик уже вышел — примерное время выхода нового (точное карточка покажет, когда голос наложен).
+  const publishAt = delivery === "CRM_REMIX" ? await estimateNarrationPublishAt(p.id).catch(() => null) : null;
+  res.json({ ok: true, ...(delivery ? { delivery } : {}), ...(publishAt ? { publishAt: publishAt.toISOString() } : {}) });
 });
 
 /**

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **782**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **4139**. Модулей: **87**.
+Путей: **781**. Развилок в самих путях: **2497**; вместе с задачами по расписанию и фоновыми заданиями — **4137**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10894,7 +10894,11 @@
 - если outcome === "CONFLICT"
   - return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
     · ответ 409 — «Факты или версия изменились. Подготовьте и проверьте новый текст.»
-- res.json({ ok: true, ...(outcome === "AUDIO_APPROVED" ? { delivery: await afterNarrationApproved(p.id, versio…
+- const delivery = outcome === "AUDIO_APPROVED" ? await afterNarrationApproved(p.id, versionId.data) : undefine…
+  · зовёт afterNarrationApproved()
+- const publishAt = delivery === "CRM_REMIX" ? await estimateNarrationPublishAt(p.id).catch(()
+  · зовёт estimateNarrationPublishAt()
+- res.json({ ok: true, ...(delivery ? { delivery } : {}), ...(publishAt ? { publishAt: publishAt.toISOString() …
   · ответ 200
 
 ### GET /api/v1/properties/:id/narration/:versionId/audio
@@ -11200,29 +11204,6 @@
 - await setOwnerReportConsent(res.locals.narrationProperty.id, req.agent!.id, false);
   · зовёт setOwnerReportConsent()
 - res.json({ active: false });
-  · ответ 200
-
-### POST /api/v1/properties/:id/narration/preview
-
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
-
-- если !canDecidePreview(req.agent!.role)
-  - return res.status(403).json({ error: "Решение по ролику принимает тот, кто ведёт объект" });
-    · ответ 403 — «Решение по ролику принимает тот, кто ведёт объект»
-- const parsed = narrationPreviewDecisionSchema.safeParse(req.body);
-  · проверяет данные схемой narrationPreviewDecisionSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректное решение", details: parsed.error.flatten() });
-    · ответ 400 — «Некорректное решение»
-- const result = parsed.data.decision === "RELEASE" ? await releaseNarrationPreview(p.id, parsed.data.versionId…
-  · зовёт releaseNarrationPreview()
-- если result === "STALE"
-  - return res.status(409).json({ error: "Этот ролик уже решён или устарел. Обновите карточку." });
-    · ответ 409 — «Этот ролик уже решён или устарел. Обновите карточку.»
-- если result === "BUSY"
-  - return res.status(409).json({ error: "Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару ми…
-    · ответ 409 — «Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару…»
-- res.json({ ok: true, result });
   · ответ 200
 
 ### POST /api/v1/properties/:id/narration/publication-preview
@@ -23463,44 +23444,54 @@
 
 ### narration-preview-due — * * * * *
 
-- await releaseDueNarrationPreviews();
-  · зовёт releaseDueNarrationPreviews()
-  - const waiting = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null } }, select:…
+- await clearLeftoverNarrationPreviews();
+  · зовёт clearLeftoverNarrationPreviews()
+  - const rows = await prisma.property.findMany({ where: { OR: [{ narrationPreviewVersionId: { not: null } }, { n…
     · читает в базе: property
-  - для каждого: const row of waiting
+  - для каждого: const row of rows
     - пробует
-      - если orphan
-        - const res = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationP…
-          · меняет в базе: property
-        - если res.count
-          - cleared++;
-            · дословно из кода
-          - await removeClipFiles(row.narrationPreviewPath);
-            · дословно из кода
-        - continue;
-          · переходит к следующему
-      - если !row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()
-        - continue;
-          · переходит к следующему
-      - если await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: "auto" }, now)…
-        - released++;
-          · дословно из кода
-    - если сорвалось
-      - void logSystemError("video-handoff", `Новый ролик с озвучкой не выпущен по сроку прослушивания: ${err instanc…
-        · запись в журнал ошибок
-- await notifyPendingNarrationPreviews(notifyNarrationPreview);
-  · зовёт notifyPendingNarrationPreviews()
-  - const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…
-    · читает в базе: property
-  - для каждого: const row of rows.filter((r) => r.narrationPreviewMasterKey === r.videoMasterStorageKey).slice(0, 5)
-    - пробует
-      - const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrati…
+      - const done = await withPropertyLock(row.id, async (tx)
+        · читает в базе: property
         · меняет в базе: property
-      - если marked.count
-        - notified++;
+        · читает в базе: propertyNarrationVersion
+        · меняет в базе: propertyNarrationVersion
+        - const cur = await tx.property.findUnique({ where: { id: row.id }, select: { narrationPreviewVersionId: true, …
+          · читает в базе: property
+        - если !cur || cur.narrationPreviewVersionId !== row.narrationPreviewVersionId || cur.narrationPreviewPath !== row.n…
+          - return false;
+            · дословно из кода
+        - await tx.property.update({ where: { id: row.id }, data: { ...NARRATION_PREVIEW_CLEARED, narrationPreviewDecli…
+          · меняет в базе: property
+        - const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.id }, orderBy: { revisi…
+          · читает в базе: propertyNarrationVersion
+        - если cur.narrationPreviewVersionId && latest?.id === cur.narrationPreviewVersionId && cur.videoMasterNarrationVers…
+          - await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY" }, data: { approvedAt:…
+            · меняет в базе: propertyNarrationVersion
+      - если !done
+        - continue;
+          · переходит к следующему
+      - если row.narrationPreviewPath
+        - await removeClipFiles(row.narrationPreviewPath);
           · дословно из кода
     - если сорвалось
-      - void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор че…
+      - void logSystemError("video-handoff", `Оставшийся кандидат «прослушать перед выпуском» не убран: ${err instanc…
+        · запись в журнал ошибок
+- await finishOldPostsSweep();
+  · зовёт finishOldPostsSweep()
+  - const rows = await prisma.videoRemakeRequest.findMany({ where: { replaceOldPostsOnPublish: true, oldPostsRepl…
+    · читает в базе: videoRemakeRequest
+  - для каждого: const { propertyId } of rows
+    - если await isHandoffPublishRunning(propertyId)
+      - continue;
+        · переходит к следующему
+    - пробует
+      - const r = await finishOldPostsAfterRemakePublish(propertyId, null, now);
+        · зовёт finishOldPostsAfterRemakePublish()
+      - если r && (r.removed.length || r.manual.length || r.done)
+        - touched++;
+          · дословно из кода
+    - если сорвалось
+      - void logSystemError("meta", `Объект ${propertyId}: снятие старых постов после нового ролика упало: ${err inst…
         · запись в журнал ошибок
 
 ### narration-version-delivery — * * * * *
@@ -30592,10 +30583,15 @@
     · зовёт releaseQueueIfClear()
   - return;
     · дальше не идёт, ничего не меняя
-- await replaceOldPostsBeforeRemakePublish(property.id).catch((err)
+- const remake = await prepareOldPostsBeforeRemakePublish(property.id).catch((err)
   · запись в журнал ошибок
+  - void logSystemError("meta", `Объект ${property.id}: снимок старых постов перед публикацией перемонтажа не уда…
+    · запись в журнал ошибок
 - const summary = await publishHandoffResult(property.id, property.videoHandoffFinalPath);
   · зовёт publishHandoffResult()
+- если remake
+  - await finishOldPostsAfterRemakePublish(property.id, summary).catch((err)
+    · запись в журнал ошибок
 - await notifyVideoHandoffPublishResult(property.id, summary);
   · зовёт notifyVideoHandoffPublishResult()
 - await releaseQueueIfClear(property.id);

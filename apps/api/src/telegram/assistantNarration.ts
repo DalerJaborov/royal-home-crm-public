@@ -16,6 +16,7 @@ import { prisma } from "../db.js";
 import { hasMarketingRole } from "../lib/marketingRole.js";
 import { localVideoFilePath } from "../lib/localVideoStorage.js";
 import { afterNarrationApproved, approveNarrationVersion, NARRATION_OWNER_ROLES, requestAutoNarration, type NarrationDeliveryStart } from "../lib/narrationAutoFlow.js";
+import { estimateNarrationPublishAt } from "../lib/videoHandoff.js";
 import { isWithinDushanbeWindow } from "../lib/dushanbeTime.js";
 import { narrationLastChoiceFor } from "../lib/narrationLastChoice.js";
 import { loadNarrationConfiguration, readyVoiceSamples } from "../lib/narrationGeneration.js";
@@ -45,12 +46,14 @@ const copy = {
     ready: (code: string) => `🎙 Озвучка ролика для ${code} готова. Прослушайте файл выше и одобрите.`,
     text: "Текст", voice: "Голос",
     remade: "Ролик уже вышел со старой озвучкой. После одобрения монтажёр заменит в нём только звук.",
-    remadeCrm: "Ролик уже вышел со старой озвучкой. После одобрения CRM сама заменит в нём звук и описание.",
+    remadeCrm: "Ролик уже вышел со старой озвучкой. После одобрения ролик с новой озвучкой сразу уйдёт в соцсети (ночью утром в 09:00), старые посты CRM снимет сама.",
     samples: "Образцы голосов: одна и та же фраза. Послушайте и выберите ниже.",
     b: { approve: "✅ Одобрить", edit: "✏️ Править текст", voice: "🎙 Другой голос", template: "📝 Другой шаблон", randomTemplate: "🎲 Случайный другой шаблон" },
-    approved: (d: NarrationDeliveryStart) => `✅ Одобрено. ${d === "CRM_REMIX" ? "Ролик уже вышел: CRM сама наложит новую озвучку и заменит ролик, монтажёр не нужен." : d === "SOUND_REMAKE" ? "Ролик уже вышел: монтажёр заменит в нём только голос, старые посты снимутся, когда выйдет новый." : d === "ADD_VOICE" ? "Ролик уже смонтирован: монтажёр вклеит в него голос, потом ролик выйдет." : d === "QUEUED" ? "Аудио уходит монтажёру." : d === "WAITING_FOR_MONTAGE" ? "Монтажёр получит аудио, когда объект попадёт в монтаж." : d === "PREVIEW" ? "Отправка монтажёру пока выключена в настройках." : d === "DISABLED" ? "Для объекта выбрано «Без озвучки», монтажёру ничего не уходит." : "Монтажёр уже получил эту версию."}`,
+    approved: (d: NarrationDeliveryStart) => `✅ Одобрено. ${d === "CRM_REMIX" ? "CRM накладывает новую озвучку, ролик сразу уйдёт в соцсети (ночью утром в 09:00). Время выхода видно в карточке объекта, старые посты CRM снимет сама." : d === "SOUND_REMAKE" ? "Ролик уже вышел: монтажёр заменит в нём только голос, старые посты снимутся, когда выйдет новый." : d === "ADD_VOICE" ? "Ролик уже смонтирован: монтажёр вклеит в него голос, потом ролик выйдет." : d === "QUEUED" ? "Аудио уходит монтажёру." : d === "WAITING_FOR_MONTAGE" ? "Монтажёр получит аудио, когда объект попадёт в монтаж." : d === "PREVIEW" ? "Отправка монтажёру пока выключена в настройках." : d === "DISABLED" ? "Для объекта выбрано «Без озвучки», монтажёру ничего не уходит." : "Монтажёр уже получил эту версию."}`,
     backfill: "Ролик уже в монтаже. Озвучка собрана по шаблону и голосу по умолчанию; после вашего одобрения mp3 уйдёт монтажёру.",
     remind: (code: string) => `🎙 Озвучка для ${code} ждёт вашего одобрения уже три часа. Монтажёр без неё не вклеит голос.`,
+    publishAt: (when: string) => `Выйдет примерно ${when}.`,
+    remindPublished: (code: string) => `🎙 Новая озвучка для ${code} ждёт вашего одобрения уже сутки. Пока не одобрите, в соцсетях висит ролик со старыми данными.`,
     escalate: (code: string, agent: string) => `🎙 ${agent} шесть часов не одобряет озвучку для ${code}. Можете одобрить сами или напомнить агенту.`,
     remindOwner: (codes: string) => `🎙 Ждут вашего одобрения озвучки роликов, которые уже в монтаже: ${codes}. Прослушайте их выше или в CRM.`,
     disabled: "Для этого объекта выбрано «Без озвучки». Включить можно в карточке объекта.",
@@ -67,12 +70,14 @@ const copy = {
     ready: (code: string) => `🎙 Овози видео барои ${code} тайёр аст. Файлро гӯш кунед ва тасдиқ кунед.`,
     text: "Матн", voice: "Овоз",
     remade: "Видео аллакай бо овози кӯҳна баромадааст. Баъди тасдиқ монтажёр танҳо овозашро иваз мекунад.",
-    remadeCrm: "Видео аллакай бо овози кӯҳна баромадааст. Баъди тасдиқ CRM худаш овоз ва тавсифро иваз мекунад.",
+    remadeCrm: "Видео аллакай бо овози кӯҳна баромадааст. Баъди тасдиқи шумо видео бо овози нав дарҳол ба шабакаҳои иҷтимоӣ меравад (шабона, пагоҳӣ соати 09:00), постҳои кӯҳнаро CRM худаш нест мекунад.",
     samples: "Намунаи овозҳо: ҳамон як ҷумла. Гӯш кунед ва дар поён интихоб кунед.",
     b: { approve: "✅ Тасдиқ", edit: "✏️ Ислоҳи матн", voice: "🎙 Овози дигар", template: "📝 Қолаби дигар", randomTemplate: "🎲 Қолаби тасодуфии дигар" },
-    approved: (d: NarrationDeliveryStart) => `✅ Тасдиқ шуд. ${d === "CRM_REMIX" ? "Видео аллакай баромадааст: CRM худаш овози навро мегузорад ва видеоро иваз мекунад, монтажёр лозим нест." : d === "SOUND_REMAKE" ? "Видео аллакай баромадааст: монтажёр танҳо овозашро иваз мекунад, постҳои кӯҳна вақти баромадани видеои нав гирифта мешаванд." : d === "ADD_VOICE" ? "Видео аллакай монтаж шудааст: монтажёр овозро ба он мегузорад, баъд видео мебарояд." : d === "QUEUED" ? "Овоз ба монтажёр меравад." : d === "WAITING_FOR_MONTAGE" ? "Вақте ки объект ба монтаж мерасад, овоз ба монтажёр меравад." : d === "PREVIEW" ? "Фиристодан ба монтажёр ҳоло дар танзимот хомӯш аст." : d === "DISABLED" ? "Барои ин объект «Бе овоз» интихоб шудааст, ба монтажёр чизе намеравад." : "Монтажёр ин версияро аллакай гирифтааст."}`,
+    approved: (d: NarrationDeliveryStart) => `✅ Тасдиқ шуд. ${d === "CRM_REMIX" ? "CRM овози навро мегузорад, видео дарҳол ба шабакаҳои иҷтимоӣ меравад (шабона, пагоҳӣ соати 09:00). Вақти баромадан дар саҳифаи объект аст, постҳои кӯҳнаро CRM худаш нест мекунад." : d === "SOUND_REMAKE" ? "Видео аллакай баромадааст: монтажёр танҳо овозашро иваз мекунад, постҳои кӯҳна вақти баромадани видеои нав гирифта мешаванд." : d === "ADD_VOICE" ? "Видео аллакай монтаж шудааст: монтажёр овозро ба он мегузорад, баъд видео мебарояд." : d === "QUEUED" ? "Овоз ба монтажёр меравад." : d === "WAITING_FOR_MONTAGE" ? "Вақте ки объект ба монтаж мерасад, овоз ба монтажёр меравад." : d === "PREVIEW" ? "Фиристодан ба монтажёр ҳоло дар танзимот хомӯш аст." : d === "DISABLED" ? "Барои ин объект «Бе овоз» интихоб шудааст, ба монтажёр чизе намеравад." : "Монтажёр ин версияро аллакай гирифтааст."}`,
     backfill: "Видео аллакай дар монтаж аст. Овоз аз рӯи қолаб ва овози асосӣ тайёр шуд; баъди тасдиқи шумо mp3 ба монтажёр меравад.",
     remind: (code: string) => `🎙 Овози видео барои ${code} се соат боз тасдиқи шуморо интизор аст. Бе он монтажёр овозро гузошта наметавонад.`,
+    publishAt: (when: string) => `Тахминан ${when} мебарояд.`,
+    remindPublished: (code: string) => `🎙 Овози нав барои ${code} як шабонарӯз боз тасдиқи шуморо интизор аст. То тасдиқ накунед, дар шабакаҳо видео бо маълумоти кӯҳна мемонад.`,
     escalate: (code: string, agent: string) => `🎙 ${agent} шаш соат боз овози видеоро барои ${code} тасдиқ накардааст. Худатон тасдиқ кунед ё ба агент хотиррасон кунед.`,
     remindOwner: (codes: string) => `🎙 Овози видеоҳое, ки аллакай дар монтаж ҳастанд, тасдиқи шуморо интизоранд: ${codes}. Онҳоро дар боло ё дар CRM гӯш кунед.`,
     disabled: "Барои ин объект «Бе овоз» интихоб шудааст. Онро дар корти объект фаъол кардан мумкин аст.",
@@ -122,7 +127,7 @@ export async function notifyNarrationApproval(versionId: string): Promise<void> 
   await notifyNarrationApprovalTo(versionId, null, "ready");
 }
 
-type ApprovalReason = "ready" | "backfill" | "remind" | "escalate";
+type ApprovalReason = "ready" | "backfill" | "remind" | "remindPublished" | "escalate";
 async function notifyNarrationApprovalTo(versionId: string, recipientId: string | null, reason: ApprovalReason): Promise<boolean> {
   const version = await prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, include: { property: { select: {
     id: true, shortId: true, assignedAgentId: true, intakeAgentId: true, createdById: true, videoHandoffStatus: true, videoMasterStorageKey: true, videoMasterSource: true, publishedChannels: true, instagramUrl: true } } } });
@@ -157,7 +162,7 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
   const c = copy[lang];
   const voice = config.voices.find((v) => v.id === version.voiceId)?.name;
   try {
-    const head = reason === "remind" ? c.remind(code) : reason === "escalate" ? c.escalate(code, ownerName) : c.ready(code);
+    const head = reason === "remind" ? c.remind(code) : reason === "remindPublished" ? c.remindPublished(code) : reason === "escalate" ? c.escalate(code, ownerName) : c.ready(code);
     // Напоминание — без повторного файла: он уже есть в чате выше (или в карточке CRM).
     if (reason === "ready" || reason === "backfill" || reason === "escalate") {
       await sendDocumentFile(agent.telegramChatId, { path }, `${code}-ovoz-v${version.revision}.mp3`, `${code} · v${version.revision}`, 60_000, true);
@@ -173,7 +178,17 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
   return true;
 }
 
+/** «в 14:15», «завтра в 09:00» (рус.) / «соати 14:15», «пагоҳ соати 09:00» (тадж.) — по Душанбе. */
+function publishTimeWords(at: Date, lang: Lang, now: Date = new Date()): string {
+  const day = (x: Date) => x.toLocaleDateString("ru-RU", { timeZone: "Asia/Dushanbe" });
+  const time = at.toLocaleTimeString("ru-RU", { timeZone: "Asia/Dushanbe", hour: "2-digit", minute: "2-digit" });
+  const tomorrow = day(at) !== day(now);
+  return lang === "tg" ? `${tomorrow ? "пагоҳ " : ""}соати ${time}` : `${tomorrow ? "завтра " : ""}в ${time}`;
+}
+
 const REMIND_AFTER_MS = 3 * 3_600_000;
+/** Ролик уже вышел (18.11.2026, владелец: «беспокоить редко»): одно напоминание через сутки, без руководителя. */
+const REMIND_PUBLISHED_AFTER_MS = 24 * 3_600_000;
 /** Кто «руководитель» агента для второго напоминания: руководитель продаж, иначе директор (решение по умолчанию). */
 async function narrationEscalationRecipients(): Promise<string[]> {
   for (const role of ["HEAD_OF_SALES", "DIRECTOR"] as const) {
@@ -197,13 +212,20 @@ export async function remindPendingNarrationApprovals(now: Date = new Date()): P
     where: { status: "READY", approvedAt: null, source: { not: "MANUAL" }, approvalNotifiedAt: { lte: due }, approvalEscalatedAt: null,
       property: { deletedAt: null, narrationOff: false, status: { notIn: ["SOLD", "WITHDRAWN"] } } },
     orderBy: { approvalNotifiedAt: "asc" }, take: 40,
-    select: { id: true, propertyId: true, source: true, approvalRemindedAt: true, property: { select: { shortId: true } } },
+    select: { id: true, propertyId: true, source: true, approvalRemindedAt: true, approvalNotifiedAt: true, property: { select: { shortId: true, publishedChannels: true, instagramUrl: true } } },
   });
   let sent = 0;
   const ownerCodes: string[] = [];
   for (const row of pending) {
     const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
     if (latest?.id !== row.id) continue;
+    // Ролик уже вышел: новая озвучка ждёт «Утвердить и выпустить» — одно напоминание через сутки, и всё.
+    if (isPublishedClip(row.property)) {
+      if (row.approvalRemindedAt || !row.approvalNotifiedAt || now.getTime() - row.approvalNotifiedAt.getTime() < REMIND_PUBLISHED_AFTER_MS) continue;
+      const claimed = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalRemindedAt: null }, data: { approvalRemindedAt: now, approvalEscalatedAt: now } });
+      if (claimed.count && await notifyNarrationApprovalTo(row.id, null, "remindPublished")) sent++;
+      continue;
+    }
     if (row.source === "BACKFILL") {
       if (row.approvalRemindedAt) continue;
       const claimed = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalRemindedAt: null }, data: { approvalRemindedAt: now, approvalEscalatedAt: now } });
@@ -295,9 +317,12 @@ export async function handleNarrationCallback(query: TelegramCallbackQuery): Pro
       if (result !== "AUDIO_APPROVED") { await answer(result === "FORBIDDEN" ? c.forbidden : c.stale); return true; }
       const delivery = await afterNarrationApproved(version.propertyId, version.id);
       await answer(lang === "tg" ? "Тасдиқ шуд" : "Одобрено");
+      // Ролик уже вышел: когда выйдет новый (примерно; точное время — в карточке, когда голос наложен).
+      const when = delivery === "CRM_REMIX" ? await estimateNarrationPublishAt(version.propertyId).catch(() => null) : null;
+      const reply = `${c.approved(delivery)}${when ? ` ${c.publishAt(publishTimeWords(when, lang))}` : ""}`;
       const messageId = query.message?.message_id;
-      if (messageId) await editMessageText(chatId, messageId, `${query.message?.text ?? ""}\n\n${c.approved(delivery)}`, null).catch(() => {});
-      else await sendMessage(chatId, c.approved(delivery));
+      if (messageId) await editMessageText(chatId, messageId, `${query.message?.text ?? ""}\n\n${reply}`, null).catch(() => {});
+      else await sendMessage(chatId, reply);
       return true;
     }
     if (action === "e") {
