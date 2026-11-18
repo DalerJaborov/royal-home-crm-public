@@ -21,6 +21,17 @@ vi.mock("../src/ai/sellerProbeCallParse.js", async (importOriginal) => ({
   parseSellerProbeCall,
 }));
 
+/**
+ * Выключатели «работа с продавцами» (14.11.2026) — подменяются ТОЛЬКО в этом файле:
+ * по умолчанию всё включено, как в базе, а выключение не трогает общую строку
+ * Settings, которую в тот же момент читают тесты других файлов.
+ */
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/sellerSwitches.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/sellerSwitches.js")>()),
+  sellerSwitchOn: async (key: string) => !switchesOff.has(key),
+}));
+
 const { prisma } = await import("../src/db.js");
 const { finishSellerProbeCall, runSellerProbeCallTick } = await import("../src/lib/sellerProbeCall.js");
 const { buildSellerProbeCallPrompt } = await import("../src/ai/sellerProbeCallPersona.js");
@@ -250,6 +261,20 @@ describe("когда звоним собственнику", () => {
 
     expect(await runSellerProbeCallTick(NOW)).toBe(0);
     expect(originateLiveVoiceScenarioCall).not.toHaveBeenCalled();
+  });
+
+  it("свой выключатель «робот звонит собственнику» выключен — ни проверки, ни звонка", async () => {
+    await makeSuspiciousShowing();
+    switchesOff.add("sellerProbeCallEnabled");
+    try {
+      expect(await runSellerProbeCallTick(NOW)).toBe(0);
+      expect(originateLiveVoiceScenarioCall).not.toHaveBeenCalled();
+      expect(await prisma.sellerProbeCall.count({ where: { agentId } })).toBe(0);
+    } finally {
+      switchesOff.delete("sellerProbeCallEnabled");
+    }
+    // Включили обратно — тот же показ набирается как раньше.
+    expect(await runSellerProbeCallTick(NOW)).toBe(1);
   });
 
   it("признаков мало — собственника не трогаем вовсе", async () => {

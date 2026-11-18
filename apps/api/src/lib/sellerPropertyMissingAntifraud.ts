@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { isWithinAlarmHours } from "./workingHours.js";
 import { logTimeline } from "./timeline.js";
+import { sellerSwitchOn } from "./sellerSwitches.js";
 
 const DAY_MS = 86_400_000;
 
@@ -129,6 +130,9 @@ export async function findSellerPropertyMissing(now: Date): Promise<{
  * повторная эскалация была бы спором с его выводом, а не помощью.
  */
 export async function escalateSellerPropertyMissing(now: Date = new Date()): Promise<{ escalated: number }> {
+  // Выключатель владельца (14.11.2026, lib/sellerSwitches.ts): выключено — ни эскалации
+  // в СБ, ни тревоги. securityReview остаётся null, включат обратно — подхватится.
+  if (!(await sellerSwitchOn("sellerPropertyMissingAntifraudEnabled"))) return { escalated: 0 };
   // Директора/СБ не будим ночью — решение владельца 03.09.2026 «3б», тот же
   // приём, что у sellerNoPropertyAlarm.ts. Гейт стоит ПЕРЕД самой эскалацией
   // (не только перед пушем): securityReview остаётся null, дневной тик (каждые

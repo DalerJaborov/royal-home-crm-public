@@ -4,6 +4,7 @@ import { createNotifications, shouldAlert } from "./notifications.js";
 import { isWithinAlarmHours } from "./workingHours.js";
 import { loadWorkWindow, outagesBetween, workingOutageMs } from "./stationOutage.js";
 import { checkClientExplainedPause } from "../ai/offCrmPauseCheck.js";
+import { sellerSwitchOn } from "./sellerSwitches.js";
 
 /**
  * АЛАРМ ДИРЕКТОРУ «ПРОДАВЕЦ БЕЗ ОБЪЕКТА ПОСЛЕ СЪЁМКИ» (требование 7, аудит 02.09.2026,
@@ -110,6 +111,8 @@ function stillTalking(
  * а объект НЕ создан. Пуш директору с tag для дедупа.
  */
 export async function runSellerNoPropertyAlarmTick(now: Date = new Date()): Promise<{ alerted: number }> {
+  // Выключатель владельца (14.11.2026, lib/sellerSwitches.ts): выключено — тихий выход.
+  if (!(await sellerSwitchOn("sellerNoPropertyAlarmEnabled"))) return { alerted: 0 };
   // Решение владельца 03.09.2026 («3б»), окно уточнено 07.09.2026 (Settings.alarmHours*,
   // отдельно от workHours*): пуш директору только в его часы алармов —
   // ночью тик молчит, утром первый же тик всё досчитает (дедуп по tag).

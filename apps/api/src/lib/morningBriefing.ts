@@ -10,6 +10,7 @@ import { callAiText } from "../ai/client.js";
 import { loadMorningNumbers, type MorningNumbers } from "./morningNumbers.js";
 import { dushanbeWallClock } from "./dushanbeTime.js";
 import { logSystemError } from "./systemError.js";
+import { sellerSwitchOn } from "./sellerSwitches.js";
 import { ensureCachedWav, privateVoiceRoot, voiceCacheKey } from "./voiceCache.js";
 
 /**
@@ -130,7 +131,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   });
 }
 
-async function generateBriefingText(n: BriefingNumbers): Promise<{ text: string; source: BriefingSource }> {
+async function generateBriefingText(
+  n: BriefingNumbers,
+  sellerLinesOn = true
+): Promise<{ text: string; source: BriefingSource }> {
   const facts = [
     `Задач у команды сегодня: ${n.tasksToday}`,
     `Новых лидов вчера: ${n.leadsYesterday}`,
@@ -142,7 +146,9 @@ async function generateBriefingText(n: BriefingNumbers): Promise<{ text: string;
     `Лидов вчера без первого касания: ${n.firstTouchNoneCount}`,
     `Первых касаний дольше часа: ${n.firstTouchSlowCount}`,
     `Итогов показов просрочено больше 48 часов: ${n.showingSummariesOverdue48h}`,
-    `Продавцов без объекта дольше 7 дней: ${n.sellersWithoutPropertyOver7Days}`,
+    // Выключатель «Продавцы в утренней сводке» (lib/sellerSwitches.ts) гасит строку
+    // и здесь, в голосовом брифинге, — те же числа, что у push-сводки в cron.ts.
+    ...(sellerLinesOn ? [`Продавцов без объекта дольше 7 дней: ${n.sellersWithoutPropertyOver7Days}`] : []),
     `Неразобранных ошибок системы за вчера: ${n.errorsYesterday}`,
   ].join("\n");
 
@@ -186,6 +192,8 @@ export interface CachedBriefing {
   text: string;
   source: BriefingSource;
   numbers: BriefingNumbers;
+  /** Положение выключателя «Продавцы в утренней сводке» при сборке: сменили — текст собирается заново. */
+  sellerLinesOn: boolean;
   /** Момент сборки — нужен, чтобы запасной текст не залипал на сутки. */
   builtAt: number;
 }
@@ -220,7 +228,10 @@ function cacheUsable(entry: CachedBriefing | null, dushanbeDate: string, now: nu
 
 export async function loadBriefing(at: Date = new Date()): Promise<CachedBriefing> {
   const dushanbeDate = briefingDateKey(at);
-  if (cacheUsable(cached, dushanbeDate, at.getTime())) return cached!;
+  // Выключатель читается до кэша: владелец выключил строки продавцов днём — директор
+  // не должен до полуночи слушать прежний текст (ревью 18.11.2026).
+  const sellerLinesOn = await sellerSwitchOn("morningSellerLinesEnabled");
+  if (cacheUsable(cached, dushanbeDate, at.getTime()) && cached!.sellerLinesOn === sellerLinesOn) return cached!;
   // Директор открывает главную на ПК и телефоне почти одновременно — второй
   // запрос обязан ждать первый, а не платить за вторую генерацию.
   if (inFlight) return inFlight;
@@ -228,8 +239,8 @@ export async function loadBriefing(at: Date = new Date()): Promise<CachedBriefin
   inFlight = (async (): Promise<CachedBriefing> => {
     try {
       const numbers = pickBriefingNumbers(await loadMorningNumbers());
-      const { text, source } = await generateBriefingText(numbers);
-      cached = { dushanbeDate, text, source, numbers, builtAt: Date.now() };
+      const { text, source } = await generateBriefingText(numbers, sellerLinesOn);
+      cached = { dushanbeDate, text, source, numbers, sellerLinesOn, builtAt: Date.now() };
       return cached;
     } finally {
       inFlight = null;

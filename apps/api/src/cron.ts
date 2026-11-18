@@ -140,6 +140,7 @@ import { checkAdAccountAlerts, checkAdAlerts, checkAdDisapprovedAlerts } from ".
 import { autoResolveDuplicateErrors } from "./lib/autoResolveDuplicateErrors.js";
 import { autoRefreshCustomerAgentRevision } from "./lib/customerAgentAutoRefresh.js";
 import { backfillInstagramUrls } from "./lib/backfillInstagramUrls.js";
+import { sellerSwitchOn } from "./lib/sellerSwitches.js";
 const MAX_REMINDER_HISTORY = 12;
 
 /**
@@ -417,9 +418,14 @@ export async function sendDirectorDigest(): Promise<number> {
       adsYesterday,
     },
     directors,
+    // Выключатель владельца «продавцы в утренней сводке» (14.11.2026,
+    // lib/sellerSwitches.ts): выключено — две строки о продавцах ниже не пишутся,
+    // остальная сводка уходит как обычно.
+    sellerLinesOn,
   ] = await Promise.all([
     loadMorningNumbers({ ads: true }),
     prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } }),
+    sellerSwitchOn("morningSellerLinesEnabled"),
   ]);
 
   const body = [
@@ -461,7 +467,7 @@ export async function sendDirectorDigest(): Promise<number> {
     // Пачка 9 (11.09.2026): грубый градусник, не замена runSellerNoPropertyAlarmTick
     // (тот алармит директору лично по одному клиенту, от даты встречи) — см.
     // doc-comment у MorningNumbers.sellersWithoutPropertyOver7Days.
-    ...(sellersWithoutPropertyOver7Days > 0
+    ...(sellerLinesOn && sellersWithoutPropertyOver7Days > 0
       ? [
           `🏚️ ${sellersWithoutPropertyOver7Days} ${pluralizeRu(sellersWithoutPropertyOver7Days, ["продавец", "продавца", "продавцов"])} без объекта дольше недели`,
         ]
@@ -524,7 +530,7 @@ export async function sendDirectorDigest(): Promise<number> {
     // назад не поднимает никогда (см. doc-comment у
     // MorningNumbers.propertiesWithdrawnSellerRecovered), строка нужна, чтобы
     // разъезд не лежал незамеченным до случайной находки.
-    ...(propertiesWithdrawnSellerRecovered > 0
+    ...(sellerLinesOn && propertiesWithdrawnSellerRecovered > 0
       ? [
           `🏠↩️ ${propertiesWithdrawnSellerRecovered} ${pluralizeRu(propertiesWithdrawnSellerRecovered, ["объект снят", "объекта снято", "объектов снято"])} из-за «потерянного» продавца, хотя продавец уже не «Потерянный» — проверить возврат в продажу`,
         ]
