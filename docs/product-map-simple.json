@@ -16,10 +16,10 @@
   "paths": 777,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4090,
-  "untranslatedUnique": 470,
-  "untranslatedTotal": 607,
-  "partialUnique": 1101,
+  "conditions": 4091,
+  "untranslatedUnique": 468,
+  "untranslatedTotal": 605,
+  "partialUnique": 1104,
   "translatedShare": 85
  },
  "untranslated": [
@@ -217,8 +217,6 @@
   "await handledByQuietHours([agentId], payload)",
   "await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…",
   "await manualRobotCallLimitReached(req.agent!.id)",
-  "await phoneBelongsToHiddenOwner(req, phone)",
-  "await phoneBelongsToHiddenOwner(req, stored)",
   "await prepareOwnerReportDelivery(optIn.propertyId, now)",
   "await raise(directorIds, \"incoming-calls-dead\", dead, now)",
   "await raise(directorIds, \"incoming-calls-silence\", silence, now)",
@@ -276,7 +274,7 @@
   "data.kind && data.kind !== existing.kind",
   "data.kind && data.kind !== existing.kind && existing.assignedAgentId && existing.assignedAgentId !== req.agen…",
   "data.notes && typeof data.notes === \"string\" && data.notes.trim().length > 0",
-  "data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, \"properties.viewOwners…",
+  "data.ownerContact !== undefined && stripOwnerContact(existing, can(req, \"properties.viewOwners\")).ownerContac…",
   "data.ownerContact?.trim() && phoneTail(data.ownerContact) !== phoneTail(existing.ownerContact ?? \"\")",
   "data.stage && data.stage !== existing.stage",
   "data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId",
@@ -33448,18 +33446,17 @@
      "a": [],
      "c": [
       {
-       "t": "если await phoneBelongsToHiddenOwner(req, stored)",
+       "t": "если это hidden CRM телефон",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "отказ: не хватает прав: «Номер совпадает с контактом владельца объекта, доступ закрыт»",
+         "t": "отказ: не хватает прав",
          "k": "do",
          "a": [],
          "c": []
         }
-       ],
-       "raw": "await phoneBelongsToHiddenOwner(req, stored)"
+       ]
       },
       {
        "t": "всё хорошо, отвечает данными",
@@ -33507,18 +33504,17 @@
        "c": []
       },
       {
-       "t": "если await phoneBelongsToHiddenOwner(req, phone)",
+       "t": "если это hidden CRM телефон",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "отказ: не хватает прав: «Номер совпадает с контактом владельца объекта, доступ закрыт»",
+         "t": "отказ: не хватает прав",
          "k": "do",
          "a": [],
          "c": []
         }
-       ],
-       "raw": "await phoneBelongsToHiddenOwner(req, phone)"
+       ]
       },
       {
        "t": "всё хорошо, отвечает данными",
@@ -33766,6 +33762,12 @@
        "c": []
       }
      ]
+    },
+    {
+     "t": "если нельзя see CRM contact phones и недавно gone количество больше 0",
+     "k": "if",
+     "a": [],
+     "c": []
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -46255,11 +46257,11 @@
      ]
     },
     {
-     "t": "если data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, \"properties.viewOwners…",
+     "t": "если data.ownerContact !== undefined && stripOwnerContact(existing, can(req, \"properties.viewOwners\")).ownerContac…",
      "k": "if",
      "a": [],
      "c": [],
-     "raw": "data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, \"properties.viewOwners…"
+     "raw": "data.ownerContact !== undefined && stripOwnerContact(existing, can(req, \"properties.viewOwners\")).ownerContac…"
     },
     {
      "t": "если data.ownerContact?.trim() && phoneTail(data.ownerContact) !== phoneTail(existing.ownerContact ?? \"\")",

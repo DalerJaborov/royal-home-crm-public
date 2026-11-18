@@ -200,6 +200,14 @@ export function presentClient<
     ...(typeof client.requirementsNotes === "string"
       ? { requirementsNotes: phoneSafeText(client.requirementsNotes, false) }
       : {}),
+    // Причины отказа и паузы — тоже свободный текст агента или ИИ (18.11.2026):
+    // «перезвонить на 93 …» уезжал в карточку РОП и списки целиком.
+    ...("refusalReason" in client && typeof client.refusalReason === "string"
+      ? { refusalReason: phoneSafeText(client.refusalReason, false) }
+      : {}),
+    ...("deferredReason" in client && typeof client.deferredReason === "string"
+      ? { deferredReason: phoneSafeText(client.deferredReason, false) }
+      : {}),
     // Почта закрыта только до принятия: она не даёт увести клиента мимо CRM так,
     // как даёт телефон, а переписываться агенту иногда нужно.
     email: client.acceptedAt === null ? null : client.email,
