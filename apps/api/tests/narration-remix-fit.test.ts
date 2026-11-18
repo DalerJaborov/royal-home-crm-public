@@ -37,7 +37,7 @@ const { prisma } = await import("../src/db.js");
 const { localVideoFilePath } = await import("../src/lib/localVideoStorage.js");
 const { probeMediaInfo } = await import("../src/lib/ffmpeg.js");
 const { planNarrationFit, narrationFitNote, mixNarrationOntoMaster } = await import("../src/lib/narrationMix.js");
-const { afterNarrationApproved, autoApproveSameChoice, narrationMixNoteFor, remixFromMaster, requestAutoNarration } = await import("../src/lib/narrationAutoFlow.js");
+const { afterNarrationApproved, approveNarrationVersion, autoApproveSameChoice, narrationMixNoteFor, remixFromMaster, requestAutoNarration } = await import("../src/lib/narrationAutoFlow.js");
 const { storeNarrationMaster } = await import("../src/lib/narrationMaster.js");
 const { narrationFacts, narrationHash } = await import("../src/lib/propertyNarration.js");
 const { narrationDraftText } = await import("@royal-home/shared");
@@ -190,7 +190,7 @@ describe.skipIf(!ffmpegReady)("перемикс вышедшего ролика 
     expect(narrationMixNoteFor(after, v)).toBe(v.mixNote);
   });
 
-  it("длина (б): текст по шаблону — одна перегенерация коротким шаблоном, сама одобряется; укороченную не укорачивают", async () => {
+  it("длина (б): текст по шаблону — одна перегенерация коротким шаблоном; ролик вышел — её утверждает человек (18.11); укороченную не укорачивают", async () => {
     const { p, v2 } = await priceChanged(media.v9);
     // Сведение просит текст короче — нового ролика пока нет.
     expect(await remixFromMaster(p.id)).toBe("SHORTENING");
@@ -204,7 +204,9 @@ describe.skipIf(!ffmpegReady)("перемикс вышедшего ролика 
     const storageKey = `${p.id}/${v3.id}.mp3`;
     await fs.copyFile(media.v9, localVideoFilePath(storageKey)!);
     await prisma.propertyNarrationVersion.update({ where: { id: v3.id }, data: { status: "READY", storageKey, generateAfter: null } });
-    expect(await autoApproveSameChoice(v3.id, (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" } })).propertyNarrationConfig as never)).toEqual({ approvedById: agentId });
+    // Ролик уже вышел (18.11.2026): утверждение = выпуск, поэтому укороченную версию сама CRM не утверждает.
+    expect(await autoApproveSameChoice(v3.id, (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" } })).propertyNarrationConfig as never)).toBeNull();
+    expect(await approveNarrationVersion({ propertyId: p.id, versionId: v3.id, expectedRevision: v3.revision, actorId: agentId, isManager: false })).toBe("AUDIO_APPROVED");
     expect(await afterNarrationApproved(p.id, v3.id)).toBe("CRM_REMIX");
     // Вторая перегенерация не заказывается: (в) стоп-кадр.
     expect(await remixFromMaster(p.id)).toBe("REMIXED");

@@ -71,6 +71,11 @@ describe("реестр инструментов помощника", () => {
       "complete_property_editing",
       "request_property_change",
       "send_to_remake",
+      // Озвучка словами (18.11.2026, tools/narrationTools.ts).
+      "narration_status",
+      "send_narration_audio",
+      "request_narration",
+      "approve_narration",
       "book_showing",
       "reschedule_showing",
       "cancel_showing",

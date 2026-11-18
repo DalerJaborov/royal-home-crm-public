@@ -1,6 +1,6 @@
 import {
-  chooseNarration, narrationDraftText, narrationTemplateLangs, narrationVariants, suggestedNarration,
-  type NarrationEnding, type NarrationFacts, type NarrationLang, type NarrationTemplate, type NarrationVoiceSampleRef,
+  chooseNarration, narrationDraftText, narrationLengthLine, narrationTemplateLangs, narrationVariants, suggestedNarration,
+  type NarrationEnding, type NarrationLengthCheck, type NarrationFacts, type NarrationLang, type NarrationTemplate, type NarrationVoiceSampleRef,
 } from "@royal-home/shared";
 import { VoiceSamplePicker } from "./VoiceSamplePicker";
 
@@ -41,7 +41,7 @@ export function resolveNarrationDraft({ templates, endings = [], facts, value, d
 
 const LANG_LABEL: Record<NarrationLang, string> = { tg: "Тоҷикӣ", ru: "Русский" };
 
-export function NarrationComposer({ templates, endings = [], voices, samples, facts, value, onChange, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript, lastPickedVoiceId, disabled, name }: {
+export function NarrationComposer({ templates, endings = [], voices, samples, facts, value, onChange, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript, lastPickedVoiceId, disabled, name, lengthCheck }: {
   templates: NarrationTemplate[];
   endings?: NarrationEnding[];
   voices: Array<{ id: string; name: string; gender?: "male" | "female" }>;
@@ -58,6 +58,8 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
   lastPickedVoiceId?: string | null;
   disabled?: boolean;
   name: string;
+  /** Укладывается ли текст в ролик (18.11.2026, shared narrationLengthCheck); null — ролика ещё нет. */
+  lengthCheck?: NarrationLengthCheck | null;
 }) {
   const { templateId, endingId, lang, fromTemplate, text, edited, voiceId } = resolveNarrationDraft({ templates, endings, facts, value, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript });
   const langs = narrationTemplateLangs(templates);
@@ -79,11 +81,11 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <p className="text-sm font-semibold"><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue/10 text-sm">1</span>Голос</p>
+        <p className="text-[17px] font-bold"><span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue/10 text-[15px]">1</span>Голос</p>
         {langs.length > 1 && (
           <div className="flex flex-wrap gap-2" role="group" aria-label="Язык озвучки">
             {langs.map((l) => (
-              <button key={l} type="button" className={l === lang ? "pill sm" : "pill sm ghost"} aria-pressed={l === lang} disabled={disabled}
+              <button key={l} type="button" className={l === lang ? "pill min-h-12! text-base!" : "pill min-h-12! text-base! ghost"} aria-pressed={l === lang} disabled={disabled}
                 onClick={() => l !== lang && reroll(l)}>
                 {l === lang ? "✓ " : ""}{LANG_LABEL[l]}
               </button>
@@ -93,26 +95,28 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
         {voices.length > 0
           ? <VoiceSamplePicker name={name} voices={voices} value={voiceId} samples={samples} lang={lang} disabled={disabled} lastPickedId={lastPickedVoiceId ?? null}
               onChange={(id) => onChange({ ...value, voiceId: id })} />
-          : <p className="text-sm text-[var(--muted)]">Голоса ещё не добавлены. Их добавляет руководство в Настройках → «Озвучка роликов».</p>}
+          : <p className="text-base text-[var(--muted)]">Голоса ещё не добавлены. Их добавляет руководство в Настройках → «Озвучка роликов».</p>}
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-semibold"><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue/10 text-sm">2</span>Текст</p>
+        <p className="text-[17px] font-bold"><span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue/10 text-[15px]">2</span>Текст</p>
         {variants.length > 1 && (
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Вариант текста">
             {variants.map((t) => (
-              <button key={t.id} type="button" className={t.id === templateId && !edited ? "pill sm" : "pill sm ghost"} aria-pressed={t.id === templateId && !edited} disabled={disabled} onClick={() => pickTemplate(t.id)}>
+              <button key={t.id} type="button" className={t.id === templateId && !edited ? "pill min-h-12! text-base!" : "pill min-h-12! text-base! ghost"} aria-pressed={t.id === templateId && !edited} disabled={disabled} onClick={() => pickTemplate(t.id)}>
                 {t.id === templateId && !edited ? "✓ " : ""}{t.name}
               </button>
             ))}
-            <button type="button" className="pill sm ghost ml-auto" disabled={disabled} onClick={() => reroll(lang)}>↻ Другой вариант</button>
+            <button type="button" className="pill min-h-12! text-base! ghost ml-auto" disabled={disabled} onClick={() => reroll(lang)}>↻ Другой вариант</button>
           </div>
         )}
-        <textarea aria-label="Текст озвучки" rows={5} maxLength={5000} readOnly={disabled} className="w-full rounded-lg border p-3 text-base leading-relaxed"
+        <textarea aria-label="Текст озвучки" rows={6} maxLength={5000} readOnly={disabled} className="w-full rounded-2xl border-2 p-4 text-[17px] leading-relaxed"
           value={text} onChange={(e) => onChange({ ...value, templateId: templateId ?? undefined, script: e.target.value })} />
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-[var(--muted)]">
+        {lengthCheck && <p className={`rounded-xl px-4 py-3 text-base font-semibold ${lengthCheck.fits ? "bg-[var(--ok-bg)] text-[var(--ok)]" : "bg-[var(--crit-bg)] text-[var(--crit)]"}`} role="status">
+          {lengthCheck.fits ? "✓ " : ""}{narrationLengthLine(lengthCheck)}</p>}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[15px] text-[var(--muted)]">
           <span>{edited ? "Текст изменён вами." : "Числа и район подставлены из объекта и звучат словами. Можно поправить."}</span>
-          {edited && !disabled && <button type="button" className="pill sm ghost" onClick={() => pickTemplate(templateId)}>Вернуть текст шаблона</button>}
+          {edited && !disabled && <button type="button" className="pill min-h-12! text-base! ghost" onClick={() => pickTemplate(templateId)}>Вернуть текст шаблона</button>}
         </div>
       </div>
     </div>

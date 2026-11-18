@@ -69,7 +69,7 @@ const EventFeedPlayground = import.meta.env.DEV
   ? lazyWithReload(() => import("./pages/dev/EventFeedPlayground"))
   : null;
 
-// Дев-стенд «Прослушать перед выпуском» (18.11.2026) — тот же приём, только DEV.
+// Дев-стенд блока озвучки карточки (18.11.2026, «поменял, послушал, утвердил») — тот же приём, только DEV.
 const NarrationPreviewPlayground = import.meta.env.DEV
   ? lazyWithReload(() => import("./pages/dev/NarrationPreviewPlayground"))
   : null;

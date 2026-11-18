@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { NARRATION_FIT as SHARED_FIT, NARRATION_VOICE_START_SEC as SHARED_START, NARRATION_VOICE_TAIL_TOLERANCE_SEC } from "@royal-home/shared";
 import { probeDurationSec, probeMediaInfo, runFfmpeg } from "./ffmpeg.js";
 import { buildOverlayFilter, drawtextAvailable, subtitleCues } from "./video/narrationOverlay.js";
 import { logSystemError } from "./systemError.js";
@@ -20,12 +21,12 @@ import { logSystemError } from "./systemError.js";
  * Ничего не бросает: отказ ffmpeg возвращается текстом, вызывающий пишет logSystemError.
  */
 
-/** Голос начинается через 0,3 с: первое слово не съедается на склейке. */
-export const NARRATION_VOICE_START_SEC = 0.3;
+/** Голос начинается через 0,3 с: первое слово не съедается на склейке (одно правило с оценкой длины, packages/shared/narrationLength.ts). */
+export const NARRATION_VOICE_START_SEC = SHARED_START;
 /** Метка отказа «озвучка длиннее ролика» в тексте ошибки: по ней карточка объекта говорит агенту понятными словами. */
 export const NARRATION_VOICE_LONGER_MARK = "длиннее ролика";
 /** Допуск на хвост: тишина в конце mp3 ElevenLabs. */
-const VOICE_TAIL_TOLERANCE_SEC = 0.5;
+const VOICE_TAIL_TOLERANCE_SEC = NARRATION_VOICE_TAIL_TOLERANCE_SEC;
 
 export type NarrationMixResult =
   | { ok: true; durationSec: number; voiceSec: number; fit: NarrationFit }
@@ -39,7 +40,7 @@ export type NarrationMixResult =
  *  TOO_LONG — дальше только другой текст (короче) или монтажёр (lib/narrationAutoFlow.ts).
  * Ролик длиннее голоса — норма: музыка играет дальше.
  */
-export const NARRATION_FIT = { maxTempo: 1.15, maxFreezeSec: 3 } as const;
+export const NARRATION_FIT = SHARED_FIT;
 export type NarrationFit = { tier: "PLAIN" | "SPEED" | "FREEZE" | "TOO_LONG"; tempo: number; freezeSec: number };
 
 export function planNarrationFit(voiceSec: number, masterSec: number, opts: { allowFreeze: boolean } = { allowFreeze: true }): NarrationFit {
