@@ -30,6 +30,19 @@ function render(overrides: Partial<PropertyNarrationView> = {}, placement: "top"
 }
 const TECH = ["Модель озвучки", "Символов в сутки", "Словарь произношения", "Настройки голосов", "Служебное", "Сгенерировать в ElevenLabs", "Подготовить образцы"];
 
+describe("связь моргнула во время опроса", () => {
+  it("ошибка ПОВТОРНОГО запроса не прячет уже показанный блок наверху карточки", () => {
+    const client = new QueryClient();
+    const key = ["property-narration", "p"];
+    client.setQueryData(key, { versions: [version({ status: "READY", approvedAt: null })], suggestedScript: "Квартира.", facts, config, configured: true, autoGenerate: true,
+      canApprove: false, canApproveAudio: true, canDraft: true, sendsEnabled: false, published: true, clipSec: 35, changed: ["цена"] } satisfies PropertyNarrationView);
+    client.getQueryCache().find({ queryKey: key })!.setState({ status: "error", error: new Error("Сервер временно недоступен"), fetchStatus: "idle" });
+    const html = renderToStaticMarkup(<QueryClientProvider client={client}><PropertyNarrationManager propertyId="p" placement="top" /></QueryClientProvider>);
+    expect(html).not.toBe("");
+    expect(html).not.toContain("Озвучка недоступна");
+  });
+});
+
 describe("карточка объекта: озвучка для агента", () => {
   it("нет озвучки: сначала голос, потом текст по шаблону с цифрами словами, одна кнопка «Озвучить», техники нет", () => {
     // Шаблон выбирается случайно (16.11.2026): первый подходящий — при броске 0.

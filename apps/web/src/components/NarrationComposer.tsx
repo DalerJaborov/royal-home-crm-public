@@ -85,7 +85,7 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
         {langs.length > 1 && (
           <div className="flex flex-wrap gap-2" role="group" aria-label="Язык озвучки">
             {langs.map((l) => (
-              <button key={l} type="button" className={l === lang ? "pill min-h-12!" : "pill min-h-12! ghost"} aria-pressed={l === lang} disabled={disabled}
+              <button key={l} type="button" className={l === lang ? "pill min-h-12! text-base!" : "pill min-h-12! text-base! ghost"} aria-pressed={l === lang} disabled={disabled}
                 onClick={() => l !== lang && reroll(l)}>
                 {l === lang ? "✓ " : ""}{LANG_LABEL[l]}
               </button>
@@ -103,11 +103,11 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
         {variants.length > 1 && (
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Вариант текста">
             {variants.map((t) => (
-              <button key={t.id} type="button" className={t.id === templateId && !edited ? "pill min-h-12!" : "pill min-h-12! ghost"} aria-pressed={t.id === templateId && !edited} disabled={disabled} onClick={() => pickTemplate(t.id)}>
+              <button key={t.id} type="button" className={t.id === templateId && !edited ? "pill min-h-12! text-base!" : "pill min-h-12! text-base! ghost"} aria-pressed={t.id === templateId && !edited} disabled={disabled} onClick={() => pickTemplate(t.id)}>
                 {t.id === templateId && !edited ? "✓ " : ""}{t.name}
               </button>
             ))}
-            <button type="button" className="pill min-h-12! ghost ml-auto" disabled={disabled} onClick={() => reroll(lang)}>↻ Другой вариант</button>
+            <button type="button" className="pill min-h-12! text-base! ghost ml-auto" disabled={disabled} onClick={() => reroll(lang)}>↻ Другой вариант</button>
           </div>
         )}
         <textarea aria-label="Текст озвучки" rows={6} maxLength={5000} readOnly={disabled} className="w-full rounded-2xl border-2 p-4 text-[17px] leading-relaxed"
@@ -116,7 +116,7 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
           {lengthCheck.fits ? "✓ " : ""}{narrationLengthLine(lengthCheck)}</p>}
         <div className="flex flex-wrap items-center justify-between gap-2 text-[15px] text-[var(--muted)]">
           <span>{edited ? "Текст изменён вами." : "Числа и район подставлены из объекта и звучат словами. Можно поправить."}</span>
-          {edited && !disabled && <button type="button" className="pill min-h-12! ghost" onClick={() => pickTemplate(templateId)}>Вернуть текст шаблона</button>}
+          {edited && !disabled && <button type="button" className="pill min-h-12! text-base! ghost" onClick={() => pickTemplate(templateId)}>Вернуть текст шаблона</button>}
         </div>
       </div>
     </div>

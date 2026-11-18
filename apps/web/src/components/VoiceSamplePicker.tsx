@@ -77,7 +77,7 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
                   </label>
                   {lastPickedId === voice.id && <span className="text-[15px] text-[var(--muted)]">последний раз выбран</span>}
                   {has.has(voice.id) && (
-                    <button type="button" className="pill min-h-12!" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
+                    <button type="button" className="pill min-h-12! text-base!" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
                       onClick={() => void play(voice)}>
                       {playing === voice.id ? "■ Стоп" : "▶ Прослушать"}
                     </button>

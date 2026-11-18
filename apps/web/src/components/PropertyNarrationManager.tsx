@@ -121,8 +121,9 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
   }
 
   if (isPending) return placement === "top" ? null : <section className="card p-4" aria-busy="true">Загружаем озвучку…</section>;
-  // Наверху карточки ошибка доступа не нужна: блок просто не показывается.
-  if (error || !data) return placement === "top" ? null : <section className="card p-4" role="status">Озвучка недоступна: {error instanceof Error ? error.message : "не удалось загрузить"}</section>;
+  // Наверху карточки ошибка доступа не нужна: блок просто не показывается. Сбой ПОВТОРНОГО опроса (связь моргнула,
+  // пока готовится озвучка) блок не прячет: TanStack Query держит прежние данные, показываем их (18.11.2026).
+  if (!data) return placement === "top" ? null : <section className="card p-4" role="status">Озвучка недоступна: {error instanceof Error ? error.message : "не удалось загрузить"}</section>;
 
   const templates = data.config.templates ?? [];
   const endings = data.config.endings ?? [];
@@ -174,7 +175,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
   });
   const player = (versionId: string, primary: boolean) => audio?.versionId === versionId
     ? <audio className="w-full" controls autoPlay src={audio.url} />
-    : <button type="button" className={`pill ${primary ? "min-h-14! w-full justify-start bg-blue! text-lg! text-on-accent! sm:flex-1" : "min-h-12!"}`} disabled={busy} onClick={() => void listen(versionId)}>▶ Послушать</button>;
+    : <button type="button" className={`pill ${primary ? "min-h-14! w-full justify-start bg-blue! text-lg! text-on-accent! sm:flex-1" : "min-h-12! text-base!"}`} disabled={busy} onClick={() => void listen(versionId)}>▶ Послушать</button>;
 
   // Наверху карточки — только когда есть что делать или смотреть; в спокойном состоянии одна строка.
   const quiet = !pending && !waitsForApproval && !failed && !uncertain && !release && !(latest?.stale) && !editing && !!latest;
@@ -189,7 +190,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
     return (
       <section className="card space-y-3 p-4 sm:p-6" aria-label="Озвучка объекта">
         <p className="text-base">Для этого объекта выбрано «Без озвучки»: ничего не готовится, монтажёр знает.</p>
-        {canEdit && <button type="button" className="pill min-h-12!" disabled={busy} onClick={() => setMode(false)}>Включить озвучку</button>}
+        {canEdit && <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={() => setMode(false)}>Включить озвучку</button>}
         {message && <p className="text-base" role="status">{message}</p>}
       </section>
     );
@@ -200,7 +201,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
       <section className="card flex flex-wrap items-center gap-3 p-4" aria-label="Озвучка объекта">
         <p className="flex-1 text-base">{approved ? "✓ Озвучка утверждена" : ready && latest?.source === "MANUAL" ? "Аудио готово, его проверяет маркетинг." : "Озвучка ролика"}</p>
         {ready && latest && player(latest.id, false)}
-        {canEdit && <button type="button" className="pill min-h-12!" disabled={busy} onClick={() => setEditing(true)}>Изменить озвучку</button>}
+        {canEdit && <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={() => setEditing(true)}>Изменить озвучку</button>}
         {message && <p className="w-full text-base" role="status">{message}</p>}
       </section>
     );
@@ -213,7 +214,8 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
           <h3 className="text-xl font-extrabold leading-tight sm:text-2xl">{title}</h3>
           {changesLine && (pending || waitsForApproval) && <p className="text-base text-[var(--muted)]">{changesLine}</p>}
         </div>
-        {canEdit && !release && <button type="button" className="pill min-h-12! ghost" disabled={busy} onClick={() => setMode(true)}>Без озвучки</button>}
+        {/* «Без озвучки» — не на главном пути: наверху карточки только послушать и утвердить (владелец 18.11: «максимум легко»). */}
+        {canEdit && !release && placement === "media" && <button type="button" className="pill min-h-12! text-base! ghost" disabled={busy} onClick={() => setMode(true)}>Без озвучки</button>}
       </div>
 
       {!data.configured && <p className="rounded-xl bg-[var(--warn-bg)] p-3 text-base" role="status">Озвучка ещё не настроена руководством. Голос и текст можно выбрать уже сейчас.</p>}
@@ -241,12 +243,12 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
           {data.mix?.problem === "FAILED" && <p className="rounded-xl bg-[var(--warn-bg)] p-3 text-base" role="status">Наложить новую озвучку на ролик не получилось, в соцсетях пока прежний ролик. Руководство видит ошибку.</p>}
           <div className="flex flex-wrap items-center gap-2">
             {player(latest.id, false)}
-            {canEdit && <button type="button" className="pill min-h-12!" disabled={busy} onClick={() => setEditing(true)}>Изменить озвучку</button>}
+            {canEdit && <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={() => setEditing(true)}>Изменить озвучку</button>}
           </div>
         </>}
         {latest.stale && !pending && <>
           <p className="text-base">Данные объекта изменились, озвучка устарела.{data.autoGenerate ? " Новая подготовится сама через минуту." : ""}</p>
-          {canEdit && <button type="button" className="pill min-h-12!" disabled={busy} onClick={() => setEditing(true)}>Озвучить заново</button>}
+          {canEdit && <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={() => setEditing(true)}>Озвучить заново</button>}
         </>}
         {ready && !latest.approvedAt && !latest.stale && latest.source === "MANUAL" && <p className="text-base">Аудио готово, его проверяет маркетинг.</p>}
       </div>}
@@ -269,12 +271,12 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
           {waitsForApproval && !data.canApproveAudio && <p className="text-base text-[var(--muted)]">Эту озвучку одобряет владелец.</p>}
           {data.autoGenerate
             ? (!waitsForApproval || changedDraft || editing) && (
-              <button type="button" className={`pill min-h-12! w-full justify-center ${changedDraft || !waitsForApproval ? "min-h-14! bg-blue! text-lg! font-bold text-on-accent!" : "ghost"}`}
+              <button type="button" className={`pill min-h-12! w-full justify-center ${changedDraft || !waitsForApproval ? "min-h-14! bg-blue! text-lg! font-bold text-on-accent!" : "ghost text-base!"}`}
                 disabled={busy || !resolved?.voiceId || !textOk || tooLong} onClick={() => submit(true)}>
                 {tooLong ? "Сократите текст" : waitsForApproval || (latest && !failed) ? "Озвучить заново" : "Озвучить"}
               </button>)
-            : <button type="button" className="pill min-h-12! w-full justify-center" disabled={busy || !textOk} onClick={() => submit(false)}>Сохранить текст</button>}
-          {(editing || changedDraft) && <button type="button" className="pill min-h-12! w-full justify-center ghost" disabled={busy} onClick={() => { setDraft({}); setEditing(false); }}>Отмена</button>}
+            : <button type="button" className="pill min-h-12! text-base! w-full justify-center" disabled={busy || !textOk} onClick={() => submit(false)}>Сохранить текст</button>}
+          {(editing || changedDraft) && <button type="button" className="pill min-h-12! text-base! w-full justify-center ghost" disabled={busy} onClick={() => { setDraft({}); setEditing(false); }}>Отмена</button>}
           <p className="text-center text-[15px] text-[var(--muted)]">{waitsForApproval && published
             ? removesOld ? "Ролик сразу уйдёт в соцсети, где он уже был. Старые посты CRM снимет сама." : "Ролик сразу уйдёт в соцсети. Старые посты останутся рядом: так задано в настройках."
             : data.autoGenerate ? "Озвучка придёт на прослушивание сюда и в Шабнам." : "Автоозвучка выключена: аудио по этому тексту подготовит маркетинг."}</p>
@@ -316,7 +318,7 @@ function ChannelList({ channels }: { channels: NarrationReleaseChannel[] }) {
             <div className="min-w-0 space-y-2">
               <p><b>{CHANNEL_NAME[c.channel] ?? c.channel}</b><br />{channelLine(c)}</p>
               {manual && (c.url
-                ? <a className="pill min-h-12! inline-flex items-center" href={c.url} target="_blank" rel="noreferrer">Открыть старый пост в {CHANNEL_NAME[c.channel] ?? c.channel}</a>
+                ? <a className="pill min-h-12! text-base! inline-flex items-center" href={c.url} target="_blank" rel="noreferrer">Открыть старый пост в {CHANNEL_NAME[c.channel] ?? c.channel}</a>
                 : <p className="text-[15px] text-[var(--muted)]">Найдите старый ролик в приложении.</p>)}
             </div>
           </li>
