@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2485**; вместе с задачами по расписанию и фоновыми заданиями — **4118**. Модулей: **87**.
+Путей: **778**. Развилок в самих путях: **2489**; вместе с задачами по расписанию и фоновыми заданиями — **4127**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -11209,6 +11209,29 @@
 - res.json({ active: false });
   · ответ 200
 
+### POST /api/v1/properties/:id/narration/preview
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- если !canDecidePreview(req.agent!.role)
+  - return res.status(403).json({ error: "Решение по ролику принимает тот, кто ведёт объект" });
+    · ответ 403 — «Решение по ролику принимает тот, кто ведёт объект»
+- const parsed = narrationPreviewDecisionSchema.safeParse(req.body);
+  · проверяет данные схемой narrationPreviewDecisionSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Некорректное решение", details: parsed.error.flatten() });
+    · ответ 400 — «Некорректное решение»
+- const result = parsed.data.decision === "RELEASE" ? await releaseNarrationPreview(p.id, parsed.data.versionId…
+  · зовёт releaseNarrationPreview()
+- если result === "STALE"
+  - return res.status(409).json({ error: "Этот ролик уже решён или устарел. Обновите карточку." });
+    · ответ 409 — «Этот ролик уже решён или устарел. Обновите карточку.»
+- если result === "BUSY"
+  - return res.status(409).json({ error: "Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару ми…
+    · ответ 409 — «Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару…»
+- res.json({ ok: true, result });
+  · ответ 200
+
 ### POST /api/v1/properties/:id/narration/publication-preview
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
@@ -21003,7 +21026,7 @@
       - const rows = await prisma.property.findMany({ where: { id: { in: batch } }, select: { id: true, deletedAt: tr…
         · читает в базе: property
       - для каждого: const row of rows
-        - properties.set(row.id, { trashed: row.deletedAt !== null, finalPath: row.videoHandoffFinalPath, coverSquareUr…
+        - properties.set(row.id, { trashed: row.deletedAt !== null, finalPath: row.videoHandoffFinalPath, previewPath: …
           · дословно из кода
     - const clipUrlRows = await prisma.property.findMany({ where: { clipVideoUrl: { not: null } }, select: { clipVi…
       · читает в базе: property
@@ -23360,6 +23383,48 @@
   · зовёт runMachineMastersTick()
   - return runMachineMasters(machineMasterDeps, now);
     · зовёт runMachineMasters()
+
+### narration-preview-due — * * * * *
+
+- await releaseDueNarrationPreviews();
+  · зовёт releaseDueNarrationPreviews()
+  - const waiting = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null } }, select:…
+    · читает в базе: property
+  - для каждого: const row of waiting
+    - пробует
+      - если orphan
+        - const res = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationP…
+          · меняет в базе: property
+        - если res.count
+          - cleared++;
+            · дословно из кода
+          - await removeClipFiles(row.narrationPreviewPath);
+            · дословно из кода
+        - continue;
+          · переходит к следующему
+      - если !row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()
+        - continue;
+          · переходит к следующему
+      - если await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: "auto" }, now)…
+        - released++;
+          · дословно из кода
+    - если сорвалось
+      - void logSystemError("video-handoff", `Новый ролик с озвучкой не выпущен по сроку прослушивания: ${err instanc…
+        · запись в журнал ошибок
+- await notifyPendingNarrationPreviews(notifyNarrationPreview);
+  · зовёт notifyPendingNarrationPreviews()
+  - const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…
+    · читает в базе: property
+  - для каждого: const row of rows.filter((r) => r.narrationPreviewMasterKey === r.videoMasterStorageKey).slice(0, 5)
+    - пробует
+      - const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrati…
+        · меняет в базе: property
+      - если marked.count
+        - notified++;
+          · дословно из кода
+    - если сорвалось
+      - void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор че…
+        · запись в журнал ошибок
 
 ### narration-version-delivery — * * * * *
 

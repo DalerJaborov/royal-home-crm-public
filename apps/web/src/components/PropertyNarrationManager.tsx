@@ -4,6 +4,7 @@ import { chooseNarration, pickNarrationVoice, type PropertyNarrationView } from 
 import { api } from "../lib/api";
 import { NarrationComposer, resolveNarrationDraft, type NarrationDraft } from "./NarrationComposer";
 import { PropertyNarrationService } from "./PropertyNarrationService";
+import { NarrationPreviewBlock } from "./NarrationPreviewBlock";
 
 /**
  * ОЗВУЧКА В КАРТОЧКЕ ОБЪЕКТА — ДЛЯ АГЕНТА (14.11.2026, владелец).
@@ -127,6 +128,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
           {canEdit && <button type="button" className="pill" disabled={busy} onClick={() => setMode(false)}>Включить озвучку</button>}
         </div>
       ) : <>
+        <NarrationPreviewBlock propertyId={propertyId} data={data} onMessage={setMessage} onChangeVoice={() => setEditing(true)} />
         {!data.configured && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Озвучка ещё не настроена руководством. Голос и текст можно выбрать уже сейчас.</p>}
 
         {latest && !showComposer && <div className="space-y-3 rounded-xl border p-3" role="status">

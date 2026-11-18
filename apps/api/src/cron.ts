@@ -637,6 +637,16 @@ export function startCronJobs() {
     await runMachineMastersTick();
     // Звук + отделение (до 15 мин) + мастер + перемикс: с запасом; замок объекта живёт 40 мин.
   }, undefined, undefined, { timeoutMs: 30 * 60_000 });
+  // Прослушать перед выпуском (17.11.2026): новый ролик — хозяину в Шабнам (с повтором после падения);
+  // хозяин не решил до срока — новый ролик выходит сам.
+  scheduleTracked("narration-preview-due", "* * * * *", async () => {
+    const { notifyPendingNarrationPreviews, releaseDueNarrationPreviews } = await import("./lib/narrationPreview.js");
+    const { notifyNarrationPreview } = await import("./telegram/narrationPreviewBot.js");
+    // Сначала срок и уборка устаревших, потом уведомления (ревью 18.11): иначе хозяину пришёл бы кандидат,
+    // которого в ту же минуту уберут, а отправка видео задерживала бы самовыпуск.
+    await releaseDueNarrationPreviews();
+    await notifyPendingNarrationPreviews(notifyNarrationPreview);
+  }, undefined, undefined, { timeoutMs: 170_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {
     const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");
     await runSellerControlTick();
