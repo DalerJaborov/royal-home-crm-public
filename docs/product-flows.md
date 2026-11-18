@@ -6208,7 +6208,7 @@
 - если !("deal" in outcome)
   - throw new Error("updateDealFor вернул план без dryRun");
     · ошибка Error — «updateDealFor вернул план без dryRun»
-- res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+- res.json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));
   · ответ 200
 
 ### GET /api/v1/deals/payouts
@@ -6373,7 +6373,7 @@
 - если !("deal" in outcome)
   - throw new Error("createDealFor вернул план без dryRun");
     · ошибка Error — «createDealFor вернул план без dryRun»
-- res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+- res.status(201).json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outco…
   · ответ 201
 
 ## /api/v1/districts

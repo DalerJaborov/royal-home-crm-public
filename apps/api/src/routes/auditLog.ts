@@ -129,10 +129,9 @@ async function hideOwnerContacts<T extends { entityType: string; entityId: strin
 ): Promise<T[]> {
   // Свой объект номер не открывает (владелец 18.11.2026): решает только право.
   if (can(req, "properties.viewOwners")) return items;
-  // Сверх «было → стало» — любые цифры номера в meta записи про объект (создание, перенос и т.п.).
+  // Только «Контакт владельца: было → стало»: сплошная маска всего meta портила бы
+  // id агентов, координаты и цены в истории (ревью 18.11.2026).
   return items.map((item) =>
-    item.entityType === "Property" && item.meta != null
-      ? { ...item, meta: maskPhonesDeep(hideOwnerContactInChanges(item.meta), false) }
-      : item
+    item.entityType === "Property" && item.entityId ? { ...item, meta: hideOwnerContactInChanges(item.meta) } : item
   );
 }

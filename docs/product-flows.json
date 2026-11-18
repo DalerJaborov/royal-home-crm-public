@@ -27169,7 +27169,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));",
+     "t": "res.json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));",
      "a": [
       "ответ 200"
      ],
@@ -27898,7 +27898,7 @@
     },
     {
      "k": "do",
-     "t": "res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));",
+     "t": "res.status(201).json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outco…",
      "a": [
       "ответ 201"
      ],

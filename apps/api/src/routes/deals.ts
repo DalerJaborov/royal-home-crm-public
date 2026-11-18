@@ -188,12 +188,16 @@ dealsRouter.post("/", requireAuth, async (req, res) => {
   const outcome = await createDealFor(req, req.body);
   if (!outcome.ok) return res.status(outcome.status).json(outcome.body);
   if (!("deal" in outcome)) throw new Error("createDealFor вернул план без dryRun");
-  res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+  // Ответ записи — та же маска, что у списка (ревью 18.11.2026): РОП, сменивший этап
+  // чужой сделки, иначе получал заметку с номером целиком.
+  const seesPhones = can(req, "clients.viewPhone");
+  res.status(201).json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));
 });
 
 dealsRouter.patch("/:id", requireAuth, async (req, res) => {
   const outcome = await updateDealFor(req, req.params.id, req.body);
   if (!outcome.ok) return res.status(outcome.status).json(outcome.body);
   if (!("deal" in outcome)) throw new Error("updateDealFor вернул план без dryRun");
-  res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+  const seesPhones = can(req, "clients.viewPhone");
+  res.json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));
 });

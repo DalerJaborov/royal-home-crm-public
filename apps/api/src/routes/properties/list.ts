@@ -15,6 +15,7 @@ import { siteListingUrl } from "../../lib/siteListingUrl.js";
 import { logSystemError } from "../../lib/systemError.js";
 import { maskOwnerContact, presentProperty, stripEmbedding, stripOwnerContact } from "../../lib/ownerContact.js";
 import { ownsProperty } from "../../lib/propertyAccess.js";
+import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { PROPERTY_LIST_INCLUDE, presentPropertyListItems } from "../../lib/propertyListItem.js";
 import { logAudit } from "../../lib/audit.js";
 import { toSearchTokens, toTokenVariants } from "../../lib/searchTokens.js";
@@ -460,7 +461,9 @@ async function loadSellerClientRef(sellerClientId: string | null, req: Request) 
   // Та же дверь, что у GET /clients/:id (lib/clientCardAccess.ts): прежнему агенту
   // карточка откроется экраном «передана», постороннему — нет.
   const canOpen = decideClientCardAccess(scopeToOwnAgent(req), { ...seller, acceptedAt: null }, false) !== "denied";
-  return { id: seller.id, shortId: seller.shortId, fullName: seller.fullName, canOpen };
+  // Имя — без номера внутри («Входящий +992…» у карточек из звонка): с 18.11.2026 его
+  // видит и агент своего объекта, а номер ему закрыт (ревью 18.11.2026).
+  return { id: seller.id, shortId: seller.shortId, fullName: clientNamePhoneSafe(seller.fullName, can(req, "clients.viewPhone")), canOpen };
 }
 
 /** Публичный идентификатор в URL — короткий числовой shortId. Остальные роуты (PATCH,

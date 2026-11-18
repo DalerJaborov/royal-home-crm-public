@@ -32,23 +32,29 @@ export function canSeeCrmContactPhones(req: Pick<Request, "agent">): boolean {
 export async function crmContactTails(phones: Iterable<string | null | undefined>): Promise<Set<string>> {
   const tails = [...new Set([...phones].map((p) => phoneTail(p ?? "")).filter((t) => t.length === PHONE_TAIL_LEN))];
   if (tails.length === 0) return new Set();
+  // ОДИН ПРОХОД ПО ТАБЛИЦАМ (ревью 18.11.2026): прежний вид «EXISTS на каждый хвост»
+  // гонял полный разбор Client и Property столько раз, сколько номеров в ответе (до 20
+  // на карточку объекта). Теперь каждая колонка разбирается один раз и сверяется с
+  // массивом хвостов через = ANY; Property (сотни строк) — склейка по LIKE.
   const rows = await prisma.$queryRaw<Array<{ tail: string }>>`
-    SELECT t AS "tail"
-    FROM unnest(${tails}::text[]) AS t
-    WHERE EXISTS (
-        SELECT 1 FROM "Property" p
-        WHERE p."ownerContact" IS NOT NULL
-          AND regexp_replace(p."ownerContact", '[^0-9]', '', 'g') LIKE '%' || t || '%'
-      )
-      OR EXISTS (
-        SELECT 1 FROM "Client" c
-        WHERE right(regexp_replace(coalesce(c."phone", ''), '[^0-9]', '', 'g'), ${PHONE_TAIL_LEN}::int) = t
-          OR right(regexp_replace(coalesce(c."whatsappPhone", ''), '[^0-9]', '', 'g'), ${PHONE_TAIL_LEN}::int) = t
-          OR EXISTS (
-            SELECT 1 FROM unnest(coalesce(c."extraPhones", ARRAY[]::text[])) AS x
-            WHERE right(regexp_replace(x, '[^0-9]', '', 'g'), ${PHONE_TAIL_LEN}::int) = t
-          )
-      )`;
+    SELECT right(regexp_replace(c."phone", '[^0-9]', '', 'g'), ${PHONE_TAIL_LEN}::int) AS "tail"
+      FROM "Client" c
+      WHERE right(regexp_replace(c."phone", '[^0-9]', '', 'g'), ${PHONE_TAIL_LEN}::int) = ANY(${tails}::text[])
+    UNION
+    SELECT right(regexp_replace(c."whatsappPhone", '[^0-9]', '', 'g'), ${PHONE_TAIL_LEN}::int)
+      FROM "Client" c
+      WHERE c."whatsappPhone" IS NOT NULL
+        AND right(regexp_replace(c."whatsappPhone", '[^0-9]', '', 'g'), ${PHONE_TAIL_LEN}::int) = ANY(${tails}::text[])
+    UNION
+    SELECT right(regexp_replace(x, '[^0-9]', '', 'g'), ${PHONE_TAIL_LEN}::int)
+      FROM "Client" c, unnest(coalesce(c."extraPhones", ARRAY[]::text[])) AS x
+      WHERE right(regexp_replace(x, '[^0-9]', '', 'g'), ${PHONE_TAIL_LEN}::int) = ANY(${tails}::text[])
+    UNION
+    SELECT t
+      FROM unnest(${tails}::text[]) AS t
+      JOIN "Property" p
+        ON p."ownerContact" IS NOT NULL
+       AND regexp_replace(p."ownerContact", '[^0-9]', '', 'g') LIKE '%' || t || '%'`;
   return new Set(rows.map((r) => r.tail));
 }
 

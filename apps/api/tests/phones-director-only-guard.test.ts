@@ -83,7 +83,6 @@ beforeAll(async () => {
       status: "NEW",
       assignedAgentId: agentId,
       acceptedAt: new Date(),
-      refusalReason: `Перезвонить на ${tail(BUYER)}`,
     } as never,
   });
   clientIds.push(seller.id, buyer.id);
