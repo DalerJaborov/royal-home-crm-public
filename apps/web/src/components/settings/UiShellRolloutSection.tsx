@@ -75,6 +75,10 @@ function RolloutForm({ initial: snapshot }: { initial: UiShellRolloutConfig }) {
   const unavailableSelections = draft.agentIds.filter((id) => !members.some((member) => member.id === id));
   const changed = JSON.stringify(draft) !== JSON.stringify(initial);
   const editDraft = (value: UiShellRollout) => { setSaved(false); save.reset(); setDraft(value); };
+  const royalIds = draft.royalLookAgentIds ?? [];
+  const toggleRoyal = (id: string) => {
+    editDraft({ ...draft, royalLookAgentIds: royalIds.includes(id) ? royalIds.filter((item) => item !== id) : [...royalIds, id] });
+  };
   const toggleAgent = (id: string) => {
     editDraft({ ...draft, agentIds: draft.agentIds.includes(id) ? draft.agentIds.filter((item) => item !== id) : [...draft.agentIds, id] });
   };
@@ -100,6 +104,14 @@ function RolloutForm({ initial: snapshot }: { initial: UiShellRolloutConfig }) {
           <legend>Вся роль</legend>
           <div className="shell-rollout-choices">
             {ROLES.map((role) => <label className="shell-rollout-choice" key={role}><input type="checkbox" checked={draft.roles.includes(role)} onChange={() => editDraft({ ...draft, roles: draft.roles.includes(role) ? draft.roles.filter((item) => item !== role) : [...draft.roles, role] })} />{ROLE_LABELS[role]}</label>)}
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Новый вид</legend>
+          <p className="sub">Новый вид — это новое оформление поверх нового интерфейса. Только отмеченным сотрудникам и только когда новый интерфейс у них включён. Выйти для себя: адрес с ?look=legacy.</p>
+          <div className="shell-rollout-choices">
+            {members.map((member) => <label className="shell-rollout-choice" key={member.id}><input type="checkbox" checked={royalIds.includes(member.id)} onChange={() => toggleRoyal(member.id)} />{member.fullName}{member.id === agent?.id ? " (вы)" : ""}</label>)}
+            {royalIds.filter((id) => !members.some((member) => member.id === id)).map((id) => <label className="shell-rollout-choice" key={id}><input type="checkbox" checked onChange={() => toggleRoyal(id)} /><span>Нет в загруженном списке · {id}</span></label>)}
           </div>
         </fieldset>
         <div className="acts">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { ChevronDown, House, Plus, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useNavigation, type NavItem } from "../../lib/navigation";
@@ -14,6 +14,7 @@ import { useShellStore } from "../../store/shell";
 import { ASSISTANT_ENTRY_LABEL, ASSISTANT_ENTRY_TITLE, useAssistantEntry } from "../../hooks/useAssistantEntry";
 import { Topbar } from "../Topbar";
 import { CButton, CLink } from "./ui";
+import { lazyWithReload } from "../../lib/lazyWithReload";
 import { permitsCleanChunkWarming, scheduleCleanRouteChunks, warmCleanRouteChunk, type WarmConnection } from "../../lib/cleanRouteChunks";
 
 function warmOnIntent(path: string) {
@@ -24,14 +25,28 @@ function warmOnIntent(path: string) {
 }
 
 
-function Tab({ item }: { item: NavItem }) {
-  return <NavLink to={item.to} end={item.end} className="clean-tab" onPointerEnter={() => warmOnIntent(item.to)} onPointerDown={() => warmOnIntent(item.to)} onFocus={() => warmOnIntent(item.to)}>
-    {item.label}
+/** «Новый вид»: значки меню своим куском — тем, у кого вида нет, он не грузится. */
+const RoyalNavIcon = lazyWithReload(() => import("../look/RoyalNavIcon"));
+
+function Tab({ item, royal }: { item: NavItem; royal?: boolean }) {
+  return <NavLink to={item.to} end={item.end} className="clean-tab" title={royal ? item.label : undefined} onPointerEnter={() => warmOnIntent(item.to)} onPointerDown={() => warmOnIntent(item.to)} onFocus={() => warmOnIntent(item.to)}>
+    {royal ? ({ isActive }) => <>
+      <span className="ry-nav-glyph" aria-hidden="true"><Suspense fallback={null}><RoyalNavIcon to={item.to} active={isActive} /></Suspense></span>
+      <span className="ry-nav-label">{item.label}</span>
+      {!!item.badge && <><span className="clean-nav-count" aria-hidden="true">{item.badge > 99 ? "99+" : item.badge}</span><span className="sr-only">{item.badgeQuiet ? "Всего" : "Новых"}: {item.badge}</span></>}
+    </> : <>{item.label}
     {!!item.badge && <><span className="clean-nav-count" aria-hidden="true">{item.badge > 99 ? "99+" : item.badge}</span><span className="sr-only">{item.badgeQuiet ? "Всего" : "Новых"}: {item.badge}</span></>}
+    </>}
   </NavLink>;
 }
 
-export function CleanShell() {
+/**
+ * `royal` — «Новый вид» (AppLayout решает по ответу сервера). Разметка та же,
+ * меняются три вещи: у вкладок значок, на ПК вкладки встают боковым меню
+ * (theme-look-royal.css), а остальные разделы — списком под чертой, а не в
+ * выпадающем «Ещё»: из бокового меню достижим ВЕСЬ реестр навигации.
+ */
+export function CleanShell({ royal = false }: { royal?: boolean }) {
   const { main, all } = useNavigation();
   const [tabCapacity, setTabCapacity] = useState(6);
   const actorId = useAuthStore((state) => state.agent?.id);
@@ -112,9 +127,13 @@ export function CleanShell() {
         <b className="clean-brand-mobile">{title ?? "Royal Home"}</b>
       </Link>
       <nav className="clean-tabs" aria-label="Основные разделы">
-        {tabs.map((item) => <Tab key={item.to} item={item} />)}
+        {tabs.map((item) => <Tab key={item.to} item={item} royal={royal} />)}
+        {royal && overflow.length > 0 && <>
+          <span className="ry-side-sep" role="separator" />
+          {overflow.map((item) => <Tab key={item.to} item={item} royal />)}
+        </>}
       </nav>
-      {overflow.length > 0 && <details ref={menu} className="clean-more" data-active={!!activeOverflow || undefined} onBlur={(event) => {
+      {!royal && overflow.length > 0 && <details ref={menu} className="clean-more" data-active={!!activeOverflow || undefined} onBlur={(event) => {
         if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
       }} onKeyDown={(event) => {
         if (event.key === "Escape" && menu.current) { menu.current.open = false; menuButton.current?.focus(); }
@@ -128,7 +147,7 @@ export function CleanShell() {
         </nav>
       </details>}
       <div className="clean-header-tools">
-        {actorId && overflow.length === 0 && <CButton variant="soft" size="icon-md" disabled={!prefsHydrated} aria-label="Настроить порядок вкладок" onClick={openNavigationEditor}><SlidersHorizontal /></CButton>}
+        {actorId && (royal || overflow.length === 0) && <CButton variant="soft" size="icon-md" disabled={!prefsHydrated} aria-label="Настроить порядок вкладок" onClick={openNavigationEditor}><SlidersHorizontal /></CButton>}
         {assistantEntry.visible && <CButton variant="soft" size="icon-md" className="clean-ai" aria-label={ASSISTANT_ENTRY_LABEL} title={ASSISTANT_ENTRY_TITLE} onClick={assistantEntry.open} {...assistantEntry.preloadProps}><Sparkles /></CButton>}
         {canCreate && <CLink to="/properties/new" className="clean-create" variant="soft" size="icon-md" aria-label="Создать объект"><Plus /></CLink>}
       </div>
