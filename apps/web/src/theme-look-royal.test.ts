@@ -58,6 +58,73 @@ export function unscopedSelectors(css: string): string[] {
  */
 const LAYERS = readdirSync(new URL(".", import.meta.url)).filter((name) => /^theme-look-royal(-[a-z0-9-]+)?\.css$/.test(name)).sort();
 
+/** Имя файла слоя → метка раздела: theme-look-royal-objects.css → "objects"; основа — без метки. */
+export function sectionOf(fileName: string): string | null {
+  return /^theme-look-royal-([a-z0-9-]+)\.css$/.exec(fileName)?.[1] ?? null;
+}
+
+/** Правила файла как пары «селектор → тело» (самые внутренние блоки, @media прозрачны). */
+function cssRules(css: string): { selector: string; body: string }[] {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  return [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => ({ selector: m[1].trim(), body: m[2] }))
+    .filter((r) => !/^(from|to|\d+%)/.test(r.selector) && !r.selector.startsWith("@"));
+}
+
+/**
+ * Протечка в чужие разделы (класс найден ревью «Клиентов», 18.11): у слоя раздела
+ * КАЖДЫЙ селектор обязан нести метку `[data-ry-section="<раздел>"]`. Её ставят
+ * только экраны и шторки этого раздела, поэтому ни общие классы экранов, ни
+ * порталы `body > .rh2` (уведомления, входящий лид) слой не задевают.
+ */
+export function unmarkedSelectors(css: string, section: string): string[] {
+  const mark = `[data-ry-section="${section}"]`;
+  return cssRules(css).flatMap((r) => splitTopLevel(r.selector)).filter((s) => !s.includes(mark));
+}
+
+/**
+ * Смысловые кнопки старой темы: правило, красящее `.pill`/`.rh-btn`, не должно
+ * перебивать `.danger` (и warn/ok/gold…) — «Удалить», «В корзину» остаются красными.
+ * Разрешено: селектор с исключением `:not(:is(.danger…` или правило про саму `.danger`.
+ */
+export function semanticButtonLeaks(css: string): string[] {
+  return cssRules(css)
+    .filter((r) => /(^|[;\s{])(background(-color)?|color)\s*:/.test(r.body))
+    .flatMap((r) => splitTopLevel(r.selector))
+    .filter((s) => /\.(pill|rh-btn)\b/.test(s) && !s.includes(":not(:is(.danger") && !/\.danger\b/.test(s));
+}
+
+/** Запас под полоску iPhone у подвала и последнего тела шторки задаёт theme-royal-home-2026.css — не перебивать. */
+export function safeAreaOverrides(css: string): string[] {
+  return cssRules(css)
+    .filter((r) => /\.sheet-(f|b)\b/.test(r.selector) && /(^|[;\s])padding(-bottom)?\s*:/.test(r.body))
+    .map((r) => r.selector);
+}
+
+describe("слои разделов «Нового вида»", () => {
+  const sections = LAYERS.filter((name) => sectionOf(name));
+  it.each(sections)("%s: каждый селектор с меткой своего раздела", (name) => {
+    const css = readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
+    expect(unmarkedSelectors(css, sectionOf(name)!)).toEqual([]);
+  });
+  it.each(sections)("%s: смысловые кнопки не перекрашены, запас iPhone не тронут", (name) => {
+    const css = readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
+    expect(semanticButtonLeaks(css)).toEqual([]);
+    expect(safeAreaOverrides(css)).toEqual([]);
+  });
+  it("сторожа раздела проверены поломкой", () => {
+    const css = readFileSync(new URL("./theme-look-royal-objects.css", import.meta.url), "utf8");
+    expect(sectionOf("theme-look-royal-objects.css")).toBe("objects");
+    expect(sectionOf("theme-look-royal.css")).toBeNull();
+    expect(unmarkedSelectors(`${css}\n:root[data-ui-look="royal"] .rh2 .sheet .pill { color: red; }`, "objects"))
+      .toEqual([':root[data-ui-look="royal"] .rh2 .sheet .pill']);
+    expect(semanticButtonLeaks(`${css}\n:root[data-ui-look="royal"] [data-ry-section="objects"] .card .pill { background: blue; }`))
+      .toEqual([':root[data-ui-look="royal"] [data-ry-section="objects"] .card .pill']);
+    expect(safeAreaOverrides(`${css}\n@media (max-width: 1px) { :root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .sheet-f { padding: 0; } }`))
+      .toEqual([':root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .sheet-f']);
+  });
+});
+
 describe("theme-look-royal*.css", () => {
   const css = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
   it("finds the base layer and the section layers", () => {

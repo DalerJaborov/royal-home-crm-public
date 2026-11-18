@@ -519,7 +519,7 @@ export function Properties() {
   </div>;
 
   return (
-    <div className={clean ? `rh2 screens clean-properties-page${royal ? " ry-objects-page" : ""}` : "rh2 screens"}>
+    <div className={clean ? `rh2 screens clean-properties-page${royal ? " ry-objects-page" : ""}` : "rh2 screens"} data-ry-section={royal ? "objects" : undefined}>
       <div className="scr">
         {royal ? <RoyalObjectsHead total={data?.total} pendingReview={canModerate ? pendingReview?.total : undefined} onShowPending={() => setFilters((f) => ({ ...f, status: "PENDING_REVIEW", page: 1 }))} canCreate={canCreateProperty} onCreate={() => navigate("/properties/new")} /> : clean ? <div className="clean-property-catalog-header mb-5 flex flex-wrap items-center justify-between gap-4">
           <div><h1 className="text-[28px] font-semibold tracking-tight text-ink">Объекты</h1><p className="mt-2 text-[16px] text-gray-500">{data ? `Найдено: ${data.total}` : "Каталог агентства"}<span className="clean-property-catalog-hint"> · фотографии, цена и состояние работы</span></p>{canModerate && !!pendingReview?.total && <button type="button" className="mt-2 text-[14px] text-blue" onClick={() => setFilters((f) => ({ ...f, status: "PENDING_REVIEW", page: 1 }))}>Ждут вашей проверки: {pendingReview.total}</button>}</div>
@@ -849,6 +849,7 @@ export function Properties() {
         onClose={() => setFiltersOpen(false)}
         title="Фильтры"
         ariaLabel="Фильтры объектов"
+        section={royal ? "objects" : undefined}
         footer={
           <>
             <button

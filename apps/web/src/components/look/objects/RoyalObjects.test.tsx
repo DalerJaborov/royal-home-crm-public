@@ -8,6 +8,7 @@ import { PropertyGallery } from "../../property/PropertyGallery";
 import { RoyalPropertySummary, royalPropertyFacts } from "./RoyalPropertySummary";
 import { RoyalObjectsHead } from "./RoyalObjectsHead";
 import { toneFromChipClass, toneFromChipTone } from "./objectTone";
+import { Rh2Screen } from "../../rh2/Rh2Screen";
 
 /**
  * «Новый вид», раздел «Объекты»: та же строка каталога и тот же главный блок
@@ -132,5 +133,12 @@ describe("royal tone mapping", () => {
   });
   it.each([["crit", "crit"], ["ok", "ok"], ["sky", "warn"], ["lav", "warn"], ["neutral", "neutral"]] as const)("stage tone %s → %s", (from, tone) => {
     expect(toneFromChipTone(from)).toBe(tone);
+  });
+});
+
+describe("section marker", () => {
+  it("Rh2Screen carries data-ry-section only when the section asks for it", () => {
+    expect(renderToStaticMarkup(<MemoryRouter><Rh2Screen section="objects"><p>x</p></Rh2Screen></MemoryRouter>)).toContain('data-ry-section="objects"');
+    expect(renderToStaticMarkup(<MemoryRouter><Rh2Screen><p>x</p></Rh2Screen></MemoryRouter>)).not.toContain("data-ry-section");
   });
 });

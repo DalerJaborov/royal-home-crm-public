@@ -20,15 +20,18 @@ export function PropertyActionSheet({
   items,
   onClose,
   children,
+  section,
 }: {
   title: string;
   items: ActionSheetItem[];
   onClose: () => void;
   /** Нестандартные пункты под списком (например, «Поделиться» с системным меню). */
   children?: ReactNode;
+  /** «Новый вид»: метка раздела для слоя оформления (см. Rh2Sheet). */
+  section?: string;
 }) {
   return (
-    <Rh2Sheet title={title} onClose={onClose}>
+    <Rh2Sheet title={title} onClose={onClose} section={section}>
       {items.length > 0 && (
         <List>
           {items.map((it) => (

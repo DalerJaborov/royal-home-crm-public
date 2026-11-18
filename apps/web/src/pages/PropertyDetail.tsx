@@ -879,7 +879,7 @@ function PropertyViewCard({
   }
 
   return (
-    <Rh2Screen title={`Объект №${property.shortId}`} back="/properties" actions={headerActions} className={royal ? "ry-object-page" : undefined}>
+    <Rh2Screen title={`Объект №${property.shortId}`} back="/properties" actions={headerActions} className={royal ? "ry-object-page" : undefined} section={royal ? "objects" : undefined}>
       <MutationError mutation={updateProperty} fallback="Не удалось сохранить изменение" />
       {trashedNotice}
 
@@ -1055,9 +1055,9 @@ function PropertyViewCard({
 
       {matchDialog}
       {showingOpen && <ShowingQuickForm clean={clean} initialPropertyId={property.id} onClose={() => setShowingOpen(false)} />}
-      {editMenuOpen && <PropertyActionSheet title="Изменить" items={editItems} onClose={() => setEditMenuOpen(false)} />}
+      {editMenuOpen && <PropertyActionSheet title="Изменить" items={editItems} onClose={() => setEditMenuOpen(false)} section={royal ? "objects" : undefined} />}
       {moreOpen && (
-        <PropertyActionSheet title="Ещё" items={moreItems} onClose={() => setMoreOpen(false)}>
+        <PropertyActionSheet title="Ещё" items={moreItems} onClose={() => setMoreOpen(false)} section={royal ? "objects" : undefined}>
           {property.siteUrl && (
             <div className="rh-sheet-share">
               <PropertyShareLink className="pill soft" label="Поделиться ссылкой" property={property} />

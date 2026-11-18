@@ -721,7 +721,7 @@ export function PropertiesMap() {
   );
 
   return (
-    <Rh2Screen className={royal ? "ry-objects-page ry-objects-map" : undefined}>
+    <Rh2Screen className={royal ? "ry-objects-page ry-objects-map" : undefined} section={royal ? "objects" : undefined}>
       <div className="pg-h">
         <div>
           <h1>Карта объектов</h1>
