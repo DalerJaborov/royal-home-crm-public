@@ -343,4 +343,4 @@
 /* Выключенная кнопка раздела приглушена всегда (пачка debt, ревью PR 286: сторож
    disabledDimGaps сверяет покрытие каждой перекраски кнопок). :not(#ry-dim) — вес id
    (такого id нет): правило тяжелее любой классовой перекраски выше и в шторках. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }

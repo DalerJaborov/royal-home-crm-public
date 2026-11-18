@@ -11,9 +11,17 @@ describe("короткие подписи групп настроек", () => {
   it.each(SETTINGS_TABS.map((tab) => tab.id))("%s: короткая подпись задана, до 40 знаков, не склейка подразделов", (id) => {
     const short = CLEAN_SETTINGS_GROUPS[id].shortLabel;
     expect(short?.trim()).toBeTruthy();
-    expect(short!.length).toBeLessThanOrEqual(40);
+    const extra = CLEAN_SETTINGS_GROUPS[id].directorExtra ?? "";
+    expect((short! + extra).length).toBeLessThanOrEqual(40);
     expect(short).not.toContain(" · ");
-    expect(cleanSettingsGroupSub(id, "DIRECTOR")).toBe(short);
+    expect(cleanSettingsGroupSub(id, "DIRECTOR")).toBe(short + extra);
+    expect(cleanSettingsGroupSub(id, "ADMIN")).toBe(short);
+  });
+  it("«сайт» в подписи системной группы — только у директора (подраздел «Управление сайтом» видит он один)", () => {
+    expect(cleanSettingsGroupSub("system", "DIRECTOR")).toContain("сайт");
+    expect(cleanSettingsGroupSub("system", "ADMIN")).not.toContain("сайт");
+    expect(cleanSettingsTasks("system", "ADMIN").some((t) => t.id === "website")).toBe(false);
+    expect(cleanSettingsTasks("system", "DIRECTOR").some((t) => t.id === "website")).toBe(true);
   });
   it("названия групп не изменились (одно место: CLEAN_SETTINGS_GROUPS)", () => {
     expect(CLEAN_SETTINGS_LABELS.bot).toBe("ИИ-помощник");

@@ -98,7 +98,7 @@
    выключенной .pill opacity:1 и серый фон, — голубая «Сохранить» горела бы как рабочая.
    :not(#ry-dim) добавляет вес id (такого id нет, совпадает с любой кнопкой): правило
    тяжелее ЛЮБОЙ классовой перекраски, и новая перекраска не откроет дыру снова. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:disabled { transform: none; }
 
 /* Плашки. Форма — у всех; цвет — только у смысловых: срочно (.crit/.danger) —

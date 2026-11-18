@@ -28,7 +28,7 @@ describe("RoyalSettings: короткая подпись группы и пол�
     const nav = container.querySelector<HTMLElement>('nav[aria-label="Группы настроек"]')!;
     const row = [...nav.querySelectorAll<HTMLAnchorElement>("a.ry-row")].find((a) => a.getAttribute("href")?.includes(`tab=${id}`))!;
     const sub = row.querySelector(".ry-row-sub")!.textContent!;
-    expect(sub).toBe(CLEAN_SETTINGS_GROUPS[id].shortLabel);
+    expect(sub).toBe(CLEAN_SETTINGS_GROUPS[id].shortLabel! + (CLEAN_SETTINGS_GROUPS[id].directorExtra ?? ""));
     expect(sub.length).toBeLessThanOrEqual(40);
     expect(sub).not.toContain(" · ");
 

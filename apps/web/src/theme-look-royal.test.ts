@@ -433,7 +433,11 @@ export function disabledReactions(css: string): string[] {
  * есть рядом (заголовок-дубль, полосы прокрутки, маркер раскрытия, шапка таблицы, подписи
  * цифр на своём месте, имя человека в меню). Строку с данными чинят в слое: перенос.
  */
-const HIDING = /display:\s*none|visibility:\s*hidden|font-size:\s*0(?![.\d])|max-height:\s*0(?![.\d])|opacity:\s*0(?![.\d])|line-clamp|clip-path|text-overflow:\s*ellipsis|clip:\s*rect\(0/;
+const HIDING = /display:\s*none|visibility:\s*hidden|font-size:\s*0(?![.\d])|max-height:\s*0(?![.\d])|opacity:\s*0(?![.\d])|line-clamp|clip-path|text-overflow:\s*ellipsis|clip:\s*rect\(/;
+/** Обрезка без многоточия (ревью 18.11, второе): `overflow:hidden` вместе с `white-space:nowrap` или с высотой в цифрах — текст режется молча. */
+const CLIPS_BOX = /overflow(-[xy])?:\s*(hidden|clip)/;
+const CLIPS_TEXT = /white-space:\s*nowrap|(?<![\w-])(max-)?height:\s*[1-9.]/;
+const hidesText = (body: string) => HIDING.test(body) || (CLIPS_BOX.test(body) && CLIPS_TEXT.test(body));
 const R = ':root[data-ui-look="royal"]';
 export const HIDING_ALLOWED = new Set<string>([
   // team: заголовок-дубль на телефоне, полосы прокрутки, крестик поиска, шапка таблицы и
@@ -511,11 +515,22 @@ export const HIDING_ALLOWED = new Set<string>([
   // клиента на телефоне (они в карточке; так закреплено e2e new-look-clients).
   `${R} .ry-chats[data-ry-section="chats"] .ry-chat-last`,
   `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-pc-only`,
+  // Рамки фиксированного размера под картинку, инициалы (1-2 буквы в круге) и полоску без
+  // текста: `overflow:hidden` + высота в цифрах режет только скругление и картинку, не слова
+  // (сторож обрезки без многоточия, ревью 18.11, второе).
+  `${R} .ry-avatar`,
+  `${R} .ry-bar`,
+  `${R} [data-ry-section="deals"] .ry-deal-thumb`,
+  `${R} [data-ry-section="objects"] .ry-gal-thumbs > button`,
+  // money: полоса прокрутки ленты вкладок (прокрутка пальцем остаётся) и значок искр при быстром
+  // вводе — украшение, подпись и поле рядом (знак ИИ в интерфейсе не подчёркиваем).
+  `${R} [data-ry-section="money"] .cef-toolbar .cef-main-tabs::-webkit-scrollbar`,
+  `${R} [data-ry-section="money"] .cef-line-input > svg.lucide-sparkles`,
 ]);
 export function hiddenTextSelectors(css: string): string[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
   return [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-    .filter(([, , body]) => HIDING.test(body))
+    .filter(([, , body]) => hidesText(body))
     .flatMap(([, head]) => splitTopLevel(head.trim()))
     .filter((selector) => !selector.startsWith("@") && !/^(from|to|\d+%)$/.test(selector) && !HIDING_ALLOWED.has(selector));
 }
@@ -536,6 +551,15 @@ describe("все слои нового вида: смысловые цвета, 
     }
     // в белом списке — только ТОЧНЫЙ селектор: соседний под тем же классом краснеет
     expect(hiddenTextSelectors(`${R} [data-ry-section="team"] .ry-mrow .ry-stat small.x { ${declaration}; }`)).toHaveLength(1);
+  });
+  it.each([
+    "overflow: hidden; white-space: nowrap", "overflow: hidden; max-height: 40px", "overflow-x: hidden; height: 20px",
+    "overflow: clip; white-space: nowrap", "clip: rect(1px, 1px, 1px, 1px)",
+  ])("сторож ловит обрезку без многоточия «%s» (проверен поломкой)", (body) => {
+    const leak = `${R} .ry-zzz`;
+    expect(hiddenTextSelectors(`${leak} { ${body}; }`)).toEqual([leak]);
+    // скругление и высота строки без обрезки — не нарушение
+    expect(hiddenTextSelectors(`${leak} { overflow: hidden; border-radius: 8px; line-height: 20px; min-height: 40px; }`)).toEqual([]);
   });
   it("плашка «Уведомления заблокированы» снова обрезана — красный (ровно ошибка до 18.11)", () => {
     const base = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
@@ -618,7 +642,7 @@ describe("все слои нового вида: смысловые цвета, 
     const chats = readFileSync(new URL("./theme-look-royal-chats.css", import.meta.url), "utf8");
     const H = ':root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"]';
     expect(disabledDimGaps(`${chats}\n${H} .ry-zzz button { background: var(--rh-ui-primary); }`)).toEqual([]);
-    const narrow = chats.replace(":is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]):not(#ry-dim)", ":is(.pill, .rh-btn):is(:disabled, [disabled]):not(#ry-dim)");
+    const narrow = chats.replace(":is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled=\"true\"]):not(#ry-dim)", ":is(.pill, .rh-btn):is(:disabled, [disabled], [aria-disabled=\"true\"]):not(#ry-dim)");
     expect(narrow).not.toBe(chats);
     expect(disabledDimGaps(`${narrow}\n${H} .ry-zzz button { background: var(--rh-ui-primary); }`)).toContain(`${H} .ry-zzz button`);
     // своя кнопка слоя (класс со своим :disabled) — тоже тип цели

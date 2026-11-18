@@ -343,7 +343,7 @@
    (ревью PR 286: правило только для таблеток пропускало перекраску прочих кнопок).
    :not(#ry-dim) — вес id (такого id нет): тяжелее любой классовой перекраски. Свои
    кнопки чатов (.ry-round .45, отправка .4) теперь приглушены одинаково — .5. */
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
 
 /* Поиск по переписке — прежняя строка, новая одежда. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-timeline > .pane-b { background: var(--rh-ui-card); border-bottom: 0 !important; box-shadow: 0 1px 0 var(--rh-ui-sep); }
