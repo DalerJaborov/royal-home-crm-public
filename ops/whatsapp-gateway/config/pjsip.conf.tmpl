@@ -103,7 +103,11 @@ allow = alaw
 direct_media = no
 rtp_symmetric = yes
 force_rport = yes
-rewrite_contact = no
+; rewrite_contact = yes (18.11.2026, живой звонок): станция пишет в Contact своего 200 OK
+; внешний адрес транспорта (external_signaling_address 104.145.12.182), ACK уходил
+; туда, а не в VPN, станция не получала ACK и через 32 с клала трубку. Для этой
+; стороны берём адрес, откуда реально пришёл ответ (10.9.0.2:5062).
+rewrite_contact = yes
 ice_support = no
 media_encryption = no
 media_address = ${WA_STATION_LOCAL_IP}
