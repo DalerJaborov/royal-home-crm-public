@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4122,
+  "forks": 4124,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -105584,6 +105584,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "continue;",
              "a": [
@@ -105655,24 +105670,24 @@
          "c": [
           {
            "k": "if",
-           "t": "row.promised",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await markWatchdogAttempted(row.conversationId, now);",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
            "t": "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
            "a": [],
            "c": [
+            {
+             "k": "if",
+             "t": "row.promised",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await markWatchdogAttempted(row.conversationId, now);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
             {
              "k": "do",
              "t": "continue;",
@@ -105719,6 +105734,21 @@
               "запись в журнал ошибок"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "row.promised",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await markWatchdogAttempted(row.conversationId, now);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
           },

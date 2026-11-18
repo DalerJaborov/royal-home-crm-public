@@ -104,13 +104,14 @@ const VACANCY_OFFER = /(?<![\p{L}])(?:ваканси\p{L}*|ҷой(?:и|ҳои)\s
  */
 function jobConversation(messages: readonly ConversationMessage[]): boolean {
   const own = messages.filter((m) => m.role === "user" && typeof m.content === "string").map((m) => m.content as string);
-  if (own.some((t) => customerRecruitmentRequested(t) || mentionsJobSeeking(t))) return true;
-  const botListedVacancies = messages.some((m) => m.role === "assistant" && typeof m.content === "string" && VACANCY_OFFER.test(m.content));
-  if (!botListedVacancies) return false;
-  return !own.some((t) => {
+  // Спросил про вакансии, а потом про квартиру — покупатель: слова о сделке сильнее любого признака работы.
+  const dealTalk = own.some((t) => {
     const signals = customerRoleSignals(t);
     return signals.sell || signals.buyStrong || signals.buyWeak;
   });
+  if (dealTalk) return false;
+  if (own.some((t) => customerRecruitmentRequested(t) || mentionsJobSeeking(t))) return true;
+  return messages.some((m) => m.role === "assistant" && typeof m.content === "string" && VACANCY_OFFER.test(m.content));
 }
 
 function sentencesOf(text: string): string[] {
@@ -177,6 +178,8 @@ export interface PhoneWithoutLead {
   inquiryId: string | null;
   /** Бот пообещал звонок агента (lastAgentContactPromise): номер — из WhatsApp, а не из текста. */
   promised?: boolean;
+  /** Когда прозвучало обещание. */
+  promisedAt?: Date;
   /** Номер WhatsApp (wa_id) для карточки, если номер взят из канала. */
   whatsappPhone?: string;
   /** Карточка заведена, но осталась без агента («Прочие», отказ или закрытое назначение), хотя бот обещал звонок. */
@@ -301,7 +304,7 @@ export async function findPhonesWithoutLead(
     if (promise) {
       // Приём ядра ещё в очереди (повторы при сбое Meta идут дольше PROMISE_GRACE_MS): он знает больше сторожа
       // (время звонка, «не звоните», объект) — не перебиваем его.
-      if (await coreIntakePending(row.id)) continue;
+      if (await coreIntakeOwnsPromise(row.id, promise.at)) continue;
       // WhatsApp: номер известен и так — карточку заводит приём. Другие каналы: номера нет,
       // обещание пустое — это человеку (тревога ниже, phone остаётся null).
       const wa = row.channel === WHATSAPP_CHANNEL ? await resolveWhatsAppLeadIdentity(row.channel, row.subscriberId) : null;
@@ -326,7 +329,7 @@ export async function findPhonesWithoutLead(
       history,
       coreTopic,
       inquiryId: row.customerInquiry?.id ?? null,
-      ...(promise ? { promised: true } : {}),
+      ...(promise ? { promised: true, promisedAt: promise.at } : {}),
       ...(promise?.refusalUnclear ? { refusalUnclear: true } : {}),
       ...(basketCard ? { basketCard: true } : {}),
       ...(whatsappPhone ? { whatsappPhone } : {}),
@@ -351,11 +354,16 @@ export function humanDecisionCutoff(leadDraft: unknown, lastAttempt: Date | null
   return lastAttempt && lastAttempt > deleted ? lastAttempt : deleted;
 }
 
-/** Задание приёма ядра по этому диалогу ещё ждёт или идёт (lib/customerLeadOnlyCore.ts). */
-async function coreIntakePending(conversationId: string): Promise<boolean> {
+/**
+ * Это обещание — забота приёма ядра (lib/customerLeadOnlyCore.ts): по диалогу есть его задание, поставленное вместе
+ * с обещанием или позже. Ждёт — не перебиваем (он знает время звонка, «не звоните», объект); отработал или сдался —
+ * человека он уже позвал сам (alarmLeadOnlyIntake), вторая тревога не нужна.
+ */
+async function coreIntakeOwnsPromise(conversationId: string, promisedAt: Date): Promise<boolean> {
+  const since = new Date(promisedAt.getTime() - 2 * 60_000);
   const rows = await prisma.$queryRaw<Array<{ n: number }>>`
     SELECT 1 AS "n" FROM "BackgroundJob"
-    WHERE "type" = ${CUSTOMER_LEAD_ONLY_INTAKE_JOB} AND "status" IN ('PENDING', 'RUNNING')
+    WHERE "type" = ${CUSTOMER_LEAD_ONLY_INTAKE_JOB} AND "createdAt" >= ${since}
       AND "payload"->>'conversationId' = ${conversationId}
     LIMIT 1`;
   return rows.length > 0;
@@ -607,8 +615,11 @@ async function tryAcceptQuietly(row: PhoneWithoutLead): Promise<"accepted" | "ac
     // но звонить некому. Это человеку, как в приёме ядра (lib/customerLeadOnlyCore.ts, «Прочие обращения»).
     // Ночная отсрочка (агента назначит утренняя волна) — не беда. «Прочее», отказ от назначения или закрытое
     // назначение — звонить некому, обещание висит.
+    // Днём карточка без агента — тоже висящее обещание: ветка «клиент уже есть» меняет тип, но агента ставит не всегда
+    // (ревью 19.11, случай №857).
     const card = linked.client;
-    if (row.promised && card && !card.assignedAgentId && (card.kind === "OTHER" || card.assignmentRefusedAt || card.assignmentCompletedAt)) {
+    if (row.promised && card && !card.assignedAgentId &&
+      (card.kind === "OTHER" || card.assignmentRefusedAt || card.assignmentCompletedAt || (await isWithinWorkingHours()))) {
       return "accepted_other";
     }
     return "accepted";
@@ -668,6 +679,8 @@ export async function runPhoneLeadWatchdogTick(
     const canTakeItself =
       !!row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard && accepted < MAX_AUTO_ACCEPTS_PER_TICK;
     if (!canTakeItself) {
+      // Обещание, не влезшее в предел тика, — работа следующего тика, а не человека (ревью 19.11).
+      if (row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard) continue;
       leftForHuman.push(row);
       continue;
     }
@@ -705,15 +718,16 @@ export async function runPhoneLeadWatchdogTick(
 
   let alerted = 0;
   for (const row of leftForHuman) {
-    // Обещание без номера, с неясным отказом или с карточкой в Корзине приём не пробовал: отмечаем попытку, чтобы
-    // тревога по тем же репликам пришла один раз, а не каждые сутки трое суток подряд (ревью 19.11).
-    if (row.promised) await markWatchdogAttempted(row.conversationId, now);
     const tag = `alarm-phone-without-lead-${row.conversationId}`;
     // Предохранитель по частоте, ДО построения текста и постановки в очередь:
     // диалог остаётся «потеряшкой» на каждом следующем часовом тике, пока никто
     // не заведёт карточку руками, — без этой проверки push уходил бы директору
     // на каждый тик (см. doc-comment файла).
-    if (!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))) continue;
+    if (!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))) {
+      // По этому диалогу руководство уже звали меньше суток назад: обещание отмечаем, оно уже на виду.
+      if (row.promised) await markWatchdogAttempted(row.conversationId, now);
+      continue;
+    }
 
     // Русское название канала вместо сырого кода из базы (ночная проверка 24.09.2026, находка №11).
     const who = row.name?.trim() || `диалог ${channelLabel(row.channel)}`;
@@ -753,6 +767,9 @@ export async function runPhoneLeadWatchdogTick(
           `Откройте переписку и заведите карточку, если это настоящий клиент.`
       );
       alerted++;
+      // Обещание без номера, с неясным отказом или с карточкой в Корзине приём не пробовал: отметка ПОСЛЕ постановки
+      // тревоги — тревога по тем же репликам приходит один раз, а упавшая постановка повторится на следующем тике.
+      if (row.promised) await markWatchdogAttempted(row.conversationId, now);
     } catch (err) {
       console.error("[alarm] phone-without-lead notification:", err);
     }

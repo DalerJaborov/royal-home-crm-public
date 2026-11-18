@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4122**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4124**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -23623,6 +23623,9 @@
         · дословно из кода
     - для каждого: const row of candidates
       - если !canTakeItself
+        - если row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard
+          - continue;
+            · переходит к следующему
         - continue;
           · переходит к следующему
       - если outcome === "accepted"
@@ -23637,10 +23640,10 @@
       - return { alerted: 0, accepted, attached };
         · дословно из кода
     - для каждого: const row of leftForHuman
-      - если row.promised
-        - await markWatchdogAttempted(row.conversationId, now);
-          · дословно из кода
       - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))
+        - если row.promised
+          - await markWatchdogAttempted(row.conversationId, now);
+            · дословно из кода
         - continue;
           · переходит к следующему
       - const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…
@@ -23652,6 +23655,9 @@
           · зовёт enqueueDirectorAlert()
         - void logSystemError( "ai", `[alarm] ${what} (диалог ${row.conversationId}, ${channelLabel(row.channel)}, ${wh…
           · запись в журнал ошибок
+        - если row.promised
+          - await markWatchdogAttempted(row.conversationId, now);
+            · дословно из кода
       - если сорвалось
         - console.error("[alarm] phone-without-lead notification:", err);
           · пишет строку в журнал сервера

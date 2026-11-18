@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { promisesAgentContact } from "../src/ai/callbackPromiseGuard.js";
 import { lastAgentContactPromise, PROMISE_GRACE_MS, runPhoneLeadWatchdogTick } from "../src/lib/phoneLeadWatchdog.js";
+import { isWithinWorkingHours } from "../src/lib/workingHours.js";
 
 /**
  * ОБЕЩАЛ ЗВОНОК — КАРТОЧКИ НЕТ (19.11.2026, владелец: «нужно чтобы такое никогда больше не повторилось»).
@@ -46,6 +47,8 @@ describe("promisesAgentContact — словарь обещаний (живые �
     "Чем могу помочь?",
     "Агент не позвонит без вашего согласия.",
     "Передам вашу благодарность команде.",
+    "Заявку на аренду принять не можем.",
+    "Мы не передаём номера агентов.",
   ])("не обещание: %s", (text) => {
     const sentences = text.split(/(?<=[.!?])\s+/u);
     expect(sentences.some(promisesAgentContact)).toBe(false);
@@ -85,6 +88,15 @@ describe("lastAgentContactPromise — когда обещание считает
     const messages = [
       { role: "user", content: "Хочу купить квартиру", at: ago(60) },
       { role: "assistant", content: "Сейчас открыты вакансии: Менеджер по продажам недвижимости.", at: ago(59) },
+      { role: "assistant", content: "Агент позвонит вам на этот номер завтра утром, с 10:00.", at: ago(30) },
+    ] as never;
+    expect(lastAgentContactPromise(messages, null, NOW)).not.toBeNull();
+  });
+
+  it("спросил про вакансию, а потом про покупку квартиры — покупатель, обещание остаётся заявкой", () => {
+    const messages = [
+      { role: "user", content: "По вакансии смм специалист", at: ago(70) },
+      { role: "user", content: "А ещё хочу купить квартиру", at: ago(60) },
       { role: "assistant", content: "Агент позвонит вам на этот номер завтра утром, с 10:00.", at: ago(30) },
     ] as never;
     expect(lastAgentContactPromise(messages, null, NOW)).not.toBeNull();
@@ -209,6 +221,9 @@ describe("Сторож лидов: обещал звонок — карточк�
     const client = await prisma.client.findUnique({ where: { id: existing.id }, select: { kind: true } });
     expect(client?.kind).toBe("BUYER");
     expect(await prisma.client.count({ where: { phone: `+${wa}` } })).toBe(1);
+    // Обещание не висит молча: либо агент назначен, либо (днём без агента) руководство знает. Ночью — утренняя волна.
+    const after = await prisma.client.findUnique({ where: { id: existing.id }, select: { assignedAgentId: true } });
+    if (!after?.assignedAgentId && (await isWithinWorkingHours())) expect(await alarmsFor(id)).toBeGreaterThan(0);
   });
 
   it("WhatsApp: обещание свежее — сторож ждёт приём ядра и ничего не делает", async () => {
@@ -305,6 +320,28 @@ describe("Сторож лидов: обещал звонок — карточк�
 
     const conv = await prisma.botConversation.findUnique({ where: { id }, select: { clientId: true } });
     expect(conv?.clientId).toBeNull();
+  });
+
+  it("WhatsApp: приём ядра уже отработал по этому обещанию (отказ, человека он позвал сам) — второй тревоги нет", async () => {
+    const id = await seed({
+      channel: "WHATSAPP",
+      subscriberId: randomTajikWa(),
+      messages: [
+        { role: "user", content: "Хочу купить 2-комнатную квартиру", at: minutesAgo(40) },
+        { role: "assistant", content: "Агент позвонит вам на этот номер завтра утром, с 10:00.", at: minutesAgo(39) },
+      ],
+    });
+    const job = await prisma.backgroundJob.create({
+      data: { type: "customer-lead-only-intake", status: "DONE", payload: { conversationId: id }, maxAttempts: 1 } as never,
+      select: { id: true },
+    });
+    jobIds.push(job.id);
+
+    await runPhoneLeadWatchdogTick();
+
+    const conv = await prisma.botConversation.findUnique({ where: { id }, select: { clientId: true } });
+    expect(conv?.clientId).toBeNull();
+    expect(await alarmsFor(id)).toBe(0);
   });
 
   it("WhatsApp: номер у карточки в Корзине — сторож её не воскрешает, решает человек", async () => {

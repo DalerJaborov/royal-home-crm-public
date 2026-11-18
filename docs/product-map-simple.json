@@ -16,10 +16,10 @@
   "paths": 776,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4095,
+  "conditions": 4097,
   "untranslatedUnique": 472,
   "untranslatedTotal": 607,
-  "partialUnique": 1105,
+  "partialUnique": 1104,
   "translatedShare": 85
  },
  "untranslated": [
@@ -72553,13 +72553,6 @@
          "k": "loop",
          "a": [],
          "c": [
-          {
-           "t": "если есть promised",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
           {
            "t": "если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
            "k": "if",
