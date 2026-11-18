@@ -350,7 +350,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): без карточки человека не зовут — фраза «это скажет агент»
         // стала бы обещанием, которое некому выполнить. Выход из тупика — один шаг к номеру (номер есть — телефон офиса).
         const selfAnswer = !jobTopicTurn && await loadBotAnswersItself() && !(await customerConversationHasCard(lane.ticket.conversationId));
-        const line = selfAnswer ? selfAnswerLine(language, memory.phoneAsked, lane.context.knownPhoneSource !== "none")
+        // Телефон офиса — только своему бренду: аккаунту Арвана номер Royal Home не называем (ревью 1b, №10).
+        const line = selfAnswer ? selfAnswerLine(language, memory.phoneAsked, lane.context.knownPhoneSource !== "none",
+          await (await import("../messengers/accounts.js")).accountBrandName(planningPrincipal.scope.accountId))
           : customerSafetyLine(language, lane.context.knownPhoneSource, memory);
         if (blocked.has(line) || !await current(linkWait)) return null;
         const partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,

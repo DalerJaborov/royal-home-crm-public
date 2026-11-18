@@ -76,15 +76,16 @@ describe("«клиент ждёт» (clientWaitingAlert) — таблица си
     expect(mocks.log).not.toHaveBeenCalled();
   });
 
-  it("ВКЛ: клиент без ответа (escalate/молчание) — не пуш, а одна строка журнала на эпизод", async () => {
+  it("ВКЛ: клиент совсем без ответа (escalate/молчание 30 мин) — это сбой: сигнал как раньше, один на эпизод разговора (ревью 1b, №1)", async () => {
     await setOn(true);
-    const id = await chat();
-    expect(await alertClientWaiting({ conversationId: id, trigger: "silence" })).toBe("self");
-    expect(await directorAlerts(id)).toBe(0);
-    expect(mocks.log).toHaveBeenCalledWith("ai", expect.stringContaining("Бот отвечает сам"), expect.objectContaining({ dedupKey: "self-answer-unanswered" }));
-    // Тот же эпизод следующим тиком сторожа — уже отмечен, второй строки нет.
-    expect(await alertClientWaiting({ conversationId: id, trigger: "escalate" })).toBe("already");
-    expect(mocks.log).toHaveBeenCalledTimes(1);
+    const first = await chat(), second = await chat();
+    expect(await alertClientWaiting({ conversationId: first, trigger: "silence" })).toBe("director");
+    // Второй неотвеченный клиент не теряется за первым (ключ — разговор, а не общий).
+    expect(await alertClientWaiting({ conversationId: second, trigger: "silence" })).toBe("director");
+    expect(await directorAlerts(first)).toBe(1);
+    expect(await directorAlerts(second)).toBe(1);
+    // Тот же эпизод следующим тиком — уже сказали.
+    expect(await alertClientWaiting({ conversationId: first, trigger: "escalate" })).toBe("already");
   });
 
   it("ВКЛ: остаётся — техсбой, аварийный рубильник, агент своего клиента, карточка без агента, вакансия", async () => {
@@ -104,16 +105,14 @@ describe("«клиент ждёт» (clientWaitingAlert) — таблица си
 });
 
 describe("«бот передал разговор человеку» (ядро Meta, notifyEscalatedCustomerTurn)", () => {
-  it("ВКЛ, без карточки: клиенту ушла строка — ни пуша, ни журнала; не ушла — журнал вместо пуша", async () => {
+  it("ВКЛ, без карточки: клиенту ушла строка — пуша нет; клиент без ответа — сбой, пуш как раньше", async () => {
     await setOn(true);
     const answered = await chat();
     expect(await notifyEscalatedCustomerTurn({ conversationId: answered, channel: "INSTAGRAM", text: "?", answered: true })).toBe("skipped");
     expect(mocks.pushMany).not.toHaveBeenCalled();
-    expect(mocks.log).not.toHaveBeenCalled();
     const silent = await chat();
-    expect(await notifyEscalatedCustomerTurn({ conversationId: silent, channel: "INSTAGRAM", text: "?" })).toBe("skipped");
-    expect(mocks.pushMany).not.toHaveBeenCalled();
-    expect(mocks.log).toHaveBeenCalledWith("ai", expect.stringContaining("Бот отвечает сам"), expect.anything());
+    expect(await notifyEscalatedCustomerTurn({ conversationId: silent, channel: "INSTAGRAM", text: "?" })).toBe("sent");
+    expect(mocks.pushMany).toHaveBeenCalledTimes(1);
   });
 
   it("ВКЛ, карточка с агентом — агенту, как раньше", async () => {

@@ -10,11 +10,14 @@ const mocks = vi.hoisted(() => ({
   createLead: vi.fn(),
   findOwners: vi.fn(),
   log: vi.fn(),
+  claim: vi.fn(),
+  release: vi.fn(),
 }));
 
 vi.mock("../src/db.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/db.js")>()),
-  prisma: { botConversation: { findUnique: mocks.findConversation }, $disconnect: async () => undefined },
+  prisma: { botConversation: { findUnique: mocks.findConversation }, $executeRaw: mocks.claim,
+    processedMessage: { deleteMany: mocks.release }, $disconnect: async () => undefined },
 }));
 vi.mock("../src/messengers/conversation.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/messengers/conversation.js")>()),
@@ -67,6 +70,8 @@ beforeEach(() => {
   mocks.createLead.mockResolvedValue({ clientId: "client-1", created: true });
   mocks.findOwners.mockResolvedValue([]);
   mocks.findConversation.mockResolvedValue(conversation());
+  mocks.claim.mockResolvedValue(1);
+  mocks.release.mockResolvedValue({ count: 1 });
 });
 
 describe("captureCommentPhoneIntoConversation (Instagram/Facebook/YouTube)", () => {
@@ -135,8 +140,14 @@ describe("createLeadFromCommentPhone (обсуждение Telegram-канала
     expect(mocks.createLead.mock.calls[0]![0]).toMatchObject({ phone: "+992900000001", source: "TELEGRAM" });
   });
 
-  it("повтор: номер уже у карточки — второй не заводим", async () => {
-    mocks.findOwners.mockResolvedValue([{ id: "client-1", deletedAt: null }]);
+  it("номер уже у карточки — не теряется: штатный приём (resumeExistingChannelLead: хронология, агенту), «already» (ревью 1b, №3)", async () => {
+    mocks.createLead.mockResolvedValue({ clientId: "client-1", created: false });
+    expect(await createLeadFromCommentPhone(tg())).toBe("already");
+    expect(mocks.createLead).toHaveBeenCalledTimes(1);
+  });
+
+  it("повтор разбора того же комментария: приём второй раз не зовётся (захват по id комментария)", async () => {
+    mocks.claim.mockResolvedValue(0);
     expect(await createLeadFromCommentPhone(tg())).toBe("already");
     expect(mocks.createLead).not.toHaveBeenCalled();
   });
@@ -197,9 +208,10 @@ describe("ревью 17.11: кому заявка не полагается", ()
     expect(mocks.log).not.toHaveBeenCalledWith("ai", expect.stringContaining("[alarm]"));
   });
 
-  it("номер удалённой карточки: заявка не заводится, тревоги нет", async () => {
-    mocks.findOwners.mockResolvedValue([{ id: "c", deletedAt: new Date() }]);
+  it("номер карточки в корзине: тоже через штатный приём (возврат по правилам раздачи), тревоги нет", async () => {
+    mocks.createLead.mockResolvedValue({ clientId: "c", created: false });
     expect(await createLeadFromCommentPhone({ ...row(), channel: "TELEGRAM" })).toBe("already");
+    expect(mocks.createLead).toHaveBeenCalledTimes(1);
     expect(mocks.log).not.toHaveBeenCalled();
   });
 });

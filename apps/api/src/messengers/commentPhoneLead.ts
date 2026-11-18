@@ -14,7 +14,9 @@ import { looksLikeMoneyRequest } from "../ai/moneyRequestGuard.js";
 import { detectSpam } from "../lib/incomingSpam.js";
 import { detectHate } from "../lib/commentHate.js";
 import { detectAgencyAd, detectListingAd } from "../lib/listingAd.js";
-import { StaffPhoneLeadError } from "../lib/staffPhoneGuard.js";
+import { findStaffPhone, StaffPhoneLeadError } from "../lib/staffPhoneGuard.js";
+import { logTimeline } from "../lib/timeline.js";
+import { randomUUID } from "node:crypto";
 import { classifyInbound } from "../services/leads/intakePolicy.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 
@@ -146,7 +148,11 @@ export async function captureCommentPhoneIntoConversation(
     const dmAlreadySent = commentPhoneDmInHistory(history as unknown as { role?: unknown; content?: unknown }[], opts.dmTexts ?? []);
     const marked = `${COMMENT_HISTORY_PREFIX}${row.text}`;
     const recorded = history.some((m) => m.role === "user" && m.content === marked);
-    if (conversation.clientId) return { outcome: "already", recordedInHistory: recorded, clientId: conversation.clientId, dmAlreadySent };
+    if (conversation.clientId) {
+      // Постоянный клиент оставил номер под постом (ревью 1b, №3): новый номер — в карточку, след с номером — в хронологию.
+      if (!recorded) await attachCommentPhonesToCard(conversation.clientId, clientPhonesOf(row.text), row);
+      return { outcome: "already", recordedInHistory: recorded, clientId: conversation.clientId, dmAlreadySent };
+    }
     // Помеченный как рассылка заявкой не становится (та же защита, что в captureLeadWhileSilent).
     if (conversation.spamFlaggedAt) return { outcome: "spam", recordedInHistory: false };
     // Этот комментарий уже в переписке — разбирали раньше (или человек уже решил его судьбу).
@@ -191,6 +197,38 @@ export async function captureCommentPhoneIntoConversation(
   }
 }
 
+const digits9 = (value: string | null | undefined): string => (value ?? "").replace(/\D/g, "").slice(-9);
+
+/**
+ * Номер из комментария клиента, у которого карточка уже есть: новые номера — запасными (не чужие и не сотрудника), запись
+ * в хронологию с номером. Не бросает: сбой виден в журнале, разбор комментария идёт дальше.
+ */
+export async function attachCommentPhonesToCard(clientId: string, phones: readonly string[], row: Pick<CommentPhoneRow, "commentId" | "channel" | "text">): Promise<string[]> {
+  try {
+    const card = await prisma.client.findUnique({ where: { id: clientId },
+      select: { phone: true, whatsappPhone: true, extraPhones: true, deletedAt: true, assignedAgentId: true } });
+    if (!card || card.deletedAt) return [];
+    const own = new Set([card.phone, card.whatsappPhone, ...card.extraPhones].map(digits9).filter(Boolean));
+    const added: string[] = [];
+    for (const phone of phones) {
+      if (own.has(digits9(phone))) continue;
+      if (await findStaffPhone([phone])) continue;
+      const [owner] = await findPhoneOwners([phone], { limit: 1 });
+      if (owner && owner.id !== clientId) continue;
+      added.push(phone); own.add(digits9(phone));
+    }
+    if (added.length) await prisma.client.update({ where: { id: clientId }, data: { extraPhones: [...card.extraPhones, ...added] } });
+    await logTimeline({ clientId, type: "SYSTEM", actor: { kind: "client", source: "comment-phone", ...(card.assignedAgentId ? { subjectAgentId: card.assignedAgentId } : {}) },
+      notes: `Клиент оставил номер в комментарии под нашим постом: ${phones.join(", ")}` +
+        `${added.length ? ` (новый номер добавлен в карточку: ${added.join(", ")})` : ""} — «${row.text.slice(0, 300)}»` });
+    return added;
+  } catch (err) {
+    void logSystemError("ai", `Номер из комментария ${row.commentId} (${row.channel}) не добавлен в карточку клиента: ` +
+      `${err instanceof Error ? err.message : String(err)}`, { silent: true });
+    return [];
+  }
+}
+
 /**
  * Комментарий без диалога (обсуждение Telegram-канала): карточка по номеру — тем же
  * приёмом createLeadFromChannel, что и все автоматические лиды, с теми же отсечками
@@ -207,19 +245,23 @@ export async function createLeadFromCommentPhone(
   const phone = phones[0];
   if (!phone) return "no_phone";
   if (commentLeadBlocked(row.text)) return "declined";
+  if (looksLikeRentRequest(row.text) || mentionsJobSeeking(row.text)) return "declined";
+  const decision = classifyInbound({ clientText: row.text, channel: "chat" });
+  if (decision.reason === "работа") return "declined";
+  /**
+   * ОДИН КОММЕНТАРИЙ — ОДИН ПРИЁМ (ревью 1b, №3). Номер уже у карточки (в том числе в корзине) больше НЕ отбрасывается:
+   * штатный приём createLeadFromChannel сам ведёт его в resumeExistingChannelLead (запись в хронологию, уведомление агенту,
+   * возврат из корзины по правилам раздачи). Повтор разбора того же комментария второй раз приём не зовёт — захват по id
+   * комментария атомарный; сбой приёма захват снимает.
+   */
+  const claimKey = `${row.channel}:${row.commentId}`;
+  const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+    VALUES (${randomUUID()},'comment-phone-lead',${claimKey},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
+  if (claimed !== 1) return "already";
   try {
-    if (looksLikeRentRequest(row.text) || mentionsJobSeeking(row.text)) return "declined";
-    const [known] = await findPhoneOwners(phones, { includeDeleted: true, limit: 1 });
-    if (known) {
-      // Карточка есть (в том числе в корзине): не дубль и не потеря, но след оставляем без тревоги.
-      if (known.deletedAt) console.info(`[comment-phone] номер комментария ${row.commentId} принадлежит удалённой карточке, заявка не заводится`);
-      return "already";
-    }
-    const decision = classifyInbound({ clientText: row.text, channel: "chat" });
-    if (decision.reason === "работа") return "declined";
     // В ClientSource нет YOUTUBE: как у createLeadFromCompetitorAd — INSTAGRAM, а площадка видна в socialChannel.
     const source: ClientSource = row.channel === "FACEBOOK" ? "FACEBOOK" : row.channel === "TELEGRAM" ? "TELEGRAM" : "INSTAGRAM";
-    await createLeadFromChannel({
+    const lead = await createLeadFromChannel({
       fullName: row.authorName ? `@${row.authorName}` : "Комментатор",
       phone,
       extraPhones: phones.filter((p) => p !== phone),
@@ -232,8 +274,9 @@ export async function createLeadFromCommentPhone(
       socialChannel: row.channel,
       deferAssignment: !(await isWithinWorkingHours()),
     });
-    return "accepted";
+    return lead.created ? "accepted" : "already";
   } catch (err) {
+    await prisma.processedMessage.deleteMany({ where: { channel: "comment-phone-lead", messageId: claimKey } }).catch(() => undefined);
     if (err instanceof StaffPhoneLeadError) return "declined";
     void logSystemError(
       "ai",

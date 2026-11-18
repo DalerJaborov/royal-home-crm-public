@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
-import { handleComment, type QueuedComment } from "../src/messengers/comments.js";
+import { captureCommentPhoneWhileBotOff, handleComment, type QueuedComment } from "../src/messengers/comments.js";
 import { handleTelegramComment } from "../src/messengers/telegramGroupComments.js";
 import { COMMENT_HISTORY_PREFIX } from "../src/messengers/commentPhoneLead.js";
 import { resetAccountsCache } from "../src/messengers/accounts.js";
@@ -107,6 +107,7 @@ afterAll(async () => {
   await prisma.contactProfile.deleteMany({ where: { id: { in: profileIds } } }).catch(() => undefined);
   await prisma.instagramComment.deleteMany({ where: { commentId: { startsWith: tag } } });
   await prisma.telegramGroupComment.deleteMany({ where: { postMessageId: tag } });
+  await prisma.processedMessage.deleteMany({ where: { channel: "comment-phone-lead", OR: [{ messageId: { contains: tag } }, { messageId: { startsWith: `TELEGRAM:${groupChatId}:` } }] } });
   await prisma.aiBudgetCounter.deleteMany({ where: { peerId: { in: peers } } });
   await prisma.messengerAccount.deleteMany({ where: { id: accountId } }); resetAccountsCache();
 });
@@ -285,7 +286,76 @@ describe("ответ клиента в личных и молчание: раз�
     const digits = freshDigits(); phones.push(digits);
     await (await instagramTurn(`Нархаш? ${digits}`, REPLY)).run();
     const [card] = await clientsWith(digits);
-    expect((await conversationOf(recipient))?.clientId).toBe(card!.id);
+    const recipientChat = await conversationOf(recipient);
+    expect(recipientChat?.clientId).toBe(card!.id);
+    // Переписка адресата знает, о чём бот спросил (ревью 1b, №5): ответ клиента ляжет к ней, а бот не начнёт заново.
+    const messages = recipientChat!.messages as Array<{ role: string; content: string; mid?: string }>;
+    expect(messages.some((m) => m.role === "user" && m.content.startsWith(COMMENT_HISTORY_PREFIX))).toBe(true);
+    expect(messages.find((m) => m.role === "assistant")?.content).toBe(COMMENT_PHONE_DM.tg);
+    expect(messages.find((m) => m.role === "assistant")?.mid).toBe(`${tag}-dm`);
+  });
+});
+
+describe("ревью 1b: постоянный клиент, рубильники, двойное личное", () => {
+  it("№3: у разговора уже есть карточка — новый номер из комментария ложится в неё запасным, с записью в хронологии", async () => {
+    const known = freshDigits(); phones.push(known);
+    const card = await prisma.client.create({ data: { fullName: `Постоянный ${tag}`, phone: `+992${known}`, source: "INSTAGRAM" } });
+    const fresh = freshDigits(); phones.push(fresh);
+    const turn = await instagramTurn(`Новый номер ${fresh}`, REPLY);
+    const peerChat = await prisma.botConversation.create({ data: { channel: "INSTAGRAM", subscriberId: turn.peer, accountId, clientId: card.id, messages: [] } });
+    await turn.run();
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: card.id }, select: { extraPhones: true } });
+    expect(after.extraPhones.some((p) => p.endsWith(tailOf(fresh)))).toBe(true);
+    expect((await notesOf(card.id)).some((n) => n.includes(fresh.slice(-7)))).toBe(true);
+    // Ни второй карточки: новым главным номером никто не заведён.
+    expect(await prisma.client.count({ where: { phone: { contains: tailOf(fresh) } } })).toBe(0);
+    expect((await prisma.botConversation.findUnique({ where: { id: peerChat.id } }))?.clientId).toBe(card.id);
+  });
+
+  it("№4: рубильник «Номер под постом» ВЫКЛ — только заявка с пометкой: ни личного, ни ответа, ни скрытия", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botCommentPhoneConversation: false } });
+    try {
+      const digits = freshDigits(); phones.push(digits);
+      const turn = await instagramTurn(`Нархаш? ${digits}`, REPLY);
+      expect(await turn.run()).toBe("skipped");
+      expect(mocks.privateReply).not.toHaveBeenCalled();
+      expect(publicReplies()).toHaveLength(0);
+      expect(hides()).toHaveLength(0);
+      const [card] = await clientsWith(digits);
+      expect(card!.commentPhoneHoldUntil).toBeNull();
+      expect((await notesOf(card!.id)).some((n) => /выключен в Настройках/.test(n))).toBe(true);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botCommentPhoneConversation: true } });
+    }
+  });
+
+  it("№6: бот на канале выключен (bot_off) — номер всё равно становится заявкой, без сообщений и скрытия", async () => {
+    const digits = freshDigits(); phones.push(digits);
+    const turn = await instagramTurn(`Нархаш? ${digits}`, undefined);
+    const row = await prisma.instagramComment.findUniqueOrThrow({ where: { id: turn.id } });
+    expect(await captureCommentPhoneWhileBotOff(row as QueuedComment)).toBe(true);
+    expect(mocks.privateReply).not.toHaveBeenCalled();
+    expect(mocks.graph).not.toHaveBeenCalled();
+    expect(await clientsWith(digits)).toHaveLength(1);
+    expect((await prisma.instagramComment.findUniqueOrThrow({ where: { id: turn.id } })).note).toMatch(/только заявка/);
+  });
+
+  it("№9: два комментария одного человека разобраны одновременно — личное одно", async () => {
+    const author = `${tag}-author-${sequence++}`; peers.push(author);
+    const a = freshDigits(), b = freshDigits(); phones.push(a, b);
+    const rows = await Promise.all([a, b].map((digits, i) => prisma.instagramComment.create({ data: { channel: "INSTAGRAM",
+      commentId: `${author}-c${i}`, mediaId: `${tag}-media`, accountExternalId, authorId: author, text: `Нархаш? ${digits}`, replyDueAt: new Date() } })));
+    decisions.push(REPLY, REPLY);
+    await Promise.all(rows.map((r) => handleComment(r as QueuedComment)));
+    expect(mocks.privateReply).toHaveBeenCalledTimes(1);
+  });
+
+  it("№9: личное не ушло — отметка «писали» снимается (иначе следующий день не наступил бы)", async () => {
+    mocks.privateReply.mockRejectedValue(new Error('Graph API HTTP 400: {"error":{"code":10}}'));
+    const digits = freshDigits(); phones.push(digits);
+    const turn = await instagramTurn(`Нархаш? ${digits}`, REPLY);
+    await turn.run();
+    expect((await prisma.instagramComment.findUniqueOrThrow({ where: { id: turn.id } })).dmSentAt).toBeNull();
   });
 });
 
@@ -304,9 +374,23 @@ describe("YouTube и Telegram-обсуждение", () => {
   async function telegramTurn(text: string, decision: unknown) {
     const peer = `${tag}-tg-${sequence++}`; peers.push(peer);
     if (decision !== undefined) decisions.push(decision);
-    const row = await prisma.telegramGroupComment.create({ data: { groupChatId, messageId: String(100000 + sequence), postMessageId: tag, authorId: peer, text, replyDueAt: new Date() } });
+    const row = await prisma.telegramGroupComment.create({ data: { groupChatId, messageId: String(100000 + Math.floor(Math.random() * 1_000_000)), postMessageId: tag, authorId: peer, text, replyDueAt: new Date() } });
     return { id: row.id, run: () => handleTelegramComment(row, groupChatId) };
   }
+
+  it("№8: «бот отвечает сам» в обсуждении — у того, кто оставил номер в этом комментарии, номер не просим", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: true } });
+    try {
+      const digits = freshDigits(); phones.push(digits);
+      const turn = await telegramTurn(`Документы в порядке? ${digits}`, { action: "escalate", reason: "документы" });
+      await turn.run();
+      const sent = mocks.telegramSend.mock.calls.map((call) => String(call[1]));
+      expect(sent.join(" ")).toMatch(/рақамро қабул кардем/u); // COMMENT_PHONE_PUBLIC[0] (точку в конце снимает фильтр примет)
+      expect(sent.join(" ")).not.toMatch(/нависед|номер телефона/u);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: false } });
+    }
+  });
 
   it("Telegram: заявка с пометкой, комментарий не удаляется; повтор разбора дубля не даёт", async () => {
     const digits = freshDigits(); phones.push(digits);

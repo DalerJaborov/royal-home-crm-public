@@ -15,10 +15,9 @@
  * Что остаётся всегда (`staffSignalAllowed` = true при любом положении):
  *  - агенту — о сообщении ЕГО клиента (у чата есть действующий агент);
  *  - чат с карточкой без агента — назначающим (это уже заявка);
- *  - техсбой: бот НЕ ответил вовсе (ход сломался, ИИ недоступен, клиент без ответа 30 минут, ключ, бюджет), аварийный
- *    рубильник канала (CUSTOMER_AGENT_CHANNEL_OFF) — без этого клиент остался бы в тишине и никто бы не узнал.
- *    Где ВКЛ и клиент без ответа, «клиент ждёт» уходит не пушем руководству, а строкой журнала (`journalInstead`):
- *    директор узнаёт о новом виде поломки через «Здоровье системы», а не о каждом клиенте.
+ *  - сбой бота: клиент НЕ получил ответа вовсе (ход сломался, модель передала без ответа, клиент без ответа 30 минут,
+ *    ИИ недоступен, ключ, бюджет) и аварийный рубильник канала (CUSTOMER_AGENT_CHANNEL_OFF) — сигнал как раньше, один на
+ *    эпизод разговора (ревью 1b, №1: «клиент 30 минут совсем без ответа — это сбой, админу сигнал»).
  */
 import { prisma } from "../db.js";
 
@@ -33,13 +32,25 @@ export async function loadBotAnswersItself(): Promise<boolean> {
 }
 
 /**
+ * Рубильник «номер из комментария — разговор» (Settings.botCommentPhoneConversation, по умолчанию ВКЛ): личное с вопросом,
+ * публичный ответ, скрытие. Сбой чтения — ВКЛ (решение владельца — поведение по умолчанию).
+ */
+export async function loadCommentPhoneConversation(): Promise<boolean> {
+  try {
+    const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { botCommentPhoneConversation: true } });
+    return row?.botCommentPhoneConversation !== false;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Вид сигнала людям.
  *  - `answered_handover`: бот уже сказал клиенту «это скажет агент / передал сотруднику» (follow_up, handover, Telegram
  *    escalate/action/unreadable/core_refused) — убирается при ВКЛ;
  *  - `bot_choice`: бот сам решил позвать человека, клиенту ответ дан или будет дан ботом (escalate комментария, офтопик) —
  *    убирается при ВКЛ;
- *  - `unanswered`: клиент не получил от бота ничего (ход HELD без строки, молчание 30 минут) — при ВКЛ не пуш руководству,
- *    а журнал (`journalInstead`); агенту своего клиента и по карточке — как раньше;
+ *  - `unanswered`: клиент не получил от бота ничего (ход HELD без строки, молчание 30 минут) — это сбой: сигнал всегда;
  *  - `technical`: ход сломался, ИИ недоступен, аварийный рубильник канала, бот на канале выключен — всегда.
  */
 export type StaffSignalKind = "answered_handover" | "bot_choice" | "unanswered" | "technical";
@@ -56,13 +67,8 @@ export interface StaffSignalContext {
 
 /** Чистая: сигнал людям уходит? Таблица — в шапке файла, тест — tests/bot-answers-itself.test.ts. */
 export function staffSignalAllowed(ctx: StaffSignalContext): boolean {
-  if (!ctx.on || ctx.kind === "technical") return true;
+  if (!ctx.on || ctx.kind === "technical" || ctx.kind === "unanswered") return true;
   if (ctx.ownAgent) return true;
   if (ctx.hasCard) return true;
   return false;
-}
-
-/** Чистая: при ВКЛ сигнал не ушёл, но молчать о клиенте без ответа нельзя — строка журнала вместо пуша. */
-export function journalInstead(ctx: StaffSignalContext): boolean {
-  return !staffSignalAllowed(ctx) && ctx.kind === "unanswered";
 }

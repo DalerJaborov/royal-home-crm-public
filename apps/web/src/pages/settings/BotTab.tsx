@@ -929,6 +929,17 @@ function BotPowerSection() {
         }
         onToggle={() => toggle("botAnswersItself", !(settings?.botAnswersItself ?? false))}
       />
+      {/* Номер из комментария (18.11.2026): apps/api/src/messengers/commentPhoneLead.ts. */}
+      <SwitchRow
+        title="Номер под постом: написать человеку и скрыть"
+        on={settings?.botCommentPhoneConversation ?? true}
+        hint={
+          settings?.botCommentPhoneConversation ?? true
+            ? "Кто оставил номер под постом, получает от бота одно личное сообщение с вопросом, что ему нужно, а комментарий скрывается. Карточка заводится сразу."
+            : "Номер из комментария сразу становится заявкой для агента. Бот человеку не пишет и комментарий не скрывает."
+        }
+        onToggle={() => toggle("botCommentPhoneConversation", !(settings?.botCommentPhoneConversation ?? true))}
+      />
 
       <div className="grp-lab">Что бот умеет</div>
       <div className="quiet">

@@ -12,7 +12,7 @@ import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
 import { reportCronRowError } from "./cronHeartbeat.js";
 import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
-import { journalInstead, loadBotAnswersItself, staffSignalAllowed, type StaffSignalKind } from "./botAnswersItself.js";
+import { loadBotAnswersItself, staffSignalAllowed, type StaffSignalKind } from "./botAnswersItself.js";
 
 /**
  * «КЛИЕНТ НАПИСАЛ — ЕМУ НИКТО НЕ ОТВЕТИЛ» (14.11.2026, аудит скрытых механизмов №4).
@@ -283,26 +283,19 @@ export async function alertClientWaiting(input: {
   if (!chat) return "excluded";
   /**
    * «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026): руководство про чат без карточки и без своего агента не зовём — ни «агент
-   * уточнит», ни «передал сотруднику». Клиент без ответа (escalate/silence) — строка журнала на чат вместо пуша. Агент
-   * своего клиента, карточка без агента, техсбой и аварийный рубильник — как раньше. Вакансию ведёт рекрутер — как раньше.
+   * уточнит», ни «передал сотруднику» (клиенту бот уже ответил). Клиент совсем без ответа (escalate/silence) — сбой, сигнал
+   * как раньше, один на эпизод. Агент своего клиента, карточка без агента, техсбой, аварийный рубильник и вакансия — как раньше.
    */
   const signal = { kind: clientWaitingSignalKind(input.trigger, input.alwaysTell === true), ownAgent: !!chat.agentId, hasCard: chat.hasCard };
   // Настройку читаем, только когда она может что-то решить (техсбой, свой агент и карточка проходят при любом положении).
   const selfAnswer = !input.jobTopic && staffSignalAllowed({ on: true, ...signal }) === false &&
     !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal });
-  if (selfAnswer && !journalInstead({ on: true, ...signal })) return "self";
+  if (selfAnswer) return "self";
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
   // истории; нет её (или нет времени) — для эскалации начало эпизода «сейчас».
   const since = input.since ?? episode?.since ?? (input.trigger !== "silence" ? now : null);
   if (!since) return "skipped";
-  if (selfAnswer) {
-    // Клиент без ответа: одна строка журнала на эпизод (метка эпизода та же — сторож молчания не повторит её каждый тик).
-    if (!(await chat.claim(since))) return "already";
-    void logSystemError("ai", `Бот отвечает сам: клиенту не ушёл ответ (${input.trigger}), руководство по настройке не звали. ` +
-      `Откройте переписку ${chat.openId}.`, { dedupKey: "self-answer-unanswered", url: `/messages?open=${chat.openId}` });
-    return "self";
-  }
   // «Агент уточнит» — one CRITICAL per chat until a person answers in the chat (re-review #201, Н-нов-3; owner: rarely
   // disturb people): three empty searches in a row are one signal, not three.
   // A completed CALL after the previous signal is an answer too (review #205, С-4): the agent who phoned the customer learns

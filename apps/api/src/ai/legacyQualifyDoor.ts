@@ -162,7 +162,7 @@ async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOp
     if (alerted === "self") {
       const phoneAsked = turnHistory.some(item => item.role === "assistant" && mentionsPhoneRequest(item.content));
       const line = outcome.reason === "unreadable_input" ? ATTACHMENT_UNREADABLE[outcome.language]
-        : selfAnswerLine(outcome.language, phoneAsked, options.phoneKnown === true);
+        : selfAnswerLine(outcome.language, phoneAsked, options.phoneKnown === true, await (await import("../messengers/accounts.js")).accountBrandName(options.accountId));
       return { ...channelCoreQualifyResult(outcome, ownTexts), reply: [line], silent: undefined, verified: true };
     }
     // The customer ALWAYS hears the core's approved handover line (the Meta receipt wording), owner 17.11.2026 (review #223

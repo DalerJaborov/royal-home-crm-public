@@ -9,6 +9,7 @@
  */
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { detectClientLanguage } from "./clientLanguage.js";
+import { extractAllPhones } from "../lib/shared/phoneText.js";
 
 export type SelfLang = "ru" | "tg";
 type Pair = Record<SelfLang, string>;
@@ -21,10 +22,19 @@ export const SELF_ASK_PHONE: Pair = {
   ru: "Оставьте, пожалуйста, ваш номер телефона, агент позвонит и всё подробно расскажет.",
   tg: "Рақами телефонатонро нависед, то агенти мо занг занад.",
 };
-/** Номер уже просили в этом разговоре: второй раз не просим, даём телефон офиса (решение 18.11: офис — на «можно позвонить»). */
+/**
+ * Номер уже просили в этом разговоре: второй раз не просим, даём телефон офиса (решение 18.11: офис — на «можно позвонить»).
+ * Это офис Royal Home: аккаунтам другого бренда (Арван) его не называем, пока номера бренда нет в данных (ревью 1b, №10).
+ * tg — «Бемалол» вместо вежливых слов (правило разговорника) + «Занг занед: …» (publicAgencyCallReply).
+ */
 export const SELF_OFFICE: Pair = {
   ru: `Если удобно, позвоните нам: ${PUBLIC_AGENCY_CONTACT.phone}.`,
-  tg: `Агар мувофиқ бошад, занг занед: ${PUBLIC_AGENCY_CONTACT.phone}.`, // (?) «агар мувофиқ бошад» — из правил разговорника, целиком носителем не читано
+  tg: `Бемалол, занг занед: ${PUBLIC_AGENCY_CONTACT.phone}.`,
+};
+/** Номер уже просили, а офиса бренда в данных нет: без номера и без второй просьбы. */
+export const SELF_NO_OFFICE: Pair = {
+  ru: "Спасибо! Вопросы можно писать сюда, мы ответим.",
+  tg: "Раҳмат! Саволҳоро ба ҳамин ҷо нависед.", // (?) «Саволҳоро ба ҳамин ҷо нависед» носителем не читано
 };
 
 /**
@@ -38,15 +48,16 @@ export function selfLanguageOf(text: string): SelfLang {
 
 /**
  * Чистая: безопасная фраза вместо передачи человеку. `phoneAsked` — бот уже просил номер в этом разговоре; `phoneKnown` —
- * номер уже есть (WhatsApp, карточка): второй раз не просим, даём телефон офиса.
+ * номер уже есть (WhatsApp, карточка): второй раз не просим, даём телефон офиса — только своему бренду (`brandName` пуст).
  */
-export function selfAnswerLine(language: SelfLang, phoneAsked: boolean, phoneKnown = false): string {
-  return (phoneAsked || phoneKnown ? SELF_OFFICE : SELF_ASK_PHONE)[language];
+export function selfAnswerLine(language: SelfLang, phoneAsked: boolean, phoneKnown = false, brandName: string | null = null): string {
+  if (!phoneAsked && !phoneKnown) return SELF_ASK_PHONE[language];
+  return (brandName ? SELF_NO_OFFICE : SELF_OFFICE)[language];
 }
 
 /** Все строки двери (сравнение «уже говорили» и сторож повторов). */
 export function selfAnswerLines(): string[] {
-  return [SELF_ASK_PHONE, SELF_OFFICE].flatMap(pair => [pair.ru, pair.tg]);
+  return [SELF_ASK_PHONE, SELF_OFFICE, SELF_NO_OFFICE].flatMap(pair => [pair.ru, pair.tg]);
 }
 
 /**
@@ -55,7 +66,8 @@ export function selfAnswerLines(): string[] {
  */
 export const ATTACHMENT_UNREADABLE: Pair = {
   ru: "Извините, вложение не открылось. Напишите, пожалуйста, текстом или оставьте номер телефона.",
-  tg: "Бубахшед, файл кушода нашуд. Бо матн нависед ё рақами телефонатонро гузоред.", // (?) «ё … гузоред» — сборка двух проверенных фраз
+  // сборка двух фраз разговорника: «Бубахшед, файл кушода нашуд» + «Рақами телефонатонро гузоред» (живой ответ сотрудника)
+  tg: "Бубахшед, файл кушода нашуд. Бо матн нависед ё рақами телефонатонро гузоред.",
 };
 
 /**
@@ -65,8 +77,9 @@ export const ATTACHMENT_UNREADABLE: Pair = {
  */
 export const COMMENT_PHONE_DM: Pair = {
   ru: "Здравствуйте! Спасибо, мы увидели ваш номер под публикацией. Подскажите, что вас интересует: купить, продать недвижимость или работа у нас?",
-  // (?) сборка: «Ассалому алейкум!» + «Ташаккур, рақамро қабул кардем» (80 раз) + вопрос рендера ядра «харид, фурӯши … ё кор» с «хона» вместо «амвол»
-  tg: "Ассалому алейкум! Ташаккур, рақами шуморо дидем. Бигӯед, шуморо чӣ ҷалб мекунад: харид, фурӯши хона ё кор?",
+  // «Ассалому алейкум!» + «Ташаккур, рақамро қабул кардем» (бот, 80 раз) + простой вопрос «харидан / фурӯхтан» (разговорник,
+  // realestate-city «Купить / продать»; ревью 1b, №13 — вместо книжного «шуморо чӣ ҷалб мекунад»)
+  tg: "Ассалому алейкум! Ташаккур, рақамро қабул кардем. Шумо хона харидан мехоҳед ё фурӯхтан?",
 };
 
 /**
@@ -91,7 +104,16 @@ export function commentPhonePublicReply(language: SelfLang, turn: number): strin
  * Комментарий, который модель хотела передать человеку, а бот отвечает сам: публичный шаг к номеру без «в директ».
  * Номер, оставленный в ответ, разберёт дверь номера из комментария (личный ответ + скрытие).
  */
+/**
+ * Чистая: ответ под комментарием, когда бот отвечает сам. Номер уже есть в этом комментарии — не просим его второй раз
+ * (ревью 1b, №8), а благодарим и обещаем звонок (заявку по номеру заводит дверь номера из комментария).
+ */
+export function commentSelfReply(commentText: string): string {
+  const language = selfLanguageOf(commentText);
+  return extractAllPhones(commentText ?? "").length ? COMMENT_PHONE_PUBLIC[0]![language] : COMMENT_SELF_REPLY[language];
+}
+
 export const COMMENT_SELF_REPLY: Pair = {
   ru: "Спасибо за вопрос! Оставьте, пожалуйста, номер телефона, агент позвонит и всё расскажет.",
-  tg: "Ташаккур барои савол! Рақами телефонатонро нависед, то агенти мо занг занад.", // (?) «Ташаккур барои савол» носителем не читано
+  tg: "Раҳмат! Рақами телефонатонро нависед, то агенти мо занг занад.",
 };

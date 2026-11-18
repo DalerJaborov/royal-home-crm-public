@@ -9,7 +9,7 @@
 // with the client's name and a link to the chat, at most once per chat per
 // window. Failing to write is transient (the webhook answers 503 and Meta
 // retries); a scope denial is permanent and is reported without the text.
-import { journalInstead, loadBotAnswersItself, staffSignalAllowed } from "./botAnswersItself.js";
+import { loadBotAnswersItself, staffSignalAllowed } from "./botAnswersItself.js";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { decryptSecret, encryptSecret } from "../crypto.js";
@@ -199,14 +199,10 @@ export async function notifyEscalatedCustomerTurn(input: { conversationId: strin
     // Режим «только заявки» (решение владельца 13.11.2026): до заявки людей не зовут вовсе — ни ботом, ни общими
     // уведомлениями. Сюда это доходит, только если режим включили посреди хода (иначе ответ даёт сам режим).
     if (!chat.clientId && !input.jobTopic && await leadOnlyQuietBeforeLead(input.channel)) return "skipped";
-    // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): без карточки (значит, и без своего агента) руководство не
-    // зовём. Клиент ответа не получил — строка журнала на чат вместо пуша.
+    // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): клиенту уже ушла безопасная строка, а карточки (значит, и
+    // своего агента) нет — руководство не зовём. Клиент ответа не получил — сбой, сигнал как раньше (ревью 1b, №1).
     const signal = { kind: input.answered ? "answered_handover" as const : "unanswered" as const, hasCard: !!chat.clientId };
     if (!input.jobTopic && !staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal })) {
-      if (journalInstead({ on: true, ...signal })) {
-        void logSystemError("ai", `Бот отвечает сам: модель хотела позвать человека, клиенту ответ не ушёл, руководство по настройке не звали. ` +
-          `Откройте переписку ${input.conversationId}.`, { dedupKey: "self-answer-escalated", url: `/messages?open=${input.conversationId}` });
-      }
       return "skipped";
     }
     const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[сообщение без текста]";

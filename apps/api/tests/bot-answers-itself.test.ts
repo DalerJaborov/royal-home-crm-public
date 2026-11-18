@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { journalInstead, staffSignalAllowed, type StaffSignalKind } from "../src/lib/botAnswersItself.js";
+import { staffSignalAllowed, type StaffSignalKind } from "../src/lib/botAnswersItself.js";
 import { clientWaitingSignalKind } from "../src/lib/clientWaitingAlert.js";
 import { channelStaffSignalKind } from "../src/lib/channelStaffAlert.js";
-import { ATTACHMENT_UNREADABLE, COMMENT_PHONE_DM, COMMENT_PHONE_PUBLIC, COMMENT_SELF_REPLY, commentPhonePublicReply, SELF_ASK_PHONE,
-  SELF_OFFICE, selfAnswerLine, selfAnswerLines, selfLanguageOf } from "../src/ai/botSelfAnswerText.js";
+import { ATTACHMENT_UNREADABLE, COMMENT_PHONE_DM, COMMENT_PHONE_PUBLIC, COMMENT_SELF_REPLY, commentPhonePublicReply, commentSelfReply,
+  SELF_ASK_PHONE, SELF_NO_OFFICE, SELF_OFFICE, selfAnswerLine, selfAnswerLines, selfLanguageOf } from "../src/ai/botSelfAnswerText.js";
 import { commentPhoneReplyOf } from "../src/lib/commentPhoneHold.js";
 import { COMMENT_HISTORY_PREFIX, commentPhoneDmInHistory } from "../src/messengers/commentPhoneLead.js";
 import { isDefinitiveSendRejection } from "../src/messengers/meta.js";
@@ -19,13 +19,13 @@ describe("staffSignalAllowed — таблица сигналов", () => {
     for (const kind of kinds) expect(staffSignalAllowed({ on: false, kind })).toBe(true);
   });
 
-  it("ВКЛ: чат без карточки и без своего агента — «передал/уточнит», выбор бота и «без ответа» руководству не идут", () => {
+  it("ВКЛ: чат без карточки и без своего агента — «передал/уточнит» и выбор бота руководству не идут", () => {
     expect(staffSignalAllowed({ on: true, kind: "answered_handover" })).toBe(false);
     expect(staffSignalAllowed({ on: true, kind: "bot_choice" })).toBe(false);
-    expect(staffSignalAllowed({ on: true, kind: "unanswered" })).toBe(false);
   });
 
-  it("ВКЛ: техсбой — всегда; агенту о ЕГО клиенте — всегда; карточка (заявка) без агента — всегда", () => {
+  it("ВКЛ: клиент совсем без ответа — сбой, сигнал всегда (ревью 1b, №1); техсбой — всегда; агенту о ЕГО клиенте и карточка без агента — всегда", () => {
+    expect(staffSignalAllowed({ on: true, kind: "unanswered" })).toBe(true);
     expect(staffSignalAllowed({ on: true, kind: "technical" })).toBe(true);
     for (const kind of kinds) {
       expect(staffSignalAllowed({ on: true, kind, ownAgent: true })).toBe(true);
@@ -33,13 +33,6 @@ describe("staffSignalAllowed — таблица сигналов", () => {
     }
   });
 
-  it("ВКЛ: клиент без ответа — строка журнала вместо пуша; бот ответил сам — ни пуша, ни журнала", () => {
-    expect(journalInstead({ on: true, kind: "unanswered" })).toBe(true);
-    expect(journalInstead({ on: true, kind: "answered_handover" })).toBe(false);
-    expect(journalInstead({ on: true, kind: "bot_choice" })).toBe(false);
-    expect(journalInstead({ on: true, kind: "unanswered", ownAgent: true })).toBe(false);
-    expect(journalInstead({ on: false, kind: "unanswered" })).toBe(false);
-  });
 });
 
 describe("виды сигналов в дверях", () => {
@@ -90,7 +83,9 @@ describe("фразы «бот отвечает сам» и номера из к�
       expect(line).not.toMatch(/нависед|напишите.*номер|оставьте.*номер|аренд|иҷора/iu);
     }
     expect(COMMENT_PHONE_DM.ru).toMatch(/^Здравствуйте!.*увидели ваш номер.*купить, продать.*работа/su);
-    expect(COMMENT_PHONE_DM.tg).toMatch(/^Ассалому алейкум!.*рақами шуморо дидем.*харид, фурӯши хона ё кор\?$/su);
+    // Простой вопрос из разговорника вместо книжного «шуморо чӣ ҷалб мекунад» (ревью 1b, №13).
+    expect(COMMENT_PHONE_DM.tg).toBe("Ассалому алейкум! Ташаккур, рақамро қабул кардем. Шумо хона харидан мехоҳед ё фурӯхтан?");
+    expect(COMMENT_PHONE_DM.tg).not.toMatch(/ҷалб/u);
   });
 
   it("безопасная фраза ведёт к номеру; номер уже просили или он известен — телефон офиса, второй просьбы нет", () => {
@@ -98,6 +93,18 @@ describe("фразы «бот отвечает сам» и номера из к�
     expect(selfAnswerLine("ru", true)).toBe(SELF_OFFICE.ru);
     expect(selfAnswerLine("ru", false, true)).toBe(SELF_OFFICE.ru);
     expect(SELF_OFFICE.ru).toContain("+992 44 650 14 14");
+  });
+
+  it("телефон офиса Royal Home — только своему бренду: аккаунту Арвана номер не называем (ревью 1b, №10)", () => {
+    expect(selfAnswerLine("tg", true, false, "Арван")).toBe(SELF_NO_OFFICE.tg);
+    expect(selfAnswerLine("ru", false, true, "Арван")).toBe(SELF_NO_OFFICE.ru);
+    expect(SELF_NO_OFFICE.ru + SELF_NO_OFFICE.tg).not.toMatch(/\d{3}/u);
+    expect(selfAnswerLine("ru", false, false, "Арван")).toBe(SELF_ASK_PHONE.ru);
+  });
+
+  it("под постом номер уже оставлен — второй раз его не просим (ревью 1b, №8)", () => {
+    expect(commentSelfReply("Документы в порядке? 900123456")).toBe(COMMENT_PHONE_PUBLIC[0]!.tg);
+    expect(commentSelfReply("Скажите, пожалуйста, документы на эту квартиру в порядке?")).toBe(COMMENT_SELF_REPLY.ru);
   });
 
   it("язык готовой фразы: русский — только явно русский текст; номер без слов и таджикский — по-таджикски", () => {

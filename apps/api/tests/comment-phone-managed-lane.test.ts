@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Комментарий на «управляемой» ветке ядра (lane managed): номер тоже становится заявкой (17.11.2026). Без базы. */
 const mocks = vi.hoisted(() => ({
-  lane: vi.fn(), prepare: vi.fn(), finish: vi.fn(), createLead: vi.fn(), findOwners: vi.fn(), log: vi.fn(),
+  lane: vi.fn(), prepare: vi.fn(), finish: vi.fn(), createLead: vi.fn(), findOwners: vi.fn(), log: vi.fn(), claim: vi.fn(),
 }));
 vi.mock("../src/db.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/db.js")>()), prisma: { $disconnect: async () => undefined },
+  ...(await importOriginal<typeof import("../src/db.js")>()), prisma: { $executeRaw: mocks.claim,
+    processedMessage: { deleteMany: async () => ({ count: 0 }) }, $disconnect: async () => undefined },
 }));
 vi.mock("../src/lib/customerPublicAgentTurn.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/customerPublicAgentTurn.js")>()),
@@ -36,14 +37,16 @@ beforeEach(() => {
   mocks.finish.mockResolvedValue(true);
   mocks.findOwners.mockResolvedValue([]);
   mocks.createLead.mockResolvedValue({ clientId: "c", created: true });
+  mocks.claim.mockResolvedValue(1);
 });
 
 describe("handleComment, lane managed", () => {
-  it("номер в комментарии — заявка; повтор при известном номере дубля не даёт", async () => {
+  it("номер в комментарии — заявка с пометкой «комментарий ведёт ядро»; повтор разбора того же комментария дубля не даёт", async () => {
     expect(await handleComment(row("Нарх чанд? 900000001"))).toBe("skipped");
     expect(mocks.createLead).toHaveBeenCalledTimes(1);
     expect(mocks.createLead.mock.calls[0]![0]).toMatchObject({ phone: "+992900000001" });
-    mocks.findOwners.mockResolvedValue([{ id: "c", deletedAt: null }]);
+    expect(mocks.createLead.mock.calls[0]![0].requirementsNotes).toMatch(/комментарий ведёт ядро/);
+    mocks.claim.mockResolvedValue(0);
     await handleComment(row("Нарх чанд? 900000001"));
     expect(mocks.createLead).toHaveBeenCalledTimes(1);
   });

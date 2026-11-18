@@ -33,7 +33,7 @@ import { createLeadFromCommentPhone } from "./commentPhoneLead.js";
 /** Пометка карточке по номеру из обсуждения Telegram (18.11.2026): личного разговора бот не ведёт, комментарий не удаляем. */
 const TG_COMMENT_PHONE_NOTE = "Номер из комментария в обсуждении Telegram: бот не спросил, что нужно — позвоните и узнайте.";
 import { loadBotAnswersItself } from "../lib/botAnswersItself.js";
-import { COMMENT_SELF_REPLY, selfLanguageOf } from "../ai/botSelfAnswerText.js";
+import { commentSelfReply } from "../ai/botSelfAnswerText.js";
 import { resolveTelegramCommentProperty } from "../lib/propertyVoice/commentProperty.js";
 import { commentDecisionProviderSchema, type CommentDecision } from "@royal-home/shared";
 import { commentDecisionCapabilities, validateCommentDecision } from "../ai/commentDecision.js";
@@ -446,7 +446,8 @@ export async function handleTelegramComment(
    * молчание номер не уносило, а здесь уносило.
    */
   if (screen.action === "silent") {
-    await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
+    // id сообщения уникален только внутри группы: ключ повтора — группа + сообщение (ревью 1b).
+    await createLeadFromCommentPhone({ ...row, commentId: `${groupChatId}:${row.messageId}`, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
     await finish(row.id, { status: "SKIPPED", note: screen.reason.slice(0, 120) });
     return "skipped";
   }
@@ -458,7 +459,8 @@ export async function handleTelegramComment(
       `Комментатор ${row.authorName ? `@${row.authorName}` : row.authorId} упёрся в суточный потолок ходов ИИ ` +
         `под постами Telegram — бот больше не отвечает ему сегодня.`
     );
-    await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
+    // id сообщения уникален только внутри группы: ключ повтора — группа + сообщение (ревью 1b).
+    await createLeadFromCommentPhone({ ...row, commentId: `${groupChatId}:${row.messageId}`, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
     await finish(row.id, { status: "SKIPPED", note: "ai_budget" });
     return "skipped";
   }
@@ -508,7 +510,8 @@ export async function handleTelegramComment(
 
   // Живой человек (не спам, не конкурент, не собственник): номер из комментария — заявкой,
   // что бы ни решила модель дальше (ответить, промолчать, позвать человека), 17.11.2026.
-  await createLeadFromCommentPhone({ ...row, commentId: row.messageId, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
+  // id сообщения уникален только внутри группы: ключ повтора — группа + сообщение (ревью 1b).
+    await createLeadFromCommentPhone({ ...row, commentId: `${groupChatId}:${row.messageId}`, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
 
   // «Бот отвечает сам» (владелец 18.11.2026, lib/botAnswersItself.ts): человека не зовём, отвечаем в обсуждении сами —
   // ответ модели, если он есть, иначе шаг к номеру (ai/botSelfAnswerText.ts).
@@ -518,7 +521,7 @@ export async function handleTelegramComment(
     await finish(row.id, { status: "ESCALATED", note: decision.reason?.slice(0, 200) });
     return "escalated";
   }
-  if (selfAnswer && !decision.reply?.trim()) decision = { ...decision, reply: COMMENT_SELF_REPLY[selfLanguageOf(row.text)] };
+  if (selfAnswer && !decision.reply?.trim()) decision = { ...decision, reply: commentSelfReply(row.text) };
 
   if (decision.action === "ignore" || !decision.reply?.trim()) {
     await finish(row.id, { status: "SKIPPED", note: "ignore" });
