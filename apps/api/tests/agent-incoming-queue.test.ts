@@ -55,7 +55,9 @@ const {
   checkIncomingReadiness,
   ensureAgentsInIncomingQueue,
   describeNewAgentQueueOutcome,
+  reconcileIncomingQueue,
 } = await import("../src/lib/telephony/agentIncomingReadiness.js");
+const { waitFor, waitForSettled } = await import("./helpers/waitFor.js");
 
 const runId = Date.now();
 const agentIds: string[] = [];
@@ -285,6 +287,40 @@ describe("Сверка и починка", () => {
         where: { id: agentIds[0] },
         data: { takesUnknownCalls: true },
       });
+    }
+  });
+
+  it("«оператор не назначен»: в режиме очереди — одна строка; приём на аппарат — тревоги нет, открытые закрываются", async () => {
+    stationOk = true;
+    stationMembers = [member("1000", "1004"), member("1000", "1007"), member("1000", "1008")];
+    const before = await prisma.settings.findUniqueOrThrow({
+      where: { id: "singleton" },
+      select: { incomingPrimaryTarget: true, incomingPrimaryExtension: true },
+    });
+    const alarms = { source: "telephony", message: { startsWith: "Оператор приёма не назначен" } };
+    const open = () => prisma.errorLog.count({ where: { ...alarms, resolvedAt: null } });
+    await prisma.errorLog.deleteMany({ where: alarms });
+    await prisma.agent.updateMany({ where: { id: { in: agentIds } }, data: { takesUnknownCalls: false } });
+    try {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { incomingPrimaryTarget: "queue", incomingPrimaryExtension: null } });
+      await reconcileIncomingQueue();
+      await waitFor(async () => (await open()) === 1, { label: "тревога «оператор не назначен»" });
+      // Следующий обход через 15 минут — без второй строки.
+      await reconcileIncomingQueue();
+      expect(await waitForSettled(open)).toBe(1);
+
+      // Строка старого вида (без ключа), как висят на проде.
+      await prisma.errorLog.create({
+        data: { source: "telephony", message: "Оператор приёма не назначен ни одному сотруднику: звонки незнакомых номеров идут по-старому. Старая строка." },
+      });
+      await prisma.settings.update({ where: { id: "singleton" }, data: { incomingPrimaryTarget: "extension", incomingPrimaryExtension: "2020" } });
+      await reconcileIncomingQueue();
+      expect(await open()).toBe(0);
+      expect(await prisma.errorLog.count({ where: alarms })).toBe(2);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: before });
+      await prisma.agent.updateMany({ where: { id: agentIds[0] }, data: { takesUnknownCalls: true } });
+      await prisma.errorLog.deleteMany({ where: alarms });
     }
   });
 
