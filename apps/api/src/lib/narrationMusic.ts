@@ -128,6 +128,26 @@ export function musicBedFilter(durationSec: number): string {
   return `[1:a]atrim=0:${durationSec.toFixed(3)},asetpts=N/SR/TB,${MUSIC_BED.loudness},aformat=sample_rates=48000:channel_layouts=stereo,afade=t=out:st=${start.toFixed(3)}:d=${fade.toFixed(3)}[music]`;
 }
 
+/**
+ * ЧИСТАЯ КАРТИНКА — ОСНОВА ВСЕХ ПЕРЕМОНТАЖЕЙ СВОЕЙ МУЗЫКОЙ (ревью 18.11). Первый перемонтаж сохраняет картинку
+ * ролика монтажёра (без звука, копией) мастером с отметкой MUSIC_BASE; каждый следующий строит ролик из неё,
+ * а не из прошлого результата CRM. Иначе плашка с ценой и субтитры ложились бы поверх прежних, а файл
+ * монтажёра пропадал бы после первой подмены.
+ */
+export const MUSIC_BASE_SOURCE = "MUSIC_BASE";
+export async function buildPictureBase(input: { clipPath: string; outPath: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await runFfmpeg({ args: ["-y", "-hide_banner", "-loglevel", "error", "-i", input.clipPath, "-map", "0:v:0", "-an", "-c:v", "copy", "-movflags", "+faststart", input.outPath],
+      timeoutMs: 120_000, label: "чистая картинка ролика" });
+  } catch (err) {
+    await fs.promises.rm(input.outPath, { force: true }).catch(() => {});
+    return { ok: false, error: `ffmpeg не смог сохранить картинку ролика: ${err instanceof Error ? err.message.slice(0, 300) : String(err)}` };
+  }
+  const info = await probeMediaInfo(input.outPath);
+  if (!info?.hasVideo) return { ok: false, error: "Картинка ролика не читается как видео." };
+  return { ok: true };
+}
+
 export type MusicBedResult = { ok: true; durationSec: number } | { ok: false; error: string };
 export async function buildMusicBed(input: { clipPath: string; trackPath: string; outPath: string }): Promise<MusicBedResult> {
   const clip = await probeMediaInfo(input.clipPath);

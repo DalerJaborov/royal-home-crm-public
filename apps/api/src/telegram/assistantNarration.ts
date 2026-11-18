@@ -125,7 +125,7 @@ export async function notifyNarrationApproval(versionId: string): Promise<void> 
 type ApprovalReason = "ready" | "backfill" | "remind" | "escalate";
 async function notifyNarrationApprovalTo(versionId: string, recipientId: string | null, reason: ApprovalReason): Promise<boolean> {
   const version = await prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, include: { property: { select: {
-    id: true, shortId: true, assignedAgentId: true, intakeAgentId: true, createdById: true, videoHandoffStatus: true, videoMasterStorageKey: true, publishedChannels: true, instagramUrl: true } } } });
+    id: true, shortId: true, assignedAgentId: true, intakeAgentId: true, createdById: true, videoHandoffStatus: true, videoMasterStorageKey: true, videoMasterSource: true, publishedChannels: true, instagramUrl: true } } } });
   if (!version || version.status !== "READY" || !version.storageKey) return false;
   const p = version.property;
   const ownerAgentId = p.assignedAgentId ?? p.intakeAgentId ?? p.createdById;
@@ -137,7 +137,9 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
   const remade = p.videoHandoffStatus === "RECEIVED";
   // Звук в вышедшем ролике меняет CRM: есть ролик без голоса, или вышедший ролик и своя музыка (18.11.2026).
   const { config } = await loadNarrationConfiguration();
-  const crmVoice = !!p.videoMasterStorageKey || (isPublishedClip(p) && await ownMusicReady(config));
+  // Мастер машины и чистая картинка своей музыки — не ролик без голоса от монтажёра (ревью 18.11).
+  const editorMaster = !!p.videoMasterStorageKey && p.videoMasterSource !== "MACHINE" && p.videoMasterSource !== "MUSIC_BASE";
+  const crmVoice = editorMaster || (isPublishedClip(p) && await ownMusicReady(config));
   const ownerName = reason === "escalate" && ownerAgentId ? (await prisma.agent.findUnique({ where: { id: ownerAgentId }, select: { fullName: true } }))?.fullName ?? "Агент" : "Агент";
   const feed = {
     // Вид «Задачи»: агент может выключить такие пуши в своих настройках уведомлений.

@@ -13966,7 +13966,7 @@
 - если unreadable
   - return res.status(409).json({ error: "Сохранённые настройки озвучки не читаются, поэтому сохранение остановле…
     · ответ 409 — «Сохранённые настройки озвучки не читаются, поэтому сохранение…»
-- const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…
+- const parsed = narrationConfigSchema.safeParse(since ? { ...withoutSince, ownMusicRemixSince: since } : witho…
   · проверяет данные схемой narrationConfigSchema
 - если !parsed.success
   - return res.status(400).json({ error: "Проверьте модель и список голосов", details: parsed.error.flatten() });
@@ -23367,6 +23367,8 @@
       · запись в журнал ошибок
       - void logSystemError("telegram", `Озвучка: напоминания об одобрении не ушли: ${err instanceof Error ? err.mess…
         · запись в журнал ошибок
+  - report.remixed = await remixFromMasters();
+    · зовёт remixFromMasters()
 
 ### narration-preview-due — * * * * *
 

@@ -83,7 +83,7 @@ export function NarrationSettingsPanel() {
         <Check checked={autoGenerate ?? !!config.autoGenerate} onChange={setAutoGenerate}>Автоозвучка: аудио готовится само после создания объекта и после правки его данных, агент слушает и одобряет</Check>
         <Check checked={mixByCrm ?? config.mixByCrm === true} onChange={setMixByCrm}>Голос накладывает CRM: монтажёр присылает только ролик без голоса. Выключено: монтажёр вклеивает mp3 сам</Check>
         <Check checked={previewBefore ?? config.previewBeforeRepublish !== false} onChange={setPreviewBefore}>Новую озвучку на вышедший ролик сначала слушает агент объекта: новый ролик ждёт его решения и выходит сам, если он не ответил. Выключено: новый ролик сразу заменяет вышедший</Check>
-        <Check checked={textOverlay ?? config.textOverlay === true} onChange={setTextOverlay}>Цену и субтитры на ролике рисует CRM: при смене цены новый ролик получает новую плашку с ценой и субтитры по тексту озвучки. Монтажёру цену в ролик не вписывать</Check>
+        <Check checked={textOverlay ?? config.textOverlay === true} onChange={setTextOverlay}>Цену и субтитры на ролике рисует CRM: при перемонтаже CRM сама кладёт плашку с ценой из карточки и субтитры по тексту озвучки</Check>
         <Check checked={backfill ?? config.backfillMontageQueue === true} onChange={setBackfill}>Озвучка к роликам, которые уже в монтаже: готовить по шаблону и голосу по умолчанию, одобряет владелец</Check>
         <Check checked={monthlyPreview ?? !!config.ownerReportPreviewEnabled} onChange={setMonthlyPreview}>Готовить черновик каждого месяца для уже согласованных отчётов собственнику. SMS не отправлять</Check>
       </fieldset>

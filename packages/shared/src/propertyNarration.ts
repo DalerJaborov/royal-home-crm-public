@@ -120,6 +120,9 @@ const narrationConfigBase = z.object({
    *  поменялась — CRM снимает со старого ролика весь звук и кладёт случайный трек библиотеки (Настройки → Озвучка)
    *  и новый голос. По умолчанию ВЫКЛЮЧЕН: треки подбирает владелец; выключен или треков нет — монтажёру. */
   ownMusicRemix: z.boolean().optional(),
+  /** Когда «своя музыка» включена (ставит сервер при включении, ревью 18.11): сама CRM перемонтирует только
+   *  озвучки, одобренные ПОСЛЕ этого момента — без волны перевыпуска старых роликов. Экран это поле не шлёт. */
+  ownMusicRemixSince: z.string().datetime().optional(),
   /** Рубильник (18.11.2026, «изменяемый текст на ролике»): при каждой сборке ролика CRM сама рисует плашку с ценой из
    *  карточки объекта и субтитры по тексту озвучки (lib/video/narrationOverlay.ts). По умолчанию ВЫКЛЮЧЕН. */
   textOverlay: z.boolean().optional(),
@@ -196,6 +199,17 @@ export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): bo
 /** Цена и субтитры на ролике рисует CRM (18.11.2026): только если руководство включило. */
 export function narrationTextOverlay(config: Pick<NarrationConfig, "textOverlay">): boolean {
   return config.textOverlay === true;
+}
+
+/**
+ * Момент включения «своей музыки» при сохранении настроек (ревью 18.11): включили сейчас — сейчас; уже было
+ * включено — прежний момент; выключили — нет момента. Присланное с экрана значение не принимается.
+ */
+export function ownMusicRemixSinceAfterSave(prev: Pick<NarrationConfig, "ownMusicRemix" | "ownMusicRemixSince">,
+  next: Pick<NarrationConfig, "ownMusicRemix">, now: Date): string | undefined {
+  if (next.ownMusicRemix !== true) return undefined;
+  if (prev.ownMusicRemix === true && prev.ownMusicRemixSince) return prev.ownMusicRemixSince;
+  return now.toISOString();
 }
 
 /** Своя музыка при перемонтаже (18.11.2026): только если руководство включило. */
