@@ -64,20 +64,20 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
       <legend className="sr-only">Голос</legend>
       {groups.map(([label, list]) => list.length > 0 && (
         <div key={label ?? "other"} className="space-y-1">
-          {label && <p className="text-sm text-[var(--muted)]">{label}</p>}
+          {label && <p className="text-[15px] text-[var(--muted)]">{label}</p>}
           {/* Плитки (14.11.2026): два в ряд на телефоне, четыре на ПК; вся плитка — выбор, кнопка — прослушать. */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-3">
             {list.map((voice) => {
               const on = value === voice.id;
               return (
-                <div key={voice.id} className={`flex min-w-0 flex-col gap-2 rounded-xl border p-2 ${on ? "border-blue bg-blue/10" : "border-line"}`}>
-                  <label className="flex min-w-0 cursor-pointer items-center gap-2 text-sm">
+                <div key={voice.id} className={`flex min-w-0 flex-col gap-2 rounded-2xl border-2 p-3 ${on ? "border-blue bg-blue/10" : "border-line"}`}>
+                  <label className="flex min-h-12! min-w-0 cursor-pointer items-center gap-2 text-[17px]">
                     <input type="radio" name={name} value={voice.id} checked={on} onChange={() => onChange(voice.id)} />
                     <span className="truncate font-medium">{voice.name}</span>
                   </label>
-                  {lastPickedId === voice.id && <span className="text-sm text-[var(--muted)]">последний раз выбран</span>}
+                  {lastPickedId === voice.id && <span className="text-[15px] text-[var(--muted)]">последний раз выбран</span>}
                   {has.has(voice.id) && (
-                    <button type="button" className="pill sm" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
+                    <button type="button" className="pill min-h-12! text-base!" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
                       onClick={() => void play(voice)}>
                       {playing === voice.id ? "■ Стоп" : "▶ Прослушать"}
                     </button>
@@ -88,7 +88,7 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
           </div>
         </div>
       ))}
-      {error && <p className="text-sm text-red-700" role="status">{error}</p>}
+      {error && <p className="text-base text-red-700" role="status">{error}</p>}
     </fieldset>
   );
 }
