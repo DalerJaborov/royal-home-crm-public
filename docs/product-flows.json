@@ -132701,7 +132701,7 @@
           },
           {
            "k": "do",
-           "t": "const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId };",
+           "t": "const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId, phoneK…",
            "a": [
             "зовёт channelStaffSignalKind()"
            ],

@@ -29444,7 +29444,7 @@
       - если !chat || chat.client?.deletedAt
         - return "excluded";
           · дословно из кода
-      - const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId };
+      - const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId, phoneK…
         · зовёт channelStaffSignalKind()
       - если !staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...si…
         - return "self";
