@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { expectNoOverflowAt } from "./helpers/noOverflow";
 
 /**
  * «НОВЫЙ ВИД» (облик royal) — сторож вёрстки и закрытости по умолчанию.
@@ -23,13 +24,9 @@ test("новый вид: главная без горизонтальной пр
   await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
   await expect(page.locator(".ry-today")).toBeVisible();
   for (const width of WIDTHS) {
-    await page.setViewportSize({ width, height: 900 });
-    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
-      { message: `горизонтальная прокрутка на ${width}px` }).toBeLessThanOrEqual(0);
-    // Шапка и полоса плиток не шире окна.
-    const overflow = await page.evaluate(() => [...document.querySelectorAll(".clean-header, .ry-strip, .ry-blocks")]
-      .map((node) => node.getBoundingClientRect().right).filter((right) => right > window.innerWidth + 1));
-    expect(overflow, `элементы шире окна на ${width}px`).toEqual([]);
+    // Шапка, полоса плиток и блоки не шире окна и не обрезаны краем рамки оболочки,
+    // которая прокручивается сама и прячет вылет от scrollWidth (helpers/noOverflow.ts).
+    await expectNoOverflowAt(page, width, ".clean-header, .ry-strip, .ry-strip > *, .ry-blocks, .ry-blocks > *");
   }
 });
 

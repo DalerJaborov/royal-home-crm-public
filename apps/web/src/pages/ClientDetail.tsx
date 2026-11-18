@@ -48,6 +48,7 @@ import { canCallOnTransferredCard, transferBannerOf } from "../lib/clientTransfe
 import {
   clientKindLabel,
   CLIENT_KIND_LABELS,
+  CLIENT_SOURCE_LABELS,
   formatClientCode,
   formatClientName,
   matchScoreBand,
@@ -68,6 +69,9 @@ import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTabs, cleanClientDetailScale, cleanClientPanelProps, cleanClientShowsPanel } from "../components/clean/CleanClientDetailLayout";
 import { MobileClientCard } from "../components/mobile/MobileClientCard";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalClientFacts, RoyalClientTabs, type RoyalClientFact } from "../components/look/clients/RoyalClients";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
 import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
 import { ClientBuyerRequirementsEditor } from "../components/ClientBuyerRequirementsEditor";
@@ -173,6 +177,8 @@ function ClientDetailCard() {
    */
   const mobile = useMobileUx();
   const clean = useCleanShell();
+  // «Новый вид»: меняются только вкладки (разметка) и оформление слоя, функции те же.
+  const royal = useRoyalLook() && clean;
   // Роут теперь короткий числовой shortId (/clients/1042) — все мутации ниже адресуют
   // настоящий UUID с уже загруженной карточки, а не парсят его заново из URL.
   const updateClient = useUpdateClient(client?.id ?? "");
@@ -651,6 +657,13 @@ function ClientDetailCard() {
     `Последний контакт ${relativeTime(client.lastContactAt)}`,
     client.assignedAgent ? `Агент ${client.assignedAgent.fullName}` : "Агент не назначен",
   ].join(". ");
+  /** «Новый вид»: те же сведения короткими фактами со значками + источник (в строке списка на телефоне его нет). */
+  const headFacts: RoyalClientFact[] = [
+    { icon: "calendar-days", text: dushanbeDate(client.createdAt, { day: "numeric", month: "long" }), label: `Пришёл ${dushanbeDate(client.createdAt, { day: "numeric", month: "long" })}` },
+    { icon: "clock", text: relativeTime(client.lastContactAt), label: `Последний контакт ${relativeTime(client.lastContactAt)}` },
+    { icon: "users", text: client.assignedAgent?.fullName ?? "Агент не назначен", label: client.assignedAgent ? `Агент ${client.assignedAgent.fullName}` : "Агент не назначен" },
+    ...(client.source ? [{ icon: "inbox" as const, text: CLIENT_SOURCE_LABELS[client.source] ?? client.source, label: `Откуда пришёл: ${CLIENT_SOURCE_LABELS[client.source] ?? client.source}` }] : []),
+  ];
 
   /**
    * «Решить сейчас» — только то, на что у человека есть право и эндпоинт
@@ -1486,7 +1499,10 @@ function ClientDetailCard() {
   }
 
   return (
-    <div className="rh2 screens">
+    // «Новый вид»: метка раздела на карточке и на всех её окнах (порталы Rh2Portal
+    // берут её из RoyalSection) — слой theme-look-royal-clients.css действует только на неё.
+    <RoyalSection name={royal ? "clients" : undefined}>
+    <div className="rh2 screens" data-ry-section={royal ? "clients" : undefined}>
       <div className={clean ? "scr clean-client-detail" : "scr"} style={clean ? cleanClientDetailScale : undefined}>
         <div className="wrap" style={{ marginBottom: 4 }}>
           {/* Прототип рисует крошку строкой `.lk mut` со стрелкой; на широком
@@ -1523,11 +1539,13 @@ function ClientDetailCard() {
         {/* Шапка: аватар, имя, плашки, агент */}
         <CleanClientDetailHeader enabled={clean}>
           <div className={mobile ? "cd-h cd-h-m" : "cd-h"} style={clean ? { display: "grid", gridTemplateColumns: "64px minmax(0, 1fr)", gap: 16, alignItems: "start", textAlign: "left" } : undefined}>
-            <span className={mobile ? "av lg" : "av xl"} style={clean ? { width: 64, height: 64 } : undefined}>
+            <span className={mobile ? "av lg" : "av xl"} style={royal ? { width: 56, height: 56 } : clean ? { width: 64, height: 64 } : undefined}>
               <ClientAvatar
                 fullName={client.fullName}
                 avatarUrl={client.avatarUrl}
-                size={mobile ? 56 : clean ? 64 : 96}
+                size={royal ? 56 : mobile ? 56 : clean ? 64 : 96}
+                // Новый вид: круг без кольца пола, как в строке списка (пол остаётся в подписи для чтеца).
+                palette={royal ? "tokens" : undefined}
               />
             </span>
             <div className="who">
@@ -1598,7 +1616,9 @@ function ClientDetailCard() {
                       </span>
                     )}
                   </div>
-                  <p className="sub" style={clean ? { fontSize: 14, lineHeight: 1.6, margin: 0 } : undefined}>{headSub}</p>
+                  {royal
+                    ? <RoyalClientFacts facts={headFacts} />
+                    : <p className="sub" style={clean ? { fontSize: 14, lineHeight: 1.6, margin: 0 } : undefined}>{headSub}</p>}
             </div>
             {!mobile && (
               <div className="acts" style={clean ? { gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "flex-start" } : undefined}>
@@ -1725,7 +1745,8 @@ function ClientDetailCard() {
             телефоне — плоский стек секций (макет c99db05f), gating по `tab`
             снят полностью для mobile, все пять блоков видны подряд. */}
         <div className={clean ? "card clean-client-sections" : "card"} ref={tabsCardRef} style={clean ? { border: 0, padding: 24 } : undefined}>
-          {clean ? <CleanClientDetailTabs value={tab} onChange={setTab} objectsLabel={buys ? "Отправки и показы" : "Показы"} /> : !mobile && (
+          {royal ? <RoyalClientTabs value={tab} onChange={setTab} objectsLabel={buys ? "Отправки и показы" : "Показы"} />
+            : clean ? <CleanClientDetailTabs value={tab} onChange={setTab} objectsLabel={buys ? "Отправки и показы" : "Показы"} /> : !mobile && (
             <div className="tabs" role="tablist" aria-label="Разделы карточки">
               {tabs.map((t) => (
                 <button
@@ -1921,6 +1942,7 @@ function ClientDetailCard() {
 
       {sharedModals}
     </div>
+    </RoyalSection>
   );
 }
 

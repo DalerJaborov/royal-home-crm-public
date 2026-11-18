@@ -26,6 +26,7 @@ import type { PropertyMapExplorerHandle } from "../components/PropertyMapExplore
 import { savePendingMapPin } from "../lib/pendingMapPin";
 import { ObjectsTabs } from "../components/SectionTabs";
 import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { createLatestRequest } from "../lib/latestRequest";
 import { mapCardFacts } from "../lib/mapCardFacts";
 
@@ -721,7 +722,8 @@ export function PropertiesMap() {
   );
 
   return (
-    <Rh2Screen className={royal ? "ry-objects-page ry-objects-map" : undefined} section={royal ? "objects" : undefined}>
+    <RoyalSection name={royal ? "objects" : undefined}>
+    <Rh2Screen className={royal ? "ry-objects-page ry-objects-map" : undefined}>
       <div className="pg-h">
         <div>
           <h1>Карта объектов</h1>
@@ -770,5 +772,6 @@ export function PropertiesMap() {
       )}
 
     </Rh2Screen>
+    </RoyalSection>
   );
 }

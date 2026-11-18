@@ -64,7 +64,6 @@ export function Rh2Sheet({
   closeLabel,
   layer,
   className,
-  section,
 }: {
   /** По умолчанию окно открыто: большинство окон CRM монтируются уже открытыми. */
   open?: boolean;
@@ -115,8 +114,6 @@ export function Rh2Sheet({
    */
   layer?: "above-incoming" | "above-chat";
   className?: string;
-  /** «Новый вид»: метка раздела (data-ry-section) — слой раздела оформляет только свои шторки, не чужие. */
-  section?: string;
 }) {
   const mobile = useMobileUx();
   const swipe = useSwipeToDismiss(open && mobile && dismissible, onClose);
@@ -170,7 +167,6 @@ export function Rh2Sheet({
         aria-modal="true"
         aria-label={ariaLabel ?? (typeof title === "string" ? title : undefined)}
         data-no-sheet=""
-        data-ry-section={section}
         className={`sheet ${mobile ? "bottom" : "right"}${layer ? ` ${layer}` : ""}${className ? ` ${className}` : ""}`}
         style={wide && !mobile ? { width: "min(980px, calc(100vw - 20px))" } : undefined}
         onSubmit={(e) => {

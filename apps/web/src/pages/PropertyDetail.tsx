@@ -1,5 +1,6 @@
 import { useCleanShell } from "../hooks/useCleanShell";
 import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalObjectBack, RoyalPropertySummary } from "../components/look/objects/RoyalPropertySummary";
 import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
 import { CleanPropertyDetailHeader, CleanPropertyDetailLayout, CleanPropertyDetailSkeleton, CleanPropertySlot, CleanPropertySummary, cleanPropertyDetailScale } from "../components/clean/CleanPropertyDetailLayout";
@@ -878,8 +879,10 @@ function PropertyViewCard({
     />;
   }
 
+  // Метка раздела «Объекты» (data-ry-section) — экран и все окна, открытые из него; без признака вида пусто.
   return (
-    <Rh2Screen title={`Объект №${property.shortId}`} back="/properties" actions={headerActions} className={royal ? "ry-object-page" : undefined} section={royal ? "objects" : undefined}>
+    <RoyalSection name={royal ? "objects" : undefined}>
+    <Rh2Screen title={`Объект №${property.shortId}`} back="/properties" actions={headerActions} className={royal ? "ry-object-page" : undefined}>
       <MutationError mutation={updateProperty} fallback="Не удалось сохранить изменение" />
       {trashedNotice}
 
@@ -1055,9 +1058,9 @@ function PropertyViewCard({
 
       {matchDialog}
       {showingOpen && <ShowingQuickForm clean={clean} initialPropertyId={property.id} onClose={() => setShowingOpen(false)} />}
-      {editMenuOpen && <PropertyActionSheet title="Изменить" items={editItems} onClose={() => setEditMenuOpen(false)} section={royal ? "objects" : undefined} />}
+      {editMenuOpen && <PropertyActionSheet title="Изменить" items={editItems} onClose={() => setEditMenuOpen(false)} />}
       {moreOpen && (
-        <PropertyActionSheet title="Ещё" items={moreItems} onClose={() => setMoreOpen(false)} section={royal ? "objects" : undefined}>
+        <PropertyActionSheet title="Ещё" items={moreItems} onClose={() => setMoreOpen(false)}>
           {property.siteUrl && (
             <div className="rh-sheet-share">
               <PropertyShareLink className="pill soft" label="Поделиться ссылкой" property={property} />
@@ -1082,6 +1085,7 @@ function PropertyViewCard({
       {deleteDialog}
       {requestDeleteDialog}
     </Rh2Screen>
+    </RoyalSection>
   );
 }
 

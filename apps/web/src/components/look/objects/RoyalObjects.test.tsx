@@ -9,6 +9,7 @@ import { RoyalPropertySummary, royalPropertyFacts } from "./RoyalPropertySummary
 import { RoyalObjectsHead } from "./RoyalObjectsHead";
 import { toneFromChipClass, toneFromChipTone } from "./objectTone";
 import { Rh2Screen } from "../../rh2/Rh2Screen";
+import { RoyalSection } from "../clients/RoyalSection";
 
 /**
  * «Новый вид», раздел «Объекты»: та же строка каталога и тот же главный блок
@@ -137,8 +138,8 @@ describe("royal tone mapping", () => {
 });
 
 describe("section marker", () => {
-  it("Rh2Screen carries data-ry-section only when the section asks for it", () => {
-    expect(renderToStaticMarkup(<MemoryRouter><Rh2Screen section="objects"><p>x</p></Rh2Screen></MemoryRouter>)).toContain('data-ry-section="objects"');
-    expect(renderToStaticMarkup(<MemoryRouter><Rh2Screen><p>x</p></Rh2Screen></MemoryRouter>)).not.toContain("data-ry-section");
+  it("Rh2Screen carries data-ry-section only inside RoyalSection named objects", () => {
+    expect(renderToStaticMarkup(<MemoryRouter><RoyalSection name="objects"><Rh2Screen><p>x</p></Rh2Screen></RoyalSection></MemoryRouter>)).toContain('data-ry-section="objects"');
+    expect(renderToStaticMarkup(<MemoryRouter><RoyalSection name={undefined}><Rh2Screen><p>x</p></Rh2Screen></RoyalSection></MemoryRouter>)).not.toContain("data-ry-section");
   });
 });

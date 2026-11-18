@@ -4,6 +4,7 @@ import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
 import { ChevronDown, LayoutGrid, List, Plus, SlidersHorizontal } from "lucide-react";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalObjectsHead } from "../components/look/objects/RoyalObjectsHead";
 import { CButton } from "../components/clean/ui";
 import { PropertyDraftShortcut } from "../components/PropertyDraftShortcut";
@@ -518,7 +519,9 @@ export function Properties() {
     <span>{data ? `Показаны ${shown} из ${data.total}` : "Загрузка…"}</span>
   </div>;
 
+  // Метка раздела «Объекты»: экран ставит её сам, окна (фильтры, подтверждения) берут из RoyalSection.
   return (
+    <RoyalSection name={royal ? "objects" : undefined}>
     <div className={clean ? `rh2 screens clean-properties-page${royal ? " ry-objects-page" : ""}` : "rh2 screens"} data-ry-section={royal ? "objects" : undefined}>
       <div className="scr">
         {royal ? <RoyalObjectsHead total={data?.total} pendingReview={canModerate ? pendingReview?.total : undefined} onShowPending={() => setFilters((f) => ({ ...f, status: "PENDING_REVIEW", page: 1 }))} canCreate={canCreateProperty} onCreate={() => navigate("/properties/new")} /> : clean ? <div className="clean-property-catalog-header mb-5 flex flex-wrap items-center justify-between gap-4">
@@ -849,7 +852,6 @@ export function Properties() {
         onClose={() => setFiltersOpen(false)}
         title="Фильтры"
         ariaLabel="Фильтры объектов"
-        section={royal ? "objects" : undefined}
         footer={
           <>
             <button
@@ -977,6 +979,7 @@ export function Properties() {
 
       {bulkConfirmDialog}
     </div>
+    </RoyalSection>
   );
 }
 

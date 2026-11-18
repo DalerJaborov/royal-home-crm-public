@@ -9,9 +9,10 @@
  *   .ry-object-page  — карточка объекта (pages/PropertyDetail.tsx);
  *   .ry-obj-*        — детали components/look/objects/.
  * Каждое правило привязано к метке раздела [data-ry-section="objects"]: её ставят
- * только экраны объектов (Rh2Screen/обёртка каталога) и их собственные шторки
- * (Rh2Sheet section) и только при useRoyalLook(). Чужие окна, открытые поверх
- * раздела (уведомления, входящий лид, шторки оболочки), слой не трогает.
+ * только раздел объектов через RoyalSection (components/look/clients/RoyalSection.tsx)
+ * и только при useRoyalLook(): корень экрана (Rh2Screen, обёртка каталога) и корень
+ * портала (Rh2Portal) окон, открытых из раздела. Чужие окна поверх раздела
+ * (уведомления, входящий лид, шторки оболочки) метки не несут и слой их не трогает.
  * Кнопки со смысловым вариантом старой темы (danger и т.п.) цвет не теряют.
  * Запас под полоску iPhone у .sheet-f/.sheet-b (theme-royal-home-2026.css) не трогаем.
  * Образец — макет docs/design/oblik-2026-11-17 (screenObjects, screenObject).
@@ -492,28 +493,28 @@
 
 /* =================== шторки и окна, пока открыт раздел =================== */
 
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] {
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet {
   border: 0; background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 24px 64px -24px rgba(14, 15, 18, .45);
 }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"].right { border-radius: var(--rh-ui-r-card) 0 0 var(--rh-ui-r-card); }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"].bottom { border-radius: var(--rh-ui-r-card) var(--rh-ui-r-card) 0 0; }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .sheet-h { min-height: 64px; }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .sheet-h :is(h2, h3, b) { font-size: 22px; font-weight: 700; letter-spacing: -.025em; }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] :is(.pill, .rh-btn) { min-height: 48px; padding: 0 20px; border: 0; border-radius: 999px; font-size: 15px; font-weight: 600; box-shadow: none; }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] :is(.pill, .rh-btn):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] :is(.pill, .rh-btn):is(.ghost, .soft):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .sheet-h .pill { min-width: 44px; padding: 0 14px; }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .rh-row { min-height: var(--rh-ui-row-h); padding: 8px 4px; border: 0; background: transparent; }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .rh-row + .rh-row { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .rh-row .t b { font-size: 17px; font-weight: 600; }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .rh-row .t > span { font-size: 15px; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet.right { border-radius: var(--rh-ui-r-card) 0 0 var(--rh-ui-r-card); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet.bottom { border-radius: var(--rh-ui-r-card) var(--rh-ui-r-card) 0 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .sheet-h { min-height: 64px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .sheet-h :is(h2, h3, b) { font-size: 22px; font-weight: 700; letter-spacing: -.025em; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn) { min-height: 48px; padding: 0 20px; border: 0; border-radius: 999px; font-size: 15px; font-weight: 600; box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):is(.ghost, .soft):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .sheet-h .pill { min-width: 44px; padding: 0 14px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row { min-height: var(--rh-ui-row-h); padding: 8px 4px; border: 0; background: transparent; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row + .rh-row { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row .t b { font-size: 17px; font-weight: 600; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row .t > span { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
   min-height: 48px; border: 0; border-radius: 16px; background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: 16px;
 }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .lab { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] .chk { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .lab { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .chk { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; }
 /* Опасная кнопка в новом виде — сплошная красная таблетка; смысл старой темы не теряется. */
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]),
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
 /* «Удалить объект» в шторке «Ещё» — разрушительное действие красным словом, не только местом в списке. */
-:root[data-ui-look="royal"] .sheet[data-ry-section="objects"] :is([data-testid="sheet-item-delete"], [data-testid="sheet-item-request-delete"]) .t b { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is([data-testid="sheet-item-delete"], [data-testid="sheet-item-request-delete"]) .t b { color: var(--rh-ui-crit-text); }
