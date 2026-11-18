@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -19,7 +19,26 @@ function splitTopLevel(list: string): string[] {
   return parts.filter(Boolean);
 }
 
-export function unscopedSelectors(css: string): string[] {
+/**
+ * Раздел слоя по имени файла: `theme-look-royal-<пачка>.css` → `<пачка>`; основа
+ * (`theme-look-royal.css`) раздела не имеет. Слой пачки обязан действовать только
+ * на свой раздел — экран и окна с меткой `[data-ry-section="<пачка>"]`
+ * (components/look/clients/RoyalSection.tsx), иначе он красит чужие экраны с
+ * похожими классами и общий портал (ревью PR #278: «Подбор сотрудников»,
+ * уведомления, окно входящего лида).
+ */
+export function lookSectionOf(file: string): string | undefined {
+  return /^theme-look-royal-([\w-]+)\.css$/.exec(file)?.[1];
+}
+
+/** Метка раздела должна стоять в самом селекторе, а не внутри :is()/:not()/:has(). */
+function topLevel(selector: string): string {
+  let text = selector;
+  for (let prev = ""; prev !== text;) { prev = text; text = text.replace(/\([^()]*\)/g, ""); }
+  return text;
+}
+
+export function unscopedSelectors(css: string, section?: string): string[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const bad: string[] = [];
   let depth = 0; let inKeyframes = -1; let buffer = "";
@@ -40,6 +59,7 @@ export function unscopedSelectors(css: string): string[] {
       if (inKeyframes < 0) {
         for (const selector of splitTopLevel(head)) {
           if (!selector.startsWith(':root[data-ui-look="royal"]')) bad.push(selector);
+          else if (section && !topLevel(selector).includes(`[data-ry-section="${section}"]`)) bad.push(selector);
         }
       }
       depth++;
@@ -51,10 +71,32 @@ export function unscopedSelectors(css: string): string[] {
   return bad;
 }
 
-describe("theme-look-royal.css", () => {
+/** Основа и слои экранов нового вида (theme-look-royal-<пачка>.css) — каждый под тем же сторожем. */
+const LOOK_FILE = /^theme-look-royal(-[\w-]+)?\.css$/;
+const lookFiles = readdirSync(new URL(".", import.meta.url)).filter((f) => LOOK_FILE.test(f)).sort();
+
+describe("theme-look-royal*.css", () => {
   const css = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
-  it("every rule is scoped to :root[data-ui-look=\"royal\"]", () => {
-    expect(unscopedSelectors(css)).toEqual([]);
+  it("знает основу и слой раздела «Клиенты»", () => {
+    expect(lookFiles).toEqual(expect.arrayContaining(["theme-look-royal.css", "theme-look-royal-clients.css"]));
+  });
+  it.each(lookFiles)("%s: every rule is scoped to :root[data-ui-look=\"royal\"] (и к метке своего раздела у слоя пачки)", (file) => {
+    expect(unscopedSelectors(readFileSync(new URL(`./${file}`, import.meta.url), "utf8"), lookSectionOf(file))).toEqual([]);
+  });
+  it("раздел слоя берётся из имени файла; у основы раздела нет", () => {
+    expect(lookSectionOf("theme-look-royal-clients.css")).toBe("clients");
+    expect(lookSectionOf("theme-look-royal-team-settings.css")).toBe("team-settings");
+    expect(lookSectionOf("theme-look-royal.css")).toBeUndefined();
+  });
+  it("сторож слоя пачки ловит правило без метки раздела (проверен поломкой)", () => {
+    const clients = readFileSync(new URL("./theme-look-royal-clients.css", import.meta.url), "utf8");
+    const leaks = [
+      ':root[data-ui-look="royal"] .rh2 .sheet .pill',
+      ':root[data-ui-look="royal"]:has(.clean-client-detail) body > .rh2 .sheet',
+      ':root[data-ui-look="royal"] :is(.rh2[data-ry-section="clients"] .a, .b)',
+      ':root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .pill',
+    ];
+    expect(unscopedSelectors(`${clients}\n${leaks.map((s) => `${s} { color: red; }`).join("\n")}`, "clients")).toEqual(leaks);
   });
   it("the guard really catches an unscoped rule (сторож проверен поломкой)", () => {
     expect(unscopedSelectors(`${css}\n.clean-tab { color: red; }\n@media (min-width: 1px) { body, :root[data-ui-look="royal"] a { color: red; } }`))
@@ -62,9 +104,14 @@ describe("theme-look-royal.css", () => {
     const atRules = `\n@font-face { font-family: X; src: url(x.woff2); }\n@layer base { :root[data-ui-look="royal"] a { color: red; } }\n@keyframes spin { to { opacity: 0; } }`;
     expect(unscopedSelectors(`${css}${atRules}`)).toEqual(["@font-face", "@layer base", "@keyframes spin"]);
   });
-  it("is imported after every other theme layer", () => {
+  it("основа и слои экранов подключены после всех прежних тем, основа — первой из них", () => {
     const index = readFileSync(new URL("./index.css", import.meta.url), "utf8");
     const imports = [...index.matchAll(/@import '\.\/(theme-[^']+\.css)'/g)].map((m) => m[1]);
-    expect(imports.at(-1)).toBe("theme-look-royal.css");
+    const first = imports.indexOf("theme-look-royal.css");
+    expect(first).toBeGreaterThan(-1);
+    const tail = imports.slice(first);
+    expect(tail.every((f) => LOOK_FILE.test(f)), `после основы только слои нового вида: ${tail.join(", ")}`).toBe(true);
+    // Каждый слой на диске подключён: забытый @import молча выключил бы экран.
+    expect([...tail].sort()).toEqual(lookFiles);
   });
 });
