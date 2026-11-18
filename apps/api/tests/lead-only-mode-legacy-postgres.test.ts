@@ -145,7 +145,7 @@ describe("режим «только заявки», старый путь", () =
     const third = await turn(instagram, peer, "Ищу квартиру");
     expect(third.reply).toContain("+992 44 650 14 14");
     const fourth = await turn(instagram, peer, "Ищу квартиру");
-    expect(fourth.reply).not.toMatch(/650 14 14|номер/i);
+    expect(fourth.reply).not.toMatch(/\+992 44 650 14 14|777 070 100|номер/i);
     expect(await clientOf(peer)).toBeNull();
   });
 
@@ -374,7 +374,7 @@ describe("третье ревью, старый путь", () => {
     expect(card).not.toBeNull();
     await prisma.client.update({ where: { id: card!.id }, data: { assignedAgentId: ownerId } });
     const result = await turn(whatsapp, peer, "Не звоните сейчас, позвоните завтра");
-    expect(result.reply).not.toMatch(/Понял вас\. Если|650 14 14/u);
+    expect(result.reply).not.toMatch(/Понял вас\. Если|\+992 44 650 14 14|777 070 100/u);
     expect(result.reply).toContain("в удобное вам время");
     const note = await prisma.interaction.findFirst({ where: { clientId: card!.id, notes: { contains: "позвоните завтра" } } });
     expect(note).not.toBeNull();

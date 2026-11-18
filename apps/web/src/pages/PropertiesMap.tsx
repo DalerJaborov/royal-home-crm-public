@@ -25,6 +25,9 @@ import { formatMoney } from "../lib/format";
 import type { PropertyMapExplorerHandle } from "../components/PropertyMapExplorer";
 import { savePendingMapPin } from "../lib/pendingMapPin";
 import { ObjectsTabs } from "../components/SectionTabs";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { useCleanShell } from "../hooks/useCleanShell";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { createLatestRequest } from "../lib/latestRequest";
 import { mapCardFacts } from "../lib/mapCardFacts";
 
@@ -209,6 +212,10 @@ function MapBuildingCard({
 }
 
 export function PropertiesMap() {
+  // «Новый вид» (облик royal): только класс страницы для слоя theme-look-royal-objects.css.
+  // Та же проверка, что у каталога и карточки: новый вид только поверх чистой оболочки.
+  const clean = useCleanShell();
+  const royal = useRoyalLook() && clean;
   const can = useCan();
   // Вкладка «Изменения на сайте» (перенос меню 15.09.2026) — тот же счётчик и
   // право, что в lib/navigation.ts / pages/Properties.tsx.
@@ -718,7 +725,8 @@ export function PropertiesMap() {
   );
 
   return (
-    <Rh2Screen>
+    <RoyalSection name={royal ? "objects" : undefined}>
+    <Rh2Screen className={royal ? "ry-objects-page ry-objects-map" : undefined}>
       <div className="pg-h">
         <div>
           <h1>Карта объектов</h1>
@@ -767,5 +775,6 @@ export function PropertiesMap() {
       )}
 
     </Rh2Screen>
+    </RoyalSection>
   );
 }

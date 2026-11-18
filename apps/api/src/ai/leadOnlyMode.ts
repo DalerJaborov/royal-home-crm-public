@@ -20,12 +20,12 @@
  * Цифры в ответе — только из аргументов (данные базы), сам модуль их не придумывает.
  */
 import { serviceAreaIn } from "../lib/serviceArea.js";
+import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { looksLikeRentRequest } from "./rentGuard.js";
 import { withoutAgreementOpenings, withoutInventedClaims } from "./customerAgentHumanText.js";
-import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 
 /** Кто клиент — перечень ответа модели (ai/leadOnlyIntent.ts). Здесь, а не там: тип нужен сценарию, а круга импортов быть не должно. */
 export const LEAD_ONLY_ROLES = ["buyer", "seller", "renter", "landlord", "job", "other"] as const;
@@ -399,18 +399,16 @@ export type LeadOnlyPhoneState =
       /** Клиент прямо отказался дать номер: больше не просим, «понял вас» и номер офиса. */
       refused?: boolean };
 
-/**
- * Номер офиса для звонка — из одного источника (lib/publicAgencyContact.ts). До 18.11.2026 здесь стоял «777 070 100» — номер
- * Нозы (найм, @royal-home/shared RECRUITMENT_CONTACT): продавцы и покупатели, отказавшиеся дать номер, получали номер рекрутера.
- * Решение владельца 18.11.2026: офис для звонков — +992 44 650 14 14. Старый номер в прежних репликах только узнаётся.
- */
+/** The office telephone for customers (owner 18.11.2026: «+992446501414 это наш колл центр»). 777 070 100 is Noza's recruiting
+ * number (packages/shared/src/recruitmentContact.ts): candidates only, never buyers or sellers. */
 export const LEAD_ONLY_OFFICE_PHONE_TEXT = PUBLIC_AGENCY_CONTACT.phone;
-const RETIRED_LEAD_ONLY_OFFICE_PHONE_TEXT = "777 070 100";
+/** The number lead-only offered before 18.11.2026: an earlier offer in the history still counts as offered. */
+const LEAD_ONLY_PREVIOUS_OFFICE_PHONE_TEXT = "777 070 100";
 /**
  * The office number is recognised by its DIGITS, not by one spelling (review #281): the old path's model writes «+992446501414»,
- * «44 650 14 14», «(44) 650-14-14». The last 9 digits of the canonical office number, and the retired 777070100 for older chats.
+ * «44 650 14 14», «(44) 650-14-14». The last 9 digits of the canonical office number, and the previous 777070100 for older chats.
  */
-const OFFICE_PHONE_TAILS = [PUBLIC_AGENCY_CONTACT.digits.slice(-9), RETIRED_LEAD_ONLY_OFFICE_PHONE_TEXT.replace(/\D/g, "")];
+const OFFICE_PHONE_TAILS = [PUBLIC_AGENCY_CONTACT.digits.slice(-9), LEAD_ONLY_PREVIOUS_OFFICE_PHONE_TEXT.replace(/\D/g, "")];
 export function leadOnlyMentionsOfficePhone(text: string): boolean {
   return (text.match(/\+?\d[\d\s()\-.]{5,}\d/gu) ?? []).some(run => {
     const digits = run.replace(/\D/g, "");
