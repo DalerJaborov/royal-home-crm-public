@@ -522,6 +522,12 @@ export const HIDING_ALLOWED = new Set<string>([
   `${R} .ry-bar`,
   `${R} [data-ry-section="deals"] .ry-deal-thumb`,
   `${R} [data-ry-section="objects"] .ry-gal-thumbs > button`,
+  // calls: полоса прокрутки ленты фильтров (прокрутка пальцем остаётся), стрелка-украшение
+  // плитки на узком экране (вся плитка — ссылка с подписью) и заголовок переключателя на
+  // телефоне, который дублирует шапку экрана и остаётся для экранного чтеца.
+  `${R} .ry-calls.rh2.screens[data-ry-section="calls"] .hscroll::-webkit-scrollbar`,
+  `${R} .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile .tile-go`,
+  `${R} .ry-calls-m[data-ry-section="calls"] .ry-chats-head h1`,
   // money: полоса прокрутки ленты вкладок (прокрутка пальцем остаётся) и значок искр при быстром
   // вводе — украшение, подпись и поле рядом (знак ИИ в интерфейсе не подчёркиваем).
   `${R} [data-ry-section="money"] .cef-toolbar .cef-main-tabs::-webkit-scrollbar`,
