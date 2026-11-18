@@ -11,6 +11,7 @@ import { api } from "../../lib/api";
 import { ApiError, isReadOnlyRoleError } from "../../lib/apiError";
 import { CLAUDE_METHOD_LABELS, claudeMoney, parseClaudeQuickExpense, useClaudeExpenseCategories, useClaudeExpensePage, claudeMonthRange, useSaveClaudeExpense, useSaveClaudeRecurring, useUploadClaudeReceipt, useDeleteClaudeExpense, useDeleteClaudeRecurring, useDeleteClaudeReceipt, useRestoreClaudeExpense, type ClaudeExpense, type ClaudeExpenseInput, type ClaudePaymentMethod } from "../../lib/claudeFinanceApi";
 import { ClaudeCategoryIcon, claudeToday } from "./ClaudeExpenseFeed";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
 export interface ClaudeExpenseDraft {
   amount: string; exchangeRate: string; currency: "TJS"|"USD"; category: ExpenseCategory; categoryId: string; note: string;
   source: ClientSource|""; agentId: string; paymentDate: string; counterparty: string;
@@ -58,6 +59,8 @@ export interface ClaudeSubscriptionPreset { vendor: ExpenseVendor; title: string
 export function ClaudeExpenseSheet({month,canManage,editing: initialEditing,onClose,initialDate,initialRecurring=false,initialPreset}:{month:string;canManage:boolean;editing?:ClaudeExpense|null;initialDate?:string;initialRecurring?:boolean;initialPreset?:ClaudeSubscriptionPreset;onClose:()=>void}) {
   // Snapshot and optimistic version must come from the same opening read.
   const editing = useRef(initialEditing).current;
+  // Своё окно в портале мимо Rh2Portal: метку раздела «Нового вида» ставим сами (без признака — пусто).
+  const royalSection = useRoyalSectionName();
   const readOnly=useIsReadOnly();const writable=canManage&&!readOnly;const templateOnly=initialRecurring&&!editing;
   const preset=editing?undefined:initialPreset;const initialVendor:ExpenseVendor|""=editing?.vendor??preset?.vendor??"";const initialCovers=editing?.coversAiUsage??preset?.coversAiUsage??false;
   const initial=()=>{const base=initialClaudeExpenseDraft(editing,month,initialDate);return preset?{...base,note:preset.title,counterparty:preset.counterparty,category:"OTHER" as const}:base;};
@@ -119,7 +122,7 @@ export function ClaudeExpenseSheet({month,canManage,editing: initialEditing,onCl
   }
   async function downloadReceipt(url:string,name:string) {try{const blob=await api<Blob>(url.replace(/^\/api\/v1/,""),{responseType:"blob"});const href=URL.createObjectURL(blob);const a=document.createElement("a");a.href=href;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(href),1000);}catch(e){setError(e instanceof Error?e.message:"Чек не загрузился");}}
   const mark=(key:keyof ClaudeExpenseDraft)=>({"data-cef-field":key,"aria-invalid":field===key,"aria-describedby":field===key?"cef-expense-error":undefined});
-  return createPortal(<div className="cef-sheet-backdrop"><div className="cef-sheet cef-card" data-no-sheet role="dialog" aria-modal="true" aria-labelledby="cef-sheet-title" ref={trap}>
+  return createPortal(<div className="cef-sheet-backdrop" data-ry-section={royalSection}><div className="cef-sheet cef-card" data-no-sheet role="dialog" aria-modal="true" aria-labelledby="cef-sheet-title" ref={trap}>
     <div className="cef-head"><h2 id="cef-sheet-title">{editing?"Изменить расход":templateOnly?"Новая подписка":"Новый расход"}</h2><button type="button" className="cef-icon-btn" aria-label="Закрыть расход" onClick={()=>closeRef.current()} disabled={working}><X size={22}/></button></div>
     {!writable&&<p role="note">Режим просмотра. Изменение расходов недоступно.</p>}
     <div className="cef-form-fields"><fieldset disabled={disabled} className="cef-fields">{writable&&<label className="cef-line-input"><Sparkles size={20}/><input autoFocus aria-label="Что и сколько" placeholder="Напишите «500 интернет» — подставим сами" value={quick} maxLength={300} onChange={e=>quickChange(e.target.value)}/></label>}

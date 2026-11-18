@@ -33,6 +33,9 @@ import { useCleanShell } from "../hooks/useCleanShell";
 import { financeWorkspace, financeWorkspaceSearch, type FinanceWorkspace } from "../lib/financeWorkspace";
 import { ClaudeMoneyPage } from "../components/finance/ClaudeMoneyPage";
 import { ReportPdfActions } from "../components/ReportPdfActions";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RoyalMoneyTiles } from "../components/look/money/RoyalMoneyTiles";
 
 /**
  * ФИНАНСЫ — экран /finance темы «Royal Home 2026», перенесённый из прототипа
@@ -114,9 +117,13 @@ function scrollToSection(id: string) {
 
 export function Finance() {
   const can = useCan();
+  // «Новый вид» (пачка money): метка раздела для слоя theme-look-royal-money.css —
+  // экран и все окна, открытые из него. Без признака вида метки нет.
+  const royal = useRoyalLook();
 
   if (!can("finance.view")) {
     return (
+      <RoyalSection name={royal ? "money" : undefined}>
       <Rh2Screen>
           <div className="pg-h">
             <div>
@@ -125,10 +132,11 @@ export function Finance() {
             </div>
           </div>
       </Rh2Screen>
+      </RoyalSection>
     );
   }
 
-  return <FinanceScreen />;
+  return <RoyalSection name={royal ? "money" : undefined}><FinanceScreen royal={royal} /></RoyalSection>;
 }
 
 /** Область во всю ширину — те же значения, что MH_HOST в MhScreen.tsx/MhList.tsx. */
@@ -141,11 +149,11 @@ const MH_HOST: import("react").CSSProperties = {
 };
 
 /** One operational surface for authorized Clean desktop and phone; legacy keeps its own DOM. */
-function FinanceFrame({ clean, children }: { clean: boolean; children: React.ReactNode }) {
-  return clean ? <div className="finance-clean">{children}</div> : <>{children}</>;
+function FinanceFrame({ clean, royal = false, children }: { clean: boolean; royal?: boolean; children: React.ReactNode }) {
+  return clean ? <div className="finance-clean" data-ry-section={royal ? "money" : undefined}>{children}</div> : <>{children}</>;
 }
 
-function FinanceScreen() {
+function FinanceScreen({ royal }: { royal: boolean }) {
   const can = useCan();
   const canManage = !useIsReadOnly() && can("finance.manage");
   // 14.09.2026: на телефоне сверху — дословная сводка макета c99db05f
@@ -216,10 +224,16 @@ function FinanceScreen() {
   // и нужны на обеих ширинах.
   const mhHeaderShown = mobile && !clean && current !== undefined;
 
-  if (clean) return <FinanceFrame clean><ClaudeMoneyPage month={month} onMonthChange={setSelectedMonth} workspace={workspace} onWorkspaceChange={setWorkspace} canManage={canManage} archiveAllowed={can("archive.view")} onExport={exportCsv} exporting={exporting} exportError={exportError} pdfMonths={rangeMonths} overview={<>
+  if (clean) return <FinanceFrame clean royal={royal}><ClaudeMoneyPage month={month} onMonthChange={setSelectedMonth} workspace={workspace} onWorkspaceChange={setWorkspace} canManage={canManage} archiveAllowed={can("archive.view")} onExport={exportCsv} exporting={exporting} exportError={exportError} pdfMonths={rangeMonths} overview={<>
     {error ? <CleanLoadError title="Финансовая сводка" retry={refetch} /> : isLoading ? <p className="cef-muted" role="status">Загружаем финансовую сводку…</p> : <>
       <div className="cef-overview-period"><label>Графики за<select value={rangeMonths} onChange={(event) => setRangeMonths(Number(event.target.value))}>{RANGE_OPTIONS.map((option) => <option key={option.months} value={option.months}>{option.label}</option>)}</select></label></div>
-      {current ? <div className="cef-summary-grid">
+      {current ? royal ? <RoyalMoneyTiles
+        commission={`${nums(current.revenue)} с.`}
+        companyRevenue={`${nums(current.companyRevenue)} с.`}
+        operatingExpenses={`${nums(current.operatingExpenses)} с.`}
+        profit={`${nums(current.profit)} с.`}
+        loss={current.profit < 0}
+      /> : <div className="cef-summary-grid">
         <div className="cef-card"><span className="cef-muted">Валовая комиссия</span><strong className="cef-kpi">{nums(current.revenue)} с.</strong></div>
         <div className="cef-card"><span className="cef-muted">Доход компании</span><strong className="cef-kpi">{nums(current.companyRevenue)} с.</strong></div>
         <div className="cef-card"><span className="cef-muted">Операционные расходы</span><strong className="cef-kpi">{nums(current.operatingExpenses)} с.</strong></div>
