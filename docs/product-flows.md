@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **781**. Развилок в самих путях: **2498**; вместе с задачами по расписанию и фоновыми заданиями — **4138**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4118**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3570,59 +3570,6 @@
 - res.json({ items, total, page, pageSize } satisfies ClientPropertyActivity);
   · ответ 200
 
-### GET /api/v1/clients/:id/property-count-dispute
-
-`apps/api/src/routes/clients/propertyCountDisputes.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- const client = await prisma.client.findUnique({ where: { id: req.params.id }, select: { id: true, assignedAge…
-  · читает в базе: client
-- если !client
-  - return res.status(404).json({ error: "Клиент не найден" });
-    · ответ 404 — «Клиент не найден»
-- если client.assignedAgentId !== req.agent!.id && !can(req, "clients.viewAll")
-  - return res.status(403).json({ error: "Это чужая карточка" });
-    · ответ 403 — «Это чужая карточка»
-- const pending = await prisma.propertyCountDispute.findMany({ where: { clientId: client.id, status: "PENDING" …
-  · читает в базе: propertyCountDispute
-- res.json({ requests: pending.map((p)
-  · ответ 200
-
-### POST /api/v1/clients/:id/property-count-dispute
-
-`apps/api/src/routes/clients/propertyCountDisputes.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- const parsed = propertyCountDisputeSchema.safeParse(req.body);
-  · проверяет данные схемой propertyCountDisputeSchema
-- если !parsed.success
-  - return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Неверные данные" });
-    · ответ 400
-- const client = await prisma.client.findUnique({ where: { id: req.params.id }, select: { id: true, shortId: tr…
-  · читает в базе: client
-- если !client || client.deletedAt
-  - return res.status(404).json({ error: "Клиент не найден" });
-    · ответ 404 — «Клиент не найден»
-- если client.assignedAgentId !== req.agent!.id && !can(req, "clients.viewAll")
-  - return res.status(403).json({ error: "Заявку заводит агент, который ведёт карточку" });
-    · ответ 403 — «Заявку заводит агент, который ведёт карточку»
-- если aiCount === null
-  - return res.status(409).json({ error: `У этой карточки ещё нет числа от ИИ на ${field.label} — оспаривать нече…
-    · ответ 409 — «У этой карточки ещё нет числа от ИИ на ${field.label} — оспаривать…»
-- const existing = await prisma.propertyCountDispute.findFirst({ where: { clientId: client.id, role, status: "P…
-  · читает в базе: propertyCountDispute
-- если existing
-  - return res.status(409).json({ error: "По этой стороне уже есть заявка — она ждёт решения руководства" });
-    · ответ 409 — «По этой стороне уже есть заявка — она ждёт решения руководства»
-- const dispute = await prisma.propertyCountDispute.create({ data: { clientId: client.id, requestedById: req.ag…
-  · создаёт в базе: propertyCountDispute
-- logAudit(req, "PROPERTY_COUNT_DISPUTE", "Client", client.id, { disputeId: dispute.id, role, aiCount: dispute.…
-  · зовёт logAudit()
-- void enqueueDirectorAlert({ title: "🔢 Заявка на пересмотр числа объектов", body: `${client.fullName} (${fiel…
-  · зовёт enqueueDirectorAlert()
-- publishRequestUpdated({ requestId: dispute.id, clientId: dispute.clientId, agentIds: [req.agent!.id], stage: …
-  · зовёт publishRequestUpdated()
-- res.status(201).json({ ok: true, id: dispute.id, message: "Заявка отправлена — решает руководитель, число ИИ …
-  · ответ 201
-
 ### POST /api/v1/clients/:id/reactivation-offer/accept
 
 `apps/api/src/routes/clients/reactivationOffers.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -3819,7 +3766,6 @@
   · всё внутри — одной транзакцией
   · обращается к базе своим SQL
   · читает в базе: client
-  · читает в базе: deal
   · меняет в базе: client
   - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
     · обращается к базе своим SQL
@@ -3828,9 +3774,11 @@
   - если !current || current.deletedAt || current.securityReview !== "PENDING"
     - return null;
       · дословно из кода
-  - const openDeal = await tx.deal.findFirst({ where: { clientId: client.id, stage: { notIn: ["COMPLETED", "CANCE…
-    · читает в базе: deal
-  - await tx.client.update({ where: { id: client.id }, data: { securityReview: verdict, securityReviewedAt: new D…
+  - const automationOn = await securityAutomationOn(tx);
+    · зовёт securityAutomationOn()
+  - const blocker = await securityReviewCloseBlocker(tx, current);
+    · зовёт securityReviewCloseBlocker()
+  - await tx.client.update({ where: { id: client.id }, data: { ...(reopen ? { assignmentRefusedAt: null, assignme…
     · меняет в базе: client
   - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", ou…
     · зовёт logTimeline()
@@ -3841,18 +3789,24 @@
     · ответ 409 — «Проверка уже завершена или карточка изменилась — обновите страницу»
 - logAudit(req, "CLIENT_SECURITY_REVIEW", "Client", client.id, { verdict });
   · зовёт logAudit()
-- если reviewed.close
+- если reviewed.outcome === "trash"
   - const trashed = await trashClient(client.id, req.agent!.id, { notifyHolder: false });
     · зовёт trashClient()
-  - если !trashed.ok
-    - console.error("[security-review] карточка не убрана в Корзину:", trashed.error);
-      · пишет строку в журнал сервера
+  - если trashed.ok
+    - message = `${label}. Карточка ушла в Корзину`;
+      · дословно из кода
+  - иначе
+    - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", in…
+      · зовёт logTimeline()
+- иначе если reviewed.outcome === "delete-request"
+  - await fileEndOfWorkDeleteRequest(client, client.assignedAgentId ?? req.agent!.id, "Работа по карточке заверше…
+    · зовёт fileEndOfWorkDeleteRequest()
 - void (async ()
   - const reviewers = await findAgentsWithPermission("clients.securityReview");
     · зовёт findAgentsWithPermission()
   - await closeLeadPushNotifications(reviewers.map((id)
     · зовёт closeLeadPushNotifications()
-- res.json({ ok: true, verdict, message: label });
+- res.json({ ok: true, verdict, message });
   · ответ 200
 
 ### GET /api/v1/clients/:id/seller-object
@@ -4511,105 +4465,6 @@
   - return res.status(404).json({ error: "Клиент не найден" });
     · ответ 404 — «Клиент не найден»
 - res.json(presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationVi…
-  · ответ 200
-
-### POST /api/v1/clients/property-count-disputes/:id/approve
-
-`apps/api/src/routes/clients/propertyCountDisputes.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
-
-- const parsed = propertyCountDisputeApproveSchema.safeParse(req.body ?? {});
-  · проверяет данные схемой propertyCountDisputeApproveSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные" });
-    · ответ 400 — «Неверные данные»
-- если !dispute
-  - return res.status(404).json({ error: "Заявка не найдена" });
-    · ответ 404 — «Заявка не найдена»
-- если dispute.client.deletedAt
-  - return res.status(404).json({ error: "Клиент удалён в Корзину — заявка больше не актуальна" });
-    · ответ 404 — «Клиент удалён в Корзину — заявка больше не актуальна»
-- если dispute.status !== "PENDING"
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- const applied = await prisma.$transaction(async tx
-  · всё внутри — одной транзакцией
-  · обращается к базе своим SQL
-  · читает в базе: client
-  · меняет в базе: propertyCountDispute
-  · меняет в базе: client
-  - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${dispute.clientId} FOR UPDATE`;
-    · обращается к базе своим SQL
-  - const current = await tx.client.findUnique({ where: { id: dispute.clientId }, select: { deletedAt: true, sell…
-    · читает в базе: client
-  - если !current || current.deletedAt
-    - return "deleted" as const;
-      · дословно из кода
-  - если current[field.count] !== dispute.aiCount
-    - return "stale" as const;
-      · дословно из кода
-  - const claimed = await tx.propertyCountDispute.updateMany({ where: { id: dispute.id, status: "PENDING" }, data…
-    · меняет в базе: propertyCountDispute
-  - если claimed.count !== 1
-    - return "decided" as const;
-      · дословно из кода
-  - await tx.client.update({ where: { id: dispute.clientId }, data: { [field.count]: dispute.proposedCount, [fiel…
-    · меняет в базе: client
-- если applied !== "applied"
-  - return res.status(applied === "deleted" ? 404 : 409).json({ error: applied === "stale" ? "Число объектов изме…
-    · ответ (код зависит от условия)
-- logAudit(req, "PROPERTY_COUNT_DISPUTE_APPROVE", "Client", dispute.clientId, { disputeId: dispute.id, role, pr…
-  · зовёт logAudit()
-- void sendPushToAgent(dispute.requestedById, { title: "🔢 Число объектов исправлено", body: `${dispute.client.…
-  · push-уведомление
-- publishRequestUpdated({ requestId: dispute.id, clientId: dispute.clientId, agentIds: [dispute.requestedById],…
-  · зовёт publishRequestUpdated()
-- res.json({ ok: true, message: "Число исправлено, агенту отправлено уведомление" });
-  · ответ 200
-
-### POST /api/v1/clients/property-count-disputes/:id/reject
-
-`apps/api/src/routes/clients/propertyCountDisputes.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
-
-- const parsed = propertyCountDisputeRejectSchema.safeParse(req.body);
-  · проверяет данные схемой propertyCountDisputeRejectSchema
-- если !parsed.success
-  - return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Напишите, почему заявка отклонена" }…
-    · ответ 400
-- если !dispute
-  - return res.status(404).json({ error: "Заявка не найдена" });
-    · ответ 404 — «Заявка не найдена»
-- если dispute.client.deletedAt
-  - return res.status(404).json({ error: "Клиент удалён в Корзину — заявка больше не актуальна" });
-    · ответ 404 — «Клиент удалён в Корзину — заявка больше не актуальна»
-- если dispute.status !== "PENDING"
-  - return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    · ответ 409 — «По этой заявке уже вынесено решение»
-- const rejected = await prisma.propertyCountDispute.updateMany({ where: { id: dispute.id, status: "PENDING", c…
-  · меняет в базе: propertyCountDispute
-- если rejected.count !== 1
-  - return res.status(409).json({ error: "Состояние заявки или клиента изменилось" });
-    · ответ 409 — «Состояние заявки или клиента изменилось»
-- logAudit(req, "PROPERTY_COUNT_DISPUTE_REJECT", "Client", dispute.clientId, { disputeId: dispute.id, role: dis…
-  · зовёт logAudit()
-- void sendPushToAgent(dispute.requestedById, { title: "🔢 Заявка на пересмотр числа отклонена", body: `${dispu…
-  · push-уведомление
-- publishRequestUpdated({ requestId: dispute.id, clientId: dispute.clientId, agentIds: [dispute.requestedById],…
-  · зовёт publishRequestUpdated()
-- res.json({ ok: true, message: "Заявка отклонена, агенту отправлено уведомление" });
-  · ответ 200
-
-### GET /api/v1/clients/property-count-disputes
-
-`apps/api/src/routes/clients/propertyCountDisputes.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
-
-- const parsedQuery = disputeListQuerySchema.safeParse(req.query);
-  · проверяет данные схемой disputeListQuerySchema
-- если !parsedQuery.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsedQuery.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const items = await prisma.propertyCountDispute.findMany({ where: { status, client: { deletedAt: null } }, or…
-  · читает в базе: propertyCountDispute
-- res.json({ items: items.map((r)
   · ответ 200
 
 ### GET /api/v1/clients/reactivation-offers
@@ -15182,6 +15037,8 @@
 
 `apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
+- const ownerProbeOn = await sellerSwitchOn("sellerProbeCallEnabled");
+  · зовёт sellerSwitchOn()
 - const [buyers, sellers] = await Promise.all([ prisma.postShowingCall.findMany({ where: { previewOnly: true },…
   · читает в базе: postShowingCall
   · читает в базе: sellerProbeCall
@@ -15906,7 +15763,7 @@
 - если !canReadInvestigations(req)
   - delete (response as Record<string, unknown>).postShowingCallEnabled;
     · дословно из кода
-  - delete (response as Record<string, unknown>).investigationCaseConfig;
+  - delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];
     · дословно из кода
 - res.json(response);
   · ответ 200
@@ -15916,6 +15773,9 @@
 `apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- если Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - const parsed = settingsUpdateSchema.safeParse(req.body);
@@ -20043,7 +19903,7 @@
         - await prisma.botAuditFinding.createMany({ data: findings.map((f)
           · создаёт в базе: botAuditFinding
         - если conv.clientId && findings.some((f) => f.type === "agent_bypassed_crm")
-          - await flagAgentBypassSuspicion(conv.clientId);
+          - await flagAgentBypassSuspicion(conv.clientId, conv.id);
             · дословно из кода
       - если сорвалось
         - void logSystemError("ai", `Аудит диалога ${conv.id} не удался: ${describeError(err)}`);
@@ -20553,22 +20413,6 @@
 - в любом случае
   - isRemindersRunning = false;
     · дословно из кода
-
-### client-property-count-alarm — 0 * * * *
-
-- пробует
-  - const { alerted } = await runClientPropertyCountAlarmTick();
-    · зовёт runClientPropertyCountAlarmTick()
-  - если alerted > 0
-    - console.log(`[cron] Аларм «заявлено/сделано объектов»: ${alerted}`);
-      · пишет строку в журнал сервера
-- если сорвалось
-  - reportCronTickError("Ошибка аларма «заявлено/сделано объектов»", err);
-    · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
 
 ### client-scoring — 0 2 * * *
 
@@ -24464,6 +24308,10 @@
     - если critical.length === 0
       - return { escalated: 0 };
         · дословно из кода
+    - если !(await securityAutomationOn())
+      - для каждого: const c of critical
+        - await reportSecuritySignal({ clientId: c.id, subjectAgentId: c.assignedAgent?.id ?? null, source: "sellerProp…
+          · зовёт reportSecuritySignal()
     - для каждого: const c of critical
       - const result = await prisma.client.updateMany({ where: { id: c.id, securityReview: null }, data: { securityRe…
         · меняет в базе: client
@@ -25362,9 +25210,6 @@
           · зовёт notifyAgentOfClientMessage()
       - void notifyPropertyChatMessage(row.id);
         · зовёт notifyPropertyChatMessage()
-      - если row.clientId
-        - void analyzeMessageForPropertyCounts(row.clientId, content);
-          · зовёт analyzeMessageForPropertyCounts()
       - void logSystemError( "meta", `Сообщение клиента (диалог ${row.id}) зависло в буфере дебаунса минут на ${Math.…
         · запись в журнал ошибок
     - const telegramStuck = await takeStuckBuffers("TelegramConversation", cutoff, STUCK_PENDING_LIMIT);

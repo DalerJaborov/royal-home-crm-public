@@ -3717,6 +3717,10 @@ model Client {
   /// может быть правдой, а может быть способом увести сделку. Отличить по тексту
   /// в CRM нельзя, поэтому карточка уходит не следующему агенту, а в СБ.
   securityReview            String?
+  /// Когда карточку поставили «на проверку СБ» (18.11.2026). Точка отсчёта для
+  /// «агент работал после постановки» — вердикт не закрывает карточку в работе
+  /// (apps/api/src/lib/securityAutomation.ts, securityReviewCloseBlocker).
+  securityReviewRequestedAt DateTime?
   securityReviewedAt        DateTime?
   securityReviewedById      String?
   securityReviewer          Agent?               @relation("SecurityReviewer", fields: [securityReviewedById], references: [id], onDelete: SetNull)
@@ -4079,6 +4083,10 @@ model Client {
   /// сколько у клиента объектов — ИИ сам понимает и вносит»). Каждое новое
   /// упоминание ЗАМЕНЯЕТ значение, а не складывается — та же логика, что у
   /// budgetMin/Max при уточнении бюджета.
+  /// 18.11.2026: подсчёт объектов ИИ УДАЛЁН (владелец: «Надо удалить логику такую… что то она
+  /// мешает всем»). Колонки ниже никто больше не пишет и экран не показывает; сами колонки
+  /// оставлены — удаление необратимо. Читает старое значение только «Контроль работы с
+  /// продавцом» (lib/sellerControlEpisodes.ts), он на проде не запускался ни разу.
   sellerDeclaredPropertyCount   Int?
   /// Когда именно ИИ впервые услышал текущее число — от этого момента, а не от
   /// встречи, считается срок до аларма «заявлено N, добавлено M»
@@ -7271,6 +7279,12 @@ model Settings {
   dealAfterCloseMessagesEnabled         Boolean @default(true)
   sellerAiAnalysisEnabled               Boolean @default(true)
   morningSellerLinesEnabled             Boolean @default(true)
+  /// РУБИЛЬНИК «СЛУЖБА БЕЗОПАСНОСТИ: АВТОМАТИКА» (владелец 18.11.2026: «временно
+  /// выключить всю логику сб… чтобы уведомление было руководителю»). Выключен —
+  /// автоматика СБ/антифрода сама не меняет карточку и агента, сигнал уходит
+  /// уведомлением директору и РОП (apps/api/src/lib/securityAutomation.ts).
+  /// @default(false) нарочно: после выката выключено, включает человек.
+  securityAutomationEnabled             Boolean @default(false)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из

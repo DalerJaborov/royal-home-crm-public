@@ -1,7 +1,7 @@
 # 18.11.2026 — Своя музыка при перемонтаже вышедшего ролика
 
 - Что изменилось:
-  - библиотека треков: модель `NarrationMusicTrack` (миграция `20261118210000_narration_music_library`), файлы — в закрытом
+  - библиотека треков: модель `NarrationMusicTrack` (миграция `20261118230000_narration_music_library`), файлы — в закрытом
     хранилище роликов под папкой `NARRATION_MUSIC_FOLDER`; загрузка mp3/m4a до 15 МБ, тип по содержимому (ID3/кадр MPEG,
     `ftyp`), длина 5 с – 10 мин через ffprobe, кодек mp3/aac; удаление; до 50 треков (`lib/narrationMusic.ts`,
     договор — `packages/shared/src/narrationMusic.ts`);
