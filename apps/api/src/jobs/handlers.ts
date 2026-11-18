@@ -20,6 +20,7 @@ import { videoHandoffPublishJob } from "./videoHandoffPublish.js";
 import { photoPostPublishJob } from "./photoPostPublish.js";
 import { socialRepostPublishJob } from "./socialRepostPublish.js";
 import { tiktokPublishRetryJob } from "./tiktokPublishRetry.js";
+import { socialPublishRetryJob } from "./socialPublishRetry.js";
 import { socialVideoPublishJob } from "./socialVideoPublish.js";
 import { sellerPhotoInsightJob } from "./sellerPhotoInsight.js";
 import { sellerFactsJob } from "./sellerFacts.js";
@@ -68,6 +69,9 @@ registerJobHandler(photoPostPublishJob);
 registerJobHandler(socialRepostPublishJob);
 // Повтор публикации в TikTok, когда сам TikTok попросил подождать (23.09.2026).
 registerJobHandler(tiktokPublishRetryJob);
+// Повтор публикации в Instagram/Facebook/Threads и истории, когда Meta не смогла
+// скачать наш файл (18.11.2026, объект №208 — публикация совпала с выкатом).
+registerJobHandler(socialPublishRetryJob);
 // Публикация свободного (без объекта) ролика в выбранные соцсети (12.10.2026).
 registerJobHandler(socialVideoPublishJob);
 // Оценка фото продавца из переписки (21.09.2026, agent-brief.md §5) — кэш по
