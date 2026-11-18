@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4104,
+  "forks": 4110,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -87048,7 +87048,15 @@
         },
         {
          "k": "do",
-         "t": "const items = await findUnansweredClients(now);",
+         "t": "const sellersOn = await sellerSwitchOn(\"agentUnansweredAlarmEnabled\");",
+         "a": [
+          "зовёт sellerSwitchOn()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const items = (await findUnansweredClients(now)).filter((i)",
          "a": [
           "зовёт findUnansweredClients()"
          ],
@@ -87190,6 +87198,21 @@
       {
        "k": "if",
        "t": "!settings?.liveVoiceEnabled || !settings.postShowingCallEnabled",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
        "a": [],
        "c": [
         {
@@ -92810,6 +92833,14 @@
          "t": "const rules = await loadDealStaleRules();",
          "a": [
           "зовёт loadDealStaleRules()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const sellersOn = await sellerSwitchOn(\"dealStaleSellersEnabled\");",
+         "a": [
+          "зовёт sellerSwitchOn()"
          ],
          "c": []
         },
@@ -108107,6 +108138,21 @@
        "c": [
         {
          "k": "if",
+         "t": "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { alerted: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "!(await isWithinAlarmHours(now))",
          "a": [],
          "c": [
@@ -108503,6 +108549,21 @@
          ]
         },
         {
+         "k": "if",
+         "t": "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return 0;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
          "t": "await loadCompanyDaysOff();",
          "a": [
@@ -108650,6 +108711,21 @@
         "зовёт escalateSellerPropertyMissing()"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "!(await sellerSwitchOn(\"sellerPropertyMissingAntifraudEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { escalated: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "!(await isWithinAlarmHours(now))",
@@ -127933,7 +128009,7 @@
     },
     {
      "k": "if",
-     "t": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId",
+     "t": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn(\"deal…",
      "a": [],
      "c": [
       {
@@ -130837,6 +130913,21 @@
    "file": "apps/api/src/jobs/sellerFacts.ts",
    "tree": [
     {
+     "k": "if",
+     "t": "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "await refreshSellerFacts(payload.clientId);",
      "a": [
@@ -131205,6 +131296,21 @@
    "kind": "sellerPhotoInsightJob",
    "file": "apps/api/src/jobs/sellerPhotoInsight.ts",
    "tree": [
+    {
+     "k": "if",
+     "t": "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const attachments = await listSellerAttachments(payload.clientId);",

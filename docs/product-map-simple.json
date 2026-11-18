@@ -16,9 +16,9 @@
   "paths": 777,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4077,
-  "untranslatedUnique": 465,
-  "untranslatedTotal": 600,
+  "conditions": 4083,
+  "untranslatedUnique": 469,
+  "untranslatedTotal": 606,
   "partialUnique": 1098,
   "translatedShare": 85
  },
@@ -30,6 +30,10 @@
   "!(await filterInvestigationRecipients([agentId], payload)).length",
   "!(await loadBotCapabilities()).comments",
   "!(await metaCatalogKeyOk(req))",
+  "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
+  "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
+  "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
+  "!(await sellerSwitchOn(\"sellerPropertyMissingAntifraudEnabled\"))",
   "!(await setPausedUntil(req.params.id, null))",
   "!(await setPausedUntil(req.params.id, pausedUntil))",
   "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
@@ -279,7 +283,7 @@
   "data.status && data.status !== existing.status",
   "data.status && data.status !== existing.status && existing.source === \"WEBSITE\"",
   "day <= secondMeetingDay(y, m)",
-  "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId",
+  "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn(\"deal…",
   "decideClientCardAccess(scopeToOwnAgent(req), { ...client, acceptedAt: null }, false) === \"denied\"",
   "delivery.propertyId !== p.id || delivery.versionId !== row.id || delivery.createdById !== req.agent!.id || de…",
   "digits.replace(/\\D/g, \"\").length < 5",
@@ -64875,6 +64879,13 @@
        "c": []
       },
       {
+       "t": "если !(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))"
+      },
+      {
        "t": "если это не внутри публикация показ звонок часы",
        "k": "if",
        "a": [],
@@ -73678,6 +73689,13 @@
        "a": [],
        "c": [
         {
+         "t": "если !(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))"
+        },
+        {
          "t": "если это не внутри тревога часы",
          "k": "if",
          "a": [],
@@ -73854,6 +73872,13 @@
          "c": []
         },
         {
+         "t": "если !(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))"
+        },
+        {
          "t": "если это не внутри публикация показ звонок часы",
          "k": "if",
          "a": [],
@@ -73920,6 +73945,13 @@
        "k": "do",
        "a": [],
        "c": [
+        {
+         "t": "если !(await sellerSwitchOn(\"sellerPropertyMissingAntifraudEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await sellerSwitchOn(\"sellerPropertyMissingAntifraudEnabled\"))"
+        },
         {
          "t": "если это не внутри тревога часы",
          "k": "if",
@@ -81909,11 +81941,11 @@
      "c": []
     },
     {
-     "t": "если deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId",
+     "t": "если deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn(\"deal…",
      "k": "if",
      "a": [],
      "c": [],
-     "raw": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId"
+     "raw": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn(\"deal…"
     },
     {
      "t": "если не получилось",
@@ -83203,6 +83235,13 @@
    "kind": "sellerFactsJob",
    "tree": [
     {
+     "t": "если !(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
+     "k": "if",
+     "a": [],
+     "c": [],
+     "raw": "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))"
+    },
+    {
      "t": "внутри этого шага",
      "k": "do",
      "a": [],
@@ -83345,6 +83384,13 @@
   {
    "kind": "sellerPhotoInsightJob",
    "tree": [
+    {
+     "t": "если !(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
+     "k": "if",
+     "a": [],
+     "c": [],
+     "raw": "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))"
+    },
     {
      "t": "внутри этого шага",
      "k": "do",

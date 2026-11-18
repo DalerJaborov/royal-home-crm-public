@@ -2,6 +2,7 @@ import { z } from "zod";
 import { refreshSellerFacts } from "../ai/sellerFactsExtract.js";
 import { logSystemError } from "../lib/systemError.js";
 import { SELLER_FACTS_JOB_TYPE } from "../lib/sellerFacts.js";
+import { sellerSwitchOn } from "../lib/sellerSwitches.js";
 import type { JobHandler } from "./registry.js";
 
 /**
@@ -26,6 +27,11 @@ export const sellerFactsJob: JobHandler<z.infer<typeof schema>> = {
   schema,
   backoff: () => 5 * 60_000,
   async run(payload) {
+    // Выключатель владельца «ИИ разбирает фото и переписку продавца» (14.11.2026,
+    // lib/sellerSwitches.ts): выключено — задание завершается молча. Сообщения и
+    // расшифровки уже сохранены, граница разбора не сдвигается: включат обратно —
+    // следующая реплика продавца поставит разбор, и он прочитает всё непрочитанное.
+    if (!(await sellerSwitchOn("sellerAiAnalysisEnabled"))) return;
     await refreshSellerFacts(payload.clientId);
   },
   async onGiveUp(payload) {

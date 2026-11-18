@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4104**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4110**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19665,7 +19665,9 @@
     - если !(await isWithinAlarmHours(now))
       - return { alerted: 0 };
         · дословно из кода
-    - const items = await findUnansweredClients(now);
+    - const sellersOn = await sellerSwitchOn("agentUnansweredAlarmEnabled");
+      · зовёт sellerSwitchOn()
+    - const items = (await findUnansweredClients(now)).filter((i)
       · зовёт findUnansweredClients()
     - если items.length === 0
       - return { alerted: 0 };
@@ -19696,6 +19698,9 @@
   - const settings = await prisma.settings.findUnique({ where: { id: 'singleton' }, select: { liveVoiceEnabled: t…
     · читает в базе: settings
   - если !settings?.liveVoiceEnabled || !settings.postShowingCallEnabled
+    - return 0;
+      · дословно из кода
+  - если !(await sellerSwitchOn("sellerProbeCallEnabled"))
     - return 0;
       · дословно из кода
   - await loadCompanyDaysOff();
@@ -20902,6 +20907,8 @@
     · зовёт runDealStalePipeline()
     - const rules = await loadDealStaleRules();
       · зовёт loadDealStaleRules()
+    - const sellersOn = await sellerSwitchOn("dealStaleSellersEnabled");
+      · зовёт sellerSwitchOn()
     - для каждого: const client of sellers
       - пробует
       - если сорвалось
@@ -24161,6 +24168,9 @@
 - пробует
   - const { alerted } = await runSellerNoPropertyAlarmTick();
     · зовёт runSellerNoPropertyAlarmTick()
+    - если !(await sellerSwitchOn("sellerNoPropertyAlarmEnabled"))
+      - return { alerted: 0 };
+        · дословно из кода
     - если !(await isWithinAlarmHours(now))
       - return { alerted: 0 };
         · дословно из кода
@@ -24245,6 +24255,9 @@
     - если !settings?.postShowingCallEnabled || !settings.liveVoiceEnabled
       - return 0;
         · дословно из кода
+    - если !(await sellerSwitchOn("sellerProbeCallEnabled"))
+      - return 0;
+        · дословно из кода
     - await loadCompanyDaysOff();
       · зовёт loadCompanyDaysOff()
     - await scheduleSellerProbeCalls(now);
@@ -24277,6 +24290,9 @@
 - пробует
   - const { escalated } = await escalateSellerPropertyMissing();
     · зовёт escalateSellerPropertyMissing()
+    - если !(await sellerSwitchOn("sellerPropertyMissingAntifraudEnabled"))
+      - return { escalated: 0 };
+        · дословно из кода
     - если !(await isWithinAlarmHours(now))
       - return { escalated: 0 };
         · дословно из кода
@@ -28412,7 +28428,7 @@
 - если !isDealStillClosed(deal)
   - return;
     · дальше не идёт, ничего не меняя
-- если deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId
+- если deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn("deal…
   - await askSide(deal.id, deal.property.sellerClientId);
     · дословно из кода
 - когда попытки кончились
@@ -29041,6 +29057,9 @@
 
 `apps/api/src/jobs/sellerFacts.ts`
 
+- если !(await sellerSwitchOn("sellerAiAnalysisEnabled"))
+  - return;
+    · дальше не идёт, ничего не меняя
 - await refreshSellerFacts(payload.clientId);
   · зовёт refreshSellerFacts()
   - const client = await prisma.client.findUnique({ where: { id: clientId }, select: { kind: true, dualIntent: tr…
@@ -29125,6 +29144,9 @@
 
 `apps/api/src/jobs/sellerPhotoInsight.ts`
 
+- если !(await sellerSwitchOn("sellerAiAnalysisEnabled"))
+  - return;
+    · дальше не идёт, ничего не меняя
 - const attachments = await listSellerAttachments(payload.clientId);
   · зовёт listSellerAttachments()
   - для каждого: const msg of messages
