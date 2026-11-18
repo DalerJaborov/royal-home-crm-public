@@ -259,3 +259,6 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="calendar"] .scr :is(.pill, .rh-btn, button):disabled { opacity: .5; }
 /* Выключенная кнопка раздела приглушена не слабее самой тяжёлой перекраски (общий сторож веса). */
 :root[data-ui-look="royal"] .ry-calendar.rh2[data-ry-section="calendar"] :is(.scr, .mh) :is(.card, .list, .act, .pg-h, .sec-h, .wrap, .lane, .seg) :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]) { opacity: .5; cursor: not-allowed; }
+/* Выключенная кнопка раздела приглушена всегда — любая, и строка-кнопка списка «Месяц» (пачка debt, второе ревью):
+   :not(#ry-dim) — вес id (такого id нет), тяжелее любой классовой перекраски выше. */
+:root[data-ui-look="royal"] [data-ry-section="calendar"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }

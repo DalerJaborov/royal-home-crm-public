@@ -90,7 +90,7 @@
   min-height: 96px; padding: 14px 16px; border: 0; border-radius: 20px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
   transition: background-color 160ms;
 }
-:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] button:hover { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] button:not(:disabled):not([aria-disabled="true"]):hover { background: var(--rh-ui-press); }
 :root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] button[aria-pressed="true"] {
   background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
 }
@@ -128,7 +128,7 @@
   display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
   background: var(--rh-ui-bg); color: var(--rh-ui-text); font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap; box-shadow: none;
 }
-:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg > button:hover { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg > button:not(:disabled):not([aria-disabled="true"]):hover { background: var(--rh-ui-press); }
 :root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg > button[aria-selected="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
 :root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg > button .n {
   display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
@@ -539,7 +539,7 @@
 :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-prop .lk { color: var(--rh-ui-primary-ink); font-weight: 600; text-decoration: none; }
 :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-state { font-size: 17px; font-weight: 700; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-state.talk { color: var(--rh-ui-ok); }
-:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-state.end { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] p.cw2-state[class~="end"] { color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-state.missed { color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-timer { font-size: 22px; font-weight: 700; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
 /* Главная кнопка окна — «Отменить вызов»: крупная красная таблетка 64, подпись 17 (была круглая 56 с подписью 10 px). */
@@ -577,3 +577,6 @@
    метки справа («нет на станции») сжимаются и переносятся, а не отнимают место у номера. */
 :root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .ry-row-sub { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .ry-row-right { flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+/* Выключенная кнопка раздела приглушена всегда — любая (пачка debt, второе ревью): :not(#ry-dim)
+   даёт вес id (такого id нет), правило тяжелее любой классовой перекраски выше, в окне звонка и на телефоне. */
+:root[data-ui-look="royal"] [data-ry-section="calls"] :is(.pill, .rh-btn, .ry-btn, .cw2-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
