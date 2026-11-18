@@ -16,7 +16,7 @@
   "paths": 776,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4093,
+  "conditions": 4094,
   "untranslatedUnique": 472,
   "untranslatedTotal": 607,
   "partialUnique": 1104,
@@ -69815,14 +69815,14 @@
            "more": true
           },
           {
-           "t": "если есть already noted и (нет: reassign on missed звонок или есть свой заявка kept)",
+           "t": "если есть already noted и (нет: reassign on missed звонок или есть kept по rule)",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если нет: reassign on missed звонок или есть свой заявка kept",
+           "t": "если нет: reassign on missed звонок или есть kept по rule",
            "k": "if",
            "a": [],
            "c": [],
