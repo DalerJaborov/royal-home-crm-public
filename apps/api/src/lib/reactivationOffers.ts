@@ -52,6 +52,21 @@ const REASON_NOTES: Record<ReactivationReleaseReason, string> = {
 };
 
 /**
+ * АРБИТР ГОНКИ «ПРИНЯТЬ» ↔ «СНЯТЬ» (аудит 18.11.2026, находка №2). Принятие
+ * (кнопка или крон по звонку) и снятие (TTL-крон, «Отклонить», заморозка)
+ * читают предложение, а пишут позже — без условия в самой записи оба шага
+ * проходили: агент получал «клиент ваш», а следом крон отдавал карточку
+ * третьему агенту по очереди (или наоборот). Обе записи гасят
+ * `reactivationOfferedToAgentId`, поэтому условие «предложение всё ещё
+ * открыто и адресовано этому агенту» прямо в `updateMany` пропускает ровно
+ * одну из них; вторая получает `count = 0` и ничего не делает.
+ */
+const OFFER_STILL_OPEN = (agentId: string, offeredAt?: Date) => ({
+  reactivationOfferedToAgentId: agentId,
+  reactivationOfferedAt: offeredAt ?? { not: null },
+});
+
+/**
  * Снимает предложение с одного клиента и раздаёт его по обычной очереди — та же
  * логика, что раньше жила только в decline-хендлере. `excludeAgentId` не даёт
  * тут же вернуть карточку тому же агенту, у которого её сняли.
@@ -69,7 +84,7 @@ export async function releaseReactivationOffer(
    * "declined"/"expired" actorId не передают — это решает cron/сам агент.
    */
   actorId: string | null = null
-): Promise<{ nextAgentId: string | null }> {
+): Promise<{ nextAgentId: string | null; raced?: boolean }> {
   const now = new Date();
 
   // «Прочее обращение» (кандидат на вакансию и т.п.) агенту не раздаётся вовсе —
@@ -105,7 +120,7 @@ export async function releaseReactivationOffer(
       const stayReason = isSeller
         ? `${REASON_NOTES[reason]} — продавец не уходит от агента автоматически ни при каких условиях (решение владельца 16.09.2026), клиент остаётся у прежнего агента`
         : `${REASON_NOTES[reason]} — контакт уже был, клиент остаётся у прежнего агента (П-3)`;
-      await changeClientAgent({
+      const stayed = await changeClientAgent({
         clientId: client.id,
         toAgentId: excludeAgentId,
         reason: stayReason,
@@ -119,7 +134,10 @@ export async function releaseReactivationOffer(
           assignedAt: now,
           acceptedAt: now,
         },
+        guardWhere: OFFER_STILL_OPEN(excludeAgentId),
       });
+      // Предложение уже решено другим путём (принято, снято) — ни пушей, ни аудита.
+      if (!stayed.ok) return { nextAgentId: null, raced: true };
       if (isSeller) {
         // Не переиспользуем escalateInsteadOfTransfer — её текст (маркер
         // хронологии и пуш руководству) жёстко называет «закон П-3» и
@@ -166,7 +184,7 @@ export async function releaseReactivationOffer(
 
   const nextAgentId = await pickAgentForLead(excludeAgentId, client.kind === "SELLER" ? "SELLER" : "BUYER");
 
-  await changeClientAgent({
+  const released = await changeClientAgent({
     clientId: client.id,
     toAgentId: nextAgentId,
     reason: nextAgentId
@@ -184,7 +202,9 @@ export async function releaseReactivationOffer(
       assignedAt: now,
       acceptedAt: null,
     },
+    guardWhere: OFFER_STILL_OPEN(excludeAgentId),
   });
+  if (!released.ok) return { nextAgentId: null, raced: true };
 
   logSystemAudit("REACTIVATION_RELEASE", "Client", client.id, {
     shortId: client.shortId,
@@ -281,7 +301,7 @@ export async function acceptReactivationOffer(
   }
 
   const now = new Date();
-  await changeClientAgent({
+  const claimed = await changeClientAgent({
     clientId: client.id,
     toAgentId: agentId,
     reason: interactionNote,
@@ -296,7 +316,16 @@ export async function acceptReactivationOffer(
       reactivationOfferedToAgentId: null,
       reactivationOfferedAt: null,
     },
+    // То же предложение, что прочитал loadOwnOffer, — не снятое кроном/отказом за это время.
+    guardWhere: OFFER_STILL_OPEN(agentId, client.reactivationOfferedAt!),
   });
+  if (!claimed.ok) {
+    return {
+      ok: false as const,
+      status: 409 as const,
+      error: claimed.reason === "deleted" ? "Клиент перемещён в Корзину" : "Предложение уже снято — обновите страницу",
+    };
+  }
 
   // ПОСЛЕ коммита (аудит 11.09.2026, второй заход по осиротевшим спутникам,
   // п.4 задания): клиент принят — экран агента и надзора обновляются сразу.
@@ -417,8 +446,8 @@ export async function expireStaleReactivationOffers(
   let released = 0;
   for (const client of stale) {
     try {
-      await releaseReactivationOffer(client, client.reactivationOfferedToAgentId!, "expired");
-      released++;
+      const outcome = await releaseReactivationOffer(client, client.reactivationOfferedToAgentId!, "expired");
+      if (!outcome.raced) released++;
     } catch (err) {
       void logSystemError(
         "api",
@@ -447,8 +476,8 @@ export async function releaseReactivationOffersOfAgent(
   let released = 0;
   for (const client of offered) {
     try {
-      await releaseReactivationOffer(client, agentId, "agent_unavailable", actorId);
-      released++;
+      const outcome = await releaseReactivationOffer(client, agentId, "agent_unavailable", actorId);
+      if (!outcome.raced) released++;
     } catch (err) {
       void logSystemError(
         "api",

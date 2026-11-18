@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4125,
+  "forks": 4126,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -15663,11 +15663,26 @@
     },
     {
      "k": "do",
-     "t": "const { nextAgentId } = await releaseReactivationOffer(client, req.agent!.id, \"declined\");",
+     "t": "const { nextAgentId, raced } = await releaseReactivationOffer(client, req.agent!.id, \"declined\");",
      "a": [
       "зовёт releaseReactivationOffer()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "raced",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Предложение уже снято — обновите страницу\" });",
+       "a": [
+        "ответ 409 — «Предложение уже снято — обновите страницу»"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",

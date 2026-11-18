@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4125**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4126**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3593,8 +3593,11 @@
 - если !outcome.ok
   - return res.status(outcome.status).json({ error: outcome.error });
     · ответ (код зависит от условия)
-- const { nextAgentId } = await releaseReactivationOffer(client, req.agent!.id, "declined");
+- const { nextAgentId, raced } = await releaseReactivationOffer(client, req.agent!.id, "declined");
   · зовёт releaseReactivationOffer()
+- если raced
+  - return res.status(409).json({ error: "Предложение уже снято — обновите страницу" });
+    · ответ 409 — «Предложение уже снято — обновите страницу»
 - logAudit(req, "REACTIVATION_DECLINE", "Client", client.id, { shortId: client.shortId, fullName: client.fullNa…
   · зовёт logAudit()
 - res.json({ ok: true, message: nextAgentId ? "Клиент передан другому агенту" : "Клиент ждёт ручного назначения…

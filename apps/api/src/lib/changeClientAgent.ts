@@ -159,6 +159,14 @@ export interface ChangeClientAgentInput {
    * обратный вызов из transferPropertyToAgent — там объект уже переехал.
    */
   skipProperties?: boolean;
+  /**
+   * Дополнительные ключи в `AuditLog.meta` записи `CLIENT_AGENT_CHANGE` — для
+   * механизмов, чьи прежние ручные записи несли свои ключи (`from`/`to` у
+   * `services/leads/intake.ts`, переведённого на эту дверь 19.11.2026).
+   * Стандартные ключи (`source`, `reason`, `fromAgentId`, `toAgentId`) не
+   * перекрываются.
+   */
+  auditMeta?: Record<string, string | number | boolean | null>;
 }
 
 export interface ChangeClientAgentResult {
@@ -219,6 +227,8 @@ interface RunResult extends ChangeClientAgentResult {
   fromAgentId?: string | null;
   /** Последний держатель до записи: от него задачи переезжают при выходе из очереди (CRM-02). */
   lastAgentIdBefore?: string | null;
+  /** Строка AuditLog этой записи — по её появлению вне транзакции видно, что чужая `tx` закоммичена. */
+  auditId?: string;
 }
 
 /** См. комментарий у проверки открытой сделки внутри `run()`. */
@@ -478,6 +488,7 @@ async function run(tx: Tx, input: ChangeClientAgentInput): Promise<RunResult> {
       agentId: input.actorId ?? null,
       agentName,
       meta: {
+        ...(input.auditMeta ?? {}),
         source: input.source,
         reason: input.reason,
         fromAgentId: before.assignedAgentId,
@@ -527,7 +538,50 @@ async function run(tx: Tx, input: ChangeClientAgentInput): Promise<RunResult> {
     },
     fromAgentId: before.assignedAgentId,
     lastAgentIdBefore: before.lastAgentId,
+    auditId: assignmentAudit.id,
   };
+}
+
+/**
+ * СПУТНИКИ — ТОЛЬКО ПОСЛЕ КОММИТА ЧУЖОЙ ТРАНЗАКЦИИ (аудит 18.11.2026, находка №4).
+ *
+ * Когда вызывающий передаёт свою `tx`, запись владельца ещё НЕ закоммичена в
+ * момент возврата из `run()`. Раньше спутники (`closeOwnershipSatellites`:
+ * перевес задач и требований, гашение пушей и уведомлений, заявка на удаление;
+ * плюс перегенерация сводки) запускались сразу, обычным `prisma` мимо `tx`.
+ * Поломка: `transferClientToAgent` пишет хронологию и владельца в одной
+ * транзакции, а `throwIfNotClaimed`/таймаут/ошибка следующего шага её
+ * откатывают — владелец остаётся прежним, а задачи и требования уже уехали
+ * к «новому» агенту, у старого погашены уведомления по его же клиенту.
+ * Сводка ИИ при этом читала ещё старого владельца (запись не видна вне `tx`).
+ *
+ * Как узнаём о коммите, не трогая два десятка вызывающих: строка `AuditLog`,
+ * созданная внутри `tx`, становится видна другому соединению ровно в момент
+ * коммита (READ COMMITTED в Postgres). Ждём её с нарастающим шагом; не
+ * появилась за `AFTER_COMMIT_WAIT_MS` (дольше любого таймаута транзакции в
+ * коде, по умолчанию 5 с) — транзакция откатилась, спутники не нужны вовсе.
+ * Защита по умолчанию: новый вызывающий с `tx` получает её без изменений у себя.
+ */
+const AFTER_COMMIT_WAIT_MS = 30_000;
+const AFTER_COMMIT_FIRST_STEP_MS = 25;
+const AFTER_COMMIT_MAX_STEP_MS = 1_000;
+
+/** Видна ли строка аудита вне транзакции: true — закоммичено, false — откат (или не дождались). */
+export async function waitForCommittedAudit(
+  auditId: string,
+  opts: { maxWaitMs?: number; firstStepMs?: number } = {}
+): Promise<boolean> {
+  // Переопределение окружением — только для тестов отката, чтобы фоновое ожидание не жило 30 с.
+  const envWait = Number(process.env.CHANGE_CLIENT_AGENT_COMMIT_WAIT_MS);
+  const deadline = Date.now() + (opts.maxWaitMs ?? (envWait > 0 ? envWait : AFTER_COMMIT_WAIT_MS));
+  let step = opts.firstStepMs ?? AFTER_COMMIT_FIRST_STEP_MS;
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, step));
+    const row = await prisma.auditLog.findUnique({ where: { id: auditId }, select: { id: true } });
+    if (row) return true;
+    if (Date.now() >= deadline) return false;
+    step = Math.min(step * 2, AFTER_COMMIT_MAX_STEP_MS);
+  }
 }
 
 /**
@@ -553,42 +607,51 @@ export async function changeClientAgent(input: ChangeClientAgentInput): Promise<
   if (result.ok && result.client && !input.skipSatellites) {
     const fromAgentId = result.fromAgentId ?? null;
     if (fromAgentId !== input.toAgentId) {
-      // «Коротко от ИИ» называет текущего агента (ai/scoring.ts, факт «агент: …») —
-      // владелец сменился, сводка обязана перегенерироваться и назвать нового,
-      // а не молчать до следующего звонка/сообщения (найдено 18.09.2026). Тот же
-      // фоновый, best-effort вызов, что и у остальных мест автопилота — сюда же
-      // стекаются ВСЕ механизмы переназначения, это единый вход.
-      runClientAutopilotInBackground(input.clientId, "agent_changed");
-      const satellites = closeOwnershipSatellites({
-        clientId: input.clientId,
-        clientShortId: result.client.shortId ?? null,
-        fromAgentId,
-        toAgentId: input.toAgentId,
-        reason: `[${input.source}] ${input.reason}`,
-        // Карточка вышла из очереди (владельца не было): задачи последнего держателя поедут
-        // к новому, как объекты выше (аудит 04.10.2026, CRM-02).
-        queueReturnFromAgentId: fromAgentId ? null : result.lastAgentIdBefore ?? null,
-      });
+      const shortId = result.client.shortId ?? null;
+      const lastAgentIdBefore = result.lastAgentIdBefore ?? null;
+      const fireSatellites = async (): Promise<void> => {
+        // «Коротко от ИИ» называет текущего агента (ai/scoring.ts, факт «агент: …») —
+        // владелец сменился, сводка обязана перегенерироваться и назвать нового,
+        // а не молчать до следующего звонка/сообщения (найдено 18.09.2026). Тот же
+        // фоновый, best-effort вызов, что и у остальных мест автопилота — сюда же
+        // стекаются ВСЕ механизмы переназначения, это единый вход.
+        runClientAutopilotInBackground(input.clientId, "agent_changed");
+        await closeOwnershipSatellites({
+          clientId: input.clientId,
+          clientShortId: shortId,
+          fromAgentId,
+          toAgentId: input.toAgentId,
+          reason: `[${input.source}] ${input.reason}`,
+          // Карточка вышла из очереди (владельца не было): задачи последнего держателя поедут
+          // к новому, как объекты выше (аудит 04.10.2026, CRM-02).
+          queueReturnFromAgentId: fromAgentId ? null : lastAgentIdBefore,
+        });
+      };
       if (input.tx) {
         /**
-         * ВЫЗЫВАЮЩИЙ КОД УЧАСТВУЕТ В ЧУЖОЙ, ЕЩЁ НЕ ЗАКОММИЧЕННОЙ ТРАНЗАКЦИИ —
-         * НЕ ДОЖИДАЕМСЯ closeOwnershipSatellites ЗДЕСЬ.
-         *
-         * Найдено 11.09.2026 на `lib/agentHandover.ts::handoverAgentWork`: там
-         * `changeClientAgent` вызывается ВНУТРИ `prisma.$transaction(...)` с
-         * дефолтным таймаутом 5000мс, и синхронный `await` спутников (пуш +
-         * лента + требования + заявка + задачи + живое событие — несколько
-         * дополнительных походов в базу) съедал время самой транзакции и
-         * валил её по таймауту. closeOwnershipSatellites использует обычный
-         * `prisma` (не переданный `tx`), поэтому ждать её из ЧУЖОЙ транзакции
-         * незачем и вредно — гасим спутников в фоне (`void`), они всё равно
-         * best-effort и не участвуют в атомарности самой передачи владельца.
+         * ЧУЖАЯ, ЕЩЁ НЕ ЗАКОММИЧЕННАЯ ТРАНЗАКЦИЯ — спутники в фоне и только
+         * после её коммита (см. `waitForCommittedAudit` выше). В фоне — по-прежнему
+         * (11.09.2026, `lib/agentHandover.ts`): синхронное ожидание съедало бы
+         * таймаут самой транзакции.
          */
-        void satellites;
+        const auditId = result.auditId;
+        void (async () => {
+          try {
+            if (!auditId || !(await waitForCommittedAudit(auditId))) return;
+            await fireSatellites();
+          } catch (err) {
+            void logSystemError(
+              "api",
+              `Спутники смены владельца не погашены после коммита (${input.clientId}, ${input.source}): ${
+                err instanceof Error ? err.message : err
+              }`
+            );
+          }
+        })();
       } else {
         // Своя транзакция уже закоммичена (await выше) — дожидаемся спутников
         // здесь безопасно, лишней транзакции они не удлиняют.
-        await satellites;
+        await fireSatellites();
       }
     }
   }

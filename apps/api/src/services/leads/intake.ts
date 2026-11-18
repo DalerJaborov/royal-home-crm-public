@@ -1,7 +1,7 @@
 import { Prisma, type Client } from "../../generated/prisma/client.js";
 import { adPropertyForLead } from "../../lib/adPropertyRule.js";
 import { prisma, type TxClient } from "../../db.js";
-import { changeClientAgent } from "../../lib/changeClientAgent.js";
+import { changeClientAgent, ClientOwnerRaceError } from "../../lib/changeClientAgent.js";
 import { reactivationResetData } from "../../lib/clientLifecycle.js";
 import { logTimeline } from "../../lib/timeline.js";
 import { noticeInterestInOtherAgentProperty } from "../../lib/propertyInterestNotice.js";
@@ -23,9 +23,7 @@ import { assignAgentForLead, recordAssignReason, recordAssignReasonTx, type Lead
 import { INTENT_UNKNOWN_NOTE } from "./intentUnknown.js";
 import { findStaffPhone, staffPhoneError, loadStaffPhoneChecker, StaffPhoneLeadError } from "../../lib/staffPhoneGuard.js";
 import { logSystemError } from "../../lib/systemError.js";
-import { logSystemAudit } from "../../lib/audit.js";
 import { canAutomationChangeKind } from "../../lib/kindChangePolicy.js";
-import { closeOwnershipSatellites } from "../../lib/ownershipSatellites.js";
 import { returnAcceptDueFromNow } from "../../lib/workingDue.js";
 import { customerIntakeProgressSchema } from "../../lib/customerIntakeContext.js";
 
@@ -562,8 +560,12 @@ async function resumeExistingChannelLeadInner(
      */
     // Срок — в рабочих минутах (решение владельца 02.10.2026, B4): ночь не съедает его.
     const returnAcceptDueAt = assignedAgentId && !offerAgentId ? await returnAcceptDueFromNow() : null;
+    const offeredAt = new Date();
+    // Владелец меняется только через changeClientAgent (ниже в той же транзакции) —
+    // из данных типа его убираем, сам тип и остальные поля пишутся как раньше.
+    const { assignedAgentId: _kindAgentId, ...revivedKindData } = kindChange.data;
     const revived = await prisma.$transaction(async (tx) => {
-      const updated = await tx.client.update({
+      const restored = await tx.client.update({
         where: { id: existing.id },
         data: {
           // Сброс полей светофора и «Потерянных» (23.09.2026). Раньше писался
@@ -582,9 +584,6 @@ async function resumeExistingChannelLeadInner(
           escalatedAt: null,
           reassignCount: 0,
           assignedAt: new Date(),
-          // LAW-A2-PENDING: возврат из Корзины (Х1, ownership policy 17.09.2026) —
-          // прямая запись мимо changeClientAgent; перевод — пачка А2.
-          assignedAgentId,
           // Возврат из Корзины — новый заход клиента: старые отказы и круги
           // передачи к нему отношения не имеют. С 16.11.2026 сбрасываются ВСЕГДА,
           // без оглядки на статус: отказ теперь уводит карточку в Корзину, не
@@ -605,7 +604,7 @@ async function resumeExistingChannelLeadInner(
                 // читает GET /clients/reactivation-offers (routes/clients/reactivationOffers.ts).
                 workStatus: "INACTIVE" as const,
                 reactivationOfferedToAgentId: offerAgentId,
-                reactivationOfferedAt: new Date(),
+                reactivationOfferedAt: offeredAt,
               }
             : {}),
           ...(input.telegramChatId && !existing.telegramChatId
@@ -622,9 +621,39 @@ async function resumeExistingChannelLeadInner(
           ...(route.kind === "queue" && input.deferAssignment && input.propertyId
             ? { requestedPropertyId: input.propertyId }
             : {}),
-          ...kindChange.data,
+          ...revivedKindData,
         },
       });
+      /**
+       * СМЕНА ВЛАДЕЛЬЦА — ЧЕРЕЗ ЕДИНУЮ ДВЕРЬ (аудит 18.11.2026, находка №3;
+       * бывшая отметка «пачка А2», Х1). Раньше `assignedAgentId` писался строкой выше мимо
+       * `changeClientAgent`: без закона П-1/П-3, без гашения спутников прежнего
+       * агента (его уведомления и задачи по клиенту оставались висеть), без
+       * переезда объектов продавца, а AuditLog шёл отдельной фоновой записью с
+       * ключами `from`/`to`, которых не видят читатели `fromAgentId`/`toAgentId`.
+       * Корзина и `acceptedAt` сняты строкой выше в этой же транзакции — снимок
+       * закона видит уже вернувшуюся непринятую заявку (как у `/restore`).
+       * Хронологию пишет этот код сам (ниже) — системную строку не дублируем.
+       */
+      if (assignedAgentId !== restored.assignedAgentId) {
+        const changed = await changeClientAgent({
+          clientId: restored.id,
+          toAgentId: assignedAgentId,
+          source: "intake.basket-return",
+          reason: assignedAgentId
+            ? "Клиент из Корзины снова обратился — карточка восстановлена и назначена по очереди"
+            : offerAgentId
+              ? "Клиент из Корзины снова обратился — карточка восстановлена, предложена прежнему агенту"
+              : "Клиент из Корзины снова обратился — карточка восстановлена и ждёт назначения",
+          skipInteraction: true,
+          // Предложение прежнему агенту поставлено строкой выше — дверь не должна его гасить.
+          data: offerAgentId ? { reactivationOfferedToAgentId: offerAgentId, reactivationOfferedAt: offeredAt } : {},
+          auditMeta: { from: restored.assignedAgentId, to: assignedAgentId },
+          tx,
+        });
+        if (!changed.ok) throw new ClientOwnerRaceError(changed.reason);
+      }
+      const updated = { ...restored, assignedAgentId };
       if (assignedAgentId) {
         const base = "Клиент из Корзины снова обратился — карточка восстановлена автоматически";
         // Актор — клиент (его обращение вернуло карточку), не агент (П-10,
@@ -653,22 +682,6 @@ async function resumeExistingChannelLeadInner(
       }
       return updated;
     });
-    /**
-     * П-1/П-10 (17.09.2026, Х1 из `docs/audit/recon-17-09/02-auto-transfer-mechanisms.md`):
-     * та же ситуация, что у ветки реактивации из «Неактивных» ниже по файлу —
-     * `assignedAgentId` в транзакции выше пишется мимо `changeClientAgent`
-     * (переводить всю "воскресительную" транзакцию на неё рискованнее, чем
-     * добавить видимость отдельной записью). Пишем только когда владелец
-     * РЕАЛЬНО поменялся против того, что было до Корзины.
-     */
-    if (assignedAgentId && assignedAgentId !== existing.assignedAgentId) {
-      logSystemAudit("CLIENT_AGENT_CHANGE", "Client", revived.id, {
-        source: "intake.basket-return",
-        from: existing.assignedAgentId,
-        to: assignedAgentId,
-        reason: "Клиент из Корзины снова обратился — карточка восстановлена и назначена по очереди",
-      });
-    }
     // Причина назначения (свой объект, пост) — в карточку, как у новой заявки (B5).
     if (assignedAgentId && revivedQueueAssignment) {
       await recordAssignReason(revived.id, assignedAgentId, revivedQueueAssignment).catch((err) =>
@@ -722,7 +735,18 @@ async function resumeExistingChannelLeadInner(
   });
   if (freshExtra.length > 0) enrich.extraPhones = { set: [...existing.extraPhones, ...freshExtra] };
   const kindChange = kindChangeUpdate(existing, input);
-  Object.assign(enrich, kindChange.data);
+  /**
+   * НОВЫЙ ВЛАДЕЛЕЦ — ОТДЕЛЬНОЙ ПЕРЕМЕННОЙ, НЕ ПОЛЕМ `enrich` (аудит 18.11.2026,
+   * находка №3; бывшая отметка «пачка А2», Х2). `enrich` пишется одним `update`, и
+   * `assignedAgentId` в нём обходил `changeClientAgent`: ни закона П-3, ни
+   * спутников прежнего агента, ни переезда объектов продавца. Здесь копим
+   * только решение «кому», записывает его дверь (см. запись `enrich` ниже).
+   * `undefined` — владелец этим обращением не меняется.
+   */
+  const { assignedAgentId: kindAgentId, ...kindData } = kindChange.data;
+  let nextAgentId: string | null | undefined =
+    kindAgentId === undefined ? undefined : (kindAgentId as string | null);
+  Object.assign(enrich, kindData);
   /**
    * ВОЗВРАЩЕНИЕ НЕАКТИВНОГО (ТЗ п. 26-27, переработка 12.08.2026, доделка
    * 31.08.2026 — разбор жалобы владельца, п.12): клиент, которого агент отложил в
@@ -798,14 +822,11 @@ async function resumeExistingChannelLeadInner(
      * у него же. Отдавать её другому нельзя — объект и так продаётся всей
      * компанией, и продавец, дожидаясь своего человека, ничего не теряет.
      */
-    // LAW-A2-PENDING: реактивация, ветка keepAgentId (Х2, ownership policy
-    // 17.09.2026) — прямая запись мимо changeClientAgent; перевод — пачка А2.
     enrich.workStatus = "ACTIVE";
-    enrich.assignedAgentId = keepAgentId;
+    nextAgentId = keepAgentId;
   } else if (returnsAsFreshLead) {
-    // LAW-A2-PENDING: та же ветка, fallback-агент — см. комментарий выше.
     enrich.workStatus = "ACTIVE";
-    enrich.assignedAgentId = reactivationFallbackAgentId;
+    nextAgentId = reactivationFallbackAgentId;
     enrich.acceptedAt = null;
     enrich.assignedAt = new Date();
     enrich.escalatedAt = null;
@@ -854,10 +875,7 @@ async function resumeExistingChannelLeadInner(
     !reactivating &&
     !lostHolderId;
   if (lostHolderUnavailable) {
-    // LAW-A2-PENDING: та же ветка enrich, что keepAgentId/fallback выше, —
-    // прямая запись мимо changeClientAgent; в AuditLog уходит строкой
-    // CLIENT_AGENT_CHANGE (source intake.lost-holder-unavailable) ниже.
-    enrich.assignedAgentId = null;
+    nextAgentId = null;
     enrich.escalatedAt = existing.kind === "OTHER" ? new Date() : null;
     enrich.acceptedAt = null;
     enrich.assignedAt = new Date();
@@ -935,7 +953,26 @@ async function resumeExistingChannelLeadInner(
     // Срок — в рабочих минутах (решение владельца 02.10.2026, B4): ночь не съедает его.
     enrich.returnAcceptDueAt = await returnAcceptDueFromNow();
   }
-  if (Object.keys(enrich).length > 0) {
+  /**
+   * НЕПРИНЯТЫЙ ЛИД СТАЛ «ПРОЧИМ ОБРАЩЕНИЕМ» (B11, 02.10.2026): kindChangeUpdate
+   * снимает агента — у агента оставались уведомление и пуш «новый лид» и
+   * открытые задачи. Своя причина и гашение спутников, как при любой смене
+   * владельца (теперь — самой дверью changeClientAgent).
+   */
+  const kindOtherDropped =
+    kindChange.changed && input.kind === "OTHER" && !!existing.assignedAgentId && nextAgentId === null;
+  const ownerChanges = nextAgentId !== undefined && nextAgentId !== existing.assignedAgentId;
+  /**
+   * ЗАКОН П-3 ЗАЩИЩАЕТ ЖИВОГО ДЕРЖАТЕЛЯ. Реактивация «по очереди», «оставить
+   * своему» с другим агентом и «держатель потерянной недоступен» случаются,
+   * только когда текущий владелец пуст или выбыл (уволен/заморожен/не продажник:
+   * `preferredReturningOwnerId` его пропустил) — это законный случай «держателя
+   * нет», как у снятия предложения при увольнении (lib/reactivationOffers.ts,
+   * agent_unavailable). Только тогда вердикт «можно» передаётся двери готовым;
+   * если держатель жив — закон проверяет сама дверь и может эскалировать.
+   */
+  const holderGone = existing.assignedAgentId === null || returningHolderId !== existing.assignedAgentId;
+  if (Object.keys(enrich).length > 0 || ownerChanges) {
     if (lostHistoricalOwnerId) {
       const changed = await changeClientAgent({
         clientId: existing.id,
@@ -946,57 +983,32 @@ async function resumeExistingChannelLeadInner(
         guardWhere: { assignedAgentId: existing.assignedAgentId, assignedAt: existing.assignedAt, status: "LOST" },
       });
       if (!changed.ok) return { clientId: existing.id, created: false };
+    } else if (ownerChanges) {
+      const changed = await changeClientAgent({
+        clientId: existing.id,
+        toAgentId: nextAgentId ?? null,
+        source: kindOtherDropped
+          ? "intake.kind-other"
+          : lostHolderUnavailable
+            ? "intake.lost-holder-unavailable"
+            : "intake.reactivation-fallback",
+        reason: kindOtherDropped
+          ? "Обращение оказалось не про покупку или продажу (прочее обращение) — карточка снята с агента"
+          : lostHolderUnavailable
+            ? "Потерянный клиент написал сам — прежний держатель недоступен, карточка возвращена в очередь раздачи"
+            : "Возврат из Неактивных — прежнего агента предложить не вышло, назначен по очереди",
+        // Хронологию повторного обращения этот код пишет сам ниже — без дубля.
+        skipInteraction: true,
+        data: enrich,
+        // Владелец из снимка: за время разбора его мог сменить руководитель.
+        guardWhere: { assignedAgentId: existing.assignedAgentId },
+        ...(!kindOtherDropped && holderGone ? { policyVerdict: { allowed: true as const } } : {}),
+        auditMeta: { from: existing.assignedAgentId, to: nextAgentId ?? null },
+      });
+      if (!changed.ok) return { clientId: existing.id, created: false };
     } else {
       await prisma.client.update({ where: { id: existing.id }, data: enrich });
     }
-  }
-  /**
-   * П-1/П-10 (17.09.2026, `docs/audit/lead-ownership-17-09.md` §2, §4, Х2 из
-   * `docs/audit/recon-17-09/02-auto-transfer-mechanisms.md`): `enrich`
-   * выше — прямая запись `assignedAgentId` мимо `changeClientAgent`, оставлена
-   * НЕ переведённой на неё намеренно (весь блок enrich копит десяток полей
-   * одним `update`, разбивать транзакцию ради одного поля рискованнее, чем
-   * оставить как есть). Но смена владельца (keepAgentId/reactivationFallbackAgentId
-   * — реактивация из «Неактивных», прежнего агента предложить не вышло) без
-   * этой строки была не видна в AuditLog вовсе. Пишется только когда владелец
-   * РЕАЛЬНО поменялся — обычное «тот же агент» (route.kind==="keep" на своего
-   * же lastAgentId) писать незачем.
-   */
-  /**
-   * НЕПРИНЯТЫЙ ЛИД СТАЛ «ПРОЧИМ ОБРАЩЕНИЕМ» (B11, 02.10.2026): kindChangeUpdate
-   * снял агента прямой записью — у агента оставались уведомление и пуш «новый
-   * лид» и открытые задачи, а аудит записывал чужую причину «Возврат из
-   * Неактивных». Своя причина и гашение спутников, как при любой смене владельца.
-   */
-  const kindOtherDropped =
-    kindChange.changed && input.kind === "OTHER" && !!existing.assignedAgentId && enrich.assignedAgentId === null;
-  if (
-    (typeof enrich.assignedAgentId === "string" || enrich.assignedAgentId === null) &&
-    enrich.assignedAgentId !== existing.assignedAgentId
-  ) {
-    logSystemAudit("CLIENT_AGENT_CHANGE", "Client", existing.id, {
-      source: kindOtherDropped
-        ? "intake.kind-other"
-        : lostHolderUnavailable
-          ? "intake.lost-holder-unavailable"
-          : "intake.reactivation-fallback",
-      from: existing.assignedAgentId,
-      to: enrich.assignedAgentId,
-      reason: kindOtherDropped
-        ? "Обращение оказалось не про покупку или продажу (прочее обращение) — карточка снята с агента"
-        : lostHolderUnavailable
-          ? "Потерянный клиент написал сам — прежний держатель недоступен, карточка возвращена в очередь раздачи"
-          : "Возврат из Неактивных — прежнего агента предложить не вышло, назначен по очереди",
-    });
-  }
-  if (kindOtherDropped) {
-    await closeOwnershipSatellites({
-      clientId: existing.id,
-      clientShortId: existing.shortId,
-      fromAgentId: existing.assignedAgentId,
-      toAgentId: null,
-      reason: "Обращение оказалось прочим — карточка снята с агента",
-    });
   }
 
   /**

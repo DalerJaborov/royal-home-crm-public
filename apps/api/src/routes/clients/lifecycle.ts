@@ -278,6 +278,8 @@ lifecycleRouter.post("/:id/transfer", requireAuth, async (req, res) => {
     comment: parsed.data.comment,
     voiceNoteUrl: parsed.data.voiceNoteUrl,
     voiceNoteTranscript: parsed.data.voiceNoteTranscript,
+    // Нажавший кнопку — руководитель (аудит 18.11.2026, находка №1), а не агент-владелец.
+    actorId: req.agent!.id,
   });
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   // logAudit("CLIENT_TRANSFER", ...) отсюда убран (22.08.2026): transferClientByAgent
