@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4078**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4075**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20452,9 +20452,6 @@
 - пробует
   - const { alerted } = await runClientPropertyCountAlarmTick();
     · зовёт runClientPropertyCountAlarmTick()
-    - если !(await sellerSwitchOn("clientPropertyCountAlarmEnabled"))
-      - return { alerted: 0 };
-        · дословно из кода
   - если alerted > 0
     - console.log(`[cron] Аларм «заявлено/сделано объектов»: ${alerted}`);
       · пишет строку в журнал сервера
@@ -24330,9 +24327,6 @@
 - пробует
   - const { pokedAgents, reportedToDirector, skipped } = await runSellerWorkStalledAlarmTick();
     · зовёт runSellerWorkStalledAlarmTick()
-    - если !(await sellerSwitchOn("sellerWorkStalledAlarmEnabled"))
-      - return { pokedAgents: 0, reportedToDirector: 0, skipped: 0 };
-        · дословно из кода
   - если pokedAgents > 0 || reportedToDirector > 0
     - console.log( `[cron] Работа встала: агентов ${pokedAgents}, владельцу ${reportedToDirector}, объяснено клиент…
       · пишет строку в журнал сервера
@@ -28426,9 +28420,6 @@
 
 `apps/api/src/jobs/dealReviewAsk.ts`
 
-- если !(await sellerSwitchOn("dealAfterCloseMessagesEnabled"))
-  - return;
-    · дальше не идёт, ничего не меняя
 - const deal = await prisma.deal.findUnique({ where: { id: payload.dealId }, select: { id: true, clientId: true…
   · читает в базе: deal
 - если !deal
@@ -28437,7 +28428,7 @@
 - если !isDealStillClosed(deal)
   - return;
     · дальше не идёт, ничего не меняя
-- если deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId
+- если deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn("deal…
   - await askSide(deal.id, deal.property.sellerClientId);
     · дословно из кода
 - когда попытки кончились

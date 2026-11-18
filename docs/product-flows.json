@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4078,
+  "forks": 4075,
   "mounts": 87,
   "cron": 141,
   "jobs": 33,
@@ -90747,23 +90747,7 @@
        "a": [
         "зовёт runClientPropertyCountAlarmTick()"
        ],
-       "c": [
-        {
-         "k": "if",
-         "t": "!(await sellerSwitchOn(\"clientPropertyCountAlarmEnabled\"))",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return { alerted: 0 };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ],
+       "c": [],
        "from": "runClientPropertyCountAlarmTick() — apps/api/src/lib/clientPropertyCountAlarm.ts"
       },
       {
@@ -108897,23 +108881,7 @@
        "a": [
         "зовёт runSellerWorkStalledAlarmTick()"
        ],
-       "c": [
-        {
-         "k": "if",
-         "t": "!(await sellerSwitchOn(\"sellerWorkStalledAlarmEnabled\"))",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return { pokedAgents: 0, reportedToDirector: 0, skipped: 0 };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ],
+       "c": [],
        "from": "runSellerWorkStalledAlarmTick() — apps/api/src/lib/sellerWorkStalledAlarm.ts"
       },
       {
@@ -128002,21 +127970,6 @@
    "file": "apps/api/src/jobs/dealReviewAsk.ts",
    "tree": [
     {
-     "k": "if",
-     "t": "!(await sellerSwitchOn(\"dealAfterCloseMessagesEnabled\"))",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return;",
-       "a": [
-        "дальше не идёт, ничего не меняя"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "do",
      "t": "const deal = await prisma.deal.findUnique({ where: { id: payload.dealId }, select: { id: true, clientId: true…",
      "a": [
@@ -128056,7 +128009,7 @@
     },
     {
      "k": "if",
-     "t": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId",
+     "t": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn(\"deal…",
      "a": [],
      "c": [
       {

@@ -16,9 +16,9 @@
   "paths": 777,
   "cron": 141,
   "jobs": 33,
-  "conditions": 4051,
-  "untranslatedUnique": 471,
-  "untranslatedTotal": 606,
+  "conditions": 4048,
+  "untranslatedUnique": 468,
+  "untranslatedTotal": 603,
   "partialUnique": 1094,
   "translatedShare": 85
  },
@@ -30,13 +30,10 @@
   "!(await filterInvestigationRecipients([agentId], payload)).length",
   "!(await loadBotCapabilities()).comments",
   "!(await metaCatalogKeyOk(req))",
-  "!(await sellerSwitchOn(\"clientPropertyCountAlarmEnabled\"))",
-  "!(await sellerSwitchOn(\"dealAfterCloseMessagesEnabled\"))",
   "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
   "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
   "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
   "!(await sellerSwitchOn(\"sellerPropertyMissingAntifraudEnabled\"))",
-  "!(await sellerSwitchOn(\"sellerWorkStalledAlarmEnabled\"))",
   "!(await setPausedUntil(req.params.id, null))",
   "!(await setPausedUntil(req.params.id, pausedUntil))",
   "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
@@ -285,7 +282,7 @@
   "data.status && data.status !== existing.status",
   "data.status && data.status !== existing.status && existing.source === \"WEBSITE\"",
   "day <= secondMeetingDay(y, m)",
-  "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId",
+  "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn(\"deal…",
   "decideClientCardAccess(scopeToOwnAgent(req), { ...client, acceptedAt: null }, false) === \"denied\"",
   "delivery.propertyId !== p.id || delivery.versionId !== row.id || delivery.createdById !== req.agent!.id || de…",
   "digits.replace(/\\D/g, \"\").length < 5",
@@ -66469,20 +66466,6 @@
      "a": [],
      "c": [
       {
-       "t": "внутри этого шага",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "если !(await sellerSwitchOn(\"clientPropertyCountAlarmEnabled\"))",
-         "k": "if",
-         "a": [],
-         "c": [],
-         "raw": "!(await sellerSwitchOn(\"clientPropertyCountAlarmEnabled\"))"
-        }
-       ]
-      },
-      {
        "t": "если разосланных тревог больше 0",
        "k": "if",
        "a": [],
@@ -74042,20 +74025,6 @@
      "k": "try",
      "a": [],
      "c": [
-      {
-       "t": "внутри этого шага",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "если !(await sellerSwitchOn(\"sellerWorkStalledAlarmEnabled\"))",
-         "k": "if",
-         "a": [],
-         "c": [],
-         "raw": "!(await sellerSwitchOn(\"sellerWorkStalledAlarmEnabled\"))"
-        }
-       ]
-      },
       {
        "t": "если poked сотрудники больше 0 или reported в director больше 0",
        "k": "if",
@@ -81959,13 +81928,6 @@
    "kind": "deal-review-ask",
    "tree": [
     {
-     "t": "если !(await sellerSwitchOn(\"dealAfterCloseMessagesEnabled\"))",
-     "k": "if",
-     "a": [],
-     "c": [],
-     "raw": "!(await sellerSwitchOn(\"dealAfterCloseMessagesEnabled\"))"
-    },
-    {
      "t": "если нет: сделка",
      "k": "if",
      "a": [],
@@ -81978,11 +81940,11 @@
      "c": []
     },
     {
-     "t": "если deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId",
+     "t": "если deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn(\"deal…",
      "k": "if",
      "a": [],
      "c": [],
-     "raw": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId"
+     "raw": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn(\"deal…"
     },
     {
      "t": "если не получилось",
