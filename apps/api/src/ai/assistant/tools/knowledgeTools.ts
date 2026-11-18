@@ -2,7 +2,7 @@ import { isReadOnlyRole, assistantKnowledgeArchiveSchema, assistantKnowledgeSear
 import { loadAgentAccess } from "../../../auth/middleware.js";
 import { prisma } from "../../../db.js";
 import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
-import { getCompanyKnowledge, searchCompanyKnowledge, saveCompanyKnowledge, validateCompanyKnowledge, knowledgeContext, KnowledgeConflict } from "../knowledge.js";
+import { getCompanyKnowledge, searchKnowledgeForTool, saveCompanyKnowledge, validateCompanyKnowledge, knowledgeContext, KnowledgeConflict } from "../knowledge.js";
 import { loadToolActor, asPluginExecutor } from "./showingToolSupport.js";
 import type { AssistantToolPlugin } from "./types.js";
 
@@ -54,12 +54,13 @@ export const archiveKnowledgeExecutor: AssistantActionExecutor<{ title: string }
 };
 export const knowledgeTools: AssistantToolPlugin[] = [
   { name: "search_company_knowledge", level: "A", statusPhrase: "Проверяю общие знания…",
-    description: "Найти подтверждённые общие знания компании. Используй для правил и инструкций; пустой query показывает последние 6. Укажи источник и версию. Клиентов, цены и доступ проверяй отдельными инструментами CRM.",
+    description: "Найти подтверждённые общие знания компании. Используй для правил и инструкций; пустой query показывает последние 6. Укажи источник и версию. Запись с пометкой «не утверждено владельцем» подавай как неутверждённый черновик, а не как действующее правило. Клиентов, цены и доступ проверяй отдельными инструментами CRM.",
     parameters: { type: "object", properties: { query: { type: "string" } } },
     async run(raw, { actor }) {
       const access = await loadAgentAccess(actor.id);
       if (!access?.isActive) throw new AssistantActionError(403, "FORBIDDEN", "Учётная запись недоступна");
-      return { knowledge: knowledgeContext(await searchCompanyKnowledge(assistantKnowledgeSearchSchema.parse(raw).query)) };
+      const found = await searchKnowledgeForTool(assistantKnowledgeSearchSchema.parse(raw).query);
+      return { knowledge: knowledgeContext(found.rows, { unapproved: found.unapproved }) };
     } },
   { name: "save_company_knowledge", level: "C", statusPhrase: "Готовлю общее знание…", allowed: (actor) => !isReadOnlyRole(actor.role),
     description: "Сохранить или исправить ОБЩЕЕ знание для ВСЕХ сотрудников только по явной просьбе запомнить/исправить для компании. Не сохраняй переписку автоматически, персональные/клиентские данные или секреты. Title точно совпадает с названием обновляемой записи. Content — точный согласованный текст, source — откуда известно; при отсутствии источника спроси. Всегда требуется кнопка подтверждения.",

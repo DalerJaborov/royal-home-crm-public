@@ -40,7 +40,9 @@ export type SmsProvider = (typeof SMS_PROVIDERS)[number];
  *  (lib/telephony/liveVoicePropertyTools.ts, 24.09.2026). */
 /** SHOWING_CONFIRM — подтверждение показа, который робот записал в звонке
  *  (lib/telephony/liveVoiceClientTools.ts, 09.10.2026). */
-export type SmsPurpose = "LOGIN_CODE" | "PROPERTY_SHARE" | "CALL_PROPERTIES" | "SHOWING_CONFIRM" | "OWNER_REPORT" | "TEST";
+/** MISSED_CALL_WA — ссылка на WhatsApp после неотвеченного входящего
+ *  (lib/telephony/missedCallFollowup.ts, 18.11.2026). */
+export type SmsPurpose = "LOGIN_CODE" | "PROPERTY_SHARE" | "CALL_PROPERTIES" | "SHOWING_CONFIRM" | "OWNER_REPORT" | "MISSED_CALL_WA" | "TEST";
 
 export interface SmsConfig extends PayomCredentials {
   provider: SmsProvider;

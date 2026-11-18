@@ -8,6 +8,7 @@ import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgents } from "../push.js";
 import { loadBotCapabilities } from "./botCapabilities.js";
 import { isBotEnabledForChannel } from "./botChannels.js";
+import { isCustomerAgentChannelOff } from "../lib/customerAgentChannelOff.js";
 import { loadPeerAiBudget, spendAiTurns } from "../lib/aiDailyBudget.js";
 import { SALES_FACTS } from "../ai/salesPlaybook.js";
 import { companyInfoBlock } from "../ai/agencyFacts.js";
@@ -90,6 +91,9 @@ let lastBotOffLogAt = 0;
 export async function isTelegramGroupCommentsEnabled(settings?: GroupSettings): Promise<boolean> {
   const s = settings ?? (await loadGroupSettings());
   if (!s.discussionGroupId) return false;
+  // Аварийный рубильник CUSTOMER_AGENT_CHANNEL_OFF=telegram (lib/customerAgentChannelOff.ts): под постами канала бот тоже
+  // молчит, комментарии сохраняются.
+  if (isCustomerAgentChannelOff("TELEGRAM")) return false;
   if (!(await loadBotCapabilities()).comments) {
     const now = Date.now();
     if (now - lastBotOffLogAt >= BOT_OFF_LOG_EVERY_MS) {

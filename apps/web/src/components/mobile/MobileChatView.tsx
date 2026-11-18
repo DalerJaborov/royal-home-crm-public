@@ -27,6 +27,7 @@ import {
 } from "../../hooks/useConversations";
 import type { ConversationMessage } from "../../types";
 import { channelMeta, initialsFromName } from "../../lib/channelMeta";
+import { chatQuickReplies } from "../../lib/chatQuickReplies";
 
 export function replySourceLabels(channels: Array<string | null>): string[] {
   return channels.map((channel, index) => {
@@ -596,24 +597,8 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
   // `?? []`, то есть НОВЫЙ пустой массив на каждый рендер, и мемоизация с ним
   // не работала бы вовсе (правило react-hooks/exhaustive-deps об этом и
   // предупреждает).
-  const quickReplies = useMemo(() => {
-    const source = conversation?.messages ?? [];
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (let i = source.length - 1; i >= 0 && out.length < 3; i--) {
-      const m = source[i];
-      if (m.role !== "assistant") continue;
-      if (m.by?.kind !== "agent" && m.by?.kind !== "manual") continue;
-      const t = m.content.trim();
-      // Длинные ответы в чип не помещаются и обрезкой теряют смысл.
-      if (!t || t.length > 80) continue;
-      const key = t.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(t);
-    }
-    return out;
-  }, [conversation?.messages]);
+  // Правило сбора — общее с «Новым видом» инбокса (lib/chatQuickReplies.ts).
+  const quickReplies = useMemo(() => chatQuickReplies(conversation?.messages ?? []), [conversation?.messages]);
 
   // Стабильная ссылка на функцию (06.09.2026, вынос ленты в MobileMessageList) —
   // инлайн-стрелка в JSX создавалась бы заново на каждый рендер (в том числе на

@@ -68,8 +68,21 @@ export function customerAlreadyGreeted(said: (line: string) => boolean): boolean
 const LEGAL_WORDS = /юрид|чистот|документ|ҳуҷҷат|хуччат|хучат|хуҷҷат|ҳуқуқ|хукук|кафолат|гарант|нотариус|техпаспорт|кадастр|санад|покии|проверя|провер(?:ка|ить)|бмти|мбти|обременен|арест|залог/u;
 export function customerLegalAsked(text: string | undefined): boolean { return LEGAL_WORDS.test(own(text)); }
 /** The customer speaks about renting: only then "we do not do rentals" is an answer. */
-const RENT_WORDS = /аренд|снять|сдать|сдаю|сдаете|сдаёте|сниму|иҷора|ичора|ижора|ичорa|кира|квартирант|моҳона|мохона|в\s+месяц|помесяч|посуточ|суточ/u;
-export function customerRentalAsked(text: string | undefined): boolean { return RENT_WORDS.test(own(text)); }
+// The second line: the forms the seller guard knew (its own RENT_MENTION, merged into this one door 18.11.2026, #269).
+const RENT_WORDS = new RegExp("аренд|снять|сдать|сдаю|сдаете|сдаёте|сниму|иҷора|ичора|ижора|ичорa|кира|квартирант|моҳона|мохона|в\\s+месяц|помесяч|посуточ|суточ|" +
+  "(?<!\\p{L})(?:сдам|сдаем|сдавать|сдается|сдаются|сними\\p{L}*|снимать|наем\\p{L}*)(?!\\p{L})", "u");
+/** Temporary living without the word «аренда» («Квартира на пару месяцев», «временно пожить», 17.11.2026). */
+const TEMP_STAY_WORDS = /(?<!\p{L})на\s+(?:пару|несколько|[2-9]|два|три|четыре)\s+(?:мес|недел)|(?<!\p{L})на\s+(?:месяц|неделю|время|полгода|сезон|лето|зиму)(?!\p{L})|временно\s+(?:пожить|жить|проживать|остановиться)|пожить\s+(?:на\s+время|временно)|на\s+короткий\s+срок|краткосрочн/u;
+/** A payment or credit context is not a stay: «рассрочка на 6 месяцев», «оплатить на полгода». */
+const NOT_A_STAY = /рассроч|оплат|ипотек|кредит/u;
+export function customerRentalAsked(text: string | undefined): boolean {
+  const t = own(text);
+  return RENT_WORDS.test(t) || (TEMP_STAY_WORDS.test(t) && !NOT_A_STAY.test(t));
+}
+/** The rental policy line stays when the customer spoke about renting now or in any of the last three earlier customer turns. */
+export function customerRentalAskedRecently(text: string | undefined, priorUserTexts: readonly string[]): boolean {
+  return customerRentalAsked(text) || priorUserTexts.slice(-3).some(turn => customerRentalAsked(turn));
+}
 
 /** A link or a bare object number in the customer's message: never "which object?" back (audit 16.11.2026, class 7). */
 export function customerInputHasLink(text: string | undefined): boolean {

@@ -1,0 +1,8 @@
+; Узкий диапазон портов звука: ровно его открывает wa-firewall.sh для сетей Meta.
+; 200 портов = до ~50 одновременных звонков (на звонок 2 плеча x RTP+RTCP).
+; Порт 40800 занят робот-консультантом CRM (LIVE_VOICE_RTP_PORT) — диапазон его не задевает.
+[general]
+rtpstart = ${WA_RTP_START}
+rtpend = ${WA_RTP_END}
+strictrtp = yes
+icesupport = no

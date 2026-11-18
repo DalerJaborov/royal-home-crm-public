@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 778,
-  "forks": 4071,
+  "forks": 4078,
   "mounts": 87,
-  "cron": 141,
+  "cron": 142,
   "jobs": 33,
   "hidden": 0
  },
@@ -5545,7 +5545,7 @@
          "c": [
           {
            "k": "do",
-           "t": "const fast = await tryAssistantFastPath(lastMessage.content, actor);",
+           "t": "const fast = await tryAssistantFastPath(lastMessage.content, actor, assistantLanguage(parsed.data.messages) =…",
            "a": [
             "зовёт tryAssistantFastPath()"
            ],
@@ -79269,12 +79269,42 @@
         },
         {
          "k": "if",
-         "t": "config.agentIds.length",
+         "t": "keepStoredLook && storedLook.length",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "const agents = await tx.agent.findMany({ where: { id: { in: config.agentIds }, isActive: true }, select: { id…",
+           "t": "config.royalLookAgentIds = storedLook;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "config.royalLookAgentIds?.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "delete config.royalLookAgentIds;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "selectedIds.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: tr…",
            "a": [
             "читает в базе: agent"
            ],
@@ -79481,7 +79511,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "res.json({ enabled: isUiShellEnabled(await storedConfig(), req.agent!) });",
+     "t": "res.json(body);",
      "a": [
       "ответ 200"
      ],
@@ -83984,6 +84014,29 @@
                   {
                    "k": "do",
                    "t": "console.warn(`[щит] ${msg.channel}: ответ не отправлен — ${err.message}`);",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
+                {
+                 "k": "if",
+                 "t": "isMetaSendBlockError(err)",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "traceOutcome(\"blocked\");",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  },
+                  {
+                   "k": "do",
+                   "t": "if (!providerAcceptedReply) await markLastReplyUndelivered(msg.channel, msg.senderId, deliveryTransport ?? de…",
                    "a": [
                     "дословно из кода"
                    ],
@@ -103704,6 +103757,92 @@
        "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "missed-call-task-whatsapp-close",
+   "when": "*/2 * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await closeMissedCallTasksAnsweredInWhatsapp();",
+     "a": [
+      "зовёт closeMissedCallTasksAnsweredInWhatsapp()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const open = await prisma.interaction.findMany({ where: { autoTaskKind: \"inbound_missed_callback\", nextAction…",
+       "a": [
+        "читает в базе: interaction"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const task of open",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const national = toSmsPhone(task.client?.phone)?.slice(3);",
+         "a": [
+          "зовёт toSmsPhone()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!national",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const wrote = await prisma.botConversation.findFirst({ where: { channel: \"WHATSAPP\", subscriberId: { endsWith…",
+         "a": [
+          "читает в базе: botConversation"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!wrote",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "closed += await closeAutoTasks(task.clientId, [\"inbound_missed_callback\"], now);",
+         "a": [
+          "зовёт closeAutoTasks()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "closeMissedCallTasksAnsweredInWhatsapp() — apps/api/src/lib/telephony/missedCallFollowup.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
@@ -124039,6 +124178,29 @@
        "a": [],
        "c": [
         {
+         "k": "if",
+         "t": "await isCustomerIngressTicketChannelOff(eventKey)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.$executeRaw`UPDATE \"CustomerPropertyIngressTicket\" SET \"processingState\"='HELD',\"errorCode\"=${CU…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void reportUnansweredCustomerTurn(eventKey, CUSTOMER_CHANNEL_OFF_REASON);",
+           "a": [
+            "зовёт reportUnansweredCustomerTurn()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
          "t": "const result = await runCustomerDmAgentTurn(eventKey);",
          "a": [
@@ -133559,6 +133721,21 @@
       "зовёт runLegacyQualifyTurn()"
      ],
      "c": [
+      {
+       "k": "if",
+       "t": "await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return channelOffTurn(history, options, source);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "do",
        "t": "const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);",

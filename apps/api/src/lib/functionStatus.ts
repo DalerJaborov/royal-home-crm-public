@@ -11,6 +11,7 @@ import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { customerAgentAnswerLiveChannels, customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { customerAgentCoreChannels, customerAgentShadowChannels } from "./customerAgentChannelSwitch.js";
+import { CUSTOMER_AGENT_OFF_LABELS, parseCustomerAgentChannelOff } from "./customerAgentChannelOff.js";
 import { customerPropertyMediaExecutionMode } from "./customerPropertyMedia.js";
 import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
@@ -25,6 +26,9 @@ import { visibleCronWhere } from "./investigationOperations.js";
 import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { maskPhonesInFreeText } from "./clientPhone.js";
 import { somonCrawlSchedule } from "./market/somonCrawlSchedule.js";
+import { countMissedCallSmsSent } from "./telephony/missedCallFollowup.js";
+import { listMetaSendBlocksForStatus } from "./metaSendBlock.js";
+import { dushanbeDateTimeString } from "./dushanbeTime.js";
 
 /**
  * «СОСТОЯНИЕ ФУНКЦИЙ» (14.11.2026) — расчёт состояния по реестру из packages/shared/src/functionStatus.ts.
@@ -61,6 +65,12 @@ export interface FunctionStatusSettings {
   geminiSpareKeyInSettings: boolean;
   /** Рубильник OpenAI целиком (Settings.openaiEnabled, 14.11.2026). */
   openaiEnabled: boolean;
+  /** Рубильник А: СМС со ссылкой на WhatsApp после пропущенного звонка (18.11.2026). */
+  missedCallSmsEnabled: boolean;
+  /** Сколько таких СМС ушло за 7 дней (lib/telephony/missedCallFollowup.ts). */
+  missedCallSmsSent7d: number;
+  /** Рубильник Б: карточка и задача по пропущенному с незнакомого номера. */
+  missedCallCallbackTaskEnabled: boolean;
 }
 
 export interface FunctionStatusSpend {
@@ -86,6 +96,16 @@ export interface FunctionStatusInput {
     lastSkippedAt: Date | null;
   }>;
   errors: ReadonlyArray<{ source: string; message: string; createdAt: Date }>;
+  /** Метки «Meta не пропускает отправку» (lib/metaSendBlock.ts): действующие и снятые за трое суток. */
+  metaSendBlocks?: ReadonlyArray<{
+    label: string;
+    surface: string;
+    since: Date;
+    liftedAt: Date | null;
+    nextProbeAt: Date;
+    lastCode: number;
+    lastSubcode: number | null;
+  }>;
 }
 
 type Verdict = { state: FunctionState; reason: string; detail?: string | null; attention?: boolean };
@@ -169,6 +189,46 @@ const EVALUATORS: Record<string, Evaluator> = {
     return { state: "off", reason: "На сайте, в Telegram и YouTube отвечает старый бот. Новое ядро там выключено (CUSTOMER_AGENT_CHANNEL_CORE и CUSTOMER_AGENT_CHANNEL_SHADOW пусты)." };
   },
 
+  // Аварийный рубильник CUSTOMER_AGENT_CHANNEL_OFF (18.11.2026, lib/customerAgentChannelOff.ts). Пусто — бот отвечает как обычно.
+  "bot-channel-off": ({ env }) => {
+    const { off, unknown } = parseCustomerAgentChannelOff(env.CUSTOMER_AGENT_CHANNEL_OFF);
+    const skipped = unknown.length ? ` Неизвестные имена пропущены: ${unknown.join(", ")}.` : "";
+    if (!off.size) return { state: "working", reason: `Аварийный рубильник не включён: бот отвечает клиентам на всех каналах как обычно.${skipped}`,
+      ...(unknown.length ? { attention: true } : {}) };
+    const label = [...off].map(key => CUSTOMER_AGENT_OFF_LABELS[key]).join(", ");
+    return { state: "off", reason: `Бот выключен на каналах: ${label} (CUSTOMER_AGENT_CHANNEL_OFF). Клиенту там уходит одна строка ` +
+      `«передал сотруднику», отвечают сотрудники.${skipped}`, attention: true };
+  },
+
+  // Метки lib/metaSendBlock.ts: запрет Meta по правилам (код 368 и родня) на аккаунт и вид отправки.
+  "meta-send-blocks": ({ metaSendBlocks, now }) => {
+    const rows = metaSendBlocks ?? [];
+    const active = rows.filter((r) => !r.liftedAt);
+    const surface = (s: string) => (s === "comment" ? "ответы на комментарии" : "личные сообщения");
+    const code = (r: (typeof rows)[number]) => `код ${r.lastCode}${r.lastSubcode !== null ? `/${r.lastSubcode}` : ""}`;
+    const lifted = rows.filter((r) => r.liftedAt).map((r) =>
+      `${r.label}, ${surface(r.surface)}: запрет снят ${dushanbeDateTimeString(r.liftedAt!)}`);
+    if (!active.length) {
+      return {
+        state: "working",
+        reason: "Meta пропускает отправку со всех аккаунтов.",
+        ...(lifted.length ? { detail: `За трое суток: ${lifted.join("; ")}.` } : {}),
+      };
+    }
+    const lines = active.map((r) => {
+      const probe = r.nextProbeAt.getTime() <= now.getTime()
+        ? "проба — при следующей отправке"
+        : `следующая проба в ${dushanbeDateTimeString(r.nextProbeAt)}`;
+      return `${r.label}, ${surface(r.surface)}: Meta ограничила отправку с ${dushanbeDateTimeString(r.since)} (${code(r)}), ${probe}`;
+    });
+    return {
+      state: "working",
+      reason: `${lines.join("; ")}. Бот туда не пишет, ждущих клиентов передаёт сотрудникам — ответ из приложения; остальные аккаунты работают.`,
+      ...(lifted.length ? { detail: `Снято за трое суток: ${lifted.join("; ")}.` } : {}),
+      attention: true,
+    };
+  },
+
   "bot-photos": ({ settings }) => {
     const base = threeWay(customerPropertyMediaExecutionMode(), "CUSTOMER_PROPERTY_MEDIA_EXECUTION_MODE", settings.botCanSendPhotos, "Бот шлёт фото");
     if (settings.botCanSendPhotos && settings.botLeadOnlyMode) {
@@ -233,6 +293,16 @@ const EVALUATORS: Record<string, Evaluator> = {
     settings.groundedSearchEnabled
       ? { state: "off", reason: "Тумблер в Настройках включён, но функция пока не работает: код не подключает справочный поиск. Включение ничего не меняет.", attention: true }
       : { state: "off", reason: "Выключено, и включить пока нельзя: функция недоделана. Вопросы про законы и налоги Шабнам оставляет без ответа." },
+
+  "missed-call-sms": ({ settings }) =>
+    settings.missedCallSmsEnabled
+      ? { state: "working", reason: `Включено: неотвеченному звонящему сразу уходит СМС. Отправлено за 7 дней: ${settings.missedCallSmsSent7d}.` }
+      : { state: "off", reason: "Выключено тумблером в Настройках, Каналы связи, Входящие: после пропущенного звонка клиенту ничего не уходит." },
+
+  "missed-call-callback-task": ({ settings }) =>
+    settings.missedCallCallbackTaskEnabled
+      ? { state: "working", reason: "Включено: пропущенный с незнакомого номера получает карточку и общую задачу «перезвонить»." }
+      : { state: "off", reason: "Выключено тумблером в Настройках, Каналы связи, Входящие: по незнакомому пропущенному задачи нет, руководство получает только пуш." },
 
   openai: ({ settings }) =>
     settings.openaiEnabled
@@ -428,7 +498,7 @@ const ERRORS_TAKE = 300;
 
 export async function loadFunctionStatus(viewerRole: string | undefined, now: Date = new Date()): Promise<FunctionStatusResponse> {
   const errorSources = [...new Set(FUNCTION_REGISTRY.flatMap((f) => f.errorSources ?? []))];
-  const [row, heartbeats, errors, spend] = await Promise.all([
+  const [row, missedCallSmsSent7d, heartbeats, errors, spend, metaSendBlocks] = await Promise.all([
     prisma.settings.findUnique({
       where: { id: "singleton" },
       select: {
@@ -449,8 +519,11 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
         alarmHoursEnd: true,
         geminiApiKey2: true,
         openaiEnabled: true,
+        missedCallSmsEnabled: true,
+        missedCallCallbackTaskEnabled: true,
       },
     }),
+    countMissedCallSmsSent(7, now).catch(() => 0),
     prisma.cronHeartbeat.findMany({
       where: visibleCronWhere(viewerRole),
       orderBy: { name: "asc" },
@@ -464,6 +537,7 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
       select: { source: true, message: true, createdAt: true },
     }),
     readLiveVoiceSpend(now).catch(() => null),
+    listMetaSendBlocksForStatus(now).catch(() => []),
   ]);
 
   const narration = narrationConfigSchema.safeParse(row?.propertyNarrationConfig ?? {});
@@ -486,6 +560,9 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
     alarmHoursEnd: row?.alarmHoursEnd ?? "14:45",
     geminiSpareKeyInSettings: !!decryptSecretSafe(row?.geminiApiKey2 ?? null),
     openaiEnabled: row?.openaiEnabled ?? false,
+    missedCallSmsEnabled: row?.missedCallSmsEnabled ?? false,
+    missedCallSmsSent7d,
+    missedCallCallbackTaskEnabled: row?.missedCallCallbackTaskEnabled ?? false,
   };
 
   return evaluateFunctions({
@@ -503,5 +580,6 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
       : null,
     heartbeats,
     errors,
+    metaSendBlocks,
   });
 }

@@ -14,12 +14,12 @@
  "totals": {
   "screens": 49,
   "paths": 778,
-  "cron": 141,
+  "cron": 142,
   "jobs": 33,
-  "conditions": 4044,
-  "untranslatedUnique": 465,
-  "untranslatedTotal": 598,
-  "partialUnique": 1090,
+  "conditions": 4051,
+  "untranslatedUnique": 466,
+  "untranslatedTotal": 599,
+  "partialUnique": 1096,
   "translatedShare": 85
  },
  "untranslated": [
@@ -210,6 +210,7 @@
   "await forbiddenPrivilegedTarget(actor, targetId)",
   "await handOverHolderToCurrentMontajer(montajerAgentId, now)",
   "await handledByQuietHours([agentId], payload)",
+  "await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…",
   "await manualRobotCallLimitReached(req.agent!.id)",
   "await phoneBelongsToHiddenOwner(req, phone)",
   "await phoneBelongsToHiddenOwner(req, stored)",
@@ -785,7 +786,7 @@
     {
      "i": 298,
      "direct": false,
-     "conf": "через часть экрана"
+     "conf": "через общую часть"
     },
     {
      "i": 337,
@@ -903,12 +904,72 @@
      "conf": "через общую часть"
     },
     {
+     "i": 425,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 432,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 440,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 460,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 463,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 464,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 465,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 466,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 467,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 468,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
      "i": 473,
      "direct": false,
      "conf": "через общую часть"
     },
     {
      "i": 474,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 476,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 479,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -923,7 +984,52 @@
      "conf": "через общую часть"
     },
     {
+     "i": 483,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 498,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 500,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 501,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 506,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 509,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
      "i": 510,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 511,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 512,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 513,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -968,6 +1074,11 @@
      "conf": "через общую часть"
     },
     {
+     "i": 534,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
      "i": 535,
      "direct": false,
      "conf": "через общую часть"
@@ -988,7 +1099,17 @@
      "conf": "через общую часть"
     },
     {
+     "i": 543,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
      "i": 545,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 547,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -1004,6 +1125,11 @@
     },
     {
      "i": 550,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 551,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -38554,6 +38680,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -39000,6 +39127,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -39454,6 +39582,7 @@
     "есть право: clients.viewAll"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41089,6 +41218,7 @@
     "есть право: properties.purge"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41428,6 +41558,7 @@
     "requireElevation"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41579,6 +41710,7 @@
     "requireElevation"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41670,6 +41802,7 @@
     "requireElevation"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41827,6 +41960,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41912,6 +42046,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41990,6 +42125,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -42864,6 +43000,7 @@
     "есть право: properties.aiListing"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -43007,6 +43144,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -43252,6 +43390,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -44477,6 +44616,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -44624,6 +44764,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -44715,6 +44856,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -45524,6 +45666,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -45875,6 +46018,7 @@
     "есть право: properties.delete"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -46012,6 +46156,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -46520,6 +46665,7 @@
     "есть право: properties.publish"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -46684,6 +46830,7 @@
     "есть право: properties.delete"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -47840,6 +47987,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -48829,6 +48977,7 @@
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -49075,6 +49224,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -49420,6 +49570,7 @@
     "вход выполнен"
    ],
    "screens": [
+    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -60596,7 +60747,19 @@
          "raw": "expected !== `\"${versionOf(raw)}\"`"
         },
         {
-         "t": "если есть сотрудник (настройка) количество",
+         "t": "если есть keep stored look и есть stored look количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если Royal look сотрудник количество — «0»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть selected количество",
          "k": "if",
          "a": [],
          "c": [
@@ -71715,6 +71878,39 @@
    ]
   },
   {
+   "id": "missed-call-task-whatsapp-close",
+   "when": "*/2 * * * *",
+   "label": "missed-call-task-whatsapp-close",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "и так по каждому",
+       "k": "loop",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: national",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: wrote",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "monthly-problem-report",
    "when": "10 9 1 * *",
    "label": "Разбор проблемных мест за прошедший месяц",
@@ -80171,6 +80367,12 @@
        "a": [],
        "c": [
         {
+         "t": "если это customer ingress обращение канал off",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
          "t": "если статус (ответ) — «held»",
          "k": "if",
          "a": [],
@@ -84299,6 +84501,13 @@
      "k": "do",
      "a": [],
      "c": [
+      {
+       "t": "если await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…"
+      },
       {
        "t": "если key && customerAgentChannelMode(key) === \"core\"",
        "k": "if",
