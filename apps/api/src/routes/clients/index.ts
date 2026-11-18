@@ -22,7 +22,6 @@ import { trashReviewRouter } from "./trashReview.js";
 import { summaryRouter } from "./summary.js";
 import { duplicatesRouter } from "./duplicates.js";
 import { deleteRequestsRouter } from "./deleteRequests.js";
-import { propertyCountDisputesRouter } from "./propertyCountDisputes.js";
 import { reactivationOffersRouter } from "./reactivationOffers.js";
 import { duplicateReviewsRouter } from "./duplicateReviews.js";
 import { cardRouter } from "./card.js";
@@ -39,10 +38,9 @@ import { intentsRouter } from "./intents.js";
 export const clientsRouter = Router();
 
 // НЕ МЕНЯТЬ ПОРЯДОК: статичные GET-пути (list, duplicates, delete-requests,
-// property-count-disputes, reactivation-offers) — до GET /:id (card). У очередей
-// заявок статичные пути `GET /delete-requests`, `GET /property-count-disputes`
-// и `GET /reactivation-offers`: за cardRouter они превратились бы в «клиента с
-// id=delete-requests»/«id=property-count-disputes»/«id=reactivation-offers» и
+// reactivation-offers) — до GET /:id (card). У очередей заявок статичные пути
+// `GET /delete-requests` и `GET /reactivation-offers`: за cardRouter они
+// превратились бы в «клиента с id=delete-requests»/«id=reactivation-offers» и
 // всегда отвечали бы 404.
 clientsRouter.use(listRouter);
 // GET /trash/:id/review — разбор удалённого клиента (16.11.2026), рядом с /trash и до card.
@@ -51,7 +49,6 @@ clientsRouter.use(trashReviewRouter);
 clientsRouter.use(summaryRouter);
 clientsRouter.use(duplicatesRouter);
 clientsRouter.use(deleteRequestsRouter);
-clientsRouter.use(propertyCountDisputesRouter);
 clientsRouter.use(reactivationOffersRouter);
 // GET /duplicate-reviews — тот же статичный-путь-до-card довод, что у /reactivation-offers.
 clientsRouter.use(duplicateReviewsRouter);

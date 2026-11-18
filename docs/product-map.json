@@ -984,7 +984,7 @@
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 61,
+      "endpoints": 56,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
       "usedBy": 13
     },
@@ -1678,11 +1678,6 @@
       "id": "client-follow-ups",
       "expr": "*/10 * * * *",
       "label": "Напоминания клиентам, переставшим отвечать в переписке"
-    },
-    {
-      "id": "client-property-count-alarm",
-      "expr": "0 * * * *",
-      "label": "Сравнивает заявленное клиентом число объектов со сделанным в CRM"
     },
     {
       "id": "client-scoring",
