@@ -22,13 +22,13 @@ const calls = [
     transcriptionStage: null, transcriptionProgress: null, agent: { id: "a2", fullName: "Сотрудник Два", avatarUrl: null }, client: { id: "k2", shortId: 2, fullName: "Клиент Два" }, analysis: null },
 ];
 const incoming = [
-  { id: "i1", phone: "+992 90 000-00-17", startedAt: ago(10), endedAt: ago(9), answered: false, talkSeconds: 0, answeredBy: null, answeredByName: null, client: null,
+  { id: "i1", phone: "+992900000007", startedAt: ago(10), endedAt: ago(9), answered: false, talkSeconds: 0, answeredBy: null, answeredByName: null, client: null,
     callbackAgent: null, qualifiedAt: null, qualifiedBy: null, irrelevant: false, autoCreatedClient: false, missingCallback: true, missedCallbackHours: 2 },
 ];
 const dashboard = {
   station: { configured: true, online: true, registered: 1, total: 2 },
   extensions: [{ agentId: "a1", fullName: LONG, extension: "101", online: true, knownToStation: true }, { agentId: "a2", fullName: "Сотрудник Два", extension: "102", online: false, knownToStation: false }],
-  live: { incoming: [{ channelId: "L1", phone: "+992 90 000-00-21", clientName: LONG, clientShortId: 1, answered: false, answeredBy: null, answeredByName: null, seconds: 18 }],
+  live: { incoming: [{ channelId: "L1", phone: "+992900000008", clientName: LONG, clientShortId: 1, answered: false, answeredBy: null, answeredByName: null, seconds: 18 }],
     outgoing: [{ channelId: "L2", clientName: "Клиент Два", clientShortId: 2, state: "ringing_client", seconds: 9 }] },
   today: { incoming: 12, outgoing: 27, missed: 3, unqualified: 2 },
   settings: { operators: 2, pushEnabled: true, panelEnabled: true, autoCreateClient: true, hoursEnabled: false, hoursStart: "09:00", hoursEnd: "18:00", forwardPhone: null, primaryTarget: "queue", primaryExtension: null },
@@ -36,10 +36,10 @@ const dashboard = {
 const at = (h: number) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.toISOString(); };
 const tasks = [
   { id: "t1", clientId: "k1", type: "SHOWING", nextActionDate: at(15), nextAction: "Показ", taskCancelledAt: null, confirmAskedAt: ago(100),
-    client: { id: "k1", shortId: 1, fullName: LONG, phone: "+992900000123" }, property: { id: "p1", title: `Участок ${"очень длинное название ".repeat(4)}` } },
-  { id: "t2", clientId: "k2", type: "CALL", nextActionDate: at(11), nextAction: "Перезвонить", taskCancelledAt: null, client: { id: "k2", shortId: 2, fullName: "Клиент Два", phone: "+992900000124" }, property: null },
+    client: { id: "k1", shortId: 1, fullName: LONG, phone: "+992900000006" }, property: { id: "p1", title: `Участок ${"очень длинное название ".repeat(4)}` } },
+  { id: "t2", clientId: "k2", type: "CALL", nextActionDate: at(11), nextAction: "Перезвонить", taskCancelledAt: null, client: { id: "k2", shortId: 2, fullName: "Клиент Два", phone: "+992900000009" }, property: null },
 ];
-const activeCall = { channelId: "X1", clientId: "k1", clientShortId: 1, clientName: LONG, dialingTo: "+992 90 000-00-02", state: "ringing_client",
+const activeCall = { channelId: "X1", clientId: "k1", clientShortId: 1, clientName: LONG, dialingTo: "+992900000002", state: "ringing_client",
   startedAt: ago(0.2), answeredAt: null, talkSeconds: 0, outcome: null, cancelled: false, clientRang: false };
 
 async function stub(page: Page, look: boolean, opts: { active?: boolean } = {}) {
@@ -96,6 +96,65 @@ test("новый вид: окно звонка на всех ширинах — 
     });
     expect(onTop, `кнопка перекрыта на ${width}px`).toBe(true);
     expect(await end.evaluate((el) => getComputedStyle(el).backgroundColor)).toMatch(/^rgb\((17[0-9]|1[89]\d|2\d\d), \d{1,2}, \d{1,2}\)$/);
+  }
+});
+
+/**
+ * Ревью PR 285 (блокер): объяснение «звонок не прошёл» у кнопки «Перезвонить»
+ * обрезалось карточкой журнала (overflow:hidden). Станция подменена отказом 503 —
+ * окно ошибки обязано быть видно ЦЕЛИКОМ: в пределах экрана и не перекрыто/не
+ * обрезано (в точке у нижнего края окна — само окно).
+ */
+test("новый вид: окно «звонок не прошёл» у «Перезвонить» видно целиком на 1280, 800 и 390", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "ширины перебираются в десктопном проекте");
+  test.setTimeout(120_000);
+  await stub(page, true);
+  await page.route((u) => /\/api\/v1\/clients\/[^/]+\/call$/.test(u.pathname),
+    (r) => r.fulfill({ status: 503, json: { error: "станция не отвечает (проверка)" } }));
+  for (const width of [1280, 800, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto("/calls");
+    await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
+    const redial = page.locator(".ry-call button.ry-call-act", { hasText: "Перезвонить" }).first();
+    await expect(redial).toBeVisible({ timeout: 20_000 });
+    // Кнопку — в середину экрана ДО нажатия; само окно не прокручиваем: прокрутка к
+    // нему сдвинула бы содержимое режущей карточки и спрятала бы обрезку.
+    await redial.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await redial.click();
+    // Окно ошибки CallClientButton: <div окна> > <div строки> > <p текста>.
+    const popup = page.locator("p", { hasText: "Нет связи с телефонной станцией" }).first().locator("xpath=../..");
+    await expect(popup).toBeVisible();
+    // Окно у нижней строки уходит ниже края — человек долистывает страницу. Листаем
+    // ту же прокрутку, что и он (рамку приложения или окно), но не режущую карточку.
+    await popup.evaluate((el) => {
+      const over = el.getBoundingClientRect().bottom - window.innerHeight + 8;
+      if (over <= 0) return;
+      const frame = el.closest(".clean-frame") as HTMLElement | null;
+      if (frame && frame.scrollHeight > frame.clientHeight) frame.scrollTop += over; else window.scrollBy(0, over);
+    });
+    const seen = await popup.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const inside = (x: number, y: number) => { const hit = document.elementFromPoint(x, y); return !!hit && el.contains(hit); };
+      // Предок, который режет содержимое (overflow hidden/clip), и окно за его краем —
+      // это и есть обрезка карточкой, даже если сейчас под точкой проверки пусто.
+      const clippedBy: string[] = [];
+      // Окно с position:fixed (телефон) предки без transform не режут — проверять нечего.
+      const fixed = getComputedStyle(el).position === "fixed";
+      for (let n = el.parentElement; !fixed && n && n !== document.body; n = n.parentElement) {
+        const s = getComputedStyle(n);
+        if (!/hidden|clip/.test(`${s.overflowX} ${s.overflowY}`)) continue;
+        const a = n.getBoundingClientRect();
+        if (r.top < a.top - 1 || r.bottom > a.bottom + 1 || r.left < a.left - 1 || r.right > a.right + 1) clippedBy.push(String(n.className).slice(0, 40));
+      }
+      return {
+        clippedBy,
+        // ±1 px: дробные координаты после прокрутки рамки к окну.
+        inViewport: r.top >= -1 && r.left >= -1 && r.bottom <= window.innerHeight + 1 && r.right <= window.innerWidth + 1,
+        bottomVisible: inside(r.left + r.width / 2, r.bottom - 3),
+        topVisible: inside(r.left + r.width / 2, r.top + 3),
+      };
+    });
+    expect(seen, `окно ошибки звонка на ${width}px`).toEqual({ clippedBy: [], inViewport: true, bottomVisible: true, topVisible: true });
   }
 });
 

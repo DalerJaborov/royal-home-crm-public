@@ -25,7 +25,7 @@ const h = vi.hoisted(() => ({
   royal: true,
   cancel: vi.fn(),
   call: {
-    channelId: "ch-1", clientId: "client-1", clientShortId: 211, clientName: "Зарина Рахимова", dialingTo: "+992 90 000-00-02",
+    channelId: "ch-1", clientId: "client-1", clientShortId: 211, clientName: "Зарина Рахимова", dialingTo: "+992900000002",
     state: "ringing_client", startedAt: "2026-11-18T07:00:00.000Z", answeredAt: null, talkSeconds: 0, outcome: null, cancelled: false, clientRang: false,
   } as Record<string, unknown>,
 }));
@@ -145,6 +145,13 @@ describe("строка звонка", () => {
     for (const text of ["Договорились о показе", "Балл 82", "Без договорённости", "4:05", "Ноза"]) expect(markup).toContain(text);
     expect(markup.match(/<button/g)).toHaveLength(1);
     expect(markup).toContain('aria-expanded="false"');
+  });
+
+  it("телефон: «слушать» кругом без подписи, длительность — в имени кнопки", () => {
+    const markup = html(<RoyalCallListen compact open={false} onToggle={() => {}} controls="d1" duration="6:12" />);
+    expect(markup).toContain("data-compact");
+    expect(markup).toContain('aria-label="Слушать и открыть разбор, разговор 6:12"');
+    expect(markup).not.toContain('class="ry-num"');
   });
 
   it("«Слушать» переключает раскрытие тем же состоянием", () => {

@@ -47,20 +47,23 @@ export function scoreFlagTone(tone: string): RoyalCallFlagTone {
  * состояние open, что у прежней кнопки «Открыть разбор»). Длительность — на
  * самой кнопке, как в макете.
  */
-export function RoyalCallListen({ open, onToggle, controls, duration }: {
+export function RoyalCallListen({ open, onToggle, controls, duration, compact = false }: {
   open: boolean; onToggle: () => void; controls: string; duration: string;
+  /** Телефон: круг 44 без подписи (длительность — в строке и в aria-label), рядом — круг звонка. */
+  compact?: boolean;
 }) {
   return (
     <button
       type="button"
       className="ry-call-listen"
+      data-compact={compact ? "" : undefined}
       onClick={onToggle}
       aria-expanded={open}
       aria-controls={controls}
       aria-label={open ? `Свернуть разбор, разговор ${duration}` : `Слушать и открыть разбор, разговор ${duration}`}
     >
       <CallIcon name="play" size={20} />
-      <span className="ry-num">{duration}</span>
+      {!compact && <span className="ry-num">{duration}</span>}
     </button>
   );
 }
