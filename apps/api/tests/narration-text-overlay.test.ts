@@ -12,7 +12,7 @@ const FF = process.env.FFMPEG_BIN || "ffmpeg";
 const ffmpegReady = spawnSync(FF, ["-version"], { stdio: "ignore" }).status === 0
   && /drawtext/u.test(spawnSync(FF, ["-hide_banner", "-filters"], { encoding: "utf8" }).stdout ?? "");
 
-const { splitSubtitlePhrases, subtitleCues, wrapSubtitle, ffFilterPath, OVERLAY_FONTS } = await import("../src/lib/video/narrationOverlay.js");
+const { splitSubtitlePhrases, subtitleCues, wrapSubtitle, ffFilterPath, OVERLAY_FONTS, buildOverlayFilter } = await import("../src/lib/video/narrationOverlay.js");
 const { mixNarrationOntoMaster } = await import("../src/lib/narrationMix.js");
 const { probeMediaInfo } = await import("../src/lib/ffmpeg.js");
 const { narrationTextOverlay } = await import("@royal-home/shared");
@@ -53,6 +53,18 @@ describe("текст на ролике: фразы и время", () => {
     const exact = subtitleCues({ script, voiceSec: 9.2, startSec: 0.3, alignment });
     const price = exact.find((c) => c.text.startsWith("Нархаш"))!;
     expect(price.start).toBeCloseTo(6.3, 3);
+  });
+  it("каждая строка субтитра — своя, по центру кадра; плашки строк стыкуются", async () => {
+    const dir = path.join(tmp, "filter");
+    await fs.mkdir(dir, { recursive: true });
+    const filter = buildOverlayFilter({ width: 1080, height: 1920, price: null, cues: [{ text: "Масоҳаташ ҳаштоду\nшаш метри мураббаъ,", start: 1, end: 3 }], workDir: dir });
+    const subs = filter.split(",drawtext=").map((f) => f.replace(/^drawtext=/u, ""));
+    expect(subs).toHaveLength(2);
+    for (const f of subs) expect(f).toContain("x=(w-text_w)/2");
+    const ys = subs.map((f) => Number(/:y=(\d+):/u.exec(f)?.[1]));
+    expect(ys[1]! - ys[0]!).toBeGreaterThan(54);
+    const files = (await fs.readdir(dir)).filter((f) => f.startsWith("sub-"));
+    for (const f of files) expect(await fs.readFile(path.join(dir, f), "utf8")).not.toContain("\n");
   });
   it("путь шрифта в фильтре: прямые слэши, двоеточие диска экранировано; шрифты на месте", async () => {
     expect(ffFilterPath("C:\\a\\b.ttf")).toBe("C\\:/a/b.ttf");

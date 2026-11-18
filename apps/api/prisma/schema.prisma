@@ -2465,6 +2465,12 @@ model Property {
   /// Откуда мастер (16.11.2026): EDITOR — монтажёр прислал ролик без голоса; null — старые записи (монтажёр).
   /// MACHINE (CRM сама отделяла старый голос) больше не пишется: машинное отделение убрано 18.11.2026.
   videoMasterSource              String?
+  // не используется с 18.11, удалить следующим выкатом (машинное отделение голоса убрано; черновик SQL —
+  // docs/journal/2026-11-18-narration-drop-voice-separator.md). Код эти колонки не читает и не пишет.
+  videoMasterAutoError           String?
+  videoMasterAutoErrorFinalPath  String?
+  videoMasterAutoAttempts        Int       @default(0)
+  videoMasterAutoRetryAt         DateTime?
   /// ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026, lib/narrationPreview.ts). CRM наложила новую озвучку на
   /// ВЫШЕДШИЙ ролик — новый файл не подменяет вышедший, а ждёт решения хозяина объекта:
   /// «Выпустить» / «Другой голос или текст» / «Оставить старый». Молчит — выходит сам в

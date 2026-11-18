@@ -130,8 +130,17 @@ export function buildOverlayFilter(input: { width: number; height: number; price
     parts.push(`drawtext=fontfile='${ffFilterPath(OVERLAY_FONTS.bold)}':textfile='${textFile("price.txt", input.price)}':x=${x + pad}:y=${y + pad}:fontsize=${size}:expansion=none:fontcolor=white:box=1:boxcolor=0x1f4fd8@0.94:boxborderw=${pad}`);
   }
   const subSize = Math.round(unit * 0.05);
+  // Каждая строка субтитра — своим drawtext с x=(w-text_w)/2: многострочный drawtext ровняет строки по левому краю
+  // блока, и короткая строка выглядела сдвинутой. Плашки строк стыкуются и читаются одной.
+  const border = Math.round(subSize * 0.4);
+  // Шаг = высота плашки строки: плашки стыкуются, а не накладываются (полупрозрачное наложение давало тёмную полосу).
+  const step = Math.round(subSize * 0.95) + 2 * border;
   input.cues.forEach((cue, i) => {
-    parts.push(`drawtext=fontfile='${ffFilterPath(OVERLAY_FONTS.semibold)}':textfile='${textFile(`sub-${i}.txt`, cue.text)}':x=(w-text_w)/2:y=h*0.78:fontsize=${subSize}:line_spacing=${Math.round(subSize * 0.25)}:expansion=none:fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=${Math.round(subSize * 0.4)}:enable='between(t,${cue.start.toFixed(2)},${cue.end.toFixed(2)})'`);
+    const lines = cue.text.split("\n");
+    const top = Math.round(h * 0.78) - (lines.length - 1) * step;
+    lines.forEach((line, j) => {
+      parts.push(`drawtext=fontfile='${ffFilterPath(OVERLAY_FONTS.semibold)}':textfile='${textFile(`sub-${i}-${j}.txt`, line)}':x=(w-text_w)/2:y=${top + j * step}:fontsize=${subSize}:expansion=none:fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=${border}:enable='between(t,${cue.start.toFixed(2)},${cue.end.toFixed(2)})'`);
+    });
   });
   return parts.join(",");
 }

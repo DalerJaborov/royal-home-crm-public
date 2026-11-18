@@ -8,8 +8,6 @@ UPDATE "Property"
 SET "videoMasterStorageKey" = NULL, "videoMasterSource" = NULL
 WHERE "videoMasterSource" = 'MACHINE';
 
--- 2. Служебные поля машины.
-ALTER TABLE "Property" DROP COLUMN "videoMasterAutoError";
-ALTER TABLE "Property" DROP COLUMN "videoMasterAutoErrorFinalPath";
-ALTER TABLE "Property" DROP COLUMN "videoMasterAutoAttempts";
-ALTER TABLE "Property" DROP COLUMN "videoMasterAutoRetryAt";
+-- 2. Служебные колонки машины (videoMasterAuto*) в этом выкате НЕ удаляются: миграция идёт до перезапуска
+--    контейнеров, и старые api/worker на время перезапуска упали бы на чтении объектов. Код их больше не читает
+--    и не пишет; удаление — следующим выкатом (черновик SQL: docs/journal/2026-11-18-narration-drop-voice-separator.md).
