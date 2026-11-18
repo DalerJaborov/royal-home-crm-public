@@ -62,6 +62,7 @@ const copy = {
     stale: "Уже есть новая версия озвучки.", busy: "Предыдущая озвучка ещё готовится. Попробуйте через минуту.",
     forbidden: "Это не ваш объект.", off: "Автоозвучка выключена в настройках.", failed: "Не получилось, попробуйте ещё раз.",
     voiceOnly: "Текст озвучки пришлите, пожалуйста, текстом.",
+    editCancelled: "Хорошо, правку текста отменила. Озвучка осталась прежней.",
     male: "муж.", female: "жен.", lastPicked: "последний раз выбран",
   },
   tg: {
@@ -86,6 +87,7 @@ const copy = {
     stale: "Аллакай версияи нави овоз ҳаст.", busy: "Овози қаблӣ ҳоло тайёр мешавад. Баъд аз як дақиқа боз кӯшиш кунед.",
     forbidden: "Ин объекти шумо нест.", off: "Овоздиҳии худкор дар танзимот хомӯш аст.", failed: "Нашуд, боз кӯшиш кунед.",
     voiceOnly: "Матни овозро бо матн фиристед.",
+    editCancelled: "Хуб, тағйири матнро бекор кардам. Овоз ҳамон пешина монд.",
     male: "мард", female: "зан", lastPicked: "бори охир интихоб шуд",
   },
 } as const;
@@ -387,6 +389,13 @@ export async function handleNarrationCallback(query: TelegramCallbackQuery): Pro
   return true;
 }
 
+/** Короткая фраза отказа от правки текста: «отмена», «не надо», «стоп», «бекор». Без \w/\b — они молчат по кириллице. */
+const EDIT_CANCEL = /^(отмен[а-яё]*|отстав[а-яё]*|не\s+надо|не\s+нужно|стоп|cancel|бекор[а-яӣӯқғҳҷ\s]*|лағв[а-яӣӯқғҳҷ]*|нахостам|не\s+меняй[а-яё]*)[.!\s]*$/iu;
+export function isEditCancel(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return t.length <= 30 && EDIT_CANCEL.test(t);
+}
+
 /** Голосовое → текст (в Шабнам это её расшифровка с дневным потолком и учётом денег); без неё голосовое просит текст. */
 export type NarrationTranscriber = (msg: TelegramIncomingMessage) => Promise<{ text: string } | { error: string }>;
 
@@ -418,6 +427,8 @@ export async function handleNarrationTextReply(msg: TelegramIncomingMessage, age
   }
   // Ожидание снимается сразу: следующий обычный вопрос Шабнам уже не станет озвучкой.
   await prisma.propertyNarrationVersion.updateMany({ where: { id: pending.id }, data: { editRequestedAt: null } });
+  // «Отмена» (словом или голосом) — не новый текст озвучки, а отказ от правки.
+  if (isEditCancel(text)) { await sendMessage(chatId, c.editCancelled); return true; }
   const clicker = await clickerFor(chatId, pending.propertyId);
   if (!clicker || clicker.agentId !== agent.id) { await sendMessage(chatId, c.forbidden); return true; }
   try {

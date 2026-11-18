@@ -48,7 +48,7 @@ const { findAssistantToolPlugin, listAssistantToolPlugins } = await import("../s
 const { runAssistantToolPlugin } = await import("../src/ai/assistant/tools/run.js");
 const { actorFromAccess } = await import("../src/ai/assistant/actor.js");
 const { NARRATION_TOOL_NAMES } = await import("../src/ai/assistant/tools/narrationTools.js");
-const { handleNarrationTextReply } = await import("../src/telegram/assistantNarration.js");
+const { handleNarrationTextReply, isEditCancel } = await import("../src/telegram/assistantNarration.js");
 const { matchByName } = await import("../src/lib/staffNarration.js");
 const { parseSpokenAmount } = await import("../src/ai/assistant/tools/spokenAmount.js");
 const { changePropertyPriceExecutor } = await import("../src/ai/assistant/tools/changePropertyPrice.js");
@@ -361,6 +361,20 @@ describe("голосом править текст озвучки", () => {
     expect(await handleNarrationTextReply({ message_id: 11, chat: { id: Number(ownerChat), type: "private" }, text: "Новый текст озвучки для проверки." } as never, { id: ownerId })).toBe(true);
     expect(flow.requestAutoNarration).toHaveBeenCalledWith(expect.objectContaining({ script: "Новый текст озвучки для проверки.", expectedRevision: v.revision }));
   });
+});
+
+describe("«отмена» в окне правки текста", () => {
+  it("«отмена» голосом или текстом снимает правку, новой озвучки не заказывает", async () => {
+    const p = await seedProperty();
+    const v = await seedVersion(p.id, { approvalChatId: ownerChat, editRequestedAt: new Date() });
+    const voice = { message_id: 12, chat: { id: Number(ownerChat), type: "private" }, voice: { file_id: "f", duration: 2 } } as never;
+    expect(await handleNarrationTextReply(voice, { id: ownerId }, async () => ({ text: "Отмена." }))).toBe(true);
+    expect(flow.requestAutoNarration).not.toHaveBeenCalled();
+    expect(tg.sendMessage).toHaveBeenCalledWith(ownerChat, expect.stringContaining("отменила"));
+    expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: v.id } })).editRequestedAt).toBeNull();
+  });
+  it.each(["отмена", "Отменить!", "не надо", "стоп", "бекор", "бекор кардан"])("%j — отказ", (t) => expect(isEditCancel(t)).toBe(true));
+  it.each(["Отличная квартира в центре, звоните, покажем.", "Стоп-кадр не нужен, квартира светлая", ""])("%j — не отказ", (t) => expect(isEditCancel(t)).toBe(false));
 });
 
 describe("цена «85 тысяч»", () => {
