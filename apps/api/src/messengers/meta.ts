@@ -696,8 +696,19 @@ interface WhatsAppValue {
      *  (там профиль ОТПРАВИТЕЛЯ, здесь — тот, кем он поделился). */
     contacts?: { name?: { formatted_name?: string }; phones?: { phone?: string }[] }[];
     /** Ответ на конкретное сообщение: WhatsApp кладёт сюда идентификатор того,
-     *  на что человек ответил. */
-    context?: { id?: string };
+     *  на что человек ответил. У ответа на запрос разрешения звонить — id ЗВОНКА
+     *  (`wacid.…`), а не сообщения (`wamid.…`). */
+    context?: { id?: string; from?: string };
+    /** Ответ на интерактивное сообщение (18.11.2026): кнопка/строка списка — слова
+     *  человека; `call_permission_reply` — служебный ответ «можно ли звонить». */
+    interactive?: {
+      type?: string;
+      button_reply?: { id?: string; title?: string };
+      list_reply?: { id?: string; title?: string; description?: string };
+      nfm_reply?: { body?: string; name?: string };
+    };
+    /** Заказ из каталога WhatsApp: своих слов может не быть, позиции — по id товара. */
+    order?: { catalog_id?: string; text?: string; product_items?: { product_retailer_id?: string; quantity?: number | string }[] };
     /** Человек пришёл по click-to-WhatsApp рекламе — Meta кладёт сюда creative
      *  объявления (17.09.2026, до этого поле не читалось вовсе: у Instagram та же
      *  реклама уже различалась по referral.ref — см. adRef выше, — а у WhatsApp
@@ -758,13 +769,18 @@ export interface DeliveryStatusUpdate {
 export function parseStatusUpdates(body: unknown): DeliveryStatusUpdate[] {
   const payload = body as {
     object?: string;
-    entry?: { changes?: { value?: WhatsAppValue }[] }[];
+    entry?: { changes?: { field?: string; value?: WhatsAppValue }[] }[];
   };
   if (payload?.object !== "whatsapp_business_account") return [];
   const out: DeliveryStatusUpdate[] = [];
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
+      // Статусы ЗВОНКА (поле `calls`: RINGING/ACCEPTED/REJECTED, `type: "call"`, id —
+      // WACID) лежат в том же `value.statuses`, но это не доставка сообщения: их
+      // разбирает messengers/whatsappCalls.ts (18.11.2026).
+      if (change.field === "calls") continue;
       for (const s of change.value?.statuses ?? []) {
+        if ((s as { type?: string }).type === "call") continue;
         if (!s.id || !s.status || !s.recipient_id) continue;
         const reason = (s.errors ?? [])
           .map((e) => [e.title, e.message, e.error_data?.details].filter(Boolean).join(" — "))
@@ -963,6 +979,60 @@ export function templateAttachmentText(payload: unknown): string {
  * СПИСОК, А НЕ ОДНО ЗНАЧЕНИЕ (30.08.2026): номеров у агентства может быть
  * несколько, и раньше все, кроме указанного в Настройках, отбрасывались молча.
  */
+type WhatsAppIncomingMessage = NonNullable<WhatsAppValue["messages"]>[number];
+
+/**
+ * ПОЧЕМУ СООБЩЕНИЕ WHATSAPP — НЕ РЕПЛИКА ДЛЯ БОТА (18.11.2026). null — обычная реплика.
+ *
+ * Класс поломки один: событие без слов человека уходило боту «вложением», и бот
+ * отвечал «не получается открыть вложение». По типам (ФАКТ — webhook reference
+ * WhatsApp Cloud API и calling/callback-permissions):
+ *  - `interactive.call_permission_reply` и всё, что отвечает на ЗВОНОК
+ *    (`context.id` начинается с `wacid.`): разрешение звонить — служебный ответ;
+ *  - `system` — Meta сообщает о смене номера/личности пользователя, не он пишет;
+ *  - `request_welcome` — человек впервые открыл чат и ещё ничего не написал;
+ *  - `unsupported` — Meta сама не смогла передать сообщение (опрос, «просмотр
+ *    один раз»), открывать нечего; причина уходит в журнал ошибок отдельно;
+ *  - `reaction` отсекается выше отдельно (01.08.2026).
+ * Ответы кнопкой и строкой списка (`button_reply`/`list_reply`) — реплики, не сюда.
+ */
+export function whatsappServiceEventReason(msg: WhatsAppIncomingMessage): string | null {
+  if (msg.context?.id?.startsWith("wacid.")) return "ответ на звонок";
+  if (msg.type === "interactive" && msg.interactive?.type === "call_permission_reply") return "разрешение на звонок";
+  if (msg.type === "system") return "системное уведомление Meta";
+  if (msg.type === "request_welcome") return "человек открыл чат, ещё не написал";
+  if (msg.type === "unsupported") {
+    // Причина — в журнал ошибок: без неё «не дошло» не объяснить (22.09.2026).
+    const reason = msg.errors?.[0];
+    void logSystemError(
+      "meta",
+      `WhatsApp не доставил сообщение клиента ${msg.from ?? "?"}: ${reason?.title ?? "тип не поддерживается"}` +
+        `${reason?.code ? ` (код ${reason.code})` : ""}${reason?.message ? `. ${reason.message}` : ""}`
+    );
+    return "Meta не смогла передать сообщение";
+  }
+  return null;
+}
+
+/** Слова человека из ответа на интерактивное сообщение; undefined — слов нет. */
+export function whatsappInteractiveReplyText(msg: WhatsAppIncomingMessage): string | undefined {
+  if (msg.type !== "interactive") return undefined;
+  const i = msg.interactive;
+  const list = [i?.list_reply?.title, i?.list_reply?.description].filter((v) => v && v.trim()).join(". ");
+  const text = i?.button_reply?.title?.trim() || list || i?.nfm_reply?.body?.trim();
+  return text ? text : undefined;
+}
+
+/** Заказ из каталога словами: текст человека и позиции. undefined — пустой заказ. */
+export function whatsappOrderText(msg: WhatsAppIncomingMessage): string | undefined {
+  if (msg.type !== "order" || !msg.order) return undefined;
+  const items = (msg.order.product_items ?? [])
+    .map((p) => (p.product_retailer_id ? `${p.product_retailer_id}${p.quantity && Number(p.quantity) !== 1 ? ` ×${p.quantity}` : ""}` : null))
+    .filter(Boolean);
+  const parts = [msg.order.text?.trim(), items.length ? `🛒 Заказ из каталога: ${items.join(", ")}` : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
 export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string[], includeTraceShape = /^(1|true)$/.test(process.env.BOT_TURN_TRACE_ENABLED ?? ""),
   options: { captureCustomerReferences?: true } = {}): MetaIncoming[] {
   // Capturing original public references grants no property read or execution
@@ -1009,9 +1079,31 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
           // получил «Расмро надидам, бубахшед». Со стороны это выглядит так, будто
           // на том конце неисправный автомат.
           if (msg.type === "reaction") continue;
+          /**
+           * СЛУЖЕБНЫЕ СОБЫТИЯ WHATSAPP — НЕ РЕПЛИКА КЛИЕНТА (18.11.2026, живой случай:
+           * после голосового звонка Meta прислала ответ на запрос разрешения звонить —
+           * `interactive.call_permission_reply` с `context.id = wacid.…`, CRM записала
+           * «[вложение: interactive]», и бот ответил «не получается открыть вложение»).
+           * Такие события молча мимо бота: ни хода, ни ответа, одна строка в журнале.
+           * Решение — whatsappServiceEventReason (рядом), одно место на оба пути приёма.
+           */
+          const serviceReason = whatsappServiceEventReason(msg);
+          if (serviceReason) {
+            console.log(
+              `[вебхук] WHATSAPP: служебное событие мимо бота (${serviceReason}) type=${msg.type ?? "?"}` +
+                ` id=${msg.id ?? "?"} context=${msg.context?.id ?? "-"}`
+            );
+            continue;
+          }
           // Кнопка под одобренным текстом — это ответ словами («Да, присылайте»), а
           // не вложение: без этого в переписке лёг бы пустой пузырь «[вложение: button]».
-          const isText = (msg.type ?? "text") === "text" || msg.type === "button";
+          // Ответ кнопкой/строкой списка интерактивного сообщения и заказ из каталога —
+          // тоже слова человека, а не файл (18.11.2026; раньше «[вложение: interactive]»).
+          const isText =
+            (msg.type ?? "text") === "text" ||
+            msg.type === "button" ||
+            (msg.type === "interactive" && whatsappInteractiveReplyText(msg) !== undefined) ||
+            (msg.type === "order" && whatsappOrderText(msg) !== undefined);
           const media = msg.image ?? msg.audio ?? msg.voice ?? msg.video ?? msg.document ?? msg.sticker;
           // Подпись к фото — это слова клиента («вот такую ищу»), а не служебное поле:
           // без неё до модели доходило только само изображение, без вопроса к нему.
@@ -1050,25 +1142,14 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
                 .filter(Boolean)
                 .join(", ")}`
             : undefined;
-          const text = msg.text?.body ?? msg.button?.text ?? caption ?? locationText ?? contactsText ?? "";
+          const interactiveText = whatsappInteractiveReplyText(msg);
+          const orderText = whatsappOrderText(msg);
+          const text = msg.text?.body ?? msg.button?.text ?? interactiveText ?? orderText ?? caption ?? locationText ?? contactsText ?? "";
           // ATTACHMENT_HINTS (sharedMedia.ts) знает "location"/"contact" в единственном
           // числе; WhatsApp шлёt тип "contacts" во множественном — приводим к общему ключу.
           const attachmentType = isText ? undefined : msg.type === "contacts" ? "contact" : msg.type;
-          /**
-           * «unsupported» — это отказ САМОЙ META, а не наша неудача с файлом
-           * (22.09.2026, живой случай продавца дачи: бот ответил «ин
-           * вложенияро кушода наметавонам», хотя открывать было нечего).
-           * Причину Meta пишет в errors[] — кладём её в журнал, иначе в CRM
-           * остаётся одно слово «unsupported» и разобраться нельзя.
-           */
-          if (msg.type === "unsupported") {
-            const reason = msg.errors?.[0];
-            void logSystemError(
-              "meta",
-              `WhatsApp не доставил сообщение клиента ${from}: ${reason?.title ?? "тип не поддерживается"}` +
-                `${reason?.code ? ` (код ${reason.code})` : ""}${reason?.message ? `. ${reason.message}` : ""}`
-            );
-          }
+          // «unsupported» (отказ самой Meta, 22.09.2026) отсекается выше —
+          // whatsappServiceEventReason пишет причину в журнал ошибок и молчит перед ботом.
           out.push({
             channel: "WHATSAPP",
             ...(includeTraceShape ? { traceIngressShape: projectBotIngressShape(null, msg, !!msg.referral) } : {}),

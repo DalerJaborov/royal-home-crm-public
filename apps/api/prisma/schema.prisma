@@ -9277,6 +9277,12 @@ model IncomingCall {
   /// Номер звонящего в том виде, в каком его хранит CRM (+992…). Станция сообщает
   /// девять цифр без кода страны — приводится при записи (см. lib/telephony/incomingCalls.ts).
   phone             String
+  /// Откуда пришёл звонок: "phone" — обычная линия, "whatsapp" — голосовой звонок
+  /// WhatsApp через шлюз SIP (канал станции `PJSIP/whatsapp-gw-…`, 18.11.2026).
+  /// Строка, а не enum — по той же причине, что routeDecision: новый канал не
+  /// требует миграции типа. Значения — INCOMING_CALL_SOURCES в packages/shared,
+  /// решает lib/telephony/callSource.ts.
+  source            String    @default("phone")
   startedAt         DateTime  @default(now())
   endedAt           DateTime?
   /// Разговор состоялся: кто-то из операторов снял трубку. Ответ самой очереди

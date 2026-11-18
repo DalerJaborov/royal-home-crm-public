@@ -333,6 +333,8 @@ callsRouter.get("/feed", async (req, res) => {
       select: {
         id: true,
         phone: true,
+        // «WhatsApp» или линия — метка в строке ленты (lib/telephony/callSource.ts).
+        source: true,
         startedAt: true,
         answered: true,
         talkSeconds: true,
@@ -373,6 +375,8 @@ callsRouter.get("/feed", async (req, res) => {
       // Телефона у исходящего в списке нет намеренно: он и так живёт на карточке
       // клиента, а звонок из строки идёт по clientId — как и раньше.
       phone: null as string | null,
+      // Исходящий через CRM всегда идёт по линии станции.
+      source: "phone" as string,
       durationSec: i.recordingDurationSec,
       callAttempt: i.callAttempt,
       agentName: i.agent?.fullName ?? null,
@@ -396,6 +400,7 @@ callsRouter.get("/feed", async (req, res) => {
       // Номер закрывается тем же правилом, что и везде (см. lib/clientPhone.ts):
       // раздел открыт правом на разговоры, а видеть номера — право отдельное.
       phone: clientPhoneFor(c.phone, canSeePhone) as string | null,
+      source: c.source,
       durationSec: c.talkSeconds,
       // У входящего callAttempt не бывает — это поле станции для звонков через
       // CRM (см. outgoing выше). null здесь, а не отсутствие поля: строки ленты
@@ -518,6 +523,8 @@ callsRouter.get("/incoming", supervisorOnly, async (req, res) => {
       select: {
         id: true,
         phone: true,
+        // Откуда звонок: "phone" | "whatsapp" — метка «WhatsApp» в журнале входящих.
+        source: true,
         startedAt: true,
         endedAt: true,
         answered: true,

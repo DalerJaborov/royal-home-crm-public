@@ -36,6 +36,7 @@ import { loadAriCredentials, answerChannel, startMoh } from "./ariClient.js";
 import type { AriChannel } from "./ariTypes.js";
 import { SERVICE_NUMBER_IRRELEVANT_MARKS } from "./incomingCallConstants.js";
 import { publishCallUpdated } from "../livePublish.js";
+import { clientSourceForCall, inboundCallNotePrefix, incomingCallSourceFromChannel } from "./callSource.js";
 import { findStaffPhone } from "../staffPhoneGuard.js";
 import { CONSULTANT_SESSION_WAIT_MS } from "./liveVoiceTimings.js";
 // Реэкспорт — эта константа жила здесь до 03.09.2026 (аудит циклов), переехала
@@ -600,6 +601,8 @@ async function setupIncomingCall(entry: LiveIncoming): Promise<void> {
       data: {
         channelId: entry.channelId,
         phone: entry.phone,
+        // WhatsApp или линия — по имени канала станции (lib/telephony/callSource.ts).
+        source: incomingCallSourceFromChannel(entry.channelName),
         clientId: known?.id ?? null,
         startedAt: entry.startedAt,
       },
@@ -935,7 +938,8 @@ async function createCardForUnknownCaller(entry: LiveIncoming): Promise<void> {
           // и открывается тому, у кого есть право.
           fullName: `Входящий ${maskClientPhone(entry.phone)}`,
           phone: entry.phone,
-          source: "PHONE_CALL",
+          // Звонок из WhatsApp заводит клиента «из WhatsApp», а не «по звонку».
+          source: clientSourceForCall(incomingCallSourceFromChannel(entry.channelName)),
           kind: settings.defaultKind,
           status: "NEW",
           currency: "TJS",
@@ -1527,6 +1531,11 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
   const missedCallSlot =
     client && !answered ? await claimAutoTaskSlot(client.id, "inbound_missed_callback", missedCallCallback.nextAction, missedCallCallback.nextActionDate) : null;
   if (client) {
+    // «Входящий звонок клиента из WhatsApp: …» — начало строки держат noContact.ts и
+    // callRecordings.ts, поэтому WhatsApp только дописывается (см. callSource.ts).
+    const callSource = incomingCallSourceFromChannel(entry.channelName);
+    const ofClientTitle = inboundCallNotePrefix(callSource, true);
+    const unknownTitle = inboundCallNotePrefix(callSource, false);
     try {
       const interaction = await logTimeline({
         clientId: client.id,
@@ -1543,18 +1552,18 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
             },
         type: "CALL",
         notes: byConsultant
-            ? `Входящий звонок клиента: ответил консультант (ИИ), ${formatDuration(talkSeconds)}`
+            ? `${ofClientTitle}: ответил консультант (ИИ), ${formatDuration(talkSeconds)}`
             : silentKnown
-              ? `Входящий звонок клиента: ответил консультант (ИИ), клиент ничего не сказал и положил трубку (${formatDuration(talkSeconds)}) — перезвоните`
+              ? `${ofClientTitle}: ответил консультант (ИИ), клиент ничего не сказал и положил трубку (${formatDuration(talkSeconds)}) — перезвоните`
             : silentUnknown
-              ? `Входящий звонок: робот (ИИ) поздоровался, звонящий ничего не сказал и положил трубку (${formatDuration(talkSeconds)}) — возможно, положил трубку, услышав робота. Перезвоните`
+              ? `${unknownTitle}: робот (ИИ) поздоровался, звонящий ничего не сказал и положил трубку (${formatDuration(talkSeconds)}) — возможно, положил трубку, услышав робота. Перезвоните`
             : transferShort
-              ? `Входящий звонок клиента: консультант (ИИ) соединил с агентом, но разговора не вышло (${formatDuration(talkSeconds)}, возможно, ответил автоответчик телефона) — перезвоните`
+              ? `${ofClientTitle}: консультант (ИИ) соединил с агентом, но разговора не вышло (${formatDuration(talkSeconds)}, возможно, ответил автоответчик телефона) — перезвоните`
             : answered
-            ? `Входящий звонок клиента: поговорил с ${entry.consultantAt ? "агентом после консультанта" : "оператором"}${entry.answeredBy ? ` (${entry.answeredBy})` : ""}, ${formatDuration(talkSeconds)}`
+            ? `${ofClientTitle}: поговорил с ${entry.consultantAt ? "агентом после консультанта" : "оператором"}${entry.answeredBy ? ` (${entry.answeredBy})` : ""}, ${formatDuration(talkSeconds)}`
             : handedBack
-              ? "Входящий звонок клиента: консультант (ИИ) не смог принять звонок из-за сбоя, звонок ушёл на автоответчик — перезвоните"
-              : "Входящий звонок клиента: до оператора не дозвонился",
+              ? `${ofClientTitle}: консультант (ИИ) не смог принять звонок из-за сбоя, звонок ушёл на автоответчик — перезвоните`
+              : `${ofClientTitle}: до оператора не дозвонился`,
           /**
            * ИСХОД НЕ СТАВИМ ВООБЩЕ — ни у отвеченного, ни у пропущенного.
            *
@@ -1803,7 +1812,8 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
   if (!answered) {
     // СМС со ссылкой на WhatsApp (рубильник А, Settings.missedCallSmsEnabled): сразу, любой неотвеченный.
     // Не ждём и не падаем: решение и защиты внутри, отказ уходит в журнал ошибок.
-    void sendMissedCallSms({ phone: entry.phone, clientId: client?.id ?? null });
+    // Звонок из WhatsApp СМС не получает — решение в missedCallFollowup.ts (missedCallSmsSkipForSource).
+    void sendMissedCallSms({ phone: entry.phone, clientId: client?.id ?? null, callSource: incomingCallSourceFromChannel(entry.channelName) });
     await notifyMissed(entry, client, callbackAgentId, assignedAgentUnavailable);
   }
 

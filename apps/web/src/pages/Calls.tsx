@@ -46,6 +46,7 @@ import { InboxTabs } from "../components/SectionTabs";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalCallFlag, RoyalCallListen, RoyalCallRow, scoreFlagTone } from "../components/look/calls/RoyalCallRow";
+import { CallSourceMark } from "../components/look/calls/CallSourceMark";
 import { RoyalCallsTop } from "../components/look/calls/RoyalCallsTop";
 
 /**
@@ -283,6 +284,7 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
           call.qualifiedBy ? `разобрал ${call.qualifiedBy.fullName}` : null,
         ]}
         flags={<>
+          <CallSourceMark source={call.source} look="royal" />
           {call.irrelevant && <RoyalCallFlag tone="mute">не по делу</RoyalCallFlag>}
           {needsQualifying && <RoyalCallFlag tone="warn">без разбора</RoyalCallFlag>}
           {!call.answered && (call.callbackAgent
@@ -335,6 +337,7 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
       ) : (
         <span className="dur crit">не дошёл</span>
       )}
+      <CallSourceMark source={call.source} look="chip" />
       {call.irrelevant && <span className="chip mute">не по делу</span>}
       {needsQualifying && <span className="chip warn">без разбора</span>}
       {!call.answered &&
