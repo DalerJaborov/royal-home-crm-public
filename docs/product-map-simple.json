@@ -16,10 +16,10 @@
   "paths": 776,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4091,
+  "conditions": 4093,
   "untranslatedUnique": 472,
   "untranslatedTotal": 607,
-  "partialUnique": 1102,
+  "partialUnique": 1104,
   "translatedShare": 85
  },
  "untranslated": [
@@ -64475,12 +64475,26 @@
          ]
         },
         {
-         "t": "если есть no operators назначен",
+         "t": "если есть no operators назначен и нет: primary",
          "k": "if",
          "a": [],
          "c": [
           {
-           "t": "запись в журнал ошибок",
+           "t": "если open — «0»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "иначе если есть primary или нет: skipped",
+         "k": "elseif",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: запись в журнале ошибок",
            "k": "do",
            "a": [],
            "c": []
