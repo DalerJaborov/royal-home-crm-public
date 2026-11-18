@@ -2,7 +2,7 @@
 
 - Что изменилось:
   - **Метка канала.** `IncomingCall.source` (`"phone"` | `"whatsapp"`, строка с умолчанием, миграция
-    `20261118170000_incoming_call_source` — только `ADD COLUMN … DEFAULT 'phone'`). Решение — одна дверь
+    `20261118180000_incoming_call_source` — только `ADD COLUMN … DEFAULT 'phone'`). Решение — одна дверь
     `lib/telephony/callSource.ts`: канал станции `PJSIP/whatsapp-gw-…` = WhatsApp. Значения — `INCOMING_CALL_SOURCES`
     в `packages/shared`. Поле отдают `GET /calls/incoming` и `GET /calls/feed`; метка «WhatsApp»
     (`components/look/calls/CallSourceMark.tsx`) стоит во всех строках входящих: ПК и телефон, «новый вид» и прежний.
