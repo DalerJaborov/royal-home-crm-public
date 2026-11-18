@@ -1,3 +1,6 @@
+import { RoyalNumberRow } from "../look/team/settingsRows";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
+
 /**
  * Строки чисел и кнопка сохранения — общие для вкладок Настроек с числовыми
  * параметрами («Лиды», «Подбор объектов»). Вынесено из LeadsTab.tsx (17.09.2026):
@@ -21,6 +24,7 @@ export function NumberRow({
   max,
   step,
   unit,
+  explain,
 }: {
   label: string;
   hint: string;
@@ -30,27 +34,35 @@ export function NumberRow({
   max: number;
   step?: number;
   unit?: string;
+  /** Необязательная чистая справка: в «Новом виде» — под «i». Последствия пишутся в hint. */
+  explain?: React.ReactNode;
 }) {
+  const field = (
+    <span className="nf">
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+      />
+      {unit && <span className="u">{unit}</span>}
+    </span>
+  );
+  // «Новый вид» (18.11.2026), только внутри раздела team: строка со значком,
+  // пояснение (проп hint) под «i», то же поле.
+  const royal = useRoyalSectionName() === "team";
+  if (royal) return <RoyalNumberRow label={label} hint={hint} explain={explain} field={field} />;
   return (
     <div className="mod">
       <div className="t">
         <b>{label}</b>
         <span>{hint}</span>
+        {explain ? <span>{explain}</span> : null}
       </div>
-      <div className="acts">
-        <span className="nf">
-          <input
-            type="number"
-            min={min}
-            max={max}
-            step={step}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            aria-label={label}
-          />
-          {unit && <span className="u">{unit}</span>}
-        </span>
-      </div>
+      <div className="acts">{field}</div>
     </div>
   );
 }
