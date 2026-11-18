@@ -24,7 +24,11 @@ import { Rh2EmptyState } from "../rh2/Rh2EmptyState";
  * Битая картинка (404 на хранилище) подменяется заглушкой, а не рамкой с
  * alt-текстом: в кадрах стенда у объекта была именно такая (review-mobile.md).
  */
-export function PropertyGallery({ photos }: { photos: PropertyPhoto[] }) {
+export function PropertyGallery({ photos, thumbs = false }: {
+  photos: PropertyPhoto[];
+  /** «Новый вид»: полоса миниатюр под лентой (макет). Те же кадры и тот же переход goTo, что у стрелок. */
+  thumbs?: boolean;
+}) {
   const trackRef = useRef<HTMLDivElement>(null);
   const frame = useRef(0);
   const [index, setIndex] = useState(0);
@@ -69,7 +73,7 @@ export function PropertyGallery({ photos }: { photos: PropertyPhoto[] }) {
     );
   }
 
-  return (
+  const gallery = (
     <div
       className="rh-gallery"
       data-testid="gallery"
@@ -159,6 +163,19 @@ export function PropertyGallery({ photos }: { photos: PropertyPhoto[] }) {
           }}
         />
       )}
+    </div>
+  );
+  if (!thumbs || total < 2) return gallery;
+  return (
+    <div className="ry-gal">
+      {gallery}
+      <div className="ry-gal-thumbs" role="group" aria-label="Миниатюры фото">
+        {photos.map((ph, i) => (
+          <button key={ph.id} type="button" aria-current={i === current} aria-label={`Фото ${i + 1} из ${total}`} onClick={() => goTo(i)}>
+            {broken.has(ph.id) ? <ImageOff className="i" aria-hidden /> : <img src={ph.thumbUrl || ph.url} alt="" loading="lazy" decoding="async" draggable={false} />}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

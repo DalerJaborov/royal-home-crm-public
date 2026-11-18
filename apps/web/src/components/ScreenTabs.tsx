@@ -57,15 +57,20 @@ function dedupe(tabs: ScreenTab[]): ScreenTab[] {
   return tabs.filter((t) => (seen.has(t.to) ? false : (seen.add(t.to), true)));
 }
 
+/** Какие вкладки видны: без повторов, по условию и по праву — одно правило на все виды полосы. */
+export function visibleScreenTabs(tabs: ScreenTab[], can: ReturnType<typeof useCan>): ScreenTab[] {
+  return dedupe(tabs)
+    .filter((t) => t.when !== false)
+    .filter((t) => !t.permission || can(t.permission));
+}
+
 export function ScreenTabs({ tabs, right }: { tabs: ScreenTab[]; right?: React.ReactNode }) {
   const can = useCan();
   const clean = useCleanShell();
   const narrow = useNarrowScreen();
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const visible = dedupe(tabs)
-    .filter((t) => t.when !== false)
-    .filter((t) => !t.permission || can(t.permission));
+  const visible = visibleScreenTabs(tabs, can);
 
   // Одна вкладка — это не выбор, а подпись: полоса из единственной пилюли
   // только занимает строку и предлагает нажать на то, что уже открыто.
