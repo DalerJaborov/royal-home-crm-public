@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4118**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4119**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -23616,8 +23616,11 @@
         - continue;
           · переходит к следующему
       - если outcome === "accepted"
-        - void logSystemError( "ai", `Заявка оформлена сторожем: номер ${maskClientPhone(row.phone!)} был в переписке (…
+        - void logSystemError( "ai", (row.promised ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки…
           · запись в журнал ошибок
+        - continue;
+          · переходит к следующему
+      - если outcome === "accepted_other"
         - continue;
           · переходит к следующему
     - если leftForHuman.length === 0
@@ -23627,7 +23630,7 @@
       - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))
         - continue;
           · переходит к следующему
-      - const what = row.phone ? `Номер ${maskClientPhone(row.phone)} есть в переписке, карточки в базе нет` : `Клиен…
+      - const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…
         · зовёт maskClientPhone()
       - const payload = { kind: "oversight" as const, title: `📵 Лид без карточки: ${who}`, body: `${dushanbeDateTime…
         · зовёт dushanbeDateTimeString()

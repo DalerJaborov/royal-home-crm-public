@@ -16,7 +16,7 @@
   "paths": 776,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4091,
+  "conditions": 4092,
   "untranslatedUnique": 472,
   "untranslatedTotal": 607,
   "partialUnique": 1102,
@@ -72514,6 +72514,13 @@
           },
           {
            "t": "если ответ — «accepted»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если ответ — «accepted_other»",
            "k": "if",
            "a": [],
            "c": [],
