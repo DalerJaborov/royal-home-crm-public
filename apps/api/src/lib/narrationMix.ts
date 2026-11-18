@@ -24,7 +24,7 @@ export const NARRATION_VOICE_LONGER_MARK = "длиннее ролика";
 const VOICE_TAIL_TOLERANCE_SEC = 0.5;
 
 export type NarrationMixResult =
-  | { ok: true; durationSec: number; fit: NarrationFit }
+  | { ok: true; durationSec: number; voiceSec: number; fit: NarrationFit }
   | { ok: false; code: "NO_VIDEO" | "VOICE_LONGER" | "FFMPEG"; error: string; voiceSec?: number; masterSec?: number };
 
 /**
@@ -129,5 +129,5 @@ export async function mixNarrationOntoMaster(input: { masterPath: string; voiceP
     await fs.promises.rm(input.outPath, { force: true }).catch(() => {});
     return { ok: false, code: "FFMPEG", error: "После наложения озвучки в ролике нет картинки или звука." };
   }
-  return { ok: true, durationSec: out.durationSec, fit };
+  return { ok: true, durationSec: out.durationSec, voiceSec, fit };
 }

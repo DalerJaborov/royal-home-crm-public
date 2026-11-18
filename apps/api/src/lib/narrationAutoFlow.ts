@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { narrationFitsType,
+import { narrationFitsType, narrationPreviewBeforeRepublish,
   chooseNarration, hasVideoHistory, narrationDraftText, narrationLimits, narrationMixByCrm, narrationModelSupportsTajik, narrationWizardChoiceSchema, pickNarrationVoice,
   type NarrationConfig, type NarrationFacts, type NarrationWizardChoice,
 } from "@royal-home/shared";
@@ -11,6 +11,7 @@ import { legacyHandoffCoverPath } from "./diskCleanup.js";
 import { mixFromStoredMaster } from "./narrationMaster.js";
 import { machineMasterApplies, makeMachineMaster, runMachineMasters, type MachineMasterDeps } from "./narrationAutoMaster.js";
 import { narrationFitNote, planNarrationFit } from "./narrationMix.js";
+import { dropReplacedClipFiles, placeMixedClip, type PlacedMix } from "./narrationPreview.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
 import { EDITOR_HOLDER_WHERE, isHandoffPublishRunning, schedulePublishAfterAccept, withPropertyLock } from "./videoHandoff.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
@@ -370,7 +371,8 @@ export async function autoApproveSameChoice(versionId: string, config: Narration
   });
 }
 
-export type NarrationRemixOutcome = "REMIXED" | "SKIPPED" | "FAILED" | "SHORTENING";
+/** PREVIEW (17.11.2026) — ролик уже вышел: новый ждёт хозяина на прослушивание (lib/narrationPreview.ts). */
+export type NarrationRemixOutcome = "REMIXED" | "PREVIEW" | "SKIPPED" | "FAILED" | "SHORTENING";
 /**
  * ПЕРЕМИКС ИЗ РОЛИКА БЕЗ ГОЛОСА (11.11.2026). Новая одобренная озвучка, а у объекта есть мастер
  * и готовый ролик (RECEIVED): CRM сама сводит новый ролик (lib/narrationMix.ts) и ставит его на
@@ -412,6 +414,13 @@ async function remixWanted(propertyId: string) {
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
   if (!latest || latest.status !== "READY" || !latest.approvedAt || !latest.storageKey || !narrationFactsCurrent(latest, p)) return null;
   if (latest.id === p.videoMasterNarrationVersionId || latest.id === p.videoMasterMixErrorVersionId) return null;
+  // Эта версия уже ждёт хозяина на прослушивание или он от неё отказался (17.11.2026).
+  // Кандидат к нынешнему ролику без голоса (тот сменился — кандидат устарел, сводим заново).
+  // Рубильник выключили (ревью 18.11): ждущий кандидат не держит сведение — новый ролик заменит вышедший
+  // сразу, как на main, а прежний кандидат уберёт replaceFinalWithMix.
+  const waitingPreview = latest.id === p.narrationPreviewVersionId && p.narrationPreviewMasterKey === p.videoMasterStorageKey
+    && narrationPreviewBeforeRepublish((await loadNarrationConfiguration()).config);
+  if (waitingPreview || latest.id === p.narrationPreviewDeclinedVersionId) return null;
   if (await isHandoffPublishRunning(propertyId)) return null;
   return { p: { ...p, videoMasterStorageKey: p.videoMasterStorageKey }, latest: { ...latest, storageKey: latest.storageKey } };
 }
@@ -458,45 +467,31 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
   if (!mixed.ok) return fail(mixed.error);
   const mixNote = narrationFitNote(mixed.fit);
   const publicPath = `/uploads/handoff/${outName}`;
-  let replaced: { oldFinal: string | null; reviewPending: boolean } | null;
+  await prisma.propertyNarrationVersion.updateMany({ where: { id: latest.id }, data: { mixNote } }).catch(() => {});
+  // ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026): ролик уже вышел — новый ждёт решения хозяина, вышедший не трогаем.
+  // «Вышел ли» решается под замком по свежей записи (ревью 18.11): публикация могла завершиться, пока шёл ffmpeg.
+  const { config } = await loadNarrationConfiguration();
+  let placed: PlacedMix;
   try {
-    replaced = await withPropertyLock(propertyId, async (tx) => {
-      const cur = await tx.property.findUnique({ where: { id: propertyId }, select: { deletedAt: true, videoHandoffStatus: true, videoHandoffFinalPath: true,
-        videoMasterStorageKey: true, videoMasterNarrationVersionId: true, publishedChannels: true, instagramUrl: true, clipReviewStatus: true } });
-      const stillLatest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
-      if (!cur || cur.deletedAt || cur.videoHandoffStatus !== "RECEIVED" || cur.videoMasterStorageKey !== masterKey
-        || cur.videoMasterNarrationVersionId !== seenVersionId || stillLatest?.id !== latest.id) return null;
-      if (await isHandoffPublishRunning(propertyId, tx)) return null;
-      const published = (cur.publishedChannels?.length ?? 0) > 0 || !!cur.instagramUrl;
-      await tx.property.update({ where: { id: propertyId }, data: {
-        videoHandoffFinalPath: publicPath, videoHandoffReceivedAt: new Date(), videoMasterNarrationVersionId: latest.id,
-        videoMasterMixError: null, videoMasterMixErrorVersionId: null, scheduledPublishAt: null, scheduledPublishReason: null,
-      } });
-      // Недоделанный Reels прежнего ролика вышел бы рядом с новым (тот же шаг, что при приёме ролика).
-      await tx.pendingInstagramContainer.updateMany({ where: { propertyId, status: "PENDING", kind: "REEL" },
-        data: { status: "CANCELLED", resolvedAt: new Date(), error: "CRM наложила новую озвучку — Reels прежнего ролика отменён" } });
-      if (published && !await tx.videoRemakeRequest.findFirst({ where: { propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null }, select: { id: true } })) {
-        await tx.videoRemakeRequest.create({ data: { propertyId, reason: "NARRATION_CHANGED", requestedById, replaceOldPostsOnPublish: true,
-          comment: `Новая озвучка, версия ${latest.revision}: CRM наложила её сама, монтажёр не нужен.` } });
-      }
-      return { oldFinal: cur.videoHandoffFinalPath, reviewPending: cur.clipReviewStatus === "PENDING" };
-    });
+    placed = await placeMixedClip({ propertyId, publicPath, masterKey, seenVersionId, versionId: latest.id, revision: latest.revision, requestedById,
+      previewEnabled: narrationPreviewBeforeRepublish(config), voiceSec: mixed.voiceSec, clipSec: mixed.durationSec });
   } catch (err) {
     await fs.promises.unlink(outPath).catch(() => {});
     throw err;
   }
-  if (!replaced) {
+  if (placed.kind === "SKIPPED") {
     await fs.promises.unlink(outPath).catch(() => {});
     return "SKIPPED";
   }
-  if (replaced.oldFinal && replaced.oldFinal !== publicPath) {
-    await fs.promises.unlink(path.join(videoHandoffDir, path.basename(replaced.oldFinal))).catch(() => {});
-    await fs.promises.unlink(legacyHandoffCoverPath(replaced.oldFinal)).catch(() => {});
+  await dropReplacedClipFiles(placed, publicPath);
+  const auditFit = { narrationVersionId: latest.id, revision: latest.revision, fit: mixed.fit.tier, tempo: mixed.fit.tempo, freezeSec: mixed.fit.freezeSec };
+  if (placed.kind === "PREVIEW") {
+    logAgentAudit(requestedById, "PROPERTY_NARRATION_PREVIEW_READY", "Property", propertyId, auditFit);
+    return "PREVIEW";
   }
   // Ролик на проверке модератора встанет на публикацию после «Одобрить», как обычно.
-  const scheduled = replaced.reviewPending ? null : await schedulePublishAfterAccept(propertyId);
-  await prisma.propertyNarrationVersion.updateMany({ where: { id: latest.id }, data: { mixNote } }).catch(() => {});
-  logAgentAudit(requestedById, "PROPERTY_NARRATION_REMIXED", "Property", propertyId, { narrationVersionId: latest.id, revision: latest.revision, fit: mixed.fit.tier, tempo: mixed.fit.tempo, freezeSec: mixed.fit.freezeSec,
+  const scheduled = placed.reviewPending ? null : await schedulePublishAfterAccept(propertyId);
+  logAgentAudit(requestedById, "PROPERTY_NARRATION_REMIXED", "Property", propertyId, { ...auditFit,
     scheduledPublishAt: scheduled?.scheduledPublishAt?.toISOString() ?? null, notPublishingReason: scheduled?.notPublishingReason ?? null });
   return "REMIXED";
 }
@@ -574,7 +569,7 @@ async function remixFromMasters(): Promise<number> {
   for (const row of rows) {
     // Перекодирование ролика бывает долгим: остаток — следующему тику, а не за пределом крона (170 с).
     if (Date.now() - started > 90_000) { stoppedEarly = true; break; }
-    try { if ((await remixFromMaster(row.id)) === "REMIXED") remixed++; }
+    try { const r = await remixFromMaster(row.id); if (r === "REMIXED" || r === "PREVIEW") remixed++; }
     catch (err) { void logSystemError("video-handoff", `Озвучка: перемикс ролика упал: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-remix-crash" }); }
     last = row.id;
   }

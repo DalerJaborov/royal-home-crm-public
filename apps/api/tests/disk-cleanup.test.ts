@@ -200,6 +200,11 @@ describe("planDiskCleanup — правила по одному", () => {
       expect(planDiskCleanup([file], liveFacts(), NOW)).toEqual([{ ...file, reason: "заменённый финал" }]);
     });
 
+    it("final — новый ролик ждёт хозяина «прослушать перед выпуском» (18.11.2026): не заменённый финал, остаётся", () => {
+      const file: FoundFile = { area: "handoff", relPath: `${UUID_A}-${OLD_TS}.mp4`, sizeBytes: 10, mtimeMs: OLD_MTIME };
+      expect(planDiskCleanup([file], liveFacts({ previewPath: `/uploads/handoff/${UUID_A}-${OLD_TS}.mp4` }), NOW)).toEqual([]);
+    });
+
     it("legacyCover — база финала совпадает с текущим финалом: остаётся", () => {
       const file: FoundFile = { area: "handoff", relPath: `${UUID_A}-${NEW_TS}-cover.jpg`, sizeBytes: 10, mtimeMs: OLD_MTIME };
       expect(planDiskCleanup([file], liveFacts(), NOW)).toEqual([]);

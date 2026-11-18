@@ -115,6 +115,11 @@ const narrationConfigBase = z.object({
    *  ролика нет версии без голоса, а озвучка поменялась — CRM сама отделяет старый голос от музыки
    *  (сервис voice-separator) и накладывает новый. По умолчанию ВКЛЮЧЁН; false — как раньше, монтажёру. */
   autoSeparateVoice: z.boolean().optional(),
+  /** Рубильник (17.11.2026, «прослушать перед выпуском»): CRM наложила новую озвучку на ВЫШЕДШИЙ ролик —
+   *  новый ролик сначала уходит хозяину объекта послушать («Выпустить / Другой голос или текст / Оставить
+   *  старый»), молчит — выходит сам через часы из «Ролик подтверждает хозяин». По умолчанию ВКЛЮЧЁН;
+   *  false — как раньше, новый ролик сразу заменяет вышедший. */
+  previewBeforeRepublish: z.boolean().optional(),
   /** Словарь произношения: «слово → как читать» (alias; phoneme — если модель его понимает). Правит
    *  владелец; синхронизация с ElevenLabs — только для моделей из NARRATION_PRONUNCIATION_MODELS. */
   pronunciationRules: z.array(z.object({
@@ -188,6 +193,11 @@ export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): bo
 /** Старый голос из вышедшего ролика убирает CRM (16.11.2026): включено, пока руководство не выключило. */
 export function narrationAutoSeparate(config: Pick<NarrationConfig, "autoSeparateVoice">): boolean {
   return config.autoSeparateVoice !== false;
+}
+
+/** Новая озвучка на вышедший ролик сначала идёт хозяину послушать (17.11.2026): включено, пока не выключили. */
+export function narrationPreviewBeforeRepublish(config: Pick<NarrationConfig, "previewBeforeRepublish">): boolean {
+  return config.previewBeforeRepublish !== false;
 }
 
 /**
@@ -601,7 +611,22 @@ export type PropertyNarrationView = {
   mix?: { hasMaster: boolean; error: string | null; problem?: "VOICE_LONGER" | "FAILED" | null;
     /** Одна строка агенту простыми словами (16.11.2026): CRM убирает старый голос, подогнала длину и т.п. */
     note?: string | null };
+  /**
+   * ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026): CRM наложила новую озвучку на вышедший ролик, новый ролик
+   * ждёт решения. previewPath / currentPath — ролики для сравнения (/uploads/handoff/…, закрытые);
+   * oldVersionId — озвучка вышедшего ролика, если её наложила CRM (иначе голос вклеивал монтажёр).
+   * dueAt — когда выйдет сам (null — сам не выйдет). canDecide — этот сотрудник может решить.
+   */
+  preview?: {
+    versionId: string; revision: number; previewPath: string; currentPath: string | null; oldVersionId: string | null;
+    createdAt: string; dueAt: string | null; voiceSec: number | null; clipSec: number | null; note: string | null; canDecide: boolean;
+  } | null;
+  /** Хозяин отказался накладывать последнюю версию: «Оставить старый» или «Другой голос или текст». */
+  previewDeclined?: boolean;
 };
+/** Решение по новому ролику (17.11.2026): RELEASE — выпустить, KEEP_OLD — оставить вышедший, CHANGE — другой голос или текст. */
+export const narrationPreviewDecisionSchema = z.object({ versionId: z.string().uuid(), decision: z.enum(["RELEASE", "KEEP_OLD", "CHANGE"]) }).strict();
+export type NarrationPreviewDecision = z.infer<typeof narrationPreviewDecisionSchema>["decision"];
 /** Настройки CRM → «Озвучка роликов» (14.11.2026): вся техника, которую агент в карточке не видит. */
 export type NarrationSettingsView = {
   config: NarrationConfig; apiKeyConfigured: boolean; sendsEnabled: boolean; quotaExceeded: boolean;

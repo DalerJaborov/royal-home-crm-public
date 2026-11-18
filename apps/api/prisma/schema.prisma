@@ -2473,6 +2473,23 @@ model Property {
   /// трёх подряд — отказ и монтажёру; до того — повтор не раньше videoMasterAutoRetryAt.
   videoMasterAutoAttempts        Int       @default(0)
   videoMasterAutoRetryAt         DateTime?
+  /// ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026, lib/narrationPreview.ts). CRM наложила новую озвучку на
+  /// ВЫШЕДШИЙ ролик — новый файл не подменяет вышедший, а ждёт решения хозяина объекта:
+  /// «Выпустить» / «Другой голос или текст» / «Оставить старый». Молчит — выходит сам в
+  /// narrationPreviewDueAt (часы clipOwnerAutoPublishHours, ночью — в 07:00; 0 часов — сам не выходит).
+  narrationPreviewPath           String?
+  narrationPreviewVersionId      String?
+  /// Ролик без голоса, на который наложен кандидат: сменился — кандидат устарел.
+  narrationPreviewMasterKey      String?
+  narrationPreviewAt             DateTime?
+  narrationPreviewDueAt          DateTime?
+  narrationPreviewVoiceSec       Float?
+  narrationPreviewClipSec        Float?
+  /// Хозяину отправлено (задача narration-preview-due): пусто — отправит следующий тик (повтор после падения).
+  narrationPreviewNotifiedAt     DateTime?
+  /// Хозяин отказался от наложения этой версии («Оставить старый» / «Другой голос или текст») —
+  /// эту версию CRM больше не накладывает; новая версия озвучки — новый кандидат.
+  narrationPreviewDeclinedVersionId String?
   /// МОМЕНТ, КОГДА ГОТОВЫЙ РОЛИК РЕАЛЬНО ПОЛУЧЕН (21.09.2026, случай №114 — ролик
   /// принят, файл лёг на диск, но рестарт контейнеров посреди публикации оборвал
   /// её молча, publishedChannels остался пуст, объект завис в EDITING навсегда).
