@@ -27,3 +27,15 @@ it("answers an exact missing property without inventing a deletion reason", asyn
     cards: [], reply: "Не нашла объект ОБ-000098 среди доступных карточек.",
   });
 });
+it("answers in Tajik when the conversation is Tajik: not found, card, ambiguous choice", async () => {
+  findProperty.mockResolvedValueOnce(null);
+  expect(await tryAssistantFastPath("найди объект 98", actor, "tg")).toMatchObject({
+    cards: [], reply: "Объекти ОБ-000098-ро дар байни кортҳои дастрас наёфтам.",
+  });
+  const fixture = { shortId: 112, kind: 'BUYER', fullName: 'Тест', dualIntent: false, phone: '+992901234567', status: 'ACTIVE', acceptedAt: new Date(), lastContactAt: null, assignedAgent: null };
+  findMany.mockResolvedValue([{ ...fixture, id: '00000000-0000-4000-8000-000000000001' }, { ...fixture, id: '00000000-0000-4000-8000-000000000002' }]);
+  const result = await tryAssistantFastPath('клиент 112', actor, "tg");
+  expect(result?.reply).toContain("Муштариро ёфтам");
+  expect(result?.reply).toContain("Кадом кортро кушоям");
+  expect(result?.reply).not.toMatch(/Нашёл|Уточните/);
+});

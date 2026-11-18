@@ -450,6 +450,27 @@ export async function instagramReadRequest(path: string, token: string): Promise
   return instagramRequest(instagramApiUrl(path), token);
 }
 
+/**
+ * Чей аккаунт отправляет (lib/metaSendBlock.ts: метка «Meta не пропускает отправку»
+ * ставится аккаунту, а не каналу). По id строки или по личному маркеру — из того же
+ * снимка на минуту, что и выбор пути выше, без отдельного запроса. Маркер из
+ * Настроек — `settings:<канал>`. Наружу маркер не уходит.
+ */
+export async function metaSendAccountFor(input: { accountId?: string | null; token?: string }): Promise<
+  { key: string; accountId: string | null; channel: string; title: string } | null
+> {
+  const s = await loadSnapshot();
+  const row = input.accountId
+    ? s.accounts.find((a) => a.id === input.accountId)
+    : input.token ? s.accounts.find((a) => a.token === input.token) : undefined;
+  if (row) return { key: `account:${row.id}`, accountId: row.id, channel: row.channel, title: row.title };
+  if (input.accountId || !input.token) return null;
+  if (input.token === s.settingsPageToken) return { key: "settings:FACEBOOK", accountId: null, channel: "FACEBOOK", title: "Страница Facebook" };
+  if (input.token === s.settingsIgToken) return { key: "settings:INSTAGRAM", accountId: null, channel: "INSTAGRAM", title: "Instagram" };
+  if (input.token === s.settingsWaToken) return { key: "settings:WHATSAPP", accountId: null, channel: "WHATSAPP", title: "WhatsApp" };
+  return null;
+}
+
 /** Чей это маркер — для тревоги «ключ умер». Наружу — метка и имя, не маркер. */
 export async function describeMetaToken(token: string): Promise<{ key: string; label: string }> {
   const page = pageTokenOwner.get(token);

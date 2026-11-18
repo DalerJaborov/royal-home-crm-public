@@ -1,3 +1,6 @@
+import { RoyalSwitchTile } from "./look/team/settingsRows";
+import { useRoyalSectionName } from "./look/clients/RoyalSection";
+
 /**
  * Тумблер настройки — один на все Настройки.
  *
@@ -73,6 +76,7 @@ export function SwitchRow({
   onToggle,
   warning = null,
   className = "",
+  explain,
 }: {
   title: string;
   /** Что происходит ПРИ ТЕКУЩЕМ положении. Не «что будет, если выключить». */
@@ -82,7 +86,20 @@ export function SwitchRow({
   onToggle: () => void;
   warning?: React.ReactNode;
   className?: string;
+  /** Необязательная чистая справка (не последствие, не деньги, не данные): в «Новом виде» — под «i». */
+  explain?: React.ReactNode;
 }) {
+  // «Новый вид» (18.11.2026), только внутри раздела team: та же строка плиткой со
+  // значком; слово состояния рядом с переключателем, пояснение (последствие
+  // текущего положения) видно всегда. Под «i» — только необязательная справка explain.
+  const royal = useRoyalSectionName() === "team";
+  if (royal) {
+    return (
+      <RoyalSwitchTile title={title} hint={hint} explain={explain} on={on} warning={warning} className={className}
+        stateNode={<StateWord on={on} />}
+        switchNode={<Switch on={on} disabled={disabled} onToggle={onToggle} label={title} />} />
+    );
+  }
   return (
     <div className={`mod${className ? ` ${className}` : ""}`}>
       <div className="t">
@@ -91,6 +108,7 @@ export function SwitchRow({
           <StateWord on={on} />
         </b>
         <span>{hint}</span>
+        {explain ? <span>{explain}</span> : null}
       </div>
       <div className="acts">
         <Switch on={on} disabled={disabled} onToggle={onToggle} label={title} />

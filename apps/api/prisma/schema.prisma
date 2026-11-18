@@ -5973,6 +5973,61 @@ model GeminiCache {
 /// Пишется best-effort из центрального обработчика ошибок API и с фронта
 /// (window.onerror). Директор получает утренний push-дайджест, если за сутки
 /// были ошибки. Чистится автоматически (90 дней), в отличие от AuditLog.
+/// META НЕ ПРОПУСКАЕТ ОТПРАВКУ С АККАУНТА (18.11.2026, lib/metaSendBlock.ts).
+///
+/// Отказ Meta «по правилам» (код 368 и родня, список — META_SEND_POLICY_BLOCKS) —
+/// не сбой, который лечится повтором: 17.11 Instagram Arvan получил четыре таких
+/// отказа за шесть минут, а повтор зависших диалогов готовился сделать до 46 попыток
+/// с новым текстом каждый раз. Строка — один аккаунт и один вид отправки:
+/// `dm` (личные сообщения, ответ на комментарий в личку) и `comment` (публичный
+/// ответ под постом) Meta ограничивает по отдельности.
+///
+/// Пока `liftedAt` пусто, автоматика бота в этот аккаунт не пишет; отправка
+/// сотрудника из CRM разрешена и служит пробой. После `nextProbeAt` одна настоящая
+/// отправка идёт пробой (замок `probeLeaseUntil` — одна на все процессы): прошла —
+/// `liftedAt`, не прошла — следующая ступень лесенки. Строка не удаляется: по
+/// `since`/`liftedAt` повтор зависших узнаёт, что реплика ждала во время запрета.
+model MetaSendBlock {
+  id              String    @id @default(uuid())
+  /// `account:<MessengerAccount.id>` или `settings:<CHANNEL>` (ключ из Настроек).
+  accountKey      String
+  /// `dm` | `comment`.
+  surface         String
+  /// INSTAGRAM | FACEBOOK | WHATSAPP.
+  channel         String
+  accountId       String?
+  /// Как аккаунт называется для людей: «Arvan Estate (Instagram)».
+  label           String
+  /// Начало последнего эпизода запрета.
+  since           DateTime
+  /// Когда запрет снят удачной пробой. Пусто — запрет действует.
+  liftedAt        DateTime?
+  lastFailureAt   DateTime
+  /// Отказов по правилам в этом эпизоде.
+  failures        Int       @default(1)
+  /// Ступень лесенки проб (0 — первая пауза).
+  probeStep       Int       @default(0)
+  /// С этого момента следующая настоящая отправка — проба.
+  nextProbeAt     DateTime
+  /// Проба уже идёт (другие ждут) до этого момента.
+  probeLeaseUntil DateTime?
+  /// Код и подкод ошибки Meta отдельными полями — текст ошибки в журнале обрезается.
+  lastCode        Int
+  lastSubcode     Int?
+  lastErrorType   String?
+  lastFbtraceId   String?
+  lastMessage     String?
+  /// Первое предупреждение Meta «навязчивая отправка» (613/2018338) в текущем часе. Само по себе
+  /// не запрет: второе в течение часа — уже метка. Строка, где были только предупреждения, —
+  /// `failures = 0` и `liftedAt` = `since` (запрета не было).
+  warningAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([accountKey, surface])
+  @@index([liftedAt])
+}
+
 model ErrorLog {
   id           String    @id @default(uuid())
   /// "api" | "web"
@@ -7853,6 +7908,17 @@ model Settings {
   /// Рубильник: выключено по умолчанию, правило меняет маршрут живых звонков. Включает владелец
   /// после проверки на станции; выключено — такой звонок идёт к оператору, как у незнакомого номера.
   incomingArchiveCallbackEnabled Boolean @default(false)
+  /// ПРОПУЩЕННЫЙ ВХОДЯЩИЙ ЗВОНОК НЕ ТЕРЯЕТСЯ (18.11.2026). Оба рубильника выключены по
+  /// умолчанию: вливание не меняет поведение прода, включает владелец.
+  /// А. Неотвеченный входящий (ни человек, ни робот): звонившему сразу уходит одна СМС
+  /// со ссылкой на WhatsApp (lib/telephony/missedCallFollowup.ts, причина MISSED_CALL_WA).
+  missedCallSmsEnabled         Boolean  @default(false)
+  /// Текст СМС: одно сообщение, сначала таджикский, потом русский, ссылка голая.
+  /// Хранится только здесь (умолчание — значение колонки), второго источника в коде нет.
+  missedCallSmsText            String   @default("Салом. Шумо занг задед, мо ҷавоб дода натавонистем. Ба WhatsApp нависед: https://wa.me/992777776001 Вы звонили, мы не успели ответить. Напишите нам в WhatsApp.")
+  /// Б. Пропущенный с незнакомого номера заводит карточку и общую задачу «Перезвонить»
+  /// (тот же механизм, что у молчавшего после робота: inbound_missed_callback).
+  missedCallCallbackTaskEnabled Boolean @default(false)
   /// РЕЖИМ МАРШРУТИЗАЦИИ НЕЗНАКОМЫХ ЗВОНКОВ (владелец 20.08.2026) — заготовка на
   /// будущее, а не переключатель поведения станции. Сейчас на линии реально
   /// действует только "assigned_then_forward" (клиента с ответственным уводит
@@ -10511,7 +10577,7 @@ model SmsMessage {
   id                String    @id @default(uuid())
   /// Номер в форме провайдера: 992XXXXXXXXX.
   phone             String
-  /// LOGIN_CODE | PROPERTY_SHARE | CALL_PROPERTIES | TEST
+  /// LOGIN_CODE | PROPERTY_SHARE | CALL_PROPERTIES | SHOWING_CONFIRM | OWNER_REPORT | MISSED_CALL_WA | TEST
   purpose           String
   /// Текст, как ушёл (для кода входа — заглушка без самого кода).
   text              String

@@ -15,6 +15,12 @@ import { useUsdToTjsRate } from "../hooks/useSettings";
 import { usePaged } from "../hooks/usePaged";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RoyalDealsHead, RoyalDealsSummary } from "../components/look/deals/RoyalDealsHead";
+import { RoyalApprovalRow, RoyalArchiveRow, RoyalDealThumb } from "../components/look/deals/RoyalDealRows";
+import { RoyalDealColumnHead, RoyalDealTileBody } from "../components/look/deals/RoyalDealTile";
+import { RoyalDealStages } from "../components/look/deals/RoyalDealStages";
 import { CleanDealsApprovalRows, CleanDealsGuide, CleanDealsHeader, CleanDealsSummary } from "../components/clean/CleanDealsOverview";
 import { cleanClientDetailScale } from "../components/clean/CleanClientDetailLayout";
 import { useSyncFiltersToUrl } from "../hooks/useUrlFilters";
@@ -79,6 +85,8 @@ export function Deals() {
   const readOnly = useIsReadOnly();
   const mobile = useMobileUx();
   const clean = useCleanShell();
+  // «Новый вид» (облик royal) — только поверх чистой оболочки; без признака разметка прежняя.
+  const royal = useRoyalLook() && clean;
   const [mobileStage, setMobileStage] = useState<DealStage | "APPROVAL">("NEGOTIATION");
   const navigate = useNavigate();
   const teamWide = can("deals.viewAll");
@@ -312,14 +320,28 @@ export function Deals() {
   // screens/deals.html). Те же три действия, что были: одобрить, поправить
   // цифры на месте, вернуть агенту на доработку.
   const solve = pendingApproval.length > 0 && (
-    <div className="card tight" style={clean ? { border: 0, padding: 20 } : undefined}>
+    <div className={royal ? "card tight ry-deals-block" : "card tight"} id={royal ? "ry-deals-approval" : undefined} style={clean && !royal ? { border: 0, padding: 20 } : undefined}>
       <div className="sec-h">
         <h2>{clean ? "На согласовании" : "Решить сейчас"}</h2>
         <span className="note">
           {pendingApproval.length} на решении, {daysSince(pendingApproval[pendingApproval.length - 1].startedAt)} дн у самой старой
         </span>
       </div>
-      <CleanDealsApprovalRows enabled={clean}>{pendingApproval.map((d) => (
+      {/* Новый вид: все строки сразу (суммы под раскрывашкой не прячем), те же действия и окна. */}
+      {royal ? <div className="ry-deal-list">{pendingApproval.map((d) => (
+        <RoyalApprovalRow
+          key={d.id}
+          deal={d}
+          showMoney={seesMoney || canComplete}
+          canDecide={canComplete}
+          canEdit={canSetCommission}
+          busy={updateDeal.isPending}
+          onOpen={() => openClient(d.id)}
+          onApprove={() => setApprovingId(d.id)}
+          onEdit={() => setEditingId(d.id)}
+          onReturn={() => setRejectingId(d.id)}
+        />
+      ))}</div> : <CleanDealsApprovalRows enabled={clean}>{pendingApproval.map((d) => (
         <div className="solve" key={d.id} style={clean ? { display: "flex", flexWrap: "wrap", gap: 12, border: 0, padding: "14px 0" } : undefined}>
           <span className="t" style={clean ? { minWidth: 0, flex: "1 1 280px", fontSize: 16, lineHeight: 1.6, overflowWrap: "anywhere" } : undefined}>
             <button className="lk" type="button" onClick={() => openClient(d.id)}>
@@ -365,7 +387,7 @@ export function Deals() {
             )}
           </span>
         </div>
-      ))}</CleanDealsApprovalRows>
+      ))}</CleanDealsApprovalRows>}
       {editingDeal && (
         <DealSubmitModal
           listedPrice={editingDeal.property.price}
@@ -398,7 +420,7 @@ export function Deals() {
   const archive = (
     <>
       {completed.length > 0 && (
-        <div className="card tight">
+        <div className={royal ? "card tight ry-deals-block" : "card tight"}>
           <div className="sec-h">
             <h2>Завершённые сделки</h2>
             <span className="note">
@@ -417,8 +439,36 @@ export function Deals() {
             </button>
           </div>
           {completedOpen && (
-            <div className="list" style={{ marginTop: "var(--s3)" }}>
-              {completedPage.visible.map((d) => (
+            <div className={royal ? "list ry-deal-list" : "list"} style={royal ? undefined : { marginTop: "var(--s3)" }}>
+              {completedPage.visible.map((d) => royal ? (
+                <RoyalArchiveRow
+                  key={d.id}
+                  deal={d}
+                  kind="completed"
+                  onOpen={() => openClient(d.id)}
+                  actions={(canPayout || canComplete) ? <>
+                    {canPayout && (
+                      <button className="ry-btn" data-variant="gray" type="button" onClick={() => setArchiveDocsDealId(d.id)}>
+                        Документы
+                      </button>
+                    )}
+                    {canComplete && (
+                      <button
+                        className="ry-deal-link"
+                        data-tone="crit"
+                        type="button"
+                        title="Сделка перестанет считаться продажей, объект вернётся в продажу"
+                        onClick={() => {
+                          annulDeal.reset();
+                          setAnnullingId(d.id);
+                        }}
+                      >
+                        Аннулировать
+                      </button>
+                    )}
+                  </> : undefined}
+                />
+              ) : (
                 <div className="row" key={d.id}>
                   <div className="t">
                     <b>
@@ -476,7 +526,7 @@ export function Deals() {
       )}
 
       {cancelled.length > 0 && (
-        <div className="card tight">
+        <div className={royal ? "card tight ry-deals-block" : "card tight"}>
           <div className="sec-h">
             <h2>Отменённые сделки</h2>
             <span className="note">{cancelled.length}</span>
@@ -487,8 +537,10 @@ export function Deals() {
             </button>
           </div>
           {cancelledOpen && (
-            <div className="list" style={{ marginTop: "var(--s3)" }}>
-              {cancelledPage.visible.map((d) => (
+            <div className={royal ? "list ry-deal-list" : "list"} style={royal ? undefined : { marginTop: "var(--s3)" }}>
+              {cancelledPage.visible.map((d) => royal ? (
+                <RoyalArchiveRow key={d.id} deal={d} kind="cancelled" onOpen={() => openClient(d.id)} />
+              ) : (
                 <div className="row done" key={d.id}>
                   <div className="t">
                     <b>
@@ -674,11 +726,21 @@ export function Deals() {
     );
   }
 
+  const filterName = filterAgentId ? agentsList?.find((agent) => agent.id === filterAgentId)?.fullName ?? "Выбранный агент" : undefined;
+
+  // Метка раздела «Сделки» (data-ry-section): экран ставит её сам, окна и шторки
+  // (фильтры, новая сделка, подтверждения, документы) берут её из RoyalSection.
   return (
-    <div className="rh2 screens">
+    <RoyalSection name={royal ? "deals" : undefined}>
+    <div className={royal ? "rh2 screens ry-deals-page" : "rh2 screens"} data-ry-section={royal ? "deals" : undefined}>
       <div className={clean ? "scr clean-deals" : "scr"} style={clean ? cleanClientDetailScale : undefined}>
         <div className="pg-h">
-          {clean ? <CleanDealsHeader teamWide={teamWide} filterName={filterAgentId ? agentsList?.find((agent) => agent.id === filterAgentId)?.fullName ?? "Выбранный агент" : undefined} onCreate={writesForeign ? () => setShowNewDeal(true) : null} onFilter={teamWide ? () => setShowFilters(true) : null} /> : <>
+          {royal ? <RoyalDealsHead
+            scope={filterName ? `Агент: ${filterName}` : teamWide ? "Сделки всей команды" : "Ваши сделки"}
+            filterCount={filterAgentId ? 1 : 0}
+            onFilter={teamWide ? () => setShowFilters(true) : null}
+            onCreate={writesForeign ? () => setShowNewDeal(true) : null}
+          /> : clean ? <CleanDealsHeader teamWide={teamWide} filterName={filterAgentId ? agentsList?.find((agent) => agent.id === filterAgentId)?.fullName ?? "Выбранный агент" : undefined} onCreate={writesForeign ? () => setShowNewDeal(true) : null} onFilter={teamWide ? () => setShowFilters(true) : null} /> : <>
           <div>
             <h1>Сделки</h1>
             <p className="sub">
@@ -707,7 +769,8 @@ export function Deals() {
             вписывается в `.card.tight`+`.quiet` эталона), поэтому — «либо
             прятать» из задачи: класс `hint-onboard`, правило в
             theme-2026-mobile-density.css. На ПК блок остаётся как был. */}
-        {clean ? <CleanDealsGuide canMove={board.some(canWriteDeal)} /> : <div className="card tight hint-onboard">
+        {/* Новый вид: «Как работать с доской» — та же раскрывашка, но под доской, а не над сводкой. */}
+        {royal ? null : clean ? <CleanDealsGuide canMove={board.some(canWriteDeal)} /> : <div className="card tight hint-onboard">
           <div className="quiet">
             <span className="dot" />
             <span className="txt">
@@ -736,7 +799,10 @@ export function Deals() {
             отодвигали доску на пол-экрана вниз. Доска `.kan` остаётся
             однорядной: четыре колонки стадий сами используют всю ширину.
             Ниже 1280 px порядок прежний, `.cols2` там обычный блок. */}
-        {clean ? <>
+        {royal ? <>
+          <RoyalDealsSummary ready={!!deals && !error} activeCount={board.length} approvalCount={pendingApproval.length} closedCount={closedThisMonth.length} commissionTjs={closedThisMonthSum} seesMoney={seesMoney} />
+          {solve}
+        </> : clean ? <>
           <CleanDealsSummary ready={!!deals && !error} activeCount={board.length} approvalCount={pendingApproval.length} closedCount={closedThisMonth.length} commissionTjs={closedThisMonthSum} seesMoney={seesMoney} />
           {solve}
         </> : <div className="cols2">
@@ -746,14 +812,24 @@ export function Deals() {
 
         {deals && (
           <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-            {clean && mobile && <div className="clean-mobile-stage-nav" role="group" aria-label="Стадии сделок">
+            {royal && mobile && <RoyalDealStages
+              tabs={[
+                ...BOARD_STAGES.map((stage) => ({ key: stage.key, label: stage.label, count: board.filter((deal) => deal.stage === stage.key).length })),
+                { key: "APPROVAL", label: "На одобрение", count: pendingApproval.length },
+              ]}
+              current={mobileStage}
+              onPick={(key) => setMobileStage(key as DealStage | "APPROVAL")}
+            />}
+            {clean && !royal && mobile && <div className="clean-mobile-stage-nav" role="group" aria-label="Стадии сделок">
               {BOARD_STAGES.map((stage) => <button type="button" key={stage.key} className="pill ghost" aria-pressed={mobileStage === stage.key} onClick={() => setMobileStage(stage.key)}>{stage.label} · {board.filter((deal) => deal.stage === stage.key).length}</button>)}
               <button type="button" className="pill ghost" aria-pressed={mobileStage === "APPROVAL"} onClick={() => setMobileStage("APPROVAL")}>На одобрение · {pendingApproval.length}</button>
             </div>}
-            <div className={clean ? "clean-deals-board grid grid-cols-2 gap-4 min-[1180px]:grid-cols-4" : "kan"}>
+            <div className={royal ? "ry-deals-board" : clean ? "clean-deals-board grid grid-cols-2 gap-4 min-[1180px]:grid-cols-4" : "kan"} id={royal ? "ry-deals-board" : undefined}>
               {BOARD_STAGES.filter((stage) => !clean || !mobile || stage.key === mobileStage).map((stage) => (
                 <Column
                   clean={clean}
+                  royal={royal}
+                  teamWide={teamWide}
                   key={stage.key}
                   stage={stage.key}
                   label={stage.label}
@@ -769,7 +845,44 @@ export function Deals() {
               {/* Четвёртая колонка эталона — «Ждёт одобрения». Она НЕ зона сброса и
                   её карточки не таскаются: доска двигает только активный пайплайн,
                   а сюда сделка попадает формой «Отправить на закрытие». */}
-              {(!clean || !mobile || mobileStage === "APPROVAL") && <div className="kan-col">
+              {royal && (!mobile || mobileStage === "APPROVAL") && <div className="kan-col ry-deal-col" data-stage="PENDING_APPROVAL">
+                <RoyalDealColumnHead label="Ждёт одобрения" count={pendingApproval.length} commissionTjs={0} />
+                {pendingApproval.slice(0, 5).map((d) => (
+                  <article className="dcard ry-deal-tile" key={d.id} tabIndex={0} aria-label={`Сделка: ${d.client.fullName}, ${d.property.title}`} onClick={() => openClient(d.id)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openClient(d.id); } }}>
+                    <span className="ry-deal-tile-head">
+                      <RoyalDealThumb deal={d} icon="hourglass" tone="warn" />
+                      <span className="ry-deal-row-text">
+                        <span className="ry-deal-name">{d.client.fullName}</span>
+                        <span className="ry-deal-obj">{d.property.title}</span>
+                      </span>
+                    </span>
+                    {seesMoney && (
+                      <span className="ry-deal-comm">комиссия <b className="ry-num">{d.commissionAmount ? formatMoney(d.commissionAmount, d.currency) : "без комиссии"}</b></span>
+                    )}
+                    <span className="ry-deal-steps">
+                      {canComplete ? (
+                        <button
+                          className="ry-btn ry-deal-close"
+                          data-variant="soft"
+                          type="button"
+                          disabled={updateDeal.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setApprovingId(d.id);
+                          }}
+                        >
+                          Одобрить
+                        </button>
+                      ) : (
+                        <span className="ry-deal-tag" data-tone="warn">ждёт руководителя</span>
+                      )}
+                    </span>
+                  </article>
+                ))}
+                {pendingApproval.length === 0 && <p className="ry-deal-empty">{EMPTY_STAGE_HINT.PENDING_APPROVAL}</p>}
+                {pendingApproval.length > 5 && <p className="ry-deal-empty">и ещё {pendingApproval.length - 5} выше, в полосе решений.</p>}
+              </div>}
+              {!royal && (!clean || !mobile || mobileStage === "APPROVAL") && <div className="kan-col">
                 <h3>
                   Ждёт одобрения<span className="n">{pendingApproval.length}</span>
                 </h3>
@@ -809,17 +922,21 @@ export function Deals() {
         )}
 
         {emptyBoard}
+        {royal && <div className="ry-deals-guide"><CleanDealsGuide canMove={board.some(canWriteDeal)} /></div>}
         {archive}
         {filtersSheet}
         {showNewDeal && writesForeign && <NewDealSheet onClose={() => setShowNewDeal(false)} />}
         {approveDialog}
       </div>
     </div>
+    </RoyalSection>
   );
 }
 
 function Column({
   clean = false,
+  royal = false,
+  teamWide = false,
   stage,
   label,
   deals,
@@ -831,6 +948,10 @@ function Column({
   onMoveStage,
 }: {
   clean?: boolean;
+  /** «Новый вид» (только поверх чистой оболочки). */
+  royal?: boolean;
+  /** Доска всей команды: на карточке нового вида видно, кто ведёт сделку. */
+  teamWide?: boolean;
   stage: DealStage;
   label: string;
   deals: Deal[];
@@ -849,6 +970,39 @@ function Column({
   // Тот же принцип, что и в общем итоге: колонка суммирует сделки в сомони.
   const total = deals.reduce((sum, d) => sum + toTjs(d.commissionAmount, d.currency, usdToTjs), 0);
   const { visible, hasMore, showMore } = usePaged(deals);
+
+  // Новый вид: та же зона сброса и те же карточки, другая разметка шапки и строк состояния.
+  if (royal) {
+    return (
+      <div ref={setNodeRef} className="kan-col ry-deal-col" data-stage={stage} data-over={isOver ? "true" : undefined}>
+        <RoyalDealColumnHead label={label} count={deals.length} commissionTjs={total} />
+        {visible.map((d) => (
+          <DealCard
+            clean={clean}
+            royal
+            showAgent={teamWide}
+            key={d.id}
+            deal={d}
+            canComplete={canComplete}
+            canPayout={canPayout}
+            canSetCommission={canSetCommission}
+            canWrite={canWriteDeal(d)}
+            onOpen={() => onOpen(d.id)}
+            onMoveStage={onMoveStage}
+          />
+        ))}
+        {deals.length === 0 && <p className="ry-deal-empty">{isOver ? "Отпустите, сделка перейдёт сюда" : EMPTY_STAGE_HINT[stage]}</p>}
+        {hasMore && (
+          <p className="ry-deal-empty">
+            и ещё {deals.length - visible.length}.{" "}
+            <button className="ry-deal-link" type="button" onClick={showMore}>
+              Показать
+            </button>
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     // Подсветка зоны сброса — тем же приёмом, что «сегодня» в календаре эталона
@@ -893,6 +1047,8 @@ function Column({
 
 function DealCard({
   clean = false,
+  royal = false,
+  showAgent = false,
   deal,
   canComplete,
   canPayout,
@@ -902,6 +1058,9 @@ function DealCard({
   onMoveStage,
 }: {
   clean?: boolean;
+  /** «Новый вид»: та же карточка (перетаскивание, открытие клиента, окна), другая разметка внутри. */
+  royal?: boolean;
+  showAgent?: boolean;
   deal: Deal;
   /** Двигать, отменять и закрывать эту сделку — только с правом записи (A3):
    *  служба безопасности видит чужую сделку, но не меняет её. */
@@ -950,13 +1109,29 @@ function DealCard({
     <>
     <article
       ref={setNodeRef}
-      style={clean ? { ...style, border: 0, padding: 16, borderRadius: 18, overflowWrap: "anywhere" } : style}
+      style={royal ? style : clean ? { ...style, border: 0, padding: 16, borderRadius: 18, overflowWrap: "anywhere" } : style}
       {...listeners}
       {...draggableGroupProps(attributes)}
       aria-label={`Сделка: ${deal.client.fullName}, ${deal.property.title}`}
       onClick={onOpen}
-      className="dcard"
+      className={royal ? "dcard ry-deal-tile" : "dcard"}
+      data-dragging={royal && isDragging ? "true" : undefined}
     >
+      {royal ? (
+        <RoyalDealTileBody
+          deal={deal}
+          showAgent={showAgent}
+          canWrite={canWrite}
+          prev={prevStage}
+          next={nextStage}
+          closeLabel={canCompleteWithMoney ? "Закрыть сделку" : "Отправить на закрытие"}
+          onDocs={() => setDocsOpen(true)}
+          onPrev={() => { if (prevStage) onMoveStage(deal.id, prevStage.key); }}
+          onCancel={() => setConfirmAction("cancel")}
+          onNext={() => { if (nextStage) onMoveStage(deal.id, nextStage.key); }}
+          onClose={() => setSubmitting(true)}
+        />
+      ) : <>
       <span className="nm">{deal.client.fullName}</span>
       <span className="ob">{deal.property.title}</span>
       <span className="bt">
@@ -1052,6 +1227,7 @@ function DealCard({
         )}
       </span>
       )}
+      </>}
     </article>
     {/* Окна — СНАРУЖИ перетаскиваемой карточки (аудит 23.09.2026, №53): события
         React всплывают по дереву компонентов даже из портала, и клик по фону окна

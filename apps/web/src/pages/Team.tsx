@@ -17,6 +17,8 @@ import { scrollableRegion } from "../lib/a11y";
 import { useSyncFiltersToUrl } from "../hooks/useUrlFilters";
 import { TeamTabs } from "../components/SectionTabs";
 import { useCleanShell } from "../hooks/useCleanShell";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalTeamView } from "../components/look/team/RoyalTeamView";
 
 /** Достижения месяца: по одному значку на номинацию, только среди активных с ненулевым результатом.
  *  Комиссия приходит null у смотрящего без finance.view (ночная проверка 24.09.2026, №159/М4) —
@@ -101,6 +103,8 @@ type TeamFilter = "all" | "agents" | "managers" | "frozen";
 
 function TeamDesktop() {
   const clean = useCleanShell();
+  // «Новый вид» (18.11.2026): другая разметка тех же данных и окон.
+  const royal = useRoyalLook();
   const can = useCan();
   const isSupervisor = can("team.viewFull");
   const { data: team, isLoading: teamLoading, isError: teamError, refetch: refetchTeam } = useTeam(isSupervisor);
@@ -184,6 +188,107 @@ function TeamDesktop() {
     const total = agents.reduce((n, m) => n + m.activeLoad, 0);
     return { agents: agents.length, total };
   }, [team]);
+
+  const overlays = (
+    <>
+      {showFilters && (
+        <Rh2Sheet
+          title="Фильтры"
+          onClose={() => setShowFilters(false)}
+          ariaLabel="Фильтры команды"
+          footer={
+            <>
+              <button
+                className="pill ghost"
+                type="button"
+                onClick={() => {
+                  setRoleFilter(null);
+                  setStateFilter("all");
+                }}
+              >
+                Сбросить
+              </button>
+              <button className="pill" type="button" onClick={() => setShowFilters(false)}>
+                Показать {visible.length}
+              </button>
+            </>
+          }
+        >
+          <div className="sec-t" style={{ marginTop: 0 }}>
+            Роль
+          </div>
+          <div className="seg" role="group" aria-label="Роль">
+            <button type="button" aria-selected={roleFilter === null} onClick={() => setRoleFilter(null)}>
+              Любая
+            </button>
+            {rolesPresent.map((r) => (
+              <button key={r} type="button" aria-selected={roleFilter === r} onClick={() => setRoleFilter(r)}>
+                {ROLE_LABELS[r]}
+              </button>
+            ))}
+          </div>
+          <div className="sec-t">Состояние</div>
+          <div className="seg" role="group" aria-label="Состояние">
+            {(
+              [
+                ["all", "Все"],
+                ["online", "В сети"],
+                ["frozen", "Заморожены"],
+              ] as const
+            ).map(([key, label]) => (
+              <button key={key} type="button" aria-selected={stateFilter === key} onClick={() => setStateFilter(key)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </Rh2Sheet>
+      )}
+      {handoverFor && <HandoverModal agent={handoverFor} onClose={() => setHandoverFor(null)} />}
+      {freezeFor && <FreezeAgentModal agent={freezeFor} onClose={() => setFreezeFor(null)} />}
+      {pointsFor && (
+        <PointsJournalModal agentId={pointsFor.id} agentName={pointsFor.fullName} onClose={() => setPointsFor(null)} />
+      )}
+    </>
+  );
+
+  if (royal) {
+    return (
+      <RoyalTeamView
+        supervisor={isSupervisor}
+        fame={{ data: fame, loading: fameLoading, error: fameError, retry: () => void refetchFame() }}
+        team={{ data: team, loading: teamLoading, error: teamError, retry: () => void refetchTeam() }}
+        visible={visible}
+        counts={counts}
+        online={online}
+        frozen={frozenMembers}
+        load={load}
+        filter={filter}
+        onFilter={setFilter}
+        sheetFilters={sheetFilters}
+        onOpenFilters={() => setShowFilters(true)}
+        showStages={showStages}
+        onToggleStages={() => setShowStages((v) => !v)}
+        stagesNode={<StagesMatrix team={team ?? []} stages={stages} onOpen={openAgent} />}
+        recognition={(
+          <details className="clean-team-recognition card tight">
+            <summary>Достижения и рейтинг команды</summary>
+            <div className="cols2"><HallOfFameBoard /><TopAgentsBoard /></div>
+          </details>
+        )}
+        boards={<><HallOfFameBoard /><TopAgentsBoard /></>}
+        rank={(memberId) => rankById.get(memberId)}
+        rankTotal={top?.agents.length ?? 0}
+        seesMoney={seesMoney}
+        canManage={canManageAgents}
+        chips={(m) => <TeamChips member={m} achievements={achievements} stages={stagesById.get(m.id)} />}
+        onOpen={openAgent}
+        onFreeze={setFreezeFor}
+        onHandover={setHandoverFor}
+        onPoints={setPointsFor}
+        overlays={overlays}
+      />
+    );
+  }
 
   if (!isSupervisor) {
     return (
@@ -649,63 +754,7 @@ function TeamDesktop() {
         </div>
       </div>
 
-      {showFilters && (
-        <Rh2Sheet
-          title="Фильтры"
-          onClose={() => setShowFilters(false)}
-          ariaLabel="Фильтры команды"
-          footer={
-            <>
-              <button
-                className="pill ghost"
-                type="button"
-                onClick={() => {
-                  setRoleFilter(null);
-                  setStateFilter("all");
-                }}
-              >
-                Сбросить
-              </button>
-              <button className="pill" type="button" onClick={() => setShowFilters(false)}>
-                Показать {visible.length}
-              </button>
-            </>
-          }
-        >
-          <div className="sec-t" style={{ marginTop: 0 }}>
-            Роль
-          </div>
-          <div className="seg" role="group" aria-label="Роль">
-            <button type="button" aria-selected={roleFilter === null} onClick={() => setRoleFilter(null)}>
-              Любая
-            </button>
-            {rolesPresent.map((r) => (
-              <button key={r} type="button" aria-selected={roleFilter === r} onClick={() => setRoleFilter(r)}>
-                {ROLE_LABELS[r]}
-              </button>
-            ))}
-          </div>
-          <div className="sec-t">Состояние</div>
-          <div className="seg" role="group" aria-label="Состояние">
-            {(
-              [
-                ["all", "Все"],
-                ["online", "В сети"],
-                ["frozen", "Заморожены"],
-              ] as const
-            ).map(([key, label]) => (
-              <button key={key} type="button" aria-selected={stateFilter === key} onClick={() => setStateFilter(key)}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </Rh2Sheet>
-      )}
-      {handoverFor && <HandoverModal agent={handoverFor} onClose={() => setHandoverFor(null)} />}
-      {freezeFor && <FreezeAgentModal agent={freezeFor} onClose={() => setFreezeFor(null)} />}
-      {pointsFor && (
-        <PointsJournalModal agentId={pointsFor.id} agentName={pointsFor.fullName} onClose={() => setPointsFor(null)} />
-      )}
+      {overlays}
     </div>
   );
 }

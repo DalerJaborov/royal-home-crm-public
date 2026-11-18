@@ -1,7 +1,7 @@
 import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { attachContactProfile } from "../contactProfiles.js";
-import { formatClientName, type ClientKind } from "@royal-home/shared";
+import { formatClientName, stationDialRefusal, type ClientKind } from "@royal-home/shared";
 import { findClientByPhoneDigits } from "../whatsappPhone.js";
 import { findPhoneOwners } from "../clientPhones.js";
 import { describeError } from "../describeError.js";
@@ -18,6 +18,7 @@ import {
 } from "../archiveReviewCall.js";
 import { closeStaleNextActions } from "../nextActionAutoClose.js";
 import { claimAutoTaskSlot, closeAutoTasks, CALLBACK_AUTO_TASK_KINDS } from "../autoTasks.js";
+import { isMissedCallTaskEnabled, sendMissedCallSms } from "./missedCallFollowup.js";
 import { loadIncomingSettings, incomingHoursOpen } from "./incomingSettings.js";
 import { maskClientPhone } from "../clientPhone.js";
 import { INCOMING_INBOUND_CONTEXTS } from "../settingsConstants.js";
@@ -1221,6 +1222,16 @@ export interface FinishedIncoming {
   byConsultant: boolean;
 }
 
+/** Что finishIncomingCall читает о клиенте звонка (см. комментарий у загрузки клиента). */
+const CALL_CLIENT_SELECT = {
+  id: true,
+  shortId: true,
+  fullName: true,
+  kind: true,
+  assignedAgentId: true,
+  assignedAgent: { select: { isActive: true, frozenAt: true } },
+} as const;
+
 export async function finishIncomingCall(channelId: string): Promise<FinishedIncoming | null> {
   const entry = live.get(channelId);
   // Уже завершён — это повторная доставка события конца (станция шлёт и StasisEnd,
@@ -1324,7 +1335,7 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
     ? Math.max(0, Math.round((endedAt.getTime() - talkFrom.getTime()) / 1000))
     : Math.max(0, Math.round((endedAt.getTime() - entry.startedAt.getTime()) / 1000));
 
-  const client = entry.clientId
+  const clientAtStart = entry.clientId
     ? await prisma.client.findUnique({
         where: { id: entry.clientId },
         // kind — роль перед именем в текстах пушей (formatClientName) и правильная
@@ -1332,14 +1343,7 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
         // assignedAgent (isActive/frozenAt) — ночная проверка 24.09.2026 (№221/З2-2):
         // задача «перезвонить» и пуш о пропущенном звонке не должны уходить
         // уволенному/замороженному ответственному, см. assignedAgentUnavailable ниже.
-        select: {
-          id: true,
-          shortId: true,
-          fullName: true,
-          kind: true,
-          assignedAgentId: true,
-          assignedAgent: { select: { isActive: true, frozenAt: true } },
-        },
+        select: CALL_CLIENT_SELECT,
       })
     : null;
 
@@ -1386,13 +1390,24 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
    * Карточки нет (автосоздание выключено, служебный номер, сотрудник) — прежнее
    * поведение: задачу ставить некуда, а пуш по курьеру — шум.
    */
-  const silentUnknown = robotGreetedSilent && !!client && !client.assignedAgentId;
+  const silentUnknown = robotGreetedSilent && !!clientAtStart && !clientAtStart.assignedAgentId;
   // Консультант взял, человек — нет: звонок НЕ пропущен (задача «перезвонить» и пуш
   // о пропущенном не нужны, консультант разобрал звонок сам), но и оператора не было.
   const robotAnswered = robotOnly && !handedBack && !silentUnknown;
-  const silentKnown = robotAnswered && sessionReported && !entry.consultantSpoke && !!client?.assignedAgentId;
+  const silentKnown = robotAnswered && sessionReported && !entry.consultantSpoke && !!clientAtStart?.assignedAgentId;
   const byConsultant = robotAnswered && !silentKnown;
   const answered = (!!entry.bridgedAt && !transferShort && !archiveShort) || byConsultant;
+
+  /**
+   * ПРОПУЩЕННЫЙ С НЕЗНАКОМОГО НОМЕРА: КАРТОЧКА И ОБЩАЯ ЗАДАЧА «ПЕРЕЗВОНИТЬ» (18.11.2026, рубильник Б,
+   * Settings.missedCallCallbackTaskEnabled, по умолчанию выключен). Разведка 18.11: 38 из 75 пропущенных
+   * за 30 дней были с номеров без карточки, и перезвонить по ним не поручено никому. Карточку заводит та же
+   * функция, что и для робота (сотрудник, служебный номер, Корзина отсеиваются в ней), дальше работает
+   * прежний механизм ниже: claimAutoTaskSlot (одна открытая задача на номер, повтор её поднимает),
+   * общая задача руководству и пуш notifyMissed. Закрывается сама: дозвонился (closeAutoTasks ниже),
+   * перезвонили (callTracker), написал в WhatsApp (closeMissedCallTasksAnsweredInWhatsapp).
+   */
+  const client = clientAtStart ?? (answered ? null : await openCardForMissedUnknown(entry));
 
   /**
    * АВТОР ЗАПИСИ — ОПЕРАТОР, ЕСЛИ ЕГО УДАЁТСЯ УЗНАТЬ, и только потом ответственный
@@ -1605,7 +1620,9 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
   // дозвонился ли он до оператора. Своя же подсказка «Перезвонить...» (заведена
   // выше, если не answered) исключена по interactionId.
   if (client && interactionId) {
-    void closeStaleNextActions(client.id, interactionId).catch((err) =>
+    // Продлённая выше задача «перезвонить» (повторный пропущенный) остаётся открытой: иначе вторая
+    // неудача дозвониться снимала бы её сама, и по номеру не оставалось ни одной задачи (18.11.2026).
+    void closeStaleNextActions(client.id, [interactionId, missedCallSlot?.existingInteractionId]).catch((err) =>
       console.error("[звонок] закрытие старых подсказок:", err instanceof Error ? err.message : err)
     );
   }
@@ -1784,6 +1801,9 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
   }
 
   if (!answered) {
+    // СМС со ссылкой на WhatsApp (рубильник А, Settings.missedCallSmsEnabled): сразу, любой неотвеченный.
+    // Не ждём и не падаем: решение и защиты внутри, отказ уходит в журнал ошибок.
+    void sendMissedCallSms({ phone: entry.phone, clientId: client?.id ?? null });
     await notifyMissed(entry, client, callbackAgentId, assignedAgentUnavailable);
   }
 
@@ -1890,6 +1910,25 @@ async function notifyMissed(
     url: "/calls",
     tag: `incoming-missed-${entry.channelId}`,
   });
+}
+
+/**
+ * Карточка незнакомому номеру, чей звонок остался без ответа (рубильник Б). null — рубильник выключен,
+ * номер не наберёт станция (иностранный: перезванивать некуда), карточку заводить нельзя (сотрудник,
+ * служебный номер, удалённая карточка) или завести не вышло: тогда всё идёт прежним путём (журнал и пуш).
+ */
+async function openCardForMissedUnknown(entry: LiveIncoming) {
+  try {
+    if (entry.archiveReviewerId || entry.clientId) return null;
+    if (!(await isMissedCallTaskEnabled())) return null;
+    if (stationDialRefusal(entry.phone)) return null;
+    await createCardForUnknownCaller(entry);
+    if (!entry.clientId) return null;
+    return await prisma.client.findUnique({ where: { id: entry.clientId }, select: CALL_CLIENT_SELECT });
+  } catch (err) {
+    void logSystemError("telephony", `Карточка по пропущенному звонку не заведена: ${describeError(err)}`);
+    return null;
+  }
 }
 
 function formatDuration(seconds: number): string {

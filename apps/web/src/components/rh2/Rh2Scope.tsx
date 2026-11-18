@@ -1,5 +1,6 @@
 import { createPortal } from "react-dom";
 import type { CSSProperties, ReactNode } from "react";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
 
 /**
  * ОБЛАСТЬ ТЕМЫ ДЛЯ ОКОН, МЕНЮ И ПАНЕЛЕЙ.
@@ -105,8 +106,11 @@ export const RH2_UNREAD_CHIP: CSSProperties = {
  * неё, а не от экрана (та же ловушка, из-за которой окна и уехали в портал).
  */
 export function Rh2Portal({ children }: { children: ReactNode }) {
+  // Метка раздела «Нового вида» (components/look/clients/RoyalSection.tsx): окно,
+  // открытое из раздела, носит её на своём корне; без признака вида — пусто.
+  const section = useRoyalSectionName();
   return createPortal(
-    <div className="rh2 screens" style={TRANSPARENT}>
+    <div className="rh2 screens" style={TRANSPARENT} data-ry-section={section}>
       <div className="scr" style={RH2_SCR_BARE}>
         {children}
       </div>

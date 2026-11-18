@@ -55,3 +55,19 @@ describe("shell rollout draft across StepUpGate remounts", () => {
     expect(() => writeShellDraft("director", 1, { baseline, value })).not.toThrow();
   });
 });
+
+describe("«Новый вид» в черновике доступа", () => {
+  it("черновик без списка не трогает сохранённый на сервере список", () => {
+    const current: UiShellRollout = { ...baseline, royalLookAgentIds: ["owner"] };
+    expect(rebaseShellDraft({ baseline, value }, current).royalLookAgentIds).toEqual(["owner"]);
+    expect(rebaseShellDraft({ baseline, value }, baseline)).not.toHaveProperty("royalLookAgentIds");
+  });
+  it("переносит только свои отметки поверх свежего списка", () => {
+    const base: UiShellRollout = { ...baseline, royalLookAgentIds: ["owner"] };
+    const edited: UiShellRollout = { ...base, royalLookAgentIds: ["owner", "director"] };
+    const current: UiShellRollout = { ...base, royalLookAgentIds: ["owner", "rop"] };
+    expect(rebaseShellDraft({ baseline: base, value: edited }, current).royalLookAgentIds).toEqual(["owner", "rop", "director"]);
+    const removed: UiShellRollout = { ...base, royalLookAgentIds: [] };
+    expect(rebaseShellDraft({ baseline: base, value: removed }, current).royalLookAgentIds).toEqual(["rop"]);
+  });
+});

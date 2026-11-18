@@ -1,8 +1,6 @@
 import type { CustomerAgentDecision, CustomerAgentVerifiedContext } from "@royal-home/shared";
 import { customerAgentIntake } from "./customerAgentIntake.js";
-import { foldCustomerText } from "./customerAgentRole.js";
-import { BW, EW } from "./wordBoundary.js";
-import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
+import { customerAgencyTermsAsked, customerCommissionWordsAsked, customerPolicyTermAsked, customerRecentUserTexts } from "./customerAgentPolicyAsked.js";
 
 /**
  * Server guard for a DM seller whose model decision answered the wrong subject (30.10.2026 live probes:
@@ -14,32 +12,13 @@ export const SELLER_POLICY_MISMATCH_CAUSE = "repair:seller_policy_mismatch";
 export const SELLER_COMMISSION_NO_INTAKE_CAUSE = "repair:seller_commission_no_intake";
 export const SELLER_TERMS_UNANSWERED_CAUSE = "repair:seller_terms_unanswered";
 
-const RENT_MENTION = new RegExp(`${BW}(?:аренд\\p{L}*|сдам|сдаю|сдаем|сда(?:ть|вать)|сдается|сдаются|сними\\p{L}*|снять|снимать|ичора\\p{L}*|наем\\p{L}*)${EW}`, "u");
-const COMMISSION_ASK = new RegExp(`${BW}(?:комисс\\p{L}*|процент\\p{L}*|фоиз\\p{L}*|чанпул|чанд пул|хаки хизмат|хакки хизмат|кобиш|стоимост\\p{L}*|тариф\\p{L}*|оплат\\p{L}*|берете|берет|возьмете|возьмет|получу|получит\\p{L}*|на руки)${EW}|${BW}сколько (?:стоит|будет стоить|с меня|с продавц\\p{L}*|вы берете|берут|ваш\\p{L}*)${EW}|${BW}какой (?:у вас )?процент${EW}`, "u");
 
-/**
- * «Чи шарту шароит доред?», «какие у вас условия?» from a seller: the agency's terms ARE the commission (Facebook 16.11.2026 17:44:
- * «Мехоҳам хонаамро фурӯшам» four times, then this question; the bot asked for an object number, «амвол ё кор?», a phone, and
- * «Фаҳмидам.» twice, and the client left). Never the terms of a mortgage, instalments, a discount, rent or a job.
- */
-const TERMS_ASK = new RegExp(`${BW}(?:шарт\\p{L}*|шароит\\p{L}*|услови\\p{L}*)${EW}`, "u");
-const NOT_TERMS = new RegExp(`${BW}(?:ипотек\\p{L}*|кредит\\p{L}*|рассроч\\p{L}*|насия\\p{L}*|карз\\p{L}*|кисм\\p{L}*|скидк\\p{L}*|тахфиф\\p{L}*|аренд\\p{L}*|ичора\\p{L}*|кироя\\p{L}*)${EW}`, "u");
-/** A QUESTION, not a description: «все условия есть», «ҳама шароит дорад», «шароиташ хуб» describe the flat (re-review #211, п.7). */
-const ASKING_TERMS = new RegExp(`${BW}(?:какие|какая|какой|каковы|каков|сколько|чи|чист|чанд|кадом|расскажите|подскажите|скажите|бигуед|узнать|донам|гуна|хел)${EW}`, "u");
-/**
- * «со всеми условиями», «ҳама шароит»: the flat's amenities, never the agency's terms (third review). Not after a question word:
- * «Какие все условия?», «Чи ҳама шартҳо?» ask the agency's terms (fourth review, п.3).
- */
-const AMENITIES = new RegExp(`(?<!${BW}(?:какие|каковы|какая|какой|чи|кадом|кадоме)\\s+)${BW}(?:все|всеми|всех|хама|хамаи|бо\\s+хама)\\s+(?:услови\\p{L}*|шароит\\p{L}*|шарт\\p{L}*)`, "u");
-/** The customer ASKS what the agency takes (one detector for the server read and the seller guard). */
-function asksTermsQuestion(text: string): boolean {
-  const words = foldCustomerText(text);
-  return (COMMISSION_ASK.test(words) || TERMS_ASK.test(words) && !AMENITIES.test(words)) && (/[?؟]/u.test(text) || ASKING_TERMS.test(words)) &&
-    !NOT_TERMS.test(words) && !customerRecruitmentRequested(text);
-}
+// «Какая комиссия?», «Чи шарту шароит доред?»: ONE detector with the renderer's gate (customerAgentPolicyAsked.ts, 17.11.2026).
+// Two copies drifted: the seller guard forced the commission for «шарту шароит», and the renderer then dropped it as unasked.
+const asksTermsQuestion = customerAgencyTermsAsked;
 /** The commission was asked about (the older, wider reading: «комиссия 2% устроит» keeps a commission answer the model chose). */
 function asksTerms(text: string): boolean {
-  return COMMISSION_ASK.test(foldCustomerText(text)) || asksTermsQuestion(text);
+  return customerCommissionWordsAsked(text) || asksTermsQuestion(text);
 }
 /** A seller (this turn or the remembered intake) asks about the agency's terms: the server reads the commission itself. */
 export function customerSellerAskedTerms(input: { inputText: string; verifiedContext?: Pick<CustomerAgentVerifiedContext, "intake" | "turns"> }): boolean {
@@ -70,10 +49,11 @@ export function guardSellerDecision(input: { decision: CustomerAgentDecision; ev
   const recent = customerAgentIntake(prior ? [] : input.verifiedContext?.turns ?? [], input.inputText, prior?.role);
   const role = recent.role !== "unknown" ? recent.role : prior?.role;
   if (role !== "seller") return null;
-  const words = foldCustomerText(input.inputText);
   const rentTopic = referenced.every(value => value?.topic === "rental"), commissionTopic = referenced.every(value => value?.topic === "commission");
   // A bare "what should I explain?" to a seller who just named an object is the same miss (30.10: "хонаи фуруши дорам").
-  const mismatch = topicOnly || rentTopic && !RENT_MENTION.test(words) || commissionTopic && !asksTerms(input.inputText);
+  // Rent: the same door as the renderer, with the customer's last turns (#267), not a second copy of the rent words.
+  const mismatch = topicOnly || rentTopic && !customerPolicyTermAsked("rental", input.inputText, customerRecentUserTexts(input.verifiedContext)) ||
+    commissionTopic && !asksTerms(input.inputText);
   if (mismatch) return { cause: SELLER_POLICY_MISMATCH_CAUSE,
     decision: { kind: "clarify", refs: [], social: d.social, question: "seller_details", ...(d.say ? { say: d.say } : {}) } };
   // The seller asked about the commission: keep the verified answer, but do not leave the intake unanswered (question: none).

@@ -1,15 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Dashboard } from "./Dashboard";
-const state = vi.hoisted(() => ({ role: "AGENT", narrow: true, clean: false, cleanFactory: () => Promise.resolve({}) }));
+const state = vi.hoisted(() => ({ role: "AGENT", narrow: true, clean: false, royal: false, cleanFactory: () => Promise.resolve({}) }));
 vi.mock("../lib/cleanRouteChunks", () => ({ loadCleanPult: state.cleanFactory }));
 vi.mock("../store/auth", () => ({ useAuthStore: (select: (s: { agent: { role: string } }) => unknown) => select({ agent: { role: state.role } }) }));
 vi.mock("../hooks/useNarrowScreen", () => ({ useNarrowScreen: () => state.narrow }));
 vi.mock("../hooks/useMobileUx", () => ({ useMobileUx: () => state.narrow }));
 vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => state.clean }));
+vi.mock("../hooks/useRoyalLook", async (importOriginal) => ({ ...await importOriginal<typeof import("../hooks/useRoyalLook")>(), useRoyalLook: () => state.royal }));
 vi.mock("../lib/lazyWithReload", () => ({ lazyWithReload: (factory: () => unknown) => {
   const source = factory.toString();
-  const name = source.includes("HeadOfSalesHome") ? "head-of-sales-home" : source.includes("MobileManagerHome") ? "mobile-manager-home" : source.includes("MobileAgentHome") ? "legacy-agent-home" : source.includes("AgentHome") ? "desktop-agent-home" : source.includes("ManagerHome") ? "manager-home" : factory === state.cleanFactory ? "clean-director-home" : "other-role-home";
+  const name = source.includes("TodayRoyal") ? "royal-home" : source.includes("HeadOfSalesHome") ? "head-of-sales-home" : source.includes("MobileManagerHome") ? "mobile-manager-home" : source.includes("MobileAgentHome") ? "legacy-agent-home" : source.includes("AgentHome") ? "desktop-agent-home" : source.includes("ManagerHome") ? "manager-home" : factory === state.cleanFactory ? "clean-director-home" : "other-role-home";
   return () => <div>{name}</div>;
 } }));
 describe("actual Dashboard route selection", () => {
@@ -39,5 +40,16 @@ describe("actual Dashboard route selection", () => {
     expect(renderToStaticMarkup(<Dashboard />)).toContain("manager-home");
     state.narrow = true;
     expect(renderToStaticMarkup(<Dashboard />)).toContain("mobile-manager-home");
+  });
+  it("«Новый вид» меняет главную только тем ролям, для которых она нарисована", () => {
+    state.royal = true; state.narrow = false; state.clean = true;
+    for (const role of ["DIRECTOR", "ADMIN", "HEAD_OF_SALES", "AGENT"]) {
+      state.role = role;
+      expect(renderToStaticMarkup(<Dashboard />)).toContain("royal-home");
+    }
+    state.role = "MANAGER";
+    expect(renderToStaticMarkup(<Dashboard />)).toContain("manager-home");
+    state.royal = false; state.role = "DIRECTOR";
+    expect(renderToStaticMarkup(<Dashboard />)).toContain("clean-director-home");
   });
 });
