@@ -63,10 +63,10 @@ import {
   withPropertyLock,
   dispatchToEditor,
   videoHandoffPublishDedupeKey,
+  handoffPublishJobDedupeKeys,
   isHandoffPublishRunning,
   HANDOFF_PUBLISH_RUNNING_ERROR,
 } from "./videoHandoff.js";
-import { tiktokPublishRetryDedupeKey } from "../jobs/tiktokPublishRetryPolicy.js";
 import { logTimeline } from "./timeline.js";
 import { localVideoDelete } from "./localVideoStorage.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
@@ -895,7 +895,7 @@ export async function sendBackToMontajer(
     });
     await tx.backgroundJob.deleteMany({
       where: {
-        dedupeKey: { in: [videoHandoffPublishDedupeKey(propertyId), tiktokPublishRetryDedupeKey(propertyId)] },
+        dedupeKey: { in: handoffPublishJobDedupeKeys(propertyId) },
         status: "PENDING",
       },
     });
