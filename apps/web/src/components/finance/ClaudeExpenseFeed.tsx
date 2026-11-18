@@ -6,6 +6,8 @@ import { useFinanceSummary } from "../../hooks/useFinance";
 import { useUndoToast } from "../../hooks/useUndoToast";
 import { useIsReadOnly } from "../../lib/permissions";
 import { useMobileUx } from "../../hooks/useMobileUx";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
+import { RoyalExpenseDonut } from "../look/money/RoyalExpenseDonut";
 import { CLAUDE_CATEGORY_TONES, CLAUDE_METHOD_LABELS, claudeMoney, claudeMonthRange, groupClaudeExpenses, previousClaudeMonth, useClaudeExpenseCategories, useClaudeExpensePage, useClaudeUpcoming, usePayClaudeExpense, usePayClaudeRecurring, useUndoClaudePayment, useUndoClaudeRecurring, type ClaudeExpense, type ClaudeExpenseCategory, type ClaudePaymentMethod, type ClaudeUpcoming } from "../../lib/claudeFinanceApi";
 const ICONS = { OFFICE: Building2, ADVERTISING: Megaphone, SALARY: Banknote, OTHER: WalletCards };
 export function ClaudeCategoryIcon({ category, detail }: { category: ExpenseCategory; detail?: ClaudeExpenseCategory }) {
@@ -26,6 +28,8 @@ export function claudeExpenseEmptyKind(total: number, hasFilters: boolean): "no-
 export function ClaudeExpenseFeed({ month, canManage, onAdd, onEdit, monthControls }: { month: string; canManage: boolean; onAdd: () => void; onEdit: (expense: ClaudeExpense) => void; monthControls?: ReactNode }) {
   const readOnly = useIsReadOnly(); const writable = canManage && !readOnly;
   const mobile = useMobileUx(); const [filtersOpen, setFiltersOpen] = useState(false);
+  // «Новый вид» (пачка money): та же доля категорий кольцом вместо полосы; без признака — прежняя полоса.
+  const royal = useRoyalSectionName() === "money";
   const categories = useClaudeExpenseCategories(); const summary = useFinanceSummary(2, true, month);
   const range = claudeMonthRange(month); const upcoming = useClaudeUpcoming(range.from, range.to);
   const pay = usePayClaudeExpense(); const payRecurring = usePayClaudeRecurring(); const undo = useUndoClaudePayment(); const undoRecurring = useUndoClaudeRecurring();
@@ -64,7 +68,7 @@ export function ClaudeExpenseFeed({ month, canManage, onAdd, onEdit, monthContro
     <section className="cef-card" aria-label="Расходы месяца">
       <div className="cef-head"><div><small>Потрачено за {new Date(`${month}-15T12:00:00Z`).toLocaleDateString("ru-RU",{month:"long",timeZone:"UTC"})}</small><div className="cef-kpi">{missingRate?"—":claudeMoney(total)}</div></div>{delta!==null&&<span className={`cef-chip ${delta<=0?"cef-green":"cef-orange"}`}>{delta>0?"+":""}{delta}% к прошлому месяцу</span>}{monthControls}</div>
       {missingRate&&<p className="cef-muted">Сводка месяца не загрузилась. Суммы не вычисляем по одной странице расходов. <button type="button" className="cef-btn" onClick={()=>void summary.refetch()}>Повторить сводку</button></p>}
-      <div className="cef-bar" aria-label="Распределение расходов">{byCategory.map(c=>c.total>0&&<span key={c.category} className={`cef-${CLAUDE_CATEGORY_TONES[c.category]}`} style={{width:`${total?c.total/total*100:0}%`}} title={`${EXPENSE_CATEGORY_LABELS[c.category]}: ${claudeMoney(c.total)}`}/>)}</div>
+      {royal ? <RoyalExpenseDonut total={total} selected={category||undefined} center={category ? (monthly ? claudeMoney(monthly.expenses[category] ?? 0) : "—") : missingRate ? "—" : claudeMoney(total)} caption={category ? EXPENSE_CATEGORY_LABELS[category] : "всего"} parts={byCategory.map(c=>({key:c.category,tone:CLAUDE_CATEGORY_TONES[c.category],value:c.total,title:`${EXPENSE_CATEGORY_LABELS[c.category]}: ${claudeMoney(c.total)}`}))}/> : <div className="cef-bar" aria-label="Распределение расходов">{byCategory.map(c=>c.total>0&&<span key={c.category} className={`cef-${CLAUDE_CATEGORY_TONES[c.category]}`} style={{width:`${total?c.total/total*100:0}%`}} title={`${EXPENSE_CATEGORY_LABELS[c.category]}: ${claudeMoney(c.total)}`}/>)}</div>}
       <div className="cef-legend">{byCategory.map(c=><button type="button" key={c.category} onClick={()=>{setCategory(category===c.category?"":c.category);setPage(1);}} aria-pressed={category===c.category}><i className={`cef-dot cef-${CLAUDE_CATEGORY_TONES[c.category]}`}/>{EXPENSE_CATEGORY_LABELS[c.category]} <b>{monthly?claudeMoney(c.total):"—"}</b></button>)}</div>
     </section>
     <section className="cef-card" aria-label="Предстоящие платежи"><div className="cef-head"><h2>Предстоящие платежи</h2><span className="cef-chip cef-orange">{(upcoming.data??[]).filter(r=>r.status==="PLANNED").length}</span></div>

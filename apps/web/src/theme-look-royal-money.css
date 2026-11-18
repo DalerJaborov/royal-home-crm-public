@@ -1,0 +1,556 @@
+/* «НОВЫЙ ВИД» — раздел «Деньги» (пачка money, 18.11.2026).
+ *
+ * Обычный, НЕ генерируемый файл. Подключён после theme-look-royal.css, и КАЖДОЕ
+ * правило стоит под :root[data-ui-look="royal"] И меткой раздела
+ * [data-ry-section="money"] — без признака вида не меняется ни один пиксель
+ * (сторож theme-look-royal.test.ts). Метку ставят только сами «Деньги»
+ * (pages/Finance.tsx через RoyalSection): корень экрана `.finance-clean`, корень
+ * портала Rh2Portal (шторки подписки, взноса, категорий, дня календаря, окна
+ * подтверждения) и своё окно расхода `.cef-sheet-backdrop` (ClaudeExpenseSheet).
+ *
+ * Экран «Денег» в чистой оболочке — рабочее место `.cef-*` (ClaudeMoneyPage и
+ * вкладки). Его оформление держится на переменных `--cef-*`; внутри раздела они
+ * переназначены на токены нового вида `--rh-ui-*`, поэтому все семь вкладок,
+ * таблицы и окна перекрашиваются разом и ночью берут ночные значения. Ниже —
+ * только форма: карточки 24, строки ~60, круги 48 / значки 24, таблетки,
+ * текст не мельче 13 px, цифры табличные и по правому краю в таблицах.
+ *
+ * Цвет — смысл: доход синий/зелёный, расход янтарный, убыток и просрочка красные.
+ * Кнопка «удалить» (`.danger`) остаётся красной; синим красится только главное
+ * действие. Запас под полоску iPhone у подвалов шторок не трогаем.
+ * Анимация — только transform/opacity, без backdrop-filter.
+ */
+
+/* ============================ токены раздела ============================ */
+
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef, .cef-sheet),
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-sheet {
+  --cef-canvas: var(--rh-ui-bg);
+  --cef-card: var(--rh-ui-card);
+  --cef-row: var(--rh-ui-bg);
+  --cef-ink: var(--rh-ui-text);
+  --cef-muted: var(--rh-ui-hint);
+  --cef-action: var(--rh-ui-side-pill);
+  --cef-accent: var(--rh-ui-primary);
+  --cef-green: var(--rh-ui-ok);
+  --cef-red: var(--rh-ui-crit-text);
+  --cef-orange: var(--rh-ui-warn);
+  --cef-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  --ry-money-crit-soft: color-mix(in srgb, var(--rh-ui-crit) 12%, transparent);
+  /* Заливка «расход» для полос: токен --rh-ui-warn — это цвет ТЕКСТА (тёмно-янтарный днём). */
+  --ry-money-amber: #e39a2d;
+  color: var(--rh-ui-text);
+  font-family: var(--font-sans, "Onest", system-ui, sans-serif);
+  font-size: 15px;
+}
+/* Цвет категорий (офис, реклама, зарплата, прочее) — тот же смысл, что в прежнем виде;
+   ночью чуть светлее, чтобы кольцо и точки не тонули на тёмной карточке. */
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] [data-ry-section="money"] :is(.cef, .cef-sheet),
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] .cef-sheet-backdrop[data-ry-section="money"] .cef-sheet {
+  --cef-office: #7d97ff; --cef-ads: #f09a63; --cef-salary: #5fd08a; --cef-other: #b4a8ec;
+  --ry-money-amber: #f2b45a;
+}
+
+/* ================================ страница ================================ */
+
+:root[data-ui-look="royal"] .finance-clean[data-ry-section="money"] { container: ry-money / inline-size; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-page { max-width: 1440px; padding: 24px 24px 32px; }
+
+/* Шапка: «Деньги» 32 + строка месяца; «+ Расход» — единственная синяя кнопка. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar { gap: 12px 16px; margin-bottom: 16px; align-items: center; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-title { display: grid; gap: 6px; min-width: 0; flex: 1 1 auto; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef h1 { font-size: 32px; font-weight: 700; line-height: 1.08; letter-spacing: -.028em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-title p { margin: 0; font-size: 16px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef h2 { font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef h3 { font-size: 17px; font-weight: 600; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-muted, .cef-caption, .cef small) { font-size: 14px; color: var(--rh-ui-hint); }
+
+/* Вкладки раздела — отдельной лентой таблеток под шапкой; лента листается сама, страница — нет. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs {
+  order: 3; flex: 1 0 100%; display: flex; flex-wrap: nowrap; gap: 6px; max-width: 100%; min-width: 0;
+  padding: 2px; overflow-x: auto; scrollbar-width: none; background: transparent; box-shadow: none; border-radius: 0;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs button {
+  flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px; background: var(--rh-ui-card); color: var(--rh-ui-hint);
+  font-size: 15px; font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs button:hover { color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs button[aria-selected="true"] {
+  background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none;
+}
+
+/* Кнопки рабочего места. Главная (синяя) — «+ Расход», «Добавить …», «Сохранить», «Оплатил». */
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn) {
+  min-height: 44px; border-radius: 999px; font-size: 15px; font-weight: 600;
+  background: var(--rh-ui-press); color: var(--rh-ui-text); box-shadow: none;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-icon-btn { width: 44px; padding: 10px; background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-icon-btn svg { width: 22px; height: 22px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)) {
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
+}
+/* «Оплатил» в каждой строке списка — одно действие строки, но не главное действие экрана:
+   мягкий синий, чтобы синяя заливка оставалась только у «+ Расход». */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-row .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)),
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-section-head .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)) {
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-btn.cef-soft { background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-add { min-height: 48px; padding: 0 20px; font-size: 16px; }
+/* Опасное остаётся красным: «Удалить», значок корзины. */
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger) {
+  background: var(--ry-money-crit-soft); color: var(--rh-ui-crit-text); box-shadow: none;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn, .cef-chip, .cef-switch, button, a):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+@media (hover: hover) {
+  :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):not(:disabled):hover { opacity: 1; filter: none; background-color: var(--rh-ui-hover); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)):not(:disabled):hover { background: var(--rh-ui-primary-hover); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger):not(:disabled):hover { background: color-mix(in srgb, var(--rh-ui-crit) 18%, transparent); }
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn, .cef-chip):active { transform: scale(.97); }
+
+/* Месяц и инструменты (категории, CSV, PDF, архив). */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-tools { gap: 8px 12px; margin-bottom: 16px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef, .cef-sheet) .cef-month-picker :is(input:not([type="checkbox"]):not([type="color"]):not([type="radio"])) {
+  min-height: 44px; width: 172px; padding: 0 16px; border-radius: 999px; background: var(--rh-ui-card); color: var(--rh-ui-text);
+  font-size: 15px; font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure > summary { list-style: none; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-actions { gap: 8px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-error {
+  padding: 14px 16px; border-radius: 16px; background: var(--ry-money-crit-soft); color: var(--rh-ui-crit-text); font-size: 15px; font-weight: 600;
+}
+
+/* ========================= карточки и строки ========================= */
+
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-card, .cef-table, .cef-calendar-day-panel, .cef-subscription-detail) {
+  padding: 24px; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-card + .cef-card { margin-top: 16px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-head { margin-bottom: 12px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-section-head { margin-bottom: 16px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-section-head p { margin-top: 4px; font-size: 15px; color: var(--rh-ui-hint); }
+
+/* Крупная сумма — как «Комиссия» на главной: Onest 700, табличные цифры. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-kpi {
+  font-family: var(--rh-ui-font-num); font-size: 40px; font-weight: 700; line-height: 1.05; letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums; color: var(--rh-ui-text); overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-head small { font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+
+/* Строка списка: круг 48 со значком 24, ~60 px, разделитель, без серой подложки. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-row {
+  gap: 14px; min-height: var(--rh-ui-row-h); padding: 10px 8px; border-radius: 16px; background: transparent; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-row + .cef-row { margin-top: 0; box-shadow: inset 0 1px 0 var(--rh-ui-sep); border-radius: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-row-button { transition: background-color 160ms cubic-bezier(.23, 1, .32, 1); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-row-button:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-row-button:active { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-ic { width: 48px; height: 48px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-ic svg { width: 24px; height: 24px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-row-text, .cef-row-copy) :is(strong, b) { font-size: 17px; font-weight: 600; line-height: 1.3; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-row-text, .cef-row-copy) :is(span, small) { font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-row-text .cef-overdue { color: var(--rh-ui-crit-text); font-weight: 600; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-value, .cef-sub-amount, .cef-amount) {
+  font-family: var(--rh-ui-font-num); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; text-align: right;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-value { font-size: 17px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-row > svg:last-child { flex: none; color: var(--rh-ui-hint); }
+
+/* Метки: смысл цветом и надписью; план — янтарная, оплачено — зелёная, просрочено — красная. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-chip {
+  min-height: 28px; padding: 4px 12px; font-size: 13px; font-weight: 600; background: var(--rh-ui-raised); color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-chip:is(.cef-green, .green) { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-chip:is(.cef-orange, .orange) { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-chip:is(.cef-blue, .blue) { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-chip:is(.cef-danger, .red) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-chip.muted { background: var(--rh-ui-raised); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] button.cef-chip { min-height: 44px; padding: 0 16px; font-size: 15px; background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] [data-ry-section="money"] button.cef-chip[aria-pressed="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
+
+/* Поля ввода. */
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef, .cef-sheet) :is(input:not([type="checkbox"]):not([type="color"]):not([type="radio"]), select, textarea) {
+  min-height: 48px; border-radius: 16px; background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 16px; box-shadow: inset 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-search, .cef-line-input) { min-height: 48px; border-radius: 999px; background: var(--rh-ui-bg); color: var(--rh-ui-hint); box-shadow: inset 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef, .cef-sheet) :is(.cef-search, .cef-line-input, .cef-amount) :is(input:not([type="checkbox"]):not([type="color"]):not([type="radio"])) {
+  min-height: 44px; padding-inline: 0; box-shadow: none; background: transparent;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef, .cef-sheet) :is(input, select, textarea) { font-weight: 500; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef, .cef-sheet) :is(input, textarea)::placeholder { color: var(--rh-ui-hint); font-weight: 400; opacity: 1; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef, .cef-sheet) .cef-amount input::placeholder { font-weight: 700; }
+/* Значок искр у быстрого ввода — украшение (знак ИИ в интерфейсе не подчёркиваем). */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-line-input > svg.lucide-sparkles { display: none; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-form-fields, .cef-fields) label { font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-check { font-size: 15px; font-weight: 500; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-check input { accent-color: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-pagination { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-empty { color: var(--rh-ui-hint); font-size: 15px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-empty h3 { color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-skeleton, .cef-loading) { border-radius: var(--rh-ui-r-card); background: var(--rh-ui-raised); }
+
+/* Переключатель: зелёный — включено. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-switch::before { width: 48px; height: 28px; background: var(--rh-ui-raised); box-shadow: inset 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-switch::after { top: 11px; left: 2px; width: 24px; height: 24px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-switch[aria-checked="true"]::before { background: var(--rh-ui-ok); box-shadow: none; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-switch[aria-checked="true"]::after { transform: translateX(20px); }
+
+/* ============================ вкладка «Расходы» ============================ */
+
+/* Карточка месяца: сумма и сравнение сверху, кольцо категорий и легенда рядом (на ПК). */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed { display: grid; gap: 16px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card + .cef-card { margin-top: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head ring" "legend ring" "note note"; gap: 12px 24px; align-items: center;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-head { grid-area: head; margin: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .ry-donut { grid-area: ring; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-legend { grid-area: legend; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-muted { grid-area: note; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend { gap: 8px; font-size: 15px; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend button {
+  gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 999px; background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 15px;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend button b { font-family: var(--rh-ui-font-num); font-weight: 700; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend button[aria-pressed="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-dot { width: 10px; height: 10px; margin-right: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-bar { height: 12px; gap: 3px; background: var(--rh-ui-raised); }
+
+/* Кольцо «на что ушли деньги». */
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut { position: relative; display: grid; place-items: center; width: 184px; height: 184px; margin: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut circle { fill: none; stroke-width: 16; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-track { stroke: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg { cursor: help; outline: none; transition: opacity 160ms ease; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg.cef-office { stroke: var(--cef-office); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg.cef-ads { stroke: var(--cef-ads); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg.cef-salary { stroke: var(--cef-salary); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg.cef-other { stroke: var(--cef-other); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut[data-selected] .ry-donut-seg:not([data-active]) { opacity: .28; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg:focus-visible { opacity: 1; stroke-width: 20; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut-center {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 2px; padding: 0 30px; text-align: center; pointer-events: none;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut-center strong { font-size: 20px; line-height: 1.1; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut-center span { font-size: 13px; color: var(--rh-ui-hint); }
+
+/* Лента трат по дням. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-day { margin-top: 18px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-day-head { margin-bottom: 4px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-day-head h3 { font-size: 15px; font-weight: 700; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed-filter-disclosure > summary {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 999px;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: 15px; font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring); cursor: pointer;
+}
+
+/* ===================== вкладки «Подписки», «Учредители» ===================== */
+
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary { gap: 12px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) {
+  padding: 18px 20px; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong,
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong {
+  font-family: var(--rh-ui-font-num); font-size: 28px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div > span { font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+/* «Всего» учредителей — синяя плита. Вес выше общего правила карточек (там :is с `> div`),
+   иначе белый текст ляжет на белую карточку и итог станет невидимым. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-founder-cards > .cef-founder-card.cef-founder-total { background: var(--rh-ui-primary); color: #ffffff; box-shadow: none; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-founder-cards > .cef-founder-card.cef-founder-total :is(span, em, strong, small) { color: #ffffff; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-row {
+  gap: 12px; min-height: 76px; padding: 10px 14px; margin-bottom: 10px; border-radius: var(--rh-ui-r-card);
+  background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-row.selected { background: var(--rh-ui-card); box-shadow: inset 0 0 0 2px var(--rh-ui-primary); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-select { min-height: 56px; background: transparent; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-select .cef-amount { font-size: 17px; letter-spacing: -.01em; min-height: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-subscription-detail h3 { font-size: 22px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-subscription-detail h4 { font-size: 17px; font-weight: 700; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-amount { display: block; margin: 4px 0 8px; font-size: 32px; letter-spacing: -.03em; text-align: left; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-subscription-detail dt { font-size: 14px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-subscription-detail dd { margin: 2px 0 10px; font-size: 16px; font-weight: 500; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-sub-dates li, .cef-sub-history li) {
+  display: flex; justify-content: space-between; gap: 12px; min-height: 48px; align-items: center; padding: 8px 12px; border-radius: 0;
+  background: transparent; box-shadow: inset 0 -1px 0 var(--rh-ui-sep); font-size: 15px;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-sub-dates li, .cef-sub-history li) strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-history ul { display: grid; gap: 0; padding: 0; margin: 8px 0 0; list-style: none; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-founder-list .cef-row { border-radius: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-founder-list .cef-amount { font-size: 17px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-founder-names li { min-height: 56px; border-radius: 16px; background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-founder-edit, .cef-founder-add) input { border: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-founders-h { font-size: 17px; font-weight: 700; }
+/* Форма подписки и взноса: подпись над полем, поля столбиком. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-editor fieldset { display: grid; gap: 14px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-editor label:not(.cef-check) { display: grid; gap: 6px; min-width: 0; font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-editor label:not(.cef-check) :is(input, select, textarea) { width: 100%; color: var(--rh-ui-text); }
+
+/* =========================== вкладка «Календарь» =========================== */
+
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-nav strong { min-width: 9ch; text-align: center; font-size: 17px; font-weight: 700; text-transform: capitalize; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-week { font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-day {
+  min-height: 112px; padding: 8px; border-radius: 16px; background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring); color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-day.outside { background: transparent; box-shadow: none; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-day.selected { box-shadow: inset 0 0 0 2px var(--rh-ui-primary); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-day[aria-current="date"] .cef-calendar-number {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-number { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-event { border-radius: 10px; font-size: 13px; background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-event.late { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-event.paid { background: var(--rh-ui-raised); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-event strong { font-variant-numeric: tabular-nums; }
+/* Название платежа в дне переносится, а не режется многоточием (данные не прячем). */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-chips { width: 100%; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-event > span { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.25; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-legend .cef-chip.orange { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-day-payment { padding: 14px; border-radius: 16px; background: var(--rh-ui-bg); }
+/* Название и контрагент платежа — двумя строками, не слитно. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-payment-title > div { display: grid; gap: 2px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-payment-title > div > strong { font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-payment-title > div > small { font-size: 15px; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-day-payment .cef-actions { margin-top: 10px; }
+/* В шторке дня (телефон) панель дня — без второй карточки внутри шторки. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .sheet .cef-calendar-day-panel { padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-payment-title > strong { margin-left: auto; font-family: var(--rh-ui-font-num); font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ============================ вкладка «Таблица» ============================ */
+
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-pills { gap: 4px; padding: 4px; border-radius: 999px; background: var(--rh-ui-bg); box-shadow: inset 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-pills:not(.cef-main-tabs) button { min-height: 40px; padding: 0 14px; font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-pills:not(.cef-main-tabs) button:is([aria-pressed="true"], [aria-selected="true"]) {
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 1px 3px rgba(20, 24, 40, .12);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis { gap: 12px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis > div {
+  flex: 1 1 180px; display: grid; gap: 4px; padding: 14px 18px; border-radius: 20px; background: var(--rh-ui-bg);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis small { font-size: 14px; font-weight: 600; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis strong {
+  font-family: var(--rh-ui-font-num); font-size: 26px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-filters label { display: grid; gap: 6px; flex: 1 1 160px; min-width: 0; font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-filters label.cef-search { display: flex; flex: 2 1 240px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-scroll { border-radius: 16px; box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef :is(.cef-expense-grid, .cef-pivot) { font-size: 15px; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef :is(.cef-expense-grid, .cef-pivot) :is(th, td) { padding: 10px 14px; height: 56px; box-shadow: inset 0 -1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef :is(.cef-expense-grid, .cef-pivot) thead th { height: 48px; background: var(--rh-ui-bg); color: var(--rh-ui-hint); font-size: 14px; font-weight: 600; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef :is(.cef-expense-grid, .cef-pivot) tbody tr:nth-child(even) { background: transparent; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef :is(.cef-expense-grid, .cef-pivot) tbody tr:hover { background: var(--rh-ui-hover); }
+/* Суммы — по правому краю: колонка «Сумма» списка и все месяцы, «Итого», «Доля» сводки. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-expense-grid :is(th:nth-child(8), td.cef-amount) { text-align: right; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-expense-grid td.cef-amount { font-size: 16px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-expense-grid td.cef-amount small { display: block; font-family: inherit; font-weight: 500; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-pivot :is(thead th, td):not(:first-child) { text-align: right; white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-pivot tfoot :is(th, td) { font-weight: 700; background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-pivot tbody th { font-weight: 600; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-pivot tbody th .cef-ic { width: 36px; height: 36px; margin-right: 10px; display: inline-grid; vertical-align: middle; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-pivot tbody th .cef-ic svg { width: 20px; height: 20px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-expense-grid td .cef-ic { width: 36px; height: 36px; margin-right: 8px; display: inline-grid; vertical-align: middle; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-expense-grid td .cef-ic svg { width: 20px; height: 20px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef .cef-expense-grid .cef-pivot-value, .cef-pivot-value) { font-weight: 600; color: var(--rh-ui-primary-ink); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-pivot td .cef-pivot-value { width: 100%; justify-content: flex-end; text-align: right; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef :is(.cef-expense-grid, .cef-pivot) thead th .cef-pivot-value { min-height: 40px; padding: 4px 0; color: inherit; font-weight: 600; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef :is(.cef-expense-grid, .cef-pivot) tbody th { background: transparent; }
+/* Дата, категория, статус, сумма и действия строки — в одну строку: строка таблицы остаётся ~60 px. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-expense-grid td:is(:nth-child(1), :nth-child(3), :nth-child(7), :nth-child(8)) { white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .cef-expense-grid td .cef-actions { flex-wrap: nowrap; gap: 6px; }
+
+/* ===================== вкладки «Обзор и прогноз», «Выплаты» ===================== */
+
+/* Итоги месяца плитками (components/look/money/RoyalMoneyTiles.tsx). */
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tiles {
+  display: grid; grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 20px;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero {
+  display: grid; align-content: space-between; gap: 14px; min-width: 0; min-height: 148px; padding: 20px 22px;
+  border-radius: var(--rh-ui-r-tile); background: var(--rh-ui-primary); color: #ffffff;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-label { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: #ffffff; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-value { font-size: 40px; line-height: 1; color: #ffffff; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile {
+  display: grid; align-content: space-between; gap: 14px; min-width: 0; min-height: 148px; padding: 18px 20px;
+  border-radius: var(--rh-ui-r-tile); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-text { display: grid; gap: 4px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-label { font-size: 15px; font-weight: 600; line-height: 1.25; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-value { font-size: 30px; line-height: 1.05; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile[data-tone="crit"] .ry-money-tile-value { color: var(--rh-ui-crit-text); }
+
+/* Обзор — блоки старой темы (.rh2 .sec/.card/.trio) в оформлении нового вида. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr { display: grid; gap: 20px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr > * { margin: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .card {
+  padding: 22px 24px; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .sec-h h2 { font-size: 20px; font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .sec-h .note { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr :is(.state, .quiet, .sub) { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .trio .tc,
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .trio > .n {
+  padding: 16px 18px; border-radius: 20px; background: var(--rh-ui-bg); color: var(--rh-ui-text); transition: transform 160ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .trio > .n:active { transform: scale(.98); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .trio :is(.tc, .n) b { font-family: var(--rh-ui-font-num); font-size: 26px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .trio :is(.tc, .n) > span { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .trio .n > span:nth-of-type(1) { font-size: 15px; font-weight: 600; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .seg {
+  gap: 4px; padding: 4px; border: 0; border-radius: 999px; background: var(--rh-ui-bg); box-shadow: inset 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .seg > button { min-height: 40px; padding: 0 14px; border-radius: 999px; font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .seg > button[aria-selected="true"] { background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 1px 3px rgba(20, 24, 40, .12); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .list .row { min-height: 48px; font-size: 15px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview-period label { gap: 10px; font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview-period select { min-height: 44px; border-radius: 999px; padding: 0 16px; background: var(--rh-ui-card); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-chart-grid { gap: 20px; }
+
+/* Графики: сетка едва видна, подписи 13 px; прибыль — зелёная (убыток красный),
+   комиссия — синяя, текущий месяц ярче прошлых. Подсказка — тёмная плашка. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .gl { stroke: var(--rh-ui-sep); stroke-dasharray: 2 4; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .ax { stroke: color-mix(in srgb, var(--rh-ui-hint) 40%, transparent); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .axl { font-size: 13px; fill: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .val { font-size: 14px; font-weight: 700; fill: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview #commission-chart-section .chart .br { fill: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview #commission-chart-section .chart .br.alt { fill: color-mix(in srgb, var(--rh-ui-primary) 42%, var(--rh-ui-card)); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview #profit-chart-section .chart .br { fill: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview #profit-chart-section .chart .br.alt { fill: color-mix(in srgb, var(--rh-ui-ok) 45%, var(--rh-ui-card)); }
+/* Убыток — красный столбец в любом графике (вес как у правил по id выше). */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview :is(#profit-chart-section, #commission-chart-section) .chart .br[data-negative] { fill: var(--rh-ui-crit); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview :is(#profit-chart-section, #commission-chart-section) .chart .br.alt[data-negative] { fill: color-mix(in srgb, var(--rh-ui-crit) 55%, var(--rh-ui-card)); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .hit { cursor: pointer; outline: none; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .hit:hover,
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .hit:focus-visible { fill: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview #profit-chart-section .lgd i { background: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview #profit-chart-section .lgd i.alt { background: color-mix(in srgb, var(--rh-ui-ok) 45%, var(--rh-ui-card)); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .lgd { gap: 16px; font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .tipbox {
+  width: max-content; max-width: 240px;
+  padding: 10px 12px; border: 0; border-radius: 14px; background: var(--rh-ui-text); color: var(--rh-ui-bg); font-size: 14px; line-height: 1.35;
+  box-shadow: 0 12px 28px -12px rgba(14, 15, 18, .45);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .tipbox b { display: block; color: var(--rh-ui-bg); font-size: 14px; }
+/* «Стоимость лида», «Сомони за сделку» — это расход: полосы янтарные. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .bars .b { min-height: 44px; font-size: 15px; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .bars .tr { height: 10px; border-radius: 999px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .bars .tr i { border-radius: 999px; background: var(--ry-money-amber, #e39a2d); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .bars .vl { font-family: var(--rh-ui-font-num); font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* Выплаты агентам — таблица: суммы по правому краю, табличные цифры. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .tbl { font-size: 15px; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .tbl :is(th, td) { height: 56px; padding: 8px 14px; border: 0; box-shadow: inset 0 -1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .tbl th { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .tbl .num { text-align: right; font-family: var(--rh-ui-font-num); font-weight: 700; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .tbl td.quiet { font-size: 14px; color: var(--rh-ui-hint); }
+
+/* ======================== шторки и окна раздела ======================== */
+
+/* Окно расхода (своё, не Rh2Sheet). Скругление 24, подложка без размытия. */
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] { background: rgba(14, 15, 18, .32); }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] > .cef-sheet {
+  border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 24px 64px -24px rgba(14, 15, 18, .45);
+}
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-sheet h2 { font-size: 22px; font-weight: 700; letter-spacing: -.025em; }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-amount { font-family: var(--rh-ui-font-num); font-weight: 700; letter-spacing: -.035em; }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-amount input { font-weight: 700; box-shadow: none; }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-step :is(span, i):first-child { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-step h3 { font-size: 17px; font-weight: 700; }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-tile { min-height: 88px; border-radius: 18px; background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 14px; font-weight: 600; }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-tile.cef-selected { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); box-shadow: inset 0 0 0 2px var(--rh-ui-primary); }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-tile .cef-ic { width: 40px; height: 40px; }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-keys button { min-height: 52px; border-radius: 16px; background: var(--rh-ui-bg); color: var(--rh-ui-text); font-family: var(--rh-ui-font-num); font-weight: 600; }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-more { min-height: 52px; border-radius: 16px; background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 15px; font-weight: 600; }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-field > span { font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-receipt { border-radius: 16px; background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-sheet-footer { background: var(--rh-ui-card); box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-sheet-footer .cef-btn { min-height: 48px; padding-inline: 20px; }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-confirm { background: rgba(14, 15, 18, .32); }
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-confirm > div { border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text); }
+
+/* Шторки Rh2Sheet (подписка, взнос, категории, день календаря) и окна подтверждения. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet {
+  border: 0; background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 24px 64px -24px rgba(14, 15, 18, .45);
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet.right { border-radius: var(--rh-ui-r-card) 0 0 var(--rh-ui-r-card); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet.bottom { border-radius: var(--rh-ui-r-card) var(--rh-ui-r-card) 0 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .sheet-h { min-height: 64px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .sheet-h :is(h2, h3, b) { font-size: 22px; font-weight: 700; letter-spacing: -.025em; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn) { min-height: 48px; padding: 0 20px; border: 0; border-radius: 999px; font-size: 15px; font-weight: 600; box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn):is(.ghost, .soft):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .sheet-h .pill { min-width: 44px; padding: 0 14px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn, .cef-btn, .cef-icon-btn, button):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet.cef-sheet { background: var(--rh-ui-card); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.cef-btn, .cef-icon-btn) { min-height: 48px; border-radius: 999px; font-size: 15px; font-weight: 600; background: var(--rh-ui-press); color: var(--rh-ui-text); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-icon-btn { width: 48px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger) { background: var(--ry-money-crit-soft, rgba(179, 38, 30, .12)); color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-row-button { min-height: var(--rh-ui-row-h); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-budget { accent-color: var(--rh-ui-primary); }
+
+/* ================================ телефон ================================ */
+
+@container ry-money (max-width: 1099px) {
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero { grid-column: 1 / -1; min-height: 0; }
+}
+@container ry-money (max-width: 640px) {
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tiles { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile {
+    grid-template-columns: auto minmax(0, 1fr); align-items: center; align-content: center; min-height: 0; padding: 12px 16px;
+  }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-value { font-size: 24px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-value { font-size: 36px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child {
+    grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "ring" "legend" "note"; justify-items: stretch;
+  }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .ry-donut { justify-self: center; }
+}
+
+@media (max-width: 819px), (max-width: 1179px) and (pointer: coarse) {
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-page { padding: 8px 0 16px; }
+  /* Заголовок «Деньги» на телефоне уже стоит в верхней строке оболочки — второй раз
+     не печатаем (как и прежний вид: для экранного чтеца h1 остаётся). */
+  /* Месяц — одна таблетка: стрелки и месяц внутри, без второй рамки. */
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-month-controls { border-radius: 999px; background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-month-controls > .cef-icon-btn { background: transparent; box-shadow: none; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef, .cef-sheet) .cef-month-picker :is(input:not([type="checkbox"]):not([type="color"]):not([type="radio"])) { width: 100%; padding: 0 2px; text-align: center; background: transparent; box-shadow: none; }
+  /* Пункты меню «…» — строки во всю ширину меню (значок + подпись), не круги 44. */
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-tool-actions :is(.cef-btn, .cef-icon-btn) {
+    width: 100%; min-height: 48px; justify-content: flex-start; gap: 12px; padding: 0 14px; border-radius: 14px;
+    background: transparent; box-shadow: none; text-align: left;
+  }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-tool-actions :is(.cef-btn, .cef-icon-btn):active { background: var(--rh-ui-press); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-tool-actions { border-radius: 20px; background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-card, .cef-table, .cef-calendar-day-panel, .cef-subscription-detail) { padding: 16px; border-radius: var(--rh-ui-r-card); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-kpi { font-size: 34px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-row { gap: 12px; padding: 10px 4px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .card { padding: 16px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .trio :is(.tc, .n) b { font-size: 22px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-day { min-height: 64px; padding: 6px 4px; border-radius: 12px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-chips .cef-calendar-event { min-height: 8px; border-radius: 999px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis > div:first-child { grid-column: 1 / -1; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis > div { padding: 12px 14px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis strong { font-size: 22px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-filters label { flex-basis: 100%; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div:first-child { grid-column: 1 / -1; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div { min-height: 0; padding: 14px 16px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: 24px; }
+  :root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] > .cef-sheet { border-radius: var(--rh-ui-r-card) var(--rh-ui-r-card) 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn, .cef-chip, .ry-donut-seg, .n) { transition: none; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn, .cef-chip):active { transform: none; }
+}
+
+/* Отказ без права на финансы — тот же текст, заголовок раздела в масштабе нового вида. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .pg-h h1 { font-size: 32px; font-weight: 700; letter-spacing: -.028em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .pg-h .sub { font-size: 16px; color: var(--rh-ui-hint); }
