@@ -61,6 +61,7 @@ function searchForHousing(own: string): boolean {
 // ── Проверка ответа модели ──────────────────────────────────────────────────
 const MAX_QUOTE = 200;
 /** Цитата узнаётся в словах клиента с точностью до регистра, ё/е, таджикских букв и знаков препинания. */
+export function leadOnlyQuoteFound(quote: string, haystack: readonly string[]): boolean { return quoteFound(quote, haystack); }
 function quoteFound(quote: string, haystack: readonly string[]): boolean {
   const folded = foldCustomerText(quote);
   if ((folded.match(/\p{L}/gu)?.length ?? 0) < 2) return false;
@@ -127,9 +128,16 @@ export type LeadOnlyIntentModel = (request: { system: string; user: string; conv
 export const LEAD_ONLY_INTENT_TIMEOUT_MS = 6_000;
 const MAX_EARLIER = 6;
 
-const geminiIntentModel: LeadOnlyIntentModel = request => callAiText<unknown>({ endpoint: "lead-only-intent", simple: true, maxTokens: 300,
-  system: request.system, user: request.user, schema: INTENT_SCHEMA, conversationId: request.conversationId ?? null,
-  ...(request.signal ? { signal: request.signal } : {}) });
+/**
+ * Транспорт режима: один структурированный вызов модели (тот же клиент, журнал вызовов и бюджет — callAiText). Общий для
+ * этой двери и оператора приёма заявок (ai/operator/understand.ts), чтобы у режима был один способ звать модель.
+ */
+export function leadOnlyStructuredModel(spec: { endpoint: string; schema: Record<string, unknown>; maxTokens: number }): LeadOnlyIntentModel {
+  return request => callAiText<unknown>({ endpoint: spec.endpoint, simple: true, maxTokens: spec.maxTokens,
+    system: request.system, user: request.user, schema: spec.schema, conversationId: request.conversationId ?? null,
+    ...(request.signal ? { signal: request.signal } : {}) });
+}
+const geminiIntentModel: LeadOnlyIntentModel = leadOnlyStructuredModel({ endpoint: "lead-only-intent", schema: INTENT_SCHEMA, maxTokens: 300 });
 
 /** Срок вышел — вызов не только бросаем, но и прерываем (сигнал), иначе он дожил бы и ещё раз повторился бы. */
 function withTimeout<T>(start: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T | null> {
@@ -139,6 +147,16 @@ function withTimeout<T>(start: (signal: AbortSignal) => Promise<T>, ms: number):
   call.catch(() => {}); // прерванный вызов может упасть позже срока: гонку уже проиграл, ошибка не нужна
   return Promise.race([call, new Promise<null>(resolve => { timer = setTimeout(() => { controller.abort(); resolve(null); }, ms); })])
     .finally(() => clearTimeout(timer));
+}
+
+/** Вызов модели режима с пределом времени. null — ответа нет (сбой, срок, ключа нет); никогда не бросает. */
+export async function askLeadOnlyModel(model: LeadOnlyIntentModel, request: { system: string; user: string; conversationId?: string | null },
+  timeoutMs: number = LEAD_ONLY_INTENT_TIMEOUT_MS): Promise<unknown> {
+  try {
+    return await withTimeout(signal => model({ ...request, signal }), timeoutMs);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -152,13 +170,8 @@ export async function classifyLeadOnlyIntent(input: { current: string; earlier?:
   const earlier = (input.earlier ?? []).map(text => clientOwnWords(text).trim()).filter(Boolean).slice(-MAX_EARLIER);
   // Номер, эмодзи, пустое голосовое: спрашивать модель не о чем.
   if ((current.match(/\p{L}/gu)?.length ?? 0) < 2) return leadOnlyIntentFallback(current, "no_letters");
-  let raw: unknown = null;
-  try {
-    raw = await withTimeout(signal => model({ system: LEAD_ONLY_INTENT_SYSTEM, conversationId: input.conversationId ?? null, signal,
-      user: JSON.stringify({ earlierClientMessages: earlier.map(text => text.slice(0, 300)), currentClientMessage: current.slice(0, 800) }) }), timeoutMs);
-  } catch {
-    raw = null;
-  }
+  const raw = await askLeadOnlyModel(model, { system: LEAD_ONLY_INTENT_SYSTEM, conversationId: input.conversationId ?? null,
+    user: JSON.stringify({ earlierClientMessages: earlier.map(text => text.slice(0, 300)), currentClientMessage: current.slice(0, 800) }) }, timeoutMs);
   if (raw == null) return leadOnlyIntentFallback(current, "model_unavailable");
   const checked = leadOnlyIntentFromModel(raw, { current, earlier });
   if ("invalid" in checked) {

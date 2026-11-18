@@ -1,0 +1,213 @@
+/**
+ * ОПЕРАТОР ПРИЁМА ЗАЯВОК — ТИПЫ (эталон поведения: docs/bot-operator/SPEC.md, план: docs/bot-operator/PLAN.md, этап 1.1).
+ *
+ * Три части, у каждой одна работа:
+ *  - understand.ts — модель (или запасные правила) читает ход клиента → `Understanding`;
+ *  - decide.ts     — чистая функция: состояние + понимание + контекст → `OperatorDecision` (шаги-фразы и действия);
+ *  - phrases.ts    — единственное место текстов клиенту, ru и tg.
+ * Состояние разговора (`OperatorState`) живёт в jsonb `BotConversation.leadOnlyPending` (state.ts), версия 2.
+ *
+ * Номер телефона клиента в состоянии НЕ хранится (только признак «номер есть»): колонка — память разговора,
+ * а не карточка. Номер этого хода уходит в действие `accept_lead`, дальше его держит приём заявки.
+ */
+import type { RecruitmentPosition } from "@royal-home/shared";
+
+export type OperatorLanguage = "ru" | "tg";
+export type OperatorChannel = "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "TELEGRAM";
+
+/** Кто клиент для оператора. `buyer_property` — покупатель конкретного объекта (реклама, пост, ссылка, «эта квартира»). */
+export type OperatorRole = "unknown" | "buyer" | "buyer_property" | "seller" | "job" | "rent";
+
+/**
+ * Шаг разговора:
+ *  - start   — бот ещё ничего не спрашивал;
+ *  - role    — спросили «купить или продать?»;
+ *  - details — задали (единственный) вопрос о деталях;
+ *  - contact — просим номер (Instagram/Facebook/Telegram);
+ *  - done    — заявка принята (или карточка уже есть): вопросов больше нет;
+ *  - handoff — разговор у сотрудника (роль не прояснилась, номер не дали, грубость, жалоба).
+ */
+export type OperatorStep = "start" | "role" | "details" | "contact" | "done" | "handoff";
+
+/** Детали объекта/запроса — как их написал клиент (строки, без пересчёта): агент уточнит по телефону. */
+export const OPERATOR_DETAIL_FIELDS = ["rooms", "district", "budget", "area", "floor", "renovation", "price", "units"] as const;
+export type OperatorDetailField = typeof OPERATOR_DETAIL_FIELDS[number];
+export type OperatorDetails = Record<OperatorDetailField, string | null>;
+
+/** Ключи фраз (тексты — phrases.ts; тип Record<PhraseKey, …> там не даёт забыть ключ). */
+export const OPERATOR_PHRASE_KEYS = [
+  "greet", "greet_assalom", "ask_role", "buyer_free", "identity", "bot_identity",
+  "seller_intro", "seller_commission", "ask_details_buyer", "ask_details_seller", "ask_details_missing",
+  "property_price", "property_no_price", "property_sold", "bargain",
+  "lead_known_phone", "lead_callback", "lead_text_only", "ask_phone", "phone_received", "out_of_area_accepted",
+  "callback_noted", "text_only_noted", "note_added", "welcome", "where_work", "rent_refusal", "photo_ack",
+  "voice_failed", "foreign_post", "jobs_list", "job_open", "job_closed", "jobs_none", "job_contact",
+  "no_call_ack", "rude_calm", "off_topic", "complaint_ack",
+] as const;
+export type PhraseKey = typeof OPERATOR_PHRASE_KEYS[number];
+
+export type PhraseVarValue = string | number | readonly string[];
+export type PhraseVars = Readonly<Record<string, PhraseVarValue>>;
+
+export interface OperatorState {
+  version: 2;
+  role: OperatorRole;
+  step: OperatorStep;
+  /** Язык разговора (липкий): меняет его только осмысленный текст клиента. null — ещё не понятно. */
+  language: OperatorLanguage | null;
+  /** Сколько раз спросили: роль (≤2), детали (≤1 на роль), номер (≤ maxPhoneAsks). */
+  asked: { role: number; details: number; phone: number };
+  /** Сколько раз прозвучала каждая фраза: «один раз» и выбор варианта (вариант = счётчик по кругу). */
+  spoken: Partial<Record<PhraseKey, number>>;
+  /** Объект разговора (только для `buyer_property`). */
+  propertyId: string | null;
+  details: OperatorDetails;
+  /** Пожелание по звонку: когда звонить (словами клиента, 24 ч) и «пишите, не звоните». */
+  callback: { when: string | null; textOnly: boolean };
+  /** «Не звоните, я просто смотрю» (случай 25): номер больше не просим. */
+  noCall: boolean;
+  /** Номер для звонка получен в разговоре (сам номер здесь не хранится). */
+  phoneKnown: boolean;
+  /** Объект не в Душанбе: заявка без раздачи агентам, решение за директором (SPEC, решение владельца 19.11). */
+  outOfArea: boolean;
+  /** Место вне Душанбе словами клиента (для заметки директору). */
+  place: string | null;
+  /**
+   * Заметки для агента, которые ещё не ушли (торг, «спрашивал цену объекта с рекламы»), и объект, номер и цену
+   * которого уже назвали (одна строка на объект; повторно — только если клиент снова спросил цену).
+   */
+  flags: { bargainAsked: boolean; adPriceAsked: boolean; propertyLineFor: string | null };
+  leadAccepted: boolean;
+  /** Сотрудника уже звали (не зовём второй раз). */
+  staffCalled: boolean;
+  /** Разговор закрыт для бота (грубость, жалоба): дальше молчим, ведёт человек. */
+  closed: boolean;
+  /** Должность, по которой уже ответили (вакансии): тот же вопрос второй раз — тишина. */
+  jobAnswered: string | null;
+}
+
+export type OperatorQuestion =
+  /** Вопроса нет. */
+  | "none"
+  /** Сколько стоят услуги, комиссия, условия агентства. */
+  | "fee"
+  /** «Какие у вас услуги?» — ответ сам вопрос о роли. */
+  | "services"
+  /** Цена / детали объекта, о котором разговор. */
+  | "property_price"
+  | "property_other"
+  /** Где работаете, в каком городе. */
+  | "area"
+  /** «Это не <имя>?», «кто вы?» — ошиблись номером. */
+  | "identity"
+  /** «Соедините с человеком», «позовите агента». */
+  | "staff"
+  | "other";
+
+export type OperatorVoice = "none" | "transcribed" | "failed";
+
+/** Что понято в ЭТОМ ходе. Источник роли, вопроса, деталей — модель (с проверкой цитат кодом) или запасные правила. */
+export interface Understanding {
+  source: "model" | "fallback";
+  /** Роль по словам ЭТОГО сообщения (с учётом недавних реплик). null — сообщение роли не несёт. */
+  role: "buyer" | "seller" | "rent" | "job" | null;
+  question: OperatorQuestion;
+  /** Клиент говорит именно о «этом объекте» (цена, «эта квартира»), а не ищет вообще. */
+  aboutThisProperty: boolean;
+  /** Детали, названные в этом сообщении. */
+  details: Partial<OperatorDetails>;
+  hasDetails: boolean;
+  /** Номер телефона из слов клиента (код, не модель). */
+  phone: string | null;
+  callback: { when: string | null; textOnly: boolean; noCall: boolean };
+  /** Язык, который решает ЭТОТ текст. null — текст язык не решает (ок, цифры, кнопка рекламы). */
+  language: OperatorLanguage | null;
+  /** Слабая подсказка языка (одно «Салом»): берётся, только если язык разговора ещё не известен. */
+  languageHint: OperatorLanguage | null;
+  /** Чем клиент поздоровался: «ассалому алайкум» (ответ «Ваалайкум ассалом»), «салом», русское. */
+  greeting: "assalom" | "salom" | "ru" | null;
+  greetingOnly: boolean;
+  ackOnly: boolean;
+  thanksOnly: boolean;
+  /** Только текст кнопки рекламы Meta, своих слов нет. */
+  adOpener: boolean;
+  /** Торг или скидка («дорого», «по-братски», «последняя цена?»). */
+  bargain: boolean;
+  /** Грубость, оскорбление, угроза. */
+  rude: boolean;
+  /** «Вы бот?», «дайте живого человека». */
+  botQuestion: boolean;
+  /** Не по теме (лечение, кредит, чужая реклама, продают нам что-то). */
+  offTopic: boolean;
+  /** Жалоба на агента или агентство. */
+  complaint: boolean;
+  /** Вакансия: какую должность спросили (слова клиента) и какая из ОТКРЫТЫХ подошла. */
+  job: { asked: string | null; openKey: string | null };
+  attachments: { voice: OperatorVoice; ownPost: boolean; foreignPost: boolean; media: boolean };
+  /** В сообщении есть свои слова клиента (буквы или номер), а не одно вложение. */
+  hasText: boolean;
+  /** Место вне Душанбе, названное клиентом (район Рудаки сюда не попадает). */
+  outsidePlace: string | null;
+  /** Слова клиента для заметки агенту (до 200 знаков). */
+  quote: string;
+}
+
+export interface OperatorPropertyFocus {
+  propertyId: string;
+  shortId: number;
+  /** Цена уже словами на обоих языках («520 000 сомони» / «520 000 сомонӣ»); null — цены нет. */
+  priceText: { ru: string; tg: string } | null;
+  sold: boolean;
+}
+
+export interface OperatorContext {
+  channel: OperatorChannel;
+  /** Номер для звонка известен по каналу (WhatsApp с рубильником «номер WhatsApp»). */
+  phoneKnown: boolean;
+  /** Карточка клиента уже есть (заявка принята раньше): вопросов нет. */
+  leadExists: boolean;
+  /** Метка рекламы, с которой пришёл клиент. */
+  ad: { topic: "property" | "seller" | "job" | null; propertyId: string | null };
+  /** Объект в фокусе (факты из базы) — его номер и цена в ответе только отсюда. */
+  focus: OperatorPropertyFocus | null;
+  /** «Когда позвонит агент» словами (phrases.ts::operatorWhenText из рабочих часов Настроек). */
+  callbackWhen: { ru: string; tg: string };
+  maxPhoneAsks: number;
+  /** Открытые вакансии из Настроек и телефон ответственного. */
+  vacancies: { open: readonly RecruitmentPosition[]; contactPhone: string | null };
+  /** Имя компании аккаунта (MessengerAccount.brandName или основное), никогда не строка в тексте фразы. */
+  brandName: string;
+  sellerCommissionPercent: number;
+  /** Сервер знает, что объект разговора вне Душанбе (адрес объекта, гео). */
+  outOfArea: boolean;
+}
+
+export interface OperatorStepOut { key: PhraseKey; vars: PhraseVars; variant: number }
+
+export type OperatorAction =
+  | {
+    type: "accept_lead";
+    /** null — роль не ясна (клиент просил человека / прислал номер без темы): приём решит классификатором. */
+    role: "buyer" | "seller" | null;
+    propertyId: string | null;
+    /** Номер из этого сообщения; null — номер канала (WhatsApp) или карточки. */
+    phone: string | null;
+    note: string;
+    /** Не в Душанбе: агентам не раздаём, решение за директором (этап 1.5). */
+    outOfArea: boolean;
+    callbackWhen: string | null;
+    textOnly: boolean;
+  }
+  | { type: "append_note"; note: string; phone: string | null }
+  | { type: "call_staff"; reason: "role_unclear" | "phone_not_given" | "rude" | "complaint"; manager: boolean };
+
+export interface OperatorDecision {
+  state: OperatorState;
+  /** Язык ответа этого хода (может быть таджикским для чужого поста при неизвестном языке). */
+  language: OperatorLanguage;
+  /** Шаги ответа по порядку: не больше двух, в каждом одно предложение, вопрос — не больше одного. */
+  steps: OperatorStepOut[];
+  actions: OperatorAction[];
+  /** Ответа нет (тишина). */
+  silent: boolean;
+}
