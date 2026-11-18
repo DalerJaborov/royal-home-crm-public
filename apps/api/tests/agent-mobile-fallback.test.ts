@@ -35,8 +35,13 @@ vi.mock("../src/lib/telephony/amiClient.js", () => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { buildDialWithMobileFallback, mobileFallbackTarget, syncAgentMobileFallback, reconcileAgentMobileFallback } =
-  await import("../src/lib/telephony/agentMobileFallback.js");
+const {
+  buildDialWithMobileFallback,
+  mobileFallbackTarget,
+  syncAgentMobileFallback,
+  reconcileAgentMobileFallback,
+  warnIfIncomingPrimaryUnreachable,
+} = await import("../src/lib/telephony/agentMobileFallback.js");
 
 /**
  * ХВОСТ ТЕСТОВЫХ НОМЕРОВ — СЛУЧАЙНЫЙ, А НЕ ОТ ВРЕМЕНИ (20.09.2026).
@@ -485,5 +490,120 @@ describe("аппарат приёма входящих обязан быть д�
       where: { source: "telephony", message: { contains: `приём входящих заведён на аппарат ${orphan}` } },
     });
     await setIncomingPrimary(null);
+  });
+});
+
+/**
+ * ЛОЖНАЯ ТРЕВОГА 18.11.2026 16:44: аппарат приёма — офисный телефон без владельца и
+ * без мобильного плеча (решение владельца), зарегистрирован и принимает звонки, а
+ * директорам ушло CRITICAL «аппарат недостижим». Станцию теперь спрашивают.
+ */
+describe("аппарат приёма без владельца: тревога только когда живого пути нет", () => {
+  const creds = { url: "http://station.test", username: "test", password: "stand-password", app: "test" };
+  const station = (resource: string, state: "online" | "offline" | null) => ({
+    loadCreds: async () => creds as never,
+    listEndpoints: async () =>
+      [
+        ...(state ? [{ technology: "SIP", resource, state, channel_ids: [] }] : []),
+        { technology: "SIP", resource: "1001", state: "online", channel_ids: [] },
+      ] as never,
+  });
+  const journal = (ext: string) =>
+    prisma.errorLog.count({ where: { source: "telephony", message: { contains: `приём входящих заведён на аппарат ${ext}` } } });
+  const notes = (ext: string) => prisma.notification.count({ where: { tag: `incoming-primary-unreachable-${ext}` } });
+  let directorId = "";
+
+  beforeAll(async () => {
+    const phone = `+99292${String(runId).slice(-6)}`;
+    await prisma.agent.deleteMany({ where: { phone } });
+    const director = await prisma.agent.create({
+      data: { fullName: `Директор тревоги-${runId}`, phone, role: "DIRECTOR", passwordHash: "x", isActive: true },
+    });
+    directorId = director.id;
+    agentIds.push(director.id);
+  });
+
+  it("офисный аппарат на связи, владельца нет — ни журнала, ни уведомления", async () => {
+    const ext = orphanExtension("7");
+    await expectNobodyOwns(ext);
+    await forgetPreviousAlerts(ext);
+    await warnIfIncomingPrimaryUnreachable(ext, station(ext, "online"));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await journal(ext)).toBe(0);
+    expect(await notes(ext)).toBe(0);
+  });
+
+  it("аппарат есть на станции, но выключен — здесь молчим (тревогу ведёт сторож офисного аппарата)", async () => {
+    const ext = orphanExtension("6");
+    await expectNobodyOwns(ext);
+    await forgetPreviousAlerts(ext);
+    await warnIfIncomingPrimaryUnreachable(ext, station(ext, "offline"));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await journal(ext)).toBe(0);
+    expect(await notes(ext)).toBe(0);
+  });
+
+  it("аппарата нет на станции и плеча нет — журнал и директор; текст о том, что делает станция, а не «обрывается»", async () => {
+    const ext = orphanExtension("5");
+    await expectNobodyOwns(ext);
+    await forgetPreviousAlerts(ext);
+    await warnIfIncomingPrimaryUnreachable(ext, station(ext, null));
+    const logged = await waitFor(
+      () => prisma.errorLog.findFirst({ where: { source: "telephony", message: { contains: `приём входящих заведён на аппарат ${ext}` } } }),
+      { label: `журнал про аппарат ${ext}` }
+    );
+    expect(logged?.message).toContain("такого аппарата нет на станции");
+    expect(logged?.message).toContain("если не ответили");
+    expect(logged?.message).not.toContain("обрывается");
+    const note = await prisma.notification.findFirst({ where: { tag: `incoming-primary-unreachable-${ext}`, agentId: directorId } });
+    expect(note).not.toBeNull();
+    // Не чаще раза в сутки: второй обход уведомления не добавляет.
+    await warnIfIncomingPrimaryUnreachable(ext, station(ext, null));
+    expect(await prisma.notification.count({ where: { tag: `incoming-primary-unreachable-${ext}`, agentId: directorId } })).toBe(1);
+    await forgetPreviousAlerts(ext);
+  });
+
+  it("у владельца наборный мобильный — молчим даже без аппарата на станции", async () => {
+    const ext = `76${String(runId).slice(-3)}`;
+    await forgetPreviousAlerts(ext);
+    const owner = await prisma.agent.create({
+      data: { fullName: `Владелец аппарата-${runId}`, phone: `+99293${String(runId).slice(-6)}1`.slice(0, 13), role: "AGENT", sipExtension: ext, passwordHash: "x", isActive: true },
+    });
+    agentIds.push(owner.id);
+    await warnIfIncomingPrimaryUnreachable(ext, station(ext, null));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await journal(ext)).toBe(0);
+    expect(await notes(ext)).toBe(0);
+  });
+
+  it("одна открытая строка на поломку; аппарат появился на станции — строки (и старого вида) закрываются", async () => {
+    const ext = orphanExtension("3");
+    await expectNobodyOwns(ext);
+    await forgetPreviousAlerts(ext);
+    const open = () =>
+      prisma.errorLog.count({ where: { source: "telephony", resolvedAt: null, message: { startsWith: `Весь приём входящих заведён на аппарат ${ext},` } } });
+    await warnIfIncomingPrimaryUnreachable(ext, station(ext, null));
+    await warnIfIncomingPrimaryUnreachable(ext, station(ext, null));
+    expect(await open()).toBe(1);
+    await prisma.errorLog.create({
+      data: { source: "telephony", message: `Весь приём входящих заведён на аппарат ${ext}, но мобильное плечо ему поставить не из чего: старая строка.` },
+    });
+    expect(await open()).toBe(2);
+    await warnIfIncomingPrimaryUnreachable(ext, station(ext, "online"));
+    expect(await open()).toBe(0);
+    await forgetPreviousAlerts(ext);
+  });
+
+  it("станция не ответила — не судим", async () => {
+    const ext = orphanExtension("4");
+    await forgetPreviousAlerts(ext);
+    await warnIfIncomingPrimaryUnreachable(ext, {
+      loadCreds: async () => creds as never,
+      listEndpoints: async () => {
+        throw new Error("туннель");
+      },
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await journal(ext)).toBe(0);
   });
 });

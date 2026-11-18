@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4117,
+  "forks": 4119,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -86632,6 +86632,14 @@
            ]
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "await warnIfIncomingPrimaryUnreachable(primary);",
+         "a": [
+          "зовёт warnIfIncomingPrimaryUnreachable()"
+         ],
+         "c": []
         }
        ],
        "from": "reconcileAgentMobileFallback() — apps/api/src/lib/telephony/agentMobileFallback.ts"
@@ -86675,15 +86683,53 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const primary = await incomingPrimaryExtension();",
+         "a": [
+          "зовёт incomingPrimaryExtension()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
-         "t": "result.noOperatorsAssigned",
+         "t": "result.noOperatorsAssigned && !primary",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "void logSystemError( \"telephony\", \"Оператор приёма не назначен ни одному сотруднику: звонки незнакомых номеро…",
+           "t": "const open = await prisma.errorLog.count({ where: { ...noOperatorAlarmWhere(), resolvedAt: null } });",
            "a": [
-            "запись в журнал ошибок"
+            "считает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "open === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError( \"telephony\", `${NO_OPERATOR_ALARM_PREFIX}: звонки незнакомых номеров идут по-старому. ` …",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "elseif",
+         "t": "primary || !result.skipped",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.errorLog .updateMany({ where: { ...noOperatorAlarmWhere(), resolvedAt: null }, data: { resolvedA…",
+           "a": [
+            "меняет в базе: errorLog"
            ],
            "c": []
           }
