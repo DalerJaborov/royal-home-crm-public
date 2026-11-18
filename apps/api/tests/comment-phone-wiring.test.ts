@@ -377,7 +377,7 @@ describe("второе ревью 1b: бот выключен при приём�
   it("№1: Telegram-обсуждение, бот выключен при приёме — номер заявка, комментарий не удаляется и без ответа", async () => {
     const digits = freshDigits(); phones.push(digits);
     const messageId = 500000 + Math.floor(Math.random() * 400_000);
-    const accepted = await ingestGroupComment({ message_id: messageId, chat: { id: Number(groupChatId) }, from: { id: 77001, username: `${tag}-tgoff` },
+    const accepted = await ingestGroupComment({ message_id: messageId, chat: { id: groupChatId as unknown as number }, from: { id: 77001, username: `${tag}-tgoff` },
       text: `Нарх чанд? ${digits}`, message_thread_id: messageId - 1 } as never, groupChatId, false);
     expect(accepted).toBe(true);
     await drainBackgroundTasks(15_000);
