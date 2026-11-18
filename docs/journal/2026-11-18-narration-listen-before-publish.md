@@ -83,3 +83,11 @@
 Не делали (не опасно, на потом): частичный индекс по `narrationPreviewVersionId`, подтверждение у
 «Выпустить» в карточке, предупреждение «в старом ролике прежняя цена» при «Оставить старый».
 Тесты: narration-preview, -route, auto-separate, crm-mix, auto-flow, disk-cleanup — 124/124.
+
+## Второй свод с main (18.11, ~13:40 UTC)
+
+Свод с `main` после #276/#286/#287/#288/#289: конфликт только в карте. Облачный прогон ship
+нашёл два сторожа из `main`, не знавших нового файла `telegram/narrationPreviewBot.ts`:
+`staff-notice-one-door` (прямые отправки в Telegram — добавлена запись с причиной: рабочая
+карточка хозяину объекта, раз на версию) и `assistant-group-callback-gate` (заглушка для
+`handleNarrationPreviewCallback` в карте зависимостей). Оба файла 18/18 локально.
