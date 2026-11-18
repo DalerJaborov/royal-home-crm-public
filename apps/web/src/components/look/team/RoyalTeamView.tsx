@@ -8,7 +8,6 @@ import { formatMoney, pluralizeRu, relativeTime } from "../../../lib/format";
 import { TeamTabs } from "../../SectionTabs";
 import { Rh2Sheet } from "../../rh2/Rh2Sheet";
 import { RhAvatar, RhBlockState, RhButton, RhGroup, RhRow, RhSection, RhTile } from "../ui";
-import { useRyHint, RyHintText } from "./parts";
 import { RoyalIcon } from "../RoyalIcon";
 import { RoyalSection } from "../clients/RoyalSection";
 import type { RoyalIconName } from "../royalIconData";
@@ -60,13 +59,13 @@ function statusLine(m: TeamMember): string {
     : m.lastSeenAt ? `, был(а) ${relativeTime(m.lastSeenAt)}` : ""}`;
 }
 
+/** Заголовок экрана: сведения о том, кто видит показатели, — открытой строкой, не под «i». */
 function Head({ actions }: { actions?: ReactNode }) {
-  const info = useRyHint("Команда");
   return (
     <header className="ry-page-head">
-      <div className="ry-page-title"><h1 className="ry-title" data-dup>Команда</h1>{info.button}</div>
+      <div className="ry-page-title"><h1 className="ry-title" data-dup>Команда</h1></div>
       {actions && <div className="ry-page-acts">{actions}</div>}
-      <RyHintText id={info.id} open={info.open}>{INTRO}</RyHintText>
+      <p className="ry-meta ry-page-intro">{INTRO}</p>
     </header>
   );
 }
@@ -88,6 +87,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
           <div className="ry-subtabs"><TeamTabs /></div>
           {p.boards}
           <RhSection title="Вся команда">
+            <p className="ry-meta">Ваши коллеги. Показатели каждого видит только руководство.</p>
             {p.fame.loading ? <RhBlockState kind="loading" /> : p.fame.error ? <RhBlockState kind="error" onRetry={p.fame.retry} />
               : !fame?.team.length ? <div className="ry-state">В команде пока никого нет</div> : (
                 <RhGroup label="Коллеги">

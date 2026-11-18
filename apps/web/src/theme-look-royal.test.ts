@@ -264,6 +264,67 @@ export function siblingEscapes(css: string, section: string): string[] {
   });
 }
 
+/** Специфичность селектора [id, класс/атрибут/псевдокласс, элемент]: :is/:not/:has — по самому тяжёлому аргументу, :where — 0. */
+export function specificity(selector: string): [number, number, number] {
+  const spec: [number, number, number] = [0, 0, 0];
+  let i = 0;
+  const add = (other: [number, number, number]) => { spec[0] += other[0]; spec[1] += other[1]; spec[2] += other[2]; };
+  const heavier = (a: [number, number, number], b: [number, number, number]) =>
+    a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] >= b[2];
+  while (i < selector.length) {
+    const ch = selector[i];
+    if (ch === "#") { spec[0]++; i++; while (i < selector.length && /[\w-]/.test(selector[i])) i++; }
+    else if (ch === ".") { spec[1]++; i++; while (i < selector.length && /[\w-]/.test(selector[i])) i++; }
+    else if (ch === "[") { spec[1]++; while (i < selector.length && selector[i] !== "]") i++; i++; }
+    else if (selector.startsWith("::", i)) { spec[2]++; i += 2; while (i < selector.length && /[\w-]/.test(selector[i])) i++; }
+    else if (ch === ":") {
+      const m = /^:([\w-]+)(\()?/.exec(selector.slice(i))!;
+      i += m[0].length;
+      if (m[2]) {
+        let depth = 1; const from = i;
+        for (; i < selector.length && depth; i++) { if (selector[i] === "(") depth++; if (selector[i] === ")") depth--; }
+        const args = selector.slice(from, i - 1);
+        if (m[1] === "where") continue;
+        if (["is", "not", "has", "matches"].includes(m[1])) {
+          let best: [number, number, number] = [0, 0, 0];
+          for (const arg of splitTopLevel(args)) { const s = specificity(arg); if (heavier(s, best)) best = s; }
+          add(best);
+        } else spec[1]++;
+      } else spec[1]++;
+    } else if (/[a-zA-Z*]/.test(ch)) {
+      const from = i; while (i < selector.length && /[\w-*]/.test(selector[i])) i++;
+      if (selector.slice(from, i) !== "*") spec[2]++;
+    } else i++;
+  }
+  return spec;
+}
+
+const specOrder = (s: [number, number, number]) => s[0] * 1e6 + s[1] * 1e3 + s[2];
+const BUTTON_SUBJECT = /\.(pill|rh-btn|ry-btn)\b|(^|[\s(,>])button\b/;
+
+/**
+ * Выключенная кнопка (третье ревью PR 279): слой, перекрашивающий кнопку (фон или цвет у
+ * `.pill`/`.rh-btn`/`.ry-btn`/`button`), обязан сам держать правило приглушения
+ * `:disabled` (с `opacity`) не легче самого тяжёлого перекрашивающего — иначе недоступная
+ * «Сохранить» горит синим, как доступная. Возвращает недостачу или null.
+ */
+export function disabledDimGap(css: string): { heaviest: string; weight: number; dim: number } | null {
+  let heaviest = ""; let weight = 0; let dim = -1;
+  for (const rule of cssRules(css)) {
+    const decls = declarations(rule.body);
+    for (const selector of splitTopLevel(rule.selector)) {
+      const subject = subjectOf(selector);
+      if (!BUTTON_SUBJECT.test(notGroups(subject).rest)) continue;
+      // Правило, которое само не берёт выключенную кнопку, её и не перекрашивает.
+      if (/:not\((:disabled|\[disabled\])\)|:enabled/.test(subject)) continue;
+      const w = specOrder(specificity(selector));
+      if (/:disabled|\[disabled\]/.test(subject) && decls.some(([prop]) => prop === "opacity")) dim = Math.max(dim, w);
+      else if (decls.some(([prop, value]) => COLOR_PROP.test(prop) && !NEUTRAL_COLOR.test(value)) && w > weight) { weight = w; heaviest = selector; }
+    }
+  }
+  return weight > 0 && dim < weight ? { heaviest, weight, dim } : null;
+}
+
 /**
  * ДОЛГ, найденный усиленным сторожем 18.11.2026 (PR #280) в уже выкаченных слоях.
  * Сторож не ослаблен: ровно эти селекторы известны и переданы владельцу пачки, любая
@@ -288,6 +349,24 @@ const KNOWN_DEBT: Record<string, string[]> = {
   ],
 };
 
+/**
+ * ДОЛГ сторожа выключенной кнопки (третье ревью PR 279, 18.11.2026) в уже выкаченных
+ * слоях: перекраска `.pill` тяжелее их правила приглушения `:disabled`, недоступная
+ * кнопка там может гореть как доступная. Сторож не ослаблен — разрыв записан ТОЧНО
+ * (селектор и вес), любое изменение красит прогон; передано владельцам пачек. Починили —
+ * убрать строку (список только убывает).
+ */
+const DISABLED_DIM_DEBT: Record<string, { heaviest: string; weight: number; dim: number }> = {
+  "theme-look-royal-clients.css": {
+    heaviest: ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts .pill:not(.ghost) ~ .pill:not(.ghost):not(.soft):not(.danger):not(.gold)',
+    weight: 15000, dim: 6000,
+  },
+  "theme-look-royal-objects.css": {
+    heaviest: ':root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):not(.ghost):not(.soft):not(.rh-gallery-nav *):not([data-variant="icon"]):not(.icon):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"]))',
+    weight: 13000, dim: 8000,
+  },
+};
+
 describe("слои разделов: смысловые кнопки, запас iPhone, соседи метки", () => {
   const sectionFiles = lookFiles.filter((f) => lookSectionOf(f));
   it("знает слой раздела «Объекты»", () => {
@@ -299,6 +378,20 @@ describe("слои разделов: смысловые кнопки, запас
     expect(semanticButtonLeaks(css)).toEqual(KNOWN_DEBT[file] ?? []);
     expect(safeAreaOverrides(css)).toEqual([]);
     expect(siblingEscapes(css, lookSectionOf(file)!)).toEqual([]);
+  });
+  it.each(sectionFiles)("%s: выключенная кнопка приглушена не слабее перекраски", (file) => {
+    const css = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+    expect(disabledDimGap(css)).toEqual(DISABLED_DIM_DEBT[file] ?? null);
+  });
+  it("сторож выключенной кнопки проверен поломкой (без правила приглушения — красный)", () => {
+    const team = readFileSync(new URL("./theme-look-royal-team.css", import.meta.url), "utf8");
+    const broken = team.replace(/\/\* Выключенная кнопка[\s\S]*?\}\n/, "");
+    expect(broken).not.toBe(team);
+    expect(disabledDimGap(broken)).not.toBeNull();
+    // и правило слабее перекраски не засчитывается
+    const weak = ':root[data-ui-look="royal"] .pill:not(.ghost):not(.danger) { background: red; }\n:root[data-ui-look="royal"] .pill:disabled { opacity: .5; }';
+    expect(disabledDimGap(weak)?.dim).toBeLessThan(disabledDimGap(weak)!.weight);
+    expect(specificity(':root[data-ui-look="royal"] .a:where(.b, .c) > :is(.d, #e)')).toEqual([1, 3, 0]);
   });
   it("сторожа проверены поломкой", () => {
     const css = readFileSync(new URL("./theme-look-royal-objects.css", import.meta.url), "utf8");

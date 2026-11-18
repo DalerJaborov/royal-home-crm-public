@@ -178,6 +178,11 @@
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr { container: ry-set / inline-size; }
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-group { min-width: 0; }
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-group + .ry-group { margin-top: 16px; }
+/* Подписи групп (список блоков) переносятся целиком, без многоточия. */
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-row-sub { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+/* Нейтральная точка-маркер у вводного абзаца раздела не несёт смысла — убираем её место. */
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .quiet > .dot:not(.warn):not(.crit):not(.ok) { flex: 0 0 0; width: 0; min-width: 0; height: 0; margin: 0; padding: 0; border: 0; background: transparent; }
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .quiet:has(> .dot:not(.warn):not(.crit):not(.ok)) { gap: 0; padding-left: 0; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-set-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; align-items: start; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-set-nav, :root[data-ui-look="royal"] [data-ry-section="team"] .ry-set-main { min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-set-main { display: grid; gap: 16px; }
@@ -253,7 +258,7 @@
    широком экране настроек — по три (макет `.swts`); всё остальное в том же
    родителе занимает строку целиком. */
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt {
-  display: flex; flex-direction: column; justify-content: space-between; gap: 14px; min-width: 0; min-height: 148px; padding: 16px;
+  display: flex; flex-direction: column; justify-content: flex-start; gap: 10px; min-width: 0; min-height: 148px; padding: 16px;
   border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); text-align: left;
 }
@@ -264,7 +269,7 @@
 :root[data-ui-look="royal"] [data-ry-section="team"] :is(div, form, section, fieldset):has(> .ry-swt) > :is(button, a, .pill, .chip) { justify-self: start; }
 /* Внутри карточки раздела плитки — на сером, чтобы карточка в карточке читалась. */
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .acc-b .ry-swt { background: var(--rh-ui-bg); box-shadow: none; }
-:root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+:root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt-ctl { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt-ctl .chip { min-height: 28px; padding: 0 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt-t { display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; font-size: 16px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; text-wrap: balance; overflow-wrap: anywhere; }
@@ -294,13 +299,13 @@
 
 /* Строка числа (NumberRow): круг, название с «i», поле справа. */
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-setrow {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 72px; padding: 12px 0;
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px; min-height: 72px; padding: 12px 0;
   box-shadow: inset 0 -1px 0 var(--rh-ui-sep);
 }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-setrow:last-child { box-shadow: none; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-setrow-text { display: grid; gap: 4px; flex: 1 1 180px; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-setrow-title { display: flex; align-items: center; gap: 4px; font-size: 17px; font-weight: 600; line-height: 1.3; }
-:root[data-ui-look="royal"] [data-ry-section="team"] .ry-setrow-field { flex: none; margin-left: auto; }
+:root[data-ui-look="royal"] [data-ry-section="team"] .ry-setrow-field { flex: none; margin-left: auto; align-self: center; }
 
 /* Поля, выборы и кнопки форм внутри настроек — общий язык нового вида. */
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] :is(.nf input, .fld input:not([type="checkbox"]):not([type="radio"]), .fld select, .fld textarea, input.inp, select.inp, textarea.inp) {
@@ -350,13 +355,13 @@
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-page-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-page-title .ry-info { margin: 0; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-page-acts { display: flex; flex-wrap: wrap; gap: 8px; }
-:root[data-ui-look="royal"] [data-ry-section="team"] .ry-page-head .ry-hint { flex-basis: 100%; max-width: 72ch; }
+:root[data-ui-look="royal"] [data-ry-section="team"] .ry-page-head .ry-page-intro { flex-basis: 100%; max-width: 72ch; }
 /* Телефон: заголовок прячется (его пишет шапка), «i» встаёт в ряд с кнопками. */
 :root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="team"] .ry-page-head { flex-wrap: wrap; gap: 8px; }
 :root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="team"] .ry-page-acts { order: 1; flex: 1 1 auto; flex-wrap: wrap; min-width: 0; }
 :root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="team"] .ry-page-acts .ry-btn { padding: 0 14px; }
 :root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="team"] .ry-page-title { order: 2; }
-:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="team"] .ry-page-head .ry-hint { order: 3; }
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="team"] .ry-page-head .ry-page-intro { order: 3; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-subtabs { min-width: 0; }
 
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-team-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
@@ -522,6 +527,21 @@
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-pmenu-item:hover, :root[data-ui-look="royal"] [data-ry-section="team"] .ry-pmenu-item:focus-visible { background: var(--rh-ui-hover); outline: none; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-pmenu-item[data-danger] { color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-pmenu .ry-circle svg { width: 22px; height: 22px; }
+
+/* Выключенная кнопка: та же перекраска, но приглушённая и без «нажми меня». Каждое
+   перекрашивающее правило выше повторено здесь с :is(:disabled, [disabled]) — вес на
+   ступень больше, иначе недоступная «Сохранить» горела бы синим (третье ревью PR 279). */
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):is(:disabled, [disabled]),
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill.ghost:not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):is(:disabled, [disabled]),
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill.crit:is(:disabled, [disabled]),
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill.danger:is(:disabled, [disabled]),
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .seg button[aria-selected="true"]:is(:disabled, [disabled]),
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .seg button[aria-pressed="true"]:is(:disabled, [disabled]),
+:root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):is(:disabled, [disabled]),
+:root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .pill.ghost:not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):is(:disabled, [disabled]),
+:root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .pg-h .acts > :first-child:is(.pill, a):not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):is(:disabled, [disabled]),
+:root[data-ui-look="royal"] .ry-activity[data-ry-section="team"] .scr .seg button[aria-selected="true"]:is(:disabled, [disabled]),
+:root[data-ui-look="royal"] [data-ry-section="team"] .scr :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]) { opacity: .5; cursor: not-allowed; }
 
 /* ================== окна поверх экранов пачки (портал) ================== */
 :root[data-ui-look="royal"] [data-ry-section="team"] .sheet {
