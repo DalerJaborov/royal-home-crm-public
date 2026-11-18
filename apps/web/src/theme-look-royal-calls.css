@@ -310,6 +310,8 @@
 :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details p { margin: 0; font-size: 16px !important; line-height: 1.5; color: var(--rh-ui-text) !important; }
 :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .quiet,
 :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .state { font-size: 15px; color: var(--rh-ui-hint); }
+/* Ошибка в разборе звонка — красная и на телефоне (правило выше тяжелее старого .state.err). */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .state.err { color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details details > summary {
   display: inline-flex; align-items: center; min-height: 44px; font-size: 15px; font-weight: 700; color: var(--rh-ui-primary-ink); cursor: pointer;
 }
@@ -570,3 +572,8 @@
 /* Окна раздела (портал с меткой раздела): выключенная кнопка приглушена всегда — вес выше старой темы. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="calls"] .scr :is(.card, .list, .ry-call, .ry-tel-queue, .ry-calls-top, .sheet, .dp, .filters, .hscroll, .pager) :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]) { opacity: .5; }
 :root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]) { opacity: .5; }
+
+/* «Телефония»: номер сотрудника и подпись строки не режутся многоточием — переносятся;
+   метки справа («нет на станции») сжимаются и переносятся, а не отнимают место у номера. */
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .ry-row-sub { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .ry-row-right { flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
