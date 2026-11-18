@@ -204,9 +204,10 @@
 
 /* Пилюля состояния: срочно — сплошная красная с пламенем, внимание — янтарная с «!», норма — зелёная с галочкой. */
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-pill {
-  display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 20px); min-height: 32px; padding: 0 12px; border-radius: 999px;
-  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: 14px; font-weight: 600; line-height: 1.1; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 8px rgba(14, 15, 18, .18);
+  display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 20px); min-height: 32px; padding: 5px 12px; border-radius: 16px;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: 14px; font-weight: 600; line-height: 1.2;
+  /* Состояние — данные: переносится, а не режется (сторож hiddenTextSelectors, 18.11). */
+  white-space: normal; overflow-wrap: anywhere; box-shadow: 0 2px 8px rgba(14, 15, 18, .18);
 }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-pill svg { flex: none; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-pill[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); font-weight: 700; }
@@ -221,12 +222,11 @@
 }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-price small { font-family: var(--font-sans, "Onest", sans-serif); font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-name {
-  margin: 0; overflow: hidden; font-size: 16px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text);
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;
+  margin: 0; font-size: 16px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere;
 }
+/* Название и адрес не зажимаются в две строки: длинный адрес — это данные (18.11). */
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-addr {
-  margin: 0; overflow: hidden; font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint);
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;
+  margin: 0; font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint); overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 2px 0 0; font-size: 14px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-meta .hdot { position: static; width: 12px; height: 12px; margin: 0; }
@@ -384,8 +384,7 @@
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-facts > li { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 60px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-fact-text { display: grid; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-fact-text b {
-  overflow: hidden; font-size: 17px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  display: block; font-size: 17px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-fact-text span { font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }

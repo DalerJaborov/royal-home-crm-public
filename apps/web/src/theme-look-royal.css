@@ -191,7 +191,8 @@
   background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg);
 }
 :root[data-ui-look="royal"] .clean-shell .ry-nav-glyph { display: grid; place-items: center; width: 26px; height: 26px; flex: none; }
-:root[data-ui-look="royal"] .clean-shell .ry-nav-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Подпись пункта меню переносится, а не режется («Активность коман…», 18.11). */
+:root[data-ui-look="royal"] .clean-shell .ry-nav-label { flex: 1 1 auto; min-width: 0; white-space: normal; line-height: 1.2; padding-block: 4px; }
 :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab .clean-nav-count {
   display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
   background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: 13px; font-weight: 700; opacity: 1;
@@ -338,11 +339,13 @@
 :root[data-ui-look="royal"] .ry-row-link:hover { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .ry-row-link:active { background: var(--rh-ui-press); }
 :root[data-ui-look="royal"] .ry-row-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 2px; }
+/* Заголовок и подпись строки — данные: переносятся целиком, не режутся (18.11, сторож
+   hiddenTextSelectors; до того так делал только слой team у себя). */
 :root[data-ui-look="royal"] .ry-row-title {
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
   font-size: 17px; font-weight: 600; line-height: 1.25;
 }
-:root[data-ui-look="royal"] .ry-row-sub { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; line-height: 1.3; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-row-sub { white-space: normal; overflow-wrap: anywhere; font-size: 15px; line-height: 1.3; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-row-sub[data-tone="crit"] { color: var(--rh-ui-crit-text); font-weight: 700; }
 :root[data-ui-look="royal"] .ry-row-sub[data-tone="warn"] { color: var(--rh-ui-warn); font-weight: 600; }
 :root[data-ui-look="royal"] .ry-row-sub[data-tone="ok"] { color: var(--rh-ui-ok); }
@@ -373,7 +376,7 @@
 :root[data-ui-look="royal"] .ry-btn[data-variant="primary"]:hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
 :root[data-ui-look="royal"] .ry-btn[data-variant="dark"] { background: var(--rh-ui-text); color: var(--rh-ui-bg); }
 :root[data-ui-look="royal"] .ry-btn[data-variant="gray"] { background: var(--rh-ui-press); color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-btn:is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: default; }
+:root[data-ui-look="royal"] .ry-btn:is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
 
 /* Переключатель 56×34, бегунок 28; «вкл» — синий. */
 :root[data-ui-look="royal"] .ry-switch {
@@ -470,7 +473,7 @@
 }
 :root[data-ui-look="royal"] .ry-team-person:hover { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .ry-team-person b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; }
-:root[data-ui-look="royal"] .ry-team-status { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-team-status { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-team-status[data-tone="warn"] { color: var(--rh-ui-warn); }
 
 :root[data-ui-look="royal"] .ry-bar-row .ry-row-text { gap: 8px; }

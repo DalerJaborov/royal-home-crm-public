@@ -53,12 +53,12 @@ export const CLEAN_SETTINGS_TASKS: readonly CleanSettingsTask[] = [
 export const CLEAN_SETTINGS_GROUPS: Record<SettingsTabId, { label: string; shortLabel?: string }> = {
   agency: { label: "Компания", shortLabel: "Название, логотип, районы" },
   money: { label: "Деньги", shortLabel: "Комиссия и курс доллара" },
-  leads: { label: "Клиенты и правила работы", shortLabel: "Приём, распределение, сроки" },
+  leads: { label: "Клиенты и правила работы", shortLabel: "Приём, распределение, сроки, лимиты" },
   matching: { label: "Подбор объектов", shortLabel: "Бюджет, комнаты, расстояние" },
   team: { label: "Сотрудники и права", shortLabel: "Доступ, права, рейтинг" },
-  channels: { label: "Связь и публикации", shortLabel: "Мессенджеры, соцсети, телефония, СМС" },
-  bot: { label: "ИИ-помощник", shortLabel: "Помощник, ответы, голос, модели" },
-  system: { label: "Система и безопасность", shortLabel: "Диагностика, интерфейс, вход, импорт" },
+  channels: { label: "Связь и публикации", shortLabel: "Чаты, публикации, реклама, звонки, СМС" },
+  bot: { label: "ИИ-помощник", shortLabel: "Ответы, голос, обучение, внедрение" },
+  system: { label: "Система и безопасность", shortLabel: "Диагностика, вид, вход, импорт, сайт" },
 };
 
 export const CLEAN_SETTINGS_LABELS = Object.fromEntries(
