@@ -53,6 +53,9 @@ import { extractVideoFrameJpeg } from "./socialVideoFrame.js";
 import { getSocialVideoTrends } from "./socialVideoTrends.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { logSystemError } from "./systemError.js";
+import { loadPublishScheduleRules } from "./publishScheduleRules.js";
+import { findSlotCollision, loadOccupiedPublishSlotsDetailed, OCCUPIED_SLOT_KIND_LABEL, PUBLISH_SLOT_LOCK_ID } from "./publishSlots.js";
+import { dushanbeDateString, dushanbeTimeString } from "./dushanbeTime.js";
 import { describeError } from "./describeError.js";
 import { sendPushToAgent } from "../push.js";
 import { sharpFromUpload } from "./heicInput.js";
@@ -91,10 +94,20 @@ export const SOCIAL_VIDEO_PUBLISH_JOB_TYPE = "social-video-publish";
 export class SocialVideoError extends Error {
   constructor(
     message: string,
-    readonly status: number = 409
+    readonly status: number = 409,
+    /** Доп. поля тела ответа (например код и подсказка при занятом времени) — маршрут добавляет их рядом с `error`. */
+    readonly extra?: Record<string, unknown>
   ) {
     super(message);
   }
+}
+
+/** «14:00», а если другой день, чем у выбранного человеком времени, — «20.11 14:00» (по Душанбе). */
+function clockOf(at: Date, ref: Date): string {
+  const time = dushanbeTimeString(at);
+  const date = dushanbeDateString(at);
+  if (date === dushanbeDateString(ref)) return time;
+  return `${date.slice(8, 10)}.${date.slice(5, 7)} ${time}`;
 }
 
 const WITH_CREATOR = { createdBy: { select: { id: true, fullName: true } } } satisfies Prisma.SocialVideoPostInclude;
@@ -775,6 +788,8 @@ async function claimForPublishing(
       channels: channelsOfDestinations(dests),
       destinations: destinationsJson(dests),
       channelResults: resultsJson(results),
+      // Новый заход публикации — новая «бронь исполнителя» (см. claimRun): старая принадлежала прошлому заходу.
+      runClaimedAt: null,
       ...(clearSchedule ? { scheduledAt: null } : {}),
     },
   });
@@ -783,7 +798,14 @@ async function claimForPublishing(
 
 export async function publishSocialVideo(
   id: string,
-  input: { mode: "NOW" | "SCHEDULE"; scheduledAt?: string; channels?: SocialVideoChannel[]; destinations?: SocialVideoDestination[] }
+  input: {
+    mode: "NOW" | "SCHEDULE";
+    scheduledAt?: string;
+    channels?: SocialVideoChannel[];
+    destinations?: SocialVideoDestination[];
+    /** Человек увидел, что время занято, и настоял на своём. */
+    acceptSlotConflict?: boolean;
+  }
 ): Promise<SocialVideoItem> {
   const row = await loadRow(id);
   if (!FIRST_PUBLISH_FROM.includes(row.status as SocialVideoStatus)) {
@@ -813,9 +835,36 @@ export async function publishSocialVideo(
       throw new SocialVideoError(`Время публикации — не раньше чем через ${SOCIAL_VIDEO_MIN_SCHEDULE_LEAD_MINUTES} мин`, 422);
     }
     if (at.getTime() > Date.now() + MAX_SCHEDULE_AHEAD_MS) throw new SocialVideoError("Дальше чем на год вперёд публикацию не планируем", 422);
-    const scheduled = await prisma.socialVideoPost.updateMany({
-      where: { id, deletedAt: null, status: { in: FIRST_PUBLISH_FROM } },
-      data: { status: "SCHEDULED", scheduledAt: at, channels: channelsOfDestinations(dests), destinations: destinationsJson(dests) },
+    // ВРЕМЯ — ТО, ЧТО ВЫБРАЛ ЧЕЛОВЕК (19.11.2026): молча не двигаем. Но шкала публикаций общая (ролики объектов,
+    // фото-посты, повторы, подборки): проверка и запись идут под её замком, иначе автоматический слот мог бы занять
+    // это же время между проверкой и записью. Занято (ближе промежутка) — отвечаем 409 с ближайшим свободным
+    // временем; человек вправе настоять (`acceptSlotConflict`) — тогда пишем его время как есть.
+    const rules = (await loadPublishScheduleRules()).rules;
+    const scheduled = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PUBLISH_SLOT_LOCK_ID}::bigint)`;
+      if (rules.enabled && !input.acceptSlotConflict) {
+        const gapMs = rules.minGapMin * 60_000;
+        const occupied = await loadOccupiedPublishSlotsDetailed(tx, new Date(at.getTime() - gapMs), undefined, id);
+        const collision = findSlotCollision(at, occupied, gapMs);
+        if (collision) {
+          throw new SocialVideoError(
+            `В ${clockOf(collision.takenAt, at)} уже выходит ${OCCUPIED_SLOT_KIND_LABEL[collision.kind]}, ближайшее свободное время — ${clockOf(collision.suggestedAt, at)}. ` +
+              `Между публикациями держим ${rules.minGapMin} мин, чтобы они не уходили залпом.`,
+            409,
+            {
+              code: "SLOT_TAKEN",
+              takenAt: collision.takenAt.toISOString(),
+              takenKind: collision.kind,
+              suggestedAt: collision.suggestedAt.toISOString(),
+              minGapMin: rules.minGapMin,
+            }
+          );
+        }
+      }
+      return tx.socialVideoPost.updateMany({
+        where: { id, deletedAt: null, status: { in: FIRST_PUBLISH_FROM } },
+        data: { status: "SCHEDULED", scheduledAt: at, channels: channelsOfDestinations(dests), destinations: destinationsJson(dests) },
+      });
     });
     if (scheduled.count !== 1) throw new SocialVideoError("Ролик только что изменился — обновите страницу", 409);
     return getSocialVideo(id);
@@ -1045,6 +1094,28 @@ async function notifyCreator(
 const inFlight = new Set<string>();
 
 /**
+ * БРОНЬ ИСПОЛНИТЕЛЯ В БАЗЕ (19.11.2026). Тик расписания уже переводит SCHEDULED → PUBLISHING одним условным
+ * обновлением (claimForPublishing), так что два тика не запустят ролик дважды. Но само ИСПОЛНЕНИЕ могли
+ * запустить двое: задание очереди приходит повторно (maxAttempts 2, зависшее по таймауту, но живое), второй процесс,
+ * перезапуск — а у обоих адреса в QUEUED, и пост ушёл бы в соцсеть дважды. Первый, кто поставил `runClaimedAt`,
+ * исполняет; остальные тихо выходят. Бронь старше STUCK_PUBLISHING_MS считается брошенной (процесс умер) —
+ * её снимает и тик восстановления, и новый заход.
+ */
+async function claimRun(id: string): Promise<boolean> {
+  const staleBefore = new Date(Date.now() - STUCK_PUBLISHING_MS);
+  const claimed = await prisma.socialVideoPost.updateMany({
+    where: {
+      id,
+      deletedAt: null,
+      status: "PUBLISHING",
+      OR: [{ runClaimedAt: null }, { runClaimedAt: { lt: staleBefore } }],
+    },
+    data: { runClaimedAt: new Date() },
+  });
+  return claimed.count === 1;
+}
+
+/**
  * Исполнитель задания. Идемпотентен: берёт только адреса, где ещё ничего не вышло и нет
  * зафиксированной ошибки (QUEUED), поэтому повторный заход после падения
  * процесса не выкладывает второй раз то, что уже вышло. `inFlight` не даёт очереди
@@ -1055,6 +1126,9 @@ export async function runSocialVideoPublish(id: string): Promise<void> {
   if (inFlight.has(id)) return;
   inFlight.add(id);
   try {
+    // inFlight — память одного процесса. Второй исполнитель (другой процесс, повторная доставка задания очередью,
+    // перезапуск) её не видит — поэтому исполнителя берём ещё и в базе, условным обновлением.
+    if (!(await claimRun(id))) return;
     await doRun(id);
   } finally {
     inFlight.delete(id);

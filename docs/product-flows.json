@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4118,
+  "forks": 4119,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -133771,7 +133771,23 @@
        "k": "try",
        "t": "пробует",
        "a": [],
-       "c": []
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await claimRun(id))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
       },
       {
        "k": "finally",

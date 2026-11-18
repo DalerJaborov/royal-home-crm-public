@@ -57,7 +57,9 @@ import {
   liveByChannel,
   mediaSrc,
   mergeFacts,
+  slotTakenOf,
   titleFromFileName,
+  type SlotTaken,
 } from "./helpers";
 
 /**
@@ -166,6 +168,8 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
   const [busy, setBusy] = useState<"saving" | "publishing" | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [confirmPublish, setConfirmPublish] = useState(false);
+  /** Выбранное время занято другой публикацией: сервер предложил ближайшее свободное (человек решает сам). */
+  const [slotTaken, setSlotTaken] = useState<SlotTaken | null>(null);
   const [replaceRequest, setReplaceRequest] = useState<{ file: File | null; facts: SocialVideoFacts | null } | null>(null);
 
   const { mutateAsync: createAsync } = useCreateSocialVideo();
@@ -450,10 +454,13 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
     }
   }
 
-  const doPublish = async () => {
+  const doPublish = async (opts: { acceptSlotConflict?: boolean; at?: string } = {}) => {
     setConfirmPublish(false);
+    setSlotTaken(null);
+    const at = opts.at ?? scheduledAt;
+    if (opts.at) setScheduledAt(opts.at);
     if (!draftId) return;
-    if (mode === "SCHEDULE" && scheduledAt && Date.parse(scheduledAt) < earliestScheduleMs()) {
+    if (mode === "SCHEDULE" && at && Date.parse(at) < earliestScheduleMs()) {
       setActionError(`Время уже слишком близко: выберите не раньше чем через ${SOCIAL_VIDEO_MIN_SCHEDULE_LEAD_MINUTES} мин.`);
       return;
     }
@@ -464,12 +471,15 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
       const item = await publishAsync({
         id: draftId,
         mode,
-        scheduledAt: mode === "SCHEDULE" ? (scheduledAt ?? undefined) : undefined,
+        scheduledAt: mode === "SCHEDULE" ? (at ?? undefined) : undefined,
         destinations,
+        ...(opts.acceptSlotConflict ? { acceptSlotConflict: true } : {}),
       });
       onPublished(item.id);
     } catch (err) {
-      setActionError(errorText(err, "Не удалось отправить ролик на публикацию"));
+      const taken = slotTakenOf(err);
+      if (taken) setSlotTaken(taken);
+      else setActionError(errorText(err, "Не удалось отправить ролик на публикацию"));
     } finally {
       setBusy(null);
     }
@@ -750,6 +760,27 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
               </div>
             ))}
           </div>
+        </ConfirmDialog>
+      )}
+
+      {slotTaken && (
+        <ConfirmDialog
+          danger={false}
+          dismissible={false}
+          title="В это время уже выходит другая публикация"
+          description={slotTaken.message}
+          confirmLabel={`Выйти в ${exactDateTime(slotTaken.suggestedAt)}`}
+          cancelLabel="Выбрать другое время"
+          onConfirm={() => void doPublish({ at: slotTaken.suggestedAt })}
+          onCancel={() => setSlotTaken(null)}
+        >
+          <button
+            className="pill ghost sm"
+            type="button"
+            onClick={() => void doPublish({ acceptSlotConflict: true })}
+          >
+            Оставить моё время{scheduledAt ? ` — ${exactDateTime(scheduledAt)}` : ""}
+          </button>
         </ConfirmDialog>
       )}
 

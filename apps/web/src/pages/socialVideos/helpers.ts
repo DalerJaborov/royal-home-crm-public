@@ -6,6 +6,7 @@ import {
   type SocialVideoItem,
   type SocialVideoStatus,
 } from "@royal-home/shared";
+import { ApiError } from "../../lib/apiError";
 
 /**
  * Общие мелочи экрана «Ролики в соцсети»: список, композитор и карточка ролика
@@ -121,4 +122,17 @@ export function earliestScheduleMs(now = Date.now()): number {
 /** Ошибка из ответа API — текстом сервера; запасная фраза, если текста нет. */
 export function errorText(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/** Время занято другой публикацией: сервер отвечает 409 `SLOT_TAKEN` с ближайшим свободным временем (ISO UTC). */
+export interface SlotTaken {
+  message: string;
+  suggestedAt: string;
+}
+
+export function slotTakenOf(err: unknown): SlotTaken | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const data = err.data as { code?: unknown; suggestedAt?: unknown } | null | undefined;
+  if (!data || data.code !== "SLOT_TAKEN" || typeof data.suggestedAt !== "string") return null;
+  return { message: err.message, suggestedAt: data.suggestedAt };
 }

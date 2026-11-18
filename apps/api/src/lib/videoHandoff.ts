@@ -78,7 +78,7 @@ import {
   socialPublishRetryDedupeKeys,
 } from "../jobs/socialPublishRetryPolicy.js";
 import { nextNarrationSlot, nextPublishSlot } from "./publishSchedule.js";
-import { loadOccupiedPublishSlots } from "./publishSlots.js";
+import { loadOccupiedPublishSlots, PUBLISH_SLOT_LOCK_ID } from "./publishSlots.js";
 import { updatePublishedMarks, type PublishedMarks } from "./publishedMarks.js";
 import { stageLatePublishedPriceCaption } from "./priceCaptionDelivery.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
@@ -454,7 +454,7 @@ const HANDOFF_QUEUE_LOCK_ID = 1909_2026;
  * lib/publishSlots.ts::loadOccupiedPublishSlots (объединяет Property.scheduledPublishAt
  * и PropertyPhotoPost.scheduledAt), а не второй независимый счётчик.
  */
-export const PUBLISH_SLOT_LOCK_ID = 2209_2026;
+export { PUBLISH_SLOT_LOCK_ID };
 
 /**
  * КТО ДЕРЖИТ МЕСТО МОНТАЖЁРА — ОДНО ОПРЕДЕЛЕНИЕ НА ВЕСЬ КОД (23.09.2026).

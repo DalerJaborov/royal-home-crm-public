@@ -1,6 +1,30 @@
 import type { TxClient } from "../db.js";
 
 /**
+ * Один замок на всю шкалу публикаций: ролики объектов, фото-посты, повторы, подборки и свободные ролики
+ * ставят свои часы только держа его (`SELECT pg_advisory_xact_lock(...)` в своей транзакции). Живёт здесь, а не в
+ * videoHandoff.ts, чтобы свободные ролики (socialVideoPosts) могли его взять без цикла импортов; videoHandoff
+ * переизлучает константу для прежних импортов.
+ */
+export const PUBLISH_SLOT_LOCK_ID = 2209_2026;
+
+/** Чей слот занят — для человеческого объяснения «в 14:00 уже выходит …». */
+export type OccupiedSlotKind = "propertyVideo" | "photoPost" | "repost" | "digest" | "freeVideo";
+
+export interface OccupiedSlot {
+  at: Date;
+  kind: OccupiedSlotKind;
+}
+
+export const OCCUPIED_SLOT_KIND_LABEL: Record<OccupiedSlotKind, string> = {
+  propertyVideo: "ролик объекта",
+  photoPost: "фото-пост объекта",
+  repost: "повтор поста",
+  digest: "подборка объектов",
+  freeVideo: "другой свободный ролик",
+};
+
+/**
  * ЗАНЯТЫЕ СЛОТЫ ПУБЛИКАЦИИ — ОБЩИЙ ИСТОЧНИК ПРАВДЫ (28.09.2026).
  *
  * До фото-постов единственным источником занятых слотов был
@@ -27,9 +51,21 @@ export async function loadOccupiedPublishSlots(
   since: Date,
   /** Свой объект — при пересылке ролика после ошибки он сам уже держит
    *  прежний слот и не должен мешать себе же выбрать новый. */
-  excludePropertyId?: string
+  excludePropertyId?: string,
+  /** Свой свободный ролик — при перестановке времени он не должен мешать сам себе. */
+  excludeFreeVideoId?: string
 ): Promise<Date[]> {
-  const [videoRows, photoRows, repostRows, digestRows] = await Promise.all([
+  return (await loadOccupiedPublishSlotsDetailed(tx, since, excludePropertyId, excludeFreeVideoId)).map((s) => s.at);
+}
+
+/** То же, но с видом публикации — для предупреждения человеку при выборе времени свободного ролика. */
+export async function loadOccupiedPublishSlotsDetailed(
+  tx: TxClient,
+  since: Date,
+  excludePropertyId?: string,
+  excludeFreeVideoId?: string
+): Promise<OccupiedSlot[]> {
+  const [videoRows, photoRows, repostRows, digestRows, freeRows] = await Promise.all([
     tx.property.findMany({
       where: {
         deletedAt: null,
@@ -69,10 +105,59 @@ export async function loadOccupiedPublishSlots(
       take: 1000,
       select: { scheduledAt: true },
     }),
+    // СВОБОДНЫЕ РОЛИКИ (19.11.2026): человек сам выбрал время, но выйдут они в те же соцсети, что ролики объектов,
+    // и автоматическая расстановка обязана держать от них тот же промежуток. Раньше их здесь не было — свободный
+    // ролик и ролик объекта могли уйти в одну минуту. Только SCHEDULED: ушедший/снятый время больше не держит.
+    tx.socialVideoPost.findMany({
+      where: {
+        deletedAt: null,
+        status: "SCHEDULED",
+        scheduledAt: { gte: since },
+        ...(excludeFreeVideoId ? { id: { not: excludeFreeVideoId } } : {}),
+      },
+      orderBy: { scheduledAt: "asc" },
+      take: 1000,
+      select: { scheduledAt: true },
+    }),
   ]);
-  const videoTimes = videoRows.flatMap((r) => (r.scheduledPublishAt ? [r.scheduledPublishAt] : []));
-  const photoTimes = photoRows.flatMap((r) => (r.scheduledAt ? [r.scheduledAt] : []));
-  const repostTimes = repostRows.flatMap((r) => (r.scheduledAt ? [r.scheduledAt] : []));
-  const digestTimes = digestRows.flatMap((r) => (r.scheduledAt ? [r.scheduledAt] : []));
-  return [...videoTimes, ...photoTimes, ...repostTimes, ...digestTimes];
+  const pick = <T,>(rows: T[], at: (r: T) => Date | null, kind: OccupiedSlotKind): OccupiedSlot[] =>
+    rows.flatMap((r) => {
+      const t = at(r);
+      return t ? [{ at: t, kind }] : [];
+    });
+  return [
+    ...pick(videoRows, (r) => r.scheduledPublishAt, "propertyVideo"),
+    ...pick(photoRows, (r) => r.scheduledAt, "photoPost"),
+    ...pick(repostRows, (r) => r.scheduledAt, "repost"),
+    ...pick(digestRows, (r) => r.scheduledAt, "digest"),
+    ...pick(freeRows, (r) => r.scheduledAt, "freeVideo"),
+  ];
+}
+
+export interface SlotCollision {
+  /** Занятое время, с которым столкнулись (ближайшее к выбранному). */
+  takenAt: Date;
+  kind: OccupiedSlotKind;
+  /** Ближайшее свободное время не раньше выбранного, с соблюдением промежутка до каждой публикации. */
+  suggestedAt: Date;
+}
+
+/**
+ * Столкновение выбранного человеком времени с уже занятыми слотами: ближе промежутка `gapMs` к любому из них.
+ * null — время свободно. Подсказка — ближайшее свободное время ПОСЛЕ выбранного (сдвигаемся за каждую занятую
+ * публикацию на промежуток, пока не освободимся).
+ */
+export function findSlotCollision(at: Date, occupied: readonly OccupiedSlot[], gapMs: number): SlotCollision | null {
+  const clash = (t: number) => occupied.filter((o) => Math.abs(t - o.at.getTime()) < gapMs);
+  const first = clash(at.getTime());
+  if (first.length === 0) return null;
+  const nearest = first.reduce((a, b) => (Math.abs(a.at.getTime() - at.getTime()) <= Math.abs(b.at.getTime() - at.getTime()) ? a : b));
+  let t = at.getTime();
+  // Предел шагов — страховка от бесконечного цикла; каждый шаг уходит за очередную занятую публикацию.
+  for (let i = 0; i < occupied.length + 1; i++) {
+    const blocking = clash(t);
+    if (blocking.length === 0) break;
+    t = Math.max(...blocking.map((o) => o.at.getTime())) + gapMs;
+  }
+  return { takenAt: nearest.at, kind: nearest.kind, suggestedAt: new Date(t) };
 }

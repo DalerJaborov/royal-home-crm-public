@@ -74,7 +74,7 @@ function guarded(fn: AsyncHandler) {
       await fn(req, res);
     } catch (err) {
       if (err instanceof SocialVideoError) {
-        res.status(err.status).json({ error: err.message });
+        res.status(err.status).json({ error: err.message, ...(err.extra ?? {}) });
         return;
       }
       if (err instanceof ChunkedUploadError) {
