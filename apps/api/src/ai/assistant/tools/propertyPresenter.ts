@@ -67,8 +67,8 @@ export async function trashedPropertyNoteFor(ref: string, trash: TrashActor, lan
 /**
  * ОБЪЕКТ В ОТВЕТЕ ПОМОЩНИКА (П3, группа «read»): одна подача на find_property и
  * get_property_card. Права на контакт собственника — ТА ЖЕ функция, что у REST
- * (`stripOwnerContact`, lib/ownerContact.ts): руководитель с properties.viewOwners или
- * тот, кто ведёт объект сам; остальным — `ownerContactHidden`.
+ * (`stripOwnerContact`, lib/ownerContact.ts): только с правом properties.viewOwners
+ * (директор); свой объект номер не открывает (владелец 18.11.2026), остальным — `ownerContactHidden`.
  */
 
 /** Этапы подготовки и продажи — словами, как их называет агент (в shared подписей нет). */
@@ -113,7 +113,7 @@ export function presentPropertyBrief(p: PropertyRefRecord, money: MoneyContext) 
 
 /** Полная карточка: бриф + то, что агент открывает в карточке. */
 export function presentPropertyCard(p: PropertyRefRecord, actor: AssistantActor, money: MoneyContext) {
-  const owner = stripOwnerContact(p, actor.id, actor.permissions?.has("properties.viewOwners") ?? false);
+  const owner = stripOwnerContact(p, actor.permissions?.has("properties.viewOwners") ?? false);
   return {
     ...presentPropertyBrief(p, money),
     landAreaSotka: p.landAreaSotka ? Number(p.landAreaSotka) : null,

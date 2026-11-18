@@ -1993,7 +1993,7 @@ function AgentFieldsCard({
               // оставалось со старым значением.
               onSave={(v) => updateProperty.mutate({ ownerContact: v || null })}
             />
-            <span className="msg">Номер видят руководитель и агент этого объекта. Исправите номер — он поправится и в карточке продавца.</span>
+            <span className="msg">Номер видит только директор. Исправите номер — он поправится и в карточке продавца.</span>
           </div>
         )}
 

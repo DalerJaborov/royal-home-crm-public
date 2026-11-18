@@ -13,7 +13,8 @@ import { loadPipelineDeadlines, stageState } from "../../lib/propertyPipeline.js
 import { INSTAGRAM_LINK_CONTAINS } from "../../lib/instagramLink.js";
 import { siteListingUrl } from "../../lib/siteListingUrl.js";
 import { logSystemError } from "../../lib/systemError.js";
-import { presentProperty, stripEmbedding, stripOwnerContact } from "../../lib/ownerContact.js";
+import { maskOwnerContact, presentProperty, stripEmbedding, stripOwnerContact } from "../../lib/ownerContact.js";
+import { ownsProperty } from "../../lib/propertyAccess.js";
 import { PROPERTY_LIST_INCLUDE, presentPropertyListItems } from "../../lib/propertyListItem.js";
 import { logAudit } from "../../lib/audit.js";
 import { toSearchTokens, toTokenVariants } from "../../lib/searchTokens.js";
@@ -370,7 +371,7 @@ listRouter.get("/export", requireAuth, requirePermission("properties.export"), a
   // Выгрузка проходит ровно ту же фильтрацию контактов, что и карточка объекта:
   // без неё format=json отдавал агенту сырые записи со ВСЕМИ ownerContact в обход
   // stripOwnerContact — самый простой способ выкачать базу владельцев целиком.
-  const visible = items.map((p) => stripEmbedding(stripOwnerContact(p, req.agent!.id, can(req, "properties.viewOwners"))));
+  const visible = items.map((p) => stripEmbedding(stripOwnerContact(p, can(req, "properties.viewOwners"))));
   logAudit(req, "PROPERTIES_EXPORT", "Property", null, { format, count: visible.length, total, truncated });
 
   if (format === "json") {
@@ -501,10 +502,15 @@ listRouter.get("/:id", requireAuth, async (req, res) => {
   if (property.deletedAt && !canOpenTrashedPropertyPage({ agentId: req.agent!.id, can: (permission) => can(req, permission) })) {
     return res.status(404).json({ error: "Объект не найден" });
   }
-  const presented = stripEmbedding(stripOwnerContact(property, req.agent!.id, can(req, "properties.viewOwners")));
+  const presented = stripEmbedding(stripOwnerContact(property, can(req, "properties.viewOwners")));
+  // Кто ведёт объект сам, видит продавца именем и хвостом номера и звонит ему кнопкой
+  // (набирает станция); полный номер — только директору (владелец 18.11.2026).
+  const ownsIt = ownsProperty(req.agent!.id, property);
+  const showSeller = !presented.ownerContactHidden || ownsIt;
   res.json({
     ...presented,
-    sellerClient: presented.ownerContactHidden ? null : await loadSellerClientRef(property.sellerClientId, req),
+    ownerContactMasked: presented.ownerContactHidden && ownsIt ? maskOwnerContact(property.ownerContact) : null,
+    sellerClient: showSeller ? await loadSellerClientRef(property.sellerClientId, req) : null,
     /** Сколько покупателей ждут такой объект — тем же подсчётом, что и список
      *  (24.09.2026): без поля карточка рисовала запасной 0 рядом с подбором,
      *  в котором покупатели были. */
