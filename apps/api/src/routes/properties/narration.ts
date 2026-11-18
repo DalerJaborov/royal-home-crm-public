@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
+import { ownMusicRemixSinceAfterSave, narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
 import { isReadOnlyRole, narrationPreviewDecisionSchema } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { declineNarrationPreview, releaseNarrationPreview } from "../../lib/narrationPreview.js";
@@ -159,7 +159,12 @@ narrationRouter.put("/narration-settings", async (req, res) => {
   // Поле, которого нет в запросе, остаётся прежним: старый экран не стирает шаблоны и пределы.
   const { config: existing, unreadable } = await configuration();
   if (unreadable) return res.status(409).json({ error: "Сохранённые настройки озвучки не читаются, поэтому сохранение остановлено: оно стёрло бы голоса и шаблоны. Сообщите разработчику (запись в журнале ошибок)." });
-  const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data).filter(([, v]) => v !== undefined)) });
+  // Момент включения своей музыки ставит только сервер (ревью 18.11): с экрана не принимается.
+  const { ownMusicRemixSince: _ignoredSince, ...patchData } = patch.data;
+  const merged = { ...existing, ...Object.fromEntries(Object.entries(patchData).filter(([, v]) => v !== undefined)) } as typeof existing;
+  const since = ownMusicRemixSinceAfterSave(existing, merged, new Date());
+  const { ownMusicRemixSince: _oldSince, ...withoutSince } = merged;
+  const parsed = narrationConfigSchema.safeParse(since ? { ...withoutSince, ownMusicRemixSince: since } : withoutSince);
   if (!parsed.success) return res.status(400).json({ error: "Проверьте модель и список голосов", details: parsed.error.flatten() });
   const modelProblem = narrationModelError(parsed.data);
   if (modelProblem) return res.status(400).json({ error: modelProblem });

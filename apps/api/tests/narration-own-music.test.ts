@@ -53,7 +53,7 @@ let configBefore: unknown = null;
 const propertyIds: string[] = [];
 const trackIds: string[] = [];
 const envMode = process.env.CRM_NARRATION_EXECUTION_MODE;
-const baseConfig = { modelId: "eleven_v4", voices: [{ id: "voiceA", name: "А" }], autoGenerate: true, previewBeforeRepublish: false, ownMusicRemix: true };
+const baseConfig = { modelId: "eleven_v4", voices: [{ id: "voiceA", name: "А" }], autoGenerate: true, previewBeforeRepublish: false, ownMusicRemix: true, ownMusicRemixSince: "2020-01-01T00:00:00.000Z" };
 
 function ff(args: string[]) {
   const r = spawnSync(FF, ["-y", "-hide_banner", "-loglevel", "error", ...args], { stdio: "ignore" });
@@ -213,7 +213,8 @@ describe.skipIf(!ffmpegReady)("своя музыка: перемонтаж вы�
     expect(await remixFromMaster(p.id)).toBe("REMIXED");
     const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
     expect(after.videoMasterNarrationVersionId).toBe(v2.id);
-    expect(after.videoMasterStorageKey).toBeNull();
+    // Чистая картинка ролика монтажёра — основа следующих перемонтажей (ревью 18.11).
+    expect(after.videoMasterSource).toBe("MUSIC_BASE");
     expect([a, b]).toContain(after.narrationMusicTrackId);
     const out = diskOf(after.videoHandoffFinalPath!);
     const info = (await probeMediaInfo(out))!;

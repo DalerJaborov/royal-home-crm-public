@@ -62246,7 +62246,7 @@
     },
     {
      "k": "do",
-     "t": "const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…",
+     "t": "const parsed = narrationConfigSchema.safeParse(since ? { ...withoutSince, ownMusicRemixSince: since } : witho…",
      "a": [
       "проверяет данные схемой narrationConfigSchema"
      ],
@@ -104743,6 +104743,14 @@
          ]
         }
        ]
+      },
+      {
+       "k": "do",
+       "t": "report.remixed = await remixFromMasters();",
+       "a": [
+        "зовёт remixFromMasters()"
+       ],
+       "c": []
       }
      ],
      "from": "runNarrationAutoFlow() — apps/api/src/lib/narrationAutoFlow.ts"

@@ -9,7 +9,8 @@ import { prisma } from "../db.js";
 import { videoHandoffDir } from "../upload.js";
 import { legacyHandoffCoverPath } from "./diskCleanup.js";
 import { mixFromStoredMaster } from "./narrationMaster.js";
-import { buildMusicBed, chooseMusicTrack, ownMusicReady } from "./narrationMusic.js";
+import { buildMusicBed, buildPictureBase, chooseMusicTrack, MUSIC_BASE_SOURCE, ownMusicReady } from "./narrationMusic.js";
+import { dropNarrationMaster, storeNarrationMaster } from "./narrationMaster.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { loadMoneyContext } from "./money.js";
 import { priceInTjsOnly } from "./reelsCaptionTemplate.js";
@@ -339,8 +340,16 @@ export async function ownMusicRemixApplies(propertyId: string): Promise<boolean>
 /** Перемикс из мастера возможен: отправка включена, у объекта есть ролик без голоса, он не у монтажёра. */
 async function crmRemixApplies(propertyId: string): Promise<boolean> {
   if (mediaExecutionMode("NARRATION") !== "LIVE") return false;
-  const p = await prisma.property.findUnique({ where: { id: propertyId }, select: { videoMasterStorageKey: true, videoHandoffStatus: true, deletedAt: true, narrationOff: true } });
-  return !!p && !p.deletedAt && !p.narrationOff && !!p.videoMasterStorageKey && p.videoHandoffStatus === "RECEIVED";
+  const p = await prisma.property.findUnique({ where: { id: propertyId }, select: { videoMasterStorageKey: true, videoMasterSource: true, videoHandoffStatus: true, deletedAt: true, narrationOff: true } });
+  return !!p && !p.deletedAt && !p.narrationOff && editorMaster(p) && p.videoHandoffStatus === "RECEIVED";
+}
+
+/**
+ * Ролик без голоса от монтажёра — основа перемикса MASTER. Мастер машины (MACHINE, в нём мог остаться старый
+ * голос) не используется вовсе; MUSIC_BASE — чистая картинка для своей музыки, звука в ней нет (ревью 18.11).
+ */
+function editorMaster(p: { videoMasterStorageKey: string | null; videoMasterSource: string | null }): boolean {
+  return !!p.videoMasterStorageKey && p.videoMasterSource !== "MACHINE" && p.videoMasterSource !== MUSIC_BASE_SOURCE;
 }
 
 /**
@@ -428,9 +437,14 @@ async function remixWanted(propertyId: string) {
   const p = await prisma.property.findUnique({ where: { id: propertyId }, include: { district: true } });
   if (!p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "RECEIVED" || CLOSED_STATUSES.some((s) => s === p.status)) return null;
   let mode: "MASTER" | "MUSIC" = "MASTER";
-  if (!p.videoMasterStorageKey) {
+  let musicSince: string | undefined;
+  if (!editorMaster(p)) {
     if (!p.videoHandoffFinalPath || !isPublishedClip(p)) return null;
-    if (!(await ownMusicReady((await loadNarrationConfiguration()).config))) return null;
+    const { config } = await loadNarrationConfiguration();
+    if (!(await ownMusicReady(config))) return null;
+    musicSince = config.ownMusicRemixSince;
+    // Без момента включения сама CRM не перемонтирует ничего (ревью 18.11: без волны старых роликов).
+    if (!musicSince) return null;
     const voiced = p.videoMasterNarrationVersionId
       ?? (await prisma.propertyNarrationDelivery.findFirst({ where: { propertyId, status: "SENT" }, select: { id: true } }))?.id ?? null;
     if (!voiced) return null;
@@ -438,6 +452,8 @@ async function remixWanted(propertyId: string) {
   }
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
   if (!latest || latest.status !== "READY" || !latest.approvedAt || !latest.storageKey || !narrationFactsCurrent(latest, p)) return null;
+  // Своя музыка — только озвучки, одобренные после включения (ревью 18.11); прежние — по-старому, руками.
+  if (mode === "MUSIC" && musicSince && latest.approvedAt.getTime() < new Date(musicSince).getTime()) return null;
   if (latest.id === p.videoMasterNarrationVersionId || latest.id === p.videoMasterMixErrorVersionId) return null;
   // Своя музыка: озвучка, которую монтажёр уже вклеил по передаче, в ролике есть — менять нечего.
   if (mode === "MUSIC" && await prisma.propertyNarrationDelivery.findFirst({ where: { propertyId, versionId: latest.id, status: "SENT" }, select: { id: true } })) return null;
@@ -457,13 +473,19 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
   if (!wanted) return "SKIPPED";
   const { mode, p, latest } = wanted;
   const requestedById = latest.approvedById ?? propertyOwnerAgentId(p);
-  const masterKey = p.videoMasterStorageKey;
+  let masterKey = p.videoMasterStorageKey;
   const sourceFinalPath = p.videoHandoffFinalPath;
   const seenVersionId = p.videoMasterNarrationVersionId;
-  const fail = async (error: string): Promise<NarrationRemixOutcome> => {
+  const fail = async (error: string, opts: { toMontajer?: boolean } = {}): Promise<NarrationRemixOutcome> => {
     await prisma.property.updateMany({ where: { id: propertyId, videoMasterStorageKey: masterKey, videoMasterNarrationVersionId: seenVersionId },
       data: { videoMasterMixError: error.slice(0, 500), videoMasterMixErrorVersionId: latest.id } });
-    void logSystemError("video-handoff", `Объект №${p.shortId}: новая озвучка (версия ${latest.revision}) не наложена на ролик — ${error} Вышедший ролик остался прежним.`, { dedupKey: `narration-remix:${latest.id}` });
+    // Своя музыка не справилась (ревью 18.11): новая цена всё равно должна дойти до ролика — монтажёру прежним возвратом.
+    const toMontajer = opts.toMontajer ?? mode === "MUSIC";
+    void logSystemError("video-handoff", `Объект №${p.shortId}: новая озвучка (версия ${latest.revision}) не наложена на ролик — ${error} ${toMontajer ? "Ролик ушёл монтажёру заменить звук." : "Вышедший ролик остался прежним."}`, { dedupKey: `narration-remix:${latest.id}` });
+    if (toMontajer) {
+      await sendNarrationToMontajer(propertyId, latest.id).catch((err) =>
+        logSystemError("video-handoff", `Объект №${p.shortId}: возврат монтажёру после отказа своей музыки не поставлен: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-remix-music-fallback:${latest.id}` }));
+    }
     return "FAILED";
   };
   if (!requestedById) return fail("у объекта нет ответственного агента.");
@@ -475,12 +497,31 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
   let musicBed: { dir: string; path: string; trackId: string } | null = null;
   if (mode === "MUSIC") {
     const track = await chooseMusicTrack(p.narrationMusicTrackId);
-    const clipPath = sourceFinalPath ? path.join(videoHandoffDir, path.basename(sourceFinalPath)) : null;
     if (!track) return fail("в библиотеке музыки нет ни одного файла трека на диске.");
-    if (!clipPath || !fs.existsSync(clipPath)) return fail("файл вышедшего ролика не найден на сервере.");
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "rh-music-"));
+    // Основа — чистая картинка ролика монтажёра (MUSIC_BASE); её нет — первый перемонтаж сохраняет её сейчас.
+    let basePath = p.videoMasterSource === MUSIC_BASE_SOURCE && masterKey ? localVideoFilePath(masterKey) : null;
+    if (!basePath || !fs.existsSync(basePath)) {
+      const clipPath = sourceFinalPath ? path.join(videoHandoffDir, path.basename(sourceFinalPath)) : null;
+      if (!clipPath || !fs.existsSync(clipPath)) { await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); return fail("файл вышедшего ролика не найден на сервере."); }
+      const picture = path.join(dir, "picture.mp4");
+      const made = await buildPictureBase({ clipPath, outPath: picture });
+      if (!made.ok) { await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); return fail(made.error); }
+      const key = await storeNarrationMaster(propertyId, picture);
+      const written = await prisma.property.updateMany({ where: { id: propertyId, videoMasterStorageKey: masterKey, videoHandoffFinalPath: sourceFinalPath, videoHandoffStatus: "RECEIVED" },
+        data: { videoMasterStorageKey: key, videoMasterSource: MUSIC_BASE_SOURCE } });
+      if (!written.count) {
+        await dropNarrationMaster(key);
+        await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+        return "SKIPPED";
+      }
+      // Прежний мастер машины (MACHINE) больше не нужен.
+      if (masterKey && masterKey !== key) await dropNarrationMaster(masterKey);
+      masterKey = key;
+      basePath = localVideoFilePath(key);
+    }
     const bedPath = path.join(dir, "bed.mp4");
-    const bed = await buildMusicBed({ clipPath, trackPath: track.path, outPath: bedPath });
+    const bed = await buildMusicBed({ clipPath: basePath!, trackPath: track.path, outPath: bedPath });
     if (!bed.ok) { await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); return fail(bed.error); }
     musicBed = { dir, path: bedPath, trackId: track.id };
   }
@@ -522,7 +563,7 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
     if (!mixed.ok && mixed.code === "VOICE_LONGER") {
       // Не помогли ни ускорение, ни короткий текст, ни стоп-кадр: монтажёр удлинит ролик и заменит
       // голос. Отметка ошибки на версии не даёт тику повторять перемикс.
-      const outcome = await fail(mixed.error);
+      const outcome = await fail(mixed.error, { toMontajer: false });
       await sendNarrationToMontajer(propertyId, latest.id, { voiceLonger: true }).catch((err) =>
         logSystemError("video-handoff", `Объект №${p.shortId}: возврат монтажёру «озвучка длиннее ролика» не поставлен: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-remix-longer:${latest.id}` }));
       return outcome;
@@ -631,10 +672,14 @@ export function setNarrationSweepBatchForTests(size: { remix?: number; facts?: n
   REMIX_BATCH = size.remix ?? 50; FACTS_BATCH = size.facts ?? 200;
 }
 
-async function remixFromMasters(): Promise<number> {
+export async function remixFromMasters(): Promise<number> {
   if (mediaExecutionMode("NARRATION") !== "LIVE") return 0;
   // Своя музыка (18.11.2026): в обход попадают и вышедшие ролики без ролика без голоса; остальное решает remixWanted.
-  const music = await ownMusicReady((await loadNarrationConfiguration()).config);
+  const { config } = await loadNarrationConfiguration();
+  const music = await ownMusicReady(config);
+  // Своя музыка или текст на ролике — это перекодирование картинки, минуты на объект: ОДИН такой объект за тик,
+  // иначе задача narration-auto-flow выходит за свой предел 170 с (ревью 18.11).
+  const heavy = music || narrationTextOverlay(config);
   const rows = await prisma.property.findMany({ where: { deletedAt: null, narrationOff: false, videoHandoffStatus: "RECEIVED",
     OR: [{ videoMasterStorageKey: { not: null } }, ...(music ? [{ videoMasterStorageKey: null, videoHandoffFinalPath: { not: null },
       narrationVersions: { some: { status: "READY", approvedAt: { not: null } } }, OR: [{ publishedChannels: { isEmpty: false } }, { instagramUrl: { not: null } }] }] : [])],
@@ -646,9 +691,11 @@ async function remixFromMasters(): Promise<number> {
   for (const row of rows) {
     // Перекодирование ролика бывает долгим: остаток — следующему тику, а не за пределом крона (170 с).
     if (Date.now() - started > 90_000) { stoppedEarly = true; break; }
-    try { const r = await remixFromMaster(row.id); if (r === "REMIXED" || r === "PREVIEW") remixed++; }
-    catch (err) { void logSystemError("video-handoff", `Озвучка: перемикс ролика упал: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-remix-crash" }); }
+    let worked = false;
+    try { const r = await remixFromMaster(row.id); worked = r !== "SKIPPED"; if (r === "REMIXED" || r === "PREVIEW") remixed++; }
+    catch (err) { worked = true; void logSystemError("video-handoff", `Озвучка: перемикс ролика упал: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-remix-crash" }); }
     last = row.id;
+    if (heavy && worked) { stoppedEarly = true; break; }
   }
   sweepCursor.remix = stoppedEarly || rows.length === REMIX_BATCH ? last ?? sweepCursor.remix : null;
   return remixed;
