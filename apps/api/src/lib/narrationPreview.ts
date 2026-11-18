@@ -169,7 +169,7 @@ export async function reopenAutoApprovalsOnPublishedClips(): Promise<number> {
     UPDATE "PropertyNarrationVersion" t
     SET "approvedAt" = NULL, "approvedById" = NULL, "approvalNotifiedAt" = NULL, "approvalRemindedAt" = NULL, "approvalEscalatedAt" = NULL
     FROM latest l JOIN "Property" p ON p."id" = l."propertyId"
-    WHERE t."id" = l."id" AND l."status" = 'READY' AND l."approvedAt" IS NOT NULL AND l."approvalNotifiedAt" = l."approvedAt"
+    WHERE t."id" = l."id" AND t."status" = 'READY' AND t."approvedAt" IS NOT NULL AND t."approvalNotifiedAt" = t."approvedAt"
       AND p."deletedAt" IS NULL AND (cardinality(p."publishedChannels") > 0 OR p."instagramUrl" IS NOT NULL)
       AND p."videoMasterNarrationVersionId" IS DISTINCT FROM l."id" AND p."videoMasterMixErrorVersionId" IS DISTINCT FROM l."id"
       AND NOT EXISTS (SELECT 1 FROM "PropertyNarrationDelivery" d WHERE d."versionId" = l."id" AND d."status" IN ('SENT', 'QUEUED', 'SENDING', 'UNKNOWN'))`;

@@ -13,7 +13,7 @@
 import { formatPropertyCode, narrationVariants, type NarrationConfig } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { localVideoFilePath } from "../lib/localVideoStorage.js";
-import { afterNarrationApproved, approveNarrationVersion, NARRATION_OWNER_ROLES, narrationAwaitsHuman, requestAutoNarration, type NarrationDeliveryStart } from "../lib/narrationAutoFlow.js";
+import { afterNarrationApproved, approveNarrationVersion, NARRATION_OWNER_ROLES, UNAPPROVED_AWAITS_HUMAN_WHERE, requestAutoNarration, type NarrationDeliveryStart } from "../lib/narrationAutoFlow.js";
 import { estimateNarrationPublishAt } from "../lib/videoHandoff.js";
 import { isWithinDushanbeWindow } from "../lib/dushanbeTime.js";
 import { narrationLastChoiceFor } from "../lib/narrationLastChoice.js";
@@ -218,7 +218,9 @@ export async function remindPendingNarrationApprovals(now: Date = new Date()): P
   if (!isWithinDushanbeWindow("09:00", "20:00", now)) return 0;
   const due = new Date(now.getTime() - REMIND_AFTER_MS);
   const pending = await prisma.propertyNarrationVersion.findMany({
-    where: { status: "READY", approvedAt: null, approvalNotifiedAt: { lte: due }, approvalEscalatedAt: null,
+    // Только то, что агент может утвердить — фильтром в запросе (четвёртое ревью 18.11), иначе пропущенные без отметки
+    // строки навсегда занимали бы голову очереди.
+    where: { status: "READY", approvedAt: null, approvalNotifiedAt: { lte: due }, approvalEscalatedAt: null, ...UNAPPROVED_AWAITS_HUMAN_WHERE,
       property: { deletedAt: null, narrationOff: false, status: { notIn: ["SOLD", "WITHDRAWN"] } } },
     orderBy: { approvalNotifiedAt: "asc" }, take: 40,
     select: { id: true, propertyId: true, source: true, approvalRemindedAt: true, approvalNotifiedAt: true, status: true, storageKey: true, approvedAt: true,
@@ -228,9 +230,8 @@ export async function remindPendingNarrationApprovals(now: Date = new Date()): P
   const ownerCodes: string[] = [];
   for (const row of pending) {
     const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
-    if (latest?.id !== row.id) continue;
-    // Напоминать — только о том, что агент может утвердить (третье ревью 18.11).
-    if (!(await narrationAwaitsHuman(row.propertyId, row.property, row))) continue;
+    // Устаревшая версия напоминаний больше не получит никогда — отметка, чтобы не стоять в голове очереди (четвёртое ревью).
+    if (latest?.id !== row.id) { await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalEscalatedAt: null }, data: { approvalEscalatedAt: now } }); continue; }
     // Ролик уже вышел: новая озвучка ждёт «Утвердить и выпустить» — одно напоминание через сутки, и всё.
     if (await clipCountsAsPublished(row.propertyId, row.property)) {
       if (row.approvalRemindedAt || !row.approvalNotifiedAt || now.getTime() - row.approvalNotifiedAt.getTime() < REMIND_PUBLISHED_AFTER_MS) continue;

@@ -28,6 +28,7 @@ import { canManagePropertyAs, publishedActionDeniedReasonAs } from "../lib/prope
 import { acceptFinalVideoFromStaff, selfApprovedClipOptsFor } from "../lib/finalVideoIntake.js";
 import {
   cancelVideoHandoffQueueEntry, discardReceivedFinalVideo, EDITOR_HOLDER_WHERE, queueVideoHandoff, receiveEditedVideoFromFile, resendSourceVideos,
+  withPropertyLock,
 } from "../lib/videoHandoff.js";
 import { sendPropertyBackToMontajerAs } from "../lib/propertySendBack.js";
 import { localVideoDelete, localVideoFilePath } from "../lib/localVideoStorage.js";
@@ -40,7 +41,7 @@ import { videoHandoffDir } from "../upload.js";
 import { declaredObjectNumber } from "./montajerFileNumber.js";
 import { handoffReceiptText } from "./montajerReceive.js";
 import { clipCountsAsPublished } from "../lib/publishedClip.js";
-import { openReplacement, undoReplacement } from "../lib/remakeRequests.js";
+import { cancelPreviousClipRetries, openReplacement, undoReplacement } from "../lib/remakeRequests.js";
 import {
   answerCallbackQuery, resolveTelegramFileMaterialization, sendMessage, sendMessageWithButtons, TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES,
   type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton,
@@ -221,8 +222,10 @@ async function doReady(intakeId: string, p: PropertyRef, actor: Actor, tmpPath: 
   // Замена вышедшего: старые посты снимет публикация нового (тот же механизм, что у перемонтажа).
   // Одна дверь замены (lib/remakeRequests.ts, третье ревью 18.11): идущая замена со снимком закрывается, её нерешённые
   // старые посты переходят в новую — новый ролик выходит во все сети, где стоит прошлый.
-  const opened = published ? await prisma.$transaction((tx) => openReplacement(tx, { propertyId: p.id, reason: "NEW_FOOTAGE", requestedById: actor.id,
-    comment: `Готовый ролик от ${actor.fullName} в Telegram заменяет вышедший.` })) : null;
+  // Открывается ДО приёма файла (иначе приём счёл бы объект «вышел во всех сетях» и не поставил публикацию), под замком
+  // объекта, как требует дверь; повторы прошлого ролика гасятся только после приёма — откат при отказе полный (ревью 18.11).
+  const opened = published ? await withPropertyLock(p.id, (tx) => openReplacement(tx, { propertyId: p.id, reason: "NEW_FOOTAGE", requestedById: actor.id,
+    comment: `Готовый ролик от ${actor.fullName} в Telegram заменяет вышедший.`, cancelRetries: false })) : null;
   const remakeRequestId = opened && !opened.reused ? opened.id : null;
   const clipOpts = await selfApprovedClipOptsFor({ id: actor.id, role: actor.role, canModerate: actor.can("properties.moderate") });
   const outcome = await acceptFinalVideoFromStaff({
@@ -232,10 +235,11 @@ async function doReady(intakeId: string, p: PropertyRef, actor: Actor, tmpPath: 
     onOpened: () => logAgentAudit(actor.id, "PROPERTY_FINAL_VIDEO_MANUAL", "Property", p.id, { shortId: before.shortId, source: "telegram-staff-clip" }),
   });
   if (!outcome.ok) {
-    if (opened) await prisma.$transaction((tx) => undoReplacement(tx, opened));
+    if (opened) await withPropertyLock(p.id, (tx) => undoReplacement(tx, opened));
     await prisma.staffClipIntake.update({ where: { id: intakeId }, data: { status: "CHOSEN" } });
     return `${formatPropertyCode(before.shortId)}: ролик не принят. ${outcome.error}`;
   }
+  if (opened && !opened.reused) await withPropertyLock(p.id, (tx) => cancelPreviousClipRetries(tx, p.id));
   const result: ReadyResult = { kind: "READY", hadFinal: !!before.videoHandoffFinalPath, remakeRequestId };
   await prisma.staffClipIntake.update({ where: { id: intakeId }, data: { status: "READY", decidedAt: new Date(), result } });
   void tellPropertyAgent(p, actor, "Готов к выпуску.").catch(() => {});

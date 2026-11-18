@@ -519,7 +519,10 @@ describe("третье ревью 18.11", () => {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) { if (entry.name !== "generated") walk(full); continue; }
         if (!/\.ts$/.test(entry.name) || full.endsWith(path.join("lib", "remakeRequests.ts"))) continue;
-        if (/videoRemakeRequest\.(create|createMany|upsert)\s*\(/.test(fs.readFileSync(full, "utf8"))) offenders.push(path.relative(root, full));
+        // Прямая запись и вложенная (через объект): create, createMany, createManyAndReturn, upsert, connectOrCreate.
+        const text = fs.readFileSync(full, "utf8");
+        if (/videoRemakeRequest\.(create|createMany|createManyAndReturn|upsert)\s*\(/.test(text)
+          || /videoRemakeRequests\s*:\s*\{[^}]*\b(create|createMany|connectOrCreate|upsert)\b/.test(text)) offenders.push(path.relative(root, full));
       }
     };
     walk(root);
@@ -567,5 +570,48 @@ describe("третье ревью 18.11", () => {
     await reopenAutoApprovalsOnPublishedClips();
     expect(await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: pub } })).toMatchObject({ approvedAt: null, approvalNotifiedAt: null });
     expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: notPub } })).approvedAt).not.toBeNull();
+  });
+});
+
+describe("четвёртое ревью 18.11: голова очереди сообщений", () => {
+  async function mkVersion(propertyId: string, over: Record<string, unknown>) {
+    const fresh = await prisma.property.findUniqueOrThrow({ where: { id: propertyId }, include: { district: true } });
+    const facts = narrationFacts(fresh);
+    return prisma.propertyNarrationVersion.create({ data: { propertyId, revision: (over.revision as number) ?? 1, script: "Квартира, звоните.", factsSnapshot: facts, factsHash: narrationHash(facts),
+      voiceId: "voiceA", modelId: "eleven_v4", status: "READY", storageKey: `${propertyId}/q.mp3`, createdById: agentId, requestKey: randomUUID(), source: "AUTO", ...over } });
+  }
+
+  it("25 неподходящих (аудио маркетинга на невышедшем ролике) не держат голову: подходящая получает «послушайте и утвердите»", async () => {
+    const old = new Date(Date.now() - 86_400_000);
+    for (let i = 0; i < 25; i++) {
+      const p = await seed([], {});
+      await mkVersion(p.id, { source: "MANUAL", createdAt: new Date(old.getTime() + i) });
+    }
+    const target = await seed(["FACEBOOK"], { FACEBOOK: "q" });
+    const v = await mkVersion(target.id, {});
+    const notify = vi.fn(async () => {});
+    await runNarrationAutoFlow({ notifyAgent: notify });
+    expect(notify.mock.calls.map((c) => (c as unknown[])[0])).toContain(v.id);
+  });
+
+  it("напоминания: 45 устаревших версий получают отметку и уходят из головы, последняя получает напоминание", async () => {
+    const { remindPendingNarrationApprovals } = await import("../src/telegram/assistantNarration.js");
+    const now = new Date("2026-11-18T12:00:00+05:00");
+    const p = await seed([], {}, { assignedAgentId: agentId });
+    const longAgo = new Date(now.getTime() - 10 * 3_600_000);
+    for (let i = 1; i <= 45; i++) await mkVersion(p.id, { revision: i, approvalNotifiedAt: new Date(longAgo.getTime() - (50 - i) * 1000) });
+    const last = await mkVersion(p.id, { revision: 46, approvalNotifiedAt: new Date(now.getTime() - 4 * 3_600_000) });
+    await remindPendingNarrationApprovals(now);
+    await remindPendingNarrationApprovals(now);
+    expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: last.id } })).approvalRemindedAt).not.toBeNull();
+  });
+
+  it("обход самоодобрений не стирает утверждение человека, поставленное в ту же секунду (условие по самой строке)", async () => {
+    const { reopenAutoApprovalsOnPublishedClips } = await import("../src/lib/narrationPreview.js");
+    const p = await seed(["FACEBOOK"], { FACEBOOK: "h" }, { videoHandoffStatus: "RECEIVED" });
+    const at = new Date(Date.now() - 1000);
+    const human = await mkVersion(p.id, { approvedAt: new Date(at.getTime() + 5), approvedById: agentId, approvalNotifiedAt: at });
+    await reopenAutoApprovalsOnPublishedClips();
+    expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: human.id } })).approvedAt).not.toBeNull();
   });
 });

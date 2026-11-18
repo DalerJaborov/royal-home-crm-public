@@ -36,7 +36,15 @@ export type OpenReplacementInput = {
   propertyId: string; reason: string; requestedById: string; comment?: string | null; messageText?: string | null;
   /** Версия озвучки, ради которой замена (18.11.2026): карточка показывает ход выпуска именно её. */
   narrationVersionId?: string | null;
+  /** false — повторы публикации прошлого ролика пока не гасить (staffClip: файл ещё не принят, откат должен быть полным);
+   *  погасить потом, когда новый ролик принят, — cancelPreviousClipRetries. По умолчанию гасит сразу. */
+  cancelRetries?: boolean;
 };
+
+/** Ждущие повторы публикации прошлого ролика (TikTok, Meta): новый ролик принят — прошлый не нужен нигде. */
+export async function cancelPreviousClipRetries(tx: TxClient, propertyId: string): Promise<void> {
+  await tx.backgroundJob.deleteMany({ where: { status: "PENDING", dedupeKey: { in: [tiktokPublishRetryDedupeKey(propertyId), ...socialPublishRetryDedupeKeys(propertyId)] } } });
+}
 
 /**
  * Открыть замену старых постов (или вернуть уже открытую, если её публикация не начиналась). Внутри транзакции
@@ -61,7 +69,7 @@ export async function openReplacement(tx: TxClient, input: OpenReplacementInput,
   const carried = collectUnresolvedOldPosts(open);
   if (open.length) await tx.videoRemakeRequest.updateMany({ where: { id: { in: open.map((r) => r.id) } }, data: { oldPostsReplacedAt: now } });
   // Повторы публикации прошлого ролика: выйдут уже с новым файлом своими путями, но заявка закрыта — дубли. Гасим.
-  await tx.backgroundJob.deleteMany({ where: { status: "PENDING", dedupeKey: { in: [tiktokPublishRetryDedupeKey(input.propertyId), ...socialPublishRetryDedupeKeys(input.propertyId)] } } });
+  if (input.cancelRetries !== false) await cancelPreviousClipRetries(tx, input.propertyId);
   const created = await tx.videoRemakeRequest.create({ data: { propertyId: input.propertyId, reason: input.reason, requestedById: input.requestedById,
     comment: input.comment ?? null, messageText: input.messageText ?? null, replaceOldPostsOnPublish: true, narrationVersionId: input.narrationVersionId ?? null,
     ...(carried.length ? { carriedOldPosts: carried as unknown as Prisma.InputJsonValue } : {}) } });
@@ -70,7 +78,7 @@ export async function openReplacement(tx: TxClient, input: OpenReplacementInput,
 
 /**
  * Откат открытия (ролик так и не принят, staffClip): созданная заявка удаляется, закрытые ею — снова открыты.
- * Погашенные повторы публикации прошлого ролика не возвращаются: их снова поставит публикация.
+ * Полный откат только при открытии с cancelRetries: false — погашенные повторы восстановить нельзя.
  */
 export async function undoReplacement(tx: TxClient, opened: { id: string; reused: boolean; closedIds: string[] }): Promise<void> {
   if (!opened.reused) await tx.videoRemakeRequest.deleteMany({ where: { id: opened.id, oldPosts: { equals: Prisma.DbNull } } });

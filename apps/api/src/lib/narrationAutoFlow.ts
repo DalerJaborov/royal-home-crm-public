@@ -6,6 +6,7 @@ import { narrationFitsType, narrationLengthCheck, narrationLengthLine, narration
   type NarrationConfig, type NarrationFacts, type NarrationWizardChoice,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import type { Prisma } from "../generated/prisma/client.js";
 import { videoHandoffDir } from "../upload.js";
 import { legacyHandoffCoverPath } from "./diskCleanup.js";
 import { mixFromStoredMaster } from "./narrationMaster.js";
@@ -206,6 +207,22 @@ export type NarrationApproval = "FORBIDDEN" | "CONFLICT" | "TEXT_APPROVED" | "AU
 export function autoApprovedOnly(v: { approvedAt: Date | null; approvalNotifiedAt?: Date | null }): boolean {
   return !!v.approvedAt && !!v.approvalNotifiedAt && v.approvedAt.getTime() === v.approvalNotifiedAt.getTime();
 }
+/**
+ * То же правило для неутверждённых версий прямо в запросе (четвёртое ревью 18.11): очереди сообщений и напоминаний не
+ * должны брать строки, которые потом пропустят без отметки, — иначе двадцать таких строк навсегда занимают голову очереди.
+ * Аудио маркетинга (MANUAL) — только на вышедшем ролике (пометки, идущая замена со снимком или перенесёнными постами).
+ */
+export const UNAPPROVED_AWAITS_HUMAN_WHERE = {
+  storageKey: { not: null },
+  OR: [
+    { source: { not: "MANUAL" } },
+    { property: { OR: [
+      { publishedChannels: { isEmpty: false } }, { instagramUrl: { not: null } },
+      { videoRemakeRequests: { some: { replaceOldPostsOnPublish: true, oldPostsReplacedAt: null } } },
+    ] } },
+  ],
+} satisfies Prisma.PropertyNarrationVersionWhereInput;
+
 /**
  * Ждёт ли версия человека (18.11.2026): готова и не утверждена, или утверждена только самой CRM, а ролик уже вышел.
  * Одно правило для карточки, Шабнам и перемикса.
@@ -968,12 +985,11 @@ async function notifyReadyNarrations(notify: NarrationApprovalNotifier): Promise
   let notified = 0;
   // MANUAL тоже (ревью 18.11): аудио по утверждённому тексту маркетинга на вышедшем ролике ждёт человека — одно
   // обычное сообщение агенту «готово, послушайте». Неутверждённым READY оно бывает только так.
-  const ready = await prisma.propertyNarrationVersion.findMany({ where: { status: "READY", approvedAt: null, approvalNotifiedAt: null, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] } } },
-    orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true, status: true, storageKey: true, approvedAt: true, source: true,
-      property: { select: { publishedChannels: true, instagramUrl: true } } } });
+  // Только то, что агент правда может утвердить — фильтром в самом запросе (четвёртое ревью 18.11).
+  const ready = await prisma.propertyNarrationVersion.findMany({ where: { status: "READY", approvedAt: null, approvalNotifiedAt: null, ...UNAPPROVED_AWAITS_HUMAN_WHERE,
+    property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] } } },
+    orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true } });
   for (const row of ready) {
-    // Только то, что агент правда может утвердить (третье ревью 18.11): аудио маркетинга на НЕвышедшем ролике — не ему.
-    if (!(await narrationAwaitsHuman(row.propertyId, row.property, row))) continue;
     // Отметка ДО отправки: два обхода подряд не пришлют агенту второе сообщение.
     const claimed = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalNotifiedAt: null }, data: { approvalNotifiedAt: new Date() } });
     if (!claimed.count) continue;
