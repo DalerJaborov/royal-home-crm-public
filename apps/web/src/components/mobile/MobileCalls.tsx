@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Search, SlidersHorizontal } from "lucide-react";
-import { MIN_ANALYZED_TRANSCRIPT_CHARS } from "@royal-home/shared";
+import { MIN_ANALYZED_TRANSCRIPT_CHARS, isWhatsappCallSource } from "@royal-home/shared";
 import { MhLane, MhListScreen, type MhLaneChip } from "./mh/MhList";
 import { MhNoData, MhQuiet } from "../home/mh/MhScreen";
 import { useSyncFiltersToUrl } from "../../hooks/useUrlFilters";
@@ -37,6 +37,7 @@ import { LiveVoiceSessionsMh, useCanSeeLiveVoiceSessions } from "../LiveVoiceSes
 import { LiveVoiceListenMh } from "../LiveVoiceListen";
 import { useRoyalLook } from "../../hooks/useRoyalLook";
 import { RoyalCallFlag, RoyalCallListen, RoyalCallRow, scoreFlagTone } from "../look/calls/RoyalCallRow";
+import { CallSourceMark } from "../look/calls/CallSourceMark";
 import { RoyalInboxSwitch } from "../look/chats/RoyalInboxSwitch";
 
 /**
@@ -278,6 +279,7 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
           call.qualifiedBy ? `разобрал ${call.qualifiedBy.fullName}` : null,
         ]}
         flags={<>
+          <CallSourceMark source={call.source} look="royal" />
           {call.irrelevant && <RoyalCallFlag tone="mute">не по делу</RoyalCallFlag>}
           {needsQualifying && <RoyalCallFlag tone="warn">без разбора</RoyalCallFlag>}
           {!call.answered && (call.callbackAgent
@@ -318,6 +320,7 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
               name
             )}
           </span>
+          <CallSourceMark source={call.source} look="chip-xs" />
           {call.irrelevant && <span className="chip lav xs">не по делу</span>}
           {needsQualifying && <span className="chip warn xs">без разбора</span>}
           {!call.answered &&
@@ -1169,7 +1172,10 @@ function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }
           call.agentName,
           !call.client && call.kind !== "OUT" ? "в базе нет" : null,
         ]}
-        flags={analysis && <RoyalCallFlag tone={scoreFlagTone(scoreTone(analysis.score))}>балл {analysis.score}</RoyalCallFlag>}
+        flags={(analysis || isWhatsappCallSource(call.source)) && <>
+          <CallSourceMark source={call.source} look="royal" />
+          {analysis && <RoyalCallFlag tone={scoreFlagTone(scoreTone(analysis.score))}>балл {analysis.score}</RoyalCallFlag>}
+        </>}
         action={expandable
           ? <>{callButton}<RoyalCallListen compact open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={formatCallDuration(call.durationSec)} /></>
           : callButton}
@@ -1220,6 +1226,7 @@ function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }
             {!outNoAnswer && call.durationSec ? ` · ${formatCallDuration(call.durationSec)}` : ""}
             {call.agentName ? ` · ${call.agentName}` : ""}
             {!call.client && call.kind !== "OUT" ? " · в базе нет" : ""}
+            {isWhatsappCallSource(call.source) ? " · WhatsApp" : ""}
             {analysis ? ` · балл ${analysis.score}` : ""}
           </span>
         </button>

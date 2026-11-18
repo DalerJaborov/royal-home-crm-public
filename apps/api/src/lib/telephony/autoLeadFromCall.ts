@@ -201,6 +201,8 @@ async function run(callId: string, knownPropertyId: string | null, ignoreAnswere
     select: {
       id: true,
       phone: true,
+      // WhatsApp или линия: карточка, заведённая по звонку, получает тот же источник.
+      source: true,
       answered: true,
       // Сообщение на автоответчике: непринятый звонок, у которого всё-таки есть
       // что разбирать (см. lib/telephony/voicemailIngest.ts).
@@ -280,6 +282,8 @@ async function decide(call: {
   routeDecision?: string | null;
   routedToId?: string | null;
   autoCreatedClient?: boolean;
+  /** "phone" | "whatsapp" — источник карточки, если её заведёт этот разбор. */
+  source?: string;
 }, knownPropertyId: string | null): Promise<AutoLeadResult> {
   /**
    * ЗВОНОК СОТРУДНИКА — НЕ ЛИД. Агент звонит в офис по своим делам, и карточка
@@ -401,7 +405,7 @@ async function decide(call: {
      */
     const voicemailWithoutTranscript = !!call.voicemailFile && !transcript;
     const clientId =
-      call.clientId ?? (voicemailWithoutTranscript ? null : await ensureCardByPhone(call.phone));
+      call.clientId ?? (voicemailWithoutTranscript ? null : await ensureCardByPhone(call.phone, call.source));
     return { status: "no_data", clientId, reason: extract ? "модель не уверена" : "нет расшифровки" };
   }
 
@@ -605,10 +609,10 @@ async function loadTranscript(interactionId: string): Promise<string | null> {
  * «незнакомые номера в базу не кладём», и обходить это решение владельца через
  * чёрный ход нельзя.
  */
-async function ensureCardByPhone(phone: string): Promise<string | null> {
+async function ensureCardByPhone(phone: string, callSource: string | undefined): Promise<string | null> {
   const settings = await loadIncomingSettings();
   if (!settings.autoCreateClient) return null;
-  return createClientForCall(phone);
+  return createClientForCall(phone, callSource);
 }
 
 /**

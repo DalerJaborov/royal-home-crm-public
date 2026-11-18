@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4113,
+  "forks": 4117,
   "mounts": 87,
-  "cron": 141,
+  "cron": 142,
   "jobs": 34,
   "hidden": 0
  },
@@ -16650,6 +16650,7 @@
       "всё внутри — одной транзакцией",
       "обращается к базе своим SQL",
       "читает в базе: client",
+      "читает в базе: deal",
       "меняет в базе: client"
      ],
      "c": [
@@ -16686,23 +16687,15 @@
       },
       {
        "k": "do",
-       "t": "const automationOn = await securityAutomationOn(tx);",
+       "t": "const openDeal = await tx.deal.findFirst({ where: { clientId: client.id, stage: { notIn: [\"COMPLETED\", \"CANCE…",
        "a": [
-        "зовёт securityAutomationOn()"
+        "читает в базе: deal"
        ],
        "c": []
       },
       {
        "k": "do",
-       "t": "const blocker = await securityReviewCloseBlocker(tx, current);",
-       "a": [
-        "зовёт securityReviewCloseBlocker()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "await tx.client.update({ where: { id: client.id }, data: { ...(reopen ? { assignmentRefusedAt: null, assignme…",
+       "t": "await tx.client.update({ where: { id: client.id }, data: { securityReview: verdict, securityReviewedAt: new D…",
        "a": [
         "меняет в базе: client"
        ],
@@ -16751,7 +16744,7 @@
     },
     {
      "k": "if",
-     "t": "reviewed.outcome === \"trash\"",
+     "t": "reviewed.close",
      "a": [],
      "c": [
       {
@@ -16764,48 +16757,18 @@
       },
       {
        "k": "if",
-       "t": "trashed.ok",
+       "t": "!trashed.ok",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "message = `${label}. Карточка ушла в Корзину`;",
+         "t": "console.error(\"[security-review] карточка не убрана в Корзину:\", trashed.error);",
          "a": [
-          "дословно из кода"
+          "пишет строку в журнал сервера"
          ],
          "c": []
         }
        ]
-      },
-      {
-       "k": "else",
-       "t": "иначе",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "await logTimeline({ clientId: client.id, actor: { kind: \"agent\", agentId: req.agent!.id }, type: \"SYSTEM\", in…",
-         "a": [
-          "зовёт logTimeline()"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "elseif",
-     "t": "reviewed.outcome === \"delete-request\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await fileEndOfWorkDeleteRequest(client, client.assignedAgentId ?? req.agent!.id, \"Работа по карточке заверше…",
-       "a": [
-        "зовёт fileEndOfWorkDeleteRequest()"
-       ],
-       "c": []
       }
      ]
     },
@@ -16834,7 +16797,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ok: true, verdict, message });",
+     "t": "res.json({ ok: true, verdict, message: label });",
      "a": [
       "ответ 200"
      ],
@@ -73826,7 +73789,7 @@
       },
       {
        "k": "do",
-       "t": "delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];",
+       "t": "delete (response as Record<string, unknown>).investigationCaseConfig;",
        "a": [
         "дословно из кода"
        ],
@@ -73865,21 +73828,6 @@
     {
      "k": "if",
      "t": "Object.prototype.hasOwnProperty.call(req.body ?? {}, \"postShowingCallEnabled\") && !canReadInvestigations(req)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-       "a": [
-        "ответ 403 — «Недостаточно прав»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -82603,6 +82551,14 @@
     },
     {
      "k": "do",
+     "t": "handleWhatsappCallEvents(req.body);",
+     "a": [
+      "зовёт handleWhatsappCallEvents()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const durableIngress = await persistVerifiedCustomerIngressBatch(req);",
      "a": [
       "зовёт persistVerifiedCustomerIngressBatch()"
@@ -83705,7 +83661,7 @@
                 },
                 {
                  "k": "if",
-                 "t": "bot.channels[msg.channel] && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silentForeignShare &&…",
+                 "t": "bot.channels[msg.channel] && !recordOnly && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silent…",
                  "a": [],
                  "c": [
                   {
@@ -88353,7 +88309,7 @@
              "c": [
               {
                "k": "do",
-               "t": "await flagAgentBypassSuspicion(conv.clientId, conv.id);",
+               "t": "await flagAgentBypassSuspicion(conv.clientId);",
                "a": [
                 "дословно из кода"
                ],
@@ -108817,28 +108773,6 @@
          ]
         },
         {
-         "k": "if",
-         "t": "!(await securityAutomationOn())",
-         "a": [],
-         "c": [
-          {
-           "k": "loop",
-           "t": "для каждого: const c of critical",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await reportSecuritySignal({ clientId: c.id, subjectAgentId: c.assignedAgent?.id ?? null, source: \"sellerProp…",
-             "a": [
-              "зовёт reportSecuritySignal()"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
          "k": "loop",
          "t": "для каждого: const c of critical",
          "a": [],
@@ -113871,6 +113805,36 @@
            ]
           },
           {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await watchOfficeDeskPhone(now);",
+             "a": [
+              "зовёт watchOfficeDeskPhone()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"telephony\", `Проверка офисного аппарата не выполнена: ${describeError(err)}`, { dedupKey…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "if",
            "t": "silence",
            "a": [],
@@ -117696,6 +117660,214 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка недельной сводки СБ\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "whatsapp-calling-health",
+   "when": "23 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();",
+       "a": [
+        "зовёт runWhatsappCallingHealthCheck()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await isMetaChannelEnabled(\"WHATSAPP\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"channel_off\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const creds = await loadCredentials();",
+         "a": [
+          "зовёт loadCredentials()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const token = creds.waPhoneId ? (await resolveIncomingAccount(\"WHATSAPP\", creds.waPhoneId)).token || creds.wa…",
+         "a": [
+          "зовёт resolveIncomingAccount()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!creds.waPhoneId || !token",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"not_configured\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!callingOn",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await resolveAlarm(WA_CALLING_CHECK_ALARM_KEY);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return { ...result, skipped: \"calling_off\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "availability === \"AVAILABLE\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await resolveAlarm(WA_CALLING_SIP_ALARM_KEY);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return result;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "availability !== \"BLOCKED\" && availability !== \"LIMITED\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.log(`[whatsapp-звонки] Meta не сообщила can_receive_call_sip (значение: ${availability ?? \"нет поля\"}…",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!(err instanceof GraphCheckError)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw err;",
+             "a": [
+              "пробрасывает ошибку дальше"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runWhatsappCallingHealthCheck() — apps/api/src/lib/whatsappCallingHealth.ts"
+      },
+      {
+       "k": "if",
+       "t": "alarmed",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Звонки WhatsApp через SIP: ${sipAvailability ?? \"состояние неизвестно\"} — тревога руковод…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «звонки WhatsApp»\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],

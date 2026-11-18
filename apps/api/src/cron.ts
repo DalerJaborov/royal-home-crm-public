@@ -27,6 +27,7 @@ import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
 import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
 import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
+import { runWhatsappCallingHealthCheck } from "./lib/whatsappCallingHealth.js";
 import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
 import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
 import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
@@ -2805,6 +2806,22 @@ export function startCronJobs() {
       if (alarmed) console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководству`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа «вебхук WhatsApp замолчал»", err);
+    }
+  });
+
+  /**
+   * ЗВОНКИ WHATSAPP НЕ ДОХОДЯТ ДО СТАНЦИИ (18.11.2026, lib/whatsappCallingHealth.ts).
+   * Раз в час, только чтение Graph: звонки и SIP у номера включены, а Meta говорит,
+   * что номер не может принимать звонки через SIP (`can_receive_call_sip`), —
+   * тревога в «Здоровье системы» с причиной от Meta; снова AVAILABLE — гаснет сама.
+   * Звонки у номера выключены — сторож молчит.
+   */
+  scheduleTracked("whatsapp-calling-health", "23 * * * *", async () => {
+    try {
+      const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();
+      if (alarmed) console.log(`[cron] Звонки WhatsApp через SIP: ${sipAvailability ?? "состояние неизвестно"} — тревога руководству`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «звонки WhatsApp»", err);
     }
   });
 

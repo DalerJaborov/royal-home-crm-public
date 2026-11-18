@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2486**; вместе с задачами по расписанию и фоновыми заданиями — **4113**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4117**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3819,6 +3819,7 @@
   · всё внутри — одной транзакцией
   · обращается к базе своим SQL
   · читает в базе: client
+  · читает в базе: deal
   · меняет в базе: client
   - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
     · обращается к базе своим SQL
@@ -3827,11 +3828,9 @@
   - если !current || current.deletedAt || current.securityReview !== "PENDING"
     - return null;
       · дословно из кода
-  - const automationOn = await securityAutomationOn(tx);
-    · зовёт securityAutomationOn()
-  - const blocker = await securityReviewCloseBlocker(tx, current);
-    · зовёт securityReviewCloseBlocker()
-  - await tx.client.update({ where: { id: client.id }, data: { ...(reopen ? { assignmentRefusedAt: null, assignme…
+  - const openDeal = await tx.deal.findFirst({ where: { clientId: client.id, stage: { notIn: ["COMPLETED", "CANCE…
+    · читает в базе: deal
+  - await tx.client.update({ where: { id: client.id }, data: { securityReview: verdict, securityReviewedAt: new D…
     · меняет в базе: client
   - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", ou…
     · зовёт logTimeline()
@@ -3842,24 +3841,18 @@
     · ответ 409 — «Проверка уже завершена или карточка изменилась — обновите страницу»
 - logAudit(req, "CLIENT_SECURITY_REVIEW", "Client", client.id, { verdict });
   · зовёт logAudit()
-- если reviewed.outcome === "trash"
+- если reviewed.close
   - const trashed = await trashClient(client.id, req.agent!.id, { notifyHolder: false });
     · зовёт trashClient()
-  - если trashed.ok
-    - message = `${label}. Карточка ушла в Корзину`;
-      · дословно из кода
-  - иначе
-    - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", in…
-      · зовёт logTimeline()
-- иначе если reviewed.outcome === "delete-request"
-  - await fileEndOfWorkDeleteRequest(client, client.assignedAgentId ?? req.agent!.id, "Работа по карточке заверше…
-    · зовёт fileEndOfWorkDeleteRequest()
+  - если !trashed.ok
+    - console.error("[security-review] карточка не убрана в Корзину:", trashed.error);
+      · пишет строку в журнал сервера
 - void (async ()
   - const reviewers = await findAgentsWithPermission("clients.securityReview");
     · зовёт findAgentsWithPermission()
   - await closeLeadPushNotifications(reviewers.map((id)
     · зовёт closeLeadPushNotifications()
-- res.json({ ok: true, verdict, message });
+- res.json({ ok: true, verdict, message: label });
   · ответ 200
 
 ### GET /api/v1/clients/:id/seller-object
@@ -15808,7 +15801,7 @@
 - если !canReadInvestigations(req)
   - delete (response as Record<string, unknown>).postShowingCallEnabled;
     · дословно из кода
-  - delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];
+  - delete (response as Record<string, unknown>).investigationCaseConfig;
     · дословно из кода
 - res.json(response);
   · ответ 200
@@ -15818,9 +15811,6 @@
 `apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)
-  - return res.status(403).json({ error: "Недостаточно прав" });
-    · ответ 403 — «Недостаточно прав»
-- если Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - const parsed = settingsUpdateSchema.safeParse(req.body);
@@ -18679,6 +18669,8 @@
       · пишет строку в журнал сервера
     - return res.json({ ok: true });
       · ответ 200
+- handleWhatsappCallEvents(req.body);
+  · зовёт handleWhatsappCallEvents()
 - const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   · зовёт persistVerifiedCustomerIngressBatch()
 - если durableIngress.status === "denied" || durableIngress.status === "unavailable"
@@ -18926,7 +18918,7 @@
               · зовёт looksLikeMoneyRequest()
             - const guardSilentOnly = !reactionOnly && !moneyRequestOnly && screenIncomingText(text).action === "silent";
               · зовёт screenIncomingText()
-            - если bot.channels[msg.channel] && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silentForeignShare &&…
+            - если bot.channels[msg.channel] && !recordOnly && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silent…
               - void sleep(800 + Math.random() * 1700).then(() => showMetaReadAndTyping(msg.channel, msg.senderId, msg.messag…
                 · дословно из кода
             - если !bot.channels[msg.channel]
@@ -19946,7 +19938,7 @@
         - await prisma.botAuditFinding.createMany({ data: findings.map((f)
           · создаёт в базе: botAuditFinding
         - если conv.clientId && findings.some((f) => f.type === "agent_bypassed_crm")
-          - await flagAgentBypassSuspicion(conv.clientId, conv.id);
+          - await flagAgentBypassSuspicion(conv.clientId);
             · дословно из кода
       - если сорвалось
         - void logSystemError("ai", `Аудит диалога ${conv.id} не удался: ${describeError(err)}`);
@@ -24311,10 +24303,6 @@
     - если critical.length === 0
       - return { escalated: 0 };
         · дословно из кода
-    - если !(await securityAutomationOn())
-      - для каждого: const c of critical
-        - await reportSecuritySignal({ clientId: c.id, subjectAgentId: c.assignedAgent?.id ?? null, source: "sellerProp…
-          · зовёт reportSecuritySignal()
     - для каждого: const c of critical
       - const result = await prisma.client.updateMany({ where: { id: c.id, securityReview: null }, data: { securityRe…
         · меняет в базе: client
@@ -25397,6 +25385,12 @@
       - если ariCreds
         - checks.push(await probeLiveVoiceApp(ariCreds));
           · дословно из кода
+      - пробует
+        - await watchOfficeDeskPhone(now);
+          · зовёт watchOfficeDeskPhone()
+      - если сорвалось
+        - void logSystemError("telephony", `Проверка офисного аппарата не выполнена: ${describeError(err)}`, { dedupKey…
+          · запись в журнал ошибок
       - если silence
         - checks.push(silence);
           · дословно из кода
@@ -26211,6 +26205,50 @@
     · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка недельной сводки СБ", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### whatsapp-calling-health — 23 * * * *
+
+- пробует
+  - const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();
+    · зовёт runWhatsappCallingHealthCheck()
+    - если !(await isMetaChannelEnabled("WHATSAPP"))
+      - return { ...result, skipped: "channel_off" };
+        · дословно из кода
+    - const creds = await loadCredentials();
+      · зовёт loadCredentials()
+    - const token = creds.waPhoneId ? (await resolveIncomingAccount("WHATSAPP", creds.waPhoneId)).token || creds.wa…
+      · зовёт resolveIncomingAccount()
+    - если !creds.waPhoneId || !token
+      - return { ...result, skipped: "not_configured" };
+        · дословно из кода
+    - пробует
+      - если !callingOn
+        - await resolveAlarm(WA_CALLING_CHECK_ALARM_KEY);
+          · дословно из кода
+        - return { ...result, skipped: "calling_off" };
+          · дословно из кода
+      - если availability === "AVAILABLE"
+        - await resolveAlarm(WA_CALLING_SIP_ALARM_KEY);
+          · дословно из кода
+        - return result;
+          · дословно из кода
+      - если availability !== "BLOCKED" && availability !== "LIMITED"
+        - console.log(`[whatsapp-звонки] Meta не сообщила can_receive_call_sip (значение: ${availability ?? "нет поля"}…
+          · пишет строку в журнал сервера
+    - если сорвалось
+      - если !(err instanceof GraphCheckError)
+        - throw err;
+          · пробрасывает ошибку дальше
+  - если alarmed
+    - console.log(`[cron] Звонки WhatsApp через SIP: ${sipAvailability ?? "состояние неизвестно"} — тревога руковод…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «звонки WhatsApp»", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()

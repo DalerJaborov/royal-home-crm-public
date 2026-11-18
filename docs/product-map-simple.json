@@ -14,12 +14,12 @@
  "totals": {
   "screens": 49,
   "paths": 777,
-  "cron": 141,
+  "cron": 142,
   "jobs": 34,
-  "conditions": 4086,
+  "conditions": 4090,
   "untranslatedUnique": 470,
   "untranslatedTotal": 607,
-  "partialUnique": 1098,
+  "partialUnique": 1101,
   "translatedShare": 85
  },
  "untranslated": [
@@ -30,7 +30,6 @@
   "!(await filterInvestigationRecipients([agentId], payload)).length",
   "!(await loadBotCapabilities()).comments",
   "!(await metaCatalogKeyOk(req))",
-  "!(await securityAutomationOn())",
   "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
   "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
   "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
@@ -39,6 +38,7 @@
   "!(await setPausedUntil(req.params.id, pausedUntil))",
   "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
   "!(await shouldAlert(tag, DISAPPROVED_WINDOW_MS, now))",
+  "!(err instanceof GraphCheckError)",
   "!(s?.telegramDeliveryWatchEnabled ?? true)",
   "!(s?.whatsappWebhookWatchEnabled ?? true)",
   "!/^[a-f0-9]{64}$/.test(eventKey)",
@@ -19551,29 +19551,17 @@
      ]
     },
     {
-     "t": "если ответ — «trash»",
+     "t": "если есть close",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "если есть получилось",
+       "t": "если нет: получилось",
        "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "иначе",
-       "k": "else",
        "a": [],
        "c": []
       }
      ]
-    },
-    {
-     "t": "иначе если ответ — «delete-request»",
-     "k": "elseif",
-     "a": [],
-     "c": []
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -57276,19 +57264,6 @@
      ]
     },
     {
-     "t": "если есть звонок и нельзя прочитано investigations",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Недостаточно прав»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
      "t": "если данные заполнены неправильно",
      "k": "if",
      "a": [],
@@ -73991,21 +73966,6 @@
          "c": []
         },
         {
-         "t": "если !(await securityAutomationOn())",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "и так по каждому",
-           "k": "loop",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ],
-         "raw": "!(await securityAutomationOn())"
-        },
-        {
          "t": "и так по каждому",
          "k": "loop",
          "a": [],
@@ -75936,6 +75896,20 @@
            "more": true
           },
           {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
            "t": "если есть silence",
            "k": "if",
            "a": [],
@@ -77761,6 +77735,108 @@
       {
        "t": "push-уведомление",
        "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "whatsapp-calling-health",
+   "when": "23 * * * *",
+   "label": "whatsapp-calling-health",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если выключено: Meta канал",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: wa телефон или нет: ключ доступа",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: calling on",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если availability — «AVAILABLE»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если availability не «BLOCKED» и availability не «LIMITED»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "если !(err instanceof GraphCheckError)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!(err instanceof GraphCheckError)",
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если есть alarmed",
+       "k": "if",
        "a": [],
        "c": []
       }

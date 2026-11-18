@@ -36,7 +36,7 @@
 | Параметр | Как у нас | Источник |
 |---|---|---|
 | TLS обязателен, порт по умолчанию 5061; сертификат публичный, имя = настроенному хосту | `transport-tls` на `${WA_PUBLIC_IP}:5061`, Let's Encrypt на `wa-sip.royalhome.tj` | [SIP → Security](https://developers.facebook.com/docs/whatsapp/cloud-api/calling/sip) |
-| Проверка: `openssl s_client -quiet -verify_hostname <хост> -connect <хост>:5061` | так проверяют `wa-calling.sh enable` и `wa-health.sh` | там же, «How to test if you have a valid TLS certificate» |
+| Проверка: `openssl s_client -verify_hostname <хост> -connect <хост>:5061` → «Verify return code: 0 (ok)» (без `-quiet`: он включает `-ign_eof`, и против Asterisk команда висит до таймаута) | так проверяют `wa-calling.sh enable` и `wa-health.sh` | там же, «How to test if you have a valid TLS certificate» |
 | SRTP; ключи DTLS (по умолч.) или SDES | SDES (`media_encryption=sdes`, у Meta `srtp_key_exchange_protocol=SDES`) | [SIP → Configure SDES](https://developers.facebook.com/docs/whatsapp/cloud-api/calling/sip); FAQ: 488 без ICE лечится SDES |
 | Кодеки: Opus всегда, можно добавить PCMA/PCMU | просим PCMA → без перекодирования до станции; запас — Opus-перекодер в шлюзе | [call-settings → audio](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/call-settings) |
 | Digest для входящих «настоятельно рекомендуется»; имя — номер бизнеса без «+», пароль — от Meta, только через API `include_sip_credentials=true` | `auth=meta-inbound`, пароль из файла 600 | [SIP → User-initiated calls with digest auth](https://developers.facebook.com/docs/whatsapp/cloud-api/calling/sip) |
@@ -183,7 +183,7 @@ WhatsApp-незнакомые шли **только** на 2020 (без очер
   ```bash
   sudo docker ps --filter name=royalhome-wa-gateway --format '{{.Status}}'      # (healthy)
   sudo docker exec royalhome-wa-gateway asterisk -rx "pjsip show transports"   # tls 62.83.97.196:5061, udp 10.9.0.1:5070
-  echo | openssl s_client -quiet -verify_hostname wa-sip.royalhome.tj -connect wa-sip.royalhome.tj:5061 2>&1 | head -4   # verify return:1
+  echo | timeout 10 openssl s_client -verify_hostname wa-sip.royalhome.tj -connect wa-sip.royalhome.tj:5061 2>&1 | grep "Verify return code"   # Verify return code: 0 (ok)
   sudo /opt/royalhome-wa-gateway/bin/wa-health.sh --local
   ```
   В журнале шлюза строка «проверка пароля Meta ВЫКЛЮЧЕНА» — это норма до операции 10.
@@ -297,25 +297,47 @@ WhatsApp-незнакомые шли **только** на 2020 (без очер
 4. **Решение по ночи и «если не ответили»** (раздел «Ночь») — до операции 14.
 5. **Проверочный звонок** (операция 11) — со своего телефона, днём; для пути «незнакомый» — со второго номера, которого нет в CRM.
 
-**Вариант без нового ключа Cloudflare** (не рекомендую): HTTP-проверка через Caddy — добавить сайт
+**Как сделано на сервере (18.11.2026) — HTTP-01 без ключа Cloudflare.** В `gateway.env`:
+`WA_ACME_METHOD=http`, `WA_ACME_EMAIL=none` (письма об истечении Let's Encrypt больше не шлёт, за сроком следит
+`wa-health.sh`; адрес владельца наружу не уходит). В `/etc/caddy/Caddyfile` — блок `http://wa-sip.royalhome.tj`,
+который отдаёт `/.well-known/acme-challenge/*` из `/opt/royalhome-wa-gateway/acme-webroot`. Порт 80 открывается
+всему интернету только на время certbot правилом ufw с комментарием `rh-wa-acme` (`wa-cert.sh`: снимает его по
+номеру при выходе и остатки прошлого запуска в начале; чужое правило на 80 не трогает); `wa-health.sh` краснеет,
+если такое правило висит вне работы `wa-cert.sh`. Сертификат — настоящий Let's Encrypt, `wa-health.sh --local`
+→ «всё зелёное».
+
+**Звонки у номера 18.11.2026:** обнаружены уже ВКЛЮЧЁННЫМИ и с видимой кнопкой звонка (кто-то включил их в
+WhatsApp Manager вручную, мимо этого порядка) — выключены, затем включены правильно, по операциям этого runbook.
+
+**Вариант HTTP-проверки, как он описывался до 18.11** (тогда не рекомендовался): HTTP-проверка через Caddy — добавить сайт
 `wa-sip.royalhome.tj` в Caddyfile и **открыть порт 80 всему интернету** (сейчас — только Cloudflare). Минусы:
 шире файрвол сервера CRM, правка живого Caddyfile, а сертификат шлюзу пришлось бы копировать из хранилища Caddy
 своим скриптом. Ещё вариант — ручная TXT-запись раз в 60–90 дней: без автоматики сертификат однажды истечёт,
 и звонки молча перестанут доходить. Поэтому — ключ с правом только на DNS.
 
-## Чего не хватает CRM (следующая правка, в этой НЕ делалось)
+## Чего не хватает CRM
 
-1. Пометка канала: звонок из WhatsApp в журнале входящих и карточке — «WhatsApp», а не «телефон» (станция уже
-   кладёт в канал `RH_SOURCE=whatsapp`; CRM должна прочитать переменную через ARI и сохранить в `IncomingCall`).
-2. Обработка поля `calls` в вебхуке (`messengers/meta.ts`, `routes/webhooks.ts`): `call_created`/`terminate` →
-   строка в журнале; связка с каналом станции по ID звонка (`RH_WA_CALL_ID` = `x-wa-meta-wacid`).
+Сделано 18.11.2026 (ветка `feat/whatsapp-calls-crm`, журнал `docs/journal/2026-11-18-whatsapp-calls-crm.md`):
+
+1. ~~Пометка канала~~ — `IncomingCall.source = "whatsapp"` по имени канала `PJSIP/whatsapp-gw-…`
+   (`lib/telephony/callSource.ts`; переменную `RH_SOURCE` через ARI не читаем — имя канала надёжнее и
+   бесплатно), метка «WhatsApp» в журнале входящих на ПК и телефоне, «Входящий звонок клиента из WhatsApp» в
+   хронологии, карточка незнакомого — с источником WHATSAPP, СМС после пропущенного не уходит.
+2. ~~Поле `calls` в вебхуке~~ — строка в журнале контейнера (`messengers/whatsappCalls.ts`); ответ на запрос
+   разрешения звонить и прочие служебные события до бота не доходят. Связки с каналом станции по
+   `RH_WA_CALL_ID` пока нет.
+5. ~~Тест на путь `from-trunk-whatsapp → isInboundContext`~~ — `tests/whatsapp-call-source.test.ts`; сторожа
+   `can_receive_call_sip` раз в час — `lib/whatsappCallingHealth.ts`. Строки в `telephonyBaseline.ts` нет.
+
+Осталось:
+
 3. BSUID вместо номера: шлюз пропускает только номер; при BSUID CRM звонок не опознает (short-number) и станция
    пойдёт по общему правилу через 12 с. Нужна связка BSUID ↔ клиент по WhatsApp-диалогам.
 4. Иностранные номера: на станцию идут с «+» → имя записи `in-+7…`; проверить `findRecording` на таком имени.
-5. Сторож: строка в `telephonyBaseline.ts` (конечная точка `whatsapp-gw` и контекст на станции) и тест на путь
-   «контекст from-trunk-whatsapp → isInboundContext».
 6. Сообщение с кнопкой звонка (`voice_call`) через дверь отправки CRM — после этого убрать операцию
    `test-call-button` из `graph-call.mjs`.
+7. Связать событие вебхука (`id` = WACID) с каналом станции (`RH_WA_CALL_ID`): длительность и статус Meta рядом
+   со строкой журнала входящих.
 
 ## Риски и что проверить нельзя до прода
 

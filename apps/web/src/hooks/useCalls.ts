@@ -103,6 +103,9 @@ export function useCalls(filters: CallFilters, options?: { enabled?: boolean }) 
 export interface IncomingCallRow {
   id: string;
   phone: string;
+  /** Откуда звонок: "phone" — линия, "whatsapp" — голосовой звонок WhatsApp
+   *  (INCOMING_CALL_SOURCES в @royal-home/shared). Необязательно: старый ответ без поля — линия. */
+  source?: string;
   startedAt: string;
   endedAt: string | null;
   answered: boolean;
@@ -337,6 +340,8 @@ export interface CallFeedRow {
   client: { id: string; shortId: number; fullName: string } | null;
   /** Номер звонившего — только у входящих и только если право позволяет. */
   phone: string | null;
+  /** Откуда звонок ("phone" | "whatsapp") — см. IncomingCallRow.source. */
+  source?: string;
   durationSec: number | null;
   /** См. CallRow.callAttempt — только у исходящих (kind "OUT"), у входящих null. */
   callAttempt: string | null;
