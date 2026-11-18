@@ -56,7 +56,9 @@ export function useRyHint(label: string) {
 }
 
 export function RyHintText({ id, open, children }: { id: string; open: boolean; children: ReactNode }) {
-  return <p id={id} className="ry-hint" hidden={!open}>{children}</p>;
+  // data-ry-hint — единственная метка того, что можно спрятать под «i» (пояснение,
+  // пришедшее отдельным пропом общей строки). Всё остальное видно всегда.
+  return <p id={id} className="ry-hint" data-ry-hint="" hidden={!open}>{children}</p>;
 }
 
 /**

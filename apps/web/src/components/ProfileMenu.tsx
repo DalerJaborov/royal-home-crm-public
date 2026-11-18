@@ -10,6 +10,7 @@ import { ProfileAvatar } from "./ProfileAvatar";
 import { useRoyalLookAttr } from "./look/team/useRoyalLookAttr";
 import { RhAvatar } from "./look/ui";
 import { RoyalIcon } from "./look/RoyalIcon";
+import { RoyalSection } from "./look/clients/RoyalSection";
 
 /**
  * Профиль в правом верхнем углу — единственная точка входа в учётную запись.
@@ -120,6 +121,8 @@ export function ProfileMenu({
       </button>
 
       {open && menuPos && (
+        // Метка раздела team — только в новом виде: оформление панели живёт в слое пачки.
+        <RoyalSection name={royal ? "team" : undefined}>
         <Rh2Portal>
           {/* Оверлей и панель — ОБА в document.body, одним поддеревом (как FabMenu.tsx),
               а не оверлей отдельно рядом с панелью в шапке: шапка стоит на матовом
@@ -201,6 +204,7 @@ export function ProfileMenu({
           </div>
           )}
         </Rh2Portal>
+        </RoyalSection>
       )}
     </div>
   );

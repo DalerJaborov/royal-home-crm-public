@@ -1,5 +1,5 @@
 import { RoyalNumberRow } from "../look/team/settingsRows";
-import { useRoyalLookAttr } from "../look/team/useRoyalLookAttr";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
 
 /**
  * Строки чисел и кнопка сохранения — общие для вкладок Настроек с числовыми
@@ -48,8 +48,9 @@ export function NumberRow({
       {unit && <span className="u">{unit}</span>}
     </span>
   );
-  // «Новый вид» (18.11.2026): строка со значком, пояснение под «i», то же поле.
-  const royal = useRoyalLookAttr();
+  // «Новый вид» (18.11.2026), только внутри раздела team: строка со значком,
+  // пояснение (проп hint) под «i», то же поле.
+  const royal = useRoyalSectionName() === "team";
   if (royal) return <RoyalNumberRow label={label} hint={hint} field={field} />;
   return (
     <div className="mod">

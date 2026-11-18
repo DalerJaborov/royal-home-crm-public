@@ -1,5 +1,5 @@
 import { RoyalSwitchTile } from "./look/team/settingsRows";
-import { useRoyalLookAttr } from "./look/team/useRoyalLookAttr";
+import { useRoyalSectionName } from "./look/clients/RoyalSection";
 
 /**
  * Тумблер настройки — один на все Настройки.
@@ -86,11 +86,14 @@ export function SwitchRow({
   warning?: React.ReactNode;
   className?: string;
 }) {
-  // «Новый вид» (18.11.2026): та же строка плиткой со значком и пояснением под «i».
-  const royal = useRoyalLookAttr();
+  // «Новый вид» (18.11.2026), только внутри раздела team: та же строка плиткой со
+  // значком; слово состояния остаётся рядом с переключателем, пояснение — под «i»,
+  // а у недоступного переключателя пояснение (причина) видно всегда.
+  const royal = useRoyalSectionName() === "team";
   if (royal) {
     return (
-      <RoyalSwitchTile title={title} hint={hint} on={on} warning={warning} className={className}
+      <RoyalSwitchTile title={title} hint={hint} on={on} disabled={disabled} warning={warning} className={className}
+        stateNode={<StateWord on={on} />}
         switchNode={<Switch on={on} disabled={disabled} onToggle={onToggle} label={title} />} />
     );
   }

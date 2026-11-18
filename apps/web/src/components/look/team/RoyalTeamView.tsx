@@ -10,6 +10,7 @@ import { Rh2Sheet } from "../../rh2/Rh2Sheet";
 import { RhAvatar, RhBlockState, RhButton, RhGroup, RhRow, RhSection, RhTile } from "../ui";
 import { useRyHint, RyHintText } from "./parts";
 import { RoyalIcon } from "../RoyalIcon";
+import { RoyalSection } from "../clients/RoyalSection";
 import type { RoyalIconName } from "../royalIconData";
 
 /**
@@ -71,12 +72,17 @@ function Head({ actions }: { actions?: ReactNode }) {
 }
 
 export function RoyalTeamView(p: RoyalTeamProps) {
+  // Метка раздела: шторки и окна из этого экрана (фильтры, отпуск, передача дел) — тоже в разделе team.
+  return <RoyalSection name="team"><RoyalTeamBody {...p} /></RoyalSection>;
+}
+
+function RoyalTeamBody(p: RoyalTeamProps) {
   const [actionsFor, setActionsFor] = useState<TeamMember | null>(null);
 
   if (!p.supervisor) {
     const fame = p.fame.data;
     return (
-      <div className="rh2 screens ry-teamp">
+      <div className="rh2 screens ry-teamp" data-ry-section="team">
         <div className="scr">
           <Head />
           <div className="ry-subtabs"><TeamTabs /></div>
@@ -99,7 +105,7 @@ export function RoyalTeamView(p: RoyalTeamProps) {
 
   const list = p.team.data ?? [];
   return (
-    <div className="rh2 screens ry-teamp">
+    <div className="rh2 screens ry-teamp" data-ry-section="team">
       <div className="scr">
         <Head actions={<>
           <RhButton variant="gray" onClick={p.onOpenFilters}>

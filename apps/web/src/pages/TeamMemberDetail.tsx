@@ -16,6 +16,7 @@ import {
 import { useTeam, type TeamMember } from "../hooks/useTeam";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { usableRouteId } from "../lib/routeId";
 import { ApiError } from "../lib/apiError";
@@ -201,6 +202,7 @@ export function TeamMemberDetail() {
   const { id: rawId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const mobile = useMobileUx();
+  const royal = useRoyalLook();
   const can = useCan();
   // Все три ручки карточки (/overview, /live, /team) закрыты правом
   // team.viewFull: без него запрос заведомо даёт 403, поэтому не шлём его вовсе.
@@ -297,7 +299,12 @@ export function TeamMemberDetail() {
     statusNow,
   };
 
-  return mobile ? <TeamMemberDetailMobile {...shared} /> : <TeamMemberDetailDesktop {...shared} />;
+  // «Новый вид»: метка раздела team и для окон, открытых из карточки (права, отпуск, передача дел).
+  return (
+    <RoyalSection name={royal ? "team" : undefined}>
+      {mobile ? <TeamMemberDetailMobile {...shared} /> : <TeamMemberDetailDesktop {...shared} />}
+    </RoyalSection>
+  );
 }
 
 interface SharedProps {
@@ -349,7 +356,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
   const royal = useRoyalLook();
 
   return (
-    <div className={royal ? "rh2 screens ry-member" : "rh2 screens"}>
+    <div className={royal ? "rh2 screens ry-member" : "rh2 screens"} data-ry-section={royal ? "team" : undefined}>
       <div className="scr">
         {overview.isLoading && (
           <div className="card">
@@ -988,7 +995,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
   const royal = useRoyalLook();
 
   return (
-    <div className={royal ? "rh2 ry-member" : "rh2"} style={MH_HOST}>
+    <div className={royal ? "rh2 ry-member" : "rh2"} style={MH_HOST} data-ry-section={royal ? "team" : undefined}>
       <div className="mh">
         <ShellOwnHeader />
         <div className="top">

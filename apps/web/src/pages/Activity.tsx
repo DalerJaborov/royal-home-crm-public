@@ -14,6 +14,7 @@ import { useCounters } from "../hooks/useCounters";
 import { useOversightSummary } from "../hooks/useOversight";
 import { TeamTabs } from "../components/SectionTabs";
 import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { Pagination } from "../components/Pagination";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
 
@@ -177,7 +178,8 @@ export function Activity() {
 
 
   return (
-    <div className={royal ? "rh2 screens ry-activity" : "rh2 screens"}>
+    <RoyalSection name={royal ? "team" : undefined}>
+    <div className={royal ? "rh2 screens ry-activity" : "rh2 screens"} data-ry-section={royal ? "team" : undefined}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -498,5 +500,6 @@ export function Activity() {
         )}
       </Rh2Sheet>
     </div>
+    </RoyalSection>
   );
 }

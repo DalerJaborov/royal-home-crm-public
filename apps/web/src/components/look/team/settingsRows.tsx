@@ -8,22 +8,25 @@ import { RyHintText, TeamCircle, settingsIconFor, toneFor, useRyHint } from "./p
  * обработчики — те же, что у прежних SwitchRow/NumberRow: эти компоненты лишь
  * другая разметка тех же пропсов.
  */
-export function RoyalSwitchTile({ title, hint, on, switchNode, warning, className }: {
-  title: string; hint: ReactNode; on: boolean; switchNode: ReactNode; warning?: ReactNode; className?: string;
+export function RoyalSwitchTile({ title, hint, on, disabled, stateNode, switchNode, warning, className }: {
+  title: string; hint: ReactNode; on: boolean; disabled?: boolean; stateNode: ReactNode; switchNode: ReactNode;
+  warning?: ReactNode; className?: string;
 }) {
   const info = useRyHint(title);
   const hasHint = hint !== null && hint !== undefined && hint !== "";
+  // Недоступный переключатель: пояснение — это причина, её не прячем.
+  const hintOpen = disabled || info.open;
   return (
-    <div className={`ry-swt${className ? ` ${className}` : ""}`} data-on={on}>
+    <div className={`ry-swt${className ? ` ${className}` : ""}`} data-on={on} data-disabled={disabled || undefined}>
       <span className="ry-swt-top">
         <TeamCircle icon={settingsIconFor(title)} tone="info" />
-        {switchNode}
+        <span className="ry-swt-ctl">{stateNode}{switchNode}</span>
       </span>
       <span className="ry-swt-t">
         <span>{title}</span>
-        {hasHint && info.button}
+        {hasHint && !disabled && info.button}
       </span>
-      {hasHint && <RyHintText id={info.id} open={info.open}>{hint}</RyHintText>}
+      {hasHint && <RyHintText id={info.id} open={hintOpen}>{hint}</RyHintText>}
       {warning && <p className="ry-swt-warn" role="note">{warning}</p>}
     </div>
   );

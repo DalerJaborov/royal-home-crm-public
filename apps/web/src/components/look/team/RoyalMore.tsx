@@ -7,6 +7,7 @@ import { RhAvatar, RhGroup, RhRow, type RhTone } from "../ui";
 import { RoyalIcon } from "../RoyalIcon";
 import { royalIconForPath, royalToneForPath } from "../royalNavIcons";
 import { RyChevron } from "./parts";
+import { RoyalSection } from "../clients/RoyalSection";
 
 /**
  * «ЕЩЁ» В «НОВОМ ВИДЕ» (18.11.2026, макет `screenMore`, кадр rh-phone-more.png).
@@ -37,7 +38,8 @@ export function RoyalMore() {
   }
 
   return (
-    <div className="ry-more">
+    <RoyalSection name="team">
+    <div className="ry-more" data-ry-section="team">
       <h1 className="ry-title" data-dup>Ещё</h1>
       {groups.map((group) => (
         <section key={group.key} className="ry-section" aria-label={group.title}>
@@ -62,6 +64,7 @@ export function RoyalMore() {
         </button>
       </RhGroup>
     </div>
+    </RoyalSection>
   );
 }
 

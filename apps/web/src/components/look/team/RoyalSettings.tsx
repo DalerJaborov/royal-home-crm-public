@@ -12,6 +12,7 @@ import { CleanSettingsTaskContent } from "../../settings/SettingsTabContent";
 import { RhGroup } from "../ui";
 import { RyChevron, TeamCircle, type TeamIconName } from "./parts";
 import { useMobileUx } from "../../../hooks/useMobileUx";
+import { RoyalSection } from "../clients/RoyalSection";
 
 /**
  * НАСТРОЙКИ В «НОВОМ ВИДЕ» (18.11.2026, макет `screenSettings` / `settingsGroupBody`).
@@ -89,18 +90,18 @@ export function RoyalSettings({ active, role, search, params }: {
 
   if (groupOpen && active) {
     return (
-      <div className="rh2 screens clean-settings-page ry-set" data-view="group">
+      <RoyalSection name="team"><div className="rh2 screens clean-settings-page ry-set" data-view="group" data-ry-section="team">
         <div className="scr">
           <Link to={cleanSettingsHref(null, search)} className="ry-back"><ChevronLeft size={22} strokeWidth={2} aria-hidden="true" />Настройки</Link>
           <h1 className="ry-title">{CLEAN_SETTINGS_LABELS[active]}</h1>
           {task && <GroupBody group={active} task={task} role={role} search={search} params={params} />}
         </div>
-      </div>
+      </div></RoyalSection>
     );
   }
 
   return (
-    <div className="rh2 screens clean-settings-page ry-set" data-view={mobile ? "list" : "split"}>
+    <RoyalSection name="team"><div className="rh2 screens clean-settings-page ry-set" data-view={mobile ? "list" : "split"} data-ry-section="team">
       <div className="scr">
         <h1 className="ry-title" data-dup>Настройки</h1>
         <div className="ry-set-tabs"><SettingsTabs /></div>
@@ -119,7 +120,7 @@ export function RoyalSettings({ active, role, search, params }: {
           </div>
         )}
       </div>
-    </div>
+    </div></RoyalSection>
   );
 }
 
