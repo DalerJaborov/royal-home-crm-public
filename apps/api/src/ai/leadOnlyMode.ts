@@ -20,6 +20,7 @@
  * Цифры в ответе — только из аргументов (данные базы), сам модуль их не придумывает.
  */
 import { serviceAreaIn } from "../lib/serviceArea.js";
+import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "./untrustedContent.js";
@@ -392,7 +393,11 @@ export type LeadOnlyPhoneState =
       /** Клиент прямо отказался дать номер: больше не просим, «понял вас» и номер офиса. */
       refused?: boolean };
 
-export const LEAD_ONLY_OFFICE_PHONE_TEXT = "777 070 100";
+/** The office telephone for customers (owner 18.11.2026: «+992446501414 это наш колл центр»). 777 070 100 is Noza's recruiting
+ * number (packages/shared/src/recruitmentContact.ts): candidates only, never buyers or sellers. */
+export const LEAD_ONLY_OFFICE_PHONE_TEXT = PUBLIC_AGENCY_CONTACT.phone;
+/** The number lead-only offered before 18.11.2026: an earlier offer in the history still counts as offered. */
+const LEAD_ONLY_PREVIOUS_OFFICE_PHONE_TEXT = "777 070 100";
 
 /**
  * Тексты. Три случая там, где это важно для правды:
@@ -592,7 +597,7 @@ export function leadOnlyPhoneAskHistory(assistantTexts: readonly string[]): { as
   let asksSoFar = 0, officeAlreadyOffered = false;
   for (const text of assistantTexts) {
     if (asks.some(line => text.includes(line)) || generic.test(text)) asksSoFar++;
-    if (text.includes(LEAD_ONLY_OFFICE_PHONE_TEXT)) officeAlreadyOffered = true;
+    if (text.includes(LEAD_ONLY_OFFICE_PHONE_TEXT) || text.includes(LEAD_ONLY_PREVIOUS_OFFICE_PHONE_TEXT)) officeAlreadyOffered = true;
   }
   return { asksSoFar, officeAlreadyOffered };
 }
