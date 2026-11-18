@@ -80,3 +80,16 @@ describe("CallClientButton — не падает без телефона", () =>
     ).not.toThrow();
   });
 });
+
+// «Новый вид», телефонные «Звонки» (решение владельца 19.11: «зеленый значок с белой трубкой»):
+// кнопка — круг без слова, а слово остаётся именем кнопки для экранного чтеца.
+describe("CallClientButton icon: имя для экранного чтеца", () => {
+  it("label у значка — aria-label («Перезвонить»), подписи на экране нет", () => {
+    const html = renderWithQueryClient(<CallClientButton clientId="client" phone="" variant="icon" label="Перезвонить" className="ry-call-round" />);
+    expect(html).toContain('aria-label="Перезвонить"');
+    expect(html.replace(/<[^>]+>/g, "")).not.toContain("Перезвонить");
+  });
+  it("без label — прежнее имя «Позвонить» (старый вид не меняется)", () => {
+    expect(renderWithQueryClient(<CallClientButton clientId="client" phone="" variant="icon" />)).toContain('aria-label="Позвонить"');
+  });
+});

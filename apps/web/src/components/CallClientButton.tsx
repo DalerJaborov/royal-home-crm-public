@@ -26,7 +26,8 @@ interface CallClientButtonProps {
   /** icon — компактная кнопка для тесных списков/тайлов (только иконка).
    *  full — кнопка с подписью, как на карточке клиента. */
   variant?: "icon" | "full";
-  /** Подпись рядом с иконкой в варианте full. По умолчанию — «Позвонить». */
+  /** Подпись рядом с иконкой в варианте full. По умолчанию — «Позвонить».
+   *  В варианте icon — имя кнопки для экранного чтеца («Перезвонить»); без неё — «Позвонить». */
   label?: string;
   className?: string;
   title?: string;
@@ -190,7 +191,7 @@ export function CallClientButton({
               : "Сначала завершите текущий разговор"
             : (title ?? (variant === "icon" ? "Позвонить через CRM" : undefined))
         }
-        aria-label={variant === "icon" ? "Позвонить" : undefined}
+        aria-label={variant === "icon" ? (label && callInProgress ? (isThisClient ? "Идёт звонок этому клиенту" : "Линия занята") : (label ?? "Позвонить")) : undefined}
         className={`${className ?? (variant === "icon" ? DEFAULT_ICON_CLASS : DEFAULT_FULL_CLASS)} ${
           callInProgress ? "cursor-not-allowed" : ""
         }`}
