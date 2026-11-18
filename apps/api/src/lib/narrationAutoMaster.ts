@@ -128,7 +128,9 @@ export async function makeMachineMaster(propertyId: string, deps: MachineMasterD
   }
   if (made !== "MADE") return made;
   // Мастер готов — новая озвучка ложится сразу, не ждём следующего обхода.
-  return (await deps.remix(propertyId)) === "REMIXED" ? "REMIXED" : "MADE";
+  const remixed = await deps.remix(propertyId);
+  // PREVIEW (17.11.2026): новый ролик сведён и ждёт хозяина на прослушивание — для обхода это тоже «наложено».
+  return remixed === "REMIXED" || remixed === "PREVIEW" ? "REMIXED" : "MADE";
 }
 
 async function makeClaimed(propertyId: string, deps: MachineMasterDeps, now: Date): Promise<"MADE" | "SKIPPED" | "FAILED" | "RETRY"> {

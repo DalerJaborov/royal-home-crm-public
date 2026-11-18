@@ -1,5 +1,6 @@
 import { prisma } from "../db.js";
 import { logAgentAudit } from "./audit.js";
+import { NARRATION_PREVIEW_CLEARED } from "./narrationPreviewFields.js";
 
 /**
  * «БЕЗ ОЗВУЧКИ» — ОДНА ДВЕРЬ (12.11.2026, решение владельца). Мастер CRM, мастер Шабнам и
@@ -25,7 +26,9 @@ export async function setPropertyNarrationOff(propertyId: string, off: boolean, 
     if (!p || p.deletedAt) return null;
     const heldByMontajer = p.videoHandoffStatus === "SENT_TO_EDITOR" && !p.videoHandoffManualSince;
     if (p.narrationOff === off) return { changed: false, off, heldByMontajer, shortId: p.shortId };
-    await tx.property.update({ where: { id: propertyId }, data: { narrationOff: off, narrationOffAt: off ? new Date() : null } });
+    // «Без озвучки» снимает и новый ролик, ждущий хозяина «прослушать перед выпуском» (ревью 18.11.2026):
+    // иначе он вышел бы сам по сроку с голосом. Файл уберёт ночная чистка диска.
+    await tx.property.update({ where: { id: propertyId }, data: { narrationOff: off, narrationOffAt: off ? new Date() : null, ...(off ? NARRATION_PREVIEW_CLEARED : {}) } });
     if (off) {
       await tx.propertyNarrationVersion.updateMany({ where: { propertyId, status: "DRAFT", generateAfter: { not: null } }, data: { generateAfter: null } });
       await tx.propertyNarrationDelivery.updateMany({ where: { propertyId, status: { in: ["QUEUED", "PREVIEW"] } }, data: { status: "CANCELLED", lastError: "Выбрано «Без озвучки»" } });

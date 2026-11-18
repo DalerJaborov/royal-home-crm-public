@@ -88,6 +88,7 @@ import { requestPultSnapshot } from "./pultCacheHook.js";
 import { dropNarrationMaster, mixFromStoredMaster, planCrmMixOnReceive, storeNarrationMaster } from "./narrationMaster.js";
 import { narrationLineForMontajer } from "./narrationMontajerNote.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
+import { NARRATION_PREVIEW_CLEARED } from "./narrationPreviewFields.js";
 
 /**
  * ЗАДАНИЕ «ПУБЛИКАЦИЯ ПРИНЯТОГО РОЛИКА» (21.09.2026, случай №114) — тип,
@@ -2230,6 +2231,10 @@ async function finishReceivingVideo(
           // Новый готовый ролик — новая попытка убрать голос машиной (16.11.2026).
           videoMasterAutoError: null, videoMasterAutoErrorFinalPath: null, videoMasterAutoAttempts: 0, videoMasterAutoRetryAt: null,
           videoMasterNarrationVersionId: master?.versionId ?? null,
+          // Новый ролик от монтажёра — кандидат «прослушать перед выпуском» к старому больше не годится (17.11.2026).
+          ...NARRATION_PREVIEW_CLEARED,
+          // и отказ хозяина от наложения версии на прежний ролик к новому ролику не относится.
+          narrationPreviewDeclinedVersionId: null,
           videoMasterMixError: null,
           videoMasterMixErrorVersionId: null,
           // Ожидание (ручное или пересылка рядом с держателем места) закрыто приёмом.
@@ -2265,6 +2270,10 @@ async function finishReceivingVideo(
     return { ok: false, error: "Эта передача уже закрыта — объект её не ждёт." };
   }
   if (previousMasterKey && previousMasterKey !== master?.key) await dropNarrationMaster(previousMasterKey);
+  // Кандидат «прослушать перед выпуском» к прежнему ролику (поля обнулены записью выше) — файл тоже.
+  if (property.narrationPreviewPath && property.narrationPreviewPath !== finalPublicPath) {
+    await fs.promises.unlink(path.join(videoHandoffDir, path.basename(property.narrationPreviewPath))).catch(() => {});
+  }
   const oldVideoLeftIn = accepted.oldVideoLeftIn.length > 0 ? accepted.oldVideoLeftIn : undefined;
   requestPultSnapshot(); // пульт: ролик принят, ждёт проверки
 
@@ -2893,7 +2902,7 @@ export type DiscardFinalVideoResult =
 export async function discardReceivedFinalVideo(propertyId: string): Promise<DiscardFinalVideoResult> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
-    select: { deletedAt: true, videoHandoffFinalPath: true, publishedChannels: true, videoMasterStorageKey: true },
+    select: { deletedAt: true, videoHandoffFinalPath: true, publishedChannels: true, videoMasterStorageKey: true, narrationPreviewPath: true },
   });
   if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект не найден или удалён" };
   if (!property.videoHandoffFinalPath) {
@@ -2918,6 +2927,7 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
         videoMasterSource: null,
         videoMasterAutoError: null, videoMasterAutoErrorFinalPath: null, videoMasterAutoAttempts: 0, videoMasterAutoRetryAt: null,
         videoMasterNarrationVersionId: null,
+        ...NARRATION_PREVIEW_CLEARED,
         scheduledPublishAt: null,
         scheduledPublishReason: null,
         clipReviewStatus: "NONE",
@@ -2932,6 +2942,7 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
   });
   await fs.promises.unlink(path.join(videoHandoffDir, path.basename(finalPath))).catch(() => {});
   await fs.promises.unlink(legacyHandoffCoverPath(finalPath)).catch(() => {});
+  if (property.narrationPreviewPath) await fs.promises.unlink(path.join(videoHandoffDir, path.basename(property.narrationPreviewPath))).catch(() => {});
   await dropNarrationMaster(property.videoMasterStorageKey);
   return { ok: true, publishedChannels: property.publishedChannels };
 }

@@ -69,6 +69,11 @@ const EventFeedPlayground = import.meta.env.DEV
   ? lazyWithReload(() => import("./pages/dev/EventFeedPlayground"))
   : null;
 
+// Дев-стенд «Прослушать перед выпуском» (18.11.2026) — тот же приём, только DEV.
+const NarrationPreviewPlayground = import.meta.env.DEV
+  ? lazyWithReload(() => import("./pages/dev/NarrationPreviewPlayground"))
+  : null;
+
 // Дев-стенд задачи 5 слоя 2 (AskPanel) — только `import.meta.env.DEV`, тот же
 // приём: не собирается и не роутится в проде.
 const AskPanelPlayground = import.meta.env.DEV
@@ -265,6 +270,16 @@ export default function App() {
       />
       {/* Дев-стенд задачи 7 слоя 2 — вне ProtectedRoute/AppLayout: своя фикстура,
           api не нужен. Маршрут существует только в DEV (см. EventFeedPlayground выше). */}
+      {NarrationPreviewPlayground && (
+        <Route
+          path="/dev/narration-preview"
+          element={
+            <Suspense fallback={<AppSkeleton />}>
+              <NarrationPreviewPlayground />
+            </Suspense>
+          }
+        />
+      )}
       {EventFeedPlayground && (
         <Route
           path="/dev/event-feed"
