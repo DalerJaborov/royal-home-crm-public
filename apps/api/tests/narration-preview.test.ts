@@ -229,6 +229,38 @@ describe.skipIf(!ffmpegReady)("прослушать перед выпуском 
     }
   });
 
+  it("ревью 18.11 (третий круг): «Выпустить» и «Оставить старый» одновременно — у объекта всегда есть ролик на диске", async () => {
+    const { p, v2, oldFinal } = await publishedWithNewVoice();
+    expect(await remixFromMaster(p.id)).toBe("PREVIEW");
+    const [rel, dec] = await Promise.all([
+      releaseNarrationPreview(p.id, v2.id, { agentId, source: "crm" }),
+      declineNarrationPreview(p.id, v2.id, { agentId, source: "telegram" }, "KEEP_OLD"),
+    ]);
+    // Ровно одно решение прошло, второе — «уже решено».
+    expect([rel, dec].filter((r) => r === "STALE")).toHaveLength(1);
+    const row = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(row.narrationPreviewPath).toBeNull();
+    expect(await exists(diskOf(row.videoHandoffFinalPath!))).toBe(true);
+    if (dec === "DECLINED") expect(row.videoHandoffFinalPath).toBe(oldFinal);
+  });
+
+  it("ревью 18.11 (третий круг): рубильник выключили, пока кандидат ждал, — новый ролик заменяет вышедший сразу, кандидат убран", async () => {
+    const { p, v2 } = await publishedWithNewVoice();
+    expect(await remixFromMaster(p.id)).toBe("PREVIEW");
+    const waiting = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    await setPreview(false);
+    try {
+      expect(await remixFromMaster(p.id)).toBe("REMIXED");
+      const row = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+      expect(row.videoMasterNarrationVersionId).toBe(v2.id);
+      expect(row.narrationPreviewPath).toBeNull();
+      expect(row.narrationPreviewVersionId).toBeNull();
+      expect(await exists(diskOf(waiting.narrationPreviewPath!))).toBe(false);
+    } finally {
+      await setPreview(true);
+    }
+  });
+
   it("ревью 18.11: «Без озвучки», цена поменялась без новой версии, стёртый файл — не выпускаем, вышедший ролик цел", async () => {
     // «Без озвучки» снимает кандидата сразу.
     const a = await publishedWithNewVoice();

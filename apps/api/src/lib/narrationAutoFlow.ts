@@ -416,7 +416,11 @@ async function remixWanted(propertyId: string) {
   if (latest.id === p.videoMasterNarrationVersionId || latest.id === p.videoMasterMixErrorVersionId) return null;
   // Эта версия уже ждёт хозяина на прослушивание или он от неё отказался (17.11.2026).
   // Кандидат к нынешнему ролику без голоса (тот сменился — кандидат устарел, сводим заново).
-  if ((latest.id === p.narrationPreviewVersionId && p.narrationPreviewMasterKey === p.videoMasterStorageKey) || latest.id === p.narrationPreviewDeclinedVersionId) return null;
+  // Рубильник выключили (ревью 18.11): ждущий кандидат не держит сведение — новый ролик заменит вышедший
+  // сразу, как на main, а прежний кандидат уберёт replaceFinalWithMix.
+  const waitingPreview = latest.id === p.narrationPreviewVersionId && p.narrationPreviewMasterKey === p.videoMasterStorageKey
+    && narrationPreviewBeforeRepublish((await loadNarrationConfiguration()).config);
+  if (waitingPreview || latest.id === p.narrationPreviewDeclinedVersionId) return null;
   if (await isHandoffPublishRunning(propertyId)) return null;
   return { p: { ...p, videoMasterStorageKey: p.videoMasterStorageKey }, latest: { ...latest, storageKey: latest.storageKey } };
 }

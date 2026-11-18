@@ -129,7 +129,7 @@ export function NarrationPreviewBlock({ propertyId, data, onMessage, onChangeVoi
           <button type="button" className="pill ghost w-full sm:w-auto" disabled={busy} onClick={() => setConfirm("CHANGE")}>Другой голос или текст</button>
           <button type="button" className="pill ghost w-full sm:w-auto" disabled={busy} onClick={() => setConfirm("KEEP_OLD")}>Оставить старый</button>
         </div>}
-      </div> : <p className="text-sm text-[var(--muted)]">Решает агент объекта.</p>}
+      </div> : p.dueAt ? <p className="text-sm text-[var(--muted)]">Решает агент объекта.</p> : null}
       {error && <p className="text-sm" role="status">{error}</p>}
     </div>
   );

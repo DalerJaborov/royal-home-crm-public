@@ -36,6 +36,11 @@ describe("Прослушать перед выпуском", () => {
     for (const part of ["Выпустить", "Оставить старый", "Другой голос или текст"]) expect(html).not.toContain(part);
     expect(html).toContain("/uploads/handoff/new.mp4");
   });
+  it("без права решать и без срока — одна подпись, без повтора", () => {
+    const html = render(data({ preview: preview({ canDecide: false, dueAt: null }) as Data["preview"] }));
+    expect(html).toContain("ждёт решения агента объекта");
+    expect(html).not.toContain("Решает агент объекта");
+  });
   it("dueAt=null: сам не выйдет", () => {
     const html = render(data({ preview: preview({ dueAt: null }) as Data["preview"] }));
     expect(html).toContain("Сам не выйдет — ждёт вашего решения");

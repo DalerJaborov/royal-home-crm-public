@@ -635,8 +635,10 @@ export function startCronJobs() {
   scheduleTracked("narration-preview-due", "* * * * *", async () => {
     const { notifyPendingNarrationPreviews, releaseDueNarrationPreviews } = await import("./lib/narrationPreview.js");
     const { notifyNarrationPreview } = await import("./telegram/narrationPreviewBot.js");
-    await notifyPendingNarrationPreviews(notifyNarrationPreview);
+    // Сначала срок и уборка устаревших, потом уведомления (ревью 18.11): иначе хозяину пришёл бы кандидат,
+    // которого в ту же минуту уберут, а отправка видео задерживала бы самовыпуск.
     await releaseDueNarrationPreviews();
+    await notifyPendingNarrationPreviews(notifyNarrationPreview);
   }, undefined, undefined, { timeoutMs: 170_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {
     const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");

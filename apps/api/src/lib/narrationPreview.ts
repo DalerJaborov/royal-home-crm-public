@@ -49,6 +49,15 @@ const fileExists = (publicPath: string) => fs.promises.access(fileOf(publicPath)
 const clearedPreview = NARRATION_PREVIEW_CLEARED;
 
 /**
+ * Замок строки объекта поверх замка объекта (ревью 18.11): «Без озвучки» (narrationOptOut.ts) закрывает
+ * саму строку FOR UPDATE, а не общий замок — без этого её нажатие между чтением и записью выпуска пропустило
+ * бы ролик с голосом в сеть.
+ */
+async function lockPropertyRow(tx: TxClient, propertyId: string): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR UPDATE`;
+}
+
+/**
  * Новый голос в сеть нельзя (одна проверка на «положить» и на «выпустить», ревью 18.11): озвучка у объекта
  * выключена, объект закрыт или удалён, или факты (цена и т.п.) уже не те, что в этой версии озвучки.
  */
@@ -103,6 +112,7 @@ export async function placeMixedClip(input: {
   const now = input.now ?? new Date();
   const dueAt = input.previewEnabled ? await previewDueAt(now) : null;
   return withPropertyLock(input.propertyId, async (tx): Promise<PlacedMix> => {
+    await lockPropertyRow(tx, input.propertyId);
     const cur = await tx.property.findUnique({ where: { id: input.propertyId }, include: { district: true } });
     const stillLatest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: input.propertyId }, orderBy: { revision: "desc" }, select: { id: true, factsHash: true, factsSnapshot: true } });
     if (!cur || !stillLatest || cur.videoHandoffStatus !== "RECEIVED" || cur.videoMasterStorageKey !== input.masterKey
@@ -147,6 +157,7 @@ export async function releaseNarrationPreview(propertyId: string, versionId: str
   const fileOk = !!pre?.narrationPreviewPath && pre.narrationPreviewVersionId === versionId && await fileExists(pre.narrationPreviewPath);
   let stalePreview: string | null = null;
   const done = await withPropertyLock(propertyId, async (tx): Promise<Done | "STALE" | "BUSY"> => {
+    await lockPropertyRow(tx, propertyId);
     const cur = await tx.property.findUnique({ where: { id: propertyId }, include: { district: true } });
     if (!cur || cur.narrationPreviewVersionId !== versionId || !cur.narrationPreviewPath) return "STALE";
     // Самовыпуск — только если срок всё тот же (хозяин мог уже решить, кандидат мог смениться).
@@ -183,11 +194,16 @@ export async function releaseNarrationPreview(propertyId: string, versionId: str
  * озвучки CRM больше не накладывает (remixWanted смотрит narrationPreviewDeclinedVersionId).
  */
 export async function declineNarrationPreview(propertyId: string, versionId: string, actor: { agentId: string; source: "crm" | "telegram" }, reason: "KEEP_OLD" | "CHANGE"): Promise<NarrationPreviewResult> {
-  const cur = await prisma.property.findUnique({ where: { id: propertyId }, select: { narrationPreviewPath: true, narrationPreviewVersionId: true } });
-  if (cur?.narrationPreviewVersionId !== versionId) return "STALE";
-  const res = await prisma.property.updateMany({ where: { id: propertyId, narrationPreviewVersionId: versionId, narrationPreviewPath: cur.narrationPreviewPath },
-    data: { ...clearedPreview, narrationPreviewDeclinedVersionId: versionId } });
-  if (!res.count) return "STALE";
+  // Под тем же замком, что «Выпустить» и самовыпуск (ревью 18.11): иначе отказ мог стереть файл кандидата,
+  // который выпуск в тот же миг ставил роликом объекта, — и объект оставался без ролика.
+  const cur = await withPropertyLock(propertyId, async (tx) => {
+    await lockPropertyRow(tx, propertyId);
+    const row = await tx.property.findUnique({ where: { id: propertyId }, select: { narrationPreviewPath: true, narrationPreviewVersionId: true } });
+    if (!row || row.narrationPreviewVersionId !== versionId) return null;
+    await tx.property.update({ where: { id: propertyId }, data: { ...clearedPreview, narrationPreviewDeclinedVersionId: versionId } });
+    return row;
+  });
+  if (!cur) return "STALE";
   await removeClipFiles(cur.narrationPreviewPath);
   logAgentAudit(actor.agentId, reason === "KEEP_OLD" ? "PROPERTY_NARRATION_PREVIEW_KEPT_OLD" : "PROPERTY_NARRATION_PREVIEW_CHANGE", "Property", propertyId, { narrationVersionId: versionId, source: actor.source });
   return "DECLINED";
@@ -232,9 +248,10 @@ export type NarrationPreviewNotice = { propertyId: string; versionId: string };
  */
 export async function notifyPendingNarrationPreviews(notify: (n: NarrationPreviewNotice) => Promise<void>, now: Date = new Date()): Promise<{ notified: number }> {
   const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPreviewNotifiedAt: null, deletedAt: null, narrationOff: false, videoHandoffStatus: "RECEIVED" },
-    select: { id: true, narrationPreviewVersionId: true }, orderBy: { narrationPreviewAt: "asc" }, take: 5 });
+    select: { id: true, narrationPreviewVersionId: true, narrationPreviewMasterKey: true, videoMasterStorageKey: true }, orderBy: { narrationPreviewAt: "asc" }, take: 20 });
   let notified = 0;
-  for (const row of rows) {
+  // Кандидат к сменившемуся ролику без голоса хозяину не шлём — задача по сроку его уберёт (ревью 18.11).
+  for (const row of rows.filter((r) => r.narrationPreviewMasterKey === r.videoMasterStorageKey).slice(0, 5)) {
     try {
       await notify({ propertyId: row.id, versionId: row.narrationPreviewVersionId! });
       const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationPreviewVersionId, narrationPreviewNotifiedAt: null }, data: { narrationPreviewNotifiedAt: now } });

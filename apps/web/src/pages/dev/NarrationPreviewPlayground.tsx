@@ -12,7 +12,7 @@ const versions = [
 ];
 const preview = {
   versionId: "v3", revision: 3, previewPath: "/dev-sample.mp4", currentPath: "/dev-sample.mp4", oldVersionId: "v2",
-  createdAt: new Date(now).toISOString(), dueAt: new Date(now + 3 * 3_600_000).toISOString(), voiceSec: 33.6, clipSec: 36.2,
+  createdAt: new Date(now).toISOString(), dueAt: new Date(now + 3 * 3_600_000).toISOString(), voiceSec: 37.4, clipSec: 35.2,
   note: "Голос чуть длиннее ролика: CRM ускорила его на 5 %.", canDecide: true,
 };
 

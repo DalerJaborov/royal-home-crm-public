@@ -96,14 +96,18 @@ export async function notifyNarrationPreview(e: NarrationPreviewNotice): Promise
   const buttons = [...narrationPreviewButtons(lang, e.versionId), [{ text: `CRM ${code}`, url: crmUrl(p.id) }]];
   const diskPath = path.join(videoHandoffDir, path.basename(p.narrationPreviewPath));
   let clip: Awaited<ReturnType<typeof prepareClipForTelegram>> | null = null;
+  let fed = false;
   try {
     const stat = await fs.promises.stat(diskPath).catch(() => null);
     if (stat) clip = await prepareClipForTelegram(diskPath, await probeMediaInfo(diskPath).catch(() => null), stat.size, TELEGRAM_BOT_SEND_LIMIT_BYTES);
     if (clip && clip.sizeBytes <= TELEGRAM_BOT_SEND_LIMIT_BYTES) await sendVideoFromDisk(chatId, clip.videoPath, caption, undefined, buttons, clip);
     else await sendMessageWithButtons(chatId, `${caption}\n\n${previewCopy[lang].crmOnly}`, buttons);
     await createNotification({ agentId: owner.id, ...feed });
+    fed = true;
   } catch (err) {
     void logSystemError("telegram", `Прослушать перед выпуском: ролик ${code} хозяину в Telegram не ушёл, записано в CRM: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-preview-telegram" });
+    // Запись в ленте CRM — то, что обещает журнал (ревью 18.11); отметка «отправлено» встанет после возврата.
+    if (!fed) await createNotification({ agentId: owner.id, ...feed });
     await sendPushToAgent(owner.id, feed);
   } finally {
     await clip?.cleanup().catch(() => {});
