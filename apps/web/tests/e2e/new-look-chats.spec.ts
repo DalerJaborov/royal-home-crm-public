@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { DEFAULT_STRIPS, overflowingElements } from "./helpers/noOverflow";
 
 /**
  * «НОВЫЙ ВИД» — раздел «Чаты» (пачка chats, 18.11.2026): сторож вёрстки.
@@ -48,11 +49,10 @@ async function stub(page: Page, look: boolean) {
 async function noOverflow(page: Page, width: number, selectors: string) {
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
     { message: `горизонтальная прокрутка на ${width}px` }).toBeLessThanOrEqual(0);
-  const wide = await page.evaluate((sel) => [...document.querySelectorAll(sel)]
-    .filter((node) => (node as HTMLElement).offsetParent !== null || getComputedStyle(node).position === "fixed")
-    .map((node) => ({ cls: (node as HTMLElement).className, right: Math.round(node.getBoundingClientRect().right) }))
-    .filter((box) => box.right > window.innerWidth + 1), selectors);
-  expect(wide, `элементы шире окна на ${width}px`).toEqual([]);
+  // Общий помощник: край окна И край каждого режущего предка. Полоса быстрых
+  // ответов — задуманная лента со своей прокруткой.
+  const wide = await overflowingElements(page, selectors, `${DEFAULT_STRIPS}, .ry-chat-quick`);
+  expect(wide, `элементы шире окна или своей карточки на ${width}px`).toEqual([]);
 }
 
 test("новый вид, чаты: список без горизонтальной прокрутки на всех ширинах @smoke", async ({ page }, testInfo) => {

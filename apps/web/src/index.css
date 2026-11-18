@@ -123,6 +123,7 @@
 @import './theme-2026-clean-surface-integrity.css';
 /* «Новый вид» (облик royal): каждое правило под :root[data-ui-look="royal"], без атрибута не меняет ничего. Последним. */
 @import './theme-look-royal.css';
+@import './theme-look-royal-clients.css';
 /* «Новый вид» по разделам — после основы, тот же закон: всё под :root[data-ui-look="royal"]. */
 @import './theme-look-royal-chats.css';
 

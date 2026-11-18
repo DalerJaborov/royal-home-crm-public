@@ -84,6 +84,7 @@ import { RoyalInboxSwitch } from "../components/look/chats/RoyalInboxSwitch";
 import { RoyalInboxFilters } from "../components/look/chats/RoyalInboxFilters";
 import { RoyalDialogRow } from "../components/look/chats/RoyalDialogRow";
 import { useMinuteClock } from "../components/look/chats/useMinuteClock";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalChannelBadge } from "../components/look/chats/RoyalChannelBadge";
 import { RhAvatar } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
@@ -353,7 +354,11 @@ export function Messages() {
   }
 
   return (
-    <div className={royal ? "rh2 screens clean-messages ry-chats" : clean ? CLEAN_DESKTOP_INBOX : "rh2 screens"} data-chat-active={selectedId ? "thread" : "list"}>
+    // Метка раздела «Нового вида» (общий механизм RoyalSection): слой
+    // theme-look-royal-chats.css действует только под [data-ry-section="chats"];
+    // шторки и окна, открытые из чатов через Rh2Portal, получают ту же метку.
+    <RoyalSection name={royal ? "chats" : undefined}>
+    <div className={royal ? "rh2 screens clean-messages ry-chats" : clean ? CLEAN_DESKTOP_INBOX : "rh2 screens"} data-chat-active={selectedId ? "thread" : "list"} data-ry-section={royal ? "chats" : undefined}>
       <div className="scr">
         {royal ? <RoyalInboxSwitch title="Чаты" /> : <>
         <div className={clean ? "sr-only" : "pg-h"}>
@@ -488,6 +493,7 @@ export function Messages() {
       )}
       </div>
     </div>
+    </RoyalSection>
   );
 }
 
