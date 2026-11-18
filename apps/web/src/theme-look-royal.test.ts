@@ -19,7 +19,26 @@ function splitTopLevel(list: string): string[] {
   return parts.filter(Boolean);
 }
 
-export function unscopedSelectors(css: string): string[] {
+/**
+ * Раздел слоя по имени файла: `theme-look-royal-<пачка>.css` → `<пачка>`; основа
+ * (`theme-look-royal.css`) раздела не имеет. Слой пачки обязан действовать только
+ * на свой раздел — экран и окна с меткой `[data-ry-section="<пачка>"]`
+ * (components/look/clients/RoyalSection.tsx), иначе он красит чужие экраны с
+ * похожими классами и общий портал (ревью PR #278: «Подбор сотрудников»,
+ * уведомления, окно входящего лида).
+ */
+export function lookSectionOf(file: string): string | undefined {
+  return /^theme-look-royal-([\w-]+)\.css$/.exec(file)?.[1];
+}
+
+/** Метка раздела должна стоять в самом селекторе, а не внутри :is()/:not()/:has(). */
+function topLevel(selector: string): string {
+  let text = selector;
+  for (let prev = ""; prev !== text;) { prev = text; text = text.replace(/\([^()]*\)/g, ""); }
+  return text;
+}
+
+export function unscopedSelectors(css: string, section?: string): string[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const bad: string[] = [];
   let depth = 0; let inKeyframes = -1; let buffer = "";
@@ -40,6 +59,7 @@ export function unscopedSelectors(css: string): string[] {
       if (inKeyframes < 0) {
         for (const selector of splitTopLevel(head)) {
           if (!selector.startsWith(':root[data-ui-look="royal"]')) bad.push(selector);
+          else if (section && !topLevel(selector).includes(`[data-ry-section="${section}"]`)) bad.push(selector);
         }
       }
       depth++;
@@ -60,8 +80,23 @@ describe("theme-look-royal*.css", () => {
   it("знает основу и слой раздела «Клиенты»", () => {
     expect(lookFiles).toEqual(expect.arrayContaining(["theme-look-royal.css", "theme-look-royal-clients.css"]));
   });
-  it.each(lookFiles)("%s: every rule is scoped to :root[data-ui-look=\"royal\"]", (file) => {
-    expect(unscopedSelectors(readFileSync(new URL(`./${file}`, import.meta.url), "utf8"))).toEqual([]);
+  it.each(lookFiles)("%s: every rule is scoped to :root[data-ui-look=\"royal\"] (и к метке своего раздела у слоя пачки)", (file) => {
+    expect(unscopedSelectors(readFileSync(new URL(`./${file}`, import.meta.url), "utf8"), lookSectionOf(file))).toEqual([]);
+  });
+  it("раздел слоя берётся из имени файла; у основы раздела нет", () => {
+    expect(lookSectionOf("theme-look-royal-clients.css")).toBe("clients");
+    expect(lookSectionOf("theme-look-royal-team-settings.css")).toBe("team-settings");
+    expect(lookSectionOf("theme-look-royal.css")).toBeUndefined();
+  });
+  it("сторож слоя пачки ловит правило без метки раздела (проверен поломкой)", () => {
+    const clients = readFileSync(new URL("./theme-look-royal-clients.css", import.meta.url), "utf8");
+    const leaks = [
+      ':root[data-ui-look="royal"] .rh2 .sheet .pill',
+      ':root[data-ui-look="royal"]:has(.clean-client-detail) body > .rh2 .sheet',
+      ':root[data-ui-look="royal"] :is(.rh2[data-ry-section="clients"] .a, .b)',
+      ':root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .pill',
+    ];
+    expect(unscopedSelectors(`${clients}\n${leaks.map((s) => `${s} { color: red; }`).join("\n")}`, "clients")).toEqual(leaks);
   });
   it("the guard really catches an unscoped rule (сторож проверен поломкой)", () => {
     expect(unscopedSelectors(`${css}\n.clean-tab { color: red; }\n@media (min-width: 1px) { body, :root[data-ui-look="royal"] a { color: red; } }`))

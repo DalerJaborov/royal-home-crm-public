@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { exactDateTime } from "../../../lib/format";
-import { cleanRecordTabForKey, type CleanClientTab } from "../../clean/CleanClientDetailLayout";
+import { cleanClientTabList, cleanRecordTabForKey, type CleanClientTab } from "../../clean/CleanClientDetailLayout";
 import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
 
@@ -140,13 +140,8 @@ const TAB_ICONS: Record<CleanClientTab, RoyalIconName> = {
  * цветов и лента с прокруткой внутри карточки на узком экране.
  */
 export function RoyalClientTabs({ value, onChange, objectsLabel = "Объекты" }: { value: CleanClientTab; onChange: (value: CleanClientTab) => void; objectsLabel?: string }) {
-  const tabs: { id: CleanClientTab; label: string; short: string }[] = [
-    { id: "short", label: "Обзор", short: "Обзор" },
-    { id: "props", label: objectsLabel, short: "По объектам" },
-    { id: "chat", label: "Переписка", short: "Чаты" },
-    { id: "calls", label: "Звонки", short: "Звонки" },
-    { id: "hist", label: "История", short: "История" },
-  ];
+  // Тот же список, что у CleanClientDetailTabs (одно место: cleanClientTabList).
+  const tabs = cleanClientTabList(objectsLabel);
   const ids = tabs.map((t) => t.id);
   return (
     <div role="tablist" aria-label="Разделы карточки клиента" className="ry-ctabs">

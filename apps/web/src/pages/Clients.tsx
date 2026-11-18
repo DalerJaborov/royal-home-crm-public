@@ -5,6 +5,7 @@ import { CleanClientRow, cleanClientColumns } from "../components/clean/CleanCli
 import { CButton, cn } from "../components/clean/ui";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalClientListHead, RoyalClientRow } from "../components/look/clients/RoyalClients";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RhButton } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
 import { lazyWithReload } from "../lib/lazyWithReload";
@@ -134,15 +135,19 @@ export function Clients({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER
     kind !== "OTHER" && formParams.get("new") === "1"
       ? readKindParam(formParams.get("kind")).sectionKind ?? kind : null);
   const [newClientPhone] = useState(() => formParams.get("phone") ?? undefined);
+  // «Новый вид»: метка раздела на экране и на всех его окнах (RoyalSection) — слой
+  // theme-look-royal-clients.css действует только на неё.
+  const shellClean = useCleanShell();
+  const royalSection = useRoyalLook() && shellClean ? "clients" : undefined;
   if (kind !== "OTHER" && (gateRole === "MARKETING" || gateRole === "EDITOR")) {
     return <RoleGate title="Клиенты" text="Раздел недоступен этой роли." />;
   }
-  return <>
+  return <RoyalSection name={royalSection}>
     {legacyAgentMobile
       ? kind === "OTHER" ? <MobileInquiries /> : <MobileClientsList kind={kind} onAddClient={() => setFormKind(kind)} />
       : <ClientsList kind={kind} onAddClient={setFormKind} />}
     {formKind && !readOnly && <ClientFormModal kind={formKind} initialPhone={newClientPhone} onClose={() => setFormKind(null)} />}
-  </>;
+  </RoyalSection>;
 }
 
 /** Экран роли без доступа — тихой строкой прототипа (договор §6.12), а не пустотой. */

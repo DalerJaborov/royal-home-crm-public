@@ -57,6 +57,46 @@ test("новый вид, телефон: строка клиента не выш
   }
 });
 
+test("новый вид: опасная кнопка красная — и на экране раздела, и в его шторке", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "проверка цвета, одной ширины хватает");
+  await withShell(page, { enabled: true, look: "royal" });
+  await page.goto("/clients");
+  await expect(page.locator(".ry-crow").first()).toBeVisible({ timeout: 30_000 });
+  // Кнопки ставятся в настоящую область раздела и в шторку с меткой раздела (как у
+  // Rh2Portal): так проверяются ровно правила слоя, без поиска клиента с нужной заявкой.
+  const colors = await page.evaluate(() => {
+    const paint = (parent: Element, cls: string) => {
+      const button = document.createElement("button");
+      button.className = cls; button.textContent = "x"; parent.appendChild(button);
+      return getComputedStyle(button).backgroundColor;
+    };
+    const screen = document.querySelector('.rh2[data-ry-section="clients"] .scr')!;
+    const portal = document.createElement("div");
+    portal.className = "rh2 screens"; portal.setAttribute("data-ry-section", "clients");
+    portal.innerHTML = '<div class="scr"><form class="sheet right"><div class="sheet-f"></div></form></div>';
+    document.body.appendChild(portal);
+    const footer = portal.querySelector(".sheet-f")!;
+    return {
+      screen: { primary: paint(screen, "pill rh-btn"), danger: paint(screen, "pill rh-btn danger") },
+      sheet: { primary: paint(footer, "pill rh-btn"), danger: paint(footer, "pill rh-btn danger") },
+    };
+  });
+  const reddish = (rgb: string) => { const [r, g, b] = rgb.match(/\d+/g)!.map(Number); return r > 150 && r > g * 2 && r > b * 2; };
+  for (const place of ["screen", "sheet"] as const) {
+    expect(colors[place].danger, `${place}: опасная кнопка не того же цвета, что главная`).not.toBe(colors[place].primary);
+    expect(reddish(colors[place].danger), `${place}: опасная кнопка красная (${colors[place].danger})`).toBe(true);
+  }
+});
+
+test("новый вид: слой «Клиентов» не задевает «Подбор сотрудников» с похожими классами", async ({ page }) => {
+  await withShell(page, { enabled: true, look: "royal" });
+  await page.goto("/vacancies");
+  await expect(page.locator("main#main")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
+  await page.waitForLoadState("networkidle");
+  await expect(page.locator('[data-ry-section="clients"]')).toHaveCount(0);
+});
+
 test("без признака с сервера список клиентов в прежнем виде", async ({ page }) => {
   await withShell(page, { enabled: true });
   await page.goto("/clients");

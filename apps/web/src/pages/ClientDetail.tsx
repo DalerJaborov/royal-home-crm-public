@@ -71,6 +71,7 @@ import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTa
 import { MobileClientCard } from "../components/mobile/MobileClientCard";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalClientFacts, RoyalClientTabs, type RoyalClientFact } from "../components/look/clients/RoyalClients";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
 import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
 import { ClientBuyerRequirementsEditor } from "../components/ClientBuyerRequirementsEditor";
@@ -1498,7 +1499,10 @@ function ClientDetailCard() {
   }
 
   return (
-    <div className="rh2 screens">
+    // «Новый вид»: метка раздела на карточке и на всех её окнах (порталы Rh2Portal
+    // берут её из RoyalSection) — слой theme-look-royal-clients.css действует только на неё.
+    <RoyalSection name={royal ? "clients" : undefined}>
+    <div className="rh2 screens" data-ry-section={royal ? "clients" : undefined}>
       <div className={clean ? "scr clean-client-detail" : "scr"} style={clean ? cleanClientDetailScale : undefined}>
         <div className="wrap" style={{ marginBottom: 4 }}>
           {/* Прототип рисует крошку строкой `.lk mut` со стрелкой; на широком
@@ -1938,6 +1942,7 @@ function ClientDetailCard() {
 
       {sharedModals}
     </div>
+    </RoyalSection>
   );
 }
 
