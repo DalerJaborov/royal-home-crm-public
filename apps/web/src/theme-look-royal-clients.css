@@ -61,23 +61,26 @@
      главная (без модификатора)  — синяя, одна на экран;
      .ghost / .soft              — серые;
      .danger                     — красная (удалить, отклонить, перевести);
-     .gold, .btn-call, .btn-fab  — свои цвета старой темы не перекрашиваются.
+     .crit, .warn, .ok, .hot,
+     .gold, .btn-call, .btn-fab  — свои цвета старой темы не перекрашиваются
+                                   (исключены ВСЕ смысловые варианты — сторож
+                                   semanticButtonLeaks в theme-look-royal.test.ts).
    Ошибка первой версии слоя: синим красилась КАЖДАЯ .pill, и красные кнопки
    «Удалить клиента?», «Отклонить лид?» стали синими (ревью PR #278). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill {
   min-height: 48px; height: auto; padding: 0 20px; border-radius: 999px;
   font-size: 15px; font-weight: 600; box-shadow: none;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:not(.ghost):not(.soft):not(.danger):not(.gold):not(.btn-call):not(.btn-fab) {
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab) {
   border: 0; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:not(.ghost):not(.soft):not(.danger):not(.gold):not(.btn-call):not(.btn-fab):hover:not(:disabled) {
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab):hover:not(:disabled) {
   background: var(--rh-ui-primary-hover); transform: none;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:is(.ghost, .soft):not(.danger) {
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:is(.ghost, .soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot) {
   border: 0; background: var(--rh-ui-press); color: var(--rh-ui-text);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:is(.ghost, .soft):not(.danger):hover:not(:disabled) {
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:is(.ghost, .soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):hover:not(:disabled) {
   background: color-mix(in srgb, var(--rh-ui-hint) 20%, transparent); transform: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill.danger {
@@ -90,10 +93,18 @@
   min-height: 44px; height: auto; padding: 0 16px; font-size: 15px;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:active:not(:disabled) { transform: scale(.97); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:disabled { opacity: .5; transform: none; }
+/* Выключенная кнопка приглушена ВСЕГДА (долг DISABLED_DIM_DEBT, закрыт 18.11): перекраски
+   выше доходят до веса 19 классов (ряд действий карточки), а старая тема ставит
+   выключенной .pill opacity:1 и серый фон, — голубая «Сохранить» горела бы как рабочая.
+   :not(#ry-dim) добавляет вес id (такого id нет, совпадает с любой кнопкой): правило
+   тяжелее ЛЮБОЙ классовой перекраски, и новая перекраска не откроет дыру снова. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:disabled { transform: none; }
 
-/* Плашки. Форма — у всех; цвет — только у смысловых: срочно (.crit/.danger/.hot) —
-   сплошная красная, самая яркая; внимание (.warn) — светлая янтарная с обводкой;
+/* Плашки. Форма — у всех; цвет — только у смысловых: срочно (.crit/.danger) —
+   сплошная красная, самая яркая; внимание (.warn и .hot — «На проверке», см.
+   components/rh2/Chip.tsx) — светлая янтарная с обводкой (до 18.11 .hot красился
+   срочным красным — смысл «внимание» подменялся на «срочно»);
    норма (.ok) — светлая зелёная; справка (.mute/.info) — светло-синяя.
    Прочие тона старой темы (aqua, lav, sky, lime, pink, acc, delta…) остаются
    своими: перекрасить их в серый значило бы стереть различие. */
@@ -101,10 +112,10 @@
   display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 12px;
   border-radius: 999px; font-size: 14px; font-weight: 600; line-height: 1.2;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .chip:is(.crit, .danger, .hot) {
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .chip:is(.crit, .danger) {
   border: 0; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); font-weight: 700;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .chip.warn {
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .chip:is(.warn, .hot) {
   border: 0; background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn);
   box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent);
 }
@@ -184,10 +195,12 @@
   background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .clean-shell #main .rh2[data-ry-section="clients"].clean-clients-page > .scr > #clients-list.card.tight { padding: 16px 0 8px; }
-/* Тихие строки над списком — одна строка: точка, «Не связывались: 4», кнопка справа.
-   Полное пояснение — в подсказке и для чтеца (разметка в Clients.tsx). */
+/* Тихие строки над списком: точка, «Не связывались: 4» или «Имя ждёт агента 3 ч», кнопка
+   справа. До 18.11 обрезались многоточием в одну строку — имя и срок ожидания пропадали;
+   теперь длинная строка переносится. */
 :root[data-ui-look="royal"] .clean-shell #main .rh2.screens[data-ry-section="clients"].clean-clients-page > .scr > .card.tight.clean-client-notices > .quiet > .txt {
-  overflow: hidden; display: block; white-space: nowrap; text-overflow: ellipsis; -webkit-line-clamp: none;
+  /* Не обрезаем (18.11, сторож truncatedNotices): строка с числом — данные; длинная переносится. */
+  overflow: visible; display: block; white-space: normal; text-overflow: clip; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .clean-shell #main .rh2[data-ry-section="clients"].clean-clients-page > .scr > .clean-client-notices > .quiet > .txt b { font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .clean-shell #main .rh2[data-ry-section="clients"].clean-clients-page > .scr > #clients-list > .quiet { max-height: none; margin: 0 16px; }
@@ -286,7 +299,7 @@
   width: 48px; min-width: 48px; height: 48px; min-height: 48px; padding: 0; border-radius: 999px;
   background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-acts .pill.btn-call.rh-btn:hover { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-acts .pill.btn-call.rh-btn:hover:not(:disabled) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-acts .btn-call svg { width: 22px; height: 22px; }
 
 /* Таблица — когда самому списку хватает ширины (ПК): всё как в строке Clean. */
@@ -406,8 +419,8 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts > * { min-width: 0; max-width: 100%; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts :is(.pill, button) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts .pill .i { width: 20px; height: 20px; flex: none; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts .pill:not(.ghost) ~ .pill:not(.ghost):not(.soft):not(.danger):not(.gold),
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts .pill:not(.ghost) ~ * .pill:not(.ghost):not(.soft):not(.danger):not(.gold) {
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts .pill:not(.ghost) ~ .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot),
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts .pill:not(.ghost) ~ * .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot) {
   background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts .pill.sm[aria-label="Изменить имя"] { width: 48px; min-height: 48px; padding: 0; }
@@ -520,11 +533,11 @@
 }
 /* Выбор из нескольких (срез, источник, итог) — таблетки 44, выбранная тёмная. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .sheet .rh-filters { gap: 8px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .sheet .rh-filters button {
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .sheet .rh-filters button:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)) {
   min-height: 44px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
   font-size: 15px; font-weight: 600; box-shadow: none;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .sheet .rh-filters button[aria-pressed="true"] { background: var(--rh-ui-text); color: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .sheet .rh-filters button[aria-pressed="true"]:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)) { background: var(--rh-ui-text); color: var(--rh-ui-bg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .sheet .rh-filters .n { font-variant-numeric: tabular-nums; opacity: .8; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .sheet .card {
   border: 0; border-radius: 20px; background: var(--rh-ui-bg); box-shadow: none;

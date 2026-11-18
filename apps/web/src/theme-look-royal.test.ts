@@ -325,63 +325,142 @@ export function disabledDimGap(css: string): { heaviest: string; weight: number;
   return weight > 0 && dim < weight ? { heaviest, weight, dim } : null;
 }
 
-/**
- * ДОЛГ, найденный усиленным сторожем 18.11.2026 (PR #280) в уже выкаченных слоях.
- * Сторож не ослаблен: ровно эти селекторы известны и переданы владельцу пачки, любая
- * НОВАЯ находка красит прогон. Починили — убрать строку отсюда (список только убывает).
- */
-const KNOWN_DEBT: Record<string, string[]> = {
-  "theme-look-royal-clients.css": [
-    // исключают только .danger/.gold — .crit/.warn/.ok/.hot перекрасятся
-    ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:not(.ghost):not(.soft):not(.danger):not(.gold):not(.btn-call):not(.btn-fab)',
-    ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:not(.ghost):not(.soft):not(.danger):not(.gold):not(.btn-call):not(.btn-fab):hover:not(:disabled)',
-    ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:is(.ghost, .soft):not(.danger)',
-    ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .pill:is(.ghost, .soft):not(.danger):hover:not(:disabled)',
-    ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts .pill:not(.ghost) ~ .pill:not(.ghost):not(.soft):not(.danger):not(.gold)',
-    ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts .pill:not(.ghost) ~ * .pill:not(.ghost):not(.soft):not(.danger):not(.gold)',
-    // голый button в шторке без исключения смысловых вариантов
-    ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .sheet .rh-filters button',
-    ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .sheet .rh-filters button[aria-pressed="true"]',
-  ],
-  "theme-look-royal-chats.css": [
-    // кнопка «к последнему» красится без исключения смысловых вариантов
-    ':root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-jump-latest .pill',
-  ],
-};
+/** Поверхность (карточка, фон страницы) — не смысл и не чужой смысл: фоном смысловой плашки допустима. */
+const SURFACE = /^var\(--rh-ui-(card|bg|raised)\)$/;
 
 /**
- * ДОЛГ сторожа выключенной кнопки (третье ревью PR 279, 18.11.2026) в уже выкаченных
- * слоях: перекраска `.pill` тяжелее их правила приглушения `:disabled`, недоступная
- * кнопка там может гореть как доступная. Сторож не ослаблен — разрыв записан ТОЧНО
- * (селектор и вес), любое изменение красит прогон; передано владельцам пачек. Починили —
- * убрать строку (список только убывает).
+ * Смысловой цвет НЕ кнопки (плашки, точки, подписи; ревью 18.11, пачка debt): правило,
+ * прямо называющее смысловой вариант (`.chip.warn`, `.dot.crit`, `:is(.crit, .hot)`),
+ * красит только токенами ЕГО смысла, нейтрально или фоном-поверхностью. Так ловится
+ * `.chip:is(.crit, .danger, .hot){background: crit}` — «На проверке» (`.hot` = внимание,
+ * components/rh2/Chip.tsx) горело срочным красным в «Клиентах» до 18.11.
  */
-const DISABLED_DIM_DEBT: Record<string, { heaviest: string; weight: number; dim: number }> = {
-  "theme-look-royal-clients.css": {
-    heaviest: ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .scr.clean-client-detail .clean-client-header .acts .pill:not(.ghost) ~ .pill:not(.ghost):not(.soft):not(.danger):not(.gold)',
-    weight: 15000, dim: 6000,
-  },
-  "theme-look-royal-objects.css": {
-    heaviest: ':root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):not(.ghost):not(.soft):not(.rh-gallery-nav *):not([data-variant="icon"]):not(.icon):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"]))',
-    weight: 13000, dim: 8000,
-  },
-};
+export function semanticColorLeaks(css: string): string[] {
+  const bad: string[] = [];
+  for (const rule of cssRules(css)) {
+    const colors = declarations(rule.body).filter(([prop]) => COLOR_PROP.test(prop));
+    if (!colors.length) continue;
+    for (const selector of splitTopLevel(rule.selector)) {
+      const { rest } = notGroups(subjectOf(selector));
+      const named = SEMANTIC_VARIANTS.filter((v) => new RegExp(`\\.${v}\\b`).test(rest));
+      if (!named.length) continue;
+      const ok = colors.every(([prop, value]) => NEUTRAL_COLOR.test(value)
+        || (prop !== "color" && SURFACE.test(value))
+        || named.every((v) => MEANING[v]?.test(value)));
+      if (!ok) bad.push(selector);
+    }
+  }
+  return bad;
+}
 
-describe("слои разделов: смысловые кнопки, запас iPhone, соседи метки", () => {
+const NOT_DISABLED = /:not\((:disabled|\[disabled\]|:is\(:disabled[^)]*\))\)|:enabled/;
+const REACTION_PROP = /^(background(-color)?|color|transform|box-shadow|border(-color)?|opacity)$/;
+
+/**
+ * Выключенная кнопка «живая» под мышью и пальцем (пачка debt, 18.11): `:hover`/`:active`,
+ * меняющие фон, цвет, обводку или размер кнопки (`.pill`/`.rh-btn`/`.ry-btn`/`button` и
+ * любой класс, у которого в том же слое есть своё правило `:disabled`), обязаны исключить
+ * выключенную — `:not(:disabled)` или `:enabled`. Так ловятся `.ry-btn:active{scale}` и
+ * `.ry-menu > button:hover{background}` основы и «Чатов» до 18.11.
+ */
+export function disabledReactions(css: string): string[] {
+  const rules = cssRules(css);
+  const capable = new Set<string>();
+  for (const rule of rules) for (const selector of splitTopLevel(rule.selector)) {
+    const subject = subjectOf(selector);
+    if (!/:disabled|\[disabled\]/.test(subject) || NOT_DISABLED.test(subject)) continue;
+    for (const m of notGroups(subject).rest.matchAll(/\.([\w-]+)/g)) {
+      // смысловой вариант или вид (.crit, .ghost) — не сама кнопка
+      if (!SEMANTIC_VARIANTS.includes(m[1]) && !/^(ghost|soft|sm)$/.test(m[1])) capable.add(m[1]);
+    }
+  }
+  const bad: string[] = [];
+  for (const rule of rules) {
+    if (!declarations(rule.body).some(([prop, value]) => REACTION_PROP.test(prop) && !/^none$/i.test(value))) continue;
+    for (const selector of splitTopLevel(rule.selector)) {
+      const subject = subjectOf(selector);
+      if (!/:(hover|active)\b/.test(subject) || NOT_DISABLED.test(subject)) continue;
+      const rest = notGroups(subject).rest;
+      const control = BUTTON_SUBJECT.test(rest) || [...rest.matchAll(/\.([\w-]+)/g)].some((m) => capable.has(m[1]));
+      if (control) bad.push(selector);
+    }
+  }
+  return bad;
+}
+
+/**
+ * Тихая плашка-предупреждение (`.quiet`: «Уведомления заблокированы браузером…») не
+ * обрезается ни многоточием, ни зажимом строк (18.11, пачка debt: на 1024 и телефоне
+ * съедалась инструкция, где их включить). Длинный текст переносится.
+ */
+export function truncatedNotices(css: string): string[] {
+  return cssRules(css).flatMap((rule) => {
+    if (!declarations(rule.body).some(([prop, value]) => (prop === "text-overflow" && /ellipsis/.test(value)) || /line-clamp$/.test(prop))) return [];
+    return splitTopLevel(rule.selector).filter((selector) => /\.quiet\b/.test(topLevel(selector)));
+  });
+}
+
+describe("все слои нового вида: смысловые цвета, выключенные кнопки, запас iPhone, соседи метки", () => {
+  it.each(lookFiles)("%s: тихие плашки-предупреждения не обрезаны", (file) => {
+    expect(truncatedNotices(readFileSync(new URL(`./${file}`, import.meta.url), "utf8"))).toEqual([]);
+  });
+  it("сторож обрезанной плашки проверен поломкой", () => {
+    const Q = ':root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > .txt';
+    expect(truncatedNotices(`${Q} { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([Q]);
+    expect(truncatedNotices(`${Q} { display: -webkit-box; -webkit-line-clamp: 2; }`)).toEqual([Q]);
+    expect(truncatedNotices(`${Q} { white-space: normal; text-overflow: clip; }`)).toEqual([]);
+  });
   const sectionFiles = lookFiles.filter((f) => lookSectionOf(f));
   it("знает слой раздела «Объекты»", () => {
     expect(lookFiles).toContain("theme-look-royal-objects.css");
     expect(lookSectionOf("theme-look-royal-objects.css")).toBe("objects");
   });
-  it.each(sectionFiles)("%s: смысловые кнопки не перекрашены, запас iPhone не тронут, из раздела не выходит", (file) => {
+  // Без списков долга (KNOWN_DEBT / DISABLED_DIM_DEBT закрыты 18.11, пачка debt): каждый
+  // слой, основа тоже, обязан быть чистым. Находка чинится в слое, а не вписывается сюда.
+  it.each(lookFiles)("%s: смысловые кнопки и плашки не перекрашены, запас iPhone не тронут", (file) => {
     const css = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
-    expect(semanticButtonLeaks(css)).toEqual(KNOWN_DEBT[file] ?? []);
+    expect(semanticButtonLeaks(css)).toEqual([]);
+    expect(semanticColorLeaks(css)).toEqual([]);
     expect(safeAreaOverrides(css)).toEqual([]);
+  });
+  it.each(sectionFiles)("%s: из своего раздела не выходит", (file) => {
+    const css = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
     expect(siblingEscapes(css, lookSectionOf(file)!)).toEqual([]);
   });
-  it.each(sectionFiles)("%s: выключенная кнопка приглушена не слабее перекраски", (file) => {
+  it.each(lookFiles)("%s: выключенная кнопка приглушена не слабее перекраски и не отзывается на мышь и палец", (file) => {
     const css = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
-    expect(disabledDimGap(css)).toEqual(DISABLED_DIM_DEBT[file] ?? null);
+    expect(disabledDimGap(css)).toBeNull();
+    expect(disabledReactions(css)).toEqual([]);
+  });
+  it("списков долга у сторожа нет: находку чинят в слое, а не прощают", () => {
+    const self = readFileSync(new URL("./theme-look-royal.test.ts", import.meta.url), "utf8");
+    expect(self).not.toMatch(/\b[A-Z_]*DEBT[A-Z_]*\s*:\s*Record</);
+    expect(self).not.toMatch(/\?\?\s*(\[\]|null)\)/);
+  });
+  it("новые сторожа проверены поломкой: смысловая плашка, «живая» выключенная кнопка, слабое приглушение", () => {
+    const clients = readFileSync(new URL("./theme-look-royal-clients.css", import.meta.url), "utf8");
+    const objects = readFileSync(new URL("./theme-look-royal-objects.css", import.meta.url), "utf8");
+    const base = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
+    const C = ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"]';
+    // «На проверке» (.hot) срочным красным — ровно та ошибка «Клиентов» до 18.11
+    expect(semanticColorLeaks(`${clients}\n${C} .chip:is(.crit, .danger, .hot) { background: var(--rh-ui-crit); }`))
+      .toEqual([`${C} .chip:is(.crit, .danger, .hot)`]);
+    expect(semanticColorLeaks(`${clients}\n${C} .dot.ok { background: var(--rh-ui-primary); }\n${C} .quiet.warn { color: var(--rh-ui-card); }`))
+      .toEqual([`${C} .dot.ok`, `${C} .quiet.warn`]);
+    expect(semanticColorLeaks(`${C} .chip.warn { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }\n${C} .quiet.crit { background: var(--rh-ui-card); }`)).toEqual([]);
+    // наведение и нажатие без исключения выключенной
+    expect(disabledReactions(`${base}\n:root[data-ui-look="royal"] .ry-btn:active { transform: scale(.97); }`))
+      .toEqual([':root[data-ui-look="royal"] .ry-btn:active']);
+    expect(disabledReactions(`${base}\n:root[data-ui-look="royal"] .ry-round:disabled { opacity: .5; }\n:root[data-ui-look="royal"] .ry-round:hover { background: red; }`))
+      .toEqual([':root[data-ui-look="royal"] .ry-round:hover']);
+    expect(disabledReactions(`${C} .pill:hover:not(:disabled) { background: red; }\n${C} .pill:enabled:active { transform: scale(.9); }\n${C} .row:hover { background: red; }`)).toEqual([]);
+    // приглушение без веса id снова слабее перекраски — долг вернулся бы
+    for (const css of [clients, objects]) {
+      const weak = css.replace(/:not\(#ry-dim\)/g, "");
+      expect(weak).not.toBe(css);
+      expect(disabledDimGap(weak)).not.toBeNull();
+      expect(disabledDimGap(css)).toBeNull();
+    }
   });
   it("сторож выключенной кнопки проверен поломкой (без правила приглушения — красный)", () => {
     const team = readFileSync(new URL("./theme-look-royal-team.css", import.meta.url), "utf8");

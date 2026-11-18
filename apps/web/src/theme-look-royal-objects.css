@@ -514,8 +514,11 @@
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .lab { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .chk { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; }
-/* Отключённая кнопка (до выбора причины в «Удалить объект?» и т.п.) — приглушена, в том числе красная. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+/* Отключённая кнопка (до выбора причины в «Удалить объект?» и т.п.) — приглушена, в том числе красная.
+   :not(#ry-dim) — вес id (такого id нет): правило тяжелее любой классовой перекраски
+   кнопок выше (самая тяжёлая — 13 классов на странице объекта), долг DISABLED_DIM_DEBT
+   закрыт 18.11 и новая перекраска его не откроет. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
 /* Опасная кнопка в новом виде — сплошная красная таблетка; смысл старой темы не теряется. */
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]),
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }

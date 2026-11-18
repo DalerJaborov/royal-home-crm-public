@@ -243,8 +243,8 @@
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); cursor: pointer;
   transition: transform 90ms cubic-bezier(.23, 1, .32, 1), background-color 160ms;
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-round:hover { background: var(--rh-ui-hover); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-round:active { transform: scale(.96); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-round:hover:not(:disabled) { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-round:active:not(:disabled) { transform: scale(.96); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-round:disabled { opacity: .45; cursor: default; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-round:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-round svg { width: 22px; height: 22px; }
@@ -282,7 +282,7 @@
   border: 0; border-radius: 14px; background: transparent; color: var(--rh-ui-text);
   font: inherit; font-size: 15px; font-weight: 600; text-align: left; cursor: pointer;
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu > button:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu > button:hover:not(:disabled) { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu > button:disabled { opacity: .5; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu > button svg { width: 20px; height: 20px; flex: none; color: var(--rh-ui-hint); }
 
@@ -338,7 +338,10 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) [data-quote] { background: rgba(255, 255, 255, .16); color: #ffffff; border-color: rgba(255, 255, 255, .5); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .lnk { min-height: 32px; font-size: 14px; font-weight: 600; color: var(--rh-ui-primary-ink); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-bot-feedback button { min-height: 44px; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-jump-latest .pill { min-height: 44px; border-radius: 999px; background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-jump-latest .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)) { min-height: 44px; border-radius: 999px; background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
+/* Выключенная таблетка раздела приглушена всегда: :not(#ry-dim) — вес id (такого id нет),
+   правило тяжелее любой классовой перекраски .pill выше (сторож disabledDimGap). */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] :is(.pill, .rh-btn):is(:disabled, [disabled]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
 
 /* Поиск по переписке — прежняя строка, новая одежда. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-timeline > .pane-b { background: var(--rh-ui-card); border-bottom: 0 !important; box-shadow: 0 1px 0 var(--rh-ui-sep); }
@@ -365,7 +368,7 @@
   border: 0; border-radius: 999px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
   font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-quick button:active { transform: scale(.97); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-quick button:active:not(:disabled) { transform: scale(.97); }
 
 /* Строка ввода: поле, вложение, объект, голос, «отправить» синим кругом. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose {

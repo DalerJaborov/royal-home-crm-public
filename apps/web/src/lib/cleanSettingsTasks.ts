@@ -43,10 +43,32 @@ export const CLEAN_SETTINGS_TASKS: readonly CleanSettingsTask[] = [
   { tab: "system", id: "website", title: "Управление сайтом", hint: "Доступ к администрированию royalhome.tj", topics: topics("system", 8), directorOnly: true },
 ];
 
-export const CLEAN_SETTINGS_LABELS: Record<SettingsTabId, string> = {
-  agency: "Компания", money: "Деньги", leads: "Клиенты и правила работы", matching: "Подбор объектов",
-  team: "Сотрудники и права", channels: "Связь и публикации", bot: "ИИ-помощник", system: "Система и безопасность",
+/**
+ * Группы настроек: название и короткая подпись для списка групп «Нового вида»
+ * (`shortLabel`, до 40 знаков, по смыслу подразделов). Без неё список показывал все
+ * подразделы через точку — у «ИИ-помощника» до шести строк (18.11.2026). Полный список
+ * подразделов остаётся внутри группы. Нет `shortLabel` — подпись собирается из названий
+ * подразделов, как раньше (`cleanSettingsGroupSub`).
+ */
+export const CLEAN_SETTINGS_GROUPS: Record<SettingsTabId, { label: string; shortLabel?: string }> = {
+  agency: { label: "Компания", shortLabel: "Название, логотип, районы" },
+  money: { label: "Деньги", shortLabel: "Комиссия и курс доллара" },
+  leads: { label: "Клиенты и правила работы", shortLabel: "Приём, распределение, сроки" },
+  matching: { label: "Подбор объектов", shortLabel: "Бюджет, комнаты, расстояние" },
+  team: { label: "Сотрудники и права", shortLabel: "Доступ, права, рейтинг" },
+  channels: { label: "Связь и публикации", shortLabel: "Мессенджеры, соцсети, телефония, СМС" },
+  bot: { label: "ИИ-помощник", shortLabel: "Помощник, ответы, голос, модели" },
+  system: { label: "Система и безопасность", shortLabel: "Диагностика, интерфейс, вход, импорт" },
 };
+
+export const CLEAN_SETTINGS_LABELS = Object.fromEntries(
+  Object.entries(CLEAN_SETTINGS_GROUPS).map(([id, group]) => [id, group.label]),
+) as Record<SettingsTabId, string>;
+
+/** Подпись группы в списке: короткая фраза, а без неё — подразделы через точку. */
+export function cleanSettingsGroupSub(tab: SettingsTabId, role?: string) {
+  return CLEAN_SETTINGS_GROUPS[tab].shortLabel ?? cleanSettingsTasks(tab, role).map((entry) => entry.title).join(" · ");
+}
 
 export function cleanSettingsTasks(tab: SettingsTabId, role?: string) {
   return CLEAN_SETTINGS_TASKS.filter((task) => task.tab === tab && (!task.directorOnly || role === "DIRECTOR")
