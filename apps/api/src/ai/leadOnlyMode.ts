@@ -343,7 +343,9 @@ export function leadOnlyAgencyFeeQuestion(text: string): boolean {
 const CALL_QUESTION = /(?:^|[^\p{L}])(?:(?:пере|по)?звон\p{L}*|позвонит\p{L}*|занг)(?![\p{L}])[^?]*\?\s*$/iu;
 function lastSentence(text: string): string {
   const parts = (text ?? "").trim().split(/(?<=[.!?])\s+/u).filter(Boolean);
-  return parts.at(-1) ?? "";
+  // Короткий хвост-вопрос («…на этот номер завтра с 09:30. Удобно?») — вопрос о том, что сказано перед ним.
+  const last = parts.at(-1) ?? "";
+  return parts.length > 1 && last.length <= 20 ? `${parts.at(-2)} ${last}` : last;
 }
 
 /**

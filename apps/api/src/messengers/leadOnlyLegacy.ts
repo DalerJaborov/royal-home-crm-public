@@ -169,6 +169,7 @@ async function planLegacyLeadOnlyTurnText(input: {
   // к сотруднику: без номера просьба номера, потом номер офиса; с номером — заявка. Тему прежней просьбы номера не стирает.
   // Аренда и вакансии (в этом или прежних сообщениях) заявкой через «позвоните / соедините» не становятся (ревью 18.11).
   const escalationBlocked = async () => leadOnlyEscalationBlocked({ own, earlierUserTexts: userWords, role: (await intentOf(own, userWords)).role });
+  if (input.forced && await escalationBlocked()) return null;
   if (!scenario && !input.forced && !jobTopic && customerAsksForStaff(own) && !await escalationBlocked()) scenario = "escalate";
   // WhatsApp, номер известен, карточки нет: просьба звонка или «да» на вопрос бота о звонке — заявка (та же дверь, что у ядра:
   // ai/leadOnlyMode.ts::leadOnlyCallWanted; 18.11.2026, #2f2c7d).

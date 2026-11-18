@@ -9,7 +9,7 @@ vi.mock("../src/ai/leadOnlyIntent.js", async (importOriginal) => {
 import { prisma } from "../src/db.js";
 import { planCustomerLeadOnlyTurn, type CustomerLeadOnlyTurnInput } from "../src/lib/customerLeadOnlyCore.js";
 import { leadOnlyIntentFallback, type LeadOnlyIntent } from "../src/ai/leadOnlyIntent.js";
-import { LEAD_ONLY_DEFAULTS } from "../src/ai/leadOnlyMode.js";
+import { LEAD_ONLY_DEFAULTS, leadOnlyCallWanted } from "../src/ai/leadOnlyMode.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
 import { decryptSecret } from "../src/crypto.js";
 
@@ -155,5 +155,31 @@ describe("запасные правила: опечатки продавца", (
       expect(leadOnlyIntentFallback(text).role, text).toBe("seller");
     }
     expect(leadOnlyIntentFallback("Хочу купить квартиру").role).toBe("buyer");
+  });
+});
+
+describe("одна дверь «просьба звонка» (ai/leadOnlyMode.ts::leadOnlyCallWanted) — ядро и старый путь", () => {
+  const base = { channel: "WHATSAPP", useWhatsappNumber: true, earlierUserTexts: [] as string[], role: "other" as const };
+  const wanted = (own: string, lastBotText = "") => leadOnlyCallWanted({ ...base, own, lastBotText });
+
+  it("повелительная просьба — да; «я сам позвоню вам» — нет", () => {
+    for (const own of ["Позвоните мне через воцтап сейчас", "Перезвоните, пожалуйста", "Ба ман занг занед"]) expect(wanted(own), own).toBe(true);
+    for (const own of ["Куда можно позвонить?", "Можно позвонить?", "Можно ли позвонить в офис?", "Ба шумо занг зада метавонам?", "Ба куҷо занг занам?"]) {
+      expect(wanted(own), own).toBe(false);
+    }
+  });
+
+  it("«да / ок / ҳо» — только на вопрос бота о звонке, в том числе с временем перед «Удобно?»", () => {
+    expect(wanted("Ҳо", "Мехоҳед корманд ба шумо занг занад?")).toBe(true);
+    expect(wanted("Да", "Агент позвонит вам на этот номер завтра с 09:30. Удобно?")).toBe(true);
+    expect(wanted("Да", "Агент сможет позвонить в рабочее время. Подобрать варианты в Сино?")).toBe(false);
+    expect(wanted("Ок", "Чӣ хизмат кунам?")).toBe(false);
+  });
+
+  it("не WhatsApp, отказ, аренда и вакансия — никогда", () => {
+    expect(leadOnlyCallWanted({ ...base, channel: "INSTAGRAM", own: "Позвоните мне", lastBotText: "" })).toBe(false);
+    expect(wanted("Не звоните мне")).toBe(false);
+    expect(leadOnlyCallWanted({ ...base, own: "Позвоните мне", lastBotText: "", earlierUserTexts: ["Ищу квартиру в аренду"] })).toBe(false);
+    expect(leadOnlyCallWanted({ ...base, own: "Позвоните мне", lastBotText: "", role: "job" })).toBe(false);
   });
 });

@@ -199,6 +199,8 @@ async function planCustomerLeadOnlyTurnText(input: CustomerLeadOnlyTurnInput, no
   const topicNow = !!scenario && !input.forced;
   // Аренда и вакансии (в этом или прежних сообщениях) заявкой через «позвоните / соедините» не становятся (ревью 18.11).
   const escalationBlocked = async () => leadOnlyEscalationBlocked({ own, earlierUserTexts: userTexts, role: (await intentOf(own, userTexts)).role });
+  // Модель не справилась (forced): аренда и вакансия и тогда не заявка — ход уходит прежним путём (второе ревью 18.11, №4).
+  if (input.forced && await escalationBlocked()) return null;
   // «Соедините с человеком» (пятое ревью 13.11, №1): передачи сотруднику в режиме нет. Ответ сервера тот же, что у вопроса
   // к сотруднику: без номера — просьба номера, потом номер офиса; с номером — заявка. Тему прежней просьбы номера не стирает.
   if (!scenario && !input.forced && customerAsksForStaff(own) && !await escalationBlocked()) scenario = "escalate";
