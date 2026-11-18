@@ -26,6 +26,7 @@ import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol
 import { clientOwnWords } from "./untrustedContent.js";
 import { looksLikeRentRequest } from "./rentGuard.js";
 import { withoutAgreementOpenings } from "./customerAgentHumanText.js";
+import { customerRoleSignals, foldCustomerText } from "./customerAgentRole.js";
 
 /** Кто клиент — перечень ответа модели (ai/leadOnlyIntent.ts). Здесь, а не там: тип нужен сценарию, а круга импортов быть не должно. */
 export const LEAD_ONLY_ROLES = ["buyer", "seller", "renter", "landlord", "job", "other"] as const;
@@ -318,6 +319,16 @@ const PROPERTY_INTEREST = new RegExp([
   `${w(`ин|ҳамин|хамин`)}\\s+${w(`хона${TAIL}|квартира${TAIL}|объект${TAIL}|вариант${TAIL}`)}`,
 ].join("|"), "iu");
 
+// Вопрос о цене услуг агентства («сколько стоят ваши услуги», «комиссия какая», «хизмати шумо чанд пул»), текст в
+// сложенном алфавите (foldCustomerText: ҳ→х, ӣ→и …).
+const FEE_SUBJECT = /(?:^|[^\p{L}])(?:услуг\p{L}*|комисси\p{L}*|хизмат\p{L}*)/u;
+const FEE_PRICE = /(?:^|[^\p{L}])(?:сколько|скока|цена|цену|стои\p{L}*|почем|процент\p{L}*|чанд|нарх\p{L}*|пул|арзиш\p{L}*|фоиз\p{L}*|ки?мм?ат\p{L}*)(?![\p{L}])/u;
+/** Чистая: клиент спрашивает цену услуг агентства. */
+export function leadOnlyAgencyFeeQuestion(text: string): boolean {
+  const folded = foldCustomerText(clientOwnWords(text ?? ""));
+  return FEE_SUBJECT.test(folded) && FEE_PRICE.test(folded);
+}
+
 // ── Сценарий хода ───────────────────────────────────────────────────────────
 export type LeadOnlyScenario = "hot" | "property" | "seller" | "buyer";
 
@@ -352,6 +363,9 @@ export function leadOnlyScenario(input: LeadOnlyScenarioInput): LeadOnlyScenario
   if (customerRecruitmentRequested(own) || looksLikeRentRequest(own)) return null;
   const { role, hot } = input.intent;
   if (role === "job" || role === "renter" || role === "landlord") return null;
+  // «Сколько стоят ваши услуги?» — готовый вопрос кнопки рекламы Meta, его задают и покупатели (18.11.2026: модель отвечала
+  // «Да, поможем продать» каждому). Без слова о продаже своего это не продавец: ответит обычный путь — 0% и 2%.
+  if (role === "seller" && leadOnlyAgencyFeeQuestion(own) && !customerRoleSignals(own).sell) return null;
   // Продавец — первым: «продаю, адрес такой-то» не горячий покупатель, а объект, оставшийся в фокусе
   // с прошлого разговора, не перебивает ясное «хочу продать свою квартиру».
   if (role === "seller") return "seller";

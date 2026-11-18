@@ -27,7 +27,9 @@ import { AGENCY_FACTS } from "../ai/agencyFacts.js";
 import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyOutgoing, leadOnlyAppliesTo, leadOnlyCallbackNotedLine, leadOnlyCallbackTime, leadOnlyCallDeclined,
   leadOnlyGivenLineAvoidingRepeat, leadOnlyNoCallNotedLine, leadOnlyNoteWithCallbackTime, leadOnlyPhoneAskHistory, leadOnlyPhoneRefused,
   leadOnlyNoAgentLine, leadOnlyRecentCallbackTime, leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
-  type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
+  type LeadOnlyScenario, leadOnlyCallRequested } from "../ai/leadOnlyMode.js";
+import { isCustomerShortCallbackYes } from "../ai/customerAskSignals.js";
+import { customerCallbackConsentDecision } from "./customerCallbackConsent.js";
 import { classifyLeadOnlyIntent, leadOnlyIntentOnce, type LeadOnlyIntent } from "../ai/leadOnlyIntent.js";
 import { customerSearchContinuation, customerSearchIntent } from "../ai/customerAgentSearchIntent.js";
 import { customerRecruitmentRequested } from "../ai/customerAgentRecruitmentProtocol.js";
@@ -158,6 +160,18 @@ function storedUserMessages(raw: unknown): Array<{ text: string; at: string | nu
   });
 }
 
+// Последняя фраза бота — вопрос о звонке: «Мехоҳед корманд ба шумо занг занад?», «Агент позвонит вам на этот номер, удобно?».
+const CALL_QUESTION = /(?:^|[^\p{L}])(?:(?:пере|по)?звон\p{L}*|позвонит\p{L}*|занг)(?![\p{L}])[^?]*\?\s*$/iu;
+/**
+ * Чистая: в WhatsApp (номер есть по самому каналу) клиент просит звонка — словами («позвоните мне», «ба ман занг занед») или
+ * коротким «да / ок / хо» в ответ на вопрос бота о звонке. Отказ («не звоните») — никогда.
+ */
+function callWantedWithKnownNumber(input: Pick<CustomerLeadOnlyTurnInput, "channel" | "config">, own: string, lastBotText: string): boolean {
+  if (input.channel !== "WHATSAPP" || !input.config.useWhatsappNumber || leadOnlyPhoneRefused(own)) return false;
+  if (customerCallbackConsentDecision(own) === "requested" || leadOnlyCallRequested(own)) return true;
+  return CALL_QUESTION.test(lastBotText.trim()) && isCustomerShortCallbackYes(own);
+}
+
 /** null — ход не про заявку: его отвечает обычное ядро (без подборок, фото и ссылок). */
 export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput, now: Date = new Date()): Promise<CustomerLeadOnlyTurnPlan | null> {
   const plan = await planCustomerLeadOnlyTurnText(input, now);
@@ -200,6 +214,11 @@ async function planCustomerLeadOnlyTurnText(input: CustomerLeadOnlyTurnInput, no
   // «Соедините с человеком» (пятое ревью 13.11, №1): передачи сотруднику в режиме нет. Ответ сервера тот же, что у вопроса
   // к сотруднику: без номера — просьба номера, потом номер офиса; с номером — заявка. Тему прежней просьбы номера не стирает.
   if (!scenario && !input.forced && customerAsksForStaff(own)) scenario = "escalate";
+  // WhatsApp, номер известен, карточки ещё нет (18.11.2026, #2f2c7d: «Позвоните мне через воцтап сейчас» → «Передал вашу
+  // просьбу», а карточки и агента нет): просьба звонка или «да» на вопрос бота о звонке — это заявка (лид = номер, 13.11).
+  // Намерение (купить/продать) решает классификатор приёма по всей переписке, как у любого вопроса к агенту.
+  const lastBotText = [...input.turns].reverse().find(t => t.role === "assistant")?.text ?? input.sentTexts.at(-1) ?? "";
+  if (!scenario && !input.forced && !linked && callWantedWithKnownNumber(input, own, lastBotText)) scenario = "escalate";
   // Клиент с карточкой назвал, когда ему звонить: короткое «передам агенту» и пометка агенту, а не ответ модели невпопад.
   if (linked && scenario !== "hot" && !input.forced && !volunteered && leadOnlyCallbackTime(own)) {
     return { text: noAgent ? await noAgentLine(sent) : leadOnlyCallbackNotedLine(input.language, sent), scenario: "callback", remember: null, forget: false,
