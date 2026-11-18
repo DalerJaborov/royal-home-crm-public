@@ -7,6 +7,18 @@ import { escalateSellerPropertyMissing, findSellerPropertyMissing } from "../src
 import { dushanbeDateTimeString, dushanbeInputToDate } from "../src/lib/dushanbeTime.js";
 
 /**
+ * Рубильник «Служба безопасности: автоматика» (18.11.2026) после выката выключен.
+ * Этот файл проверяет поведение ВКЛЮЧЁННОЙ автоматики СБ (карточка уходит «на
+ * проверку»), поэтому включает её только у себя, не трогая общую строку Settings.
+ * Выключенное положение — tests/security-automation-switch.test.ts.
+ */
+vi.mock("../src/lib/securityAutomation.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/securityAutomation.js")>()),
+  securityAutomationOn: async () => true,
+}));
+
+
+/**
  * Выключатели «работа с продавцами» (14.11.2026) — подменяются ТОЛЬКО в этом файле:
  * по умолчанию всё включено, как в базе, а выключение не трогает общую строку
  * Settings, которую в тот же момент читают тесты других файлов.

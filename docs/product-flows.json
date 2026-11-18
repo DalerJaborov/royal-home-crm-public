@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 778,
-  "forks": 4126,
+  "forks": 4129,
   "mounts": 87,
   "cron": 143,
   "jobs": 34,
@@ -16650,7 +16650,6 @@
       "всё внутри — одной транзакцией",
       "обращается к базе своим SQL",
       "читает в базе: client",
-      "читает в базе: deal",
       "меняет в базе: client"
      ],
      "c": [
@@ -16687,15 +16686,23 @@
       },
       {
        "k": "do",
-       "t": "const openDeal = await tx.deal.findFirst({ where: { clientId: client.id, stage: { notIn: [\"COMPLETED\", \"CANCE…",
+       "t": "const automationOn = await securityAutomationOn(tx);",
        "a": [
-        "читает в базе: deal"
+        "зовёт securityAutomationOn()"
        ],
        "c": []
       },
       {
        "k": "do",
-       "t": "await tx.client.update({ where: { id: client.id }, data: { securityReview: verdict, securityReviewedAt: new D…",
+       "t": "const blocker = await securityReviewCloseBlocker(tx, current);",
+       "a": [
+        "зовёт securityReviewCloseBlocker()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await tx.client.update({ where: { id: client.id }, data: { ...(reopen ? { assignmentRefusedAt: null, assignme…",
        "a": [
         "меняет в базе: client"
        ],
@@ -16744,7 +16751,7 @@
     },
     {
      "k": "if",
-     "t": "reviewed.close",
+     "t": "reviewed.outcome === \"trash\"",
      "a": [],
      "c": [
       {
@@ -16757,18 +16764,48 @@
       },
       {
        "k": "if",
-       "t": "!trashed.ok",
+       "t": "trashed.ok",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "console.error(\"[security-review] карточка не убрана в Корзину:\", trashed.error);",
+         "t": "message = `${label}. Карточка ушла в Корзину`;",
          "a": [
-          "пишет строку в журнал сервера"
+          "дословно из кода"
          ],
          "c": []
         }
        ]
+      },
+      {
+       "k": "else",
+       "t": "иначе",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logTimeline({ clientId: client.id, actor: { kind: \"agent\", agentId: req.agent!.id }, type: \"SYSTEM\", in…",
+         "a": [
+          "зовёт logTimeline()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "elseif",
+     "t": "reviewed.outcome === \"delete-request\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await fileEndOfWorkDeleteRequest(client, client.assignedAgentId ?? req.agent!.id, \"Работа по карточке заверше…",
+       "a": [
+        "зовёт fileEndOfWorkDeleteRequest()"
+       ],
+       "c": []
       }
      ]
     },
@@ -16797,7 +16834,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ok: true, verdict, message: label });",
+     "t": "res.json({ ok: true, verdict, message });",
      "a": [
       "ответ 200"
      ],
@@ -73893,7 +73930,7 @@
       },
       {
        "k": "do",
-       "t": "delete (response as Record<string, unknown>).investigationCaseConfig;",
+       "t": "delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];",
        "a": [
         "дословно из кода"
        ],
@@ -73932,6 +73969,21 @@
     {
      "k": "if",
      "t": "Object.prototype.hasOwnProperty.call(req.body ?? {}, \"postShowingCallEnabled\") && !canReadInvestigations(req)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -88413,7 +88465,7 @@
              "c": [
               {
                "k": "do",
-               "t": "await flagAgentBypassSuspicion(conv.clientId);",
+               "t": "await flagAgentBypassSuspicion(conv.clientId, conv.id);",
                "a": [
                 "дословно из кода"
                ],
@@ -109073,6 +109125,28 @@
             "дословно из кода"
            ],
            "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!(await securityAutomationOn())",
+         "a": [],
+         "c": [
+          {
+           "k": "loop",
+           "t": "для каждого: const c of critical",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await reportSecuritySignal({ clientId: c.id, subjectAgentId: c.assignedAgent?.id ?? null, source: \"sellerProp…",
+             "a": [
+              "зовёт reportSecuritySignal()"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         },
