@@ -9,8 +9,9 @@ import { DealIcon } from "./DealIcon";
  * (всей команды, ваши, выбранного агента), шторка фильтра — только тому, кто
  * видит всю команду, новая сделка — только тому, кто вправе её завести.
  */
-export function RoyalDealsHead({ scope, filtered, onFilter, onCreate }: {
-  scope: string; filtered: boolean; onFilter: (() => void) | null; onCreate: (() => void) | null;
+export function RoyalDealsHead({ scope, filterCount, onFilter, onCreate }: {
+  /** Сколько фильтров выбрано (сейчас один — агент): 0 — без точки. Кнопка открывает шторку, это не переключатель. */
+  scope: string; filterCount: number; onFilter: (() => void) | null; onCreate: (() => void) | null;
 }) {
   return (
     <header className="ry-deals-head">
@@ -21,8 +22,9 @@ export function RoyalDealsHead({ scope, filtered, onFilter, onCreate }: {
       {(onFilter || onCreate) && (
         <div className="ry-deals-head-acts">
           {onFilter && (
-            <button type="button" className="ry-btn" data-variant="gray" aria-pressed={filtered} onClick={onFilter}>
-              <DealIcon name="sliders" size={20} />Фильтры{filtered && <span className="ry-deals-dot" aria-label="фильтр включён" role="img" />}
+            <button type="button" className="ry-btn" data-variant="gray" data-active={filterCount > 0 ? "true" : undefined}
+              aria-label={filterCount > 0 ? `Фильтры, выбрано ${filterCount}` : undefined} onClick={onFilter}>
+              <DealIcon name="sliders" size={20} />Фильтры{filterCount > 0 && <span className="ry-deals-dot" aria-hidden="true" />}
             </button>
           )}
           {onCreate && (

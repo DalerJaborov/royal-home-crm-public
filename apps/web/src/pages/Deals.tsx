@@ -20,6 +20,7 @@ import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalDealsHead, RoyalDealsSummary } from "../components/look/deals/RoyalDealsHead";
 import { RoyalApprovalRow, RoyalArchiveRow, RoyalDealThumb } from "../components/look/deals/RoyalDealRows";
 import { RoyalDealColumnHead, RoyalDealTileBody } from "../components/look/deals/RoyalDealTile";
+import { RoyalDealStages } from "../components/look/deals/RoyalDealStages";
 import { CleanDealsApprovalRows, CleanDealsGuide, CleanDealsHeader, CleanDealsSummary } from "../components/clean/CleanDealsOverview";
 import { cleanClientDetailScale } from "../components/clean/CleanClientDetailLayout";
 import { useSyncFiltersToUrl } from "../hooks/useUrlFilters";
@@ -736,7 +737,7 @@ export function Deals() {
         <div className="pg-h">
           {royal ? <RoyalDealsHead
             scope={filterName ? `Агент: ${filterName}` : teamWide ? "Сделки всей команды" : "Ваши сделки"}
-            filtered={!!filterAgentId}
+            filterCount={filterAgentId ? 1 : 0}
             onFilter={teamWide ? () => setShowFilters(true) : null}
             onCreate={writesForeign ? () => setShowNewDeal(true) : null}
           /> : clean ? <CleanDealsHeader teamWide={teamWide} filterName={filterAgentId ? agentsList?.find((agent) => agent.id === filterAgentId)?.fullName ?? "Выбранный агент" : undefined} onCreate={writesForeign ? () => setShowNewDeal(true) : null} onFilter={teamWide ? () => setShowFilters(true) : null} /> : <>
@@ -811,10 +812,14 @@ export function Deals() {
 
         {deals && (
           <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-            {royal && mobile && <div className="ry-deals-stages" role="group" aria-label="Стадии сделок">
-              {BOARD_STAGES.map((stage) => <button type="button" key={stage.key} className="ry-deals-stage" aria-pressed={mobileStage === stage.key} onClick={() => setMobileStage(stage.key)}>{stage.label}<span className="ry-deals-stage-n ry-num">{board.filter((deal) => deal.stage === stage.key).length}</span></button>)}
-              <button type="button" className="ry-deals-stage" aria-pressed={mobileStage === "APPROVAL"} onClick={() => setMobileStage("APPROVAL")}>На одобрение<span className="ry-deals-stage-n ry-num">{pendingApproval.length}</span></button>
-            </div>}
+            {royal && mobile && <RoyalDealStages
+              tabs={[
+                ...BOARD_STAGES.map((stage) => ({ key: stage.key, label: stage.label, count: board.filter((deal) => deal.stage === stage.key).length })),
+                { key: "APPROVAL", label: "На одобрение", count: pendingApproval.length },
+              ]}
+              current={mobileStage}
+              onPick={(key) => setMobileStage(key as DealStage | "APPROVAL")}
+            />}
             {clean && !royal && mobile && <div className="clean-mobile-stage-nav" role="group" aria-label="Стадии сделок">
               {BOARD_STAGES.map((stage) => <button type="button" key={stage.key} className="pill ghost" aria-pressed={mobileStage === stage.key} onClick={() => setMobileStage(stage.key)}>{stage.label} · {board.filter((deal) => deal.stage === stage.key).length}</button>)}
               <button type="button" className="pill ghost" aria-pressed={mobileStage === "APPROVAL"} onClick={() => setMobileStage("APPROVAL")}>На одобрение · {pendingApproval.length}</button>

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { formatMoney } from "../../../lib/format";
 import type { Deal } from "../../../types";
 import { RhCircle, type RhTone } from "../ui";
+import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
 
 /**
@@ -86,10 +87,12 @@ export function RoyalArchiveRow({ deal, kind, onOpen, actions }: {
         <span className="ry-deal-figs">
           <span className="ry-deal-price ry-num">{formatMoney(deal.property.price, deal.property.currency)}</span>
           {done && deal.commissionAmount ? <span className="ry-deal-tag ry-num" data-tone="ok">+{formatMoney(deal.commissionAmount, deal.currency)}</span> : null}
-          {/* Отказной лид: агентская часть комиссии делится 70/30 — условие словами, не подсказкой. */}
-          {done && deal.refusedLeadSplit && <span className="ry-deal-tag">Отказной лид: 70% продавшему, 30% приведшему</span>}
           {!done && deal.annulledAt && <span className="ry-deal-tag" data-tone="warn">аннулирована</span>}
         </span>
+        {/* Отказной лид: агентская часть комиссии делится 70/30 — условие обычной строкой со значком, не подсказкой и не таблеткой. */}
+        {done && deal.refusedLeadSplit && (
+          <span className="ry-deal-note"><RoyalIcon name="users" size={18} />Отказной лид: 70% продавшему, 30% приведшему</span>
+        )}
         {!done && deal.annulledAt && deal.annulReason && <span className="ry-deal-reason">Причина: {deal.annulReason}</span>}
       </div>
       {actions && <div className="ry-deal-row-acts">{actions}</div>}

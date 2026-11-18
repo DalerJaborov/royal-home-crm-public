@@ -37,7 +37,7 @@
 }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-head p { margin: 0; font-size: 16px; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-head-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-head-acts .ry-btn[aria-pressed="true"] { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-head-acts .ry-btn[data-active="true"] { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--rh-ui-primary); }
 
 /* Сводка плитками: числа 40, сумма 28 — переносится, не обрезается. */
@@ -146,6 +146,8 @@
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-obj { font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-money { font-size: 15px; line-height: 1.45; color: var(--rh-ui-text); overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-money b { font-weight: 700; white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-note { display: flex; align-items: flex-start; gap: 6px; font-size: 15px; line-height: 1.4; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-note svg { flex: none; margin-top: 1px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-reason { font-size: 15px; line-height: 1.4; color: var(--rh-ui-text); overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-figs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 2px; }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-price { font-size: 17px; line-height: 1.2; color: var(--rh-ui-text); white-space: nowrap; }
@@ -244,10 +246,16 @@
 /* Телефон: этапы доски — таблетками в ряд, ряд листается сам, страница — нет. */
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-stages {
   display: flex; flex-wrap: nowrap; gap: 6px; margin: 0 0 12px; padding: 2px; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none;
+  scroll-snap-type: x proximity; scroll-padding-inline: 2px;
+}
+/* Справа ещё есть этапы — край ряда затухает (только тогда; data-more ставит RoyalDealStages). */
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-stages[data-more="true"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
 }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-stages::-webkit-scrollbar { display: none; }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-stage {
-  display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 0 8px 0 16px; border: 0; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 0 8px 0 16px; border: 0; border-radius: 999px; scroll-snap-align: start;
   background: var(--rh-ui-card); color: var(--rh-ui-hint); font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap; cursor: pointer;
   box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
@@ -295,6 +303,8 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
 /* Отключённая кнопка (пока не введена сумма или причина) — приглушена, в том числе красная. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="deals"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+/* То же в блоках страницы — весом не легче самой тяжёлой перекраски кнопок раздела (сторож disabledDimGap). */
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] > .scr .card.tight :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
   min-height: 48px; border: 0; border-radius: 16px; background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: 16px; box-shadow: none;

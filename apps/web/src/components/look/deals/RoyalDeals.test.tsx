@@ -57,6 +57,8 @@ describe("royal deals: archive rows", () => {
     expect(html).toContain(formatMoney("1250000", "USD"));
     expect(html).toContain(`+${formatMoney("37500.5", "USD")}`);
     expect(html).toContain("Отказной лид: 70% продавшему, 30% приведшему");
+    expect(html).toMatch(/class="ry-deal-note"><svg/); // строка со значком, не таблетка
+    expect(html).not.toMatch(/class="ry-deal-tag">Отказной/);
     expect(html).toContain("Аннулировать");
   });
   it("an annulled row shows the reason as text, not only in a tooltip", () => {
@@ -90,7 +92,10 @@ describe("royal deals: board card", () => {
     expect(html).toContain("Документы");
   });
   it("the middle stage moves forward with a labelled button", () => {
-    expect(tile({ next: { key: "CONTRACT_SIGNED", label: "Договор подписан" } })).toContain('aria-label="Продвинуть на «Договор подписан»"');
+    const html = tile({ next: { key: "CONTRACT_SIGNED", label: "Договор подписан" } });
+    expect(html).toContain('aria-label="Перевести на этап «Договор подписан»"');
+    // Подпись «Дальше: …», чтобы название этапа не читалось как текущий статус.
+    expect(html).toContain("Дальше: Договор подписан");
   });
   it("column head sums commission in somoni with the shared formatter, only when above zero", () => {
     expect(renderToStaticMarkup(<RoyalDealColumnHead label="Переговоры" count={2} commissionTjs={1234.5} />)).toContain(formatMoney(1234.5, "TJS"));
@@ -100,10 +105,16 @@ describe("royal deals: board card", () => {
 
 describe("royal deals: head and summary", () => {
   it("one primary button; filter only when allowed", () => {
-    const html = renderToStaticMarkup(<RoyalDealsHead scope="Сделки всей команды" filtered onFilter={noop} onCreate={noop} />);
+    const html = renderToStaticMarkup(<RoyalDealsHead scope="Сделки всей команды" filterCount={1} onFilter={noop} onCreate={noop} />);
     expect(html.match(/data-variant="primary"/g)).toHaveLength(1);
-    expect(html).toContain('aria-pressed="true"');
-    expect(renderToStaticMarkup(<RoyalDealsHead scope="Ваши сделки" filtered={false} onFilter={null} onCreate={null} />)).not.toContain("Фильтры");
+    // «Фильтры» открывает шторку, это не переключатель: без aria-pressed, выбранное — точкой и словами.
+    expect(html).not.toContain("aria-pressed");
+    expect(html).toContain('aria-label="Фильтры, выбрано 1"');
+    expect(html).toContain("ry-deals-dot");
+    const plain = renderToStaticMarkup(<RoyalDealsHead scope="Сделки всей команды" filterCount={0} onFilter={noop} onCreate={null} />);
+    expect(plain).not.toContain("ry-deals-dot");
+    expect(plain).not.toContain("выбрано");
+    expect(renderToStaticMarkup(<RoyalDealsHead scope="Ваши сделки" filterCount={0} onFilter={null} onCreate={null} />)).not.toContain("Фильтры");
   });
   it("month commission in full TJS format, hidden without finance.view", () => {
     const html = renderToStaticMarkup(<RoyalDealsSummary ready activeCount={4} approvalCount={1} closedCount={2} commissionTjs={123456.78} seesMoney />);

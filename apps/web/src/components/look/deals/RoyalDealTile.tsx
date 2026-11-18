@@ -54,8 +54,9 @@ export function RoyalDealTileBody({ deal, showAgent, canWrite, prev, next, close
             </button>
           )}
           {next ? (
-            <button type="button" className="ry-deal-step" data-wide="true" aria-label={`Продвинуть на «${next.label}»`} title={`Продвинуть на «${next.label}»`} onClick={stop(onNext)}>
-              {next.label}<DealIcon name="chev-right" size={22} />
+            // «Дальше: …» — чтобы название следующего этапа не читалось как текущий статус сделки.
+            <button type="button" className="ry-deal-step" data-wide="true" aria-label={`Перевести на этап «${next.label}»`} title={`Перевести на этап «${next.label}»`} onClick={stop(onNext)}>
+              Дальше: {next.label}<DealIcon name="chev-right" size={22} />
             </button>
           ) : (
             <button type="button" className="ry-btn ry-deal-close" data-variant="soft" aria-label={closeLabel} onClick={stop(onClose)}>
