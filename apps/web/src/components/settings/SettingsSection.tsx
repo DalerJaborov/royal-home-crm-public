@@ -1,5 +1,7 @@
-import { createContext, useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ChevronDown, type LucideIcon } from "lucide-react";
+import { TeamCircle, iconMaskUrl, settingsIconFor, toneFor } from "../look/team/parts";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
 
 /**
  * Поиск по настройкам (макет владельца, экран «Помощник»: строка «Что ищем:
@@ -80,6 +82,30 @@ export function SettingsSection({
     observer.observe(root, { subtree: true, childList: true, characterData: true });
     return () => observer.disconnect();
   }, [searching, query]);
+
+  // «Новый вид» (18.11.2026), только внутри раздела team: круг-значок в шапке.
+  // Ничего из тела раздела не прячется — подписи, статусы и данные видны всегда.
+  const royal = useRoyalSectionName() === "team";
+  if (royal) {
+    const iconName = settingsIconFor(title);
+    return (
+      <div ref={rootRef} className="acc ry-acc" data-search-miss={miss ? "" : undefined}
+        // Значок раздела — у строк без своего значка (круг слева рисует слой пачки).
+        style={miss ? { display: "none" } : ({ "--ry-sec-icon": iconMaskUrl(iconName) } as CSSProperties)}>
+        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={isOpen} aria-controls={bodyId} className="acc-h">
+          <TeamCircle icon={iconName} tone={toneFor(title)} />
+          <h3>{title}</h3>
+          {badge ? <span className="cnt">{badge}</span> : null}
+          <ChevronDown className="i ch" aria-hidden="true" />
+        </button>
+        {isOpen && (
+          <div id={bodyId} className="acc-b">
+            {children}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div ref={rootRef} className="acc" data-search-miss={miss ? "" : undefined} style={miss ? { display: "none" } : undefined}>

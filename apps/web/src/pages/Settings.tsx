@@ -13,6 +13,8 @@ import { CleanSettingsNavigator } from "../components/clean/CleanSettingsNavigat
 import { CleanSettingsSectionJump } from "../components/clean/CleanSettingsSectionJump";
 import { CLEAN_SETTINGS_LABELS, resolveCleanSettingsTask } from "../lib/cleanSettingsTasks";
 import { CLink } from "../components/clean/ui";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSettings } from "../components/look/team/RoyalSettings";
 
 /**
  * Настройки CRM — семь вкладок вместо одной длинной страницы.
@@ -52,6 +54,8 @@ export function Settings() {
   const navigate = useNavigate();
   const mobile = useMobileUx();
   const clean = useCleanShell();
+  // «Новый вид» (18.11.2026) — только другая разметка навигации поверх тех же блоков и форм.
+  const royal = useRoyalLook();
   const [searchParams, setSearchParams] = useSearchParams();
   const raw = searchParams.get("tab");
   // На телефоне отсутствие ?tab= значит «список разделов» (push-меню макета),
@@ -92,6 +96,10 @@ export function Settings() {
         onProfile={() => navigate("/profile")}
       />
     );
+  }
+
+  if (clean && royal) {
+    return <RoyalSettings active={active} role={agent?.role} search={searchParams.toString()} params={searchParams} />;
   }
 
   const tabContent = <SettingsTabContent tab={active ?? "agency"} agentRole={agent?.role} />;
