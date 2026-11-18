@@ -293,6 +293,9 @@ const REFUSAL = new RegExp([
   `${w("намехоҳам|намехохам|намедиҳам|намедихам")}\\s+${PHONE_NUMBER_WORD}`,
   `${w("занг")}\\s+${w("назанед|назанен")}`,
   `${w("ҳамин|хамин|инҷо|инчо")}\\s+(?:${w("ҷо|чо")}\\s+)?${w("нависед|нависен")}`,
+  // «Не ватсапда нависен» (WA, night of 18.11: «no, write in WhatsApp» to «…занг мезанад, мувофиқ аст?»), «пишите в ватсап».
+  `${w(`ватсап${TAIL}|вотсап${TAIL}|whatsapp${TAIL}|ватсапда|вотсапда`)}\\s+(?:${w("да|ба|дар")}\\s+)?${w(`нависед|нависен|нависин|пишите|напишите|пиши`)}`,
+  `${w("пишите|напишите|отвечайте")}\\s+(?:${w("мне|нам")}\\s+)?${w("в|по|на")}\\s+${w(`ватсап${TAIL}|вотсап${TAIL}|whatsapp`)}`,
 ].join("|"), "iu");
 
 /** Клиент отказался дать номер или от звонка (а не просто промолчал о нём). */
@@ -403,6 +406,17 @@ export type LeadOnlyPhoneState =
  */
 export const LEAD_ONLY_OFFICE_PHONE_TEXT = PUBLIC_AGENCY_CONTACT.phone;
 const RETIRED_LEAD_ONLY_OFFICE_PHONE_TEXT = "777 070 100";
+/**
+ * The office number is recognised by its DIGITS, not by one spelling (review #281): the old path's model writes «+992446501414»,
+ * «44 650 14 14», «(44) 650-14-14». The last 9 digits of the canonical office number, and the retired 777070100 for older chats.
+ */
+const OFFICE_PHONE_TAILS = [PUBLIC_AGENCY_CONTACT.digits.slice(-9), RETIRED_LEAD_ONLY_OFFICE_PHONE_TEXT.replace(/\D/g, "")];
+export function leadOnlyMentionsOfficePhone(text: string): boolean {
+  return (text.match(/\+?\d[\d\s()\-.]{5,}\d/gu) ?? []).some(run => {
+    const digits = run.replace(/\D/g, "");
+    return OFFICE_PHONE_TAILS.some(tail => digits.endsWith(tail));
+  });
+}
 
 /**
  * Тексты. Три случая там, где это важно для правды:
@@ -529,6 +543,16 @@ const NO_CALL_NOTED_VARIANTS = {
   tg: ["Ба агент мегӯям, ки ба шумо навиштан қулайтар аст, ӯ ҳамин ҷо ҷавоб медиҳад.", "Агент огоҳ аст ва ҳамин ҷо ба шумо ҷавоб медиҳад."],
 } as const;
 
+/**
+ * WhatsApp: клиент отказался от звонка и просит писать («Не ватсапда нависен», «звонить не надо, пишите здесь», ночь 18.11): номер
+ * у нас есть, заявка заводится с пометкой «просит не звонить», а клиенту — короткое «напишем здесь», без номера офиса и без звонка.
+ * Не «Хорошо/Хуб, …»: последняя дверь режет согласие в начале фразы.
+ */
+const CHAT_NOTED_VARIANTS = {
+  ru: ["Понял вас, напишем здесь.", "Понял вас, ответим здесь."],
+  tg: ["Фаҳмидам, ҳамин ҷо менависем.", "Фаҳмидам, ҳамин ҷо ҷавоб медиҳем."],
+} as const;
+
 /** Короткие ответы на случай, когда всё остальное уже звучало (щит не выпустит третий одинаковый текст). */
 const SHORT_ACKS = {
   // The core's vetted neutral phrases (ai/customerAgentHumanText.ts HUMAN_PHRASES), never an agreement word.
@@ -615,7 +639,7 @@ export function leadOnlyPhoneAskHistory(assistantTexts: readonly string[]): { as
   let asksSoFar = 0, officeAlreadyOffered = false;
   for (const text of assistantTexts) {
     if (asks.some(line => text.includes(line)) || generic.test(text)) asksSoFar++;
-    if (text.includes(LEAD_ONLY_OFFICE_PHONE_TEXT) || text.includes(RETIRED_LEAD_ONLY_OFFICE_PHONE_TEXT)) officeAlreadyOffered = true;
+    if (leadOnlyMentionsOfficePhone(text)) officeAlreadyOffered = true;
   }
   return { asksSoFar, officeAlreadyOffered };
 }
@@ -755,6 +779,13 @@ export function leadOnlyNoCallNotedLine(language: LeadOnlyLanguage, sentTexts: r
   return variants.find(line => !sent.has(normalizeSent(line))) ?? variants[variants.length - 1];
 }
 
+/** «Напишем здесь» клиенту WhatsApp, отказавшемуся от звонка, — без дословного повтора. */
+export function leadOnlyChatNotedLine(language: LeadOnlyLanguage, sentTexts: readonly string[] = []): string {
+  const sent = new Set(sentTexts.map(normalizeSent));
+  const variants = [...CHAT_NOTED_VARIANTS[language], ...SHORT_ACKS[language]];
+  return variants.find(line => !sent.has(normalizeSent(line))) ?? variants[variants.length - 1];
+}
+
 /** Карточка без агента: «Записали, с вами свяжутся {срок}» — без обещаний агента и без дословного повтора. */
 export function leadOnlyNoAgentLine(when: { ru: string; tg: string }, language: LeadOnlyLanguage, sentTexts: readonly string[] = []): string {
   const sent = new Set(sentTexts.map(normalizeSent));
@@ -824,7 +855,7 @@ function leadOnlyTemplateLines(language: LeadOnlyLanguage, slot: { id: number; p
     if (line) { texts.add(line); texts.add(line.replace(OFFICE_LEAD[language], "")); }
   }
   for (const line of [...SHORT_ACKS[language], ...ESCALATE_VARIANTS.call[language], ...ESCALATE_VARIANTS.office[language],
-    ...CALLBACK_NOTED_VARIANTS[language], ...NO_CALL_NOTED_VARIANTS[language], ...HOT_OFFICE_VARIANTS[language],
+    ...CALLBACK_NOTED_VARIANTS[language], ...NO_CALL_NOTED_VARIANTS[language], ...CHAT_NOTED_VARIANTS[language], ...HOT_OFFICE_VARIANTS[language],
     ...NO_AGENT_VARIANTS[language].map(line => line(slot.when)), OFFICE_LEAD[language].trim()]) texts.add(line);
   return [...texts];
 }
@@ -884,7 +915,7 @@ export function leadOnlyStripPhoneAsk(text: string): { text: string; changed: bo
   const lines = text.split("\n").map(line => {
     const sentences = line.split(/(?<=[.!?])\s+/u);
     const kept = sentences.flatMap(sentence => {
-      const ask = PHONE_WORD.test(sentence) && ASK_VERB.test(sentence) && !sentence.includes(LEAD_ONLY_OFFICE_PHONE_TEXT);
+      const ask = PHONE_WORD.test(sentence) && ASK_VERB.test(sentence) && !leadOnlyMentionsOfficePhone(sentence);
       if (!ask) return [sentence];
       changed = true;
       const rest = keepObjectNumberAsk(sentence);

@@ -25,7 +25,7 @@ import { prisma, type TxClient } from "../db.js";
 import { encryptSecret, decryptSecret } from "../crypto.js";
 import { AGENCY_FACTS } from "../ai/agencyFacts.js";
 import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyOutgoing, leadOnlyAppliesTo, leadOnlyCallbackNotedLine, leadOnlyCallbackTime, leadOnlyCallDeclined,
-  leadOnlyGivenLineAvoidingRepeat, leadOnlyNoCallNotedLine, leadOnlyNoteWithCallbackTime, leadOnlyPhoneAskHistory, leadOnlyPhoneRefused,
+  leadOnlyGivenLineAvoidingRepeat, leadOnlyNoCallNotedLine, leadOnlyChatNotedLine, leadOnlyNoteWithCallbackTime, leadOnlyPhoneAskHistory, leadOnlyPhoneRefused,
   leadOnlyNoAgentLine, leadOnlyRecentCallbackTime, leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
   type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
 import { classifyLeadOnlyIntent, leadOnlyIntentOnce, type LeadOnlyIntent } from "../ai/leadOnlyIntent.js";
@@ -292,6 +292,9 @@ async function planCustomerLeadOnlyTurnText(input: CustomerLeadOnlyTurnInput, no
     ? leadOnlyGivenLineAvoidingRepeat(leadOnlyWhen(input.config), input.language, sent)
     : leadOnlyReplyAvoidingRepeat({ scenario, language: input.language, phone: phoneState, when: leadOnlyWhen(input.config),
       property, market, sellerCommissionPercent: AGENCY_FACTS.commission.sellerPercent, agentInformed }, sent);
+  // WhatsApp, the customer refused the call and asks to write (night of 18.11: «Не ватсапда нависен» went to HELD, two hours of
+  // silence): the number is ours, the lead carries «просит не звонить», the reply stays in the chat.
+  if (wa && input.config.useWhatsappNumber && refused && !volunteered && !linked) text = leadOnlyChatNotedLine(input.language, sent);
   if (noAgent) text = await noAgentLine(sent);
   // «Прочее обращение» (другой город, услуги, земля…) агенту не назначается: обещать звонок нельзя (правило 17.09.2026).
   let otherInquiry = false;

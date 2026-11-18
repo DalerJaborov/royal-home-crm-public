@@ -19,13 +19,14 @@ import { customerBareAffirmation } from "../src/ai/customerAgentFollowUp.js";
 import { isCustomerShortCallbackYes } from "../src/ai/customerAskSignals.js";
 import { APPROVED_ASKS, withoutInventedClaims } from "../src/ai/customerAgentHumanText.js";
 import { customerStaffFollowUpLine, customerPhoneAskLines } from "../src/ai/customerAgentStaffFollowUp.js";
-import { LEAD_ONLY_OFFICE_PHONE_TEXT, leadOnlyCallOfferLast, leadOnlyHotIntent, leadOnlyOutgoing, leadOnlyPhoneAskHistory, leadOnlyPhoneLine,
+import { LEAD_ONLY_OFFICE_PHONE_TEXT, leadOnlyCallOfferLast, leadOnlyHotIntent, leadOnlyMentionsOfficePhone, leadOnlyStripPhoneAsk, leadOnlyOutgoing, leadOnlyPhoneRefused, leadOnlyServerLine, leadOnlyChatNotedLine, leadOnlyPhoneAskHistory, leadOnlyPhoneLine,
   leadOnlyReply } from "../src/ai/leadOnlyMode.js";
 import { PUBLIC_AGENCY_CONTACT, PUBLIC_AGENCY_WHATSAPP } from "../src/lib/publicAgencyContact.js";
 import { AGENCY_FACTS, companyInfoBlock } from "../src/ai/agencyFacts.js";
 import { runCustomerAgentTurn, type CustomerAgentModelTurn, type CustomerCoreFrame, type CustomerCorePorts } from "../src/ai/customerAgentCore.js";
 import { createProviderOperation } from "../src/ai/providerContract.js";
 import { noteCustomerDeliveryWindowClosed } from "../src/lib/customerDeliverySettlement.js";
+import { CUSTOMER_CLARIFY_LINE, customerSafetyCandidateLines, customerSafetyLine, customerSafetyMemory } from "../src/lib/customerNoSilence.js";
 
 /**
  * Аудит «бот как живой сотрудник» 17.11.2026 (D:/TASKS-2026-11-14/reports/bot-ideal-audit-2026-11-17.md): каждая фраза клиента из
@@ -308,6 +309,15 @@ describe("номер офиса режима «только заявки» — �
     expect(refused).toContain(OFFICE);
     expect(refused).not.toContain("777 070 100");
   });
+  it.each(["+992 44 650 14 14", "+992446501414", "44 650 14 14", "(44) 650-14-14"])("офис узнаётся по цифрам: «%s» (ревью #281)", spelling => {
+    expect(leadOnlyMentionsOfficePhone(`Позвоните нам: ${spelling}.`)).toBe(true);
+    expect(leadOnlyPhoneAskHistory([`Если удобнее, позвоните нам сами: ${spelling}.`]).officeAlreadyOffered).toBe(true);
+    // A sentence with the office number is never cut as a phone request.
+    expect(leadOnlyStripPhoneAsk(`Напишите номер или позвоните нам: ${spelling}.`).changed).toBe(false);
+  });
+  it("чужой номер — не офис", () => {
+    expect(leadOnlyMentionsOfficePhone("Позвоните: 93 555 12 34.")).toBe(false);
+  });
   it("старый номер в отправленном всё ещё значит «офис уже называли»", () => {
     expect(leadOnlyPhoneAskHistory(["Если удобнее, позвоните нам сами: 777 070 100."]).officeAlreadyOffered).toBe(true);
   });
@@ -350,6 +360,42 @@ describe("класс 7: соискатель", () => {
     const text = render("927123456", { topic: "job", decision: { social: "acknowledge" } }) ?? "";
     expect(text).not.toMatch(/подскажет наш агент|позвонит вам/iu);
   });
+});
+
+describe("ночь 18.11, WA: отказ от звонка с просьбой переписки — бот остаётся в чате (оба режима)", () => {
+  const OFFER_TG = "Ташаккур! Агент имрӯз аз соати 10:00 ба ҳамин рақам ба шумо занг мезанад, мувофиқ аст?";
+  it.each(["Не ватсапда нависен", "Не, ватсапда нависед", "звонить не надо, пишите здесь", "занг назанед, ҳамин ҷо нависед", "не звоните, пишите в ватсап"])(
+    "«%s» — отказ от звонка (одна дверь leadOnlyPhoneRefused)", text => { expect(leadOnlyPhoneRefused(text)).toBe(true); });
+  it("ядро (режим выключен): после предложения звонка — «ҳамин ҷо менависем», без нового вопроса о звонке", () => {
+    const text = render("Не ватсапда нависен", { language: "tg", channel: "WHATSAPP", phone: "current_input",
+      turns: [user("Хонаамро мефурӯшам, 3 ҳуҷра"), bot(OFFER_TG)], decision: { kind: "clarify", question: "callback_consent" } });
+    expect(text).toBe("Фаҳмидам, ҳамин ҷо менависем.");
+  });
+  it("ядро: по-русски после вопроса о звонке", () => {
+    expect(render("звонить не надо, пишите здесь", { turns: [user("продаю квартиру"), bot("Вы хотите, чтобы сотрудник вам позвонил?")] }))
+      .toBe("Понял вас, напишем здесь.");
+  });
+  it("режим «только заявки»: строки узнаются памятью ядра и не повторяются дословно", () => {
+    expect(leadOnlyServerLine("Фаҳмидам, ҳамин ҷо менависем.")).toBe(true);
+    expect(leadOnlyChatNotedLine("ru", ["Понял вас, напишем здесь."])).toBe("Понял вас, ответим здесь.");
+    expect(leadOnlyCallOfferLast(OFFER_TG)).toBe(true);
+  });
+  it.todo("1b: в режиме «только заявки» ход проходит через planCustomerLeadOnlyTurn (lib/customerLeadOnlyCore.ts) — тест с базой: заявка с пометкой «просит не звонить»");
+});
+
+describe("HELD unsupported_decision_evidence — честная строка вместо тишины (одна дверь lib/customerNoSilence.ts)", () => {
+  const memory = (said: string[] = []) => customerSafetyMemory(said);
+  it("строка «уточню и отвечу здесь», один раз; дальше — прежняя строка двери", () => {
+    expect(customerSafetyLine("ru", "current_input", memory(), "unsupported_decision_evidence")).toBe("Сейчас уточню и отвечу вам здесь.");
+    expect(customerSafetyLine("tg", "current_input", memory(), "unsupported_decision_evidence")).toBe("Ҳозир аниқ карда, ҳамин ҷо ҷавоб медиҳам.");
+    expect(customerSafetyLine("ru", "current_input", memory(["Сейчас уточню и отвечу вам здесь."]), "unsupported_decision_evidence"))
+      .not.toBe("Сейчас уточню и отвечу вам здесь.");
+    expect(customerSafetyCandidateLines()).toContain("Сейчас уточню и отвечу вам здесь.");
+  });
+  it("строка без фактов и без обещания звонка", () => {
+    for (const line of Object.values(CUSTOMER_CLARIFY_LINE)) { expect(line).not.toMatch(/\d|позвон|занг/iu); expect(withoutInventedClaims(line).removed).toEqual([]); }
+  });
+  it.todo("1b: lib/customerDmAgentTurn.ts planSafetyLine должен передать причину (customerSafetyLine(..., why)) и пускать строку на любой вход, кроме «спасибо/ок»");
 });
 
 describe("пункты аудита шага 1b (сигналы руководству, комментарии, щит)", () => {

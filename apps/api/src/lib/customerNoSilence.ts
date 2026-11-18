@@ -103,12 +103,21 @@ export function customerSafetyMemory(assistantTexts: readonly string[], blocked:
   return { said, phoneAsked };
 }
 
-/** The line the customer gets instead of silence: the verified "the agent will tell / call" door of #201. */
-export function customerSafetyLine(language: Lang, knownPhone: KnownPhone, memory: FollowUpMemory): string {
+/**
+ * The model had nothing the server can render (`unsupported_decision_evidence`, night of 18.11: «Не ватсапда нависен» → two hours of
+ * silence): an honest «I will check and answer here», once per episode, no fact and no promise of a call (owner via the dispatcher
+ * 18.11.2026). The person gets the same follow_up signal as before (caller). Tajik: «Ҳозир» + «ҳамин ҷо ҷавоб медиҳем» as in the
+ * phrasebook's live lines; «аниқ карда» (= уточнив) — to be read by a native speaker.
+ */
+export const CUSTOMER_CLARIFY_LINE = { ru: "Сейчас уточню и отвечу вам здесь.", tg: "Ҳозир аниқ карда, ҳамин ҷо ҷавоб медиҳам." } as const;
+/** The line the customer gets instead of silence: the verified "the agent will tell / call" door of #201; for
+ *  `unsupported_decision_evidence` (when the caller passes the reason) the honest «I will check» line once per chat. */
+export function customerSafetyLine(language: Lang, knownPhone: KnownPhone, memory: FollowUpMemory, reason?: string): string {
+  if (reason === "unsupported_decision_evidence" && !memory.said(CUSTOMER_CLARIFY_LINE[language])) return CUSTOMER_CLARIFY_LINE[language];
   return customerStaffFollowUpLine(language, knownPhone, memory);
 }
 
 /** Every line the safety door can produce (for the shield pre-check of all candidates in one read). */
 export function customerSafetyCandidateLines(): string[] {
-  return customerStaffFollowUpFixedLines();
+  return [...customerStaffFollowUpFixedLines(), CUSTOMER_CLARIFY_LINE.ru, CUSTOMER_CLARIFY_LINE.tg];
 }

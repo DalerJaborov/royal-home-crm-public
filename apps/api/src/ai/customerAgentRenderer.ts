@@ -36,6 +36,7 @@ import { detectOutsideCoverage } from "./coverageGuard.js";
 import { customerReplyLink } from "../lib/customerReplyLink.js";
 import { serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
+import { leadOnlyCallOfferLast, leadOnlyChatNotedLine, leadOnlyPhoneRefused } from "./leadOnlyMode.js";
 import { customerPolicyTermAsked, customerRecentUserTexts } from "./customerAgentPolicyAsked.js";
 import { customerRecruitmentFollowUp, recruitmentFollowUpLine, recruitmentFollowUpFixedLines, RETIRED_TEMPLATE_LINES, AD_OPEN_QUESTION,
   customerAdOpening, customerGreetingLine, customerAlreadyGreeted, customerInputHasLink,
@@ -897,6 +898,11 @@ function renderDecisionCore(input: {
       lines.push(recruitmentFollowUpLine("ask", lang));
       if (!nozaSaidBefore) pushRecruitmentPhone();
     } else if (nozaAlreadyGiven && !content.length && !receiptSaidBefore) lines.push(recruitmentFollowUpLine("thanks", lang));
+    // A candidate's statement («smm», «мне 23, опыт 2 года») with no catalog ref this turn left nothing to say, and the turn went
+    // HELD unsupported_decision_evidence — silence (attack stand multi-turn-ru-009/010, 18.11.2026): Noza's number once, then thanks.
+    else if (!content.length && !receiptSaidBefore && !lines.some(line => line && !isSocialLine(line))) {
+      if (!nozaSaidBefore) pushRecruitmentPhone(); else lines.push(recruitmentFollowUpLine("thanks", lang));
+    }
   }
   // The receipt was already said and nothing else is left: the same fact in other words, never an empty reply.
   if (receiptSaidBefore && !lines.some(line => line && !isSocialLine(line))) lines.push(RECEIPT_AGAIN[lang]);
@@ -973,7 +979,8 @@ function renderDecisionCore(input: {
     : question === "clarify_previous" && input.surface === "dm"
       ? repairPreviousQuestion(input.verifiedContext, lang) ?? questions[question][lang] : questions[question][lang]);
   if (question === "confirmation") lines.push(lang === "tg" ? "Тасдиқ мекунед?" : "Подтверждаете?");
-  if (!evidence.length && question === "none" && d.social === "none" && !visualSummary && !arithmetic && !followRequest && !languagePermissionRequested && !messengerChannelQuestion && !furnitureQuestion && !guidePresentation && !directLine) return null;
+  if (!evidence.length && question === "none" && d.social === "none" && !visualSummary && !arithmetic && !followRequest && !languagePermissionRequested && !messengerChannelQuestion && !furnitureQuestion && !guidePresentation && !directLine &&
+      !(input.surface === "dm" && lines.some(Boolean))) return null;
   // The greeting was already said in this chat and nothing else is left: the next step, never an empty reply.
   if (d.social === "greet" && greetedBefore && !lines.some(Boolean)) {
     lines.push(adOpening ? AD_OPEN_QUESTION[lang] : nothingNewLine(input, new Set(splitLines(input.verifiedContext?.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? ""))));
@@ -1256,6 +1263,15 @@ function renderTemplateDecision(raw: Parameters<typeof renderDecisionCore>[0]): 
     if (abuse) {
       const reply = customerDmAbuseReply(abuse, input.language);
       return { text: reply.length <= input.maxOutputChars ? reply : null, plain: false };
+    }
+    // «Не ватсапда нависен», «звонить не надо, пишите здесь» right after OUR call offer (night of 18.11: HELD
+    // unsupported_decision_evidence, two hours of silence): the bot stays in the chat — a short «we'll write here», no call
+    // question again (the refusal door ai/leadOnlyMode.ts::leadOnlyPhoneRefused, the same lines as the lead-only mode).
+    const lastBot = input.verifiedContext?.turns.at(-1)?.role === "assistant" ? input.verifiedContext.turns.at(-1)!.text : undefined;
+    if (leadOnlyPhoneRefused(input.inputText ?? "") && (customerAgentCallbackQuestionLast(lastBot) || leadOnlyCallOfferLast(lastBot))) {
+      const sent = (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text);
+      const line = leadOnlyChatNotedLine(input.language, sent);
+      return { text: line.length <= input.maxOutputChars ? line : null, plain: false };
     }
     // Somebody offers US a partnership: management decides, a person is told (15.11.2026, live: a design studio got "Спасибо!").
     if (customerPartnershipOffer(input.inputText ?? "")) return { text: customerPartnershipReply(input.language, input.knownPhoneSource, followUpMemory(input)).join("\n"), plain: false };
