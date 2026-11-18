@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4073**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4078**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1265,7 +1265,7 @@
 - пробует
   - если lastMessage?.role === "user"
     - пробует
-      - const fast = await tryAssistantFastPath(lastMessage.content, actor);
+      - const fast = await tryAssistantFastPath(lastMessage.content, actor, assistantLanguage(parsed.data.messages) =…
         · зовёт tryAssistantFastPath()
       - если fast
         - void logAssistantToolCall({ agentId: actor.id, tool: fast.tool, argsSummary: fast.argsSummary, resultCount: f…
@@ -17906,8 +17906,14 @@
     - если expected !== `"${versionOf(raw)}"`
       - throw new ShellConflict();
         · ошибка ShellConflict
-    - если config.agentIds.length
-      - const agents = await tx.agent.findMany({ where: { id: { in: config.agentIds }, isActive: true }, select: { id…
+    - если keepStoredLook && storedLook.length
+      - config.royalLookAgentIds = storedLook;
+        · дословно из кода
+    - если config.royalLookAgentIds?.length === 0
+      - delete config.royalLookAgentIds;
+        · дословно из кода
+    - если selectedIds.length
+      - const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: tr…
         · читает в базе: agent
       - если missing.length
         - throw new InvalidShellAgents(missing);
@@ -17950,7 +17956,7 @@
 
 `apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен
 
-- res.json({ enabled: isUiShellEnabled(await storedConfig(), req.agent!) });
+- res.json(body);
   · ответ 200
 
 ## /api/v1/upload-sessions
@@ -18965,6 +18971,11 @@
               - traceOutcome("blocked");
                 · дословно из кода
               - console.warn(`[щит] ${msg.channel}: ответ не отправлен — ${err.message}`);
+                · дословно из кода
+            - если isMetaSendBlockError(err)
+              - traceOutcome("blocked");
+                · дословно из кода
+              - if (!providerAcceptedReply) await markLastReplyUndelivered(msg.channel, msg.senderId, deliveryTransport ?? de…
                 · дословно из кода
             - console.error("[meta] обработка сообщения упала:", err);
               · пишет строку в журнал сервера
@@ -23201,6 +23212,26 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### missed-call-task-whatsapp-close — */2 * * * *
+
+- await closeMissedCallTasksAnsweredInWhatsapp();
+  · зовёт closeMissedCallTasksAnsweredInWhatsapp()
+  - const open = await prisma.interaction.findMany({ where: { autoTaskKind: "inbound_missed_callback", nextAction…
+    · читает в базе: interaction
+  - для каждого: const task of open
+    - const national = toSmsPhone(task.client?.phone)?.slice(3);
+      · зовёт toSmsPhone()
+    - если !national
+      - continue;
+        · переходит к следующему
+    - const wrote = await prisma.botConversation.findFirst({ where: { channel: "WHATSAPP", subscriberId: { endsWith…
+      · читает в базе: botConversation
+    - если !wrote
+      - continue;
+        · переходит к следующему
+    - closed += await closeAutoTasks(task.clientId, ["inbound_missed_callback"], now);
+      · зовёт closeAutoTasks()
 
 ### monthly-problem-report — 10 9 1 * *
 

@@ -1019,7 +1019,7 @@
       "file": "apps/api/src/routes/dashboard.ts",
       "endpoints": 10,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 8
+      "usedBy": 9
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1027,7 +1027,7 @@
       "file": "apps/api/src/routes/dashboardMissionControl.ts",
       "endpoints": 5,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 8
+      "usedBy": 9
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1035,7 +1035,7 @@
       "file": "apps/api/src/routes/pultModules.ts",
       "endpoints": 2,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 8
+      "usedBy": 9
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1043,7 +1043,7 @@
       "file": "apps/api/src/routes/briefing.ts",
       "endpoints": 2,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 8
+      "usedBy": 9
     },
     {
       "mount": "/api/v1/calendar",
@@ -1925,6 +1925,11 @@
     {
       "id": "meta-inbox-reconcile",
       "expr": "3-59/10 * * * *",
+      "label": null
+    },
+    {
+      "id": "missed-call-task-whatsapp-close",
+      "expr": "*/2 * * * *",
       "label": null
     },
     {

@@ -18,6 +18,7 @@ import { buildPropertyDraftSuggestion } from "../ai/propertyDraft.js";
 import { assistantErrorMessage, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { actorFromAccess } from "../ai/assistant/actor.js";
 import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
+import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { loadAssistantLogRetentionDays, logAssistantFastPathTurn, logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import { formatPrice, stripDashes } from "../ai/seoGenerator.js";
 import { TG_PREFIX } from "./conversations.js";
@@ -137,7 +138,8 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
     if (lastMessage?.role === "user") {
       try {
         const fastStartedAt = Date.now();
-        const fast = await tryAssistantFastPath(lastMessage.content, actor);
+        const fast = await tryAssistantFastPath(lastMessage.content, actor,
+          assistantLanguage(parsed.data.messages) === "tg" ? "tg" : "ru");
         if (fast) {
           void logAssistantToolCall({
             agentId: actor.id,

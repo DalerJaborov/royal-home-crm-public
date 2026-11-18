@@ -80,7 +80,17 @@ describe("тексты", () => {
     expect(ask(1)).toBe("Если удобно, напишите номер, и агент позвонит сам.");
     expect(ask(2)).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
     expect(ask(2, true)).toBeNull();
-    expect(leadOnlyPhoneLine({ kind: "ask", asksSoFar: 1, maxAsks: 1, officeAlreadyOffered: false }, soon, "tg")).toContain("777 070 100");
+    expect(leadOnlyPhoneLine({ kind: "ask", asksSoFar: 1, maxAsks: 1, officeAlreadyOffered: false }, soon, "tg")).toContain("+992 44 650 14 14");
+  });
+  it("офис для клиентов — телефон офиса, не номер рекрутёра Нозы (18.11.2026)", () => {
+    expect(LEAD_ONLY_OFFICE_PHONE_TEXT).toBe("+992 44 650 14 14");
+    for (const language of ["ru", "tg"] as const) {
+      const line = leadOnlyPhoneLine({ kind: "ask", asksSoFar: 2, maxAsks: 2, officeAlreadyOffered: false }, soon, language);
+      expect(line).toContain("+992 44 650 14 14");
+      expect(line).not.toContain("777 070 100");
+    }
+    // An offer of the previous number earlier in the chat still counts: the office is not offered twice.
+    expect(leadOnlyPhoneAskHistory(["Если удобнее, позвоните нам сами: 777 070 100."]).officeAlreadyOffered).toBe(true);
   });
   it("счёт прежних просьб номера по своим репликам", () => {
     expect(leadOnlyPhoneAskHistory([

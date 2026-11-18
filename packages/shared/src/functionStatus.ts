@@ -107,6 +107,13 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     errorSources: ["ai"],
   },
   {
+    key: "meta-send-blocks",
+    title: "Отправка в Instagram, Facebook и WhatsApp",
+    what: "Пропускает ли Meta ответы каждого аккаунта. Если Meta временно запретила отправку по правилам, бот туда не пишет, клиентов передаёт сотрудникам и сам пробует снова.",
+    group: "bot",
+    errorSources: ["meta"],
+  },
+  {
     key: "bot-photos",
     title: "Фото объектов в чате",
     what: "Бот присылает клиенту фотографии объекта прямо в переписке.",
@@ -151,6 +158,22 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     group: "voice",
     settingsTab: "channels",
     cron: ["live-voice-spend-ceiling", "live-voice-orphan-sweep", "live-calls-sweep", "post-showing-call", "seller-probe-call", "interview-invite-call"],
+    errorSources: ["telephony"],
+  },
+  {
+    key: "missed-call-sms",
+    title: "СМС со ссылкой на WhatsApp после пропущенного звонка",
+    what: "Звонивший, которому не ответили, сразу получает одну СМС: «напишите нам в WhatsApp».",
+    group: "voice",
+    settingsTab: "channels",
+    errorSources: ["sms"],
+  },
+  {
+    key: "missed-call-callback-task",
+    title: "Задача «перезвонить» по пропущенному с незнакомого номера",
+    what: "Незнакомый номер без ответа получает карточку и общую задачу для руководителя отдела продаж.",
+    group: "voice",
+    settingsTab: "channels",
     errorSources: ["telephony"],
   },
   {

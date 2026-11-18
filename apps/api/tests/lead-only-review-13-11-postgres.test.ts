@@ -71,7 +71,7 @@ describe("ядро: решения хода", () => {
   it("№1: просьбы номера считаются по отправленному — после двух просьб номер офиса", async () => {
     const sentTexts = ["Понял вас. Оставьте, пожалуйста, номер телефона, агент перезвонит.", "Понял вас. Если удобно, напишите номер, и агент позвонит сам."];
     const plan = await planCustomerLeadOnlyTurn(input({ inputText: "Ищу квартиру", sentTexts }));
-    expect(plan?.text).toContain("777 070 100");
+    expect(plan?.text).toContain("+992 44 650 14 14");
   });
 
   it("№2: объект, оставшийся в фокусе, не отвечает на «где офис?» и «спасибо»", async () => {
@@ -138,7 +138,7 @@ describe("до номера — ни одного уведомления; сбо
     const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Хотим посмотреть, куда ехать?", focusPropertyId: propertyId,
       sentTexts: ["Понял вас. Оставьте, пожалуйста, номер телефона, агент перезвонит.", "Если удобно, напишите номер, и агент позвонит сам."] }));
     expect(plan?.scenario).toBe("hot");
-    expect(plan?.text).toContain("777 070 100");
+    expect(plan?.text).toContain("+992 44 650 14 14");
     expect(plan?.text).not.toMatch(/передаю|ответит вам здесь|в курсе/iu);
     expect(plan?.intake).toBeNull();
     expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
