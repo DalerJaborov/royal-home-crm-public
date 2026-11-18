@@ -1,6 +1,0 @@
-audio-separator[cpu]==0.48.0
-audioread==3.1.0
-faster-whisper==1.2.1
-onnxruntime==1.32.0
-numpy==2.5.5
-onnx-weekly==1.24.0.dev20261102

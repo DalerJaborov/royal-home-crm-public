@@ -12,7 +12,7 @@ import {
   handoffSkippedByStatusReason,
   blockDuplicateFinalBeforePublish,
 } from "../lib/videoHandoff.js";
-import { replaceOldPostsBeforeRemakePublish } from "../lib/publishedVideoFix.js";
+import { finishOldPostsAfterRemakePublish, prepareOldPostsBeforeRemakePublish } from "../lib/remakeOldPosts.js";
 import type { JobHandler } from "./registry.js";
 
 /**
@@ -133,13 +133,19 @@ export const videoHandoffPublishJob: JobHandler<Payload> = {
       return;
     }
 
-    // Перемонтаж по новой цене/данным: старые посты уходят сейчас, перед выходом нового
-    // ролика (владелец 30.10.2026), а не при возврате монтажёру. Сбой снятия публикацию
-    // не останавливает — занятый канал она просто пропустит, причина уже в журнале.
-    await replaceOldPostsBeforeRemakePublish(property.id).catch((err) =>
-      logSystemError("meta", `Объект ${property.id}: замена старых постов перед публикацией перемонтажа не удалась: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "Объект …: замена старых постов перед публикацией перемонтажа не удалась" })
-    );
+    // Перемонтаж вышедшего ролика (новая озвучка, новая цена): СНАЧАЛА НОВЫЙ, ПОТОМ СТАРЫЙ (18.11.2026,
+    // lib/remakeOldPosts.ts). Снимок старых постов — до публикации, снятие — после, в каждой сети только там,
+    // где новый уже вышел; не вышел — старый остаётся. Сбой снимка публикацию не останавливает: занятый канал
+    // она пропустит, старый пост останется на месте, причина — в журнале.
+    const remake = await prepareOldPostsBeforeRemakePublish(property.id).catch((err) => {
+      void logSystemError("meta", `Объект ${property.id}: снимок старых постов перед публикацией перемонтажа не удался: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "Объект …: снимок старых постов перед публикацией перемонтажа не удался" });
+      return false;
+    });
     const summary = await publishHandoffResult(property.id, property.videoHandoffFinalPath);
+    if (remake) {
+      await finishOldPostsAfterRemakePublish(property.id, summary).catch((err) =>
+        logSystemError("meta", `Объект ${property.id}: снятие старых постов после нового ролика не удалось (повторит обход): ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "Объект …: снятие старых постов после нового ролика не удалось" }));
+    }
     await notifyVideoHandoffPublishResult(property.id, summary);
     // Подстраховка, не основной путь (21.09.2026, расстановка публикаций по
     // времени): место монтажёра `receiveEditedVideo` освобождает уже в момент

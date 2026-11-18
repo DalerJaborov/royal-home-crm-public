@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **773**. Развилок в самих путях: **2469**; вместе с задачами по расписанию и фоновыми заданиями — **4108**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4120**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10733,14 +10733,16 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если req.agent!.role === "EDITOR"
-  - return res.status(403).json({ error: "Озвучку одобряет агент объекта" });
-    · ответ 403 — «Озвучку одобряет агент объекта»
 - const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…
   · проверяет данные схемой narrationActionSchema
 - если !parsed.success || !versionId.success
   - return res.status(400).json({ error: "Подтвердите текст и номер версии" });
     · ответ 400 — «Подтвердите текст и номер версии»
+- const access = await narrationAccessForAgent(req.agent!.id, p.id);
+  · зовёт narrationAccessForAgent()
+- если !access
+  - return res.status(403).json({ error: "Озвучку утверждает тот, кто ведёт объект, или руководство" });
+    · ответ 403 — «Озвучку утверждает тот, кто ведёт объект, или руководство»
 - const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision…
   · зовёт approveNarrationVersion()
 - если outcome === "FORBIDDEN"
@@ -10749,7 +10751,11 @@
 - если outcome === "CONFLICT"
   - return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
     · ответ 409 — «Факты или версия изменились. Подготовьте и проверьте новый текст.»
-- res.json({ ok: true, ...(outcome === "AUDIO_APPROVED" ? { delivery: await afterNarrationApproved(p.id, versio…
+- const delivery = outcome === "AUDIO_APPROVED" ? await afterNarrationApproved(p.id, versionId.data) : undefine…
+  · зовёт afterNarrationApproved()
+- const publishAt = delivery === "CRM_REMIX" ? await estimateNarrationPublishAt(p.id).catch(()
+  · зовёт estimateNarrationPublishAt()
+- res.json({ ok: true, ...(delivery ? { delivery } : {}), ...(publishAt ? { publishAt: publishAt.toISOString() …
   · ответ 200
 
 ### GET /api/v1/properties/:id/narration/:versionId/audio
@@ -10789,6 +10795,13 @@
 - если !key || !narrationProviderReady(config, key)
   - return res.status(409).json({ error: "ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках." }…
     · ответ 409 — «ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.»
+- const draft = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id…
+  · читает в базе: propertyNarrationVersion
+- const length = draft ? await narrationLengthCheckFor(p, draft.script, draft.language) : null;
+  · зовёт narrationLengthCheckFor()
+- если length && !length.fits
+  - return res.status(400).json({ error: narrationLengthLine(length) });
+    · ответ 400
 - const outcome = await generateNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevisio…
   · зовёт generateNarrationVersion()
 - смотря что в: outcome.status
@@ -11057,29 +11070,6 @@
 - res.json({ active: false });
   · ответ 200
 
-### POST /api/v1/properties/:id/narration/preview
-
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
-
-- если !canDecidePreview(req.agent!.role)
-  - return res.status(403).json({ error: "Решение по ролику принимает тот, кто ведёт объект" });
-    · ответ 403 — «Решение по ролику принимает тот, кто ведёт объект»
-- const parsed = narrationPreviewDecisionSchema.safeParse(req.body);
-  · проверяет данные схемой narrationPreviewDecisionSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректное решение", details: parsed.error.flatten() });
-    · ответ 400 — «Некорректное решение»
-- const result = parsed.data.decision === "RELEASE" ? await releaseNarrationPreview(p.id, parsed.data.versionId…
-  · зовёт releaseNarrationPreview()
-- если result === "STALE"
-  - return res.status(409).json({ error: "Этот ролик уже решён или устарел. Обновите карточку." });
-    · ответ 409 — «Этот ролик уже решён или устарел. Обновите карточку.»
-- если result === "BUSY"
-  - return res.status(409).json({ error: "Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару ми…
-    · ответ 409 — «Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару…»
-- res.json({ ok: true, result });
-  · ответ 200
-
 ### POST /api/v1/properties/:id/narration/publication-preview
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
@@ -11117,6 +11107,10 @@
   · читает в базе: ownerReportDelivery
 - const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…
   · читает в базе: smsMessage
+- const latestAwaitsHuman = versions[0] ? await narrationAwaitsHuman(p.id, p, versions[0]) : false;
+  · зовёт narrationAwaitsHuman()
+- const latestAudioSec = versions[0]?.status === "READY" && versions[0].storageKey && versions[0].audioSec == n…
+  · зовёт narrationAudioSec()
 - res.json({ versions: versions.map((v)
   · ответ 200
 
@@ -13787,6 +13781,94 @@
     - return res.status(404).json({ error: "Запрос не найден" });
       · ответ 404 — «Запрос не найден»
 
+### GET /api/v1/properties/narration-music/:id/file
+
+`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !hasMarketingRole(req.agent)
+  - return res.status(403).json({ error: "Музыка доступна маркетингу и руководству" });
+    · ответ 403 — «Музыка доступна маркетингу и руководству»
+- const id = narrationMusicIdSchema.safeParse(req.params.id);
+  · проверяет данные схемой narrationMusicIdSchema
+- если !id.success
+  - return res.status(400).json({ error: "Некорректный трек" });
+    · ответ 400 — «Некорректный трек»
+- const row = await prisma.narrationMusicTrack.findUnique({ where: { id: id.data }, select: { storageKey: true,…
+  · читает в базе: narrationMusicTrack
+- const file = row ? localVideoFilePath(row.storageKey) : null;
+  · зовёт localVideoFilePath()
+- если !row || !file
+  - return res.status(404).json({ error: "Трек не найден" });
+    · ответ 404 — «Трек не найден»
+- res.setHeader("Cache-Control", "private, max-age=3600");
+  · ставит заголовок ответа
+- res.type(row.format === "m4a" ? "audio/mp4" : "audio/mpeg").sendFile(file, (err)
+  · ответ 404 — «Файл трека не найден на сервере»
+  · ставит заголовок ответа
+  - если err && !res.headersSent
+    - res.status(404).json({ error: "Файл трека не найден на сервере" });
+      · ответ 404 — «Файл трека не найден на сервере»
+
+### DELETE /api/v1/properties/narration-music/:id
+
+`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !canConfigure(req.agent!.role)
+  - return res.status(403).json({ error: "Музыку удаляет руководство" });
+    · ответ 403 — «Музыку удаляет руководство»
+- const id = narrationMusicIdSchema.safeParse(req.params.id);
+  · проверяет данные схемой narrationMusicIdSchema
+- если !id.success
+  - return res.status(400).json({ error: "Некорректный трек" });
+    · ответ 400 — «Некорректный трек»
+- если !(await deleteNarrationMusicTrack(id.data))
+  - return res.status(404).json({ error: "Трек не найден" });
+    · ответ 404 — «Трек не найден»
+- logAgentAudit(req.agent!.id, "NARRATION_MUSIC_DELETED", "NarrationMusicTrack", id.data, {});
+  · зовёт logAgentAudit()
+- res.json({ ok: true });
+  · ответ 200
+
+### GET /api/v1/properties/narration-music
+
+`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !hasMarketingRole(req.agent)
+  - return res.status(403).json({ error: "Музыка доступна маркетингу и руководству" });
+    · ответ 403 — «Музыка доступна маркетингу и руководству»
+- const tracks = await narrationMusicTracks();
+  · зовёт narrationMusicTracks()
+- res.json(view);
+  · ответ 200
+
+### POST /api/v1/properties/narration-music
+
+`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, narrationMusicUpload.single("file")
+
+- если !canConfigure(req.agent!.role)
+  - return res.status(403).json({ error: "Музыку загружает руководство" });
+    · ответ 403 — «Музыку загружает руководство»
+- const fields = narrationMusicUploadSchema.safeParse({ ...(typeof req.body?.title === "string" ? { title: req.…
+  · проверяет данные схемой narrationMusicUploadSchema
+- если !fields.success
+  - return res.status(400).json({ error: "Название трека — до 80 знаков" });
+    · ответ 400 — «Название трека — до 80 знаков»
+- если !req.file
+  - return res.status(400).json({ error: "Выберите файл mp3 или m4a" });
+    · ответ 400 — «Выберите файл mp3 или m4a»
+- если await prisma.narrationMusicTrack.count() >= NARRATION_MUSIC_LIMITS.maxTracks
+  - return res.status(409).json({ error: `В библиотеке уже ${NARRATION_MUSIC_LIMITS.maxTracks} треков: удалите ли…
+    · ответ 409 — «В библиотеке уже ${NARRATION_MUSIC_LIMITS.maxTracks} треков: удалите…»
+- const added = await addNarrationMusicTrack({ buffer: req.file.buffer, title, createdById: req.agent!.id });
+  · зовёт addNarrationMusicTrack()
+- если !added.ok
+  - return res.status(added.status).json({ error: added.error });
+    · ответ (код зависит от условия)
+- logAgentAudit(req.agent!.id, "NARRATION_MUSIC_ADDED", "NarrationMusicTrack", added.id, { title });
+  · зовёт logAgentAudit()
+- res.status(201).json({ id: added.id });
+  · ответ 201
+
 ### GET /api/v1/properties/narration-options
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
@@ -13821,7 +13903,7 @@
 - если unreadable
   - return res.status(409).json({ error: "Сохранённые настройки озвучки не читаются, поэтому сохранение остановле…
     · ответ 409 — «Сохранённые настройки озвучки не читаются, поэтому сохранение…»
-- const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…
+- const parsed = narrationConfigSchema.safeParse(since ? { ...withoutSince, ownMusicRemixSince: since } : witho…
   · проверяет данные схемой narrationConfigSchema
 - если !parsed.success
   - return res.status(400).json({ error: "Проверьте модель и список голосов", details: parsed.error.flatten() });
@@ -20915,6 +20997,9 @@
       - если row.videoMasterStorageKey
         - rawRefs.add(row.videoMasterStorageKey);
           · дословно из кода
+    - для каждого: const row of await prisma.narrationMusicTrack.findMany({ select: { storageKey: true } })
+      - rawRefs.add(row.storageKey);
+        · дословно из кода
     - const candidates = planDiskCleanup(files, facts, nowMs);
       · зовёт planDiskCleanup()
     - для каждого: const file of files
@@ -23221,54 +23306,65 @@
       · запись в журнал ошибок
       - void logSystemError("telegram", `Озвучка: напоминания об одобрении не ушли: ${err instanceof Error ? err.mess…
         · запись в журнал ошибок
-
-### narration-auto-master — * * * * *
-
-- await runMachineMastersTick();
-  · зовёт runMachineMastersTick()
-  - return runMachineMasters(machineMasterDeps, now);
-    · зовёт runMachineMasters()
+  - report.remixed = await remixFromMasters();
+    · зовёт remixFromMasters()
 
 ### narration-preview-due — * * * * *
 
-- await releaseDueNarrationPreviews();
-  · зовёт releaseDueNarrationPreviews()
-  - const waiting = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null } }, select:…
+- await clearLeftoverNarrationPreviews();
+  · зовёт clearLeftoverNarrationPreviews()
+  - const rows = await prisma.property.findMany({ where: { OR: [{ narrationPreviewVersionId: { not: null } }, { n…
     · читает в базе: property
-  - для каждого: const row of waiting
+  - для каждого: const row of rows
     - пробует
-      - если orphan
-        - const res = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationP…
-          · меняет в базе: property
-        - если res.count
-          - cleared++;
-            · дословно из кода
-          - await removeClipFiles(row.narrationPreviewPath);
-            · дословно из кода
-        - continue;
-          · переходит к следующему
-      - если !row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()
-        - continue;
-          · переходит к следующему
-      - если await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: "auto" }, now)…
-        - released++;
-          · дословно из кода
-    - если сорвалось
-      - void logSystemError("video-handoff", `Новый ролик с озвучкой не выпущен по сроку прослушивания: ${err instanc…
-        · запись в журнал ошибок
-- await notifyPendingNarrationPreviews(notifyNarrationPreview);
-  · зовёт notifyPendingNarrationPreviews()
-  - const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…
-    · читает в базе: property
-  - для каждого: const row of rows.filter((r) => r.narrationPreviewMasterKey === r.videoMasterStorageKey).slice(0, 5)
-    - пробует
-      - const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrati…
+      - const done = await withPropertyLock(row.id, async (tx)
+        · читает в базе: property
         · меняет в базе: property
-      - если marked.count
-        - notified++;
+        · читает в базе: propertyNarrationVersion
+        · меняет в базе: propertyNarrationVersion
+        - const cur = await tx.property.findUnique({ where: { id: row.id }, select: { narrationPreviewVersionId: true, …
+          · читает в базе: property
+        - если !cur || cur.narrationPreviewVersionId !== row.narrationPreviewVersionId || cur.narrationPreviewPath !== row.n…
+          - return false;
+            · дословно из кода
+        - await tx.property.update({ where: { id: row.id }, data: NARRATION_PREVIEW_CLEARED });
+          · меняет в базе: property
+        - const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.id }, orderBy: { revisi…
+          · читает в базе: propertyNarrationVersion
+        - если cur.narrationPreviewVersionId && latest?.id === cur.narrationPreviewVersionId && cur.videoMasterNarrationVers…
+          - await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY" }, data: { approvedAt:…
+            · меняет в базе: propertyNarrationVersion
+      - если !done
+        - continue;
+          · переходит к следующему
+      - если row.narrationPreviewPath
+        - await removeClipFiles(row.narrationPreviewPath);
           · дословно из кода
     - если сорвалось
-      - void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор че…
+      - void logSystemError("video-handoff", `Оставшийся кандидат «прослушать перед выпуском» не убран: ${err instanc…
+        · запись в журнал ошибок
+- await reopenAutoApprovalsOnPublishedClips();
+  · зовёт reopenAutoApprovalsOnPublishedClips()
+  - return prisma.$executeRaw` WITH latest AS ( SELECT DISTINCT ON (v."propertyId") v."id", v."propertyId", v."st…
+    · обращается к базе своим SQL
+- await finishOldPostsSweep();
+  · зовёт finishOldPostsSweep()
+  - const rows = await prisma.videoRemakeRequest.findMany({ where: { replaceOldPostsOnPublish: true, oldPostsRepl…
+    · читает в базе: videoRemakeRequest
+  - для каждого: const { propertyId } of rows
+    - если await isHandoffPublishRunning(propertyId)
+      - await prisma.videoRemakeRequest.updateMany({ where: { propertyId, oldPostsReplacedAt: null }, data: { oldPost…
+        · меняет в базе: videoRemakeRequest
+      - continue;
+        · переходит к следующему
+    - пробует
+      - const r = await finishOldPostsAfterRemakePublish(propertyId, null, now);
+        · зовёт finishOldPostsAfterRemakePublish()
+      - если r && (r.removed.length || r.manual.length || r.done)
+        - touched++;
+          · дословно из кода
+    - если сорвалось
+      - void logSystemError("meta", `Объект ${propertyId}: снятие старых постов после нового ролика упало: ${err inst…
         · запись в журнал ошибок
 
 ### narration-version-delivery — * * * * *
@@ -30361,10 +30457,15 @@
     · зовёт releaseQueueIfClear()
   - return;
     · дальше не идёт, ничего не меняя
-- await replaceOldPostsBeforeRemakePublish(property.id).catch((err)
+- const remake = await prepareOldPostsBeforeRemakePublish(property.id).catch((err)
   · запись в журнал ошибок
+  - void logSystemError("meta", `Объект ${property.id}: снимок старых постов перед публикацией перемонтажа не уда…
+    · запись в журнал ошибок
 - const summary = await publishHandoffResult(property.id, property.videoHandoffFinalPath);
   · зовёт publishHandoffResult()
+- если remake
+  - await finishOldPostsAfterRemakePublish(property.id, summary).catch((err)
+    · запись в журнал ошибок
 - await notifyVideoHandoffPublishResult(property.id, summary);
   · зовёт notifyVideoHandoffPublishResult()
 - await releaseQueueIfClear(property.id);

@@ -4,6 +4,7 @@ import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
 import { logSystemError } from "./systemError.js";
 import { localVideoDelete, localVideoUpload } from "./localVideoStorage.js";
+import { clipCountsAsPublished } from "./publishedClip.js";
 import { generateNarrationAudio, narrationFactsCurrent, narrationHash, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 
 /** Пауза после «кредиты кончились»: раз в час одна проверка, пока владелец не пополнит. */
@@ -127,7 +128,9 @@ export async function generateNarrationVersion(input: {
     // То же «сейчас», что у потолка и паузы «кредиты кончились»: иначе пауза считалась бы по двум часам сразу.
     const generationStartedAt = now;
     await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data: { status: "GENERATING", generationStartedAt, generationAttempts: { increment: 1 } } });
-    return { kind: "RUN" as const, row: { ...latest, generationStartedAt } };
+    // Ролик уже вышел: аудио по утверждённому тексту маркетинга снова ждёт человека после прослушивания (ниже).
+    const published = input.requireApproval && await clipCountsAsPublished(input.propertyId, current, tx);
+    return { kind: "RUN" as const, row: { ...latest, generationStartedAt }, published };
   });
   if (claimed.kind === "REJECTED") return { status: "REJECTED" };
   if (claimed.kind === "BUDGET") return { status: "BUDGET" };
@@ -150,7 +153,14 @@ export async function generateNarrationVersion(input: {
     const saved = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${input.propertyId} FOR UPDATE`;
       const changed = await tx.propertyNarrationVersion.updateMany({ where: guard, data: { status: "READY", storageKey, providerRequestId: result.requestId, generateAfter: null, errorCode: null } });
-      if (changed.count) return "READY";
+      if (changed.count) {
+        // ТЕКСТ УТВЕРЖДЁН ≠ ГОЛОС УСЛЫШАН (ревью 18.11): ролик уже вышел — утверждение = выпуск в сети, поэтому
+        // аудио по утверждённому тексту маркетинга снова ждёт человека после прослушивания.
+        if (claimed.published) {
+          await tx.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "READY" }, data: { approvedAt: null, approvedById: null } });
+        }
+        return "READY";
+      }
       const retained = await tx.propertyNarrationVersion.updateMany({ where: { id: row.id }, data: { storageKey, providerRequestId: result.requestId } });
       return retained.count ? "RECONCILED" : "REMOVED";
     });

@@ -304,3 +304,29 @@ function dayWord(daysAhead: number): string {
   if (daysAhead === 2) return "послезавтра";
   return `через ${daysAhead} ${daysAhead < 5 ? "дня" : "дней"}`;
 }
+
+/**
+ * ОЧЕРЕДЬ НОВОЙ ОЗВУЧКИ (18.11.2026, владелец: «утвердил — ролик сразу уходит», и «не залпом»).
+ *
+ * Ролик, перевыпущенный после утверждённой новой озвучки, не ждёт обычной сетки (90 минут, живые часы):
+ *  • в окне публикаций — сразу, если рядом нет другой публикации ближе короткого промежутка
+ *    (настройка «Промежуток между роликами после новой озвучки», по умолчанию 15 минут);
+ *  • утвердили пять сразу — встают друг за другом через этот промежуток (порядок — кто раньше занял слот
+ *    под общим замком в schedulePublishAfterAccept, а сводятся ролики по времени утверждения);
+ *  • ночью (вне окна) — первым свободным утренним временем, обычно 09:00.
+ * Слоты общие с обычными роликами и фото-постами (loadOccupiedPublishSlots): короткий промежуток соблюдается
+ * от КАЖДОЙ уже расставленной публикации, а обычная сетка, считая следующий ролик, держит свои 90 минут и от
+ * этих слотов тоже — одна шкала, без двух очередей.
+ */
+export function nextNarrationSlot(now: Date, occupied: readonly Date[], rules: PublishScheduleRules, gapMin: number): PublishSlot {
+  const quick: PublishScheduleRules = { ...rules, enabled: true, minGapMin: Math.max(1, gapMin), priorityWindows: [], priorityWindowsByDow: undefined,
+    hourWeights: undefined, hourWeightsByDow: undefined, prioritySource: "fixed" };
+  const slot = nextPublishSlot(now, occupied, quick);
+  const minute = Math.round((slot.at.getTime() - dushanbeStartOfDay(slot.at).getTime()) / 60_000);
+  const sameDay = dushanbeStartOfDay(slot.at).getTime() === dushanbeStartOfDay(now).getTime();
+  if (slot.at.getTime() === now.getTime()) return { at: slot.at, reason: "Новая озвучка утверждена, ролик выходит сразу." };
+  if (!sameDay || dushanbeMinutesOfDay(now) < rules.windowStartMin) {
+    return { at: slot.at, reason: `Ночью посты не видят, ролик с новой озвучкой выйдет утром в ${hhmm(minute)}.` };
+  }
+  return { at: slot.at, reason: `Перед ним в очереди другие ролики, выйдет в ${hhmm(minute)}.` };
+}

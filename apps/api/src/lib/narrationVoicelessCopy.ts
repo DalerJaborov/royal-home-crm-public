@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { narrationAutoSeparate, narrationConfigSchema, narrationMixByCrm } from "@royal-home/shared";
+import { narrationConfigSchema, narrationMixByCrm, narrationOwnMusicRemix } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { probeMediaInfo } from "./ffmpeg.js";
@@ -38,12 +38,11 @@ async function editorVoicedDelivery(propertyId: string): Promise<{ versionId: st
   return row ? { versionId: row.versionId } : null;
 }
 
-/** Второй файл не просим: голос кладёт CRM (mixByCrm) или CRM сама убирает старый голос из готового
- *  ролика (autoSeparateVoice, 16.11.2026: «монтажёр присылает один файл, дальше мы сами»). */
+/** Второй файл не просим: голос кладёт CRM (mixByCrm) или включена своя музыка (18.11.2026: звук ролика CRM меняет весь). */
 async function crmMixesFirstVoice(): Promise<boolean> {
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { propertyNarrationConfig: true } });
   const parsed = narrationConfigSchema.safeParse(settings?.propertyNarrationConfig ?? {});
-  return parsed.success && (narrationMixByCrm(parsed.data) || narrationAutoSeparate(parsed.data));
+  return parsed.success && (narrationMixByCrm(parsed.data) || narrationOwnMusicRemix(parsed.data));
 }
 
 export type VoicelessAsk = { text: string; buttons: Array<Array<{ text: string; callback_data: string }>> };

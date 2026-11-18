@@ -77,12 +77,13 @@ import {
   isSocialPublishRetryTarget,
   socialPublishRetryDedupeKeys,
 } from "../jobs/socialPublishRetryPolicy.js";
-import { nextPublishSlot } from "./publishSchedule.js";
+import { nextNarrationSlot, nextPublishSlot } from "./publishSchedule.js";
 import { loadOccupiedPublishSlots } from "./publishSlots.js";
 import { updatePublishedMarks, type PublishedMarks } from "./publishedMarks.js";
 import { stageLatePublishedPriceCaption } from "./priceCaptionDelivery.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
-import { PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
+import { narrationPublishGapMin, PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
+import { loadNarrationConfiguration } from "./narrationGeneration.js";
 import { sendAgentSharePost } from "./agentSharePost.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { dropNarrationMaster, mixFromStoredMaster, planCrmMixOnReceive, storeNarrationMaster } from "./narrationMaster.js";
@@ -2228,8 +2229,6 @@ async function finishReceivingVideo(
           // Ролик с голосом монтажёра отменяет прежний мастер: перемикс из него затёр бы новый монтаж.
           videoMasterStorageKey: master?.key ?? null,
           videoMasterSource: master ? "EDITOR" : null,
-          // Новый готовый ролик — новая попытка убрать голос машиной (16.11.2026).
-          videoMasterAutoError: null, videoMasterAutoErrorFinalPath: null, videoMasterAutoAttempts: 0, videoMasterAutoRetryAt: null,
           videoMasterNarrationVersionId: master?.versionId ?? null,
           // Новый ролик от монтажёра — кандидат «прослушать перед выпуском» к старому больше не годится (17.11.2026).
           ...NARRATION_PREVIEW_CLEARED,
@@ -2393,6 +2392,14 @@ export interface SchedulePublishResult {
  * принят, сторож недоехавших публикаций (videoHandoffUnfinishedPublishWatchdog)
  * поставит задание позже.
  */
+/** Промежуток очереди новой озвучки, если этот выпуск — перевыпуск после утверждённой озвучки; иначе null. */
+async function narrationRemakeGapMin(propertyId: string): Promise<number | null> {
+  const remake = await prisma.videoRemakeRequest.findFirst({ where: { propertyId, reason: "NARRATION_CHANGED", replaceOldPostsOnPublish: true, oldPostsReplacedAt: null }, select: { id: true } });
+  if (!remake) return null;
+  const { config } = await loadNarrationConfiguration();
+  return narrationPublishGapMin(config);
+}
+
 export async function schedulePublishAfterAccept(propertyId: string): Promise<SchedulePublishResult> {
   const closedReason = "Передачу закрыли, пока ролик принимался, — в сети он сам не уйдёт.";
   try {
@@ -2412,6 +2419,10 @@ export async function schedulePublishAfterAccept(propertyId: string): Promise<Sc
       return { scheduledPublishAt: null, notPublishingReason };
     }
     const scheduleRules = (await loadPublishScheduleRules()).rules;
+    // НОВАЯ ОЗВУЧКА ВЫХОДИТ СРАЗУ (18.11.2026): перевыпуск после утверждённой озвучки (заявка NARRATION_CHANGED с
+    // заменой старых постов) — своей короткой очередью (lib/publishSchedule.ts::nextNarrationSlot), на той же шкале
+    // и под тем же замком, что все публикации. Ночью — утром. Промежуток — из настроек озвучки (по умолчанию 15 мин).
+    const narrationGapMin = await narrationRemakeGapMin(propertyId);
     const scheduledPublishAt = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PUBLISH_SLOT_LOCK_ID}::bigint)`;
       // ВСЕ занятые слоты от «сейчас минус промежуток» и дальше, а не только
@@ -2423,8 +2434,9 @@ export async function schedulePublishAfterAccept(propertyId: string): Promise<Sc
       // Занятые слоты — объединяя ролики и фото-посты (28.09.2026,
       // lib/publishSlots.ts): иначе оба вида публикаций считали бы свои часы
       // отдельно и могли бы встать на одну и ту же минуту.
-      const occupied = await loadOccupiedPublishSlots(tx, new Date(now.getTime() - scheduleRules.minGapMin * 60_000), propertyId);
-      const computed = nextPublishSlot(now, occupied, scheduleRules);
+      const lookBackMin = narrationGapMin ?? scheduleRules.minGapMin;
+      const occupied = await loadOccupiedPublishSlots(tx, new Date(now.getTime() - lookBackMin * 60_000), propertyId);
+      const computed = narrationGapMin !== null ? nextNarrationSlot(now, occupied, scheduleRules, narrationGapMin) : nextPublishSlot(now, occupied, scheduleRules);
       // Слот пишется внутри той же транзакции, под замком: запись после снятия
       // замка вернула бы гонку за слот. Причина едет рядом со временем.
       const written = await tx.property.updateMany({
@@ -2925,7 +2937,6 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
         // Удалили принятый ролик — его мастер тоже не годится для перемикса (11.11.2026).
         videoMasterStorageKey: null,
         videoMasterSource: null,
-        videoMasterAutoError: null, videoMasterAutoErrorFinalPath: null, videoMasterAutoAttempts: 0, videoMasterAutoRetryAt: null,
         videoMasterNarrationVersionId: null,
         ...NARRATION_PREVIEW_CLEARED,
         scheduledPublishAt: null,
@@ -4328,4 +4339,17 @@ export function dispatchInBackground(
 /** Дождаться всех фоновых отправок — для тестов и аккуратной остановки процесса. */
 export async function settleBackgroundHandoffDispatches(): Promise<void> {
   while (backgroundDispatches.size > 0) await Promise.allSettled([...backgroundDispatches]);
+}
+
+/**
+ * ПРИМЕРНОЕ ВРЕМЯ ВЫХОДА после «Утвердить» (18.11.2026): ответ кнопки CRM и Шабнам говорит «выйдет примерно в 14:15».
+ * Без записи и без замка — настоящий слот ставит schedulePublishAfterAccept, когда голос уже наложен (обычно через
+ * пару минут); карточка потом показывает точное время.
+ */
+export async function estimateNarrationPublishAt(propertyId: string, now: Date = new Date()): Promise<Date> {
+  const rules = (await loadPublishScheduleRules()).rules;
+  const gap = narrationPublishGapMin((await loadNarrationConfiguration()).config);
+  const from = new Date(now.getTime() + 2 * 60_000);
+  const occupied = await loadOccupiedPublishSlots(prisma, new Date(from.getTime() - gap * 60_000), propertyId);
+  return nextNarrationSlot(from, occupied, rules, gap).at;
 }
