@@ -4,7 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { CleanClientRow } from "../../clean/CleanClientRow";
 import { CleanClientDetailTabs } from "../../clean/CleanClientDetailLayout";
-import { RoyalClientListHead, RoyalClientRow, RoyalClientTabs, type RoyalClientRowProps } from "./RoyalClients";
+import { readFileSync } from "node:fs";
+import { ROYAL_ROW_PC_ONLY, RoyalClientFacts, RoyalClientListHead, RoyalClientRow, RoyalClientTabs, type RoyalClientRowProps } from "./RoyalClients";
 
 /**
  * «Новый вид» раздела «Клиенты»: разметка другая, данные и действия те же.
@@ -48,6 +49,32 @@ describe("строка клиента нового вида", () => {
     expect(royal({ showAgent: false })).not.toContain("Фаррух");
     expect(inRouter(<RoyalClientListHead showAgent={false} />)).not.toContain("Ответственный");
     expect(inRouter(<RoyalClientListHead showAgent />)).toContain("Ответственный");
+  });
+});
+
+describe("строка на телефоне: что скрыто — помечено и есть в карточке", () => {
+  it("номер карточки и источник помечены «только ПК» — остальное видно и на телефоне", () => {
+    const html = royal();
+    const pcOnly = [...html.matchAll(new RegExp(`class="[^"]*${ROYAL_ROW_PC_ONLY}[^"]*">([^<]*)<`, "g"))].map((m) => m[1]);
+    expect(pcOnly).toEqual([fixture.identity, fixture.source]);
+  });
+  it("слой нового вида прячет их только на телефоне и возвращает в таблице ПК", () => {
+    const css = readFileSync(new URL("../../../theme-look-royal-clients.css", import.meta.url), "utf8");
+    const container = css.indexOf("@container ry-clist");
+    const hide = css.indexOf(`.${ROYAL_ROW_PC_ONLY} { display: none; }`);
+    const show = css.indexOf(`.${ROYAL_ROW_PC_ONLY} { display: block; }`);
+    expect(hide).toBeGreaterThan(-1);
+    expect(hide).toBeLessThan(container);
+    expect(show).toBeGreaterThan(container);
+  });
+  it("в шапке карточки факты: полные подписи для чтеца, короткий текст на виду", () => {
+    const html = renderToStaticMarkup(<RoyalClientFacts facts={[
+      { icon: "calendar-days", text: "16 ноября", label: "Пришёл 16 ноября" },
+      { icon: "inbox", text: "Instagram", label: "Откуда пришёл: Instagram" },
+    ]} />);
+    expect(html).toContain("Instagram");
+    expect(html).toContain("Откуда пришёл: Instagram");
+    expect(html).toContain('class="sr-only">Пришёл 16 ноября');
   });
 });
 

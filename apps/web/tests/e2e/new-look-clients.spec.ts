@@ -1,48 +1,19 @@
 import { test, expect, type Page } from "@playwright/test";
+import { expectNoOverflowAt, LOOK_WIDTHS } from "./helpers/noOverflow";
 
 /**
  * «НОВЫЙ ВИД», РАЗДЕЛ «КЛИЕНТЫ» — сторож вёрстки (пачка clients, 18.11.2026).
  *
  * Ответ /ui-shell подменяется, как в new-look.spec.ts: правило сервера
- * проверяют тесты API. Здесь — сам экран: список и карточка клиента на девяти
- * ширинах без горизонтальной прокрутки, ряд действий карточки (в макете он
- * вылезал за край на ПК и на 320–360) целиком в окне, без признака новой
- * разметки нет.
+ * проверяют тесты API. Здесь — сам экран: список и карточка на девяти ширинах без
+ * вылета (помощник helpers/noOverflow.ts видит и вылет, спрятанный прокручиваемой
+ * рамкой оболочки), строка телефона в три строки, а номер карточки и источник,
+ * скрытые в строке телефона, — в карточке клиента.
  */
-const WIDTHS = [320, 360, 390, 430, 768, 1024, 1280, 1440, 1920];
-
 async function withShell(page: Page, body: Record<string, unknown>) {
   await page.route("**/api/v1/ui-shell", (route) => route.request().method() === "GET"
     ? route.fulfill({ json: body, headers: { "cache-control": "no-store" } })
     : route.fallback());
-}
-
-/**
- * Элементы, вылезшие за окно ИЛИ обрезанные краем своей карточки (overflow:hidden
- * прячет вылет от scrollWidth — так и выглядела ошибка макета: кнопку «Показ»
- * просто не было видно; рамка Clean ещё и прокручивается сама, поэтому
- * scrollWidth страницы вылета не видит). Не вылет — только задуманные ленты с
- * прокруткой: вкладки карточки и ряды фильтров.
- */
-const STRIPS = ".ry-ctabs, .rh-filters-scroll";
-async function sticksOut(page: Page, selector: string) {
-  return page.evaluate(([sel, strips]) => [...document.querySelectorAll(sel)].filter((node) => {
-    const rect = node.getBoundingClientRect();
-    if (rect.width === 0) return false;
-    if (node.parentElement?.closest(strips)) return false;
-    let limit = window.innerWidth;
-    for (let p = node.parentElement; p && p !== document.body; p = p.parentElement) {
-      if (getComputedStyle(p).overflowX !== "visible") limit = Math.min(limit, p.getBoundingClientRect().right);
-    }
-    return rect.right > limit + 1;
-  }).map((node) => `${node.tagName.toLowerCase()}.${String((node as HTMLElement).className).slice(0, 40)}`), [selector, STRIPS] as const);
-}
-
-async function noHorizontalScroll(page: Page, width: number, selector: string) {
-  await page.setViewportSize({ width, height: 900 });
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
-    { message: `горизонтальная прокрутка на ${width}px` }).toBeLessThanOrEqual(0);
-  expect(await sticksOut(page, selector), `элементы шире окна на ${width}px`).toEqual([]);
 }
 
 test("новый вид: список и карточка клиента без вылета за край на всех ширинах @smoke", async ({ page }, testInfo) => {
@@ -52,13 +23,37 @@ test("новый вид: список и карточка клиента без 
   await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
   const firstRow = page.locator(".ry-crow").first();
   await expect(firstRow).toBeVisible({ timeout: 30_000 });
-  for (const width of WIDTHS) await noHorizontalScroll(page, width, ".ry-clients-head, .ry-crow, .ry-crow *, #clients-list");
+  for (const width of LOOK_WIDTHS) await expectNoOverflowAt(page, width, ".ry-clients-head, .clean-client-notices, .ry-crow, .ry-crow *, #clients-list");
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await firstRow.locator("a.ry-crow-main").click();
   await expect(page.locator(".ry-ctabs [role=tab]").first()).toBeVisible({ timeout: 30_000 });
-  for (const width of WIDTHS) {
-    await noHorizontalScroll(page, width, ".clean-client-header, .clean-client-header .acts > *, .cd-actbar > *, .ry-ctabs");
+  for (const width of LOOK_WIDTHS) {
+    await expectNoOverflowAt(page, width, ".clean-client-header, .clean-client-header .acts > *, .ry-cd-facts > *, .cd-actbar > *, .ry-ctabs");
+  }
+});
+
+test("новый вид, телефон: строка клиента не выше трёх строк, номер и источник — в карточке", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "ширина задаётся явно");
+  await withShell(page, { enabled: true, look: "royal" });
+  for (const width of [360, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/clients");
+    const row = page.locator(".ry-crow").first();
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    const box = await row.boundingBox();
+    expect(box!.height, `высота строки на ${width}px`).toBeLessThanOrEqual(104);
+    // Номер карточки и источник есть в разметке строки, но на телефоне не видны.
+    const code = (await row.locator(".ry-crow-id").textContent())?.split(" · ")[0]?.trim() ?? "";
+    const source = (await row.locator(".ry-crow-req .ry-crow-pc-only").textContent())?.trim() ?? "";
+    expect(code).toMatch(/\d/);
+    await expect(row.locator(".ry-crow-id")).toBeHidden();
+    await expect(row.locator(".ry-crow-req .ry-crow-pc-only")).toBeHidden();
+    // …и достижимы в карточке: номер рядом с «назад», источник — фактом в шапке.
+    await row.locator("a.ry-crow-main").click();
+    await expect(page.locator(".ry-cd-facts")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".clean-client-detail .meta").first()).toHaveText(code);
+    if (source) await expect(page.locator(".ry-cd-facts")).toContainText(source);
   }
 });
 

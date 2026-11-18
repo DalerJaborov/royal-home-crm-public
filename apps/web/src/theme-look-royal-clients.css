@@ -168,12 +168,18 @@
 }
 
 /* Тихие строки над списком и сам список — белые карточки радиус 24. */
-:root[data-ui-look="royal"] .clean-shell #main > .rh2.clean-clients-page > .scr > .card.tight {
+:root[data-ui-look="royal"] .clean-shell #main .rh2.clean-clients-page > .scr > .card.tight {
   margin-bottom: 16px; padding: 4px 8px 4px 16px; border: 0; border-radius: var(--rh-ui-r-card);
   background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .clean-shell #main > .rh2.clean-clients-page > .scr > #clients-list.card.tight { padding: 16px 0 8px; }
-:root[data-ui-look="royal"] .clean-shell #main > .rh2.clean-clients-page > .scr > #clients-list > .quiet { max-height: none; margin: 0 16px; }
+:root[data-ui-look="royal"] .clean-shell #main .rh2.clean-clients-page > .scr > #clients-list.card.tight { padding: 16px 0 8px; }
+/* Тихие строки над списком — одна строка: точка, «Не связывались: 4», кнопка справа.
+   Полное пояснение — в подсказке и для чтеца (разметка в Clients.tsx). */
+:root[data-ui-look="royal"] .clean-shell #main .rh2.screens.clean-clients-page > .scr > .card.tight.clean-client-notices > .quiet > .txt {
+  overflow: hidden; display: block; white-space: nowrap; text-overflow: ellipsis; -webkit-line-clamp: none;
+}
+:root[data-ui-look="royal"] .clean-shell #main .rh2.clean-clients-page > .scr > .clean-client-notices > .quiet > .txt b { font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .clean-shell #main .rh2.clean-clients-page > .scr > #clients-list > .quiet { max-height: none; margin: 0 16px; }
 
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-search { display: flex; align-items: center; gap: 10px; margin: 0 16px 8px; min-width: 0; }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-search .inp { flex: 1 1 auto; width: auto; min-width: 0; padding: 0 18px; border-radius: 999px; }
@@ -187,58 +193,81 @@
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist .swm { background: var(--rh-ui-card); }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head { display: none; }
 
+/* Строка, телефон: три строки ~96 px.
+     1) имя (многоточие)            … время контакта или срок
+     2) запрос одной строкой (комнаты · район · бюджет)
+     3) плашка следующего шага      … ответственный (инициалы + имя)
+   Аватар — на все три строки слева, трубка — на все три справа. Номер карточки и
+   источник (ry-crow-pc-only) в строке телефона не видны: они в карточке клиента. */
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "main acts" "req req" "next next" "agent agent";
-  align-items: center; column-gap: 12px; row-gap: 4px; min-width: 0; padding: 12px 16px 14px;
+  /* Имя и время, плашка и ответственный делят СВОЮ строку (одна клетка, края
+     к краям), а не общую колонку: длинное имя агента не сжимает имя клиента. */
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) 48px;
+  grid-template-areas: "av top acts" "av req acts" "av foot acts";
+  align-items: center; column-gap: 10px; row-gap: 3px; min-width: 0; min-height: 96px; padding: 10px 12px;
   color: var(--rh-ui-text); background: var(--rh-ui-card);
 }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow[data-deleted] { opacity: .72; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-av { grid-area: av; display: grid; place-items: center; width: 44px; height: 44px; text-decoration: none; }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-main {
-  grid-area: main; display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 48px;
-  color: inherit; text-decoration: none; border-radius: 16px;
+  grid-area: top; justify-self: start; display: block; min-width: 0; max-width: calc(100% - 96px);
+  color: inherit; text-decoration: none; border-radius: 8px;
 }
 :root[data-ui-look="royal"] .rh2.clean-clients-page a.ry-crow-main:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-av { display: grid; flex: none; }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-name {
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  font-size: 17px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere;
+  display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 17px; font-weight: 600; line-height: 1.25;
 }
 :root[data-ui-look="royal"] .rh2.clean-clients-page a.ry-crow-main:hover .ry-crow-name { color: var(--rh-ui-primary-ink); }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-id { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
-:root[data-ui-look="royal"] .rh2.clean-clients-page :is(.ry-crow-req, .ry-crow-next, .ry-crow-agent) {
-  display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 4px; min-width: 0; padding-left: 56px; font-size: 15px; line-height: 1.35;
-}
-/* Телефон: запрос и источник одной строкой с многоточием (полностью — в карточке),
-   имя в одну строку, подписи «Последний контакт» и «Ответственный» — значками. */
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-pc-only { display: none; }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req {
-  grid-area: req; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  grid-area: req; display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint);
 }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req > .ry-crow-hint::before { content: " · "; }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-name { -webkit-line-clamp: 1; }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-next { grid-area: next; }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent { grid-area: agent; flex-wrap: nowrap; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent > .ry-crow-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-:root[data-ui-look="royal"] .rh2.clean-clients-page :is(.ry-crow-last, .ry-crow-agent) { display: inline-flex; align-items: center; gap: 6px; }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-ico { flex: none; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-nowrap { white-space: nowrap; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req > .ry-crow-text { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-next { display: contents; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step {
+  grid-area: foot; justify-self: start; display: flex; align-items: center; min-width: 0; max-width: 58%; overflow: hidden; white-space: nowrap; font-size: 15px;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:not([data-agent]) .ry-crow-step { max-width: 100%; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: block; line-height: 22px; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step .chip { min-height: 28px; padding: 3px 10px; white-space: nowrap; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step > span:not(.chip) { overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step.ry-crow-hint { overflow: hidden; text-overflow: ellipsis; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-when {
+  grid-area: top; justify-self: end; min-width: 0; max-width: 92px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 14px; font-variant-numeric: tabular-nums; color: var(--rh-ui-hint);
+}
+/* Есть срок — справа срок, нет — время последнего контакта (оба остаются в разметке). */
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow[data-deadline] .ry-crow-last { display: none; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-deadline { font-weight: 600; }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-label-phone,
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-label {
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-text { min-width: 0; overflow-wrap: anywhere; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-hint { min-width: 0; overflow-wrap: anywhere; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent {
+  grid-area: foot; justify-self: end; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 40%;
+  font-size: 14px; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent > .ry-crow-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent-av {
+  display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 999px;
+  background: var(--rh-ui-a0); color: var(--rh-ui-a0f); font-size: 13px; font-weight: 700; line-height: 1;
+}
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-text { min-width: 0; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-hint { min-width: 0; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-hint[data-tone="crit"] { color: var(--rh-ui-crit-text); font-weight: 600; }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step { display: inline-flex; flex-wrap: wrap; min-width: 0; }
-:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step > span:not(.chip) { font-size: 15px; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-nowrap { white-space: nowrap; }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-acts {
   grid-area: acts; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0;
 }
-/* Несколько действий (Принять / Отклонить, Восстановить) — отдельной строкой под данными, не сжимая имя. */
+/* Несколько действий (Принять / Отклонить, Восстановить) — четвёртой строкой под данными, не сжимая имя. */
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) {
-  grid-template-areas: "main main" "req req" "next next" "agent agent" "acts acts";
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-areas: "av top" "av req" "av foot" ". acts";
 }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) .ry-crow-acts {
-  justify-content: flex-start; padding-left: 56px; padding-top: 6px;
+  justify-content: flex-start; padding-top: 6px;
 }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-acts .basis-full { flex-basis: 100%; }
 /* Трубка — круг 48 с синим значком: одно главное действие строки. */
@@ -249,39 +278,55 @@
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-acts .pill.btn-call.rh-btn:hover { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
 :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-acts .btn-call svg { width: 22px; height: 22px; }
 
-/* Таблица — когда самому списку хватает ширины (ПК). */
+/* Таблица — когда самому списку хватает ширины (ПК): всё как в строке Clean. */
 @container ry-clist (min-width: 880px) {
   :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head,
   :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow {
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.15fr) minmax(0, 1.1fr) 112px;
-    grid-template-areas: "main req next acts";
-    column-gap: 16px; padding: 10px 20px;
+    grid-template-columns: 44px minmax(0, 1.5fr) minmax(0, 1.15fr) minmax(0, 1.1fr) 112px;
+    grid-template-areas: "av main req next acts";
+    column-gap: 14px; row-gap: 0; min-height: 76px; padding: 10px 20px;
   }
   :root[data-ui-look="royal"] .rh2.clean-clients-page :is(.ry-clist-head, .ry-crow)[data-agent] {
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.15fr) minmax(0, 1.1fr) minmax(0, .8fr) 112px;
-    grid-template-areas: "main req next agent acts";
+    grid-template-columns: 44px minmax(0, 1.5fr) minmax(0, 1.15fr) minmax(0, 1.1fr) minmax(0, .8fr) 112px;
+    grid-template-areas: "av main req next agent acts";
   }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) { grid-template-areas: "main req next acts"; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow[data-agent]:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) { grid-template-areas: "main req next agent acts"; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) {
+    grid-template-columns: 44px minmax(0, 1.5fr) minmax(0, 1.15fr) minmax(0, 1.1fr) 112px; grid-template-areas: "av main req next acts";
+  }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow[data-agent]:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) {
+    grid-template-columns: 44px minmax(0, 1.5fr) minmax(0, 1.15fr) minmax(0, 1.1fr) minmax(0, .8fr) 112px; grid-template-areas: "av main req next agent acts";
+  }
   :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) .ry-crow-acts { justify-content: flex-end; padding: 0; }
   :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head {
     display: grid; min-height: 44px; align-items: center; padding-top: 0; padding-bottom: 0;
     font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); box-shadow: inset 0 -1px 0 var(--rh-ui-sep);
   }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head-client { grid-column: 1 / 3; }
   :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head > :last-child { text-align: right; }
   :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clist-head + .sw { box-shadow: none; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page :is(.ry-crow-req, .ry-crow-next, .ry-crow-agent) {
-    flex-direction: column; align-items: flex-start; flex-wrap: nowrap; padding-left: 0;
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-main { grid-area: main; justify-self: stretch; max-width: none; display: flex; flex-direction: column; gap: 2px; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step,
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step .chip { max-width: none; display: inline-flex; line-height: 1.2; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-when { max-width: none; overflow: visible; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-name {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow-wrap: anywhere;
   }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent { color: var(--rh-ui-text); }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent > .ry-crow-text { overflow: visible; white-space: normal; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req { display: flex; -webkit-line-clamp: none; overflow: visible; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req > .ry-crow-hint::before { content: none; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-name { -webkit-line-clamp: 2; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-ico { display: none; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-last { display: block; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-label-pc { position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: normal; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow { min-height: 76px; transition: background-color 160ms cubic-bezier(.23, 1, .32, 1); }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-pc-only { display: block; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-id { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req {
+    display: flex; flex-direction: column; gap: 4px; white-space: normal; overflow: visible; color: var(--rh-ui-text);
+  }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-req > .ry-crow-text { color: var(--rh-ui-text); overflow-wrap: anywhere; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-next { grid-area: next; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-step { white-space: normal; flex-wrap: wrap; overflow: visible; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-when { display: flex; flex-direction: column; gap: 2px; justify-self: start; white-space: normal; font-size: 15px; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-deadline { font-weight: 400; color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow[data-deadline] .ry-crow-last { display: block; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-label-phone { position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: normal; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent { grid-area: agent; justify-self: start; display: block; max-width: none; font-size: 15px; color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent > .ry-crow-text { white-space: normal; overflow: visible; overflow-wrap: anywhere; color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow-agent-av { display: none; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow { transition: background-color 160ms cubic-bezier(.23, 1, .32, 1); }
   :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:hover { background: color-mix(in srgb, var(--rh-ui-hover) 100%, var(--rh-ui-card)); }
 }
 
@@ -294,13 +339,12 @@
 :root[data-ui-look="royal"][data-mobile-ux] .rh2.clean-clients-page .ry-clients-tools .seg { flex: 1 1 auto; }
 :root[data-ui-look="royal"][data-mobile-ux] .rh2.clean-clients-page .ry-clients-tools .seg button { padding: 0 8px; }
 :root[data-ui-look="royal"][data-mobile-ux] .rh2.clean-clients-page .ry-clients-tools .ry-btn { flex: none; padding: 0 16px; }
-@media (max-width: 359.98px) {
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-tools .ry-btn { padding: 0 12px; }
+@media (max-width: 399.98px) {
+  /* «Продавцы / Покупатели» целиком и «Клиент» без значка — ничего не обрезается. */
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-tools .ry-btn { padding: 0 14px; }
   :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-tools .ry-btn svg { display: none; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page :is(.ry-crow-req, .ry-crow-next, .ry-crow-agent) { padding-left: 0; }
-  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) .ry-crow-acts { padding-left: 0; }
+  :root[data-ui-look="royal"] .rh2.clean-clients-page .ry-clients-tools .seg button { padding: 0 6px; }
 }
-
 /* =============================== карточка =============================== */
 
 :root[data-ui-look="royal"] .rh2 .scr.clean-client-detail { max-width: 1280px; font-family: var(--font-sans, "Onest", system-ui, sans-serif); }
@@ -331,7 +375,14 @@
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   margin: 0 0 8px; font-size: 28px !important; font-weight: 700; letter-spacing: -.028em; line-height: 1.15 !important; color: var(--rh-ui-text);
 }
-:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .sub { font-size: 15px !important; line-height: 1.45 !important; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .cd-h { grid-template-columns: 56px minmax(0, 1fr) !important; column-gap: 16px !important; }
+/* Факты о клиенте: значок + короткий текст, одной строкой (на узком — переносом). */
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-cd-facts {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; font-size: 15px; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-cd-facts li { display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-cd-facts li > span { overflow: hidden; text-overflow: ellipsis; }
+:root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .ry-cd-facts svg { flex: none; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2 .scr.clean-client-detail .clean-client-header .cd-name-edit {
   display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 999px; background: var(--rh-ui-press); color: var(--rh-ui-text);
 }

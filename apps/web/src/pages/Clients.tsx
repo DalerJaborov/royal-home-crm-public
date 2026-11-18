@@ -489,9 +489,17 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
           {!!summary?.neverContacted && (
             <div className="quiet crit">
               <span className="dot crit" />
-              <span className="txt">
-                {NO_CONTACT_TEXT.title}: {num(summary.neverContacted)} — ни звонка, ни сообщения сотрудника, ни показа.
-              </span>
+              {royal ? (
+                // Новый вид: одна строка «Не связывались: 4», полное пояснение — подсказкой и для чтеца.
+                <span className="txt" title={`${NO_CONTACT_TEXT.title}: ${num(summary.neverContacted)} — ни звонка, ни сообщения сотрудника, ни показа.`}>
+                  {NO_CONTACT_TEXT.title}: <b>{num(summary.neverContacted)}</b>
+                  <span className="sr-only"> — ни звонка, ни сообщения сотрудника, ни показа.</span>
+                </span>
+              ) : (
+                <span className="txt">
+                  {NO_CONTACT_TEXT.title}: {num(summary.neverContacted)} — ни звонка, ни сообщения сотрудника, ни показа.
+                </span>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -521,7 +529,14 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
           {section === "BUYER" && duplicates && duplicates.length > 0 && (
             <div className="quiet warn">
               <span className="dot warn" />
-              <span className="txt">Похожих карточек: {duplicates.length}. Возможно, это один и тот же человек.</span>
+              {royal ? (
+                <span className="txt" title={`Похожих карточек: ${duplicates.length}. Возможно, это один и тот же человек.`}>
+                  Похожих карточек: <b>{duplicates.length}</b>
+                  <span className="sr-only">. Возможно, это один и тот же человек.</span>
+                </span>
+              ) : (
+                <span className="txt">Похожих карточек: {duplicates.length}. Возможно, это один и тот же человек.</span>
+              )}
               <Button variant="ghost" size="sm" onClick={() => setShowDuplicates(true)}>
                 Сравнить
               </Button>
