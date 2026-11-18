@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4111**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2486**; вместе с задачами по расписанию и фоновыми заданиями — **4113**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3829,7 +3829,7 @@
       · дословно из кода
   - const automationOn = await securityAutomationOn(tx);
     · зовёт securityAutomationOn()
-  - const keepReason = verdict === "CLEARED" ? "проверка не нашла нарушения" : !automationOn ? "автоматика СБ вык…
+  - const blocker = await securityReviewCloseBlocker(tx, current);
     · зовёт securityReviewCloseBlocker()
   - await tx.client.update({ where: { id: client.id }, data: { securityReview: verdict, securityReviewedAt: new D…
     · меняет в базе: client
@@ -3842,18 +3842,24 @@
     · ответ 409 — «Проверка уже завершена или карточка изменилась — обновите страницу»
 - logAudit(req, "CLIENT_SECURITY_REVIEW", "Client", client.id, { verdict });
   · зовёт logAudit()
-- если reviewed.close
+- если reviewed.outcome === "trash"
   - const trashed = await trashClient(client.id, req.agent!.id, { notifyHolder: false });
     · зовёт trashClient()
-  - если !trashed.ok
-    - console.error("[security-review] карточка не убрана в Корзину:", trashed.error);
-      · пишет строку в журнал сервера
+  - если trashed.ok
+    - message = `${label}. Карточка ушла в Корзину`;
+      · дословно из кода
+  - иначе
+    - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", in…
+      · зовёт logTimeline()
+- иначе если reviewed.outcome === "delete-request"
+  - await fileEndOfWorkDeleteRequest(client, client.assignedAgentId ?? req.agent!.id, "Работа по карточке заверше…
+    · зовёт fileEndOfWorkDeleteRequest()
 - void (async ()
   - const reviewers = await findAgentsWithPermission("clients.securityReview");
     · зовёт findAgentsWithPermission()
   - await closeLeadPushNotifications(reviewers.map((id)
     · зовёт closeLeadPushNotifications()
-- res.json({ ok: true, verdict, message: reviewed.keepReason ? `${label}. Карточка осталась в работе: ${reviewe…
+- res.json({ ok: true, verdict, message });
   · ответ 200
 
 ### GET /api/v1/clients/:id/seller-object
@@ -15802,7 +15808,7 @@
 - если !canReadInvestigations(req)
   - delete (response as Record<string, unknown>).postShowingCallEnabled;
     · дословно из кода
-  - delete (response as Record<string, unknown>).investigationCaseConfig;
+  - delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];
     · дословно из кода
 - res.json(response);
   · ответ 200
@@ -15812,6 +15818,9 @@
 `apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- если Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - const parsed = settingsUpdateSchema.safeParse(req.body);
@@ -19937,7 +19946,7 @@
         - await prisma.botAuditFinding.createMany({ data: findings.map((f)
           · создаёт в базе: botAuditFinding
         - если conv.clientId && findings.some((f) => f.type === "agent_bypassed_crm")
-          - await flagAgentBypassSuspicion(conv.clientId);
+          - await flagAgentBypassSuspicion(conv.clientId, conv.id);
             · дословно из кода
       - если сорвалось
         - void logSystemError("ai", `Аудит диалога ${conv.id} не удался: ${describeError(err)}`);

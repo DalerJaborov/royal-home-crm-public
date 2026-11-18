@@ -370,7 +370,7 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
           // Статус карточки отказ больше не трогает: «Горячий»/«Холодный» сняты
           // вместе с остальными статусами-папками (16.11.2026).
           ...(needsSecurityReview
-            ? securityAutoOn ? { securityReview: "PENDING" as const, securityReviewedAt: null, securityReviewedById: null } : {}
+            ? securityAutoOn ? { securityReview: "PENDING" as const, securityReviewRequestedAt: new Date(), securityReviewedAt: null, securityReviewedById: null } : {}
             : needsManagementDecision ? {}
             : escalate
               ? { ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}) }
@@ -397,6 +397,13 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
    * Клиент, который снова напишет или позвонит, вернёт карточку и из Корзины
    * (services/leads/intake.ts, resumeExistingChannelLead).
    */
+  // Автоматика СБ выключена (18.11.2026): проверки не будет, а карточка без передачи
+  // висела бы ничьей — конец работы, заявка на удаление руководителю, решает человек.
+  if (needsSecurityReview && !securityAutoOn) {
+    await fileEndOfWorkDeleteRequest(client, input.actorAgentId ?? client.assignedAgentId,
+      `Отказ клиента: ${reasonLabel}. Работа по карточке завершена.` +
+        (comment?.trim() ? ` Комментарий агента: ${comment.trim()}` : ""));
+  }
   if (escalate && !needsSecurityReview) {
     await fileEndOfWorkDeleteRequest(client, input.actorAgentId ?? client.assignedAgentId,
       `Отказ клиента: ${reasonLabel}. Предел передач (${maxTransfers}) исчерпан — работа по карточке завершена.` +
@@ -417,9 +424,9 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
     }).catch(() => {});
   } else if (needsSecurityReview && !securityAutoOn) {
     // Запись «причина требует внутренней проверки» уже легла в хронологию выше.
-    void reportSecuritySignal({ clientId: client.id, subjectAgentId: client.assignedAgentId, source: "refusal-investigation",
+    await reportSecuritySignal({ clientId: client.id, subjectAgentId: client.assignedAgentId, source: "refusal-investigation",
       dedupeKey: `refusal:${client.id}:${refusalCount}`, writeTimeline: false,
-      what: `агент оформил отказ с причиной «${reasonLabel}»${comment?.trim() ? `: ${comment.trim().slice(0, 80)}` : ""}. Карточка осталась у агента` });
+      what: `агент оформил отказ с причиной «${reasonLabel}»${comment?.trim() ? `: ${comment.trim().slice(0, 80)}` : ""}. Руководителю ушла заявка на удаление карточки` });
   } else if (needsSecurityReview) {
     // Зовём тех, у кого есть право проверять, — по праву, а не по роли.
     // Часы алармов (владелец 07.09.2026): карточка уже ушла в очередь СБ прямо

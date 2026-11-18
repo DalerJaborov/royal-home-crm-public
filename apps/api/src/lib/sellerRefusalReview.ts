@@ -75,7 +75,10 @@ export async function applySellerRefusal(input: SellerRefusalInput): Promise<voi
   // как и отказ покупателя (lib/clientRefuse.ts), руководителю уходит заявка на
   // удаление: в Корзину карточку убирает человек, а не автоматика. «Продан в обход»
   // остаётся у агента: по нему идёт проверка СБ.
-  if (verdict?.next === "LOST" && !SECURITY_REVIEW_REASONS.has(input.reason)) {
+  // Автоматика СБ выключена (18.11.2026) — проверки «продан в обход» не будет, поэтому
+  // конец работы оформляется так же, как при любой другой причине.
+  const securityHold = SECURITY_REVIEW_REASONS.has(input.reason) && (await securityAutomationOn());
+  if (verdict?.next === "LOST" && !securityHold) {
     await fileEndOfWorkDeleteRequest(seller, input.requestedById,
       `Продавец снял последний объект №${property.shortId} «${property.title}» (причина: ${PROPERTY_DELETE_REQUEST_REASON_LABELS[input.reason as PropertyDeleteRequestReason] ?? input.reason}). Объектов в работе и сделок нет — работа по карточке завершена.` +
         (input.comment?.trim() ? ` Комментарий: ${input.comment.trim()}` : ""));
@@ -101,7 +104,7 @@ async function escalateToSecurity(
   // securityReview: null — если проверка уже идёт, второй раз её не заводим.
   const started = await prisma.client.updateMany({
     where: { id: seller.id, securityReview: null },
-    data: { securityReview: "PENDING" },
+    data: { securityReview: "PENDING", securityReviewRequestedAt: new Date() },
   });
 
   const note = `Объект №${property.shortId} снят с продажи: продан в обход агентства${agency ? ` — ${agency}` : ""}. Карточка передана в СБ.`;

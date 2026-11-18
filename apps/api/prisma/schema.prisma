@@ -3668,6 +3668,10 @@ model Client {
   /// может быть правдой, а может быть способом увести сделку. Отличить по тексту
   /// в CRM нельзя, поэтому карточка уходит не следующему агенту, а в СБ.
   securityReview            String?
+  /// Когда карточку поставили «на проверку СБ» (18.11.2026). Точка отсчёта для
+  /// «агент работал после постановки» — вердикт не закрывает карточку в работе
+  /// (apps/api/src/lib/securityAutomation.ts, securityReviewCloseBlocker).
+  securityReviewRequestedAt DateTime?
   securityReviewedAt        DateTime?
   securityReviewedById      String?
   securityReviewer          Agent?               @relation("SecurityReviewer", fields: [securityReviewedById], references: [id], onDelete: SetNull)

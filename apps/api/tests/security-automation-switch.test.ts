@@ -38,6 +38,7 @@ const { escalateSellerPropertyMissing } = await import("../src/lib/sellerPropert
 const { refuseClient } = await import("../src/lib/clientRefuse.js");
 const { flushDirectorAlertQueue } = await import("../src/lib/directorAlertQueue.js");
 const { dushanbeDateTimeString, dushanbeInputToDate } = await import("../src/lib/dushanbeTime.js");
+const { logTimeline } = await import("../src/lib/timeline.js");
 
 const run = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const DAY_MS = 86_400_000;
@@ -91,6 +92,7 @@ afterAll(async () => {
   await prisma.investigationEvidence.deleteMany({ where: { caseId: { in: cases.map((c) => c.id) } } });
   await prisma.investigationCase.deleteMany({ where: { id: { in: cases.map((c) => c.id) } } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
+  await prisma.clientDeleteRequest.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.district.deleteMany({ where: { id: districtId } });
@@ -149,6 +151,8 @@ describe("рубильник выключен — карточки не трог
       expect(await prisma.pendingDirectorAlert.count({ where: { tag: { startsWith: `security-signal-refusal:${buyer.id}` } } })).toBe(1);
     });
     expect(await prisma.pendingDirectorAlert.count({ where: { tag: `security-review-${buyer.id}` } })).toBe(0);
+    // Карточка не повисает ничьей: руководителю заявка на удаление, решает человек.
+    expect(await prisma.clientDeleteRequest.count({ where: { clientId: buyer.id, status: "PENDING" } })).toBe(1);
   });
 
   it("вердикт «нарушение» при выключенной автоматике карточку не удаляет", async () => {
@@ -156,10 +160,12 @@ describe("рубильник выключен — карточки не трог
     const buyer = await makeClient({ securityReview: "PENDING", assignmentRefusedAt: new Date(Date.now() - 3_600_000) });
     const res = await verdict(buyer.id, "CONFIRMED");
     expect(res.status).toBe(200);
-    expect(res.body.message).toContain("осталась в работе");
+    expect(res.body.message).toContain("заявка на удаление");
     const after = await prisma.client.findUniqueOrThrow({ where: { id: buyer.id } });
     expect(after.deletedAt).toBeNull();
     expect(after.securityReview).toBe("CONFIRMED");
+    // Не ничья: решение об удалении — за человеком.
+    expect(await prisma.clientDeleteRequest.count({ where: { clientId: buyer.id, status: "PENDING" } })).toBe(1);
   });
 });
 
@@ -176,10 +182,25 @@ describe("вердикт СБ не закрывает карточку в раб
     expect(after.securityReview).toBe("CLEARED");
   });
 
-  it("«вопросов нет» не закрывает даже карточку без объектов и работы", async () => {
+  it("«вопросов нет» не закрывает даже карточку без объектов и работы — только заявка руководителю", async () => {
     automation.on = true;
     const buyer = await makeClient({ securityReview: "PENDING", assignmentRefusedAt: new Date(Date.now() - 3_600_000) });
     expect((await verdict(buyer.id, "CLEARED")).status).toBe(200);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: buyer.id } })).deletedAt).toBeNull();
+    expect(await prisma.clientDeleteRequest.count({ where: { clientId: buyer.id, status: "PENDING" } })).toBe(1);
+  });
+
+  it("работа агента после постановки не прячется поздней закрытой записью", async () => {
+    automation.on = true;
+    const requestedAt = new Date(Date.now() - 3 * DAY_MS);
+    const buyer = await makeClient({ securityReview: "PENDING", securityReviewRequestedAt: requestedAt });
+    await prisma.interaction.create({ data: { clientId: buyer.id, agentId, type: "CALL", notes: "Звонил клиенту",
+      createdAt: new Date(Date.now() - 2 * DAY_MS) } });
+    await logTimeline({ clientId: buyer.id, actor: { kind: "system", source: "test-late-mark" }, type: "SYSTEM",
+      investigationOnly: true, notes: "Поздняя автоматическая закрытая запись", createdAt: new Date(Date.now() - DAY_MS) });
+    const res = await verdict(buyer.id, "CONFIRMED");
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain("осталась в работе");
     expect((await prisma.client.findUniqueOrThrow({ where: { id: buyer.id } })).deletedAt).toBeNull();
   });
 

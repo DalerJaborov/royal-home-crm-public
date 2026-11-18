@@ -2,3 +2,6 @@
 -- Только новая колонка. DEFAULT false нарочно: после выката автоматика СБ карточки не трогает,
 -- сигналы уходят уведомлением директору и РОП. Включает человек в Настройках.
 ALTER TABLE "Settings" ADD COLUMN "securityAutomationEnabled" BOOLEAN NOT NULL DEFAULT false;
+-- Когда карточку поставили «на проверку СБ»: вердикт не закрывает карточку, с которой агент
+-- работал после этого момента. Только новая колонка, NULL у старых строк.
+ALTER TABLE "Client" ADD COLUMN "securityReviewRequestedAt" TIMESTAMP(3);

@@ -556,6 +556,7 @@ settingsRouter.get("/", requireAuth, async (req, res) => {
   const response = isAdmin ? await publicSettingsResponse(settings) : toStaffSettings(settings);
   if (!canReadInvestigations(req)) {
     delete (response as Record<string, unknown>).postShowingCallEnabled;
+    delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];
     delete (response as Record<string, unknown>).investigationCaseConfig;
     delete (response as Record<string, unknown>).sellerControlConfig;
     delete (response as Record<string, unknown>).postShowingCohortConfig;
@@ -1373,6 +1374,9 @@ const settingsUpdateSchema = z.object({
 
 settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), requireElevation, async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
+  // Рубильник автоматики СБ (18.11.2026) — тот же круг, что у дел СБ: сотрудник с правом
+  // на настройки не должен уметь выключить контроль над собой.
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
   const parsed = settingsUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     /**
@@ -3013,6 +3017,7 @@ settingsRouter.post("/site-admin-reset", requireAuth, requirePermission("siteAdm
 function privateSettingsResponse<T extends object>(response: T, role: string | undefined): T {
   if (!canViewInvestigations(role)) {
     delete (response as Record<string, unknown>).postShowingCallEnabled;
+    delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];
     delete (response as Record<string, unknown>).investigationCaseConfig;
     delete (response as Record<string, unknown>).sellerControlConfig;
     delete (response as Record<string, unknown>).postShowingCohortConfig;

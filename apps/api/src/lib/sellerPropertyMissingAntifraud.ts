@@ -165,7 +165,7 @@ export async function escalateSellerPropertyMissing(now: Date = new Date()): Pro
   for (const c of critical) {
     const result = await prisma.client.updateMany({
       where: { id: c.id, securityReview: null },
-      data: { securityReview: "PENDING" },
+      data: { securityReview: "PENDING", securityReviewRequestedAt: new Date() },
     });
     if (result.count === 0) continue; // securityReview сменился между чтением и записью — уже не наш случай
 

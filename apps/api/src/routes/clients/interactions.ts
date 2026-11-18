@@ -19,6 +19,7 @@ import { notifyNoAnswerEscalation, planNoAnswerStep } from "../../lib/noAnswerSt
 import { runClientAutopilotInBackground } from "../../lib/clientAutopilot.js";
 import { foreignWriteDenied } from "./shared.js";
 import { trashClient } from "../../lib/trashClient.js";
+import { fileEndOfWorkDeleteRequest } from "../../lib/clientDeleteRequest.js";
 import { securityAutomationOn, securityReviewCloseBlocker } from "../../lib/securityAutomation.js";
 import { checkAgentPhoneAsk } from "../../lib/agentPhoneAskDetector.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
@@ -264,7 +265,8 @@ interactionsRouter.post("/:id/interactions", requireAuth, async (req, res) => {
  *    автоматика СБ включена и карточка не в работе: нет второй роли, открытой
  *    сделки, объекта в продаже, открытой задачи и работы агента после постановки
  *    на проверку (lib/securityAutomation.ts, securityReviewCloseBlocker).
- * Иначе карточка остаётся как есть, причина — в закрытой записи хронологии.
+ * Карточка в работе остаётся как есть (причина — в закрытой записи хронологии);
+ * работы нет, но закрывать вердикт не вправе — руководителю заявка на удаление.
  *
  * Решение необратимо только в одну сторону: перепроверить карточку можно, снова
  * отправив её на проверку через обычный отказ. Возвращать «в PENDING» отдельной
@@ -297,11 +299,14 @@ interactionsRouter.post(
       // нет», а карточку закрыло, хотя объект продавался). «Вопросов нет» не закрывает
       // никогда. «Нарушение подтверждено» закрывает, только если автоматика СБ включена
       // и карточка не в работе (lib/securityAutomation.ts, securityReviewCloseBlocker).
-      // Иначе карточка остаётся как есть, причина — в закрытой записи ниже.
+      // Карточка в работе — остаётся как есть, причина в закрытой записи ниже. Работы
+      // нет, а в Корзину вердикт её не убирает («вопросов нет» или автоматика
+      // выключена) — руководителю заявка на удаление, решает человек (как конец
+      // работы после отказа, 16.11.2026): иначе карточка висела бы ничьей.
       const automationOn = await securityAutomationOn(tx);
-      const keepReason = verdict === "CLEARED" ? "проверка не нашла нарушения"
-        : !automationOn ? "автоматика СБ выключена, удалить карточку можно вручную"
-        : await securityReviewCloseBlocker(tx, current);
+      const blocker = await securityReviewCloseBlocker(tx, current);
+      const outcome: "keep" | "trash" | "delete-request" = blocker ? "keep"
+        : verdict === "CONFIRMED" && automationOn ? "trash" : "delete-request";
       await tx.client.update({
         where: { id: client.id },
         data: {
@@ -319,7 +324,9 @@ interactionsRouter.post(
         investigationOnly: true,
         investigationOrigin: { sourceType: "investigation-decision", sourceId: client.id, independenceKey: `manual:${req.agent!.id}`, kind: "verdict" },
         notes: [`Служба безопасности: ${label}`, note?.trim() ? `Установлено: ${note.trim()}` : null,
-          keepReason ? `Карточка осталась в работе: ${keepReason}` : "Карточка уходит в Корзину"]
+          outcome === "keep" ? `Карточка осталась в работе: ${blocker}`
+            : outcome === "trash" ? "Работы по карточке нет — убирается в Корзину"
+            : "Работы по карточке нет — руководителю отправлена заявка на удаление"]
           .filter(Boolean)
           .join(". "),
         // Голосовая заметка к решению (01.09.2026) — переиспользует поля,
@@ -334,15 +341,26 @@ interactionsRouter.post(
         subjectAgentId: current.assignedAgentId, actorId: req.agent!.id, verdict, note: note?.trim() || `Решение руководителя: ${label}` });
       // Карточка закрывается только ПОСЛЕ вердикта — до него она висела как есть
       // нарочно, чтобы не выглядеть решённой.
-      return { close: keepReason === null, keepReason };
+      return { outcome, blocker };
     });
     if (!reviewed) return res.status(409).json({ error: "Проверка уже завершена или карточка изменилась — обновите страницу" });
 
     logAudit(req, "CLIENT_SECURITY_REVIEW", "Client", client.id, { verdict });
 
-    if (reviewed.close) {
+    let message = `${label}. Карточка осталась в работе: ${reviewed.blocker}`;
+    if (reviewed.outcome === "trash") {
       const trashed = await trashClient(client.id, req.agent!.id, { notifyHolder: false });
-      if (!trashed.ok) console.error("[security-review] карточка не убрана в Корзину:", trashed.error);
+      if (trashed.ok) message = `${label}. Карточка ушла в Корзину`;
+      else {
+        // Запись вердикта уже сказала «убирается» — правдивый итог второй строкой.
+        message = `${label}. Карточка осталась: ${trashed.error}`;
+        await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM",
+          investigationOnly: true, notes: `Карточку не удалось убрать в Корзину: ${trashed.error}` }).catch(() => {});
+      }
+    } else if (reviewed.outcome === "delete-request") {
+      await fileEndOfWorkDeleteRequest(client, client.assignedAgentId ?? req.agent!.id,
+        "Работа по карточке завершена — решите, удалять ли её.");
+      message = `${label}. Работы по карточке нет — руководителю ушла заявка на удаление`;
     }
 
     // Вердикт вынес один проверяющий — у ОСТАЛЬНЫХ с правом clients.securityReview
@@ -355,6 +373,6 @@ interactionsRouter.post(
       await closeLeadPushNotifications(reviewers.map((id) => ({ agentId: id, tag: `security-review-${client.id}` })));
     })().catch((err) => console.error("[push] закрытие проверки СБ у остальных проверяющих:", err));
 
-    res.json({ ok: true, verdict, message: reviewed.keepReason ? `${label}. Карточка осталась в работе: ${reviewed.keepReason}` : `${label}. Карточка ушла в Корзину` });
+    res.json({ ok: true, verdict, message });
   }
 );

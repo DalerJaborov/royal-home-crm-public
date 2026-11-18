@@ -131,14 +131,16 @@ const ACTIVITY_FALLBACK_MS = 14 * 86_400_000;
  * удаления: AVAILABLE, RESERVED, AWAITING_PHOTOS и любой другой, кроме SOLD/WITHDRAWN),
  * открытая задача агента или работа агента после постановки на проверку.
  *
- * Момент постановки: отказ агента (assignmentRefusedAt) или последняя закрытая
- * запись СБ в хронологии; ни того ни другого — последние 14 дней.
+ * Момент постановки: Client.securityReviewRequestedAt (ставят все пути в «на
+ * проверку»); у карточек, поставленных до 18.11, его нет — тогда отказ агента
+ * (assignmentRefusedAt), а без него последние 14 дней. Последнюю закрытую запись
+ * брать нельзя: любая поздняя автоматическая запись спрятала бы работу агента.
  *
  * null — закрывать можно. Иначе — причина простыми словами для хронологии.
  */
 export async function securityReviewCloseBlocker(
   tx: TxClient,
-  client: { id: string; dualIntent: boolean; assignmentRefusedAt: Date | null },
+  client: { id: string; dualIntent: boolean; assignmentRefusedAt: Date | null; securityReviewRequestedAt: Date | null },
   now: Date = new Date()
 ): Promise<string | null> {
   if (client.dualIntent) return "у клиента вторая роль";
@@ -152,14 +154,8 @@ export async function securityReviewCloseBlocker(
   });
   if (openTask) return "у агента есть открытая задача по карточке";
 
-  const lastMark = await tx.interaction.findFirst({
-    where: { clientId: client.id, investigationOnly: true, createdAt: { lte: now } },
-    orderBy: { createdAt: "desc" },
-    select: { createdAt: true },
-  });
-  const candidates = [client.assignmentRefusedAt, lastMark?.createdAt].filter((d): d is Date => !!d);
-  const since = candidates.length ? new Date(Math.max(...candidates.map((d) => d.getTime())))
-    : new Date(now.getTime() - ACTIVITY_FALLBACK_MS);
+  const since = client.securityReviewRequestedAt ?? client.assignmentRefusedAt
+    ?? new Date(now.getTime() - ACTIVITY_FALLBACK_MS);
   const agentWork = await tx.interaction.findFirst({
     where: { clientId: client.id, investigationOnly: false, agentId: { not: null }, type: { not: "SYSTEM" }, createdAt: { gt: since } },
     select: { id: true },

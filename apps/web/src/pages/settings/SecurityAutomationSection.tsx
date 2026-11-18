@@ -13,7 +13,9 @@ import { SwitchRow } from "../../components/Switch";
 export function SecurityAutomationSection() {
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
-  if (!settings) return null;
+  // Поле приходит только руководству с доступом к делам СБ (как остальные закрытые
+  // настройки): остальным блок не показываем вовсе.
+  if (!settings || !(SECURITY_AUTOMATION_KEY in settings)) return null;
 
   const on = isSecurityAutomationOn(settings);
 

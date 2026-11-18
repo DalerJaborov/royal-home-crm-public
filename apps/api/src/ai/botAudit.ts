@@ -1,6 +1,5 @@
 import { investigationRecipients } from "../lib/investigationNotifications.js";
 import { reportSecuritySignal, securityAutomationOn } from "../lib/securityAutomation.js";
-import { dushanbeDateString } from "../lib/dushanbeTime.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { formatClientCode, formatClientName } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -308,7 +307,7 @@ ${rulesText}
  * Не спамим: если карточка уже на проверке (PENDING), молчим — как и в
  * lifecycle.ts, это не повод дублировать пуш.
  */
-async function flagAgentBypassSuspicion(clientId: string): Promise<void> {
+async function flagAgentBypassSuspicion(clientId: string, conversationId: string): Promise<void> {
   try {
     const client = await prisma.client.findUnique({
       where: { id: clientId },
@@ -317,17 +316,18 @@ async function flagAgentBypassSuspicion(clientId: string): Promise<void> {
     if (!client || client.deletedAt || client.securityReview === "PENDING") return;
 
     // Автоматика СБ выключена (владелец 18.11.2026): карточку на проверку не ставим,
-    // сигнал — в дело и уведомлением директору и РОП. Один раз в сутки на карточку.
+    // сигнал — в дело и уведомлением директору и РОП. Один раз на диалог: аудит берёт
+    // случайные диалоги за месяц, один и тот же может попасть в проверку снова.
     if (!(await securityAutomationOn())) {
       await reportSecuritySignal({ clientId: client.id, subjectAgentId: null, source: "bot-audit-agent-bypass",
-        dedupeKey: `bot-audit-bypass:${client.id}:${dushanbeDateString()}`,
+        dedupeKey: `bot-audit-bypass:${client.id}:${conversationId}`,
         what: "аудит диалогов нашёл, что агент мог увести клиента мимо CRM" });
       return;
     }
 
     await prisma.client.update({
       where: { id: client.id },
-      data: { securityReview: "PENDING", securityReviewedAt: null, securityReviewedById: null },
+      data: { securityReview: "PENDING", securityReviewRequestedAt: new Date(), securityReviewedAt: null, securityReviewedById: null },
     });
 
     const reviewers = await investigationRecipients();
@@ -388,7 +388,7 @@ export async function runBotAudit(hours: number = WINDOW_HOURS): Promise<AuditRu
       // у flagAgentBypassSuspicion выше). conv.clientId бывает null у диалога, ещё
       // не привязанного к карточке, — там и подозревать нечего.
       if (conv.clientId && findings.some((f) => f.type === "agent_bypassed_crm")) {
-        await flagAgentBypassSuspicion(conv.clientId);
+        await flagAgentBypassSuspicion(conv.clientId, conv.id);
       }
     } catch (err) {
       void logSystemError("ai", `Аудит диалога ${conv.id} не удался: ${describeError(err)}`);
