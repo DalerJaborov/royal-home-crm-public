@@ -39,6 +39,12 @@ export interface TranscriptViewProps {
   onRetranscribe?: () => void;
   /** Заявка уже отправлена, ждём очередь — кнопка недоступна и подписана иначе. */
   retranscribing?: boolean;
+  /**
+   * «Новый вид» (пачка calls, 18.11.2026): реплики — пузырями как в «Чатах»
+   * (классы `ry-tr-*`, цвета в theme-look-royal-calls.css). Без флага — прежние
+   * инлайн-стили, разметка не меняется.
+   */
+  royal?: boolean;
 }
 
 /** Тот же расчёт, что formatCallDuration в CallDetails.tsx — не импортируем оттуда
@@ -168,7 +174,9 @@ function TranscriptBody({
   currentMatchIndex,
   currentMatchRef,
   mobile,
+  royal = false,
 }: {
+  royal?: boolean;
   blocks: Block[];
   /** Совпадения поиска по блокам, в координатах текста блока — пусто, если поиск по нему не ведётся
    *  (правая колонка перевода в режиме «рядом» поиском не охвачена нарочно: две
@@ -214,6 +222,17 @@ function TranscriptBody({
 
         if (block.speakerSide) {
           const mine = block.speakerSide === "agent";
+          // Новый вид: тот же текст и те же метки, пузырь и подпись — классами слоя.
+          if (royal) {
+            return (
+              <div key={i} className="ry-tr-line" data-side={mine ? "agent" : "client"}>
+                <div className="ry-tr-bubble">
+                  <div className="ry-tr-who">{block.speakerLabel}</div>
+                  <div className="ry-tr-text">{rendered}</div>
+                </div>
+              </div>
+            );
+          }
           return (
             <div
               key={i}
@@ -252,7 +271,7 @@ function TranscriptBody({
 /* Компонент целиком                                                       */
 /* ---------------------------------------------------------------------- */
 
-export function TranscriptView({ text, translation, agentName, durationSec, onRetranscribe, retranscribing }: TranscriptViewProps) {
+export function TranscriptView({ text, translation, agentName, durationSec, onRetranscribe, retranscribing, royal = false }: TranscriptViewProps) {
   const wide = useMatchMedia("(min-width: 960px)");
   const mobile = useMatchMedia("(max-width: 640px)");
   const [mode, setMode] = useState<"original" | "ru">("original");
@@ -401,9 +420,10 @@ export function TranscriptView({ text, translation, agentName, durationSec, onRe
           currentMatchIndex={matchIndex}
           currentMatchRef={currentMatchRef}
           mobile={mobile}
+          royal={royal}
         />
         {showSideBySide && translation && (
-          <TranscriptBody blocks={translationBlocks} matches={[]} currentMatchIndex={-1} mobile={mobile} />
+          <TranscriptBody blocks={translationBlocks} matches={[]} currentMatchIndex={-1} mobile={mobile} royal={royal} />
         )}
       </div>
     </div>

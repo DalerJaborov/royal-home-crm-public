@@ -1,0 +1,546 @@
+/* «НОВЫЙ ВИД» — разделы «Звонки» и «Телефония», окно звонка и наборщик
+ * (пачка calls, 18.11.2026).
+ *
+ * Обычный, НЕ генерируемый файл. Подключён после theme-look-royal.css, и КАЖДОЕ
+ * правило стоит под :root[data-ui-look="royal"] и под меткой раздела
+ * [data-ry-section="calls"] (сторож theme-look-royal.test.ts). Метку ставят только
+ * при useRoyalLook():
+ *   .ry-calls.rh2.screens   — экраны «Звонки» и «Телефония» на ПК (pages/Calls.tsx,
+ *                             pages/Telephony.tsx);
+ *   .ry-calls-m             — обёртка мобильных «Звонков» (display: contents,
+ *                             components/mobile/MobileCalls.tsx);
+ *   .ry-cw                  — окно звонка (components/CallWindow.tsx: живёт в рамке
+ *                             приложения, метку ставит само);
+ *   корень Rh2Portal        — наборщик и шторки, открытые из раздела (через контекст).
+ * Детали — components/look/calls/ (строка звонка .ry-call-*, шапка .ry-calls-top).
+ * Смысловые цвета не трогаем: пропущенный и «отменить звонок» — красные, «позвонить»
+ * — зелёный, кнопки со смысловым вариантом старой темы (danger и т. п.) не
+ * перекрашиваются. Запас под полоску iPhone у .sheet-f/.sheet-b не трогаем.
+ * Тяжёлых эффектов нет: размытие подложки наборщика и окна звонка снято.
+ */
+
+:root[data-ui-look="royal"] [data-ry-section="calls"] {
+  /* Зелёный звонка: белый текст держит 5,4:1. Один на «Перезвонить» и трубку наборщика. */
+  --ry-call-green: #0b7a41;
+  --ry-call-green-hover: #096936;
+}
+
+/* ================================ экран ================================ */
+
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] {
+  color: var(--rh-ui-text);
+  font-family: var(--font-sans, "Onest", system-ui, sans-serif);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr { display: grid; gap: 16px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > * { min-width: 0; margin-top: 0; margin-bottom: 0; }
+
+/* Шапка: заголовок и переключатель разделов (тот же компонент, что у «Чатов»), справа «Набрать номер». */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-calls-top {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; min-width: 0;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-head { display: flex; align-items: center; gap: 16px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-head h1 {
+  margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-switch {
+  display: flex; gap: 2px; flex: none; padding: 4px; border-radius: 999px;
+  background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-switch a {
+  position: relative; display: grid; place-items: center; width: 52px; height: 44px; border-radius: 999px;
+  color: var(--rh-ui-hint); text-decoration: none; transition: background-color 160ms, color 160ms;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-switch a:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-switch a[aria-current="page"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-switch a:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-switch-n {
+  position: absolute; top: 0; right: 2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px;
+  display: grid; place-items: center; background: var(--rh-ui-badge); color: var(--rh-ui-on-color);
+  font-size: 13px; font-weight: 700; line-height: 1; box-shadow: 0 0 0 2px var(--rh-ui-card);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-calls-dial { flex: none; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-calls-sub {
+  flex: 1 1 100%; margin: -4px 0 0; font-size: 16px; line-height: 1.4; color: var(--rh-ui-hint);
+}
+
+/* Карточки раздела: одно скругление 24, белая плита, тонкая грань. */
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > .card,
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > details,
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > [data-clean-calls-summary] {
+  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-ui-r-card);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > .card.tight { padding: 8px 20px; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .sec-h {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 8px 0 0;
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .sec-h h2,
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .ry-calls-log > h2 {
+  margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .sec-h .note,
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .note { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .sec-t {
+  margin: 12px 0 4px; font-size: 15px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
+}
+
+/* Сводка дня (CleanCallsSummary): четыре плитки-кнопки, цифра крупно, выбранный срез — светло-синий. */
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] > div { gap: 8px; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] button {
+  min-height: 96px; padding: 14px 16px; border: 0; border-radius: 20px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
+  transition: background-color 160ms;
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] button:hover { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] button[aria-pressed="true"] {
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] button > span:first-child { font-size: 15px; font-weight: 600; color: inherit; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] button > span:nth-child(2) {
+  font-size: 32px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: inherit;
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] button > span:last-child { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] [data-clean-calls-summary] > button {
+  display: flex; align-items: center; min-height: 48px; margin-top: 8px; font-size: 15px; font-weight: 600;
+  background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rh-ui-warn) 30%, transparent);
+}
+
+/* Ночной разбор: раскрывашка карточкой. */
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > details > summary {
+  display: flex; align-items: center; min-height: 44px; font-size: 17px; font-weight: 600; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > details .card { padding: 0; border: 0; background: transparent; box-shadow: none; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > details p { font-size: 16px !important; line-height: 1.5; color: var(--rh-ui-text) !important; }
+
+/* ============================= журнал звонков ============================= */
+
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > .card.ry-calls-log { padding: 20px 0 8px; overflow: hidden; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .ry-calls-log > h2 { margin: 0 20px 12px; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .ry-calls-log > :is(.hscroll, .filters, p, .quiet, .state, .empty) { margin-left: 20px; margin-right: 20px; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .ry-calls-log > p { margin-top: 8px; margin-bottom: 8px; font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .hscroll { overflow-x: auto; scrollbar-width: none; padding: 2px 0; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .hscroll::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg {
+  display: inline-flex; flex-wrap: nowrap; gap: 6px; padding: 0; border: 0; background: transparent; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg > button {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-bg); color: var(--rh-ui-text); font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg > button:hover { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg > button[aria-selected="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg > button .n {
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
+  background: color-mix(in srgb, currentColor 14%, transparent); color: inherit; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 12px !important;
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters .field { min-width: 0 !important; flex: 0 1 auto; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters .field:has(input[type="search"]) { flex: 1 1 220px; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters .inp {
+  width: 100%; height: 48px; padding: 0 18px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 16px; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters select.inp { padding-right: 36px; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters .inp::placeholder { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters .inp:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 1px; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters label.field:has(input[type="checkbox"]) {
+  display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; border-radius: 999px;
+  background: var(--rh-ui-bg); font-size: 15px; font-weight: 600; cursor: pointer; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters .spacer { flex: 1 1 0; }
+
+/* Тихие строки, загрузка, отказ, пусто. */
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .quiet {
+  display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 6px 0; font-size: 15px; line-height: 1.4; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .quiet > .dot {
+  flex: none; width: 12px; height: 12px; border-radius: 999px; background: var(--rh-ui-hint); box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .quiet > .dot.crit { width: 14px; height: 14px; background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .quiet > .dot.warn { background: var(--rh-ui-warn-soft); box-shadow: inset 0 0 0 2px var(--rh-ui-warn); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .quiet > .dot.ok { background: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .quiet.crit .txt { color: var(--rh-ui-crit-text); font-weight: 700; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .quiet { flex-wrap: wrap; min-width: 0; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .quiet .txt { flex: 1 1 180px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] :is(.quiet, .state) :is(.lnk, a.lnk) {
+  flex: none; min-height: 44px; display: inline-flex; align-items: center; padding: 0 4px;
+  color: var(--rh-ui-primary-ink); font-size: 15px; font-weight: 700; text-decoration: none;
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .state {
+  display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 0; font-size: 16px; font-weight: 600; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .state.err { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .empty {
+  display: grid; justify-items: center; gap: 12px; padding: 28px 16px; text-align: center; font-size: 16px; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .empty .ic {
+  display: grid; place-items: center; width: 60px; height: 60px; border-radius: 999px; background: var(--rh-ui-a2); color: var(--rh-ui-a2f);
+}
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .empty p { margin: 0; max-width: 46ch; font-size: 16px; line-height: 1.45; color: var(--rh-ui-hint); }
+
+/* Список строк: строки склеены тонкой линией (без комбинатора соседей — первая строка без линии). */
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .ry-calls-log > .list { display: block; margin: 8px 0 0 !important; padding: 0; border: 0; background: transparent; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] :is(.list, .ry-calls-list) > .ry-call:not(:first-child) { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+
+/* «Показать ещё». */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px; font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .pager .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
+  min-height: 44px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
+  font-size: 15px; font-weight: 600; box-shadow: none;
+}
+
+/* ============================== строка звонка ============================== */
+
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call { display: block; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-row {
+  display: flex; align-items: flex-start; gap: 12px; min-height: var(--rh-ui-row-h); padding: 12px 20px; min-width: 0;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-dir {
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 999px;
+  background: var(--rh-ui-raised); color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-dir svg { width: 24px; height: 24px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-dir[data-dir="in"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+/* Пропущенный — сплошной красный круг с белой трубкой-крестиком: и значок, и яркость. */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-dir[data-dir="missed"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-text { display: flex; flex-direction: column; flex: 1 1 auto; gap: 3px; min-width: 0; padding-top: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-title {
+  min-width: 0; overflow-wrap: anywhere; font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-name { color: inherit; text-decoration: none; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-name:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: 6px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-meta {
+  display: flex; flex-wrap: wrap; gap: 0 6px; font-size: 15px; line-height: 1.4; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-meta[data-tone="crit"] { color: var(--rh-ui-crit-text); font-weight: 600; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-part { min-width: 0; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-part:not(:last-child)::after { content: "·"; margin-left: 6px; color: var(--rh-ui-hint); font-weight: 400; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-note { font-size: 15px; line-height: 1.45; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flag {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 0 10px; border-radius: 999px;
+  background: var(--rh-ui-raised); color: var(--rh-ui-hint); font-size: 13px; font-weight: 700; line-height: 1.2; white-space: normal;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flag svg { flex: none; width: 16px; height: 16px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flag[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flag[data-tone="warn"] {
+  background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flag[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-more {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 6px; font-size: 14px; font-weight: 700; color: var(--rh-ui-primary-ink); text-decoration: none;
+}
+/* «Больше не звонить» — редкое действие строкой меток: тихая кнопка, зона нажатия 44. */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flags .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
+  min-height: 44px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-hint);
+  font-size: 14px; font-weight: 600; box-shadow: inset 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flags .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)):hover:not(:disabled) { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flags :is(.pill, button):disabled { opacity: .5 !important; cursor: default; }
+
+/* Одна кнопка справа. */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-action { display: flex; flex: none; align-items: center; align-self: center; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-listen {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px 0 12px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+  transition: transform 90ms cubic-bezier(.23, 1, .32, 1), background-color 160ms;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-listen:hover { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-listen:active { transform: scale(.97); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-listen[aria-expanded="true"] { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-listen:focus-visible,
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-act:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+/* «Позвонить / Перезвонить» — та же кнопка CRM-звонка, зелёная (смысл «звонок»). */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-act {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px 0 14px;
+  border: 0; border-radius: 999px; background: var(--ry-call-green); color: #ffffff; font: inherit; font-size: 15px; font-weight: 700;
+  white-space: nowrap; cursor: pointer; transition: transform 90ms cubic-bezier(.23, 1, .32, 1), background-color 160ms;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-act:hover:not(:disabled) { background: var(--ry-call-green-hover); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-act:active:not(:disabled) { transform: scale(.97); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-act svg { flex: none; width: 18px; height: 18px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-act:disabled { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-tick { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-tick[data-tone="crit"] { color: var(--rh-ui-crit-text); }
+
+/* Раскрытый разговор: запись, шаги, разбор и расшифровка — светлой плитой под строкой. */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details {
+  display: grid; gap: 12px; margin: 0 20px 16px 80px; padding: 16px; border-radius: 20px; background: var(--rh-ui-bg); min-width: 0;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details > .rh2 { background: transparent !important; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .scr { display: grid; gap: 10px; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .player {
+  margin: 0; padding: 12px; border: 0; border-radius: 16px; background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .player .lnk { font-size: 15px; font-weight: 600; color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .rail { flex-wrap: wrap; row-gap: 8px; overflow: visible; margin: 0; padding: 0; border: 0; background: transparent; font-size: 14px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .rail .st { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .rail .st.done { color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .sec-t {
+  margin: 4px 0 0; font-size: 14px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .sec-t + p,
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details p { margin: 0; font-size: 16px !important; line-height: 1.5; color: var(--rh-ui-text) !important; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .quiet,
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .state { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details details > summary {
+  display: inline-flex; align-items: center; min-height: 44px; font-size: 15px; font-weight: 700; color: var(--rh-ui-primary-ink); cursor: pointer;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .note { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
+  min-height: 40px; padding: 0 14px; border: 0; border-radius: 999px; font-size: 14px; font-weight: 600; box-shadow: inset 0 0 0 1px var(--rh-ui-ring);
+  background: var(--rh-ui-card); color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details .pill[aria-pressed="true"]:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); box-shadow: none;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details :is(.pill, button):disabled { opacity: .5 !important; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details input[type="text"] { min-height: 40px !important; font-size: 15px !important; border-radius: 999px !important; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Расшифровка — пузырями, как в «Чатах»: клиент слева светлым, агент справа синим. */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tr-line { display: flex; justify-content: flex-start; margin: 0 0 8px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tr-line[data-side="agent"] { justify-content: flex-end; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tr-bubble {
+  max-width: 82%; padding: 10px 14px; border-radius: 20px 20px 20px 6px;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tr-line[data-side="agent"] .ry-tr-bubble {
+  border-radius: 20px 20px 6px 20px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); box-shadow: none;
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tr-who { margin-bottom: 2px; font-size: 13px; font-weight: 700; opacity: .8; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tr-text { font-size: 16px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* =============================== телефония =============================== */
+
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0;
+}
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile {
+  display: grid; align-content: start; gap: 6px; min-height: 140px; padding: 18px 20px; border: 0; border-radius: var(--rh-ui-r-tile);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); text-decoration: none; box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile:hover { box-shadow: var(--rh-ui-shadow), 0 0 0 2px var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile .hd {
+  display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile .hd .ic {
+  display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 999px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+}
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile .hd .ic .i { width: 22px; height: 22px; }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile .tile-go { flex: none; margin-left: auto; width: 18px; height: 18px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile, :root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile .hd { min-width: 0; white-space: normal; overflow-wrap: break-word; }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile b {
+  font-size: 36px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile small { font-size: 14px; line-height: 1.35; color: var(--rh-ui-hint); }
+/* Пропущенные сегодня есть — круг плитки сплошной красный, подпись красная (яркость + значок). */
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile:has(> small.crit) .ic { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile small.crit { color: var(--rh-ui-crit-text); font-weight: 700; }
+
+/* Приём звонков: круг-значок, две строки, одна кнопка. */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tel-queue {
+  display: grid; gap: 8px; padding: 14px 20px; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tel-queue-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tel-queue-t { display: grid; flex: 1 1 240px; gap: 2px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tel-queue-t b { font-size: 17px; font-weight: 600; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tel-queue-t span { font-size: 15px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tel-queue-err { margin: 0; font-size: 15px; font-weight: 700; color: var(--rh-ui-crit-text); }
+
+/* «Сейчас в эфире» и «Телефоны сотрудников» — строки в карточке. */
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] > .scr > .card:has(> .ry-calls-list),
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] > .scr > .card:has(> .ry-group) { padding: 4px 0; overflow: hidden; }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] > .scr > .card > .ry-group { border-radius: 0; box-shadow: none; background: transparent; }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] > .scr > .card > .quiet { margin: 0 20px; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tel-av { position: relative; display: inline-grid; flex: none; }
+/* Точка «на связи» у аватара: зелёная с белым кольцом; «не на связи» — без точки (слово — в метке справа). */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tel-av[data-online]::after {
+  content: ""; position: absolute; right: -1px; bottom: -1px; width: 14px; height: 14px; border-radius: 999px;
+  background: var(--rh-ui-ok); box-shadow: 0 0 0 3px var(--rh-ui-card);
+}
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .ry-row-title { font-size: 17px; }
+
+/* «Как настроено сейчас» — таблица строками, значения справа. */
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tbl-wrap { overflow-x: auto; margin: 0; border: 0; }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tbl { width: 100%; border-collapse: collapse; font-size: 16px; }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tbl td {
+  padding: 14px 0; border: 0; box-shadow: inset 0 -1px 0 var(--rh-ui-sep); color: var(--rh-ui-text); vertical-align: top;
+}
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tbl tr:last-child td { box-shadow: none; }
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tbl td.num {
+  padding-left: 16px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tbl td:first-child { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .card > .wrap .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)),
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .empty .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)),
+:root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .card > .sec-t ~ .quiet .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); font-size: 15px; font-weight: 600; text-decoration: none; box-shadow: none;
+}
+/* Подсказка для телефона (.tel-mobtip): на ПК её прячет прежний медиазапрос, на телефоне — тихая строка карточкой. */
+:root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] > .scr > .card.tel-mobtip { padding: 4px 20px; }
+
+/* ================================ телефон ================================ */
+
+@media (max-width: 1100px) {
+  :root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 820px) {
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-head h1 { font-size: 28px; }
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-switch a { width: 48px; }
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-row { padding: 12px 16px; }
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-details { margin: 0 12px 12px; padding: 12px; }
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-tr-bubble { max-width: 94%; }
+  :root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > .card,
+  :root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] > .scr > [data-clean-calls-summary] { padding: 16px; }
+  :root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile { min-height: 120px; padding: 14px 16px; }
+  :root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile b { font-size: 30px; }
+}
+@media (max-width: 480px) {
+  /* Узкая строка: кнопка уходит под текст на всю ширину — ничего не обрезается и не налезает. */
+  /* Короткая «Слушать» остаётся справа, длинная «Позвонить/Перезвонить» — под текстом. */
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-row:has(> .ry-call-action > :not(.ry-call-listen, .ry-call-tick)) { flex-wrap: wrap; }
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-row:has(> .ry-call-action > :not(.ry-call-listen, .ry-call-tick)) > .ry-call-text { flex-basis: calc(100% - 60px); }
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-action:has(> :not(.ry-call-listen, .ry-call-tick)) { flex: 1 1 100%; padding-left: 60px; }
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-action > * { flex: none; }
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-calls-dial { flex: 1 1 100%; }
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-head { flex-wrap: wrap; row-gap: 8px; }
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-head h1 { overflow-wrap: normal; word-break: keep-all; }
+  /* Плитки дня: значок над подписью, стрелка-украшение снята (вся плитка — ссылка). */
+  :root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile .hd { display: grid; justify-items: start; gap: 8px; }
+  :root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles .tile .tile-go { display: none; }
+}
+
+/* Мобильные «Звонки» (MhListScreen): шапка .top, круглые кнопки, срезы .lane, группы по дням. */
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .mh { color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .mh .top h1 { font-size: 28px; font-weight: 700; letter-spacing: -.03em; }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .mh .top .ico.card {
+  width: 48px; height: 48px; border: 0; border-radius: 999px; background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+/* Заголовок переключателя дублирует шапку экрана: на экране один, для экранного чтеца остаётся. */
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .ry-chats-head { margin: 4px 16px 0; }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .ry-chats-head h1 {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .lane { gap: 6px; padding: 12px 16px 4px; }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .lane .f {
+  min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--rh-ui-card); color: var(--rh-ui-text);
+  font-size: 15px; font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .lane .f[aria-selected="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .lane .f .c { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .sec-t h2 { font-size: 20px; font-weight: 700; letter-spacing: -.025em; }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .sec-t .cnt { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] :is(.sec, .card-s) > .list:has(> .ry-call),
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .card-s:has(> .list > .ry-call) {
+  padding: 0; border: 0; border-radius: var(--rh-ui-r-card); overflow: hidden; background: var(--rh-ui-card);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .card-s > .list:has(> .ry-call) { box-shadow: none; border-radius: 0; background: transparent; }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] [data-clean-calls-summary] {
+  border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] [data-clean-calls-summary] button {
+  min-height: 88px; border-radius: 18px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] [data-clean-calls-summary] button[aria-pressed="true"] { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] [data-clean-calls-summary] button > span:nth-child(2) { font-size: 28px; font-weight: 700; color: inherit; }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] [data-clean-calls-summary] button > span:first-child { color: inherit; font-weight: 600; }
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] [data-clean-calls-summary] > button {
+  display: flex; align-items: center; margin-top: 8px; padding: 10px 14px; border-radius: 16px; font-size: 15px; line-height: 1.35;
+  min-height: 48px; background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); font-weight: 600;
+}
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .srch .field {
+  min-height: 48px; border: 0; border-radius: 999px; background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-calls-m[data-ry-section="calls"] .srch input { font-size: 16px; }
+
+/* ================================ наборщик ================================ */
+
+/* Без размытия подложки (большая площадь), лист — плитой нового вида; трубка остаётся зелёной. */
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-back { background: rgba(10, 12, 18, .5); backdrop-filter: none; -webkit-backdrop-filter: none; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp { background: var(--rh-ui-card); color: var(--rh-ui-text); font-family: var(--font-sans, "Onest", system-ui, sans-serif); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp:focus { outline: 0; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-title { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-back-btn::before { background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-key { background: var(--rh-ui-raised); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-key:active { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-key-l { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-chip { background: var(--rh-ui-bg); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-chip-a,
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-paste { color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-note.err { color: var(--rh-ui-crit-text); font-weight: 600; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-call { background: var(--ry-call-green); color: #ffffff; }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .dp-call:disabled { opacity: .5; }
+@media (min-width: 640px) {
+  :root[data-ui-look="royal"] [data-ry-section="calls"] .dp { border: 0; border-radius: 28px; box-shadow: 0 30px 60px -20px rgba(10, 12, 18, .45), 0 0 0 1px var(--rh-ui-ring); }
+}
+
+/* ============================== окно звонка ============================== */
+
+/* Плита без размытия (окно во всю высоту — большая площадь), шрифт и цвета нового вида. */
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2 {
+  background: var(--rh-ui-card); color: var(--rh-ui-text); backdrop-filter: none; -webkit-backdrop-filter: none;
+  border-left: 0; box-shadow: -24px 0 48px -24px rgba(10, 12, 18, .35), 0 0 0 1px var(--rh-ui-ring);
+  font-family: var(--font-sans, "Onest", system-ui, sans-serif);
+}
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-h { gap: 12px; padding: 16px 20px; border-bottom: 0; box-shadow: inset 0 -1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-h b { font-size: 17px; font-weight: 600; }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-h span { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-h .close {
+  width: 44px; height: 44px; margin: 0; border-radius: 999px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-av {
+  width: 112px; height: 112px; font-size: 38px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f); box-shadow: 0 0 0 8px var(--rh-ui-bg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-av.pulse { animation: ry-cw-pulse 1.6s ease-in-out infinite; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-av.pulse { animation: none; }
+}
+@keyframes ry-cw-pulse { 50% { transform: scale(1.04); } }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-name { font-size: 28px; font-weight: 700; letter-spacing: -.02em; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-prop { font-size: 15px; }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-prop .lk { color: var(--rh-ui-primary-ink); font-weight: 600; text-decoration: none; }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-state { font-size: 17px; font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-state.talk { color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-state.end { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-state.missed { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-timer { font-size: 22px; font-weight: 700; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
+/* Главная кнопка окна — «Отменить вызов»: крупная красная таблетка 64, подпись 17 (была круглая 56 с подписью 10 px). */
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-controls { padding: 20px 24px 24px; }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-btn.end {
+  flex-direction: row; gap: 10px; width: auto; min-width: 220px; height: 64px; padding: 0 28px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); box-shadow: none; opacity: 1;
+}
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-btn.end svg { width: 26px; height: 26px; }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-btn.end .lbl { font-size: 17px; font-weight: 700; color: inherit; }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-btn.end:hover:not(:disabled) { filter: none; background: color-mix(in srgb, var(--rh-ui-crit) 88%, #000000); }
+/* Выключена (идёт разговор или звонок уже кончился) — та же красная, приглушённая; вес выше старой темы. */
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .rh2 .scr .cw2-btn.end:disabled {
+  opacity: .5; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); border: 0; cursor: not-allowed;
+}
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .rh2 .scr .cw2-btn.end:disabled .lbl { color: inherit; }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-quiet {
+  margin: 0 20px 20px; padding: 12px 14px; border-radius: 16px; background: var(--rh-ui-bg); font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-quiet .dot { width: 8px; height: 8px; margin-top: 7px; background: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2.min { border-radius: var(--rh-ui-r-card) 0 0 var(--rh-ui-r-card); }
+/* Телефон: окно на весь экран поверх нижнего меню (z-index сцены 45 > меню 40), кнопка — над полоской iPhone. */
+@media (max-width: 640px) {
+  :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2 { box-shadow: none; }
+  :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-controls { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2-btn.end { width: 100%; min-width: 0; height: 64px; }
+  :root[data-ui-look="royal"] .ry-cw[data-ry-section="calls"] .cw2.min { border-radius: 0 0 var(--rh-ui-r-card) var(--rh-ui-r-card); margin-top: 0; }
+}
+
+/* Окна раздела (портал с меткой раздела): выключенная кнопка приглушена всегда — вес выше старой темы. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="calls"] .scr :is(.pill, .rh-btn):disabled { opacity: .5; }
