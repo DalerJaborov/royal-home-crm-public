@@ -2,19 +2,21 @@ import type { ConversationFilters, InboxAccount } from "../../hooks/useConversat
 import { channelMeta } from "../../lib/channelMeta";
 
 /** Presentation only: callbacks retain the inbox's existing filter semantics. */
-export function CleanInboxFilters({ channels, accounts, channel, accountId, onChannelChange, onAccountChange }: {
+export function CleanInboxFilters({ channels, accounts, channel, accountId, onChannelChange, onAccountChange, open }: {
   channels: string[];
   accounts: InboxAccount[];
   channel: ConversationFilters["channel"];
   accountId: ConversationFilters["accountId"];
   onChannelChange: (channel: ConversationFilters["channel"]) => void;
   onAccountChange: (accountId: ConversationFilters["accountId"]) => void;
+  /** Раскрыто сразу — «Новый вид» кладёт фильтры в своё меню «Ещё» (18.11.2026). */
+  open?: boolean;
 }) {
   const account = accounts.find((item) => item.id === accountId);
   const summary = accountId
     ? account ? `${channelMeta(account.channel).label} · ${account.title}` : "Выбранный аккаунт"
     : channel ? channelMeta(channel).label : "Все каналы и аккаунты";
-  return <details className="clean-inbox-filters">
+  return <details className="clean-inbox-filters" open={open}>
     <summary>Канал и аккаунт <span>{summary}</span></summary>
     <div className="grid gap-3">
     <label className="grid gap-1.5 text-sm font-medium">

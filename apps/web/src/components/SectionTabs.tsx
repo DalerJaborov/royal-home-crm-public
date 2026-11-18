@@ -47,27 +47,35 @@ import { useSiteNotifications } from "../hooks/useSiteNotifications";
 export function InboxTabs() {
   const can = useCan();
   const { data: counters } = useCounters();
+  return <ScreenTabs tabs={inboxTabs(can, counters)} />;
+}
+
+/**
+ * Состав полосы «Обращения» — одна дверь и для прежней полосы вкладок, и для
+ * переключателя значками в шапке «Чатов» нового вида
+ * (components/look/chats/RoyalInboxSwitch.tsx, 18.11.2026).
+ */
+export function inboxTabs(
+  can: ReturnType<typeof useCan>,
+  counters: { messages?: number | null; comments?: number | null } | undefined,
+): ScreenTab[] {
   const canAllCalls = can("calls.transcripts");
-  return (
-    <ScreenTabs
-      tabs={[
-        {
-          to: "/messages",
-          label: "Сообщения",
-          end: true,
-          permission: can("messages.view") ? "messages.view" : "messages.viewOwn",
-          count: counters?.messages,
-        },
-        { to: "/comments", label: "Комментарии", permission: "messages.view", count: counters?.comments },
-        {
-          to: "/calls",
-          label: canAllCalls ? "Звонки" : "Мои звонки",
-          permission: canAllCalls ? "calls.transcripts" : "calls.ownTranscripts",
-        },
-        { to: "/telephony", label: "Телефония", permission: "calls.transcripts" },
-      ]}
-    />
-  );
+  return [
+    {
+      to: "/messages",
+      label: "Сообщения",
+      end: true,
+      permission: can("messages.view") ? "messages.view" : "messages.viewOwn",
+      count: counters?.messages,
+    },
+    { to: "/comments", label: "Комментарии", permission: "messages.view", count: counters?.comments },
+    {
+      to: "/calls",
+      label: canAllCalls ? "Звонки" : "Мои звонки",
+      permission: canAllCalls ? "calls.transcripts" : "calls.ownTranscripts",
+    },
+    { to: "/telephony", label: "Телефония", permission: "calls.transcripts" },
+  ];
 }
 
 /**
