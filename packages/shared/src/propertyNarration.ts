@@ -120,6 +120,9 @@ const narrationConfigBase = z.object({
    *  поменялась — CRM снимает со старого ролика весь звук и кладёт случайный трек библиотеки (Настройки → Озвучка)
    *  и новый голос. По умолчанию ВЫКЛЮЧЕН: треки подбирает владелец; выключен или треков нет — монтажёру. */
   ownMusicRemix: z.boolean().optional(),
+  /** Рубильник (18.11.2026, «изменяемый текст на ролике»): при каждой сборке ролика CRM сама рисует плашку с ценой из
+   *  карточки объекта и субтитры по тексту озвучки (lib/video/narrationOverlay.ts). По умолчанию ВЫКЛЮЧЕН. */
+  textOverlay: z.boolean().optional(),
   /** Словарь произношения: «слово → как читать» (alias; phoneme — если модель его понимает). Правит
    *  владелец; синхронизация с ElevenLabs — только для моделей из NARRATION_PRONUNCIATION_MODELS. */
   pronunciationRules: z.array(z.object({
@@ -188,6 +191,11 @@ export function narrationTtsOptions(config: Pick<NarrationConfig, "voices" | "vo
  *  (12.11.2026: по умолчанию голос вклеивает монтажёр). */
 export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): boolean {
   return config.mixByCrm === true;
+}
+
+/** Цена и субтитры на ролике рисует CRM (18.11.2026): только если руководство включило. */
+export function narrationTextOverlay(config: Pick<NarrationConfig, "textOverlay">): boolean {
+  return config.textOverlay === true;
 }
 
 /** Своя музыка при перемонтаже (18.11.2026): только если руководство включило. */

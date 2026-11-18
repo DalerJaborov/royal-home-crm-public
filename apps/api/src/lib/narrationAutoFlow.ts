@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { narrationFitsType, narrationPreviewBeforeRepublish,
+import { narrationFitsType, narrationPreviewBeforeRepublish, narrationTextOverlay,
   chooseNarration, hasVideoHistory, narrationDraftText, narrationLimits, narrationMixByCrm, narrationModelSupportsTajik, narrationWizardChoiceSchema, pickNarrationVoice,
   type NarrationConfig, type NarrationFacts, type NarrationWizardChoice,
 } from "@royal-home/shared";
@@ -11,6 +11,8 @@ import { legacyHandoffCoverPath } from "./diskCleanup.js";
 import { mixFromStoredMaster } from "./narrationMaster.js";
 import { buildMusicBed, chooseMusicTrack, ownMusicReady } from "./narrationMusic.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
+import { loadMoneyContext } from "./money.js";
+import { priceInTjsOnly } from "./reelsCaptionTemplate.js";
 import os from "node:os";
 import { mixNarrationOntoMaster, narrationFitNote, planNarrationFit, type NarrationMixResult } from "./narrationMix.js";
 import { dropReplacedClipFiles, isPublishedClip, placeMixedClip, type PlacedMix } from "./narrationPreview.js";
@@ -482,6 +484,10 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
     if (!bed.ok) { await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); return fail(bed.error); }
     musicBed = { dir, path: bedPath, trackId: track.id };
   }
+  // ЦЕНА И СУБТИТРЫ НА РОЛИКЕ (18.11.2026, рубильник textOverlay): цена — из карточки сейчас, в сомони (как монтажёру),
+  // субтитры — текст этой версии озвучки. Сменилась цена — новый ролик несёт новую плашку.
+  const textOverlay = narrationTextOverlay((await loadNarrationConfiguration()).config)
+    ? { price: priceInTjsOnly(p.price, p.currency, await loadMoneyContext()), script: latest.script } : undefined;
   try {
     return await mixAndPlace();
   } finally {
@@ -492,9 +498,9 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
     if (musicBed) {
       const voicePath = localVideoFilePath(latest.storageKey);
       if (!voicePath || !fs.existsSync(voicePath)) return { ok: false, code: "FFMPEG", error: "Файл озвучки не найден на сервере." };
-      return mixNarrationOntoMaster({ masterPath: musicBed.path, voicePath, outPath, fit });
+      return mixNarrationOntoMaster({ masterPath: musicBed.path, voicePath, outPath, fit, textOverlay });
     }
-    return mixFromStoredMaster({ masterKey: masterKey!, voiceKey: latest.storageKey, outPath, fit });
+    return mixFromStoredMaster({ masterKey: masterKey!, voiceKey: latest.storageKey, outPath, fit, textOverlay });
   }
 
   async function mixAndPlace(): Promise<NarrationRemixOutcome> {
