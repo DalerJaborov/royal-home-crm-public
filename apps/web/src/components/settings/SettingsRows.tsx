@@ -24,6 +24,7 @@ export function NumberRow({
   max,
   step,
   unit,
+  explain,
 }: {
   label: string;
   hint: string;
@@ -33,6 +34,8 @@ export function NumberRow({
   max: number;
   step?: number;
   unit?: string;
+  /** Необязательная чистая справка: в «Новом виде» — под «i». Последствия пишутся в hint. */
+  explain?: React.ReactNode;
 }) {
   const field = (
     <span className="nf">
@@ -51,12 +54,13 @@ export function NumberRow({
   // «Новый вид» (18.11.2026), только внутри раздела team: строка со значком,
   // пояснение (проп hint) под «i», то же поле.
   const royal = useRoyalSectionName() === "team";
-  if (royal) return <RoyalNumberRow label={label} hint={hint} field={field} />;
+  if (royal) return <RoyalNumberRow label={label} hint={hint} explain={explain} field={field} />;
   return (
     <div className="mod">
       <div className="t">
         <b>{label}</b>
         <span>{hint}</span>
+        {explain ? <span>{explain}</span> : null}
       </div>
       <div className="acts">{field}</div>
     </div>

@@ -13,8 +13,9 @@
  * .ry-more («Ещё») — и корень портала (Rh2Portal) у окон, открытых из них, и у
  * меню профиля. Чужие экраны и общий портал без метки не меняются.
  *
- * Ничего не прячется по форме разметки: под «i» уходит только пояснение общей
- * строки (SwitchRow/NumberRow, проп hint), помеченное в коде data-ry-hint.
+ * Ничего не прячется: пояснение строки настроек (проп hint — последствие текущего
+ * положения) видно всегда, серым под названием (.ry-sub). Под «i» уходит только
+ * необязательная справка explain (метка data-ry-hint); в Настройках её не ставит никто.
  *
  * Значения — из макета docs/design/oblik-2026-11-17 (`screenSettings`,
  * `settingsGroupBody`, `screenTeam`, `screenMore`): круг 48 / значок 24,
@@ -48,7 +49,9 @@
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-info:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-info:is([aria-expanded="true"], [aria-pressed="true"]) { color: var(--rh-ui-primary-ink); }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-info:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: -4px; }
-:root[data-ui-look="royal"] [data-ry-section="team"] .ry-hint { margin: 0; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
+:root[data-ui-look="royal"] [data-ry-section="team"] .ry-hint { display: block; margin: 0; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
+/* Пояснение строки настроек (последствие текущего положения) — всегда на виду, спокойным серым. */
+:root[data-ui-look="royal"] [data-ry-section="team"] .ry-sub { display: block; margin: 0; font-size: 14px; font-weight: 400; line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; overflow-wrap: anywhere; }
 
 /* Таблетки выбора (блоки группы, отбор команды). */
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-pill {
@@ -217,7 +220,7 @@
 }
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-acc .acc-h > .ry-circle { grid-row: 1 / span 2; }
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-acc .acc-h h3 { grid-column: 2; min-width: 0; margin: 0; font-size: 17px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; color: var(--rh-ui-text); text-wrap: pretty; }
-:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-acc .acc-h .cnt { grid-column: 2; grid-row: 2; justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-acc .acc-h .cnt { grid-column: 2; grid-row: 2; justify-self: start; max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-acc .acc-h .ch { grid-column: 3; grid-row: 1 / span 2; }
 @media (hover: hover) {
   :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-acc .acc-h:hover { background: var(--rh-ui-hover); }
@@ -265,7 +268,7 @@
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt-ctl { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt-ctl .chip { min-height: 28px; padding: 0 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt-t { display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; font-size: 16px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; text-wrap: balance; overflow-wrap: anywhere; }
-:root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt .ry-hint { font-size: 14px; }
+:root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt :is(.ry-hint, .ry-sub) { font-size: 14px; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-swt-warn { margin: 0; padding: 8px 12px; border-radius: 14px; background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); font-size: 14px; font-weight: 600; line-height: 1.4; }
 /* Ширину для сетки плиток меряет сама карточка раздела, а не окно. */
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] :is(.acc-b, .ry-set-body) { container: ry-box / inline-size; }
@@ -285,7 +288,8 @@
   :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-ctl > .tgl { grid-column: 3; grid-row: 1; }
   :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-ctl > .chip { grid-column: 2; grid-row: 2; justify-self: start; }
   :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt-t { grid-column: 2; grid-row: 1; align-items: center; justify-content: flex-start; text-wrap: pretty; }
-  :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt :is(.ry-hint, .ry-swt-warn) { grid-column: 1 / -1; }
+  :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt :is(.ry-sub, .ry-hint) { grid-column: 2 / -1; }
+  :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .ry-swt .ry-swt-warn { grid-column: 1 / -1; }
 }
 
 /* Строка числа (NumberRow): круг, название с «i», поле справа. */
@@ -384,6 +388,8 @@
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-mrow-main:active { background: var(--rh-ui-press); }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-mrow-main:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: -2px; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-mrow-text { display: grid; gap: 2px; min-width: 0; }
+/* Статус сотрудника («в отпуске до…», «был(а)…») переносится, а не режется многоточием. */
+:root[data-ui-look="royal"] .ry-teamp[data-ry-section="team"] .ry-mrow-text .ry-row-sub, :root[data-ui-look="royal"] .ry-teamp[data-ry-section="team"] .ry-row .ry-row-sub { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-mrow-text .chip { font-size: 13px; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-mrow .ry-stat {
   display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; font-size: 15px; color: var(--rh-ui-hint);
