@@ -1,10 +1,11 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { TxClient } from '../src/db.js';
-const state = vi.hoisted(() => ({ create: vi.fn(), call: vi.fn(), property: vi.fn(), seller: vi.fn(), checkpoint: vi.fn(), lease: vi.fn(), exposures: vi.fn(), probe: vi.fn(), actor: vi.fn(), raw: vi.fn(), owners: vi.fn(), epoch: vi.fn(), epochCurrent: vi.fn() }));
+const state = vi.hoisted(() => ({ create: vi.fn(), call: vi.fn(), property: vi.fn(), seller: vi.fn(), checkpoint: vi.fn(), lease: vi.fn(), exposures: vi.fn(), probe: vi.fn(), actor: vi.fn(), raw: vi.fn(), owners: vi.fn(), epoch: vi.fn(), epochCurrent: vi.fn(), switchOn: vi.fn() }));
 vi.mock('../src/db.js', async importOriginal => ({ ...await importOriginal<typeof import('../src/db.js')>(),
   prisma: { agent: { findUnique: state.actor }, $queryRaw: state.raw, $disconnect: vi.fn(), settings: { findUnique: vi.fn() }, workflowCheckpoint: { upsert: state.checkpoint, updateMany: state.lease }, propertyExposure: { findMany: state.exposures }, sellerProbeCall: { findUnique: state.probe },
     $transaction: async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: state.raw, client: { findMany: state.owners }, agent: { findUnique: state.actor }, sellerProbeCall: { findUnique: state.probe, upsert: state.create } }) } }));
 vi.mock('../src/lib/investigationAssignmentEpoch.js', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/investigationAssignmentEpoch.js')>(), resolveInvestigationAssignmentEpoch: state.epoch, assignmentSourceEpochIsCurrent: state.epochCurrent }));
+vi.mock('../src/lib/sellerSwitches.js', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/sellerSwitches.js')>(), sellerSwitchOn: state.switchOn }));
 import { ownerProbeAssignmentCurrent, ownerVerificationSourceBlock, scheduleManualOwnerVerification, runExposureOwnerPreviewTick, approveOwnerVerificationExecution, sellerProbeSourcePhoneHash } from '../src/lib/ownerVerificationSources.js';
 const now = new Date('2026-10-25T10:00:00Z');
 const tx = { $queryRaw: state.raw, property: { findUnique: state.property }, client: { findUnique: state.seller },
@@ -16,7 +17,7 @@ beforeEach(() => {
   state.call.mockResolvedValue(null); state.raw.mockResolvedValue([]); state.epoch.mockResolvedValue('AUDIT:initial'); state.epochCurrent.mockResolvedValue(true);
   state.owners.mockResolvedValue([{ id: 'stand-seller', assignedAgentId: 'stand-agent', assignedAt: now, phone: '+992000000021', deletedAt: null }]);
   state.checkpoint.mockResolvedValue({ key: "owner-exposure-verification-v1", createdAt: now, cursor: null, revision: 1 }); // gitleaks:allow -- public workflow checkpoint identifier in a synthetic fixture
-  state.lease.mockResolvedValue({ count: 1 }); state.exposures.mockResolvedValue([]);
+  state.lease.mockResolvedValue({ count: 1 }); state.exposures.mockResolvedValue([]); state.switchOn.mockResolvedValue(true);
 });
 afterEach(() => vi.unstubAllEnvs());
 describe('actual manual property creation seed', () => {
@@ -127,5 +128,21 @@ describe('owner proof anchor is not revived by reused date', () => {
     state.epoch.mockResolvedValue('AUDIT:new-epoch');
     await scheduleManualOwnerVerification(tx, 'stand-property', 'stand-agent');
     expect(state.create.mock.calls[1][0].where.sourceKey).not.toBe(firstKey);
+  });
+});
+
+describe('owner switch «Робот звонит собственнику» off (18.11.2026)', () => {
+  it('manual property creation prepares no owner check at all', async () => {
+    state.switchOn.mockResolvedValue(false);
+    await scheduleManualOwnerVerification(tx, 'stand-property', 'stand-agent');
+    expect(state.switchOn).toHaveBeenCalledWith('sellerProbeCallEnabled', tx);
+    expect(state.create).not.toHaveBeenCalled();
+    expect(state.property).not.toHaveBeenCalled();
+  });
+  it('exposure tick still scans (investigation signals stay), only the owner check is gated', async () => {
+    state.switchOn.mockResolvedValue(false);
+    expect(await runExposureOwnerPreviewTick(now)).toEqual({ created: 0, busy: false });
+    expect(state.switchOn).toHaveBeenCalledWith('sellerProbeCallEnabled');
+    expect(state.exposures).toHaveBeenCalled();
   });
 });
