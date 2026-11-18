@@ -33,9 +33,15 @@ export function rebaseShellDraft(draft: ShellDraft, current: UiShellRollout): Ui
     const removed = new Set(before.filter((item) => !edited.includes(item)));
     return [...new Set([...latest.filter((item) => !removed.has(item)), ...edited.filter((item) => !before.includes(item))])];
   };
+  // «Новый вид»: untouched by this draft → keep exactly what the server has (even absent).
+  const royalTouched = draft.baseline.royalLookAgentIds !== undefined || draft.value.royalLookAgentIds !== undefined;
+  const royal = royalTouched
+    ? membership(draft.baseline.royalLookAgentIds ?? [], draft.value.royalLookAgentIds ?? [], current.royalLookAgentIds ?? [])
+    : current.royalLookAgentIds;
   return {
     enabled: draft.value.enabled === draft.baseline.enabled ? current.enabled : draft.value.enabled,
     agentIds: membership(draft.baseline.agentIds, draft.value.agentIds, current.agentIds),
     roles: membership(draft.baseline.roles, draft.value.roles, current.roles),
+    ...(royal !== undefined ? { royalLookAgentIds: royal } : {}),
   };
 }

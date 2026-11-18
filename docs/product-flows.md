@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2482**; вместе с задачами по расписанию и фоновыми заданиями — **4069**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4072**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -17906,8 +17906,14 @@
     - если expected !== `"${versionOf(raw)}"`
       - throw new ShellConflict();
         · ошибка ShellConflict
-    - если config.agentIds.length
-      - const agents = await tx.agent.findMany({ where: { id: { in: config.agentIds }, isActive: true }, select: { id…
+    - если keepStoredLook && storedLook.length
+      - config.royalLookAgentIds = storedLook;
+        · дословно из кода
+    - если config.royalLookAgentIds?.length === 0
+      - delete config.royalLookAgentIds;
+        · дословно из кода
+    - если selectedIds.length
+      - const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: tr…
         · читает в базе: agent
       - если missing.length
         - throw new InvalidShellAgents(missing);
@@ -17950,7 +17956,7 @@
 
 `apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен
 
-- res.json({ enabled: isUiShellEnabled(await storedConfig(), req.agent!) });
+- res.json(body);
   · ответ 200
 
 ## /api/v1/upload-sessions
@@ -25293,6 +25299,14 @@
   - const { replied, hidden, escalated } = await processDueTelegramComments();
     · зовёт processDueTelegramComments()
     - если !(await isTelegramGroupCommentsEnabled(settings)) || !settings.discussionGroupId
+      - const closing = await prisma.telegramGroupComment.findMany({ where: { status: "PENDING", replyDueAt: { lte: n…
+        · читает в базе: telegramGroupComment
+      - для каждого: const c of closing
+        - если !extractAllPhones(c.text).length
+          - continue;
+            · переходит к следующему
+        - await createLeadFromCommentPhone({ channel: "TELEGRAM", commentId: `${c.groupChatId ?? "legacy"}:${c.messageI…
+          · зовёт createLeadFromCommentPhone()
       - const closed = await prisma.telegramGroupComment.updateMany({ where: { status: "PENDING", replyDueAt: { lte: …
         · меняет в базе: telegramGroupComment
     - const due = (await prisma.telegramGroupComment.findMany({ where: { OR: [ { status: "PENDING", replyDueAt: { l…

@@ -25,6 +25,7 @@ import { CleanShell } from "../components/clean/CleanShell";
 import { useCleanViewport } from "../hooks/useCleanViewport";
 import { ShellAppearanceRecovery } from "../components/clean/ShellAppearanceRecovery";
 import { useRouteViewportKey } from "../hooks/useRouteViewportKey";
+import { useLookAttribute, useRoyalLookChoice } from "../hooks/useRoyalLook";
 
 /**
  * СПУТНИКИ ОБОЛОЧКИ — СВОИМ КУСКОМ (10.09.2026, разгрузка входного куска).
@@ -79,7 +80,9 @@ function SectionFallback() {
 }
 
 export function AppLayout() {
-  const { clean, pending: shellPending, unavailable: appearanceUnavailable } = useCleanShellSelection(true);
+  const { clean, look, pending: shellPending, unavailable: appearanceUnavailable } = useCleanShellSelection(true);
+  // «Новый вид» — только с сервера и только поверх чистой оболочки (hooks/useRoyalLook.ts).
+  const royal = useRoyalLookChoice(clean && look === "royal");
   useCleanViewport(clean);
   usePushSubscriptionRefresh();
   const renderedContent = useRef(false);
@@ -89,6 +92,8 @@ export function AppLayout() {
     else delete document.documentElement.dataset.shell;
     return () => { delete document.documentElement.dataset.shell; };
   }, [clean]);
+  // Closed by default: any error, OFF switch, opt-out or logout removes the attribute.
+  useLookAttribute(royal);
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const viewportKey = useRouteViewportKey(pathname, clean);
@@ -259,7 +264,7 @@ export function AppLayout() {
         // выреза переменная равна нулю — правило безвредно везде.
         className={clean ? "clean-frame" : "flex-1 flex flex-col min-w-0 md:overflow-y-auto md:overscroll-contain pt-[env(safe-area-inset-top)]"}
       >
-        {clean ? <CleanShell /> : <Topbar />}
+        {clean ? <CleanShell royal={royal} /> : <Topbar />}
         {appearanceUnavailable && <ShellAppearanceRecovery />}
         {/* Загрузка файлов идёт минутами, а человек за это время уходит на другие
             экраны. Указатель липнет под верхней панелью и виден отовсюду, пока
@@ -339,7 +344,7 @@ export function AppLayout() {
           </PullToRefresh>
         </main>
       </div>
-      <BottomNav />
+      <BottomNav royal={royal} />
       {/* Панель ИИ-помощника — одна на все входы (удержание «+», кнопка в шапке,
           Ctrl+/); сам кусок панели грузится по нажатию, см. AssistantPanelLazy. */}
       <AssistantHost />
