@@ -26,7 +26,7 @@ function render(client: Client, overrides: Partial<MobileClientCardProps> = {}) 
     client, locked: true, pending: !!client.pendingAcceptance, isSeller: false, canBuy: client.kind === "BUYER",
     isOther: client.kind === "OTHER", canCallTransferred: false, mainStatusChip: <ClientStateBadge client={client} />,
     propertyWorkspace: <span>Журнал объектов</span>, overviewProperties: <span>Объекты в обзоре</span>,
-    intentConfirmation: null, overviewNextStep: null, commonMiddle: null, propertyCounts: null, similarWarning: null,
+    intentConfirmation: null, overviewNextStep: null, commonMiddle: null, similarWarning: null,
     editingName: false, nameDraft: "", savingName: false, onStartEditName: noop, onNameDraftChange: noop,
     onCancelEditName: noop, onSubmitName: noop, phoneOptions: [], conversations: [], interactions: [],
     lastPropertiesSent: null, onOpenMatch: noop, matchTotal: undefined, canMerge: false, similarNotes: [],

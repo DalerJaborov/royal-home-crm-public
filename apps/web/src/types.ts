@@ -336,14 +336,6 @@ export interface Client {
   dualIntentNeedsConfirmation?: boolean;
   dualIntentDecisionSource?: "AUTO" | "MANUAL" | null;
   dualIntentNeedsReview?: boolean;
-  /** Сколько объектов на продажу услышал ИИ из разговоров — пишет только ИИ,
-   *  агент может подать заявку на пересмотр (владелец 06.09.2026, разбор слепых
-   *  зон п.3). null — ИИ ещё ничего не услышал. */
-  sellerDeclaredPropertyCount?: number | null;
-  /** Симметрично выше, но для покупателя: сколько объектов хочет купить —
-   *  услышал ИИ, не агент (владелец 07.09.2026, «пусть у покупателя будет то
-   *  же самое»). null — обычный случай, купить одну квартиру, ИИ не отмечал. */
-  buyerDesiredPropertyCount?: number | null;
   /** Фото профиля из мессенджера, уже скачанное к нам (`/uploads/avatars/...`).
    *  Нет — components/ClientAvatar.tsx рисует кружок с инициалами. */
   avatarUrl?: string | null;
