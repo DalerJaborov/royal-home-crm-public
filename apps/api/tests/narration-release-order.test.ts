@@ -414,3 +414,98 @@ describe("новая озвучка сразу после правки карт�
     expect(draft.generateAfter!.getTime() - now.getTime()).toBeLessThanOrEqual(NARRATION_AFTER_EDIT_DEBOUNCE_MS);
   });
 });
+
+describe("вторая замена, пока первая не закрыта (второе ревью 18.11)", () => {
+  it("А вышла в Facebook и YouTube, TikTok ждёт повтора; утвердили Б — свежий снимок, посты А «старые», старый TikTok перенесён, Б выходит во все сети", async () => {
+    const { openReplacement } = await import("../src/lib/remakeRequests.js");
+    const { tiktokPublishRetryDedupeKey } = await import("../src/jobs/tiktokPublishRetryPolicy.js");
+    del.facebook.mockClear(); del.youtube.mockClear();
+    const p = await seed(["FACEBOOK", "YOUTUBE", "TIKTOK"], { FACEBOOK: "fb-0", YOUTUBE: "yt-0", TIKTOK: "tt-0" });
+    const r1 = await narrationRemake(p.id);
+    await prepareOldPostsBeforeRemakePublish(p.id);
+    await newPostsLive(p.id, { FACEBOOK: "fb-A", YOUTUBE: "yt-A" });
+    await finishOldPostsAfterRemakePublish(p.id, { failedChannels: [], pendingChannels: [{ channel: "TIKTOK" }] });
+    expect((await prisma.videoRemakeRequest.findUniqueOrThrow({ where: { id: r1.id } })).oldPostsOutcome).toMatchObject({ TIKTOK: { state: "WAITING" } });
+    expect(del.facebook.mock.calls.map((c) => c[0])).toEqual(["fb-0"]);
+    await prisma.backgroundJob.create({ data: { type: "tiktok-publish-retry", payload: { propertyId: p.id }, dedupeKey: tiktokPublishRetryDedupeKey(p.id), status: "PENDING", maxAttempts: 3, runAt: new Date(Date.now() + 3_600_000) } });
+
+    // Цена снова поменялась, утвердили Б: одна дверь замены.
+    const r2 = await prisma.$transaction((tx) => openReplacement(tx, { propertyId: p.id, reason: "NARRATION_CHANGED", requestedById: agentId }));
+    expect(r2.reused).toBe(false);
+    expect((await prisma.videoRemakeRequest.findUniqueOrThrow({ where: { id: r1.id } })).oldPostsReplacedAt).not.toBeNull();
+    expect(await prisma.backgroundJob.count({ where: { dedupeKey: tiktokPublishRetryDedupeKey(p.id), status: "PENDING" } })).toBe(0);
+    expect(await prepareOldPostsBeforeRemakePublish(p.id)).toBe(true);
+    // Все сети свободны для Б: публикация ничего не пропустит.
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).publishedChannels).toEqual([]);
+    await newPostsLive(p.id, { FACEBOOK: "fb-B", YOUTUBE: "yt-B", TIKTOK: "tt-B" });
+    del.facebook.mockClear(); del.youtube.mockClear();
+    await finishOldPostsAfterRemakePublish(p.id, { failedChannels: [], pendingChannels: [] });
+    expect(del.facebook.mock.calls.map((c) => c[0])).toEqual(["fb-A"]);
+    expect(del.youtube.mock.calls.map((c) => c[1])).toEqual(["yt-A"]);
+    const done = await prisma.videoRemakeRequest.findUniqueOrThrow({ where: { id: r2.id } });
+    expect(done.oldPostsReplacedAt).not.toBeNull();
+    // Старый TikTok (ещё от исходного ролика) — вручную, ссылкой на него.
+    expect(done.oldPostsOutcome).toMatchObject({ FACEBOOK: { state: "OLD_REMOVED" }, YOUTUBE: { state: "OLD_REMOVED" },
+      TIKTOK: { state: "OLD_MANUAL", url: "https://www.tiktok.com/@royalhome/video/tt-0" } });
+  });
+
+  it("публикация ещё не началась — заявка та же (без дублей), возврат монтажёру только пишется в историю", async () => {
+    const { openReplacement } = await import("../src/lib/remakeRequests.js");
+    const p = await seed(["FACEBOOK"], { FACEBOOK: "fb-d" });
+    const a = await prisma.$transaction((tx) => openReplacement(tx, { propertyId: p.id, reason: "CARD_DATA_CHANGED", requestedById: agentId }));
+    const b = await prisma.$transaction((tx) => openReplacement(tx, { propertyId: p.id, reason: "NARRATION_CHANGED", requestedById: agentId }));
+    expect(b).toEqual({ id: a.id, reused: true });
+    expect(await prisma.videoRemakeRequest.count({ where: { propertyId: p.id, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null } })).toBe(1);
+    // Новая озвучка поверх возврата: очередь новой озвучки.
+    expect((await prisma.videoRemakeRequest.findUniqueOrThrow({ where: { id: a.id } })).reason).toBe("NARRATION_CHANGED");
+  });
+
+  it("старые дубли открытых заявок одного объекта: обход сливает их в последнюю и закрывает, отметка проверки у всех", async () => {
+    del.facebook.mockClear();
+    const p = await seed(["FACEBOOK"], { FACEBOOK: "fb-old-dup" });
+    const older = await narrationRemake(p.id);
+    await prepareOldPostsBeforeRemakePublish(p.id);
+    // Дубль из прежнего кода: вторая открытая заявка, снимок взят позже (старый пост первой ещё висит).
+    await newPostsLive(p.id, { FACEBOOK: "fb-mid" });
+    await prisma.videoRemakeRequest.create({ data: { propertyId: p.id, reason: "NARRATION_CHANGED", requestedById: agentId, replaceOldPostsOnPublish: true, createdAt: new Date(Date.now() + 1000),
+      oldPosts: { channels: ["FACEBOOK"], main: ["FACEBOOK"], postIds: { FACEBOOK: "fb-mid" }, instagramUrl: null, takenAt: new Date().toISOString() }, oldPostsOutcome: { FACEBOOK: { state: "WAITING" } } } });
+    await newPostsLive(p.id, { FACEBOOK: "fb-new-dup" });
+    await finishOldPostsSweep();
+    expect((await prisma.videoRemakeRequest.findUniqueOrThrow({ where: { id: older.id } })).oldPostsReplacedAt).not.toBeNull();
+    expect(del.facebook.mock.calls.map((c) => c[0]).sort()).toEqual(["fb-mid", "fb-old-dup"]);
+    expect(await prisma.videoRemakeRequest.count({ where: { propertyId: p.id, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null } })).toBe(0);
+  });
+});
+
+describe("«ролик вышел» — одна дверь", () => {
+  it("никакой другой файл не считает «вышел» руками: только lib/publishedClip.ts", () => {
+    const root = path.join(__dirname, "../src");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { if (entry.name !== "generated") walk(full); continue; }
+        if (!/\.ts$/.test(entry.name) || full.endsWith(path.join("lib", "publishedClip.ts"))) continue;
+        const text = fs.readFileSync(full, "utf8");
+        if (/publishedChannels\??\.length\s*\?\?\s*0\)\s*>\s*0\s*\|\|[^\n]*instagramUrl/.test(text)) offenders.push(path.relative(root, full));
+      }
+    };
+    walk(root);
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe("подмена ролика второй озвучкой идёт через ту же дверь", () => {
+  it("replaceFinalWithMix при открытой замене со снимком открывает новую, прежнюю закрывает", async () => {
+    const { replaceFinalWithMix } = await import("../src/lib/narrationPreview.js");
+    const p = await seed(["FACEBOOK"], { FACEBOOK: "fb-r0" }, { videoHandoffStatus: "RECEIVED" });
+    const r1 = await narrationRemake(p.id);
+    await prepareOldPostsBeforeRemakePublish(p.id);
+    await newPostsLive(p.id, { FACEBOOK: "fb-rA" });
+    await prisma.$transaction((tx) => replaceFinalWithMix(tx, { propertyId: p.id, publicPath: "/uploads/handoff/x.mp4", versionId: randomUUID(), revision: 3, requestedById: agentId, published: true }));
+    const open = await prisma.videoRemakeRequest.findMany({ where: { propertyId: p.id, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null } });
+    expect(open).toHaveLength(1);
+    expect(open[0]!.id).not.toBe(r1.id);
+    expect(open[0]!.oldPosts).toBeNull();
+  });
+});

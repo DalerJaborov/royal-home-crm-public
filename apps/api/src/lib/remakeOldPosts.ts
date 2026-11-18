@@ -8,6 +8,7 @@ import { removeFromSocial, tiktokPostUrl, type OldPostsSnapshot } from "./publis
 import { propertyOwnerAgentId } from "./propertyOwner.js";
 import { logSystemError } from "./systemError.js";
 import { isHandoffPublishRunning } from "./videoHandoff.js";
+import { collectUnresolvedOldPosts, postKeysOf, readCarried, type CarriedOldPost } from "./remakeRequests.js";
 
 /**
  * СНАЧАЛА НОВЫЙ ПОСТ, ПОТОМ СТАРЫЙ (18.11.2026, владелец: «ролик сразу уходит в соцсети, а старые посты удаляются
@@ -41,23 +42,25 @@ const NEW_POST_WAIT_MS = 2 * 86_400_000;
 /** Снятие, начатое и брошенное (процесс упал), можно повторить после этого. */
 const REMOVING_STALE_MS = 15 * 60_000;
 
-/** Ключи publishedPostIds, которые относятся к каналу (второй id Facebook, ссылка Threads, доп. чаты Telegram). */
-const COMPANIONS: Record<string, string[]> = { FACEBOOK: ["FACEBOOK_POST"], THREADS: ["THREADS_URL"], TELEGRAM: ["TELEGRAM_EXTRA"] };
-const keysOf = (channel: string) => [channel, ...(COMPANIONS[channel] ?? [])];
+const keysOf = postKeysOf;
 
 function asRecord(v: Prisma.JsonValue | null | undefined): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? { ...(v as Record<string, unknown>) } : {};
 }
 /** instagramUrlOnly — Instagram числился только ссылкой (старые объекты без канала в списке): назад возвращается одна ссылка.
  *  takenAt — когда взят снимок, то есть когда началась публикация нового (ревью 18.11): срок «новый не вышел» считается
- *  от него, а не от создания заявки — монтаж мог идти трое суток. */
-type Snapshot = OldPostsSnapshot & { instagramUrlOnly?: boolean; takenAt?: string };
+ *  от него, а не от создания заявки — монтаж мог идти трое суток.
+ *  main — сети, где старый пост стоял в карточке; extra — старые посты, перенесённые из прежней незакрытой замены
+ *  (lib/remakeRequests.ts), в той же сети их может быть два. */
+type Snapshot = OldPostsSnapshot & { instagramUrlOnly?: boolean; takenAt?: string; main?: string[]; extra?: CarriedOldPost[] };
 function readSnapshot(v: Prisma.JsonValue | null): Snapshot | null {
   const r = asRecord(v);
   if (!Array.isArray(r.channels)) return null;
   return { channels: (r.channels as unknown[]).filter((c): c is string => typeof c === "string"), postIds: asRecord(r.postIds as Prisma.JsonValue),
     instagramUrl: typeof r.instagramUrl === "string" ? r.instagramUrl : null, instagramUrlOnly: r.instagramUrlOnly === true,
-    ...(typeof r.takenAt === "string" ? { takenAt: r.takenAt } : {}) };
+    ...(typeof r.takenAt === "string" ? { takenAt: r.takenAt } : {}),
+    ...(Array.isArray(r.main) ? { main: (r.main as unknown[]).filter((c): c is string => typeof c === "string") } : {}),
+    extra: readCarried(r.extra) };
 }
 function readOutcome(v: Prisma.JsonValue | null): Outcome { return asRecord(v) as Outcome; }
 
@@ -68,15 +71,20 @@ const openRequestWhere = (propertyId: string) => ({ propertyId, replaceOldPostsO
  * раньше) и после публикации нужен шаг 3.
  */
 export async function prepareOldPostsBeforeRemakePublish(propertyId: string, now: Date = new Date()): Promise<boolean> {
-  const request = await prisma.videoRemakeRequest.findFirst({ where: openRequestWhere(propertyId), orderBy: { createdAt: "desc" }, select: { id: true, oldPosts: true } });
+  const request = await prisma.videoRemakeRequest.findFirst({ where: openRequestWhere(propertyId), orderBy: { createdAt: "desc" }, select: { id: true, oldPosts: true, carriedOldPosts: true } });
   if (!request) return false;
   if (request.oldPosts !== null) return true;
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR UPDATE`;
     const p = await tx.property.findUnique({ where: { id: propertyId }, select: { publishedChannels: true, publishedPostIds: true, instagramUrl: true } });
     if (!p) return false;
-    const snapshot: Snapshot = { channels: [...(p.publishedChannels ?? [])], postIds: asRecord(p.publishedPostIds), instagramUrl: p.instagramUrl, takenAt: now.toISOString() };
-    if (p.instagramUrl && !snapshot.channels.includes("INSTAGRAM")) { snapshot.channels.push("INSTAGRAM"); snapshot.instagramUrlOnly = true; }
+    const main = [...(p.publishedChannels ?? [])];
+    const snapshot: Snapshot = { channels: [...main], main, postIds: asRecord(p.publishedPostIds), instagramUrl: p.instagramUrl, takenAt: now.toISOString() };
+    if (p.instagramUrl && !snapshot.channels.includes("INSTAGRAM")) { snapshot.channels.push("INSTAGRAM"); snapshot.main = [...main, "INSTAGRAM"]; snapshot.instagramUrlOnly = true; }
+    // Старые посты прежней незакрытой замены (вторая замена, пока первая ждала TikTok): снимет эта.
+    const extra = readCarried(request.carriedOldPosts);
+    if (extra.length) snapshot.extra = extra;
+    for (const e of extra) if (!snapshot.channels.includes(e.channel)) snapshot.channels.push(e.channel);
     const outcome: Outcome = Object.fromEntries(snapshot.channels.map((c) => [c, { state: "WAITING" as const }]));
     const claimed = await tx.videoRemakeRequest.updateMany({ where: { id: request.id, oldPosts: { equals: Prisma.DbNull } },
       data: { oldPosts: snapshot as unknown as Prisma.InputJsonValue, oldPostsOutcome: outcome as unknown as Prisma.InputJsonValue,
@@ -100,7 +108,12 @@ export type RemakePublishSummary = { failedChannels: { channel: string }[]; pend
  * и просроченные ожидания.
  */
 export async function finishOldPostsAfterRemakePublish(propertyId: string, summary: RemakePublishSummary | null, now: Date = new Date()): Promise<{ removed: string[]; manual: string[]; kept: string[]; done: boolean } | null> {
-  const request = await prisma.videoRemakeRequest.findFirst({ where: { ...openRequestWhere(propertyId), oldPosts: { not: Prisma.DbNull } }, orderBy: { createdAt: "desc" },
+  const head = await prisma.videoRemakeRequest.findFirst({ where: { ...openRequestWhere(propertyId), oldPosts: { not: Prisma.DbNull } }, orderBy: { createdAt: "desc" }, select: { id: true } });
+  if (!head) return null;
+  // Отметка проверки — на ВСЕ открытые заявки объекта (ревью 18.11): иначе старшая навсегда стояла бы первой в обходе.
+  await prisma.videoRemakeRequest.updateMany({ where: openRequestWhere(propertyId), data: { oldPostsCheckedAt: now } });
+  await mergeOlderOpenRequests(propertyId, head.id);
+  const request = await prisma.videoRemakeRequest.findFirst({ where: { id: head.id, oldPostsReplacedAt: null },
     select: { id: true, reason: true, createdAt: true, oldPosts: true, oldPostsOutcome: true } });
   if (!request) return null;
   const snapshot = readSnapshot(request.oldPosts);
@@ -124,14 +137,13 @@ export async function finishOldPostsAfterRemakePublish(propertyId: string, summa
     const newIsLive = (current.publishedChannels ?? []).includes(channel);
     if (newIsLive) {
       if (!removeOld) next[channel] = { state: "OLD_KEPT" };
-      else if (channel === "TIKTOK") next[channel] = { state: "OLD_MANUAL", url: await tiktokPostUrl(snapshot.postIds.TIKTOK as string | undefined) };
+      else if (channel === "TIKTOK") next[channel] = { state: "OLD_MANUAL", url: await tiktokPostUrl((snapshot.postIds.TIKTOK ?? snapshot.extra?.find((e) => e.channel === "TIKTOK")?.postIds.TIKTOK) as string | undefined) };
       else { toRemove.push(channel); next[channel] = { state: "REMOVING", at: now.toISOString() }; }
     } else if ((summary && !pending.has(channel)) || expired || current.deletedAt) {
       next[channel] = { state: "NEW_FAILED" };
       toRestore.push(channel);
     }
   }
-  await prisma.videoRemakeRequest.updateMany({ where: { id: request.id }, data: { oldPostsCheckedAt: now } });
   if (JSON.stringify(next) === JSON.stringify(outcome)) return { removed: [], manual: [], kept: [], done: false };
   // Условная запись с прочитанным итогом: два прохода разом (задание и обход) не снимут один пост дважды —
   // второй увидит изменившийся итог и уйдёт.
@@ -147,7 +159,11 @@ export async function finishOldPostsAfterRemakePublish(propertyId: string, summa
     await updatePublishedMarks(propertyId, (marks) => {
       const postIds = { ...marks.postIds };
       const back = toRestore.filter((c) => !marks.channels.includes(c));
-      for (const c of back) for (const k of keysOf(c)) if (snapshot.postIds[k] !== undefined) postIds[k] = snapshot.postIds[k];
+      for (const c of back) {
+        // Старый пост из карточки; его не было — перенесённый из прежней замены (он тоже висит в сети).
+        const source = (snapshot.main ?? snapshot.channels).includes(c) ? snapshot.postIds : snapshot.extra?.find((e) => e.channel === c)?.postIds ?? {};
+        for (const k of keysOf(c)) if (source[k] !== undefined) postIds[k] = source[k];
+      }
       return { channels: [...marks.channels, ...back.filter((c) => c !== "INSTAGRAM" || !snapshot.instagramUrlOnly)], postIds,
         ...(back.includes("INSTAGRAM") && snapshot.instagramUrl ? { data: { instagramUrl: snapshot.instagramUrl } } : {}) };
     });
@@ -155,7 +171,17 @@ export async function finishOldPostsAfterRemakePublish(propertyId: string, summa
 
   const removed: string[] = [];
   if (toRemove.length) {
-    const social = await removeFromSocial(propertyId, toRemove, { snapshot, insidePublishJob: true });
+    // Старый пост карточки и перенесённые из прежней замены — каждый своим снимком; сеть снята, только если сняты все.
+    const mainChannels = toRemove.filter((c) => (snapshot.main ?? snapshot.channels).includes(c));
+    const parts = [mainChannels.length ? await removeFromSocial(propertyId, mainChannels, { snapshot, insidePublishJob: true }) : null,
+      ...(snapshot.extra ?? []).filter((e) => toRemove.includes(e.channel)).map((e) =>
+        removeFromSocial(propertyId, [e.channel], { snapshot: { channels: [e.channel], postIds: e.postIds, instagramUrl: e.instagramUrl }, insidePublishJob: true }))];
+    const results = (await Promise.all(parts)).filter((r): r is NonNullable<typeof r> => !!r);
+    const tried = new Map<string, number>(), ok = new Map<string, number>();
+    for (const c of mainChannels) tried.set(c, 1);
+    for (const e of snapshot.extra ?? []) if (toRemove.includes(e.channel)) tried.set(e.channel, (tried.get(e.channel) ?? 0) + 1);
+    for (const r of results) for (const c of r.removed) ok.set(c, (ok.get(c) ?? 0) + 1);
+    const social = { removed: [...tried.keys()].filter((c) => (ok.get(c) ?? 0) >= (tried.get(c) ?? 0)), manual: results.flatMap((r) => r.manual), failed: results.flatMap((r) => r.failed) };
     for (const c of social.removed) { next[c] = { state: "OLD_REMOVED" }; removed.push(c); }
     const manualUrl = new Map(social.manual.map((m) => [m.channel as string, m.url]));
     const failedError = new Map(social.failed.map((f) => [f.channel, f.error]));
@@ -176,6 +202,31 @@ export async function finishOldPostsAfterRemakePublish(propertyId: string, summa
   const manual = Object.entries(next).filter(([c, o]) => o.state === "OLD_MANUAL" && outcome[c]?.state !== "OLD_MANUAL").map(([c]) => c);
   if (manual.length) await tellOwnerManual(propertyId, manual.map((c) => ({ channel: c, url: next[c]!.url ?? null })));
   return { removed, manual, kept: Object.entries(next).filter(([, o]) => o.state === "OLD_KEPT").map(([c]) => c), done: !unresolved };
+}
+
+/**
+ * Старшие открытые заявки того же объекта (дубли из прежних версий кода): их нерешённые старые посты переходят в
+ * снимок последней, сами они закрываются — обход больше не стоит на них вечно (ревью 18.11).
+ */
+async function mergeOlderOpenRequests(propertyId: string, latestId: string): Promise<void> {
+  const older = await prisma.videoRemakeRequest.findMany({ where: { ...openRequestWhere(propertyId), id: { not: latestId } },
+    select: { id: true, oldPosts: true, oldPostsOutcome: true, carriedOldPosts: true } });
+  if (!older.length) return;
+  const carried = collectUnresolvedOldPosts(older);
+  await prisma.$transaction(async (tx) => {
+    const latest = await tx.videoRemakeRequest.findUnique({ where: { id: latestId }, select: { oldPosts: true, oldPostsOutcome: true } });
+    const snap = readSnapshot(latest?.oldPosts ?? null);
+    if (!latest || !snap) return;
+    const outcome = readOutcome(latest.oldPostsOutcome);
+    const extra = [...(snap.extra ?? []), ...carried];
+    const channels = [...snap.channels];
+    for (const e of carried) if (!channels.includes(e.channel)) { channels.push(e.channel); outcome[e.channel] = outcome[e.channel] ?? { state: "WAITING" }; }
+    // Сеть, уже решённая у последней заявки, для перенесённого старого поста снова ждёт решения.
+    for (const e of carried) if (outcome[e.channel] && !["WAITING", "REMOVING"].includes(outcome[e.channel]!.state)) outcome[e.channel] = { state: "WAITING" };
+    await tx.videoRemakeRequest.update({ where: { id: latestId }, data: { oldPosts: { ...snap, channels, extra } as unknown as Prisma.InputJsonValue,
+      oldPostsOutcome: outcome as unknown as Prisma.InputJsonValue } });
+    await tx.videoRemakeRequest.updateMany({ where: { id: { in: older.map((r) => r.id) } }, data: { oldPostsReplacedAt: new Date() } });
+  });
 }
 
 /**

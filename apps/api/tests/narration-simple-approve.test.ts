@@ -39,7 +39,7 @@ const ffmpegReady = spawnSync(process.env.FFMPEG_BIN || "ffmpeg", ["-version"], 
 const { prisma } = await import("../src/db.js");
 const { receiveEditedVideoFromFile, videoHandoffPublishDedupeKey } = await import("../src/lib/videoHandoff.js");
 const { localVideoFilePath } = await import("../src/lib/localVideoStorage.js");
-const { autoApproveSameChoice, remixFromMaster } = await import("../src/lib/narrationAutoFlow.js");
+const { approveNarrationVersion, autoApproveSameChoice, remixFromMaster, runNarrationAutoFlow } = await import("../src/lib/narrationAutoFlow.js");
 const { clearLeftoverNarrationPreviews, placeMixedClip } = await import("../src/lib/narrationPreview.js");
 const { setPropertyNarrationOff } = await import("../src/lib/narrationOptOut.js");
 const { narrationFacts, narrationHash } = await import("../src/lib/propertyNarration.js");
@@ -184,7 +184,7 @@ describe.skipIf(!ffmpegReady)("одно утверждение озвучки (1
     }
   });
 
-  it("кандидат, оставшийся от «прослушать перед выпуском», убирается: файл удалён, поля очищены (утверждение снимает SQL миграции); повтор ничего не делает", async () => {
+  it("кандидат, оставшийся от «прослушать перед выпуском» (или заведённый старым worker в окне выката), убирается: файл удалён, версия снова ждёт человека; повтор ничего не делает", async () => {
     const { p, v2, oldFinal } = await publishedWithNewVoice();
     const leftover = `/uploads/handoff/leftover-${randomUUID()}.mp4`;
     await fs.copyFile(media.silent, diskOf(leftover));
@@ -197,7 +197,8 @@ describe.skipIf(!ffmpegReady)("одно утверждение озвучки (1
     expect(row.narrationPreviewVersionId).toBeNull();
     expect(row.videoHandoffFinalPath).toBe(oldFinal);
     expect(await exists(diskOf(leftover))).toBe(false);
-    expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: v2.id } })).approvedAt).not.toBeNull();
+    expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: v2.id } })).approvedAt).toBeNull();
+    expect(await remixFromMaster(p.id)).toBe("SKIPPED");
     expect(await clearLeftoverNarrationPreviews()).toBe(0);
   });
 
@@ -219,7 +220,6 @@ describe.skipIf(!ffmpegReady)("одно утверждение озвучки (1
 
   it("кнопка маркетинга: ролик вышел — аудио по утверждённому тексту ждёт утверждения после прослушивания; утверждает маркетинг", async () => {
     const { generateNarrationVersion, loadNarrationConfiguration } = await import("../src/lib/narrationGeneration.js");
-    const { approveNarrationVersion } = await import("../src/lib/narrationAutoFlow.js");
     const { config } = await loadNarrationConfiguration();
     const p = await seedProperty();
     await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "RECEIVED", publishedChannels: ["FACEBOOK"] } });
@@ -234,7 +234,31 @@ describe.skipIf(!ffmpegReady)("одно утверждение озвучки (1
     expect(after.approvedAt).toBeNull();
     // Обход без утверждения ничего не выпускает.
     expect(await remixFromMaster(p.id)).toBe("SKIPPED");
-    expect(await approveNarrationVersion({ propertyId: p.id, versionId: v.id, expectedRevision: 1, actorId: agentId, isManager: false })).toBe("FORBIDDEN");
-    expect(await approveNarrationVersion({ propertyId: p.id, versionId: v.id, expectedRevision: 1, actorId: agentId, isManager: true })).toBe("AUDIO_APPROVED");
+    // Агенту — обычное одно сообщение «готово, послушайте», и утверждает он с теми же правами (ревью 18.11).
+    const notify = vi.fn(async () => {});
+    await runNarrationAutoFlow({ notifyAgent: notify });
+    expect(notify).toHaveBeenCalledWith(v.id);
+    await runNarrationAutoFlow({ notifyAgent: notify });
+    expect(notify.mock.calls.filter((c) => (c as unknown[])[0] === v.id)).toHaveLength(1);
+    expect(await approveNarrationVersion({ propertyId: p.id, versionId: v.id, expectedRevision: 1, actorId: agentId, isManager: false })).toBe("AUDIO_APPROVED");
+  });
+  it("постоянный сторож (окно выката): кандидат и самоодобрение на вышедшем ролике не сводятся; утверждение человека их выпускает", async () => {
+    const a = await publishedWithNewVoice();
+    await prisma.propertyNarrationVersion.update({ where: { id: a.v2.id }, data: { approvalNotifiedAt: (await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: a.v2.id } })).approvedAt } });
+    expect(await remixFromMaster(a.p.id)).toBe("SKIPPED");
+    expect(await approveNarrationVersion({ propertyId: a.p.id, versionId: a.v2.id, expectedRevision: 2, actorId: agentId, isManager: false })).toBe("AUDIO_APPROVED");
+    expect(await remixFromMaster(a.p.id)).toBe("REMIXED");
+
+    const b = await publishedWithNewVoice();
+    await prisma.property.update({ where: { id: b.p.id }, data: { narrationPreviewVersionId: b.v2.id } });
+    expect(await remixFromMaster(b.p.id)).toBe("SKIPPED");
+  });
+
+  it("уже утверждённая версия с отметкой «Оставить старый»: утверждение снимает отметку, ролик не застревает", async () => {
+    const { p, v2 } = await publishedWithNewVoice();
+    await prisma.property.update({ where: { id: p.id }, data: { narrationPreviewDeclinedVersionId: v2.id } });
+    expect(await approveNarrationVersion({ propertyId: p.id, versionId: v2.id, expectedRevision: 2, actorId: agentId, isManager: false })).toBe("AUDIO_APPROVED");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).narrationPreviewDeclinedVersionId).toBeNull();
+    expect(await remixFromMaster(p.id)).toBe("REMIXED");
   });
 });

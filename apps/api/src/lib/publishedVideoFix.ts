@@ -30,6 +30,7 @@ import { randomUUID } from "node:crypto";
 import { prisma, type TxClient } from "../db.js";
 import { logSystemError } from "./systemError.js";
 import { updatePublishedMarks } from "./publishedMarks.js";
+import { openReplacement } from "./remakeRequests.js";
 import { isYoutubeScopeError, reportYoutubeScopeMissing, YOUTUBE_SCOPE_MISSING_SHORT } from "./youtubeScope.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { loadCredentials } from "../messengers/meta.js";
@@ -914,16 +915,16 @@ export async function sendBackToMontajer(
       where: { propertyId, status: "PENDING", kind: "REEL" },
       data: { status: "CANCELLED", resolvedAt: new Date(), error: "Ролик возвращён монтажёру — Reels прежнего ролика отменён" },
     });
-    await tx.videoRemakeRequest.create({
-      data: {
-        propertyId,
-        reason,
-        comment: comment ?? null,
-        requestedById,
-        messageText,
-        replaceOldPostsOnPublish: options?.removeFromSocial === "on-new-video",
-      },
-    });
+    // «Когда выйдет новый» — одна дверь замены (lib/remakeRequests.ts, ревью 18.11): без второй открытой заявки-дубля;
+    // идущая замена закрывается, её нерешённые старые посты переходят в новую. Запись возврата в историю — всегда.
+    const replacement = options?.removeFromSocial === "on-new-video"
+      ? await openReplacement(tx, { propertyId, reason, requestedById, comment: comment ?? null, messageText })
+      : null;
+    if (!replacement || replacement.reused) {
+      await tx.videoRemakeRequest.create({
+        data: { propertyId, reason, comment: comment ?? null, requestedById, messageText, replaceOldPostsOnPublish: false },
+      });
+    }
 
     if (property.sellerClientId) {
       await logTimeline({

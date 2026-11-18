@@ -137,9 +137,11 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
   const uncertain = !!latest && (latest.status === "UNKNOWN" || (latest.status === "GENERATING" && !!latest.canReconcile));
   // Устаревшая версия несёт прежнюю цену словами (ревью 14.11): её текст в форму не подставляем, только свежий шаблон.
   const currentScript = latest && !latest.stale ? latest.script : null;
-  const approved = !!ready && !!latest?.approvedAt && !latest.stale;
-  // Аудио по тексту маркетинга (MANUAL) на вышедшем ролике тоже ждёт утверждения после прослушивания (ревью 18.11).
-  const waitsForApproval = !!ready && !latest?.approvedAt && !latest?.stale && (latest?.source !== "MANUAL" || (data.published === true && !!data.canApproveAudio));
+  // Ждёт человека — правило сервера (narrationAwaitsHuman): не утверждена, или утверждена самой CRM на вышедшем ролике;
+  // аудио по тексту маркетинга на вышедшем ролике тоже (ревью 18.11). Старый ответ без поля — прежнее правило.
+  const awaitsHuman = latest?.awaitsHuman ?? (!latest?.approvedAt && latest?.source !== "MANUAL");
+  const approved = !!ready && !!latest?.approvedAt && !latest.stale && !awaitsHuman;
+  const waitsForApproval = !!ready && !latest?.stale && awaitsHuman;
   const last = data.lastChoice ?? {};
   const defaultTemplateId = latest?.templateId ?? freshPick?.templateId ?? null;
   const defaultEndingId = latest ? latest.endingId ?? null : freshPick?.endingId ?? null;

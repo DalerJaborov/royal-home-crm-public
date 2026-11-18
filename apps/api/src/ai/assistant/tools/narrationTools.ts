@@ -3,7 +3,7 @@ import { formatPropertyCode, isReadOnlyRole, type NarrationConfig } from "@royal
 import { prisma } from "../../../db.js";
 import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor, type AssistantActionSnapshot } from "../../../lib/assistantActions.js";
 import { dushanbeDateTimeString } from "../../../lib/dushanbeTime.js";
-import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAutoEnabled, requestAutoNarration } from "../../../lib/narrationAutoFlow.js";
+import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAwaitsHuman, narrationAutoEnabled, requestAutoNarration } from "../../../lib/narrationAutoFlow.js";
 import { loadNarrationConfiguration } from "../../../lib/narrationGeneration.js";
 import { clipCountsAsPublished } from "../../../lib/publishedClip.js";
 import { narrationFactsCurrent, narrationScriptError } from "../../../lib/propertyNarration.js";
@@ -86,7 +86,7 @@ export const narrationStatusPlugin: AssistantReadToolPlugin = {
     const { ref } = statusArgs.parse(raw);
     const { property, latest } = await loadSubject(ref, actor.id);
     const { config } = await loadNarrationConfiguration();
-    const waiting = !!latest && latest.status === "READY" && !latest.approvedAt && latest.source !== "MANUAL";
+    const waiting = !!latest && await narrationAwaitsHuman(property.id, property, latest);
     return {
       property: { code: codeOf(property), title: safeField(property.title, 120), href: propertyHref(property.shortId) },
       narrationOff: property.narrationOff,
@@ -164,7 +164,7 @@ export const sendNarrationAudioPlugin: AssistantReadToolPlugin = {
     }
     const sent = await sendNarrationAudioToAgent(actor.id, { versionId: latest.id });
     if (!sent.sent) return { error: "Не получилось отправить файл, попробуйте ещё раз", code: sent.reason ?? "SEND_FAILED" };
-    return { sent: 1, property: codeOf(property), revision: latest.revision, waitingForApproval: latest.status === "READY" && !latest.approvedAt && latest.source !== "MANUAL", note: "Файл уже в чате." };
+    return { sent: 1, property: codeOf(property), revision: latest.revision, waitingForApproval: await narrationAwaitsHuman(property.id, property, latest), note: "Файл уже в чате." };
   },
 };
 
@@ -309,8 +309,9 @@ async function checkApprovable(subject: Subject): Promise<NonNullable<Subject["l
   const { property, latest, access } = subject;
   if (!latest) throw new AssistantActionError(409, "NO_VERSION", "Озвучки ещё нет: сначала её нужно заказать.");
   if (latest.status !== "READY" || !latest.storageKey) throw new AssistantActionError(409, "NOT_READY", `Озвучка ещё не готова: ${STATUS_RU[latest.status] ?? latest.status}.`);
-  if (latest.approvedAt) throw new AssistantActionError(409, "ALREADY", "Эту озвучку уже одобрили.");
-  if ((latest.source ?? "MANUAL") === "MANUAL") throw new AssistantActionError(409, "MANUAL", "Эту озвучку одобряют в карточке объекта в CRM.");
+  if ((latest.source ?? "MANUAL") === "MANUAL" && !latest.approvedAt && !await clipCountsAsPublished(property.id, property)) throw new AssistantActionError(409, "MANUAL", "Эту озвучку одобряют в карточке объекта в CRM.");
+  // Аудио по тексту маркетинга и самоодобренное на вышедшем ролике тоже ждут человека (ревью 18.11) — те же права.
+  if (!await narrationAwaitsHuman(property.id, property, latest)) throw new AssistantActionError(409, "ALREADY", "Эту озвучку уже одобрили.");
   if (latest.source === "BACKFILL" && !isNarrationOwnerRole(access.role)) throw new AssistantActionError(403, "FORBIDDEN", "Эту озвучку одобряет владелец (директор).");
   if (!narrationFactsCurrent(latest, property)) throw new AssistantActionError(409, "STALE", "Данные объекта изменились после подготовки озвучки. Нужна новая озвучка с актуальными данными.");
   return latest;

@@ -16,7 +16,7 @@ import { localVideoFilePath } from "../../lib/localVideoStorage.js";
 import { generateNarrationVersion, generateVoiceSamples, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince, readyVoiceSamples } from "../../lib/narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
 import { NARRATION_VOICE_LONGER_MARK } from "../../lib/narrationMix.js";
-import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAutoEnabled, narrationMixNoteFor, ownMusicRemixApplies, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
+import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAwaitsHuman, narrationAutoEnabled, narrationMixNoteFor, ownMusicRemixApplies, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
 import { setPropertyNarrationOff } from "../../lib/narrationOptOut.js";
 import { syncPronunciationDictionary } from "../../lib/narrationPronunciation.js";
 import { narrationLastChoiceFor } from "../../lib/narrationLastChoice.js";
@@ -61,7 +61,6 @@ async function canApproveAudioFor(agentId: string, role: string, propertyId: str
   const access = await narrationAccessForAgent(agentId, propertyId);
   if (!access) return false;
   if (source === "BACKFILL") return isNarrationOwnerRole(role);
-  if ((source ?? "MANUAL") === "MANUAL") return access.isManager;
   return true;
 }
 // This static path is mounted before /properties/:id.
@@ -250,11 +249,14 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     const status = r.status === "SENT" && actual === "DELIVERED" ? "DELIVERED" : r.status === "SENT" && ["UNDELIVERABLE", "EXPIRED", "REVOKED", "DELETED", "REJECTED"].includes(actual ?? "") ? "NOT_DELIVERED" : r.status;
     return { id: r.id, status, period: r.period, lastError: r.lastError };
   });
+  // Ждёт ли последняя версия человека (одно правило с Шабнам и перемиксом): самоодобренная на вышедшем ролике — тоже.
+  const latestAwaitsHuman = versions[0] ? await narrationAwaitsHuman(p.id, p, versions[0]) : false;
   const latestAudioSec = versions[0]?.status === "READY" && versions[0].storageKey && versions[0].audioSec == null ? await narrationAudioSec(versions[0].storageKey) : null;
   res.json({ versions: versions.map((v) => ({ id: v.id, revision: v.revision, script: v.script, voiceId: v.voiceId, status: v.status,
     approvedAt: v.approvedAt, stale: !narrationFactsCurrent(v, p), hasAudio: v.status === "READY" && !!v.storageKey, errorCode: v.errorCode, createdAt: v.createdAt,
     // Настоящая длина голоса (замер или ffprobe файла, ревью 18.11): кнопку «Утвердить» решает она, а не оценка по тексту.
     audioSec: v.audioSec ?? (v.id === versions[0]?.id ? latestAudioSec : null),
+    ...(v.id === versions[0]?.id ? { awaitsHuman: latestAwaitsHuman } : {}),
     canReconcile: v.status === "UNKNOWN" || (v.status === "GENERATING" && !!v.generationStartedAt && Date.now() - v.generationStartedAt.getTime() > 120_000),
     source: v.source, templateId: v.templateId, endingId: v.endingId, language: v.language, generateAfter: v.generateAfter })),
     suggestedScript: suggestedNarration(facts), facts, config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",

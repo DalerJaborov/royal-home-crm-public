@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 781,
-  "forks": 4137,
+  "forks": 4138,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -49787,6 +49787,14 @@
      "t": "const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…",
      "a": [
       "читает в базе: smsMessage"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const latestAwaitsHuman = versions[0] ? await narrationAwaitsHuman(p.id, p, versions[0]) : false;",
+     "a": [
+      "зовёт narrationAwaitsHuman()"
      ],
      "c": []
     },
@@ -104790,7 +104798,9 @@
            "t": "const done = await withPropertyLock(row.id, async (tx)",
            "a": [
             "читает в базе: property",
-            "меняет в базе: property"
+            "меняет в базе: property",
+            "читает в базе: propertyNarrationVersion",
+            "меняет в базе: propertyNarrationVersion"
            ],
            "c": [
             {
@@ -104823,6 +104833,29 @@
               "меняет в базе: property"
              ],
              "c": []
+            },
+            {
+             "k": "do",
+             "t": "const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.id }, orderBy: { revisi…",
+             "a": [
+              "читает в базе: propertyNarrationVersion"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "cur.narrationPreviewVersionId && latest?.id === cur.narrationPreviewVersionId && cur.videoMasterNarrationVers…",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: \"READY\" }, data: { approvedAt:…",
+               "a": [
+                "меняет в базе: propertyNarrationVersion"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
           },

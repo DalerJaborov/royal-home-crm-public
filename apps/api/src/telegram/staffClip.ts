@@ -39,6 +39,7 @@ import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import { videoHandoffDir } from "../upload.js";
 import { declaredObjectNumber } from "./montajerFileNumber.js";
 import { handoffReceiptText } from "./montajerReceive.js";
+import { clipCountsAsPublished } from "../lib/publishedClip.js";
 import {
   answerCallbackQuery, resolveTelegramFileMaterialization, sendMessage, sendMessageWithButtons, TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES,
   type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton,
@@ -110,7 +111,7 @@ async function ask(chatId: string, intakeId: string, actor: Actor, excluded: str
 
 async function offer(chatId: string, intakeId: string, p: PropertyRef): Promise<void> {
   const full = await prisma.property.findUnique({ where: { id: p.id }, select: { publishedChannels: true, instagramUrl: true } });
-  const published = (full?.publishedChannels?.length ?? 0) > 0 || !!full?.instagramUrl;
+  const published = !!full && await clipCountsAsPublished(p.id, full);
   await prisma.staffClipIntake.update({ where: { id: intakeId }, data: { status: "CHOSEN", propertyId: p.id } });
   const buttons: TelegramInlineButton[][] = [
     [{ text: published ? "✅ Заменить вышедший ролик" : "✅ Готов к выпуску", callback_data: `clip:r:${intakeId}` }],
@@ -215,7 +216,7 @@ async function doReady(intakeId: string, p: PropertyRef, actor: Actor, tmpPath: 
     await prisma.staffClipIntake.update({ where: { id: intakeId }, data: { status: "CHOSEN" } });
     return `${formatPropertyCode(before.shortId)}: ${denied}`;
   }
-  const published = (before.publishedChannels?.length ?? 0) > 0 || !!before.instagramUrl;
+  const published = await clipCountsAsPublished(p.id, before);
   // Замена вышедшего: старые посты снимет публикация нового (тот же механизм, что у перемонтажа).
   let remakeRequestId: string | null = null;
   if (published && !await prisma.videoRemakeRequest.findFirst({ where: { propertyId: p.id, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null }, select: { id: true } })) {
@@ -255,7 +256,7 @@ async function doMontage(intakeId: string, p: PropertyRef, actor: Actor, tmpPath
   if (!state) return "Объект не найден.";
   const code = formatPropertyCode(state.shortId);
   let queued = false, sentBack = false, text: string;
-  const hasHistory = !!state.videoHandoffFinalPath || (state.publishedChannels?.length ?? 0) > 0 || !!state.instagramUrl;
+  const hasHistory = !!state.videoHandoffFinalPath || await clipCountsAsPublished(p.id, state);
   if (state.videoHandoffStatus === "QUEUED") {
     text = `${code} уже в очереди монтажа — новый исходник уйдёт монтажёру вместе с ним.`;
   } else if (state.videoHandoffStatus === "SENT_TO_EDITOR" && !state.videoHandoffManualSince) {
@@ -263,7 +264,7 @@ async function doMontage(intakeId: string, p: PropertyRef, actor: Actor, tmpPath
     if (holder?.id === p.id) await resendSourceVideos().catch(() => null);
     text = `${code} сейчас у монтажёра — досылаю ему новый исходник.`;
   } else if (hasHistory) {
-    const published = (state.publishedChannels?.length ?? 0) > 0 || !!state.instagramUrl;
+    const published = await clipCountsAsPublished(p.id, state);
     // Через ту же дверь, что кнопка «Вернуть монтажёру» (права editForeign и снятия постов, ревью 12.11.2026).
     const sent = await sendPropertyBackToMontajerAs({
       propertyId: p.id, actor: { agentId: actor.id, role: actor.role, can: actor.can },

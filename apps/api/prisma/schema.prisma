@@ -1391,6 +1391,9 @@ model VideoRemakeRequest {
   /// Когда обход последний раз проверял эту замену (18.11.2026): обход идёт от давно не проверенных, повторы
   /// TikTok не задерживают остальных.
   oldPostsCheckedAt        DateTime?
+  /// Старые посты, перенесённые из закрытой прежней замены (18.11.2026, lib/remakeRequests.ts): вторая замена,
+  /// пока первая не закрыта. Их снимет эта заявка, когда в той же сети выйдет новый ролик.
+  carriedOldPosts          Json?
   createdAt     DateTime @default(now())
 
   @@index([propertyId])

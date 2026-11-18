@@ -611,6 +611,8 @@ export type PropertyNarrationItem = {
   source?: string; templateId?: string | null; endingId?: string | null; language?: string | null; generateAfter?: string | null;
   /** Настоящая длина готового голоса, секунды (18.11.2026): есть — кнопку «Утвердить» решает она, а не оценка по тексту. */
   audioSec?: number | null;
+  /** Только у последней версии: ждёт утверждения человеком (не утверждена или утверждена самой CRM на вышедшем ролике). */
+  awaitsHuman?: boolean;
 };
 /** Что видит мастер: шаблоны и голоса без ключей и моделей. */
 export type NarrationOptionsView = {

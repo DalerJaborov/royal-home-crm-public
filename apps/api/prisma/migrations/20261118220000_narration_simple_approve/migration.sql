@@ -2,6 +2,7 @@
 ALTER TABLE "VideoRemakeRequest" ADD COLUMN "oldPosts" JSONB;
 ALTER TABLE "VideoRemakeRequest" ADD COLUMN "oldPostsOutcome" JSONB;
 ALTER TABLE "VideoRemakeRequest" ADD COLUMN "oldPostsCheckedAt" TIMESTAMP(3);
+ALTER TABLE "VideoRemakeRequest" ADD COLUMN "carriedOldPosts" JSONB;
 ALTER TABLE "PropertyNarrationVersion" ADD COLUMN "audioSec" DOUBLE PRECISION;
 
 -- ДАННЫЕ (тест apps/api/tests/narration-release-order.test.ts гоняет всё ниже этой строки на своей базе).
@@ -17,7 +18,8 @@ WHERE p."narrationPreviewVersionId" = v."id" AND p."narrationPreviewVoiceSec" IS
 --   * от них отказались «Оставить старый»;
 --   * утверждены автоматически (самоодобрение ставит approvalNotifiedAt = approvedAt).
 -- Не трогаем: уже наложенные (videoMasterNarrationVersionId), упавшие при наложении, отправленные монтажёру (их голос
--- уже в ролике или едет к нему). Выполняется до старта приложения: гонки с обходом перемикса нет.
+-- уже в ролике или едет к нему). Шаг идёт при выкате, пока старые api и worker ещё работают: что они успеют
+-- сделать после него (кандидат, самоодобрение), не выпускается сторожем в remixWanted и уборкой кандидатов.
 WITH latest AS (
   SELECT DISTINCT ON (v."propertyId") v."id", v."propertyId", v."status", v."approvedAt", v."approvalNotifiedAt"
   FROM "PropertyNarrationVersion" v

@@ -202,6 +202,21 @@ export async function startNarrationForNewProperty(propertyId: string, actorId: 
 }
 
 export type NarrationApproval = "FORBIDDEN" | "CONFLICT" | "TEXT_APPROVED" | "AUDIO_APPROVED";
+/** Утверждение поставила сама CRM (самоодобрение пишет approvalNotifiedAt = approvedAt одной отметкой), а не человек. */
+export function autoApprovedOnly(v: { approvedAt: Date | null; approvalNotifiedAt?: Date | null }): boolean {
+  return !!v.approvedAt && !!v.approvalNotifiedAt && v.approvedAt.getTime() === v.approvalNotifiedAt.getTime();
+}
+/**
+ * Ждёт ли версия человека (18.11.2026): готова и не утверждена, или утверждена только самой CRM, а ролик уже вышел.
+ * Одно правило для карточки, Шабнам и перемикса.
+ */
+export async function narrationAwaitsHuman(propertyId: string, p: { publishedChannels?: readonly string[] | null; instagramUrl?: string | null },
+  v: { status: string; storageKey?: string | null; approvedAt: Date | null; approvalNotifiedAt?: Date | null; source?: string | null }): Promise<boolean> {
+  if (v.status !== "READY" || !v.storageKey) return false;
+  // Аудио по тексту маркетинга ждёт человека только на вышедшем ролике (там утверждение снимается после синтеза).
+  if (!v.approvedAt) return (v.source ?? "MANUAL") !== "MANUAL" || await clipCountsAsPublished(propertyId, p);
+  return autoApprovedOnly(v) && await clipCountsAsPublished(propertyId, p);
+}
 /** Кто одобряет озвучку разового прохода по очереди монтажа (решение владельца 12.11.2026). */
 export const NARRATION_OWNER_ROLES = ["DIRECTOR", "ADMIN"] as const;
 export function isNarrationOwnerRole(role: string | null | undefined): boolean {
@@ -224,13 +239,19 @@ export async function approveNarrationVersion(input: { propertyId: string; versi
     }
     if (latest.status !== "READY") return input.isManager ? "CONFLICT" : "FORBIDDEN";
     // Аудио по тексту маркетинга (MANUAL) на вышедшем ролике ждёт утверждения после прослушивания (ревью 18.11):
-    // утверждает маркетинг или руководство, как и сам текст.
-    if ((latest.source ?? "MANUAL") === "MANUAL" && !input.isManager) return "FORBIDDEN";
+    // те же права, что у любой озвучки объекта (вызывающий проверил narrationAccessForAgent); сообщение — агенту.
     if (latest.source === "BACKFILL" && !isNarrationOwnerRole(input.actorRole)) return "FORBIDDEN";
+    if ((latest.source ?? "MANUAL") === "MANUAL" && !input.isManager && !(await clipCountsAsPublished(input.propertyId, current, tx))) return "FORBIDDEN";
+    // Человек утверждает версию — отметка отказа «Оставить старый» больше её не держит. ПЕРВЫМ делом (ревью 18.11):
+    // иначе уже утверждённая версия с отметкой застревала навсегда.
+    await tx.property.updateMany({ where: { id: input.propertyId, narrationPreviewDeclinedVersionId: latest.id }, data: { narrationPreviewDeclinedVersionId: null } });
+    // Утверждена автоматически, а ролик уже вышел (старый обход или окно выката): утверждение человека ставится заново —
+    // перемикс выпускает только версию, утверждённую человеком (remixWanted).
+    if (latest.approvedAt && autoApprovedOnly(latest) && await clipCountsAsPublished(input.propertyId, current, tx)) {
+      return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY", approvedAt: latest.approvedAt }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count ? "AUDIO_APPROVED" : "CONFLICT";
+    }
     if (latest.approvedAt) return "AUDIO_APPROVED";
     const done = (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY", approvedAt: null }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count;
-    // Человек утвердил версию, от которой раньше отказались «Оставить старый», — отметка отказа больше не держит её.
-    if (done) await tx.property.updateMany({ where: { id: input.propertyId, narrationPreviewDeclinedVersionId: latest.id }, data: { narrationPreviewDeclinedVersionId: null } });
     return done ? "AUDIO_APPROVED" : "CONFLICT";
   });
 }
@@ -344,7 +365,7 @@ export async function requestNarrationAddVoice(propertyId: string, versionId: st
     prisma.propertyNarrationDelivery.count({ where: { propertyId, status: "SENT" } }),
   ]);
   if (!p || p.deletedAt || p.narrationOff || (CLOSED_STATUSES as readonly string[]).includes(p.status) || p.videoHandoffStatus !== "RECEIVED") return "SKIPPED";
-  if ((p.publishedChannels?.length ?? 0) > 0 || p.instagramUrl || everSent > 0) return "SKIPPED";
+  if (await clipCountsAsPublished(propertyId, p) || everSent > 0) return "SKIPPED";
   if (!version || version.status !== "READY" || !version.approvedAt || !version.approvedById) return "SKIPPED";
   const sent = await sendBackToMontajer(propertyId, version.approvedById, "NARRATION_CHANGED",
     `Озвучка к ролику №${p.shortId} пришла после сдачи: вклейте голос в этот ролик, музыку и монтаж не трогайте. mp3 придёт следом.${voicelessCopyHint((await loadNarrationConfiguration()).config)}`, null, {});
@@ -487,6 +508,11 @@ async function remixWanted(propertyId: string) {
   // Отказ «Оставить старый», нажатый до выката, держится ещё один выпуск (ревью 18.11): снять его может только
   // новое утверждение человеком этой версии (approveNarrationVersion очищает отметку). Убрать после следующего выката.
   if (latest.id === p.narrationPreviewDeclinedVersionId) return null;
+  // ПОСТОЯННЫЙ СТОРОЖ (ревью 18.11): выкат гонит миграцию, пока старые api/worker ещё работают, — они успевают завести
+  // кандидата «прослушать» или самоодобрить версию уже после SQL. Кандидат и самоодобрение на вышедшем ролике в сеть не
+  // выходят: такую версию выпускает только утверждение человеком (approveNarrationVersion ставит его заново).
+  if (latest.id === p.narrationPreviewVersionId) return null;
+  if (autoApprovedOnly(latest) && await clipCountsAsPublished(p.id, p)) return null;
   if (await isHandoffPublishRunning(propertyId)) return null;
   return { mode, p, latest: { ...latest, storageKey: latest.storageKey } };
 }
@@ -940,7 +966,9 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
 
 async function notifyReadyNarrations(notify: NarrationApprovalNotifier): Promise<number> {
   let notified = 0;
-  const ready = await prisma.propertyNarrationVersion.findMany({ where: { status: "READY", approvedAt: null, approvalNotifiedAt: null, source: { not: "MANUAL" }, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] } } }, orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true } });
+  // MANUAL тоже (ревью 18.11): аудио по утверждённому тексту маркетинга на вышедшем ролике ждёт человека — одно
+  // обычное сообщение агенту «готово, послушайте». Неутверждённым READY оно бывает только так.
+  const ready = await prisma.propertyNarrationVersion.findMany({ where: { status: "READY", approvedAt: null, approvalNotifiedAt: null, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] } } }, orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true } });
   for (const row of ready) {
     // Отметка ДО отправки: два обхода подряд не пришлют агенту второе сообщение.
     const claimed = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalNotifiedAt: null }, data: { approvalNotifiedAt: new Date() } });

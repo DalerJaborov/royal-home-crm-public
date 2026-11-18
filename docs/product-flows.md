@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **781**. Развилок в самих путях: **2498**; вместе с задачами по расписанию и фоновыми заданиями — **4137**. Модулей: **87**.
+Путей: **781**. Развилок в самих путях: **2498**; вместе с задачами по расписанию и фоновыми заданиями — **4138**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -11252,6 +11252,8 @@
   · читает в базе: ownerReportDelivery
 - const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…
   · читает в базе: smsMessage
+- const latestAwaitsHuman = versions[0] ? await narrationAwaitsHuman(p.id, p, versions[0]) : false;
+  · зовёт narrationAwaitsHuman()
 - const latestAudioSec = versions[0]?.status === "READY" && versions[0].storageKey && versions[0].audioSec == n…
   · зовёт narrationAudioSec()
 - res.json({ versions: versions.map((v)
@@ -23464,6 +23466,8 @@
       - const done = await withPropertyLock(row.id, async (tx)
         · читает в базе: property
         · меняет в базе: property
+        · читает в базе: propertyNarrationVersion
+        · меняет в базе: propertyNarrationVersion
         - const cur = await tx.property.findUnique({ where: { id: row.id }, select: { narrationPreviewVersionId: true, …
           · читает в базе: property
         - если !cur || cur.narrationPreviewVersionId !== row.narrationPreviewVersionId || cur.narrationPreviewPath !== row.n…
@@ -23471,6 +23475,11 @@
             · дословно из кода
         - await tx.property.update({ where: { id: row.id }, data: NARRATION_PREVIEW_CLEARED });
           · меняет в базе: property
+        - const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.id }, orderBy: { revisi…
+          · читает в базе: propertyNarrationVersion
+        - если cur.narrationPreviewVersionId && latest?.id === cur.narrationPreviewVersionId && cur.videoMasterNarrationVers…
+          - await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY" }, data: { approvedAt:…
+            · меняет в базе: propertyNarrationVersion
       - если !done
         - continue;
           · переходит к следующему

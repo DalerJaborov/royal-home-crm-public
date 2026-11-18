@@ -7,6 +7,7 @@ import { NARRATION_CLOSED_STATUSES } from "./narrationOptOut.js";
 import { NARRATION_PREVIEW_CLEARED } from "./narrationPreviewFields.js";
 import { narrationFactsCurrent } from "./propertyNarration.js";
 import { clipCountsAsPublished } from "./publishedClip.js";
+import { openReplacement } from "./remakeRequests.js";
 import { logSystemError } from "./systemError.js";
 import { isHandoffPublishRunning, withPropertyLock } from "./videoHandoff.js";
 
@@ -67,9 +68,11 @@ export async function replaceFinalWithMix(tx: TxClient, input: {
   // Недоделанный Reels прежнего ролика вышел бы рядом с новым (тот же шаг, что при приёме ролика).
   await tx.pendingInstagramContainer.updateMany({ where: { propertyId: input.propertyId, status: "PENDING", kind: "REEL" },
     data: { status: "CANCELLED", resolvedAt: new Date(), error: "CRM наложила новую озвучку — Reels прежнего ролика отменён" } });
-  if (input.published && !await tx.videoRemakeRequest.findFirst({ where: { propertyId: input.propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null }, select: { id: true } })) {
-    await tx.videoRemakeRequest.create({ data: { propertyId: input.propertyId, reason: "NARRATION_CHANGED", requestedById: input.requestedById, replaceOldPostsOnPublish: true,
-      comment: `Новая озвучка, версия ${input.revision}: утверждена человеком, CRM наложила её сама, монтажёр не нужен.` } });
+  // Одна дверь замены (lib/remakeRequests.ts): вторая озвучка, пока первая замена не закрыта, берёт свежий снимок
+  // (посты первой — «старые»), переносит её нерешённые старые посты и выходит во все сети.
+  if (input.published) {
+    await openReplacement(tx, { propertyId: input.propertyId, reason: "NARRATION_CHANGED", requestedById: input.requestedById,
+      comment: `Новая озвучка, версия ${input.revision}: утверждена человеком, CRM наложила её сама, монтажёр не нужен.` });
   }
 }
 
@@ -115,8 +118,9 @@ export async function dropReplacedClipFiles(placed: PlacedMix, keep: string): Pr
 /**
  * КАНДИДАТЫ, ОСТАВШИЕСЯ ОТ «ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ» (18.11.2026, задача narration-preview-due): шаг убран,
  * кандидата больше никто не выпустит — файл удаляется, поля очищаются. Утверждения их версий (и версий, от которых
- * отказались «Оставить старый», и утверждённых автоматически на вышедшем ролике) снимает SQL самой миграции
- * 20261118220000_narration_simple_approve — до старта приложения, без гонки с обходом перемикса. Идемпотентно.
+ * отказались «Оставить старый», и утверждённых автоматически на вышедшем ролике) снимает SQL миграции
+ * 20261118220000_narration_simple_approve; кандидата, заведённого старым worker уже после SQL (окно выката), — эта
+ * уборка; а перемикс такие версии не выпускает никогда (постоянный сторож в remixWanted). Идемпотентно.
  */
 export async function clearLeftoverNarrationPreviews(): Promise<number> {
   const rows = await prisma.property.findMany({ where: { OR: [{ narrationPreviewVersionId: { not: null } }, { narrationPreviewPath: { not: null } }] },
@@ -126,10 +130,17 @@ export async function clearLeftoverNarrationPreviews(): Promise<number> {
     try {
       const done = await withPropertyLock(row.id, async (tx) => {
         await lockPropertyRow(tx, row.id);
-        const cur = await tx.property.findUnique({ where: { id: row.id }, select: { narrationPreviewVersionId: true, narrationPreviewPath: true } });
+        const cur = await tx.property.findUnique({ where: { id: row.id }, select: { narrationPreviewVersionId: true, narrationPreviewPath: true, videoMasterNarrationVersionId: true } });
         if (!cur || cur.narrationPreviewVersionId !== row.narrationPreviewVersionId || cur.narrationPreviewPath !== row.narrationPreviewPath) return false;
         // Отметку отказа «Оставить старый» не трогаем: она держит версию ещё один выпуск (remixWanted).
         await tx.property.update({ where: { id: row.id }, data: NARRATION_PREVIEW_CLEARED });
+        // Кандидата мог завести старый worker уже ПОСЛЕ шага SQL (выкат гонит миграцию при живом старом коде, ревью 18.11):
+        // его версия, если она последняя и не наложена, снова ждёт человека.
+        const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.id }, orderBy: { revision: "desc" }, select: { id: true } });
+        if (cur.narrationPreviewVersionId && latest?.id === cur.narrationPreviewVersionId && cur.videoMasterNarrationVersionId !== latest.id) {
+          await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY" },
+            data: { approvedAt: null, approvedById: null, approvalNotifiedAt: null, approvalRemindedAt: null, approvalEscalatedAt: null } });
+        }
         return true;
       });
       if (!done) continue;

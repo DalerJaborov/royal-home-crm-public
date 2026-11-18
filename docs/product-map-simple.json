@@ -16,7 +16,7 @@
   "paths": 781,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4110,
+  "conditions": 4111,
   "untranslatedUnique": 472,
   "untranslatedTotal": 609,
   "partialUnique": 1107,
@@ -72526,7 +72526,9 @@
           {
            "t": "меняет: объект",
            "k": "do",
-           "a": [],
+           "a": [
+            "меняет: объект narration version"
+           ],
            "c": [],
            "more": true
           },

@@ -214,8 +214,9 @@ describe("property narration route boundaries", () => {
     const response = await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true });
     expect(response.status).toBe(200);
     expect(s.updateMany).toHaveBeenCalledWith({ where: { id: versionId, status: "READY", approvedAt: null }, data: { approvedAt: expect.any(Date), approvedById: "staff" } });
+    // Аудио по тексту маркетинга на ВЫШЕДШЕМ ролике (здесь он вышел в Instagram) ждёт агента после прослушивания (ревью 18.11).
     s.latest.mockResolvedValue({ ...row(), status: "READY", approvedAt: null, source: "MANUAL", storageKey: "k" });
-    expect((await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true })).status).toBe(403);
+    expect((await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true })).status).toBe(200);
     s.role = "EDITOR"; s.assigned.mockResolvedValue({ id: "assigned" });
     expect((await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true })).status).toBe(403);
   });

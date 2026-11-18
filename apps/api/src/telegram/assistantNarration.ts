@@ -218,7 +218,7 @@ export async function remindPendingNarrationApprovals(now: Date = new Date()): P
   if (!isWithinDushanbeWindow("09:00", "20:00", now)) return 0;
   const due = new Date(now.getTime() - REMIND_AFTER_MS);
   const pending = await prisma.propertyNarrationVersion.findMany({
-    where: { status: "READY", approvedAt: null, source: { not: "MANUAL" }, approvalNotifiedAt: { lte: due }, approvalEscalatedAt: null,
+    where: { status: "READY", approvedAt: null, approvalNotifiedAt: { lte: due }, approvalEscalatedAt: null,
       property: { deletedAt: null, narrationOff: false, status: { notIn: ["SOLD", "WITHDRAWN"] } } },
     orderBy: { approvalNotifiedAt: "asc" }, take: 40,
     select: { id: true, propertyId: true, source: true, approvalRemindedAt: true, approvalNotifiedAt: true, property: { select: { shortId: true, publishedChannels: true, instagramUrl: true } } },
