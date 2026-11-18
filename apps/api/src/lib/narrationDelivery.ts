@@ -40,8 +40,7 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   // С 12.11.2026 по умолчанию голос вклеивает монтажёр (музыка и громкость его), а к готовому
   // ролику присылает тот же без голоса — из него CRM сама меняет голос при смене цены.
   const soundOnly = p.videoHandoffRemakeReason === "NARRATION_CHANGED";
-  // Второй файл «без голоса» просим, только если CRM сама голос не убирает (16.11.2026).
-  const hint = parsedConfig.success ? voicelessCopyHint(parsedConfig.data) : "";
+  const hint = voicelessCopyHint();
   const audioCaption = mixByCrm
     ? `Объект №${p.shortId}. Озвучка, версия ${version.revision}: под неё длина и темп. Пришлите ролик БЕЗ голоса (музыка и звуки можно), голос CRM наложит сама. Ролик не короче озвучки.`
     : soundOnly
