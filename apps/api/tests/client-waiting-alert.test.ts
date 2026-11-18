@@ -6,6 +6,13 @@ vi.mock("../src/push.js", async (importOriginal) => ({
   sendPushToAgent,
 }));
 
+// Выключатель «Клиент ждёт ответа» (19.11.2026): подмена только в этом файле, строку Settings тест не трогает.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
+
 const { prisma } = await import("../src/db.js");
 const { alertClientWaiting, runClientSilenceSweep, waitingEpisodeOf, CLIENT_WAITING_MINUTES, repeatClientWaiting, CLIENT_WAITING_REPEAT_MINUTES } = await import(
   "../src/lib/clientWaitingAlert.js"
@@ -369,6 +376,39 @@ describe("follow_up — звонок агента считается ответ�
       expect(ownPush(id)).toHaveLength(2);
     } finally {
       await prisma.interaction.deleteMany({ where: { clientId: conv.clientId! } });
+    }
+  });
+});
+
+describe("выключатель «Клиент ждёт ответа» (19.11.2026)", () => {
+  it("выключен — сторож и дверь молчат, эпизод не занят; включён — тот же эпизод сигналит как раньше", async () => {
+    const id = await conversation([{ role: "user", content: "позовите человека", at: minutesAgo(CLIENT_WAITING_MINUTES + 10) }]);
+    switchesOff.add("notifyClientWaitingEnabled");
+    try {
+      const sweep = await runClientSilenceSweep();
+      expect(sweep).toEqual({ checked: 0, alerted: 0, skippedOffHours: false });
+      // «already», а не «skipped»: вызывающие читают его как «сигнал уже есть» и идут дальше без тревоги в журнал.
+      expect(await alertClientWaiting({ conversationId: id, trigger: "escalate" })).toBe("already");
+      expect(await repeatClientWaiting({ conversationId: id, since: new Date(), now: new Date() })).toBe("skipped");
+      expect(ownPush(id)).toHaveLength(0);
+      expect(await prisma.pendingDirectorAlert.count({ where: { tag: `client-waiting-${id}` } })).toBe(0);
+    } finally {
+      switchesOff.delete("notifyClientWaitingEnabled");
+    }
+    // Включили обратно — эпизод не был «съеден», сигнал уходит.
+    expect(await alertClientWaiting({ conversationId: id, trigger: "escalate" })).toBe("agent");
+    expect(ownPush(id)).toHaveLength(1);
+  });
+
+  it("клиент в корзине при выключенном выключателе остаётся `excluded` (тишина дверей канала не меняется)", async () => {
+    const id = await conversation([{ role: "user", content: "стоп", at: minutesAgo(40) }]);
+    const conv = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+    await prisma.client.update({ where: { id: conv.clientId! }, data: { deletedAt: new Date() } });
+    switchesOff.add("notifyClientWaitingEnabled");
+    try {
+      expect(await alertClientWaiting({ conversationId: id, trigger: "escalate" })).toBe("excluded");
+    } finally {
+      switchesOff.delete("notifyClientWaitingEnabled");
     }
   });
 });

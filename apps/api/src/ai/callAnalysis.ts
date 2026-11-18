@@ -18,6 +18,7 @@ import { logTimeline } from "../lib/timeline.js";
 import { describeError } from "../lib/describeError.js";
 import { checkAgentPhoneAsk } from "../lib/agentPhoneAskDetector.js";
 import { resolveCallPropertyId } from "../lib/propertyVoice/callProperty.js";
+import { automationSwitchOn } from "../lib/automationSwitches.js";
 
 /**
  * Разбор телефонного разговора: что получилось, что нет, о чём договорились.
@@ -587,7 +588,9 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
       // Newly eligible dual-intent sellers are collected privately above. Do not
       // broaden the legacy live autobooking/push path without activation approval.
       if (client?.kind === "SELLER") return { ok: true };
-      if (client) {
+      // Выключатель «ИИ сам назначает показ по разговору агента» (19.11.2026): выключено —
+      // показ по звонку не назначается, остальной разбор звонка идёт как обычно.
+      if (client && (await automationSwitchOn("aiAgentShowingAutoBookEnabled"))) {
         /**
          * ПОКАЗ НАЗНАЧАЕТСЯ САМ — НО ТОЛЬКО КОГДА ОДНОЗНАЧНО (владелец 18.08.2026,
          * после того как это же самое уже пробовали и дважды отменяли: 05.08 —

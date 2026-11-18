@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { callAiText, type ChatMessage } from "../ai/client.js";
 import { nowBlock } from "../ai/conversationTime.js";
 import { dushanbeWallClock } from "./dushanbeTime.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 import { applyShowingRequestInBackground, type ShowingActor, type ShowingRequest } from "./showingBooking.js";
 import type { DeliveryTarget } from "./conversationState.js";
 
@@ -117,6 +118,9 @@ export async function detectOperatorShowingAgreement(
   // это служебная рассылка CRM, там некому было "договориться" словами.
   if (!sender || sender.kind !== "agent") return;
   if (!SHOWING_HINT_RE.test(agentText)) return;
+  // Выключатель «ИИ сам назначает показ по разговору агента» (19.11.2026): выключено —
+  // показ словами не записываем и ИИ не зовём. Бот в своих ходах и кнопка не затронуты.
+  if (!(await automationSwitchOn("aiAgentShowingAutoBookEnabled"))) return;
 
   const clientId =
     target.kind === "telegram"

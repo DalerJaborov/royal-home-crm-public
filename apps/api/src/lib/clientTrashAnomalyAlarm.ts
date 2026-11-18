@@ -1,5 +1,6 @@
 import { dushanbeDayKey } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 import { sendPushToAgents } from "../push.js";
 import { createNotifications } from "./notifications.js";
 import { isWithinWorkingHours } from "./workingHours.js";
@@ -44,6 +45,8 @@ export async function noteClientTrashedAndAlarmIfAnomalous(input: {
 }): Promise<void> {
   const now = input.now ?? new Date();
   try {
+    // Выключатель «Много удалений у агента» (19.11.2026): выключено — счёт не ведём и уведомление не шлём.
+    if (!(await automationSwitchOn("notifyTrashAnomalyEnabled"))) return;
     const windowStart = new Date(now.getTime() - WINDOW_HOURS * 60 * 60 * 1000);
     const count = await prisma.client.count({
       where: { assignedAgentId: input.agentId, deletedAt: { gte: windowStart, lte: now } },

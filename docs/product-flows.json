@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4119,
+  "forks": 4121,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -90811,6 +90811,21 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "if",
+         "t": "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: 0, alerted: 0, skippedOffHours: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
         }
        ],
        "from": "runClientSilenceSweep() — apps/api/src/lib/clientWaitingAlert.ts"
@@ -92671,6 +92686,14 @@
          "t": "const sellersOn = await sellerSwitchOn(\"dealStaleSellersEnabled\");",
          "a": [
           "зовёт sellerSwitchOn()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const buyersOn = await automationSwitchOn(\"dealStaleBuyersEnabled\");",
+         "a": [
+          "зовёт automationSwitchOn()"
          ],
          "c": []
         },
@@ -106739,6 +106762,14 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const reviewAlertOn = await automationSwitchOn(\"notifyPropertyReviewOverdueEnabled\");",
+         "a": [
+          "зовёт automationSwitchOn()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
          "t": "для каждого: const property of properties",
          "a": [],
@@ -106768,6 +106799,21 @@
              "t": "property.status === \"PENDING_REVIEW\"",
              "a": [],
              "c": [
+              {
+               "k": "if",
+               "t": "!reviewAlertOn",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
               {
                "k": "if",
                "t": "await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now)",

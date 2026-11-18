@@ -14,6 +14,13 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText }));
 
+// Выключатель автоматики (19.11.2026): подмена только в этом файле, строку Settings тест не трогает.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
+
 const { prisma } = await import("../src/db.js");
 const { analyzeCall, parseShowingAt } = await import("../src/ai/callAnalysis.js");
 
@@ -143,6 +150,24 @@ describe("Показ по разговору — автоназначение п
     });
     expect(window).toBeNull();
     expect(sendPushToAgent).toHaveBeenCalled();
+  });
+
+  it("выключатель «ИИ сам назначает показ по разговору агента»: выключен — показ по звонку не назначается", async () => {
+    await makeProperty(districtId, "выключатель");
+    const client = await makeBuyer(districtId);
+    const callAt = new Date();
+    const interaction = await makeCallInteraction(client.id, callAt);
+    mockShowingExtract(tomorrowLocal(callAt));
+
+    switchesOff.add("aiAgentShowingAutoBookEnabled");
+    try {
+      const result = await analyzeCall(interaction.id);
+      // Остальной разбор звонка идёт как обычно.
+      expect(result.ok).toBe(true);
+    } finally {
+      switchesOff.delete("aiAgentShowingAutoBookEnabled");
+    }
+    expect(await prisma.interaction.count({ where: { clientId: client.id, type: "SHOWING" } })).toBe(0);
   });
 
   it("два подходящих объекта — решение остаётся агенту, показ сам не создаётся", async () => {

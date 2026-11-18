@@ -26,6 +26,7 @@ import {
 import { prisma } from "../db.js";
 import { sendPushToAgent, sendPushToAgents, closeLeadPushNotifications } from "../push.js";
 import { findAgentsWithPermission } from "./recipients.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 import { logAgentAudit, logAudit, logSystemAudit } from "./audit.js";
 import { isInstagramLink } from "./instagramLink.js";
 import { syncPropertiesToSite } from "./siteSync.js";
@@ -228,6 +229,8 @@ export async function notifyOverdueMaterials(
   if (overdueIds.length === 0) return 0;
 
   let notified = 0;
+  // Выключатель «Объект долго на проверке» (19.11.2026) — один раз на тик, гасит только это уведомление.
+  const reviewAlertOn = await automationSwitchOn("notifyPropertyReviewOverdueEnabled");
 
   for (const property of properties) {
     // Сбой одной записи не обрывает остальные (E8 глубокой проверки 02.10.2026, класс №173).
@@ -242,6 +245,7 @@ export async function notifyOverdueMaterials(
        * одобрить (properties.moderate), через ту же очередь алармов руководству.
        */
       if (property.status === "PENDING_REVIEW") {
+        if (!reviewAlertOn) continue;
         // Рубильник «проверка исходников» (25.09.2026) меняет ДЕЙСТВИЕ, а не
         // видимость (07.10.2026): раньше при выключенной проверке здесь стоял
         // `continue`, и объект, застрявший на PENDING_REVIEW, висел вечно, не
