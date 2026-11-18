@@ -44,8 +44,8 @@ describe("признак «Нового вида» в выборе оболоч�
     expect(hook.result.current.look).toBe("royal");
     answers.queue.push({ enabled: true });
     await recheck();
-    // Перерисовка после удачного ответа может прийти тиком позже: ждём её, а не
-    // читаем состояние сразу (в облаке тест падал через раз, 18.11.2026).
+    // Признак гаснет через сохранённый снимок (useSyncExternalStore) — на занятой
+    // машине облака это на тик позже refetch; ждём, а не проверяем мгновенно (флак 18.11).
     await waitFor(() => expect(hook.result.current.look).toBeUndefined());
   });
 

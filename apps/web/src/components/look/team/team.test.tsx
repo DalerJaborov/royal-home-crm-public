@@ -27,33 +27,8 @@ afterEach(() => { cleanup(); });
 const shown = (el: HTMLElement) => el.closest("[hidden]") === null;
 const team = (node: ReactNode) => <RoyalSection name="team">{node}</RoyalSection>;
 
-/**
- * Сторож скрытия слоя пачки (ревью PR 279): ни одно правило не прячет и не режет
- * текст. Разрешены только перечисленные ЦЕЛИКОМ селекторы — заголовок-дубль на
- * телефоне, полосы прокрутки, маркер раскрытия, шапка таблицы и подписи цифр на
- * своих местах, имя в меню профиля.
- */
-const HIDING = /display:\s*none|visibility:\s*hidden|font-size:\s*0(?![.\d])|max-height:\s*0(?![.\d])|opacity:\s*0(?![.\d])|line-clamp|clip-path|text-overflow:\s*ellipsis|clip:\s*rect\(0/;
-const R = ':root[data-ui-look="royal"]';
-const HIDING_ALLOWED = new Set([
-  `${R}[data-mobile-ux] [data-ry-section="team"] .ry-title[data-dup]`,
-  `${R} [data-ry-section="team"]:is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .seg-ai::-webkit-scrollbar`,
-  `${R} [data-ry-section="team"] .ry-search input::-webkit-search-cancel-button`,
-  `${R}[data-mobile-ux] [data-ry-section="team"] .ry-set-tasks::-webkit-scrollbar`,
-  `${R} [data-ry-section="team"] .ry-mhead`,
-  `${R} [data-ry-section="team"] .ry-mhead > :last-child`,
-  `${R} [data-ry-section="team"] .ry-mrow .ry-stat small`,
-  `${R} .ry-teamp[data-ry-section="team"] details.clean-team-recognition > summary::-webkit-details-marker`,
-  `${R} .ry-activity[data-ry-section="team"] .scr .seg::-webkit-scrollbar`,
-  `${R} [data-ry-section="team"] .ry-pmenu-head b`,
-]);
-function hiddenTextSelectors(css: string): string[] {
-  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  return [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-    .filter(([, , body]) => HIDING.test(body))
-    .flatMap(([, head]) => head.split(/,(?![^(]*\))/).map((selector) => selector.trim()))
-    .filter((selector) => !selector.startsWith("@") && !HIDING_ALLOWED.has(selector));
-}
+// Сторож скрытия текста (бывший HIDING/hiddenTextSelectors этого файла) — общий для всех слоёв
+// нового вида: theme-look-royal.test.ts, hiddenTextSelectors (ревью PR 286).
 
 describe("значок строки настроек по названию", () => {
   it("узкие слова раньше общих, русские границы слов без \\b", () => {
@@ -179,20 +154,5 @@ describe("в разделе team ничего не прячется по фор�
     expect(html).toContain("Причина отказа от Meta: Нарушение правил рассылки");
     expect(html).toContain("Здравствуйте, это [имя сотрудника]");
     expect(html).not.toContain("data-ry-hint");
-  });
-
-  it("слой пачки ничего не прячет и не режет, кроме белого списка точных селекторов", () => {
-    const css = readFileSync(join(process.cwd(), "src/theme-look-royal-team.css"), "utf8");
-    expect(hiddenTextSelectors(css)).toEqual([]);
-  });
-
-  it.each([
-    "display: none", "visibility: hidden", "font-size: 0", "max-height: 0", "opacity: 0",
-    "-webkit-line-clamp: 2", "clip-path: inset(50%)", "text-overflow: ellipsis",
-  ])("сторож скрытия ловит «%s» на тексте настроек (проверен поломкой)", (declaration) => {
-    const css = readFileSync(join(process.cwd(), "src/theme-look-royal-team.css"), "utf8");
-    const leak = ':root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .acc-b .mod .t > span';
-    expect(hiddenTextSelectors(`${css}
-${leak} { ${declaration}; }`)).toEqual([leak]);
   });
 });

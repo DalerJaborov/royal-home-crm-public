@@ -42,7 +42,12 @@ test("новый вид, телефон: строка клиента не выш
     const row = page.locator(".ry-crow").first();
     await expect(row).toBeVisible({ timeout: 30_000 });
     const box = await row.boundingBox();
-    expect(box!.height, `высота строки на ${width}px`).toBeLessThanOrEqual(104);
+    // Запрос и следующий шаг — данные: с 18.11 (ревью PR 286) переносятся, а не режутся,
+    // поэтому длинный запрос даёт четвёртую строку; выше четырёх строка не растёт.
+    expect(box!.height, `высота строки на ${width}px`).toBeLessThanOrEqual(140);
+    const clipped = await row.locator(".ry-crow-req, .ry-crow-step, .ry-crow-when").evaluateAll((els) =>
+      els.filter((el) => el.scrollWidth > el.clientWidth + 1 || getComputedStyle(el).textOverflow === "ellipsis").map((el) => el.className));
+    expect(clipped, `обрезанные данные в строке на ${width}px`).toEqual([]);
     // Номер карточки и источник есть в разметке строки, но на телефоне не видны.
     const code = (await row.locator(".ry-crow-id").textContent())?.split(" · ")[0]?.trim() ?? "";
     const source = (await row.locator(".ry-crow-req .ry-crow-pc-only").textContent())?.trim() ?? "";
