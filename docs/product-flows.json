@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 778,
-  "forks": 4129,
+  "endpoints": 782,
+  "forks": 4142,
   "mounts": 87,
-  "cron": 143,
+  "cron": 142,
   "jobs": 34,
   "hidden": 0
  },
@@ -61751,6 +61751,388 @@
   },
   {
    "method": "GET",
+   "path": "/narration-music/:id/file",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-music/:id/file",
+   "file": "apps/api/src/routes/properties/narrationMusic.ts",
+   "router": "narrationMusicRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!hasMarketingRole(req.agent)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Музыка доступна маркетингу и руководству\" });",
+       "a": [
+        "ответ 403 — «Музыка доступна маркетингу и руководству»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const id = narrationMusicIdSchema.safeParse(req.params.id);",
+     "a": [
+      "проверяет данные схемой narrationMusicIdSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный трек\" });",
+       "a": [
+        "ответ 400 — «Некорректный трек»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const row = await prisma.narrationMusicTrack.findUnique({ where: { id: id.data }, select: { storageKey: true,…",
+     "a": [
+      "читает в базе: narrationMusicTrack"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const file = row ? localVideoFilePath(row.storageKey) : null;",
+     "a": [
+      "зовёт localVideoFilePath()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!row || !file",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Трек не найден\" });",
+       "a": [
+        "ответ 404 — «Трек не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.setHeader(\"Cache-Control\", \"private, max-age=3600\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.type(row.format === \"m4a\" ? \"audio/mp4\" : \"audio/mpeg\").sendFile(file, (err)",
+     "a": [
+      "ответ 404 — «Файл трека не найден на сервере»",
+      "ставит заголовок ответа"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "err && !res.headersSent",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(404).json({ error: \"Файл трека не найден на сервере\" });",
+         "a": [
+          "ответ 404 — «Файл трека не найден на сервере»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "DELETE",
+   "path": "/narration-music/:id",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-music/:id",
+   "file": "apps/api/src/routes/properties/narrationMusic.ts",
+   "router": "narrationMusicRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!canConfigure(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Музыку удаляет руководство\" });",
+       "a": [
+        "ответ 403 — «Музыку удаляет руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const id = narrationMusicIdSchema.safeParse(req.params.id);",
+     "a": [
+      "проверяет данные схемой narrationMusicIdSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный трек\" });",
+       "a": [
+        "ответ 400 — «Некорректный трек»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!(await deleteNarrationMusicTrack(id.data))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Трек не найден\" });",
+       "a": [
+        "ответ 404 — «Трек не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAgentAudit(req.agent!.id, \"NARRATION_MUSIC_DELETED\", \"NarrationMusicTrack\", id.data, {});",
+     "a": [
+      "зовёт logAgentAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/narration-music",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-music",
+   "file": "apps/api/src/routes/properties/narrationMusic.ts",
+   "router": "narrationMusicRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!hasMarketingRole(req.agent)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Музыка доступна маркетингу и руководству\" });",
+       "a": [
+        "ответ 403 — «Музыка доступна маркетингу и руководству»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const tracks = await narrationMusicTracks();",
+     "a": [
+      "зовёт narrationMusicTracks()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(view);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/narration-music",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-music",
+   "file": "apps/api/src/routes/properties/narrationMusic.ts",
+   "router": "narrationMusicRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "narrationMusicUpload.single(\"file\")"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!canConfigure(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Музыку загружает руководство\" });",
+       "a": [
+        "ответ 403 — «Музыку загружает руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const fields = narrationMusicUploadSchema.safeParse({ ...(typeof req.body?.title === \"string\" ? { title: req.…",
+     "a": [
+      "проверяет данные схемой narrationMusicUploadSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!fields.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Название трека — до 80 знаков\" });",
+       "a": [
+        "ответ 400 — «Название трека — до 80 знаков»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!req.file",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Выберите файл mp3 или m4a\" });",
+       "a": [
+        "ответ 400 — «Выберите файл mp3 или m4a»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await prisma.narrationMusicTrack.count() >= NARRATION_MUSIC_LIMITS.maxTracks",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: `В библиотеке уже ${NARRATION_MUSIC_LIMITS.maxTracks} треков: удалите ли…",
+       "a": [
+        "ответ 409 — «В библиотеке уже ${NARRATION_MUSIC_LIMITS.maxTracks} треков: удалите…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const added = await addNarrationMusicTrack({ buffer: req.file.buffer, title, createdById: req.agent!.id });",
+     "a": [
+      "зовёт addNarrationMusicTrack()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!added.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(added.status).json({ error: added.error });",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAgentAudit(req.agent!.id, \"NARRATION_MUSIC_ADDED\", \"NarrationMusicTrack\", added.id, { title });",
+     "a": [
+      "зовёт logAgentAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.status(201).json({ id: added.id });",
+     "a": [
+      "ответ 201"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/narration-options",
    "mount": "/api/v1/properties",
    "full": "/api/v1/properties/narration-options",
@@ -61901,7 +62283,7 @@
     },
     {
      "k": "do",
-     "t": "const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…",
+     "t": "const parsed = narrationConfigSchema.safeParse(since ? { ...withoutSince, ownMusicRemixSince: since } : witho…",
      "a": [
       "проверяет данные схемой narrationConfigSchema"
      ],
@@ -93624,6 +94006,21 @@
          ]
         },
         {
+         "k": "loop",
+         "t": "для каждого: const row of await prisma.narrationMusicTrack.findMany({ select: { storageKey: true } })",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "rawRefs.add(row.storageKey);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
          "t": "const candidates = planDiskCleanup(files, facts, nowMs);",
          "a": [
@@ -104437,34 +104834,17 @@
          ]
         }
        ]
-      }
-     ],
-     "from": "runNarrationAutoFlow() — apps/api/src/lib/narrationAutoFlow.ts"
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
-   "id": "narration-auto-master",
-   "when": "* * * * *",
-   "tree": [
-    {
-     "k": "do",
-     "t": "await runMachineMastersTick();",
-     "a": [
-      "зовёт runMachineMastersTick()"
-     ],
-     "c": [
+      },
       {
        "k": "do",
-       "t": "return runMachineMasters(machineMasterDeps, now);",
+       "t": "report.remixed = await remixFromMasters();",
        "a": [
-        "зовёт runMachineMasters()"
+        "зовёт remixFromMasters()"
        ],
        "c": []
       }
      ],
-     "from": "runMachineMastersTick() — apps/api/src/lib/narrationAutoFlow.ts"
+     "from": "runNarrationAutoFlow() — apps/api/src/lib/narrationAutoFlow.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"

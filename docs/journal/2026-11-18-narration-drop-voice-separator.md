@@ -7,7 +7,7 @@
     экрана Настройки → Озвучка и текстов монтажёру; сохранённое значение в настройках молча отбрасывается схемой;
   - `docker-compose.prod.yml` — без сервиса `voice-separator` и переменной `VOICE_SEPARATOR_URL`; `ops/deploy.sh` —
     без шага 3.1; `ops/auto-deploy.sh` — без правила для `apps/voice-separator/*`;
-  - миграция `20261118200000_narration_drop_machine_separation`: мастера, сделанные машиной (`videoMasterSource = 'MACHINE'`),
+  - миграция `20261118220000_narration_drop_machine_separation`: мастера, сделанные машиной (`videoMasterSource = 'MACHINE'`),
     отвязаны от объектов (в них мог остаться старый голос — перемикс положил бы новый голос поверх старого). Колонки
     `Property.videoMasterAuto*` код больше не читает и не пишет, но в этом выкате они остаются в базе и в схеме
     (пометка «не используется с 18.11») — см. черновик ниже;
