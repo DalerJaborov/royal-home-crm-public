@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4119**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4121**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19550,6 +19550,8 @@
       - если (await syncAgentMobileFallback(agent.id, creds)) === "station_unreachable"
         - return;
           · дальше не идёт, ничего не меняя
+    - await warnIfIncomingPrimaryUnreachable(primary);
+      · зовёт warnIfIncomingPrimaryUnreachable()
   - await reconcileIncomingQueue();
     · зовёт reconcileIncomingQueue()
     - const result = await ensureAgentsInIncomingQueue();
@@ -19559,9 +19561,17 @@
         · запись в журнал ошибок
       - return;
         · дальше не идёт, ничего не меняя
-    - если result.noOperatorsAssigned
-      - void logSystemError( "telephony", "Оператор приёма не назначен ни одному сотруднику: звонки незнакомых номеро…
-        · запись в журнал ошибок
+    - const primary = await incomingPrimaryExtension();
+      · зовёт incomingPrimaryExtension()
+    - если result.noOperatorsAssigned && !primary
+      - const open = await prisma.errorLog.count({ where: { ...noOperatorAlarmWhere(), resolvedAt: null } });
+        · считает в базе: errorLog
+      - если open === 0
+        - void logSystemError( "telephony", `${NO_OPERATOR_ALARM_PREFIX}: звонки незнакомых номеров идут по-старому. ` …
+          · запись в журнал ошибок
+    - иначе если primary || !result.skipped
+      - await prisma.errorLog .updateMany({ where: { ...noOperatorAlarmWhere(), resolvedAt: null }, data: { resolvedA…
+        · меняет в базе: errorLog
     - если result.skipped && result.skipped.startsWith("Не удалось определить очередь")
       - void logSystemError("telephony", result.skipped);
         · запись в журнал ошибок
