@@ -1,4 +1,7 @@
 import { useCleanShell } from "../hooks/useCleanShell";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RoyalObjectBack, RoyalPropertySummary } from "../components/look/objects/RoyalPropertySummary";
 import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
 import { CleanPropertyDetailHeader, CleanPropertyDetailLayout, CleanPropertyDetailSkeleton, CleanPropertySlot, CleanPropertySummary, cleanPropertyDetailScale } from "../components/clean/CleanPropertyDetailLayout";
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
@@ -541,6 +544,8 @@ function PropertyViewCard({
   const canMarkGroupShare = !accountReadOnly && !isTrashed && canMarkFacebookGroupShare(can("marketing.access"), myId, property);
 
   const legacyAgentMobile = useLegacyAgentMobile();
+  // «Новый вид» (облик royal): та же карточка, другая раскладка главного блока; без признака — прежняя.
+  const royal = useRoyalLook() && clean;
   const photos = property.photos ?? [];
   // ОДНА КАРТОЧКА НА ПК И ТЕЛЕФОН (контракт 06.10.2026, раздел 6). Раньше было две
   // раскладки (`useMobileUx()` рисовал отдельное дерево с лентой, плитками и
@@ -874,14 +879,16 @@ function PropertyViewCard({
     />;
   }
 
+  // Метка раздела «Объекты» (data-ry-section) — экран и все окна, открытые из него; без признака вида пусто.
   return (
-    <Rh2Screen title={`Объект №${property.shortId}`} back="/properties" actions={headerActions}>
+    <RoyalSection name={royal ? "objects" : undefined}>
+    <Rh2Screen title={`Объект №${property.shortId}`} back="/properties" actions={headerActions} className={royal ? "ry-object-page" : undefined}>
       <MutationError mutation={updateProperty} fallback="Не удалось сохранить изменение" />
       {trashedNotice}
 
       {/* Заголовок страницы только на компьютере: на телефоне его несёт шапка оболочки. */}
       <div className="only-wide">
-        {clean ? <CleanPropertyDetailHeader code={formatPropertyCode(property.shortId)} place={placeLine(property)} /> : <PageHeader
+        {royal ? <RoyalObjectBack code={formatPropertyCode(property.shortId)} /> : clean ? <CleanPropertyDetailHeader code={formatPropertyCode(property.shortId)} place={placeLine(property)} /> : <PageHeader
           title={`Объект №${property.shortId}`}
           sub={placeLine(property)}
           actions={
@@ -898,12 +905,12 @@ function PropertyViewCard({
 
       <CleanPropertyDetailLayout enabled={clean}>
         <div className="rh-pcard-main" style={clean ? { display: "contents" } : undefined}>
-          <CleanPropertySlot enabled={clean} area="gallery"><PropertyGallery photos={photos} /></CleanPropertySlot>
+          <CleanPropertySlot enabled={clean} area="gallery"><PropertyGallery photos={photos} thumbs={royal} /></CleanPropertySlot>
           {!clean && descriptionContent}
         </div>
 
         <div className="rh-pcard-side" style={clean ? { display: "contents" } : undefined}>
-          {clean ? <CleanPropertySummary {...summaryProps}>{demandContent}</CleanPropertySummary> : <PropertyPriceCard
+          {royal ? <RoyalPropertySummary {...summaryProps} place={placeLine(property)}>{demandContent}</RoyalPropertySummary> : clean ? <CleanPropertySummary {...summaryProps}>{demandContent}</CleanPropertySummary> : <PropertyPriceCard
             property={property}
             onSchedule={canSchedule ? () => setShowingOpen(true) : null}
             onEdit={canEnterEdit ? () => setEditMenuOpen(true) : null}
@@ -1078,6 +1085,7 @@ function PropertyViewCard({
       {deleteDialog}
       {requestDeleteDialog}
     </Rh2Screen>
+    </RoyalSection>
   );
 }
 

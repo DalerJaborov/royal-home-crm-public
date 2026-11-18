@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { CleanPropertyItem } from "./clean/CleanPropertyItem";
+import { RoyalPropertyItem } from "./look/objects/RoyalPropertyItem";
 import { Link } from "react-router-dom";
 import { formatMoney, formatPricePerSqm, STAGE_OWNER_LABELS } from "../lib/format";
 import { formatPropertyCode } from "../lib/clientFormat";
@@ -102,6 +103,7 @@ export function PropertyRow({
   hideHandoffBrief,
   clean = false,
   cleanVariant = "row",
+  royal = false,
 }: {
   property: Property;
   /** Текущий сотрудник — чтобы показать чип «Передан вам», когда объект передан
@@ -127,11 +129,14 @@ export function PropertyRow({
   band?: ReactNode;
   clean?: boolean;
   cleanVariant?: "row" | "card";
+  /** «Новый вид» (облик royal): те же данные и действия в раскладке макета. Передаёт только каталог. */
+  royal?: boolean;
 }) {
   const agent = ownerAgent(p);
   const stage = p.pipeline;
   if (clean) {
-    return <CleanPropertyItem property={p} health={health} variant={cleanVariant} selected={selected} onToggleSelect={onToggleSelect} onTogglePublish={onTogglePublish} agentName={agent?.fullName} agentTitle={ownerAgentTitle(p)} floors={rowFloors(p)} awaitingAcceptance={!!p.handoverPendingSince && !!myId && p.intakeAgent?.id === myId} handoff={hideHandoffBrief ? [] : videoHandoffBriefChips(p)} subline={subline} band={band} />;
+    const Item = royal ? RoyalPropertyItem : CleanPropertyItem;
+    return <Item property={p} health={health} variant={cleanVariant} selected={selected} onToggleSelect={onToggleSelect} onTogglePublish={onTogglePublish} agentName={agent?.fullName} agentTitle={ownerAgentTitle(p)} floors={rowFloors(p)} awaitingAcceptance={!!p.handoverPendingSince && !!myId && p.intakeAgent?.id === myId} handoff={hideHandoffBrief ? [] : videoHandoffBriefChips(p)} subline={subline} band={band} />;
   }
   return (
     <>

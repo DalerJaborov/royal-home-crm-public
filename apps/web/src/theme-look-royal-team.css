@@ -312,8 +312,8 @@
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .fld > .lab { font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill { min-height: 48px; padding: 0 20px; border-radius: 999px; font-size: 15px; font-weight: 600; }
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill.sm { min-height: 44px; padding: 0 16px; }
-:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); border: 0; }
-:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill.ghost:not(.danger):not(.crit):not(.warn):not(.ok) { background: var(--rh-ui-press); color: var(--rh-ui-text); border: 0; box-shadow: none; }
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); border: 0; }
+:root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill.ghost:not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot) { background: var(--rh-ui-press); color: var(--rh-ui-text); border: 0; box-shadow: none; }
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill.crit,
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .pill.danger { background: transparent; color: var(--rh-ui-crit-text); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--rh-ui-crit-text) 45%, transparent); }
 :root[data-ui-look="royal"] .ry-set[data-ry-section="team"] .scr .seg button { min-height: 44px; border-radius: 999px; font-size: 15px; }
@@ -458,8 +458,8 @@
 :root[data-ui-look="royal"] .ry-member[data-ry-section="team"] :is(.scr .row, .mh .row) .t span { font-size: 15px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .pill,
 :root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .mh :is(.pill, .btn) { min-height: 48px; border-radius: 999px; font-size: 15px; font-weight: 600; }
-:root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); border: 0; }
-:root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .pill.ghost:not(.danger):not(.crit):not(.warn):not(.ok) { background: var(--rh-ui-press); color: var(--rh-ui-text); border: 0; box-shadow: none; }
+:root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); border: 0; }
+:root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .pill.ghost:not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot) { background: var(--rh-ui-press); color: var(--rh-ui-text); border: 0; box-shadow: none; }
 /* Плитки «Цифры за неделю»: радиус 28, крупная цифра. */
 :root[data-ui-look="royal"] .ry-member[data-ry-section="team"] :is(.scr .tile, .mh .tile) {
   border: 0; border-radius: var(--rh-ui-r-tile); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); color: var(--rh-ui-text);
@@ -467,7 +467,7 @@
 :root[data-ui-look="royal"] .ry-member[data-ry-section="team"] :is(.scr .tile, .mh .tile) :is(.v, .n, b) { font-family: var(--rh-ui-font-num); font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
 :root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .mh .top .ico { width: 44px; height: 44px; border-radius: 999px; }
 /* Одно главное действие в шапке — «Позвонить» синим, остальное серыми таблетками. */
-:root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .pg-h .acts > :first-child:is(.pill, a):not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .pg-h .acts > :first-child:is(.pill, a):not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
 :root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .cd-h :is(img, .av) { border-radius: 32%; }
 :root[data-ui-look="royal"] .ry-member[data-ry-section="team"] .scr .cd-h .who h1 { font-size: 30px; }
 
