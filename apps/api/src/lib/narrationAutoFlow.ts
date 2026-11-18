@@ -9,7 +9,6 @@ import { prisma } from "../db.js";
 import { videoHandoffDir } from "../upload.js";
 import { legacyHandoffCoverPath } from "./diskCleanup.js";
 import { mixFromStoredMaster } from "./narrationMaster.js";
-import { machineMasterApplies, makeMachineMaster, runMachineMasters, type MachineMasterDeps } from "./narrationAutoMaster.js";
 import { narrationFitNote, planNarrationFit } from "./narrationMix.js";
 import { dropReplacedClipFiles, placeMixedClip, type PlacedMix } from "./narrationPreview.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
@@ -50,8 +49,8 @@ import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "./channelKeyAlar
  *    монтажёр не нужен»): есть ролик без голоса (мастер) — CRM сама перемикширует и
  *    заменит вышедший ролик (remixFromMaster); голос вклеен монтажёром — прежний возврат
  *    NARRATION_CHANGED, монтажёр присылает тот же ролик без голоса, дальше без него.
- *    С 16.11.2026 ролика без голоса нет — CRM делает его сама из вышедшего ролика (отделение голоса,
- *    lib/narrationAutoMaster.ts); монтажёру — только если отделить не вышло.
+ *    Машинное отделение старого голоса (16.11.2026, сервис voice-separator) убрано 18.11.2026
+ *    решением владельца: на проде ни разу не убрало голос. Ролика без голоса нет — монтажёру.
  * 6. Голос длиннее ролика (16.11.2026): ускорить до 15 % → другой, более короткий шаблон (одна
  *    перегенерация на версию) → стоп-кадр до 3 с → монтажёру (remixFromMasterClaimed).
  *
@@ -204,7 +203,7 @@ export async function approveNarrationVersion(input: { propertyId: string; versi
 
 /** ADD_VOICE (12.11.2026) — ролик сдан раньше, чем одобрили озвучку, и ещё не вышел: он
  *  возвращается монтажёру «вклейте голос», музыку и монтаж не трогать. */
-export type NarrationDeliveryStart = "QUEUED" | "PREVIEW" | "WAITING_FOR_MONTAGE" | "BUSY" | "ALREADY" | "NOT_READY" | "SOUND_REMAKE" | "CRM_REMIX" | "CRM_SEPARATE" | "ADD_VOICE" | "DISABLED";
+export type NarrationDeliveryStart = "QUEUED" | "PREVIEW" | "WAITING_FOR_MONTAGE" | "BUSY" | "ALREADY" | "NOT_READY" | "SOUND_REMAKE" | "CRM_REMIX" | "ADD_VOICE" | "DISABLED";
 /**
  * Одобренное аудио — монтажёру существующим путём. Объект ещё не в очереди монтажа —
  * обход повторит, когда он туда попадёт. Ключ запроса постоянный: повтор не плодит передач.
@@ -217,9 +216,6 @@ export async function afterNarrationApproved(propertyId: string, versionId: stri
     // Объект не у монтажёра. Есть ролик без голоса — CRM сама наложит новую озвучку и заменит
     // вышедший ролик (обход remixFromMasters, в течение минуты); монтажёр не нужен.
     if (await crmRemixApplies(propertyId)) return "CRM_REMIX";
-    // Ролика без голоса нет: CRM сама уберёт старый голос из готового ролика (16.11.2026,
-    // обход narration-auto-master, по одному объекту) и наложит новый. Не вышло — монтажёру.
-    if (await machineMasterApplies(propertyId)) return "CRM_SEPARATE";
     return sendNarrationToMontajer(propertyId, versionId);
   }
   // PREVIEW (ревью 12.11.2026): строку «передано» не заводим — иначе после включения LIVE обход
@@ -246,7 +242,7 @@ export async function afterNarrationApproved(propertyId: string, versionId: stri
 }
 
 /** Монтажёру по-старому: голос вклеен им — заменить только голос; ролик сдан без голоса и не вышел —
- *  «вклейте голос». Зовут одобрение (нет пути без монтажёра) и отказ машинного мастера. */
+ *  «вклейте голос». Зовёт одобрение, когда пути без монтажёра нет, и перемикс «голос длиннее ролика». */
 export async function sendNarrationToMontajer(propertyId: string, versionId: string, opts: { voiceLonger?: boolean } = {}): Promise<NarrationDeliveryStart> {
   const remake = await requestNarrationSoundRemake(propertyId, versionId, opts);
   if (remake === "QUEUED") return "SOUND_REMAKE";
@@ -290,7 +286,7 @@ export async function requestNarrationSoundRemake(propertyId: string, versionId:
   const longer = opts.voiceLonger ? " Новая озвучка длиннее ролика: удлините ролик под голос." : "";
   const sent = await sendBackToMontajer(propertyId, version.approvedById, "NARRATION_CHANGED", mixByCrm
     ? `Новая озвучка, версия ${version.revision}: монтаж и кадры прежние.${longer} Пришлите тот же ролик БЕЗ голоса (музыка и звуки можно) — голос CRM наложит сама. Аудио придёт следом, для длины.`
-    : `Новая озвучка, версия ${version.revision}: замените в ролике только голос, музыку и монтаж не трогайте.${longer} Новый mp3 придёт следом.${voicelessCopyHint(config) ? " При сдаче пришлите и тот же ролик без голоса — дальше смену цены CRM сделает сама." : ""}`, null, { removeFromSocial: "on-new-video" });
+    : `Новая озвучка, версия ${version.revision}: замените в ролике только голос, музыку и монтаж не трогайте.${longer} Новый mp3 придёт следом. При сдаче пришлите и тот же ролик без голоса — дальше смену цены CRM сделает сама.`, null, { removeFromSocial: "on-new-video" });
   if (!sent.ok) {
     void logSystemError("api", `Озвучка: замена звука в ролике не поставлена: ${sent.error}`, { dedupKey: `narration-sound-remake:${versionId}` });
     return "REFUSED";
@@ -316,7 +312,7 @@ export async function requestNarrationAddVoice(propertyId: string, versionId: st
   if ((p.publishedChannels?.length ?? 0) > 0 || p.instagramUrl || everSent > 0) return "SKIPPED";
   if (!version || version.status !== "READY" || !version.approvedAt || !version.approvedById) return "SKIPPED";
   const sent = await sendBackToMontajer(propertyId, version.approvedById, "NARRATION_CHANGED",
-    `Озвучка к ролику №${p.shortId} пришла после сдачи: вклейте голос в этот ролик, музыку и монтаж не трогайте. mp3 придёт следом.${voicelessCopyHint((await loadNarrationConfiguration()).config)}`, null, {});
+    `Озвучка к ролику №${p.shortId} пришла после сдачи: вклейте голос в этот ролик, музыку и монтаж не трогайте. mp3 придёт следом.${voicelessCopyHint()}`, null, {});
   if (!sent.ok) {
     void logSystemError("api", `Озвучка: возврат «вклейте голос» не поставлен: ${sent.error}`, { dedupKey: `narration-add-voice:${versionId}` });
     return "REFUSED";
@@ -496,11 +492,16 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
   return "REMIXED";
 }
 
-/** Машинный мастер (lib/narrationAutoMaster.ts) с шагами этого потока: наложить и отдать монтажёру. */
-const machineMasterDeps: MachineMasterDeps = { remix: (id) => remixFromMaster(id), toMontajer: (id, versionId) => sendNarrationToMontajer(id, versionId) };
-/** Задача `narration-auto-master` (cron.ts): один объект за тик. */
-export function runMachineMastersTick(now?: Date) { return runMachineMasters(machineMasterDeps, now); }
-export function makeMachineMasterFor(propertyId: string, now?: Date) { return makeMachineMaster(propertyId, machineMasterDeps, now); }
+/** Строка агенту в карточке объекта (16.11.2026): что CRM сделала со звуком вышедшего ролика. */
+export function narrationMixNoteFor(
+  p: { videoMasterNarrationVersionId: string | null },
+  latest: { id: string; status: string; approvedAt: Date | null; shortenedFromId: string | null; mixNote: string | null } | null,
+): string | null {
+  if (!latest || latest.status !== "READY" || !latest.approvedAt) return null;
+  if (latest.id === p.videoMasterNarrationVersionId) return latest.mixNote;
+  if (latest.shortenedFromId) return "Голос был длиннее ролика: CRM озвучила тот же текст короче, ролик обновится сам.";
+  return null;
+}
 
 /**
  * КОРОЧЕ ТЕКСТ, ЧТОБЫ ГОЛОС ВЛЕЗ В РОЛИК (16.11.2026). Ускорения на 15 % не хватает — другой шаблон

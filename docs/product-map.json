@@ -1960,11 +1960,6 @@
       "label": null
     },
     {
-      "id": "narration-auto-master",
-      "expr": "* * * * *",
-      "label": null
-    },
-    {
       "id": "narration-preview-due",
       "expr": "* * * * *",
       "label": null

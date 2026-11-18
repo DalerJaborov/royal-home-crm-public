@@ -1,4 +1,4 @@
-import { narrationAutoSeparate, narrationMixByCrm, type NarrationConfig } from "@royal-home/shared";
+import { narrationMixByCrm } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadNarrationConfiguration, narrationQuotaExceededSince } from "./narrationGeneration.js";
 
@@ -14,10 +14,10 @@ import { loadNarrationConfiguration, narrationQuotaExceededSince } from "./narra
  */
 export const VOICELESS_COPY_HINT = "При сдаче пришлите два файла: готовый ролик и тот же ролик без голоса (музыка и звуки остаются) — тогда смену цены CRM сделает сама.";
 
-/** Просить ли у монтажёра второй файл «без голоса». С 16.11.2026 (владелец: «монтажёр присылает один
- *  файл, дальше мы сами») — нет, пока включено «CRM сама убирает старый голос» (autoSeparateVoice). */
-export function voicelessCopyHint(config: Pick<NarrationConfig, "autoSeparateVoice">): string {
-  return narrationAutoSeparate(config) ? "" : ` ${VOICELESS_COPY_HINT}`;
+/** Просьба к монтажёру о втором файле «без голоса»: из него CRM меняет голос при смене цены.
+ *  (16–18.11.2026 её не было, пока голос убирала машина; машинное отделение убрано 18.11.2026.) */
+export function voicelessCopyHint(): string {
+  return ` ${VOICELESS_COPY_HINT}`;
 }
 
 export async function narrationLineForMontajer(propertyId: string): Promise<string | null> {
@@ -31,16 +31,16 @@ export async function narrationLineForMontajer(propertyId: string): Promise<stri
   if (narrationMixByCrm(config)) {
     return latest || p.videoMasterStorageKey ? "🎙 Озвучку накладывает CRM: пришлите ролик БЕЗ голоса (музыка и звуки можно)." : null;
   }
-  if (!latest) return config.autoGenerate === true ? `🎙 Озвучка готовится, придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint(config)}` : null;
+  if (!latest) return config.autoGenerate === true ? `🎙 Озвучка готовится, придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint()}` : null;
   // Старая ручная озвучка маркетинга (до автоозвучки): сама она монтажёру не уходит — mp3 не обещаем
   // (ревью 12.11.2026). Если маркетинг передаст её кнопкой, она придёт отдельным сообщением.
   if ((latest.source ?? "MANUAL") === "MANUAL") return "🎙 Озвучку этого объекта ведёт маркетинг вручную: сама она сюда не придёт. Нужна — спросите маркетинг.";
-  if (latest.status === "READY" && latest.approvedAt) return `🎙 Озвучка одобрена и придёт (или уже пришла) отдельным mp3 — вклейте её сами.${voicelessCopyHint(config)}`;
+  if (latest.status === "READY" && latest.approvedAt) return `🎙 Озвучка одобрена и придёт (или уже пришла) отдельным mp3 — вклейте её сами.${voicelessCopyHint()}`;
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && (await narrationQuotaExceededSince())) {
     return "🎙 Озвучка задерживается: сервис озвучки на паузе. Придёт сюда отдельным mp3, как только будет готова.";
   }
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status)) {
-    return `🎙 Озвучка ждёт одобрения и придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint(config)}`;
+    return `🎙 Озвучка ждёт одобрения и придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint()}`;
   }
   return null;
 }

@@ -2213,8 +2213,6 @@ async function finishReceivingVideo(
           // Ролик с голосом монтажёра отменяет прежний мастер: перемикс из него затёр бы новый монтаж.
           videoMasterStorageKey: master?.key ?? null,
           videoMasterSource: master ? "EDITOR" : null,
-          // Новый готовый ролик — новая попытка убрать голос машиной (16.11.2026).
-          videoMasterAutoError: null, videoMasterAutoErrorFinalPath: null, videoMasterAutoAttempts: 0, videoMasterAutoRetryAt: null,
           videoMasterNarrationVersionId: master?.versionId ?? null,
           // Новый ролик от монтажёра — кандидат «прослушать перед выпуском» к старому больше не годится (17.11.2026).
           ...NARRATION_PREVIEW_CLEARED,
@@ -2910,7 +2908,6 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
         // Удалили принятый ролик — его мастер тоже не годится для перемикса (11.11.2026).
         videoMasterStorageKey: null,
         videoMasterSource: null,
-        videoMasterAutoError: null, videoMasterAutoErrorFinalPath: null, videoMasterAutoAttempts: 0, videoMasterAutoRetryAt: null,
         videoMasterNarrationVersionId: null,
         ...NARRATION_PREVIEW_CLEARED,
         scheduledPublishAt: null,
