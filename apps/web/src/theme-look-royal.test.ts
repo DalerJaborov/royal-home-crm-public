@@ -77,8 +77,16 @@ const lookFiles = readdirSync(new URL(".", import.meta.url)).filter((f) => LOOK_
 
 describe("theme-look-royal*.css", () => {
   const css = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
-  it("знает основу и слой раздела «Клиенты»", () => {
-    expect(lookFiles).toEqual(expect.arrayContaining(["theme-look-royal.css", "theme-look-royal-clients.css"]));
+  it("знает основу и слои разделов «Клиенты» и «Чаты»", () => {
+    expect(lookFiles).toEqual(expect.arrayContaining(["theme-look-royal.css", "theme-look-royal-clients.css", "theme-look-royal-chats.css"]));
+  });
+  it("генератор шрифта (gen-typeset) пропускает каждый слой нового вида", () => {
+    const gen = readFileSync(new URL("../../../scripts/gen-typeset.mjs", import.meta.url), "utf8");
+    const skip = gen.match(/const ownScale = \(f\) => (\/.+\/)\.test\(f\);/);
+    expect(skip, "gen-typeset.mjs обязан пропускать theme-look-royal*.css шаблоном").not.toBeNull();
+    const pattern = new Function(`return ${skip![1]}`)() as RegExp;
+    for (const file of lookFiles) expect(pattern.test(file), file).toBe(true);
+    expect(pattern.test("theme-2026-clean.css")).toBe(false);
   });
   it.each(lookFiles)("%s: every rule is scoped to :root[data-ui-look=\"royal\"] (и к метке своего раздела у слоя пачки)", (file) => {
     expect(unscopedSelectors(readFileSync(new URL(`./${file}`, import.meta.url), "utf8"), lookSectionOf(file))).toEqual([]);
