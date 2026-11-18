@@ -261,4 +261,15 @@ describe.skipIf(!ffmpegReady)("одно утверждение озвучки (1
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).narrationPreviewDeclinedVersionId).toBeNull();
     expect(await remixFromMaster(p.id)).toBe("REMIXED");
   });
+  it("аудио маркетинга на НЕвышедшем ролике: агенту ни сообщения, ни напоминания (он не может его утвердить)", async () => {
+    const p = await seedProperty();
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "RECEIVED" } });
+    const fresh = await prisma.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });
+    const facts = narrationFacts(fresh);
+    const v = await prisma.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: 1, script: "Квартира, звоните нам.", factsSnapshot: facts, factsHash: narrationHash(facts),
+      voiceId: "voiceA", modelId: "eleven_v4", status: "READY", storageKey: `${p.id}/m.mp3`, createdById: agentId, requestKey: randomUUID(), source: "MANUAL" } });
+    const notify = vi.fn(async () => {});
+    await runNarrationAutoFlow({ notifyAgent: notify });
+    expect(notify.mock.calls.filter((c) => (c as unknown[])[0] === v.id)).toHaveLength(0);
+  });
 });

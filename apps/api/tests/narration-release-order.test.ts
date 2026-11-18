@@ -454,7 +454,7 @@ describe("вторая замена, пока первая не закрыта (
     const p = await seed(["FACEBOOK"], { FACEBOOK: "fb-d" });
     const a = await prisma.$transaction((tx) => openReplacement(tx, { propertyId: p.id, reason: "CARD_DATA_CHANGED", requestedById: agentId }));
     const b = await prisma.$transaction((tx) => openReplacement(tx, { propertyId: p.id, reason: "NARRATION_CHANGED", requestedById: agentId }));
-    expect(b).toEqual({ id: a.id, reused: true });
+    expect(b).toMatchObject({ id: a.id, reused: true });
     expect(await prisma.videoRemakeRequest.count({ where: { propertyId: p.id, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null } })).toBe(1);
     // Новая озвучка поверх возврата: очередь новой озвучки.
     expect((await prisma.videoRemakeRequest.findUniqueOrThrow({ where: { id: a.id } })).reason).toBe("NARRATION_CHANGED");
@@ -507,5 +507,65 @@ describe("подмена ролика второй озвучкой идёт ч�
     expect(open).toHaveLength(1);
     expect(open[0]!.id).not.toBe(r1.id);
     expect(open[0]!.oldPosts).toBeNull();
+  });
+});
+
+describe("третье ревью 18.11", () => {
+  it("заявки на замену пишет только lib/remakeRequests.ts (нет обходной двери)", () => {
+    const root = path.join(__dirname, "../src");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { if (entry.name !== "generated") walk(full); continue; }
+        if (!/\.ts$/.test(entry.name) || full.endsWith(path.join("lib", "remakeRequests.ts"))) continue;
+        if (/videoRemakeRequest\.(create|createMany|upsert)\s*\(/.test(fs.readFileSync(full, "utf8"))) offenders.push(path.relative(root, full));
+      }
+    };
+    walk(root);
+    expect(offenders).toEqual([]);
+  });
+
+  it("старые данные: R1 со снимком и более новая R2 без снимка — обход R2 не закрывает; её снимок забирает старые посты R1", async () => {
+    del.facebook.mockClear();
+    const p = await seed(["FACEBOOK"], { FACEBOOK: "fb-o1" });
+    const r1 = await narrationRemake(p.id);
+    await prepareOldPostsBeforeRemakePublish(p.id);
+    await finishOldPostsAfterRemakePublish(p.id, { failedChannels: [], pendingChannels: [{ channel: "FACEBOOK" }] });
+    // Прежний код: возврат монтажёру завёл R2 поверх идущей R1.
+    const r2 = await prisma.videoRemakeRequest.create({ data: { propertyId: p.id, reason: "CARD_DATA_CHANGED", requestedById: agentId, replaceOldPostsOnPublish: true, createdAt: new Date(Date.now() + 1000) } });
+    await finishOldPostsAfterRemakePublish(p.id, null);
+    expect((await prisma.videoRemakeRequest.findUniqueOrThrow({ where: { id: r2.id } })).oldPostsReplacedAt).toBeNull();
+    await newPostsLive(p.id, { FACEBOOK: "fb-a1" });
+    expect(await prepareOldPostsBeforeRemakePublish(p.id)).toBe(true);
+    expect((await prisma.videoRemakeRequest.findUniqueOrThrow({ where: { id: r1.id } })).oldPostsReplacedAt).not.toBeNull();
+    await newPostsLive(p.id, { FACEBOOK: "fb-b1" });
+    await finishOldPostsAfterRemakePublish(p.id, { failedChannels: [], pendingChannels: [] });
+    expect(del.facebook.mock.calls.map((c) => c[0]).sort()).toEqual(["fb-a1", "fb-o1"]);
+    expect((await prisma.videoRemakeRequest.findUniqueOrThrow({ where: { id: r2.id } })).oldPostsReplacedAt).not.toBeNull();
+  });
+
+  it("А не вышла нигде, утвердили Б: перенесённые старые посты держат «ролик вышел»", async () => {
+    const p = await seed([], {});
+    await prisma.videoRemakeRequest.create({ data: { propertyId: p.id, reason: "NARRATION_CHANGED", requestedById: agentId, replaceOldPostsOnPublish: true,
+      carriedOldPosts: [{ channel: "TIKTOK", postIds: { TIKTOK: "tt-c" }, instagramUrl: null }] } });
+    expect(await clipCountsAsPublished(p.id, { publishedChannels: [], instagramUrl: null })).toBe(true);
+  });
+
+  it("самоодобрение на вышедшем ролике снова у человека (сообщение уйдёт заново); на невышедшем не трогается", async () => {
+    const { reopenAutoApprovalsOnPublishedClips } = await import("../src/lib/narrationPreview.js");
+    const at = new Date(Date.now() - 60_000);
+    const mk = async (published: boolean) => {
+      const p = await seed(published ? ["FACEBOOK"] : [], published ? { FACEBOOK: "z" } : {}, { videoHandoffStatus: "RECEIVED" });
+      const fresh = await prisma.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });
+      const facts = narrationFacts(fresh);
+      return (await prisma.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: 1, script: "Квартира, звоните.", factsSnapshot: facts, factsHash: narrationHash(facts),
+        voiceId: "voiceA", modelId: "eleven_v4", status: "READY", storageKey: `${p.id}/z.mp3`, createdById: agentId, requestKey: randomUUID(), source: "AUTO",
+        approvedAt: at, approvedById: agentId, approvalNotifiedAt: at } })).id;
+    };
+    const pub = await mk(true), notPub = await mk(false);
+    await reopenAutoApprovalsOnPublishedClips();
+    expect(await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: pub } })).toMatchObject({ approvedAt: null, approvalNotifiedAt: null });
+    expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: notPub } })).approvedAt).not.toBeNull();
   });
 });

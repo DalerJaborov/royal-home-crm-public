@@ -42,7 +42,10 @@ const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, tot
 async function releaseView(p: { id: string; videoHandoffStatus: string | null; videoMasterNarrationVersionId: string | null; videoMasterMixErrorVersionId: string | null; scheduledPublishAt: Date | null; scheduledPublishReason: string | null;
   publishedChannels: string[]; instagramUrl: string | null }, latest: { id: string; status: string; approvedAt: Date | null } | undefined): Promise<NarrationReleaseView | null> {
   if (!latest || latest.status !== "READY" || !latest.approvedAt) return null;
-  const request = await prisma.videoRemakeRequest.findFirst({ where: { propertyId: p.id, reason: "NARRATION_CHANGED", replaceOldPostsOnPublish: true, createdAt: { gte: latest.approvedAt } },
+  // Заявка этой версии (третье ревью 18.11): переиспользованная заявка старше утверждения, поэтому по ссылке на версию;
+  // старые заявки без ссылки — по времени, как раньше.
+  const request = await prisma.videoRemakeRequest.findFirst({ where: { propertyId: p.id, replaceOldPostsOnPublish: true,
+    OR: [{ narrationVersionId: latest.id }, { narrationVersionId: null, reason: "NARRATION_CHANGED", createdAt: { gte: latest.approvedAt } }] },
     orderBy: { createdAt: "desc" }, select: { oldPosts: true, oldPostsOutcome: true, oldPostsReplacedAt: true } });
   const channels = releaseChannelsView(request?.oldPostsOutcome ?? null);
   const base = { versionId: latest.id, at: p.scheduledPublishAt?.toISOString() ?? null, reason: p.scheduledPublishReason, channels };

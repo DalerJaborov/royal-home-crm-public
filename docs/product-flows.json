@@ -104913,6 +104913,24 @@
     },
     {
      "k": "do",
+     "t": "await reopenAutoApprovalsOnPublishedClips();",
+     "a": [
+      "зовёт reopenAutoApprovalsOnPublishedClips()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "return prisma.$executeRaw` WITH latest AS ( SELECT DISTINCT ON (v.\"propertyId\") v.\"id\", v.\"propertyId\", v.\"st…",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      }
+     ],
+     "from": "reopenAutoApprovalsOnPublishedClips() — apps/api/src/lib/narrationPreview.ts"
+    },
+    {
+     "k": "do",
      "t": "await finishOldPostsSweep();",
      "a": [
       "зовёт finishOldPostsSweep()"

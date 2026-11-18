@@ -633,9 +633,10 @@ export function startCronJobs() {
   // Instagram и повторы TikTok и Meta доводит этот обход (lib/remakeOldPosts.ts). Имя задачи прежнее («прослушать
   // перед выпуском» убран тем же числом): заодно убирает кандидатов, оставшихся от него на момент выката.
   scheduleTracked("narration-preview-due", "* * * * *", async () => {
-    const { clearLeftoverNarrationPreviews } = await import("./lib/narrationPreview.js");
+    const { clearLeftoverNarrationPreviews, reopenAutoApprovalsOnPublishedClips } = await import("./lib/narrationPreview.js");
     const { finishOldPostsSweep } = await import("./lib/remakeOldPosts.js");
     await clearLeftoverNarrationPreviews();
+    await reopenAutoApprovalsOnPublishedClips();
     await finishOldPostsSweep();
   }, undefined, undefined, { timeoutMs: 170_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {

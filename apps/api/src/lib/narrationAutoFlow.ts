@@ -968,8 +968,12 @@ async function notifyReadyNarrations(notify: NarrationApprovalNotifier): Promise
   let notified = 0;
   // MANUAL тоже (ревью 18.11): аудио по утверждённому тексту маркетинга на вышедшем ролике ждёт человека — одно
   // обычное сообщение агенту «готово, послушайте». Неутверждённым READY оно бывает только так.
-  const ready = await prisma.propertyNarrationVersion.findMany({ where: { status: "READY", approvedAt: null, approvalNotifiedAt: null, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] } } }, orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true } });
+  const ready = await prisma.propertyNarrationVersion.findMany({ where: { status: "READY", approvedAt: null, approvalNotifiedAt: null, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] } } },
+    orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true, status: true, storageKey: true, approvedAt: true, source: true,
+      property: { select: { publishedChannels: true, instagramUrl: true } } } });
   for (const row of ready) {
+    // Только то, что агент правда может утвердить (третье ревью 18.11): аудио маркетинга на НЕвышедшем ролике — не ему.
+    if (!(await narrationAwaitsHuman(row.propertyId, row.property, row))) continue;
     // Отметка ДО отправки: два обхода подряд не пришлют агенту второе сообщение.
     const claimed = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalNotifiedAt: null }, data: { approvalNotifiedAt: new Date() } });
     if (!claimed.count) continue;

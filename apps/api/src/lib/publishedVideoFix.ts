@@ -30,7 +30,7 @@ import { randomUUID } from "node:crypto";
 import { prisma, type TxClient } from "../db.js";
 import { logSystemError } from "./systemError.js";
 import { updatePublishedMarks } from "./publishedMarks.js";
-import { openReplacement } from "./remakeRequests.js";
+import { openReplacement, recordRemakeHistory } from "./remakeRequests.js";
 import { isYoutubeScopeError, reportYoutubeScopeMissing, YOUTUBE_SCOPE_MISSING_SHORT } from "./youtubeScope.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { loadCredentials } from "../messengers/meta.js";
@@ -920,11 +920,7 @@ export async function sendBackToMontajer(
     const replacement = options?.removeFromSocial === "on-new-video"
       ? await openReplacement(tx, { propertyId, reason, requestedById, comment: comment ?? null, messageText })
       : null;
-    if (!replacement || replacement.reused) {
-      await tx.videoRemakeRequest.create({
-        data: { propertyId, reason, comment: comment ?? null, requestedById, messageText, replaceOldPostsOnPublish: false },
-      });
-    }
+    if (!replacement || replacement.reused) await recordRemakeHistory(tx, { propertyId, reason, requestedById, comment: comment ?? null, messageText });
 
     if (property.sellerClientId) {
       await logTimeline({

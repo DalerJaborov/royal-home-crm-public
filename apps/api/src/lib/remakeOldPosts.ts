@@ -71,7 +71,7 @@ const openRequestWhere = (propertyId: string) => ({ propertyId, replaceOldPostsO
  * раньше) и после публикации нужен шаг 3.
  */
 export async function prepareOldPostsBeforeRemakePublish(propertyId: string, now: Date = new Date()): Promise<boolean> {
-  const request = await prisma.videoRemakeRequest.findFirst({ where: openRequestWhere(propertyId), orderBy: { createdAt: "desc" }, select: { id: true, oldPosts: true, carriedOldPosts: true } });
+  const request = await prisma.videoRemakeRequest.findFirst({ where: openRequestWhere(propertyId), orderBy: { createdAt: "desc" }, select: { id: true, oldPosts: true, carriedOldPosts: true, createdAt: true } });
   if (!request) return false;
   if (request.oldPosts !== null) return true;
   return prisma.$transaction(async (tx) => {
@@ -82,7 +82,11 @@ export async function prepareOldPostsBeforeRemakePublish(propertyId: string, now
     const snapshot: Snapshot = { channels: [...main], main, postIds: asRecord(p.publishedPostIds), instagramUrl: p.instagramUrl, takenAt: now.toISOString() };
     if (p.instagramUrl && !snapshot.channels.includes("INSTAGRAM")) { snapshot.channels.push("INSTAGRAM"); snapshot.main = [...main, "INSTAGRAM"]; snapshot.instagramUrlOnly = true; }
     // Старые посты прежней незакрытой замены (вторая замена, пока первая ждала TikTok): снимет эта.
-    const extra = readCarried(request.carriedOldPosts);
+    // Старшие открытые заявки (прежний код заводил новую поверх идущей): их нерешённые старые посты — сюда, сами закрыты.
+    const older = await tx.videoRemakeRequest.findMany({ where: { ...openRequestWhere(propertyId), id: { not: request.id }, createdAt: { lt: request.createdAt } },
+      select: { id: true, oldPosts: true, oldPostsOutcome: true, carriedOldPosts: true } });
+    if (older.length) await tx.videoRemakeRequest.updateMany({ where: { id: { in: older.map((r) => r.id) } }, data: { oldPostsReplacedAt: now } });
+    const extra = [...readCarried(request.carriedOldPosts), ...collectUnresolvedOldPosts(older)];
     if (extra.length) snapshot.extra = extra;
     for (const e of extra) if (!snapshot.channels.includes(e.channel)) snapshot.channels.push(e.channel);
     const outcome: Outcome = Object.fromEntries(snapshot.channels.map((c) => [c, { state: "WAITING" as const }]));
@@ -209,7 +213,11 @@ export async function finishOldPostsAfterRemakePublish(propertyId: string, summa
  * снимок последней, сами они закрываются — обход больше не стоит на них вечно (ревью 18.11).
  */
 async function mergeOlderOpenRequests(propertyId: string, latestId: string): Promise<void> {
-  const older = await prisma.videoRemakeRequest.findMany({ where: { ...openRequestWhere(propertyId), id: { not: latestId } },
+  // Только СТАРШЕ заявки со снимком (третье ревью 18.11): более новая без снимка (прежний код заводил её поверх)
+  // ещё не публиковалась — её снимок возьмёт и перенесёт старшие сама (prepareOldPostsBeforeRemakePublish).
+  const head = await prisma.videoRemakeRequest.findUnique({ where: { id: latestId }, select: { createdAt: true } });
+  if (!head) return;
+  const older = await prisma.videoRemakeRequest.findMany({ where: { ...openRequestWhere(propertyId), id: { not: latestId }, createdAt: { lt: head.createdAt } },
     select: { id: true, oldPosts: true, oldPostsOutcome: true, carriedOldPosts: true } });
   if (!older.length) return;
   const carried = collectUnresolvedOldPosts(older);

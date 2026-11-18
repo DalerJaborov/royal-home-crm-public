@@ -19,7 +19,7 @@ vi.mock("../src/db.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/db.js")>();
   const prisma = { $disconnect: vi.fn(), $queryRaw: vi.fn().mockResolvedValue([]),
     property: { findUnique: s.property, findUniqueOrThrow: s.property, updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    videoRemakeRequest: { findFirst: vi.fn().mockResolvedValue(null) }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
+    videoRemakeRequest: { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
     narrationVoiceSample: { findMany: vi.fn().mockResolvedValue([]) },
     freeNarration: { findMany: vi.fn().mockResolvedValue([]) },
     // Последний выбор голоса сотрудника (12.11.2026): у этой подделки его нет.

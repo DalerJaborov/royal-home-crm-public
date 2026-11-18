@@ -1394,6 +1394,8 @@ model VideoRemakeRequest {
   /// Старые посты, перенесённые из закрытой прежней замены (18.11.2026, lib/remakeRequests.ts): вторая замена,
   /// пока первая не закрыта. Их снимет эта заявка, когда в той же сети выйдет новый ролик.
   carriedOldPosts          Json?
+  /// Версия озвучки, ради которой эта замена (18.11.2026): карточка показывает ход выпуска именно её.
+  narrationVersionId       String?
   createdAt     DateTime @default(now())
 
   @@index([propertyId])

@@ -17,10 +17,14 @@ export function isPublishedClip(p: { publishedChannels?: readonly string[] | nul
 /** То же с учётом идущей замены постов (снимок старых постов взят, заявка не закрыта). */
 export async function clipCountsAsPublished(propertyId: string, p: { publishedChannels?: readonly string[] | null; instagramUrl?: string | null }, db: TxClient = prisma): Promise<boolean> {
   if (isPublishedClip(p)) return true;
-  const open = await db.videoRemakeRequest.findFirst({
-    where: { propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null, oldPosts: { not: Prisma.DbNull } },
-    select: { oldPosts: true },
+  // Открытая замена со снимком старых постов или с перенесёнными из прежней замены (третье ревью 18.11: А не вышла
+  // нигде, утвердили Б — старые посты всё ещё висят, значит ролик «вышел»).
+  const open = await db.videoRemakeRequest.findMany({
+    where: { propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null, OR: [{ oldPosts: { not: Prisma.DbNull } }, { carriedOldPosts: { not: Prisma.DbNull } }] },
+    select: { oldPosts: true, carriedOldPosts: true }, take: 5,
   });
-  const snap = open?.oldPosts as { channels?: unknown[] } | null | undefined;
-  return !!snap && Array.isArray(snap.channels) && snap.channels.length > 0;
+  return open.some((r) => {
+    const snap = r.oldPosts as { channels?: unknown[] } | null;
+    return (Array.isArray(snap?.channels) && snap!.channels!.length > 0) || (Array.isArray(r.carriedOldPosts) && r.carriedOldPosts.length > 0);
+  });
 }

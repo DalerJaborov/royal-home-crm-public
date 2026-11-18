@@ -40,6 +40,7 @@ import { videoHandoffDir } from "../upload.js";
 import { declaredObjectNumber } from "./montajerFileNumber.js";
 import { handoffReceiptText } from "./montajerReceive.js";
 import { clipCountsAsPublished } from "../lib/publishedClip.js";
+import { openReplacement, undoReplacement } from "../lib/remakeRequests.js";
 import {
   answerCallbackQuery, resolveTelegramFileMaterialization, sendMessage, sendMessageWithButtons, TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES,
   type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton,
@@ -218,11 +219,11 @@ async function doReady(intakeId: string, p: PropertyRef, actor: Actor, tmpPath: 
   }
   const published = await clipCountsAsPublished(p.id, before);
   // Замена вышедшего: старые посты снимет публикация нового (тот же механизм, что у перемонтажа).
-  let remakeRequestId: string | null = null;
-  if (published && !await prisma.videoRemakeRequest.findFirst({ where: { propertyId: p.id, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null }, select: { id: true } })) {
-    remakeRequestId = (await prisma.videoRemakeRequest.create({ data: { propertyId: p.id, reason: "NEW_FOOTAGE", requestedById: actor.id, replaceOldPostsOnPublish: true,
-      comment: `Готовый ролик от ${actor.fullName} в Telegram заменяет вышедший.` } })).id;
-  }
+  // Одна дверь замены (lib/remakeRequests.ts, третье ревью 18.11): идущая замена со снимком закрывается, её нерешённые
+  // старые посты переходят в новую — новый ролик выходит во все сети, где стоит прошлый.
+  const opened = published ? await prisma.$transaction((tx) => openReplacement(tx, { propertyId: p.id, reason: "NEW_FOOTAGE", requestedById: actor.id,
+    comment: `Готовый ролик от ${actor.fullName} в Telegram заменяет вышедший.` })) : null;
+  const remakeRequestId = opened && !opened.reused ? opened.id : null;
   const clipOpts = await selfApprovedClipOptsFor({ id: actor.id, role: actor.role, canModerate: actor.can("properties.moderate") });
   const outcome = await acceptFinalVideoFromStaff({
     property: { id: p.id, shortId: before.shortId, videoHandoffStatus: before.videoHandoffStatus, videoHandoffManualSince: before.videoHandoffManualSince },
@@ -231,7 +232,7 @@ async function doReady(intakeId: string, p: PropertyRef, actor: Actor, tmpPath: 
     onOpened: () => logAgentAudit(actor.id, "PROPERTY_FINAL_VIDEO_MANUAL", "Property", p.id, { shortId: before.shortId, source: "telegram-staff-clip" }),
   });
   if (!outcome.ok) {
-    if (remakeRequestId) await prisma.videoRemakeRequest.deleteMany({ where: { id: remakeRequestId } });
+    if (opened) await prisma.$transaction((tx) => undoReplacement(tx, opened));
     await prisma.staffClipIntake.update({ where: { id: intakeId }, data: { status: "CHOSEN" } });
     return `${formatPropertyCode(before.shortId)}: ролик не принят. ${outcome.error}`;
   }

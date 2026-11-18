@@ -34,13 +34,15 @@ const UNRESOLVED = new Set(["WAITING", "REMOVING"]);
 
 export type OpenReplacementInput = {
   propertyId: string; reason: string; requestedById: string; comment?: string | null; messageText?: string | null;
+  /** Версия озвучки, ради которой замена (18.11.2026): карточка показывает ход выпуска именно её. */
+  narrationVersionId?: string | null;
 };
 
 /**
  * Открыть замену старых постов (или вернуть уже открытую, если её публикация не начиналась). Внутри транзакции
  * вызывающего, под его замком объекта. Возвращает id заявки, которая теперь ведёт замену.
  */
-export async function openReplacement(tx: TxClient, input: OpenReplacementInput, now: Date = new Date()): Promise<{ id: string; reused: boolean }> {
+export async function openReplacement(tx: TxClient, input: OpenReplacementInput, now: Date = new Date()): Promise<{ id: string; reused: boolean; closedIds: string[] }> {
   const open = await tx.videoRemakeRequest.findMany({ where: { propertyId: input.propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null },
     orderBy: { createdAt: "desc" }, select: { id: true, oldPosts: true, oldPostsOutcome: true, carriedOldPosts: true } });
   const latest = open[0];
@@ -48,21 +50,37 @@ export async function openReplacement(tx: TxClient, input: OpenReplacementInput,
     // Публикация ещё не начиналась: заявка та же; старшие открытые (дубли прежних возвратов) сливаются в неё.
     const carried = [...readCarried(latest.carriedOldPosts), ...collectUnresolvedOldPosts(open.slice(1))];
     // Новая озвучка поверх возврата монтажёру: выпуск — очередью новой озвучки (schedulePublishAfterAccept смотрит причину).
-    if (input.reason === "NARRATION_CHANGED") await tx.videoRemakeRequest.update({ where: { id: latest.id }, data: { reason: input.reason } });
+    if (input.reason === "NARRATION_CHANGED" || input.narrationVersionId) await tx.videoRemakeRequest.update({ where: { id: latest.id },
+      data: { ...(input.reason === "NARRATION_CHANGED" ? { reason: input.reason } : {}), ...(input.narrationVersionId ? { narrationVersionId: input.narrationVersionId } : {}) } });
     if (open.length > 1) {
       await tx.videoRemakeRequest.updateMany({ where: { id: { in: open.slice(1).map((r) => r.id) } }, data: { oldPostsReplacedAt: now } });
       await tx.videoRemakeRequest.update({ where: { id: latest.id }, data: { carriedOldPosts: carried as unknown as Prisma.InputJsonValue } });
     }
-    return { id: latest.id, reused: true };
+    return { id: latest.id, reused: true, closedIds: open.slice(1).map((r) => r.id) };
   }
   const carried = collectUnresolvedOldPosts(open);
   if (open.length) await tx.videoRemakeRequest.updateMany({ where: { id: { in: open.map((r) => r.id) } }, data: { oldPostsReplacedAt: now } });
   // Повторы публикации прошлого ролика: выйдут уже с новым файлом своими путями, но заявка закрыта — дубли. Гасим.
   await tx.backgroundJob.deleteMany({ where: { status: "PENDING", dedupeKey: { in: [tiktokPublishRetryDedupeKey(input.propertyId), ...socialPublishRetryDedupeKeys(input.propertyId)] } } });
   const created = await tx.videoRemakeRequest.create({ data: { propertyId: input.propertyId, reason: input.reason, requestedById: input.requestedById,
-    comment: input.comment ?? null, messageText: input.messageText ?? null, replaceOldPostsOnPublish: true,
+    comment: input.comment ?? null, messageText: input.messageText ?? null, replaceOldPostsOnPublish: true, narrationVersionId: input.narrationVersionId ?? null,
     ...(carried.length ? { carriedOldPosts: carried as unknown as Prisma.InputJsonValue } : {}) } });
-  return { id: created.id, reused: false };
+  return { id: created.id, reused: false, closedIds: open.map((r) => r.id) };
+}
+
+/**
+ * Откат открытия (ролик так и не принят, staffClip): созданная заявка удаляется, закрытые ею — снова открыты.
+ * Погашенные повторы публикации прошлого ролика не возвращаются: их снова поставит публикация.
+ */
+export async function undoReplacement(tx: TxClient, opened: { id: string; reused: boolean; closedIds: string[] }): Promise<void> {
+  if (!opened.reused) await tx.videoRemakeRequest.deleteMany({ where: { id: opened.id, oldPosts: { equals: Prisma.DbNull } } });
+  if (!opened.reused && opened.closedIds.length) await tx.videoRemakeRequest.updateMany({ where: { id: { in: opened.closedIds } }, data: { oldPostsReplacedAt: null } });
+}
+
+/** Запись возврата в историю (без замены постов) — тоже здесь: VideoRemakeRequest пишет только этот модуль. */
+export async function recordRemakeHistory(tx: TxClient, input: OpenReplacementInput): Promise<void> {
+  await tx.videoRemakeRequest.create({ data: { propertyId: input.propertyId, reason: input.reason, requestedById: input.requestedById,
+    comment: input.comment ?? null, messageText: input.messageText ?? null, replaceOldPostsOnPublish: false } });
 }
 
 /** НЕрешённые старые посты закрываемых заявок: сети, где новый ещё не вышел (WAITING/REMOVING), с их id из снимков. */

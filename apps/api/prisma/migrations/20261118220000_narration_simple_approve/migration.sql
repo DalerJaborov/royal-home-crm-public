@@ -3,6 +3,7 @@ ALTER TABLE "VideoRemakeRequest" ADD COLUMN "oldPosts" JSONB;
 ALTER TABLE "VideoRemakeRequest" ADD COLUMN "oldPostsOutcome" JSONB;
 ALTER TABLE "VideoRemakeRequest" ADD COLUMN "oldPostsCheckedAt" TIMESTAMP(3);
 ALTER TABLE "VideoRemakeRequest" ADD COLUMN "carriedOldPosts" JSONB;
+ALTER TABLE "VideoRemakeRequest" ADD COLUMN "narrationVersionId" TEXT;
 ALTER TABLE "PropertyNarrationVersion" ADD COLUMN "audioSec" DOUBLE PRECISION;
 
 -- ДАННЫЕ (тест apps/api/tests/narration-release-order.test.ts гоняет всё ниже этой строки на своей базе).

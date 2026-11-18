@@ -71,7 +71,7 @@ export async function replaceFinalWithMix(tx: TxClient, input: {
   // Одна дверь замены (lib/remakeRequests.ts): вторая озвучка, пока первая замена не закрыта, берёт свежий снимок
   // (посты первой — «старые»), переносит её нерешённые старые посты и выходит во все сети.
   if (input.published) {
-    await openReplacement(tx, { propertyId: input.propertyId, reason: "NARRATION_CHANGED", requestedById: input.requestedById,
+    await openReplacement(tx, { propertyId: input.propertyId, reason: "NARRATION_CHANGED", requestedById: input.requestedById, narrationVersionId: input.versionId,
       comment: `Новая озвучка, версия ${input.revision}: утверждена человеком, CRM наложила её сама, монтажёр не нужен.` });
   }
 }
@@ -151,4 +151,26 @@ export async function clearLeftoverNarrationPreviews(): Promise<number> {
     }
   }
   return cleared;
+}
+
+/**
+ * САМООДОБРЕНИЕ НА ВЫШЕДШЕМ РОЛИКЕ — СНОВА К ЧЕЛОВЕКУ (третье ревью 18.11, задача narration-preview-due). Такая версия
+ * в сеть не выходит (сторож в remixWanted), но сообщение «послушайте и утвердите» о ней уже числится отправленным —
+ * без этой уборки она молча висела бы. Тот же отбор, что у шага данных миграции (последняя версия объекта, не наложена,
+ * не у монтажёра), только по самоодобрению: утверждение и отметки сообщения снимаются, обычное одно сообщение уходит
+ * заново. Массовой рассылки нет: по одной (последней) версии на объект, и только самоодобренных.
+ */
+export async function reopenAutoApprovalsOnPublishedClips(): Promise<number> {
+  return prisma.$executeRaw`
+    WITH latest AS (
+      SELECT DISTINCT ON (v."propertyId") v."id", v."propertyId", v."status", v."approvedAt", v."approvalNotifiedAt"
+      FROM "PropertyNarrationVersion" v ORDER BY v."propertyId", v."revision" DESC
+    )
+    UPDATE "PropertyNarrationVersion" t
+    SET "approvedAt" = NULL, "approvedById" = NULL, "approvalNotifiedAt" = NULL, "approvalRemindedAt" = NULL, "approvalEscalatedAt" = NULL
+    FROM latest l JOIN "Property" p ON p."id" = l."propertyId"
+    WHERE t."id" = l."id" AND l."status" = 'READY' AND l."approvedAt" IS NOT NULL AND l."approvalNotifiedAt" = l."approvedAt"
+      AND p."deletedAt" IS NULL AND (cardinality(p."publishedChannels") > 0 OR p."instagramUrl" IS NOT NULL)
+      AND p."videoMasterNarrationVersionId" IS DISTINCT FROM l."id" AND p."videoMasterMixErrorVersionId" IS DISTINCT FROM l."id"
+      AND NOT EXISTS (SELECT 1 FROM "PropertyNarrationDelivery" d WHERE d."versionId" = l."id" AND d."status" IN ('SENT', 'QUEUED', 'SENDING', 'UNKNOWN'))`;
 }

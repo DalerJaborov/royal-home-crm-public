@@ -62,7 +62,7 @@ vi.mock("../src/db.js", async (importOriginal) => {
       findMany: vi.fn(async () => []), findFirst: vi.fn(async () => null), updateMany: vi.fn(async () => ({ count: 0 })),
     },
     // Идущая замена постов (lib/publishedClip.ts, 18.11.2026): у подделки её нет.
-    videoRemakeRequest: { findFirst: vi.fn(async () => null) },
+    videoRemakeRequest: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
     // Последний выбор голоса сотрудника (12.11.2026): у подделки его нет.
     agent: { findUnique: vi.fn(async () => null), update: vi.fn(async () => ({})) },
     settings: { findUnique: vi.fn(async () => ({ propertyNarrationConfig: s.config, elevenLabsApiKey: "test-key" })) },
