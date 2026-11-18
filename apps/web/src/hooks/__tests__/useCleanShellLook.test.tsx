@@ -44,7 +44,9 @@ describe("признак «Нового вида» в выборе оболоч�
     expect(hook.result.current.look).toBe("royal");
     answers.queue.push({ enabled: true });
     await recheck();
-    expect(hook.result.current.look).toBeUndefined();
+    // Перерисовка после удачного ответа может прийти тиком позже: ждём её, а не
+    // читаем состояние сразу (в облаке тест падал через раз, 18.11.2026).
+    await waitFor(() => expect(hook.result.current.look).toBeUndefined());
   });
 
   it("без удачного ответа признака нет", async () => {
