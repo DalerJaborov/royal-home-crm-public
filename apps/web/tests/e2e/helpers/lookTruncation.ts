@@ -19,6 +19,8 @@ export const LOOK_TRUNCATE_OK: readonly string[] = [
   ".ry-obj-agent > span:last-child",
   ".ry-team-person b",
   ".ry-pmenu-head b",
+  // своё имя вошедшего сотрудника в шапке оболочки (Tailwind `truncate`, max 180 px); целиком — в меню профиля
+  ".sh-user-name",
   // под вопросом владельцу (отчёт PR 286): последняя реплика в списке чатов
   ".ry-chat-last",
 ];
