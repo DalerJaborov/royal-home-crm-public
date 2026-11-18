@@ -19,6 +19,8 @@ import { afterNarrationApproved, approveNarrationVersion, NARRATION_OWNER_ROLES,
 import { isWithinDushanbeWindow } from "../lib/dushanbeTime.js";
 import { narrationLastChoiceFor } from "../lib/narrationLastChoice.js";
 import { loadNarrationConfiguration, readyVoiceSamples } from "../lib/narrationGeneration.js";
+import { ownMusicReady } from "../lib/narrationMusic.js";
+import { isPublishedClip } from "../lib/narrationPreview.js";
 import { createNotification } from "../lib/notifications.js";
 import { canManagePropertyAs } from "../lib/propertyAccess.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -133,9 +135,9 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
   if (!agent?.isActive) return false;
   const code = formatPropertyCode(p.shortId);
   const remade = p.videoHandoffStatus === "RECEIVED";
-  // Звук в вышедшем ролике меняет CRM, когда есть ролик без голоса; иначе — монтажёр.
-  const crmVoice = !!p.videoMasterStorageKey;
+  // Звук в вышедшем ролике меняет CRM: есть ролик без голоса, или вышедший ролик и своя музыка (18.11.2026).
   const { config } = await loadNarrationConfiguration();
+  const crmVoice = !!p.videoMasterStorageKey || (isPublishedClip(p) && await ownMusicReady(config));
   const ownerName = reason === "escalate" && ownerAgentId ? (await prisma.agent.findUnique({ where: { id: ownerAgentId }, select: { fullName: true } }))?.fullName ?? "Агент" : "Агент";
   const feed = {
     // Вид «Задачи»: агент может выключить такие пуши в своих настройках уведомлений.

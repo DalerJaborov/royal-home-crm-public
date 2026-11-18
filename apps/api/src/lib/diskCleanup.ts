@@ -393,6 +393,8 @@ export async function runDiskCleanup(
   for (const row of await prisma.property.findMany({ where: { videoMasterStorageKey: { not: null } }, select: { videoMasterStorageKey: true } })) {
     if (row.videoMasterStorageKey) rawRefs.add(row.videoMasterStorageKey);
   }
+  // Треки «своя музыка» (18.11.2026) — там же: без этого уборка стёрла бы библиотеку как «исходник без записи».
+  for (const row of await prisma.narrationMusicTrack.findMany({ select: { storageKey: true } })) rawRefs.add(row.storageKey);
 
   const facts: CleanupFacts = { properties, clipRefs, rawRefs };
   const candidates = planDiskCleanup(files, facts, nowMs);

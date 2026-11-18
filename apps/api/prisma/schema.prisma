@@ -2482,6 +2482,9 @@ model Property {
   /// Хозяин отказался от наложения этой версии («Оставить старый» / «Другой голос или текст») —
   /// эту версию CRM больше не накладывает; новая версия озвучки — новый кандидат.
   narrationPreviewDeclinedVersionId String?
+  /// СВОЯ МУЗЫКА (18.11.2026, lib/narrationMusic.ts): трек библиотеки, положенный в последний перемонтаж
+  /// (ролик или кандидат «прослушать»). Следующий перемонтаж берёт другой. Без связи: трек могут удалить.
+  narrationMusicTrackId          String?
   /// МОМЕНТ, КОГДА ГОТОВЫЙ РОЛИК РЕАЛЬНО ПОЛУЧЕН (21.09.2026, случай №114 — ролик
   /// принят, файл лёг на диск, но рестарт контейнеров посреди публикации оборвал
   /// её молча, publishedChannels остался пуст, объект завис в EDITING навсегда).
@@ -3088,6 +3091,21 @@ model StaffClipIntake {
   updatedAt      DateTime  @updatedAt
   @@index([chatId, status, createdAt])
   @@index([fileUniqueId])
+}
+
+/// СВОЯ МУЗЫКА ДЛЯ ПЕРЕМОНТАЖА (18.11.2026, lib/narrationMusic.ts): треки без авторских прав, которые
+/// подбирает владелец (Настройки → Озвучка). Файл — в закрытом хранилище роликов (storageKey,
+/// lib/localVideoStorage.ts); тип проверен по содержимому, длина — ffprobe.
+model NarrationMusicTrack {
+  id          String   @id @default(uuid())
+  title       String
+  storageKey  String   @unique
+  /// mp3 | m4a
+  format      String
+  durationSec Float
+  sizeBytes   Int
+  createdById String?
+  createdAt   DateTime @default(now())
 }
 
 model NarrationVoiceSample {
