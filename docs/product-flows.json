@@ -48158,21 +48158,6 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "if",
-     "t": "req.agent!.role === \"EDITOR\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Озвучку одобряет агент объекта\" });",
-       "a": [
-        "ответ 403 — «Озвучку одобряет агент объекта»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "do",
      "t": "const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…",
      "a": [
@@ -48190,6 +48175,29 @@
        "t": "return res.status(400).json({ error: \"Подтвердите текст и номер версии\" });",
        "a": [
         "ответ 400 — «Подтвердите текст и номер версии»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const access = await narrationAccessForAgent(req.agent!.id, p.id);",
+     "a": [
+      "зовёт narrationAccessForAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!access",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Озвучку утверждает тот, кто ведёт объект, или руководство\" });",
+       "a": [
+        "ответ 403 — «Озвучку утверждает тот, кто ведёт объект, или руководство»"
        ],
        "c": []
       }
@@ -48416,6 +48424,37 @@
        "t": "return res.status(409).json({ error: \"ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.\" }…",
        "a": [
         "ответ 409 — «ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const draft = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id…",
+     "a": [
+      "читает в базе: propertyNarrationVersion"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const length = draft ? await narrationLengthCheckFor(p, draft.script, draft.language) : null;",
+     "a": [
+      "зовёт narrationLengthCheckFor()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "length && !length.fits",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: narrationLengthLine(length) });",
+       "a": [
+        "ответ 400"
        ],
        "c": []
       }
@@ -49748,6 +49787,14 @@
      "t": "const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…",
      "a": [
       "читает в базе: smsMessage"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const latestAudioSec = versions[0]?.status === \"READY\" && versions[0].storageKey && versions[0].audioSec == n…",
+     "a": [
+      "зовёт narrationAudioSec()"
      ],
      "c": []
     },
@@ -104743,9 +104790,7 @@
            "t": "const done = await withPropertyLock(row.id, async (tx)",
            "a": [
             "читает в базе: property",
-            "меняет в базе: property",
-            "читает в базе: propertyNarrationVersion",
-            "меняет в базе: propertyNarrationVersion"
+            "меняет в базе: property"
            ],
            "c": [
             {
@@ -104773,34 +104818,11 @@
             },
             {
              "k": "do",
-             "t": "await tx.property.update({ where: { id: row.id }, data: { ...NARRATION_PREVIEW_CLEARED, narrationPreviewDecli…",
+             "t": "await tx.property.update({ where: { id: row.id }, data: NARRATION_PREVIEW_CLEARED });",
              "a": [
               "меняет в базе: property"
              ],
              "c": []
-            },
-            {
-             "k": "do",
-             "t": "const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.id }, orderBy: { revisi…",
-             "a": [
-              "читает в базе: propertyNarrationVersion"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "cur.narrationPreviewVersionId && latest?.id === cur.narrationPreviewVersionId && cur.videoMasterNarrationVers…",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: \"READY\" }, data: { approvedAt:…",
-               "a": [
-                "меняет в базе: propertyNarrationVersion"
-               ],
-               "c": []
-              }
-             ]
             }
            ]
           },
@@ -104881,6 +104903,14 @@
          "t": "await isHandoffPublishRunning(propertyId)",
          "a": [],
          "c": [
+          {
+           "k": "do",
+           "t": "await prisma.videoRemakeRequest.updateMany({ where: { propertyId, oldPostsReplacedAt: null }, data: { oldPost…",
+           "a": [
+            "меняет в базе: videoRemakeRequest"
+           ],
+           "c": []
+          },
           {
            "k": "do",
            "t": "continue;",

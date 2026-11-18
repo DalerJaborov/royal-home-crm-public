@@ -27,6 +27,13 @@ vi.mock("../src/push.js", async (importOriginal) => ({
   sendPushToAgents: vi.fn(async () => 0),
 }));
 
+// ElevenLabs не зовётся никогда: синтез подменён готовым звуком.
+const tts = vi.hoisted(() => ({ audio: vi.fn(async () => ({ status: "READY" as const, audio: Buffer.from("synthetic"), requestId: "test-request" })) }));
+vi.mock("../src/lib/propertyNarration.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/propertyNarration.js")>()),
+  generateNarrationAudio: tts.audio,
+}));
+
 const ffmpegReady = spawnSync(process.env.FFMPEG_BIN || "ffmpeg", ["-version"], { stdio: "ignore" }).status === 0;
 
 const { prisma } = await import("../src/db.js");
@@ -177,7 +184,7 @@ describe.skipIf(!ffmpegReady)("одно утверждение озвучки (1
     }
   });
 
-  it("кандидат, оставшийся от «прослушать перед выпуском», убирается: файл удалён, версия снова ждёт человека; повтор ничего не делает", async () => {
+  it("кандидат, оставшийся от «прослушать перед выпуском», убирается: файл удалён, поля очищены (утверждение снимает SQL миграции); повтор ничего не делает", async () => {
     const { p, v2, oldFinal } = await publishedWithNewVoice();
     const leftover = `/uploads/handoff/leftover-${randomUUID()}.mp4`;
     await fs.copyFile(media.silent, diskOf(leftover));
@@ -190,11 +197,7 @@ describe.skipIf(!ffmpegReady)("одно утверждение озвучки (1
     expect(row.narrationPreviewVersionId).toBeNull();
     expect(row.videoHandoffFinalPath).toBe(oldFinal);
     expect(await exists(diskOf(leftover))).toBe(false);
-    const v = await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: v2.id } });
-    expect(v.approvedAt).toBeNull();
-    expect(v.approvalNotifiedAt).toBeNull();
-    // Утверждения нет — обход ничего не сводит и в сеть не выпускает.
-    expect(await remixFromMaster(p.id)).toBe("SKIPPED");
+    expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: v2.id } })).approvedAt).not.toBeNull();
     expect(await clearLeftoverNarrationPreviews()).toBe(0);
   });
 
@@ -207,5 +210,31 @@ describe.skipIf(!ffmpegReady)("одно утверждение озвучки (1
     expect(placed).toEqual({ kind: "SKIPPED" });
     const after = await prisma.property.findUniqueOrThrow({ where: { id: b.p.id } });
     expect(after.videoHandoffFinalPath).toBe(b.oldFinal);
+  });
+  it("«Оставить старый», нажатый до выката, держит версию: обход её не сводит", async () => {
+    const { p, v2 } = await publishedWithNewVoice();
+    await prisma.property.update({ where: { id: p.id }, data: { narrationPreviewDeclinedVersionId: v2.id } });
+    expect(await remixFromMaster(p.id)).toBe("SKIPPED");
+  });
+
+  it("кнопка маркетинга: ролик вышел — аудио по утверждённому тексту ждёт утверждения после прослушивания; утверждает маркетинг", async () => {
+    const { generateNarrationVersion, loadNarrationConfiguration } = await import("../src/lib/narrationGeneration.js");
+    const { approveNarrationVersion } = await import("../src/lib/narrationAutoFlow.js");
+    const { config } = await loadNarrationConfiguration();
+    const p = await seedProperty();
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "RECEIVED", publishedChannels: ["FACEBOOK"] } });
+    const fresh = await prisma.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });
+    const facts = narrationFacts(fresh);
+    const v = await prisma.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: 1, script: "Квартира, звоните нам.", factsSnapshot: facts, factsHash: narrationHash(facts),
+      voiceId: "voiceA", modelId: "eleven_v4", status: "DRAFT", approvedAt: new Date(), approvedById: agentId, createdById: agentId, requestKey: randomUUID(), source: "MANUAL" } });
+    const out = await generateNarrationVersion({ propertyId: p.id, versionId: v.id, expectedRevision: 1, requireApproval: true, config, key: "test-key-not-real" });
+    expect(out.status).toBe("READY");
+    const after = await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: v.id } });
+    expect(after.status).toBe("READY");
+    expect(after.approvedAt).toBeNull();
+    // Обход без утверждения ничего не выпускает.
+    expect(await remixFromMaster(p.id)).toBe("SKIPPED");
+    expect(await approveNarrationVersion({ propertyId: p.id, versionId: v.id, expectedRevision: 1, actorId: agentId, isManager: false })).toBe("FORBIDDEN");
+    expect(await approveNarrationVersion({ propertyId: p.id, versionId: v.id, expectedRevision: 1, actorId: agentId, isManager: true })).toBe("AUDIO_APPROVED");
   });
 });

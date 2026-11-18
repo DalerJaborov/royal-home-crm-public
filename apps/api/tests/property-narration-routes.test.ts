@@ -5,6 +5,9 @@ import request from "supertest";
 const s = vi.hoisted(() => ({ role: "MARKETING", access: true, property: vi.fn(), settings: vi.fn(), latest: vi.fn(), findVersion: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn(), audio: vi.fn(), file: vi.fn(), upload: vi.fn(), delivery: vi.fn(), deliveryFind: vi.fn(), deliveryUpdate: vi.fn(), preview: vi.fn(), metadataList: vi.fn(), report: vi.fn(), assigned: vi.fn(), configSave: vi.fn(), versions: vi.fn() }));
 vi.mock("../src/auth/middleware.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/auth/middleware.js")>(), requireAuth: (req: any, _res: any, next: () => void) => { req.agent = { id: "staff", role: s.role }; next(); } }));
 vi.mock("../src/routes/properties/shared.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/routes/properties/shared.js")>(), canManageProperty: () => s.access }));
+// Права на утверждение — одна дверь с Шабнам (lib/staffNarration.ts, 18.11.2026): здесь по роли и s.access.
+vi.mock("../src/lib/staffNarration.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/staffNarration.js")>(),
+  narrationAccessForAgent: async () => (!s.access || ["EDITOR", "VIEWER", "OBSERVER"].includes(s.role) ? null : { agentId: "staff", isManager: ["MARKETING", "ADMIN", "DIRECTOR"].includes(s.role), role: s.role }) }));
 vi.mock("../src/routes/marketing.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/routes/marketing.js")>(), hasMarketingRole: (agent?: { role?: string } | null) => ["MARKETING", "ADMIN", "DIRECTOR"].includes(agent?.role ?? "") }));
 vi.mock("../src/ai/liveVoiceProvider.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/liveVoiceProvider.js")>(), resolveElevenLabsKey: (key: string) => key }));
 vi.mock("../src/lib/localVideoStorage.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/localVideoStorage.js")>(), localVideoUpload: s.upload, localVideoFilePath: s.file, localVideoDelete: vi.fn().mockResolvedValue(true) }));
@@ -15,7 +18,8 @@ vi.mock("../src/lib/publicationMetadataSync.js", async (importOriginal) => ({ ..
 vi.mock("../src/db.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/db.js")>();
   const prisma = { $disconnect: vi.fn(), $queryRaw: vi.fn().mockResolvedValue([]),
-    property: { findUnique: s.property, findUniqueOrThrow: s.property }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
+    property: { findUnique: s.property, findUniqueOrThrow: s.property, updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    videoRemakeRequest: { findFirst: vi.fn().mockResolvedValue(null) }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
     narrationVoiceSample: { findMany: vi.fn().mockResolvedValue([]) },
     freeNarration: { findMany: vi.fn().mockResolvedValue([]) },
     // Последний выбор голоса сотрудника (12.11.2026): у этой подделки его нет.

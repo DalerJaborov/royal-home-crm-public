@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
 import { ownMusicRemixSinceAfterSave, narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
-import { narrationFactsChanges, type NarrationFacts, type NarrationReleaseView } from "@royal-home/shared";
+import { narrationFactsChanges, narrationLengthLine, type NarrationFacts, type NarrationReleaseView } from "@royal-home/shared";
 import { prisma } from "../../db.js";
-import { isPublishedClip } from "../../lib/narrationPreview.js";
-import { measuredNarrationCharsPerSec, narrationClipSec } from "../../lib/narrationLengthCalibration.js";
+import { clipCountsAsPublished } from "../../lib/publishedClip.js";
+import { narrationAccessForAgent } from "../../lib/staffNarration.js";
+import { measuredNarrationCharsPerSec, narrationAudioSec, narrationClipSec, narrationLengthCheckFor } from "../../lib/narrationLengthCalibration.js";
 import { releaseChannelsView } from "../../lib/remakeOldPosts.js";
 import { estimateNarrationPublishAt, isHandoffPublishRunning } from "../../lib/videoHandoff.js";
 import { requireAuth } from "../../auth/middleware.js";
@@ -47,13 +48,21 @@ async function releaseView(p: { id: string; videoHandoffStatus: string | null; v
   const base = { versionId: latest.id, at: p.scheduledPublishAt?.toISOString() ?? null, reason: p.scheduledPublishReason, channels };
   if (p.videoMasterNarrationVersionId !== latest.id) {
     // Ещё не наложена: только если ролик вышел и наложение не упало (упало — строка mix.problem).
-    if (!request && p.videoHandoffStatus === "RECEIVED" && isPublishedClip(p) && p.videoMasterMixErrorVersionId !== latest.id) return { ...base, stage: "MIXING", at: null, reason: null };
+    if (!request && p.videoHandoffStatus === "RECEIVED" && await clipCountsAsPublished(p.id, p) && p.videoMasterMixErrorVersionId !== latest.id) return { ...base, stage: "MIXING", at: null, reason: null };
     return null;
   }
   if (!request) return null;
   if (request.oldPostsReplacedAt) return { ...base, stage: "DONE", at: null };
   if (request.oldPosts !== null || await isHandoffPublishRunning(p.id)) return { ...base, stage: "PUBLISHING" };
   return { ...base, stage: "SCHEDULED" };
+}
+/** Видна ли кнопка «Утвердить»: права на объект (одна дверь с Шабнам), разовый проход — владелец, текст маркетинга — маркетинг. */
+async function canApproveAudioFor(agentId: string, role: string, propertyId: string, source: string | null): Promise<boolean> {
+  const access = await narrationAccessForAgent(agentId, propertyId);
+  if (!access) return false;
+  if (source === "BACKFILL") return isNarrationOwnerRole(role);
+  if ((source ?? "MANUAL") === "MANUAL") return access.isManager;
+  return true;
 }
 // This static path is mounted before /properties/:id.
 narrationRouter.get("/narration-settings", async (req, res) => {
@@ -241,8 +250,11 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     const status = r.status === "SENT" && actual === "DELIVERED" ? "DELIVERED" : r.status === "SENT" && ["UNDELIVERABLE", "EXPIRED", "REVOKED", "DELETED", "REJECTED"].includes(actual ?? "") ? "NOT_DELIVERED" : r.status;
     return { id: r.id, status, period: r.period, lastError: r.lastError };
   });
+  const latestAudioSec = versions[0]?.status === "READY" && versions[0].storageKey && versions[0].audioSec == null ? await narrationAudioSec(versions[0].storageKey) : null;
   res.json({ versions: versions.map((v) => ({ id: v.id, revision: v.revision, script: v.script, voiceId: v.voiceId, status: v.status,
     approvedAt: v.approvedAt, stale: !narrationFactsCurrent(v, p), hasAudio: v.status === "READY" && !!v.storageKey, errorCode: v.errorCode, createdAt: v.createdAt,
+    // Настоящая длина голоса (замер или ffprobe файла, ревью 18.11): кнопку «Утвердить» решает она, а не оценка по тексту.
+    audioSec: v.audioSec ?? (v.id === versions[0]?.id ? latestAudioSec : null),
     canReconcile: v.status === "UNKNOWN" || (v.status === "GENERATING" && !!v.generationStartedAt && Date.now() - v.generationStartedAt.getTime() > 120_000),
     source: v.source, templateId: v.templateId, endingId: v.endingId, language: v.language, generateAfter: v.generateAfter })),
     suggestedScript: suggestedNarration(facts), facts, config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
@@ -252,7 +264,8 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     canDraft: req.agent!.role !== "EDITOR", readiness: { voiceCount: config.voices.length, modelConfigured: !!config.modelId, apiKeyConfigured: !!key },
     // Агент объекта (canManageProperty уже проверен выше) одобряет готовое аудио автоозвучки.
     // Озвучку разового прохода по очереди монтажа одобряет владелец (12.11.2026).
-    canApproveAudio: req.agent!.role !== "EDITOR" && (versions[0]?.source !== "BACKFILL" || isNarrationOwnerRole(req.agent!.role)), autoGenerate: narrationAutoEnabled(config),
+    // Те же права, что у самого утверждения (narrationAccessForAgent, ревью 18.11): «только просмотр» кнопки не видит.
+    canApproveAudio: await canApproveAudioFor(req.agent!.id, req.agent!.role, p.id, versions[0]?.source ?? null), autoGenerate: narrationAutoEnabled(config),
     off: p.narrationOff,
     lastChoice: await narrationLastChoiceFor(req.agent!.id, config),
     budget: manager(req.agent) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined,
@@ -263,7 +276,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
         ? (p.videoMasterMixError.includes(NARRATION_VOICE_LONGER_MARK) ? "VOICE_LONGER" as const : "FAILED" as const) : null,
       note: narrationMixNoteFor(p, versions[0] ?? null, { ownMusicPending: !p.videoMasterStorageKey && await ownMusicRemixApplies(p.id) }) },
     // ОДНО УТВЕРЖДЕНИЕ (18.11.2026): длина ролика для «укладывается ли текст», что поменялось, ход выпуска.
-    clipSec: await narrationClipSec(p), charsPerSec: await measuredNarrationCharsPerSec(), published: isPublishedClip(p),
+    clipSec: await narrationClipSec(p), charsPerSec: await measuredNarrationCharsPerSec(), published: await clipCountsAsPublished(p.id, p),
     changed: narrationFactsChanges(versions.find((v) => v.approvedAt && v.status === "READY")?.factsSnapshot as NarrationFacts | undefined, facts),
     release: await releaseView(p, versions[0]),
     quotaExceeded: manager(req.agent) ? !!await narrationQuotaExceededSince() : undefined });
@@ -313,11 +326,14 @@ narrationRouter.post("/:id/narration", async (req, res) => {
  *   монтажёр получает его существующим путём lib/narrationDelivery.ts. Ту же функцию зовёт Шабнам.
  */
 narrationRouter.post("/:id/narration/:versionId/approve", async (req, res) => {
-  if (req.agent!.role === "EDITOR") return res.status(403).json({ error: "Озвучку одобряет агент объекта" });
   const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId);
   if (!parsed.success || !versionId.success) return res.status(400).json({ error: "Подтвердите текст и номер версии" });
   const p = res.locals.narrationProperty;
-  const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: req.agent!.id, isManager: manager(req.agent), actorRole: req.agent!.role });
+  // Права одни на CRM и Шабнам (ревью 18.11, lib/staffNarration.ts): живая учётка, не «только просмотр», не монтажёр,
+  // хозяин объекта или руководство. Утверждение на вышедшем ролике — это выпуск в сети.
+  const access = await narrationAccessForAgent(req.agent!.id, p.id);
+  if (!access) return res.status(403).json({ error: "Озвучку утверждает тот, кто ведёт объект, или руководство" });
+  const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: access.agentId, isManager: access.isManager, actorRole: access.role });
   if (outcome === "FORBIDDEN") return res.status(403).json({ error: "Эту озвучку одобряет маркетинг, руководство или владелец" });
   if (outcome === "CONFLICT") return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
   const delivery = outcome === "AUDIO_APPROVED" ? await afterNarrationApproved(p.id, versionId.data) : undefined;
@@ -362,6 +378,10 @@ narrationRouter.post("/:id/narration/:versionId/generate", async (req, res) => {
   if (!parsed.success || !versionId.success) return res.status(400).json({ error: "Подтвердите генерацию выбранной версии" });
   const p = res.locals.narrationProperty, { config, key } = await configuration();
   if (!key || !narrationProviderReady(config, key)) return res.status(409).json({ error: "ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках." });
+  // Длина до оплаты и у кнопки маркетинга (ревью 18.11): текст длиннее ролика в ElevenLabs не уходит.
+  const draft = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id }, select: { script: true, language: true } });
+  const length = draft ? await narrationLengthCheckFor(p, draft.script, draft.language) : null;
+  if (length && !length.fits) return res.status(400).json({ error: narrationLengthLine(length) });
   const outcome = await generateNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, requireApproval: true, config, key });
   switch (outcome.status) {
     case "REJECTED": return res.status(409).json({ error: "Проверьте актуальность текста и голоса. Предыдущий запрос с неизвестным результатом требует проверки провайдера." });

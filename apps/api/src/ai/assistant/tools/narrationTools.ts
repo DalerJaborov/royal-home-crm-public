@@ -5,7 +5,7 @@ import { AssistantActionError, type AssistantActionActor, type AssistantActionEx
 import { dushanbeDateTimeString } from "../../../lib/dushanbeTime.js";
 import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAutoEnabled, requestAutoNarration } from "../../../lib/narrationAutoFlow.js";
 import { loadNarrationConfiguration } from "../../../lib/narrationGeneration.js";
-import { isPublishedClip } from "../../../lib/narrationPreview.js";
+import { clipCountsAsPublished } from "../../../lib/publishedClip.js";
 import { narrationFactsCurrent, narrationScriptError } from "../../../lib/propertyNarration.js";
 import { logSystemError } from "../../../lib/systemError.js";
 import { matchByName, narrationAccessForAgent, narrationTemplatesFor, type NarrationClicker } from "../../../lib/staffNarration.js";
@@ -91,7 +91,7 @@ export const narrationStatusPlugin: AssistantReadToolPlugin = {
       property: { code: codeOf(property), title: safeField(property.title, 120), href: propertyHref(property.shortId) },
       narrationOff: property.narrationOff,
       autoGenerate: narrationAutoEnabled(config),
-      clipAlreadyPublished: isPublishedClip(property),
+      clipAlreadyPublished: await clipCountsAsPublished(property.id, property),
       version: latest ? {
         revision: latest.revision,
         status: latest.status,

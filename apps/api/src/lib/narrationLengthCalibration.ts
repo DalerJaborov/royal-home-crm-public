@@ -63,3 +63,14 @@ export async function narrationLengthCheckFor(p: { videoMasterStorageKey: string
   const l: NarrationLang = lang === "tg" ? "tg" : "ru";
   return narrationLengthCheck(script, l, clipSec, await measuredNarrationCharsPerSec());
 }
+
+const audioCache = new Map<string, number | null>();
+/** Длина готового голоса по файлу (ffprobe, кэш по ключу): у версии ещё нет замера наложения. */
+export async function narrationAudioSec(storageKey: string): Promise<number | null> {
+  if (audioCache.has(storageKey)) return audioCache.get(storageKey)!;
+  const file = localVideoFilePath(storageKey);
+  const sec = file && fs.existsSync(file) ? await probeDurationSec(file).catch(() => null) : null;
+  if (audioCache.size > CLIP_CACHE_MAX) audioCache.clear();
+  audioCache.set(storageKey, sec);
+  return sec;
+}

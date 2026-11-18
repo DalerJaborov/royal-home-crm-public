@@ -1388,6 +1388,9 @@ model VideoRemakeRequest {
   oldPosts                 Json?
   /// Итог по каждой сети: { [канал]: { state, url?, error? } } — карточка показывает «новый пост, старый снят».
   oldPostsOutcome          Json?
+  /// Когда обход последний раз проверял эту замену (18.11.2026): обход идёт от давно не проверенных, повторы
+  /// TikTok не задерживают остальных.
+  oldPostsCheckedAt        DateTime?
   createdAt     DateTime @default(now())
 
   @@index([propertyId])

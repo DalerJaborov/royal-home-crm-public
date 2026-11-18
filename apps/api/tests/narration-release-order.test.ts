@@ -20,6 +20,13 @@ const del = vi.hoisted(() => ({
   instagram: vi.fn(async (_id: string, _token: string) => ({ ok: true })),
   generate: vi.fn(async () => ({ status: "READY" as const })),
   push: vi.fn(async () => 1),
+  publish: vi.fn(),
+}));
+// Публикация в сети подменена: проверяется порядок «снимок → публикация → снятие» и повтор задания, не сами сети.
+vi.mock("../src/lib/videoHandoff.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/videoHandoff.js")>()),
+  publishHandoffResult: del.publish, notifyVideoHandoffPublishResult: vi.fn(async () => {}), releaseQueueIfClear: vi.fn(async () => {}),
+  blockDuplicateFinalBeforePublish: vi.fn(async () => false),
 }));
 vi.mock("../src/lib/socialPublish.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/socialPublish.js")>()),
@@ -47,6 +54,8 @@ const { requestAutoNarration, runNarrationAutoFlow, NARRATION_TEXT_TOO_LONG } = 
 const { setNarrationClipSecForTests, resetNarrationClipCacheForTests } = await import("../src/lib/narrationLengthCalibration.js");
 const { narrationFacts, narrationHash } = await import("../src/lib/propertyNarration.js");
 const { videoHandoffDir } = await import("../src/upload.js");
+const { videoHandoffPublishJob } = await import("../src/jobs/videoHandoffPublish.js");
+const { clipCountsAsPublished } = await import("../src/lib/publishedClip.js");
 
 const runId = Date.now();
 let districtId = "";
@@ -175,15 +184,122 @@ describe("сначала новый пост, потом старый", () => {
     } finally { await setConfig(); }
   });
 
-  it("задание публикации: снимок до publishHandoffResult, снятие — после (порядок закреплён)", () => {
-    const src = fs.readFileSync(path.join(__dirname, "../src/jobs/videoHandoffPublish.ts"), "utf8");
-    const prep = src.indexOf("prepareOldPostsBeforeRemakePublish(property.id)");
-    const pub = src.indexOf("publishHandoffResult(property.id");
-    const fin = src.indexOf("finishOldPostsAfterRemakePublish(property.id, summary)");
-    expect(prep).toBeGreaterThan(0);
-    expect(prep).toBeLessThan(pub);
-    expect(pub).toBeLessThan(fin);
-    expect(src).not.toContain("replaceOldPostsBeforeRemakePublish");
+  it("задание публикации падает посреди публикации: старый не снят; повтор не публикует второй раз и снимает старый один раз", async () => {
+    del.facebook.mockClear(); del.publish.mockReset();
+    const finalName = `job-${runId}.mp4`;
+    fs.mkdirSync(videoHandoffDir, { recursive: true });
+    fs.writeFileSync(path.join(videoHandoffDir, finalName), "x");
+    const p = await seed(["FACEBOOK"], { FACEBOOK: "fb-old-job" }, { videoHandoffStatus: "RECEIVED", status: "EDITING", videoHandoffFinalPath: `/uploads/handoff/${finalName}` });
+    await narrationRemake(p.id);
+    // Первый заход: Facebook успел выйти (onChannelPublished записал новый id), потом процесс упал.
+    del.publish.mockImplementationOnce(async (id: string) => {
+      await prisma.property.update({ where: { id }, data: { publishedChannels: ["FACEBOOK"], publishedPostIds: { FACEBOOK: "fb-new-job" } } });
+      throw new Error("рестарт посреди публикации");
+    });
+    await expect(videoHandoffPublishJob.run({ propertyId: p.id }, {} as never)).rejects.toThrow("рестарт");
+    expect(del.facebook).not.toHaveBeenCalled();
+    // Ролик всё это время «вышел» для правил утверждения: каналы вычеркнуты, но снимок старых постов есть.
+    expect(await clipCountsAsPublished(p.id, { publishedChannels: [], instagramUrl: null })).toBe(true);
+    // Повтор: публикация видит Facebook уже вышедшим и ничего не шлёт заново.
+    del.publish.mockImplementationOnce(async (id: string) => {
+      const cur = await prisma.property.findUniqueOrThrow({ where: { id } });
+      expect(cur.publishedChannels).toEqual(["FACEBOOK"]);
+      return { attempted: true, succeededChannels: [], failedChannels: [], pendingChannels: [], notes: [], instagramUrl: null, wentAvailable: false, blockers: [] };
+    });
+    await videoHandoffPublishJob.run({ propertyId: p.id }, {} as never);
+    expect(del.publish).toHaveBeenCalledTimes(2);
+    expect(del.facebook).toHaveBeenCalledTimes(1);
+    expect(del.facebook.mock.calls[0]![0]).toBe("fb-old-job");
+    expect((await outcomeOf(p.id)).oldPostsReplacedAt).not.toBeNull();
+    fs.rmSync(path.join(videoHandoffDir, finalName), { force: true });
+  });
+
+  it("заявке трое суток (монтаж шёл долго), Instagram дозревает — срок считается от публикации, старый не возвращается", async () => {
+    const p = await seed(["INSTAGRAM"], { INSTAGRAM: "ig-old-slow" }, { instagramUrl: "https://www.instagram.com/reel/SLOW/" });
+    const req = await narrationRemake(p.id);
+    await prisma.videoRemakeRequest.update({ where: { id: req.id }, data: { createdAt: new Date(Date.now() - 3 * 86_400_000) } });
+    await prepareOldPostsBeforeRemakePublish(p.id);
+    await finishOldPostsAfterRemakePublish(p.id, { failedChannels: [], pendingChannels: [{ channel: "INSTAGRAM" }] });
+    await finishOldPostsSweep(new Date(Date.now() + 3_600_000));
+    let row = await outcomeOf(p.id);
+    expect(row.oldPostsOutcome).toMatchObject({ INSTAGRAM: { state: "WAITING" } });
+    expect(row.oldPostsCheckedAt).not.toBeNull();
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).instagramUrl).toBeNull();
+    // Через двое суток после публикации так и не вышел — тогда старый возвращается и остаётся.
+    await finishOldPostsSweep(new Date(Date.now() + 2 * 86_400_000 + 3_600_000));
+    row = await outcomeOf(p.id);
+    expect(row.oldPostsOutcome).toMatchObject({ INSTAGRAM: { state: "NEW_FAILED" } });
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).instagramUrl).toBe("https://www.instagram.com/reel/SLOW/");
+  });
+
+  it("два прохода разом (задание и обход) — старый пост снят один раз, итог по сетям не теряется", async () => {
+    del.facebook.mockClear(); del.youtube.mockClear();
+    const p = await seed(["FACEBOOK", "YOUTUBE"], { FACEBOOK: "fb-par", YOUTUBE: "yt-par" });
+    await narrationRemake(p.id);
+    await prepareOldPostsBeforeRemakePublish(p.id);
+    await newPostsLive(p.id, { FACEBOOK: "fb-par-new", YOUTUBE: "yt-par-new" });
+    await Promise.all([
+      finishOldPostsAfterRemakePublish(p.id, { failedChannels: [], pendingChannels: [] }),
+      finishOldPostsAfterRemakePublish(p.id, null),
+      finishOldPostsSweep(),
+    ]);
+    await finishOldPostsSweep();
+    expect(del.facebook).toHaveBeenCalledTimes(1);
+    expect(del.youtube).toHaveBeenCalledTimes(1);
+    const row = await outcomeOf(p.id);
+    expect(row.oldPostsOutcome).toMatchObject({ FACEBOOK: { state: "OLD_REMOVED" }, YOUTUBE: { state: "OLD_REMOVED" } });
+    expect(row.oldPostsReplacedAt).not.toBeNull();
+  });
+
+  it("обход идёт от давно не проверенных: двадцать ждущих TikTok не задерживают двадцать первую заявку", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 21; i++) {
+      const p = await seed(["INSTAGRAM"], { INSTAGRAM: `ig-q-${i}` }, { instagramUrl: `https://www.instagram.com/reel/Q${i}/` });
+      await narrationRemake(p.id);
+      await prepareOldPostsBeforeRemakePublish(p.id);
+      ids.push(p.id);
+    }
+    await finishOldPostsSweep();
+    await finishOldPostsSweep();
+    const checked = await prisma.videoRemakeRequest.findMany({ where: { propertyId: { in: ids } }, select: { oldPostsCheckedAt: true } });
+    expect(checked.every((r) => r.oldPostsCheckedAt !== null)).toBe(true);
+  });
+});
+
+describe("миграция: без человека в сеть не выходит", () => {
+  it("SQL миграции снимает утверждение с кандидатов, отказов «Оставить старый» и автоутверждённых версий вышедших роликов; утверждённое человеком и не вышедшее не трогает", async () => {
+    const sql = fs.readFileSync(path.join(__dirname, "../prisma/migrations/20261118220000_narration_simple_approve/migration.sql"), "utf8");
+    const data = sql.slice(sql.indexOf("-- ДАННЫЕ"));
+    const at = new Date(Date.now() - 3_600_000);
+    async function withVersion(published: boolean, kind: "auto" | "human" | "candidate" | "declined" | "mixed") {
+      const p = await seed(published ? ["FACEBOOK"] : [], published ? { FACEBOOK: "m" } : {}, { videoHandoffStatus: "RECEIVED" });
+      const fresh = await prisma.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });
+      const facts = narrationFacts(fresh);
+      const v = await prisma.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: 1, script: "Квартира, звоните.", factsSnapshot: facts, factsHash: narrationHash(facts),
+        voiceId: "voiceA", modelId: "eleven_v4", status: "READY", storageKey: `${p.id}/m.mp3`, createdById: agentId, requestKey: randomUUID(), source: "AUTO",
+        approvedAt: at, approvedById: agentId, approvalNotifiedAt: kind === "auto" ? at : new Date(at.getTime() - 60_000) } });
+      if (kind === "candidate") await prisma.property.update({ where: { id: p.id }, data: { narrationPreviewVersionId: v.id } });
+      if (kind === "declined") await prisma.property.update({ where: { id: p.id }, data: { narrationPreviewDeclinedVersionId: v.id } });
+      if (kind === "mixed") await prisma.property.update({ where: { id: p.id }, data: { videoMasterNarrationVersionId: v.id } });
+      return v.id;
+    }
+    const reset = [await withVersion(true, "auto"), await withVersion(true, "candidate"), await withVersion(true, "declined")];
+    const kept = [await withVersion(true, "human"), await withVersion(false, "auto"), await withVersion(true, "mixed")];
+    for (const statement of data.split(/;\s*\n/).map((x) => x.trim()).filter((x) => x.replace(/--[^\n]*\n?/g, "").trim())) await prisma.$executeRawUnsafe(statement);
+    for (const id of reset) expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id } })).approvedAt).toBeNull();
+    for (const id of kept) expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id } })).approvedAt).not.toBeNull();
+  });
+
+  it("«Оставить старый» держит версию, пока её не утвердит человек; утвердил — отметка отказа снята", async () => {
+    const { approveNarrationVersion } = await import("../src/lib/narrationAutoFlow.js");
+    const p = await seed(["FACEBOOK"], { FACEBOOK: "d" }, { videoHandoffStatus: "RECEIVED" });
+    const fresh = await prisma.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });
+    const facts = narrationFacts(fresh);
+    const v = await prisma.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: 1, script: "Квартира, звоните.", factsSnapshot: facts, factsHash: narrationHash(facts),
+      voiceId: "voiceA", modelId: "eleven_v4", status: "READY", storageKey: `${p.id}/d.mp3`, createdById: agentId, requestKey: randomUUID(), source: "AUTO" } });
+    await prisma.property.update({ where: { id: p.id }, data: { narrationPreviewDeclinedVersionId: v.id } });
+    expect(await approveNarrationVersion({ propertyId: p.id, versionId: v.id, expectedRevision: 1, actorId: agentId, isManager: false })).toBe("AUDIO_APPROVED");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).narrationPreviewDeclinedVersionId).toBeNull();
   });
 });
 

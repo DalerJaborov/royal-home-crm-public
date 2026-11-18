@@ -20,6 +20,7 @@ import { narrationLastChoiceFor } from "../lib/narrationLastChoice.js";
 import { loadNarrationConfiguration, readyVoiceSamples } from "../lib/narrationGeneration.js";
 import { ownMusicReady } from "../lib/narrationMusic.js";
 import { isPublishedClip } from "../lib/narrationPreview.js";
+import { clipCountsAsPublished } from "../lib/publishedClip.js";
 import { createNotification } from "../lib/notifications.js";
 import { narrationAccessForAgent, type NarrationClicker } from "../lib/staffNarration.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -228,7 +229,7 @@ export async function remindPendingNarrationApprovals(now: Date = new Date()): P
     const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
     if (latest?.id !== row.id) continue;
     // Ролик уже вышел: новая озвучка ждёт «Утвердить и выпустить» — одно напоминание через сутки, и всё.
-    if (isPublishedClip(row.property)) {
+    if (await clipCountsAsPublished(row.propertyId, row.property)) {
       if (row.approvalRemindedAt || !row.approvalNotifiedAt || now.getTime() - row.approvalNotifiedAt.getTime() < REMIND_PUBLISHED_AFTER_MS) continue;
       const claimed = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalRemindedAt: null }, data: { approvalRemindedAt: now, approvalEscalatedAt: now } });
       if (claimed.count && await notifyNarrationApprovalTo(row.id, null, "remindPublished")) sent++;

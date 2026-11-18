@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  chooseNarration, narrationChangesLine, narrationLengthCheck, narrationRemovesOldPosts, pickNarrationVoice,
+  chooseNarration, narrationAudioLengthCheck, narrationChangesLine, narrationLengthCheck, narrationRemovesOldPosts, pickNarrationVoice,
   type NarrationReleaseChannel, type PropertyNarrationView,
 } from "@royal-home/shared";
 import { api } from "../lib/api";
@@ -138,17 +138,20 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
   // Устаревшая версия несёт прежнюю цену словами (ревью 14.11): её текст в форму не подставляем, только свежий шаблон.
   const currentScript = latest && !latest.stale ? latest.script : null;
   const approved = !!ready && !!latest?.approvedAt && !latest.stale;
-  const waitsForApproval = !!ready && !latest?.approvedAt && !latest?.stale && latest?.source !== "MANUAL";
+  // Аудио по тексту маркетинга (MANUAL) на вышедшем ролике тоже ждёт утверждения после прослушивания (ревью 18.11).
+  const waitsForApproval = !!ready && !latest?.approvedAt && !latest?.stale && (latest?.source !== "MANUAL" || (data.published === true && !!data.canApproveAudio));
   const last = data.lastChoice ?? {};
   const defaultTemplateId = latest?.templateId ?? freshPick?.templateId ?? null;
   const defaultEndingId = latest ? latest.endingId ?? null : freshPick?.endingId ?? null;
   const defaultVoiceId = pickNarrationVoice(data.config, latest?.voiceId ?? last.voiceId);
   const resolved = facts ? resolveNarrationDraft({ templates, endings, facts, value: draft, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript: currentScript }) : null;
   const textOk = (resolved?.text.trim().length ?? 0) >= 10;
-  const length = resolved ? narrationLengthCheck(resolved.text, resolved.lang, data.clipSec ?? null, data.charsPerSec) : null;
-  const tooLong = !!length && !length.fits;
   // Текст или голос поменяли в блоке готовой озвучки — утверждать старое аудио нельзя, только «Озвучить заново».
   const changedDraft = waitsForApproval && !!resolved && (resolved.text !== latest?.script || (resolved.voiceId ?? null) !== (latest?.voiceId ?? null));
+  // Готовое аудио с настоящей длиной (ревью 18.11): «Утвердить» решает замер, а не оценка по тексту; правят текст — снова оценка.
+  const measured = waitsForApproval && !changedDraft && latest?.audioSec ? narrationAudioLengthCheck(latest.audioSec, data.clipSec ?? null) : null;
+  const length = measured ?? (resolved ? narrationLengthCheck(resolved.text, resolved.lang, data.clipSec ?? null, data.charsPerSec) : null);
+  const tooLong = !!length && !length.fits;
   // Форма: готовая озвучка (по макету — голос и текст рядом с «Послушать»), нажали «Изменить», озвучки нет, не вышла.
   const showComposer = canEdit && !data.off && !!facts && (editing || waitsForApproval || !latest || failed || (latest.status === "DRAFT" && !latest.generateAfter));
   const changesLine = narrationChangesLine(data.changed ?? []);

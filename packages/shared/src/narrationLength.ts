@@ -70,6 +70,14 @@ export function narrationLengthCheck(script: string, lang: NarrationLang | null 
   return { estSec: Math.ceil(est), clipSec: Math.round(clipSec), maxSec: Math.floor(max), fits, overBySec: fits ? 0 : Math.max(1, Math.ceil(est - max)) };
 }
 
+/** Проверка по НАСТОЯЩЕЙ длине готового голоса (ревью 18.11): аудио уже есть — оценка по тексту не нужна. */
+export function narrationAudioLengthCheck(audioSec: number, clipSec: number | null | undefined): NarrationLengthCheck | null {
+  if (!clipSec || !(clipSec > 0) || !(audioSec > 0)) return null;
+  const max = narrationMaxVoiceSec(clipSec);
+  const fits = audioSec <= max;
+  return { estSec: Math.round(audioSec), clipSec: Math.round(clipSec), maxSec: Math.floor(max), fits, overBySec: fits ? 0 : Math.max(1, Math.ceil(audioSec - max)) };
+}
+
 /** Строка агенту под текстом: «Укладывается в ролик: ~32 с из 35 с» / «Длиннее ролика на 6 с. Сократите текст». */
 export function narrationLengthLine(check: NarrationLengthCheck): string {
   return check.fits

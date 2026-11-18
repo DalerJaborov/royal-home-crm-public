@@ -609,6 +609,8 @@ export type PropertyNarrationItem = {
   approvedAt: string | null; stale: boolean; hasAudio: boolean; errorCode: string | null; createdAt: string;
   canReconcile?: boolean;
   source?: string; templateId?: string | null; endingId?: string | null; language?: string | null; generateAfter?: string | null;
+  /** Настоящая длина готового голоса, секунды (18.11.2026): есть — кнопку «Утвердить» решает она, а не оценка по тексту. */
+  audioSec?: number | null;
 };
 /** Что видит мастер: шаблоны и голоса без ключей и моделей. */
 export type NarrationOptionsView = {

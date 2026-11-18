@@ -48,13 +48,16 @@ const keysOf = (channel: string) => [channel, ...(COMPANIONS[channel] ?? [])];
 function asRecord(v: Prisma.JsonValue | null | undefined): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? { ...(v as Record<string, unknown>) } : {};
 }
-/** instagramUrlOnly — Instagram числился только ссылкой (старые объекты без канала в списке): назад возвращается одна ссылка. */
-type Snapshot = OldPostsSnapshot & { instagramUrlOnly?: boolean };
+/** instagramUrlOnly — Instagram числился только ссылкой (старые объекты без канала в списке): назад возвращается одна ссылка.
+ *  takenAt — когда взят снимок, то есть когда началась публикация нового (ревью 18.11): срок «новый не вышел» считается
+ *  от него, а не от создания заявки — монтаж мог идти трое суток. */
+type Snapshot = OldPostsSnapshot & { instagramUrlOnly?: boolean; takenAt?: string };
 function readSnapshot(v: Prisma.JsonValue | null): Snapshot | null {
   const r = asRecord(v);
   if (!Array.isArray(r.channels)) return null;
   return { channels: (r.channels as unknown[]).filter((c): c is string => typeof c === "string"), postIds: asRecord(r.postIds as Prisma.JsonValue),
-    instagramUrl: typeof r.instagramUrl === "string" ? r.instagramUrl : null, instagramUrlOnly: r.instagramUrlOnly === true };
+    instagramUrl: typeof r.instagramUrl === "string" ? r.instagramUrl : null, instagramUrlOnly: r.instagramUrlOnly === true,
+    ...(typeof r.takenAt === "string" ? { takenAt: r.takenAt } : {}) };
 }
 function readOutcome(v: Prisma.JsonValue | null): Outcome { return asRecord(v) as Outcome; }
 
@@ -72,7 +75,7 @@ export async function prepareOldPostsBeforeRemakePublish(propertyId: string, now
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR UPDATE`;
     const p = await tx.property.findUnique({ where: { id: propertyId }, select: { publishedChannels: true, publishedPostIds: true, instagramUrl: true } });
     if (!p) return false;
-    const snapshot: Snapshot = { channels: [...(p.publishedChannels ?? [])], postIds: asRecord(p.publishedPostIds), instagramUrl: p.instagramUrl };
+    const snapshot: Snapshot = { channels: [...(p.publishedChannels ?? [])], postIds: asRecord(p.publishedPostIds), instagramUrl: p.instagramUrl, takenAt: now.toISOString() };
     if (p.instagramUrl && !snapshot.channels.includes("INSTAGRAM")) { snapshot.channels.push("INSTAGRAM"); snapshot.instagramUrlOnly = true; }
     const outcome: Outcome = Object.fromEntries(snapshot.channels.map((c) => [c, { state: "WAITING" as const }]));
     const claimed = await tx.videoRemakeRequest.updateMany({ where: { id: request.id, oldPosts: { equals: Prisma.DbNull } },
@@ -107,9 +110,11 @@ export async function finishOldPostsAfterRemakePublish(propertyId: string, summa
   const current = await prisma.property.findUnique({ where: { id: propertyId }, select: { publishedChannels: true, deletedAt: true } });
   if (!current) return null;
   const pending = new Set((summary?.pendingChannels ?? []).map((c) => c.channel));
-  const expired = now.getTime() - request.createdAt.getTime() > NEW_POST_WAIT_MS;
+  const since = snapshot.takenAt ? new Date(snapshot.takenAt) : request.createdAt;
+  const expired = now.getTime() - since.getTime() > NEW_POST_WAIT_MS;
 
   const next: Outcome = { ...outcome };
+  const mineExtra: string[] = [];
   const toRemove: string[] = [];
   const toRestore: string[] = [];
   for (const channel of snapshot.channels) {
@@ -126,12 +131,16 @@ export async function finishOldPostsAfterRemakePublish(propertyId: string, summa
       toRestore.push(channel);
     }
   }
+  await prisma.videoRemakeRequest.updateMany({ where: { id: request.id }, data: { oldPostsCheckedAt: now } });
   if (JSON.stringify(next) === JSON.stringify(outcome)) return { removed: [], manual: [], kept: [], done: false };
-  // Условная запись: два прохода разом (задание и обход) не снимут один пост дважды.
+  // Условная запись с прочитанным итогом: два прохода разом (задание и обход) не снимут один пост дважды —
+  // второй увидит изменившийся итог и уйдёт.
   const claimed = await prisma.videoRemakeRequest.updateMany({ where: { id: request.id, oldPostsReplacedAt: null,
     ...(request.oldPostsOutcome === null ? { oldPostsOutcome: { equals: Prisma.DbNull } } : { oldPostsOutcome: { equals: request.oldPostsOutcome as Prisma.InputJsonValue } }) },
     data: { oldPostsOutcome: next as unknown as Prisma.InputJsonValue } });
   if (!claimed.count) return { removed: [], manual: [], kept: [], done: false };
+  // TikTok и OLD_KEPT решены уже этой записью — в «свои» сети для итога они тоже входят.
+  for (const c of snapshot.channels) if (next[c] && next[c] !== outcome[c] && !toRemove.includes(c) && !toRestore.includes(c)) mineExtra.push(c);
 
   // Новый не вышел — старый пост возвращается в карточку: его снова видно, и следующий выпуск его заменит.
   if (toRestore.length) {
@@ -157,13 +166,35 @@ export async function finishOldPostsAfterRemakePublish(propertyId: string, summa
       next[c] = { state: "OLD_MANUAL", url: manualUrl.get(c) ?? oldPostUrl(c, snapshot), ...(failedError.get(c) ? { error: failedError.get(c)!.slice(0, 300) } : {}) };
     }
   }
-  const unresolved = Object.values(next).some((o) => o.state === "WAITING" || o.state === "REMOVING");
-  await prisma.videoRemakeRequest.updateMany({ where: { id: request.id, oldPostsReplacedAt: null },
-    data: { oldPostsOutcome: next as unknown as Prisma.InputJsonValue, ...(unresolved ? {} : { oldPostsReplacedAt: now }) } });
+  // Итог по сетям — только СВОИХ сетей и условной записью (ревью 18.11): параллельный проход мог за это время решить
+  // другую сеть, и запись всего объекта целиком стёрла бы его результат.
+  const mine = Object.fromEntries([...toRemove, ...toRestore, ...mineExtra].map((c) => [c, next[c]!]));
+  const final = await writeChannelOutcomes(request.id, mine, now);
+  Object.assign(next, final ?? {});
+  const unresolved = !final || Object.values(final).some((o) => o.state === "WAITING" || o.state === "REMOVING");
 
   const manual = Object.entries(next).filter(([c, o]) => o.state === "OLD_MANUAL" && outcome[c]?.state !== "OLD_MANUAL").map(([c]) => c);
   if (manual.length) await tellOwnerManual(propertyId, manual.map((c) => ({ channel: c, url: next[c]!.url ?? null })));
   return { removed, manual, kept: Object.entries(next).filter(([, o]) => o.state === "OLD_KEPT").map(([c]) => c), done: !unresolved };
+}
+
+/**
+ * Дописать итог своих сетей к свежему итогу заявки условной записью (сравнение с прочитанным), до пяти попыток.
+ * Все сети решены — заявка закрывается той же записью. Возвращает записанный итог или null (не удалось).
+ */
+async function writeChannelOutcomes(requestId: string, mine: Outcome, now: Date): Promise<Outcome | null> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const row = await prisma.videoRemakeRequest.findUnique({ where: { id: requestId }, select: { oldPostsOutcome: true, oldPostsReplacedAt: true } });
+    if (!row || row.oldPostsReplacedAt) return null;
+    const merged: Outcome = { ...readOutcome(row.oldPostsOutcome), ...mine };
+    const unresolved = Object.values(merged).some((o) => o.state === "WAITING" || o.state === "REMOVING");
+    const written = await prisma.videoRemakeRequest.updateMany({ where: { id: requestId, oldPostsReplacedAt: null,
+      ...(row.oldPostsOutcome === null ? { oldPostsOutcome: { equals: Prisma.DbNull } } : { oldPostsOutcome: { equals: row.oldPostsOutcome as Prisma.InputJsonValue } }) },
+      data: { oldPostsOutcome: merged as unknown as Prisma.InputJsonValue, ...(unresolved ? {} : { oldPostsReplacedAt: now }) } });
+    if (written.count) return merged;
+  }
+  void logSystemError("meta", `Заявка ${requestId}: итог снятия старых постов не записан за пять попыток (идут параллельные проходы)`, { dedupKey: "remake-old-posts-outcome-contended" });
+  return null;
 }
 
 /** Прямая ссылка на старый пост, когда её можно собрать из id. */
@@ -191,11 +222,12 @@ async function tellOwnerManual(propertyId: string, items: { channel: string; url
 /** Обход раз в минуту (задача narration-preview-due): дозревшие публикации и просроченные ожидания. */
 export async function finishOldPostsSweep(now: Date = new Date()): Promise<number> {
   const rows = await prisma.videoRemakeRequest.findMany({ where: { replaceOldPostsOnPublish: true, oldPostsReplacedAt: null, oldPosts: { not: Prisma.DbNull } },
-    select: { propertyId: true }, orderBy: { createdAt: "asc" }, take: 20 });
+    // От давно не проверенных (ревью 18.11): двадцать заявок, ждущих повтора TikTok, не задерживают остальных.
+    select: { propertyId: true }, orderBy: [{ oldPostsCheckedAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }], take: 20 });
   let touched = 0;
   for (const { propertyId } of rows) {
     // Идёт публикация — её конец сам позовёт шаг 3 с итогом.
-    if (await isHandoffPublishRunning(propertyId)) continue;
+    if (await isHandoffPublishRunning(propertyId)) { await prisma.videoRemakeRequest.updateMany({ where: { propertyId, oldPostsReplacedAt: null }, data: { oldPostsCheckedAt: now } }); continue; }
     try {
       const r = await finishOldPostsAfterRemakePublish(propertyId, null, now);
       if (r && (r.removed.length || r.manual.length || r.done)) touched++;

@@ -6,6 +6,7 @@ import { legacyHandoffCoverPath } from "./diskCleanup.js";
 import { NARRATION_CLOSED_STATUSES } from "./narrationOptOut.js";
 import { NARRATION_PREVIEW_CLEARED } from "./narrationPreviewFields.js";
 import { narrationFactsCurrent } from "./propertyNarration.js";
+import { clipCountsAsPublished } from "./publishedClip.js";
 import { logSystemError } from "./systemError.js";
 import { isHandoffPublishRunning, withPropertyLock } from "./videoHandoff.js";
 
@@ -22,10 +23,8 @@ import { isHandoffPublishRunning, withPropertyLock } from "./videoHandoff.js";
  * без человека ролик в сети не уходит (решение 18.11.2026, журнал docs/journal/2026-11-18-narration-simple-approve.md).
  */
 
-/** Ролик вышел хотя бы в один канал — тогда новая озвучка выходит только после утверждения человеком. */
-export function isPublishedClip(p: { publishedChannels?: readonly string[] | null; instagramUrl?: string | null }): boolean {
-  return (p.publishedChannels?.length ?? 0) > 0 || !!p.instagramUrl;
-}
+/** Ролик вышел — одно место в lib/publishedClip.ts (там же «идёт замена постов» тоже считается вышедшим). */
+export { isPublishedClip } from "./publishedClip.js";
 
 const fileOf = (publicPath: string) => path.join(videoHandoffDir, path.basename(publicPath));
 async function removeClipFiles(publicPath: string | null | undefined) {
@@ -99,7 +98,7 @@ export async function placeMixedClip(input: {
     if (input.music && cur.videoHandoffFinalPath !== input.music.sourceFinalPath) return { kind: "SKIPPED" };
     if (await isHandoffPublishRunning(input.propertyId, tx)) return { kind: "SKIPPED" };
     await replaceFinalWithMix(tx, { propertyId: input.propertyId, publicPath: input.publicPath, versionId: input.versionId, revision: input.revision,
-      requestedById: input.requestedById, published: isPublishedClip(cur) });
+      requestedById: input.requestedById, published: await clipCountsAsPublished(input.propertyId, cur, tx) });
     // Трек, который лёг в этот ролик: следующий раз — другой.
     if (input.music) await tx.property.update({ where: { id: input.propertyId }, data: { narrationMusicTrackId: input.music.trackId } });
     return { kind: "REPLACED", oldFinal: cur.videoHandoffFinalPath, oldPreview: cur.narrationPreviewPath, reviewPending: cur.clipReviewStatus === "PENDING" };
@@ -114,11 +113,10 @@ export async function dropReplacedClipFiles(placed: PlacedMix, keep: string): Pr
 }
 
 /**
- * КАНДИДАТЫ, ОСТАВШИЕСЯ ОТ «ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ» (18.11.2026, задача narration-preview-due). Шаг убран,
- * кандидат больше никто не выпустит: файл удаляется, поля очищаются. Его версия озвучки, если она всё ещё
- * последняя и не наложена, снова ждёт человека: утверждение снимается, напоминание агенту — заново одним
- * сообщением (notifyReadyNarrations). Без этого обход перемикса выпустил бы её сам — а среди таких версий
- * есть утверждённые автоматически, без человека. Идемпотентно: второй проход кандидатов уже не видит.
+ * КАНДИДАТЫ, ОСТАВШИЕСЯ ОТ «ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ» (18.11.2026, задача narration-preview-due): шаг убран,
+ * кандидата больше никто не выпустит — файл удаляется, поля очищаются. Утверждения их версий (и версий, от которых
+ * отказались «Оставить старый», и утверждённых автоматически на вышедшем ролике) снимает SQL самой миграции
+ * 20261118220000_narration_simple_approve — до старта приложения, без гонки с обходом перемикса. Идемпотентно.
  */
 export async function clearLeftoverNarrationPreviews(): Promise<number> {
   const rows = await prisma.property.findMany({ where: { OR: [{ narrationPreviewVersionId: { not: null } }, { narrationPreviewPath: { not: null } }] },
@@ -128,14 +126,10 @@ export async function clearLeftoverNarrationPreviews(): Promise<number> {
     try {
       const done = await withPropertyLock(row.id, async (tx) => {
         await lockPropertyRow(tx, row.id);
-        const cur = await tx.property.findUnique({ where: { id: row.id }, select: { narrationPreviewVersionId: true, narrationPreviewPath: true, videoMasterNarrationVersionId: true } });
+        const cur = await tx.property.findUnique({ where: { id: row.id }, select: { narrationPreviewVersionId: true, narrationPreviewPath: true } });
         if (!cur || cur.narrationPreviewVersionId !== row.narrationPreviewVersionId || cur.narrationPreviewPath !== row.narrationPreviewPath) return false;
-        await tx.property.update({ where: { id: row.id }, data: { ...NARRATION_PREVIEW_CLEARED, narrationPreviewDeclinedVersionId: null } });
-        const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.id }, orderBy: { revision: "desc" }, select: { id: true } });
-        if (cur.narrationPreviewVersionId && latest?.id === cur.narrationPreviewVersionId && cur.videoMasterNarrationVersionId !== latest.id) {
-          await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY" },
-            data: { approvedAt: null, approvedById: null, approvalNotifiedAt: null, approvalRemindedAt: null, approvalEscalatedAt: null } });
-        }
+        // Отметку отказа «Оставить старый» не трогаем: она держит версию ещё один выпуск (remixWanted).
+        await tx.property.update({ where: { id: row.id }, data: NARRATION_PREVIEW_CLEARED });
         return true;
       });
       if (!done) continue;

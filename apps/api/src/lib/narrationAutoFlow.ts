@@ -16,7 +16,8 @@ import { loadMoneyContext } from "./money.js";
 import { priceInTjsOnly } from "./reelsCaptionTemplate.js";
 import os from "node:os";
 import { mixNarrationOntoMaster, narrationFitNote, planNarrationFit, type NarrationMixResult } from "./narrationMix.js";
-import { dropReplacedClipFiles, isPublishedClip, placeMixedClip, type PlacedMix } from "./narrationPreview.js";
+import { dropReplacedClipFiles, placeMixedClip, type PlacedMix } from "./narrationPreview.js";
+import { clipCountsAsPublished } from "./publishedClip.js";
 import { measuredNarrationCharsPerSec, narrationClipSec, narrationLengthCheckFor } from "./narrationLengthCalibration.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
 import { EDITOR_HOLDER_WHERE, isHandoffPublishRunning, schedulePublishAfterAccept, withPropertyLock } from "./videoHandoff.js";
@@ -221,10 +222,16 @@ export async function approveNarrationVersion(input: { propertyId: string; versi
       if (!input.isManager) return "FORBIDDEN";
       return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "DRAFT" }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count ? "TEXT_APPROVED" : "CONFLICT";
     }
-    if (latest.status !== "READY" || (latest.source ?? "MANUAL") === "MANUAL") return input.isManager ? "CONFLICT" : "FORBIDDEN";
+    if (latest.status !== "READY") return input.isManager ? "CONFLICT" : "FORBIDDEN";
+    // Аудио по тексту маркетинга (MANUAL) на вышедшем ролике ждёт утверждения после прослушивания (ревью 18.11):
+    // утверждает маркетинг или руководство, как и сам текст.
+    if ((latest.source ?? "MANUAL") === "MANUAL" && !input.isManager) return "FORBIDDEN";
     if (latest.source === "BACKFILL" && !isNarrationOwnerRole(input.actorRole)) return "FORBIDDEN";
     if (latest.approvedAt) return "AUDIO_APPROVED";
-    return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY", approvedAt: null }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count ? "AUDIO_APPROVED" : "CONFLICT";
+    const done = (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY", approvedAt: null }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count;
+    // Человек утвердил версию, от которой раньше отказались «Оставить старый», — отметка отказа больше не держит её.
+    if (done) await tx.property.updateMany({ where: { id: input.propertyId, narrationPreviewDeclinedVersionId: latest.id }, data: { narrationPreviewDeclinedVersionId: null } });
+    return done ? "AUDIO_APPROVED" : "CONFLICT";
   });
 }
 
@@ -387,7 +394,7 @@ export async function autoApproveSameChoice(versionId: string, config: Narration
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: v.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
     if (!property || property.deletedAt || latest?.id !== v.id) return null;
     // Ролик уже вышел (18.11.2026, владелец): утверждение = выпуск в соцсети, поэтому только человек.
-    if (isPublishedClip(property)) return null;
+    if (await clipCountsAsPublished(property.id, property, tx)) return null;
     const facts = narrationFacts(property);
     if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
     // Укороченная под длину ролика версия (16.11.2026): другой шаблон, но заказала её CRM вместо уже
@@ -458,7 +465,7 @@ async function remixWanted(propertyId: string) {
   let mode: "MASTER" | "MUSIC" = "MASTER";
   let musicSince: string | undefined;
   if (!editorMaster(p)) {
-    if (!p.videoHandoffFinalPath || !isPublishedClip(p)) return null;
+    if (!p.videoHandoffFinalPath || !(await clipCountsAsPublished(p.id, p))) return null;
     const { config } = await loadNarrationConfiguration();
     if (!(await ownMusicReady(config))) return null;
     musicSince = config.ownMusicRemixSince;
@@ -477,6 +484,9 @@ async function remixWanted(propertyId: string) {
   // Своя музыка: озвучка, которую монтажёр уже вклеил по передаче, в ролике есть — менять нечего.
   if (mode === "MUSIC" && await prisma.propertyNarrationDelivery.findFirst({ where: { propertyId, versionId: latest.id, status: "SENT" }, select: { id: true } })) return null;
   // «Прослушать перед выпуском» и «Оставить старый» убраны 18.11.2026: утверждённая версия сводится и выходит.
+  // Отказ «Оставить старый», нажатый до выката, держится ещё один выпуск (ревью 18.11): снять его может только
+  // новое утверждение человеком этой версии (approveNarrationVersion очищает отметку). Убрать после следующего выката.
+  if (latest.id === p.narrationPreviewDeclinedVersionId) return null;
   if (await isHandoffPublishRunning(propertyId)) return null;
   return { mode, p, latest: { ...latest, storageKey: latest.storageKey } };
 }

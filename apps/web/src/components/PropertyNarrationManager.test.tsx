@@ -132,6 +132,14 @@ describe("карточка объекта: озвучка для агента", 
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Сократите текст<\/button>/);
     expect(html).not.toContain("✓ Утвердить и выпустить");
   });
+  it("ревью 18.11: готовое аудио с замером — «Утвердить» решает настоящая длина, а не оценка по тексту", () => {
+    // Оценка по тексту говорит «длиннее ролика» (ролик 2 с), а голос на деле 1,5 с — укладывается.
+    const html = render({ published: true, clipSec: 2, versions: [version({ audioSec: 1.5 })] });
+    expect(html).toContain("✓ Утвердить и выпустить");
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Сократите текст/);
+    // Замер длиннее ролика — кнопка закрыта.
+    expect(render({ published: true, clipSec: 2, versions: [version({ audioSec: 9 })] })).toMatch(/<button[^>]*disabled=""[^>]*>Сократите текст<\/button>/);
+  });
   it("18.11: выпуск — выйдет в назначенное время; вышел — по сетям, TikTok «удалите сами» со ссылкой", () => {
     const approved = [version({ approvedAt: "2026-11-18" })];
     const scheduled = render({ published: true, versions: approved, release: { stage: "SCHEDULED", versionId: "v", at: "2026-11-19T04:00:00Z", reason: "Ночью посты не видят, ролик с новой озвучкой выйдет утром в 09:00.", channels: [] } });
