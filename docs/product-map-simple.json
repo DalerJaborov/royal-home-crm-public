@@ -14,12 +14,12 @@
  "totals": {
   "screens": 49,
   "paths": 777,
-  "cron": 141,
+  "cron": 142,
   "jobs": 34,
-  "conditions": 4083,
-  "untranslatedUnique": 469,
-  "untranslatedTotal": 606,
-  "partialUnique": 1098,
+  "conditions": 4090,
+  "untranslatedUnique": 470,
+  "untranslatedTotal": 607,
+  "partialUnique": 1101,
   "translatedShare": 85
  },
  "untranslated": [
@@ -38,6 +38,7 @@
   "!(await setPausedUntil(req.params.id, pausedUntil))",
   "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
   "!(await shouldAlert(tag, DISAPPROVED_WINDOW_MS, now))",
+  "!(err instanceof GraphCheckError)",
   "!(s?.telegramDeliveryWatchEnabled ?? true)",
   "!(s?.whatsappWebhookWatchEnabled ?? true)",
   "!/^[a-f0-9]{64}$/.test(eventKey)",
@@ -75895,6 +75896,20 @@
            "more": true
           },
           {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
            "t": "если есть silence",
            "k": "if",
            "a": [],
@@ -77720,6 +77735,108 @@
       {
        "t": "push-уведомление",
        "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "whatsapp-calling-health",
+   "when": "23 * * * *",
+   "label": "whatsapp-calling-health",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если выключено: Meta канал",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: wa телефон или нет: ключ доступа",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: calling on",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если availability — «AVAILABLE»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если availability не «BLOCKED» и availability не «LIMITED»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "если !(err instanceof GraphCheckError)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!(err instanceof GraphCheckError)",
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если есть alarmed",
+       "k": "if",
        "a": [],
        "c": []
       }

@@ -345,6 +345,78 @@ describe("рубильник А: на настоящем звонке станц
   });
 });
 
+/** Канал шлюза WhatsApp на станции (lib/telephony/callSource.ts, 18.11.2026). */
+function whatsappChannel(id: string, callerNumber: string) {
+  return { id, name: `PJSIP/whatsapp-gw-${id}`, state: "Ring", caller: { number: callerNumber, name: "WhatsApp" }, dialplan: { context: "from-trunk-whatsapp", exten: "6501414" } };
+}
+
+describe("рубильник А: звонок из WhatsApp СМС не получает (владелец 18.11.2026)", () => {
+  it("одна дверь: callSource=whatsapp — отказ whatsapp_call без отправки; phone и без источника — как раньше", async () => {
+    const wa = track(mobile());
+    expect((await sendMissedCallSms({ phone: full(wa), callSource: "whatsapp" })).status).toBe("whatsapp_call");
+    expect(sendSmsMock).not.toHaveBeenCalled();
+    expect(await smsCount(wa)).toBe(0);
+
+    const line = track(mobile());
+    expect((await sendMissedCallSms({ phone: full(line), callSource: "phone" })).status).toBe("sent");
+    expect(sendSmsMock).toHaveBeenCalledTimes(1);
+    const legacy = track(mobile());
+    expect((await sendMissedCallSms({ phone: full(legacy) })).status).toBe("sent");
+  });
+
+  it("на событиях станции: пропущенный через шлюз WhatsApp — без СМС; пропущенный с линии — СМС уходит", async () => {
+    const wa = track(mobile());
+    const waId = `ms-${runId}-wa`;
+    await handleAriEvent({ type: "ChannelCreated", channel: whatsappChannel(waId, wa) });
+    await handleAriEvent({ type: "ChannelDestroyed", channel: whatsappChannel(waId, "0") });
+    const record = await waitFor(() => prisma.incomingCall.findFirst({ where: { channelId: waId, endedAt: { not: null } } }));
+    expect(record?.source).toBe("whatsapp");
+    expect(record?.answered).toBe(false);
+
+    const line = track(mobile());
+    await ring(`ms-${runId}-line`, line);
+    await hangup(`ms-${runId}-line`);
+    await waitFor(async () => (await smsCount(line)) === 1);
+    // Звонок с линии дошёл до СМС — значит, и звонок из WhatsApp свою развилку уже прошёл.
+    expect(await smsCount(wa)).toBe(0);
+    expect(sendSmsMock.mock.calls.map((c) => (c[0] as { phone: string }).phone)).toEqual([sms(line)]);
+  });
+
+  it("без СМС задача «перезвонить» остаётся: клиент с агентом — агенту и пуш агенту", async () => {
+    const n = track(mobile());
+    const client = await prisma.client.create({ data: { fullName: `Клиент WA агента ${runId}-${n}`, phone: full(n), source: "WHATSAPP", assignedAgentId: agentId, acceptedAt: new Date() } });
+    const id = `ms-${runId}-wa-ag`;
+    await handleAriEvent({ type: "ChannelCreated", channel: whatsappChannel(id, n) });
+    await handleAriEvent({ type: "ChannelDestroyed", channel: whatsappChannel(id, "0") });
+    const task = await waitFor(() =>
+      prisma.interaction.findFirst({ where: { clientId: client.id, autoTaskKind: "inbound_missed_callback", nextAction: { not: null } } })
+    );
+    expect(task?.notes).toBe("Входящий звонок клиента из WhatsApp: до оператора не дозвонился");
+    const record = await prisma.incomingCall.findUnique({ where: { channelId: id } });
+    expect(record?.callbackAgentId).toBe(agentId);
+    await waitFor(() => sendPushToAgent.mock.calls.some((c) => (c[1] as { title?: string })?.title === "📞 Пропущенный звонок клиента"));
+    expect(await smsCount(n)).toBe(0);
+    expect(sendSmsMock).not.toHaveBeenCalled();
+  });
+
+  it("без СМС задача «перезвонить» остаётся: незнакомый номер — карточка и общая задача", async () => {
+    await setSettings({ missedCallCallbackTaskEnabled: true });
+    const n = track(mobile());
+    const id = `ms-${runId}-wa-new`;
+    await handleAriEvent({ type: "ChannelCreated", channel: whatsappChannel(id, n) });
+    await handleAriEvent({ type: "ChannelDestroyed", channel: whatsappChannel(id, "0") });
+    const client = await waitFor(async () => (await prisma.client.findFirst({ where: { phone: { endsWith: n } } })) ?? false);
+    const clientId = (client as { id: string }).id;
+    const waTasks = () =>
+      prisma.interaction.findMany({ where: { clientId, autoTaskKind: "inbound_missed_callback", nextAction: { not: null }, completedAt: null } });
+    await waitFor(async () => (await waTasks()).length === 1);
+    expect((await waTasks())[0].subjectAgentId).toBeNull();
+    expect((client as { source: string }).source).toBe("WHATSAPP");
+    expect(await smsCount(n)).toBe(0);
+    expect(sendSmsMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("рубильник Б: задача по незнакомому пропущенному", () => {
   const openTasks = (clientId: string) =>
     prisma.interaction.findMany({ where: { clientId, autoTaskKind: "inbound_missed_callback", nextAction: { not: null }, completedAt: null } });

@@ -20,7 +20,7 @@ wa_load_env
 problems=()
 if [ "$DRY_RUN" = "1" ]; then
   wa_run docker inspect -f '{{.State.Health.Status}}' "$WA_CONTAINER"
-  wa_run openssl s_client -quiet -verify_hostname "$WA_SIP_HOST" -connect "$WA_SIP_HOST:${WA_TLS_PORT:-5061}"
+  wa_run openssl s_client -verify_hostname "$WA_SIP_HOST" -connect "$WA_SIP_HOST:${WA_TLS_PORT:-5061}"
   wa_run docker exec "$WA_CONTAINER" asterisk -rx "pjsip show contacts"
   [ "$LOCAL_ONLY" = "1" ] || wa_graph health
   exit 0
@@ -30,7 +30,10 @@ state="$(docker inspect -f '{{.State.Health.Status}}' "$WA_CONTAINER" 2>/dev/nul
 wa_log "шлюз: $state"
 [ "$state" = "healthy" ] || problems+=("шлюз: $state")
 
-if echo | timeout 10 openssl s_client -quiet -verify_hostname "$WA_SIP_HOST" -connect "$WA_SIP_HOST:${WA_TLS_PORT:-5061}" 2>&1 | grep -q "verify return:1"; then
+# Без -quiet: он включает -ign_eof, и s_client против Asterisk не выходит по концу
+# ввода (timeout → 124, с pipefail вся цепочка «ложь» при годном сертификате). grep без
+# -q: ранний выход grep обрывал бы трубу (SIGPIPE) при том же pipefail. 18.11.2026.
+if echo | timeout 10 openssl s_client -verify_hostname "$WA_SIP_HOST" -connect "$WA_SIP_HOST:${WA_TLS_PORT:-5061}" 2>&1 | grep "Verify return code: 0 (ok)" >/dev/null; then
   wa_log "сертификат $WA_SIP_HOST: проверку проходит"
 else
   problems+=("сертификат $WA_SIP_HOST не проходит проверку")
@@ -47,6 +50,12 @@ if [ "$state" = "healthy" ]; then
   else
     problems+=("станция по VPN не отвечает (OPTIONS)")
   fi
+fi
+
+# Правило rh-wa-acme (порт 80 открыт всем на время certbot, wa-cert.sh) вне работающего
+# wa-cert.sh — остаток прерванного запуска: порт 80 открыт всему интернету.
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "# rh-wa-acme" && ! pgrep -f "wa-cert\.sh" >/dev/null 2>&1; then
+  problems+=("порт 80 открыт всем правилом rh-wa-acme вне выпуска сертификата — снять: ufw status numbered, удалить rh-wa-acme")
 fi
 
 if [ "$LOCAL_ONLY" != "1" ]; then

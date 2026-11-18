@@ -68,3 +68,21 @@ export interface QualifyIncomingCallResult {
  * его через lib/telephony/failoverSync.ts) и экран (подпись к режиму).
  */
 export const LIVE_VOICE_INBOUND_WAIT_SECONDS = 30;
+
+/**
+ * ОТКУДА ПРИШЁЛ ВХОДЯЩИЙ ЗВОНОК (18.11.2026) — значения `IncomingCall.source`.
+ *
+ * `phone` — обычная линия (транк оператора связи); `whatsapp` — голосовой звонок
+ * клиента в WhatsApp, который шлюз SIP заводит на станцию тем же путём, что и
+ * обычный входящий (канал `PJSIP/whatsapp-gw-…`, контекст `from-trunk-whatsapp`).
+ * Решает сервер по имени канала (apps/api/src/lib/telephony/callSource.ts);
+ * экран только показывает метку. Список здесь, чтобы сервер и экран не держали
+ * две копии строки "whatsapp".
+ */
+export const INCOMING_CALL_SOURCES = ["phone", "whatsapp"] as const;
+export type IncomingCallSource = (typeof INCOMING_CALL_SOURCES)[number];
+
+/** Звонок пришёл из WhatsApp. Незнакомое значение (старый клиент, новый канал) — не WhatsApp. */
+export function isWhatsappCallSource(source: string | null | undefined): boolean {
+  return source === "whatsapp";
+}

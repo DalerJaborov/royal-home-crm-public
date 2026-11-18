@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4110**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4117**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18669,6 +18669,8 @@
       · пишет строку в журнал сервера
     - return res.json({ ok: true });
       · ответ 200
+- handleWhatsappCallEvents(req.body);
+  · зовёт handleWhatsappCallEvents()
 - const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   · зовёт persistVerifiedCustomerIngressBatch()
 - если durableIngress.status === "denied" || durableIngress.status === "unavailable"
@@ -18916,7 +18918,7 @@
               · зовёт looksLikeMoneyRequest()
             - const guardSilentOnly = !reactionOnly && !moneyRequestOnly && screenIncomingText(text).action === "silent";
               · зовёт screenIncomingText()
-            - если bot.channels[msg.channel] && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silentForeignShare &&…
+            - если bot.channels[msg.channel] && !recordOnly && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silent…
               - void sleep(800 + Math.random() * 1700).then(() => showMetaReadAndTyping(msg.channel, msg.senderId, msg.messag…
                 · дословно из кода
             - если !bot.channels[msg.channel]
@@ -25383,6 +25385,12 @@
       - если ariCreds
         - checks.push(await probeLiveVoiceApp(ariCreds));
           · дословно из кода
+      - пробует
+        - await watchOfficeDeskPhone(now);
+          · зовёт watchOfficeDeskPhone()
+      - если сорвалось
+        - void logSystemError("telephony", `Проверка офисного аппарата не выполнена: ${describeError(err)}`, { dedupKey…
+          · запись в журнал ошибок
       - если silence
         - checks.push(silence);
           · дословно из кода
@@ -26197,6 +26205,50 @@
     · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка недельной сводки СБ", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### whatsapp-calling-health — 23 * * * *
+
+- пробует
+  - const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();
+    · зовёт runWhatsappCallingHealthCheck()
+    - если !(await isMetaChannelEnabled("WHATSAPP"))
+      - return { ...result, skipped: "channel_off" };
+        · дословно из кода
+    - const creds = await loadCredentials();
+      · зовёт loadCredentials()
+    - const token = creds.waPhoneId ? (await resolveIncomingAccount("WHATSAPP", creds.waPhoneId)).token || creds.wa…
+      · зовёт resolveIncomingAccount()
+    - если !creds.waPhoneId || !token
+      - return { ...result, skipped: "not_configured" };
+        · дословно из кода
+    - пробует
+      - если !callingOn
+        - await resolveAlarm(WA_CALLING_CHECK_ALARM_KEY);
+          · дословно из кода
+        - return { ...result, skipped: "calling_off" };
+          · дословно из кода
+      - если availability === "AVAILABLE"
+        - await resolveAlarm(WA_CALLING_SIP_ALARM_KEY);
+          · дословно из кода
+        - return result;
+          · дословно из кода
+      - если availability !== "BLOCKED" && availability !== "LIMITED"
+        - console.log(`[whatsapp-звонки] Meta не сообщила can_receive_call_sip (значение: ${availability ?? "нет поля"}…
+          · пишет строку в журнал сервера
+    - если сорвалось
+      - если !(err instanceof GraphCheckError)
+        - throw err;
+          · пробрасывает ошибку дальше
+  - если alarmed
+    - console.log(`[cron] Звонки WhatsApp через SIP: ${sipAvailability ?? "состояние неизвестно"} — тревога руковод…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «звонки WhatsApp»", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
