@@ -8655,11 +8655,6 @@
      "i": 585,
      "direct": false,
      "conf": "через часть экрана"
-    },
-    {
-     "i": 736,
-     "direct": false,
-     "conf": "через часть экрана"
     }
    ]
   },
@@ -60745,7 +60740,6 @@
     "/properties/:id",
     "/reports",
     "/settings",
-    "/sources",
     "/team",
     "/vacancies",
     "/vacancies/:id"

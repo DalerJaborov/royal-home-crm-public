@@ -532,6 +532,9 @@ export const HIDING_ALLOWED = new Set<string>([
   // вводе — украшение, подпись и поле рядом (знак ИИ в интерфейсе не подчёркиваем).
   `${R} [data-ry-section="money"] .cef-toolbar .cef-main-tabs::-webkit-scrollbar`,
   `${R} [data-ry-section="money"] .cef-line-input > svg.lucide-sparkles`,
+  // analytics: полосы прокрутки лент вкладок и переключателей (прокрутка пальцем остаётся).
+  `${R} .rh2[data-ry-section="analytics"] .scr .seg-ai::-webkit-scrollbar`,
+  `${R} .rh2[data-ry-section="analytics"] .scr .hscroll::-webkit-scrollbar`,
 ]);
 export function hiddenTextSelectors(css: string): string[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -588,6 +591,33 @@ describe("все слои нового вида: смысловые цвета, 
     expect(safeAreaOverrides(`${css}\n:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-f { padding: 0; }`))
       .toEqual([':root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-f']);
     expect(siblingEscapes(`${css}\n${P} ~ .rh2 .pill { color: red; }`, "deals")).toEqual([`${P} ~ .rh2 .pill`]);
+  });
+  it("знает слой раздела «Аналитика» и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-analytics.css");
+    expect(lookSectionOf("theme-look-royal-analytics.css")).toBe("analytics");
+    const css = readFileSync(new URL("./theme-look-royal-analytics.css", import.meta.url), "utf8");
+    const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="analytics"]';
+    // чужая метка и правило без метки
+    expect(unscopedSelectors(`${css}
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .tile { color: red; }
+:root[data-ui-look="royal"] .rh2 .bars { color: red; }`, "analytics"))
+      .toEqual([':root[data-ui-look="royal"] .rh2[data-ry-section="money"] .tile', ':root[data-ui-look="royal"] .rh2 .bars']);
+    // «Удалить кампанию» стала синей; «Обновить» без исключения смысловых
+    expect(semanticButtonLeaks(`${css}
+${P} .pill.danger { background: var(--rh-ui-primary); }
+${P} .acts .pill { background: var(--rh-ui-primary); }`))
+      .toEqual([`${P} .pill.danger`, `${P} .acts .pill`]);
+    // название канала в кольце снова режется многоточием (ровно поведение старой темы)
+    expect(hiddenTextSelectors(`${css}
+${P} .scr .donut .keys button .nm2 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`))
+      .toEqual([`${P} .scr .donut .keys button .nm2`]);
+    // запас iPhone у шторки «Отложить №…» и сосед метки
+    expect(safeAreaOverrides(`${css}
+${P} .sheet .sheet-f { padding: 0; }`)).toEqual([`${P} .sheet .sheet-f`]);
+    expect(siblingEscapes(`${css}
+${P} + .rh2 .pill { color: red; }`, "analytics")).toEqual([`${P} + .rh2 .pill`]);
+    // выключенная кнопка без приглушения перебитым весом
+    expect(disabledDimGaps(css.replace(':not(#ry-dim) { opacity: .5; cursor: not-allowed; }', ' { opacity: .5; cursor: not-allowed; }'))).not.toEqual([]);
   });
   // Без списков долга (KNOWN_DEBT / DISABLED_DIM_DEBT закрыты 18.11, пачка debt): каждый
   // слой, основа тоже, обязан быть чистым. Находка чинится в слое, а не вписывается сюда.
