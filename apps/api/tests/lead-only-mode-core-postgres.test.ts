@@ -196,7 +196,7 @@ describe("режим «только заявки», ядро", () => {
     expect(await plannedText(second)).toContain("Если удобно, напишите номер");
     await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: second }, data: { status: "ACCEPTED", projectionRecordedAt: new Date(), acceptedAt: new Date() } });
     const third = await f.receive("Ищу квартиру");
-    expect(await plannedText(third)).toContain("777 070 100");
+    expect(await plannedText(third)).toContain("+992 44 650 14 14");
     expect(f.io).not.toContain("count");
   });
 
