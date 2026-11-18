@@ -23368,20 +23368,6 @@
 
 ### narration-preview-due — * * * * *
 
-- await notifyPendingNarrationPreviews(notifyNarrationPreview);
-  · зовёт notifyPendingNarrationPreviews()
-  - const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…
-    · читает в базе: property
-  - для каждого: const row of rows
-    - пробует
-      - const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrati…
-        · меняет в базе: property
-      - если marked.count
-        - notified++;
-          · дословно из кода
-    - если сорвалось
-      - void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор че…
-        · запись в журнал ошибок
 - await releaseDueNarrationPreviews();
   · зовёт releaseDueNarrationPreviews()
   - const waiting = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null } }, select:…
@@ -23406,6 +23392,20 @@
           · дословно из кода
     - если сорвалось
       - void logSystemError("video-handoff", `Новый ролик с озвучкой не выпущен по сроку прослушивания: ${err instanc…
+        · запись в журнал ошибок
+- await notifyPendingNarrationPreviews(notifyNarrationPreview);
+  · зовёт notifyPendingNarrationPreviews()
+  - const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…
+    · читает в базе: property
+  - для каждого: const row of rows.filter((r) => r.narrationPreviewMasterKey === r.videoMasterStorageKey).slice(0, 5)
+    - пробует
+      - const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrati…
+        · меняет в базе: property
+      - если marked.count
+        - notified++;
+          · дословно из кода
+    - если сорвалось
+      - void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор че…
         · запись в журнал ошибок
 
 ### narration-version-delivery — * * * * *

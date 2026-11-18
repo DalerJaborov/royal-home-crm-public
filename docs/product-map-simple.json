@@ -72197,16 +72197,26 @@
          "a": [],
          "c": [
           {
-           "t": "меняет: объект",
-           "k": "do",
-           "a": [],
-           "c": []
-          },
-          {
-           "t": "если есть количество",
+           "t": "если есть orphan",
            "k": "if",
            "a": [],
            "c": [],
+           "more": true
+          },
+          {
+           "t": "если !row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()",
+           "more": true
+          },
+          {
+           "t": "если await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: \"auto\" }, now)…",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: \"auto\" }, now)…",
            "more": true
           }
          ]
@@ -72244,26 +72254,16 @@
          "a": [],
          "c": [
           {
-           "t": "если есть orphan",
-           "k": "if",
+           "t": "меняет: объект",
+           "k": "do",
            "a": [],
-           "c": [],
-           "more": true
+           "c": []
           },
           {
-           "t": "если !row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()",
+           "t": "если есть количество",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "!row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()",
-           "more": true
-          },
-          {
-           "t": "если await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: \"auto\" }, now)…",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: \"auto\" }, now)…",
            "more": true
           }
          ]
