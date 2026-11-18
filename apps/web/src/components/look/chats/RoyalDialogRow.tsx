@@ -11,13 +11,24 @@ import { RoyalChannelBadge } from "./RoyalChannelBadge";
  * макете: от часа — срочно, больше 15 минут — внимание). null — не ждёт.
  * Чистая функция: проверяется тестом без экрана.
  */
-export function chatWaiting(awaitingHumanSince: string | null, now = Date.now()): { label: string; tone: "crit" | "warn" | "calm" } | null {
+export function chatWaiting(awaitingHumanSince: string | null, now = Date.now()): { label: string; tone: "crit" | "warn" | "calm"; minutes: number } | null {
   if (!awaitingHumanSince) return null;
   const since = new Date(awaitingHumanSince).getTime();
   if (!Number.isFinite(since)) return null;
   const minutes = Math.max(0, Math.floor((now - since) / 60_000));
   const label = minutes < 1 ? "сейчас" : minutes < 60 ? `${minutes} мин` : minutes < 24 * 60 ? `${Math.floor(minutes / 60)} ч` : `${Math.floor(minutes / 1440)} дн`;
-  return { label, tone: minutes >= 60 ? "crit" : minutes > 15 ? "warn" : "calm" };
+  return { label, tone: minutes >= 60 ? "crit" : minutes > 15 ? "warn" : "calm", minutes };
+}
+
+/**
+ * Показывать ли ожидание красной/янтарной меткой (решение координатора 18.11):
+ * только пока ожидание моложе суток ИЛИ бот на паузе (тогда клиент правда ждёт
+ * человека). Давно брошенный разговор без паузы — обычная дата спокойным цветом:
+ * серверные плашки «ждёт человека» тоже ограничены сутками.
+ */
+export function rowWaiting(c: Pick<ConversationListItem, "awaitingHumanSince" | "paused">, now: number) {
+  const waiting = chatWaiting(c.awaitingHumanSince, now);
+  return waiting && (waiting.minutes < 24 * 60 || c.paused) ? waiting : null;
 }
 
 /** Часы паузы бота при ждущем клиенте (то же правило, что у прежней строки и крона botPauseWatch). */
@@ -38,14 +49,16 @@ function pauseWaitHours(c: ConversationListItem, now: number): number | null {
  * memo: строка перерисовывается, только когда пришли новые данные этого
  * разговора или сменился выбор, а не при каждом вводе в поиск/ответ.
  */
-export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, selected, showAccount, onSelect }: {
+export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, selected, showAccount, onSelect, now }: {
   conversation: ConversationListItem;
   selected: boolean;
   showAccount: boolean;
   onSelect: (id: string) => void;
+  /** Текущая минута от списка (useMinuteClock): строка в memo, и без этого пропа
+   *  время ожидания и «вчера» застывали бы до прихода новых данных. */
+  now: number;
 }) {
-  const now = Date.now();
-  const waiting = chatWaiting(c.awaitingHumanSince, now);
+  const waiting = rowWaiting(c, now);
   const pauseHours = pauseWaitHours(c, now);
   const unread = c.unread ? (c.unreadCount && c.unreadCount > 0 ? (c.unreadCount > 99 ? "99+" : String(c.unreadCount)) : "") : null;
   const accountLabel = showAccount ? c.accountTitle : null;

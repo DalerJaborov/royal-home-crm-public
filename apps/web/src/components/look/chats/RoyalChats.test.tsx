@@ -1,10 +1,15 @@
-import { createElement } from "react";
+// @vitest-environment jsdom
+import { act, createElement } from "react";
+import * as ReactDomClient from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ConversationListItem } from "../../../hooks/useConversations";
 import { chatQuickReplies } from "../../../lib/chatQuickReplies";
-import { chatWaiting, RoyalDialogRow } from "./RoyalDialogRow";
-import { RoyalInboxFilters } from "./RoyalInboxFilters";
+import { chatWaiting, rowWaiting, RoyalDialogRow } from "./RoyalDialogRow";
+import { RoyalInboxFilters, segmentByArrow } from "./RoyalInboxFilters";
+import { useMinuteClock } from "./useMinuteClock";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const NOW = Date.parse("2026-11-18T10:00:00Z");
 const minutesAgo = (m: number) => new Date(NOW - m * 60_000).toISOString();
@@ -17,18 +22,56 @@ function item(over: Partial<ConversationListItem> = {}): ConversationListItem {
     accountId: null, accountTitle: null, agentAttentionRequestedAt: null, ...over,
   };
 }
-const row = (over: Partial<ConversationListItem> = {}, extra: { showAccount?: boolean } = {}) =>
-  renderToStaticMarkup(createElement(RoyalDialogRow, { conversation: item(over), selected: false, showAccount: extra.showAccount ?? false, onSelect: () => {} }));
+const row = (over: Partial<ConversationListItem> = {}, extra: { showAccount?: boolean; now?: number } = {}) =>
+  renderToStaticMarkup(createElement(RoyalDialogRow, { conversation: item(over), selected: false, showAccount: extra.showAccount ?? false, onSelect: () => {}, now: extra.now ?? Date.now() }));
 
 describe("chatWaiting — сколько ждёт человек и насколько срочно", () => {
   it("follows the mockup thresholds: >15 min attention, from an hour urgent", () => {
     expect(chatWaiting(null, NOW)).toBeNull();
-    expect(chatWaiting(minutesAgo(0), NOW)).toEqual({ label: "сейчас", tone: "calm" });
-    expect(chatWaiting(minutesAgo(15), NOW)).toEqual({ label: "15 мин", tone: "calm" });
-    expect(chatWaiting(minutesAgo(16), NOW)).toEqual({ label: "16 мин", tone: "warn" });
-    expect(chatWaiting(minutesAgo(60), NOW)).toEqual({ label: "1 ч", tone: "crit" });
-    expect(chatWaiting(minutesAgo(26 * 60), NOW)).toEqual({ label: "1 дн", tone: "crit" });
+    expect(chatWaiting(minutesAgo(0), NOW)).toMatchObject({ label: "сейчас", tone: "calm" });
+    expect(chatWaiting(minutesAgo(15), NOW)).toMatchObject({ label: "15 мин", tone: "calm" });
+    expect(chatWaiting(minutesAgo(16), NOW)).toMatchObject({ label: "16 мин", tone: "warn" });
+    expect(chatWaiting(minutesAgo(60), NOW)).toMatchObject({ label: "1 ч", tone: "crit" });
+    expect(chatWaiting(minutesAgo(26 * 60), NOW)).toMatchObject({ label: "1 дн", tone: "crit" });
     expect(chatWaiting("not a date", NOW)).toBeNull();
+  });
+  it("an abandoned chat older than a day is calm unless the bot is paused", () => {
+    expect(rowWaiting({ awaitingHumanSince: minutesAgo(23 * 60), paused: false }, NOW)).toMatchObject({ tone: "crit" });
+    expect(rowWaiting({ awaitingHumanSince: minutesAgo(24 * 60), paused: false }, NOW)).toBeNull();
+    expect(rowWaiting({ awaitingHumanSince: minutesAgo(3 * 24 * 60), paused: true }, NOW)).toMatchObject({ label: "3 дн", tone: "crit" });
+    const html = row({ awaitingHumanSince: minutesAgo(3 * 24 * 60), lastMessageAt: minutesAgo(3 * 24 * 60) }, { now: NOW });
+    expect(html).not.toContain("ry-chat-wait");
+    expect(html).toContain("ry-chat-time");
+  });
+});
+
+describe("RoyalDialogRow — время не застывает в memo", () => {
+  it("re-renders the waiting label from the `now` prop", () => {
+    const c = { awaitingHumanSince: minutesAgo(0) };
+    expect(row(c, { now: NOW })).toContain("Ждёт ответа сейчас");
+    expect(row(c, { now: NOW + 61 * 60_000 })).toContain("Ждёт ответа 1 ч");
+  });
+  it("useMinuteClock ticks once a minute and stops while the tab is hidden", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const seen: number[] = [];
+    function Probe() { const now = useMinuteClock(); seen.push(now); return null; }
+    const root = document.createElement("div");
+    const { createRoot } = ReactDomClient;
+    const r = createRoot(root);
+    act(() => { r.render(createElement(Probe)); });
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(seen.at(-1)).toBe(NOW + 60_000);
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    const frozen = seen.length;
+    act(() => { vi.advanceTimersByTime(5 * 60_000); });
+    expect(seen.length).toBe(frozen);
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(seen.at(-1)).toBe(NOW + 6 * 60_000);
+    act(() => { r.unmount(); });
+    vi.useRealTimers();
   });
 });
 
@@ -71,6 +114,40 @@ describe("RoyalInboxFilters — один фильтр «Ждут / Мои / Вс
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(html).toMatch(/aria-checked="true"[^>]*>Ждут<b class="ry-num">4<\/b>/);
     expect(html).toContain("Бот на паузе");
+  });
+  it("arrow keys move between segments in a loop; only the checked one is in Tab order", () => {
+    expect(segmentByArrow("needsHuman", "ArrowRight")).toBe("mine");
+    expect(segmentByArrow("all", "ArrowRight")).toBe("needsHuman");
+    expect(segmentByArrow("needsHuman", "ArrowLeft")).toBe("all");
+    expect(segmentByArrow("paused", "ArrowRight")).toBe("needsHuman");
+    expect(segmentByArrow("mine", "End")).toBe("all");
+    expect(segmentByArrow("mine", "a")).toBeNull();
+    const html = renderToStaticMarkup(createElement(RoyalInboxFilters, {
+      segment: "mine", counts: null, onSegmentChange: () => {}, moreActive: false, children: null,
+    }));
+    expect(html.match(/tabindex="0"/g)?.length).toBe(1);
+    expect(html).toMatch(/data-segment="mine" aria-checked="true" tabindex="0"/);
+  });
+  it("«Ещё» closes on a click outside and after a choice", () => {
+    let segment = "all";
+    const root = document.createElement("div");
+    document.body.append(root);
+    const r = ReactDomClient.createRoot(root);
+    const render = () => r.render(createElement(RoyalInboxFilters, {
+      segment: segment as "all", counts: null, onSegmentChange: (s) => { segment = s; }, moreActive: false,
+      children: createElement("button", { type: "button" }, "Бот на паузе"),
+    }));
+    act(render);
+    const details = root.querySelector("details")!;
+    act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+    expect(details.open).toBe(true);
+    act(() => { document.body.click(); });
+    expect(root.querySelector("details")!.open).toBe(false);
+    act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+    act(() => { root.querySelector<HTMLButtonElement>(".ry-chats-more-body button")!.click(); });
+    expect(root.querySelector("details")!.open).toBe(false);
+    act(() => { r.unmount(); });
+    root.remove();
   });
   it("marks «Ещё» while a hidden filter is active", () => {
     const html = renderToStaticMarkup(createElement(RoyalInboxFilters, {

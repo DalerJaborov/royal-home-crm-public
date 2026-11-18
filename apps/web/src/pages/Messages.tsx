@@ -83,6 +83,7 @@ import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalInboxSwitch } from "../components/look/chats/RoyalInboxSwitch";
 import { RoyalInboxFilters } from "../components/look/chats/RoyalInboxFilters";
 import { RoyalDialogRow } from "../components/look/chats/RoyalDialogRow";
+import { useMinuteClock } from "../components/look/chats/useMinuteClock";
 import { RoyalChannelBadge } from "../components/look/chats/RoyalChannelBadge";
 import { RhAvatar } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
@@ -550,6 +551,8 @@ function ConversationList({
   onSelectRef.current = onSelect;
   const selectStable = useCallback((id: string) => onSelectRef.current(id), []);
   const alerts = royal ? data?.alerts : undefined;
+  // Минутные часы для строк нового вида (ожидание, «вчера»); в прежнем виде не тикают.
+  const now = useMinuteClock(royal);
 
   return (
     <section className="card" aria-label="Диалоги">
@@ -804,6 +807,7 @@ function ConversationList({
               selected={selectedId === c.id}
               showAccount={showAccounts && noFilter}
               onSelect={selectStable}
+              now={now}
             />
           ))
         ) : (
@@ -886,7 +890,12 @@ const ConversationMessageList = memo(function ConversationMessageList({
   conversationId,
   onOpenPhoto,
   readOnly,
+  royal = false,
+  multiChannel = true,
 }: {
+  /** Новый вид: метка канала в пузыре — только когда каналов несколько или канал сменился. */
+  royal?: boolean;
+  multiChannel?: boolean;
   allMessages: ConversationMessage[];
   visibleMessages: ConversationMessage[];
   hiddenCount: number;
@@ -1002,7 +1011,11 @@ const ConversationMessageList = memo(function ConversationMessageList({
           {/* На что этот ответ. Ищем по ВСЕЙ ленте, а не по показанной части:
               цитируемая реплика вполне может быть выше свёрнутого хвоста. */}
           <MessageQuote quoted={quotedMessage(allMessages, m.replyToMid, allMessages.indexOf(m), m.sourceConversationId)} />
-          {m.sourceChannel && <span className="meta" data-message-channel style={{ display: "inline-block", marginRight: 6 }}>{channelMeta(m.sourceChannel).label}</span>}
+          {m.sourceChannel && (royal && !multiChannel && !(prevMsg?.sourceChannel && prevMsg.sourceChannel !== m.sourceChannel)
+            // Новый вид: канал один на весь разговор — слово в каждом пузыре только
+            // мешает читать; для экранного чтеца оно остаётся.
+            ? <span className="sr-only" data-message-channel>{channelMeta(m.sourceChannel).label}</span>
+            : <span className="meta" data-message-channel style={{ display: "inline-block", marginRight: 6 }}>{channelMeta(m.sourceChannel).label}</span>)}
           {/* Текст расшифровки голосового агенту и в CRM не показываем (решение
               владельца 16.08.2026) — только сам звук: расшифровка бывает выдумана
               (тихая запись даёт Gemini повод сочинить фразу), а в базе она всё
@@ -1181,6 +1194,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   const pauseMenu = useDismissableMenu<HTMLButtonElement>();
   // «Ещё» в шапке нового вида: редкое (поиск, карточка, данные клиента) — в меню.
   const moreMenu = useDismissableMenu<HTMLButtonElement>();
+  // Подтверждение «Вернуть боту?» на телефоне (новый вид).
+  const resumeConfirm = useDismissableMenu<HTMLButtonElement>();
   const navigate = useNavigate();
   const [text, setText] = useState("");
   useEffect(() => setSelectedReplySource(""), [id]);
@@ -1220,6 +1235,12 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   }, [closeConversationSearch, moreMenu.buttonRef]);
   // Быстрые ответы — только новый вид, та же лента, что на телефоне (lib/chatQuickReplies.ts).
   const quickReplies = useMemo(() => (royal ? chatQuickReplies(allMessages) : []), [royal, allMessages]);
+  // Сколько разных каналов в ленте (общий чат клиента) — для метки канала в пузырях.
+  const multiChannel = useMemo(
+    () => new Set(allMessages.map((message) => message.sourceChannel).filter(Boolean)).size > 1,
+    [allMessages],
+  );
+  const replyableSources = (conversation?.sources ?? []).filter((source) => source.canReply);
   // Ссылки на пузыри сообщений по АБСОЛЮТНОМУ индексу — только для скролла к
   // найденному поиском (см. useConversationSearch ниже); автоскролл к низу
   // ленты (эффект чуть ниже) через них не идёт, ему хватает scrollRef.
@@ -1388,18 +1409,56 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             </span>
           </button>
           {canManageBot && (paused ? (
-            <button
-              type="button"
-              className="ry-round"
-              data-bot="off"
-              aria-pressed={false}
-              onClick={() => resume.mutate()}
-              disabled={resume.isPending}
-              aria-label="Бот на паузе. Вернуть боту"
-              title="Вернуть боту"
-            >
-              <Bot aria-hidden="true" />
-            </button>
+            // «Вернуть боту» включает бота поверх агента: на ПК — со словами рядом
+            // со значком, на телефоне — через короткое «Вернуть боту?» Да/Нет, чтобы
+            // случайное касание не отдало разговор боту. Пауза (обратное) — без вопроса.
+            narrow ? (
+              <div ref={resumeConfirm.boxRef} className="ry-menu-box">
+                <button
+                  ref={resumeConfirm.buttonRef}
+                  type="button"
+                  className="ry-round"
+                  data-bot="off"
+                  aria-pressed={false}
+                  onClick={() => resumeConfirm.setOpen((v) => !v)}
+                  disabled={resume.isPending}
+                  aria-haspopup="dialog"
+                  aria-expanded={resumeConfirm.open}
+                  aria-label="Бот на паузе. Вернуть боту"
+                  title="Вернуть боту"
+                >
+                  <Bot aria-hidden="true" />
+                </button>
+                {resumeConfirm.open && (
+                  // data-no-sheet: это маленький вопрос у кнопки, а не шторка — без ручки и сдвига.
+                  <div role="dialog" aria-label="Вернуть боту?" className="ry-menu ry-confirm" data-no-sheet="">
+                    <p>Вернуть боту?</p>
+                    <div className="ry-confirm-actions">
+                      <button type="button" className="ry-confirm-no" onClick={() => resumeConfirm.setOpen(false)}>Нет</button>
+                      <button
+                        type="button"
+                        className="ry-confirm-yes"
+                        disabled={resume.isPending}
+                        onClick={() => { resumeConfirm.setOpen(false); resume.mutate(); }}
+                      >
+                        Да
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="ry-pill-btn"
+                data-bot="off"
+                onClick={() => resume.mutate()}
+                disabled={resume.isPending}
+                title="Бот на паузе. Вернуть боту"
+              >
+                <Bot aria-hidden="true" />Вернуть боту
+              </button>
+            )
           ) : (
             <div ref={pauseMenu.boxRef} className="ry-menu-box">
               <button
@@ -1755,6 +1814,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           clientId={conversation?.clientId ?? null}
           conversationId={id}
           onOpenPhoto={openChatPhoto}
+          royal={royal}
+          multiChannel={multiChannel}
         />
         </div>
       </div>
@@ -1884,7 +1945,12 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         {isGroupedEntry && (conversation?.sources?.some((source) => source.canReply) || isClientGroup) && (
           <label className="sr-only" htmlFor="inbox-reply-source">Канал ответа</label>
         )}
-        {isGroupedEntry && (conversation?.sources?.some((source) => source.canReply) || isClientGroup) && (
+        {/* Новый вид: выбор канала прячется, когда выбирать больше не из чего —
+            канал для ответа один и он уже выбран. Логика выбора та же: сам код
+            канал не подставляет, поэтому до выбора поле видно всегда, а при
+            нескольких каналах — тоже всегда, чтобы можно было сменить. */}
+        {isGroupedEntry && (conversation?.sources?.some((source) => source.canReply) || isClientGroup)
+          && !(royal && replyableSources.length === 1 && !!replySource) && (
           <select
             id="inbox-reply-source"
             className="inp"

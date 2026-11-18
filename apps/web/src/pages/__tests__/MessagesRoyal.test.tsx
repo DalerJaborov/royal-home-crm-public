@@ -77,12 +77,40 @@ describe("Чаты в новом виде", () => {
     expect(html.match(/ry-chat-quick"/g)?.length).toBe(1);
   });
 
-  it("a paused bot is returned by the same header button", () => {
+  it("a paused bot: words next to the icon on a wide screen, a confirmation trigger on the phone", () => {
     h.readOnly = false; h.pausedUntil = "2099-01-01T00:00:00Z";
-    const html = royal();
-    expect(html).toContain("Бот на паузе. Вернуть боту");
-    expect(html).not.toContain("Ответ ставит бота на паузу:");
-    h.pausedUntil = null;
+    h.narrow = false;
+    const wide = royal();
+    expect(wide).toMatch(/class="ry-pill-btn"[^>]*>.*Вернуть боту<\/button>/s);
+    expect(wide).not.toContain("Ответ ставит бота на паузу:");
+    h.narrow = true;
+    const phone = royal();
+    expect(phone).toContain('aria-label="Бот на паузе. Вернуть боту"');
+    expect(phone).toContain('aria-haspopup="dialog"');
+    expect(phone).not.toContain("ry-pill-btn");
+    expect(h.mutation).not.toHaveBeenCalled();
+    h.pausedUntil = null; h.narrow = false;
+  });
+
+  it("one channel for the whole timeline: the channel word is for screen readers only", () => {
+    h.readOnly = false; h.narrow = false;
+    const msg = (content: string, sourceChannel: string) => ({ role: "user", content, at: now, sourceConversationId: conversationId, sourceChannel });
+    const base = {
+      id: "client:client", clientId: "client", clientShortId: "1", name: "Клиент", profileName: null, channel: "MULTI",
+      clientPhone: null, firstContactAt: now, pausedUntil: null, contact: null, subscriberId: null,
+      sources: [{ id: conversationId, channel: "WHATSAPP", canReply: true, pausedUntil: null }],
+    };
+    try {
+      h.grouped = { ...base, messages: [msg("Первое", "WHATSAPP"), msg("Второе", "WHATSAPP")] };
+      const single = royal("client:client");
+      expect(single).not.toMatch(/class="meta" data-message-channel/);
+      expect(single.match(/class="sr-only" data-message-channel/g)?.length).toBe(2);
+      h.grouped = { ...base, messages: [msg("Первое", "WHATSAPP"), msg("Второе", "INSTAGRAM")] };
+      const mixed = royal("client:client");
+      expect(mixed.match(/class="meta" data-message-channel/g)?.length).toBe(2);
+    } finally {
+      h.grouped = null;
+    }
   });
 
   it("shareholder sees history only: no composer, no bot control, no quick replies", () => {

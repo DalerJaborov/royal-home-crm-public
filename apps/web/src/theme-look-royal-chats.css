@@ -252,6 +252,25 @@
 :root[data-ui-look="royal"] .ry-chats .ry-round[data-bot="on"] { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-chats .ry-round[data-bot="off"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent); }
 
+/* «Вернуть боту» на ПК — значок со словами (действие включает бота поверх агента). */
+:root[data-ui-look="royal"] .ry-chats .ry-pill-btn {
+  display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 0 16px 0 12px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent);
+}
+:root[data-ui-look="royal"] .ry-chats .ry-pill-btn svg { width: 20px; height: 20px; }
+:root[data-ui-look="royal"] .ry-chats .ry-pill-btn:disabled { opacity: .5; cursor: default; }
+:root[data-ui-look="royal"] .ry-chats .ry-pill-btn:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+/* Телефон: «Вернуть боту?» Да / Нет. */
+:root[data-ui-look="royal"] .ry-chats .ry-confirm { min-width: 220px; padding: 14px; gap: 12px; }:root[data-ui-look="royal"] .ry-chats .ry-confirm p { margin: 0; font-size: 16px; font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-chats .ry-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+:root[data-ui-look="royal"] .ry-chats .ry-confirm-actions button {
+  min-height: 44px; border: 0; border-radius: 999px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-chats .ry-confirm-no { background: var(--rh-ui-press); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-chats .ry-confirm-yes { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .ry-chats .ry-confirm-yes:disabled { opacity: .5; }
+
 /* Меню шапки: пауза бота и «Ещё». */
 :root[data-ui-look="royal"] .ry-chats .ry-menu-box { position: relative; flex: none; }
 :root[data-ui-look="royal"] .ry-chats .ry-menu {
@@ -314,7 +333,7 @@
 :root[data-ui-look="royal"] .ry-chats .clean-conversation .bub .meta { font-size: 13px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats .clean-conversation .bub.me:not(.bot) :is(.who, .tm, .meta, .note) { color: rgba(255, 255, 255, .86); }
 :root[data-ui-look="royal"] .ry-chats .clean-conversation .bub.me:not(.bot) :is(a, .lnk, .tm svg) { color: #ffffff; }
-:root[data-ui-look="royal"] .ry-chats .clean-conversation .bub.me:not(.bot) :is(.who, .chip) { background: transparent; border: 0; padding: 0; }
+:root[data-ui-look="royal"] .ry-chats .clean-conversation .bub.me:not(.bot) .who { background: transparent; border: 0; padding: 0; }
 :root[data-ui-look="royal"] .ry-chats .clean-conversation .bub.me:not(.bot) blockquote,
 :root[data-ui-look="royal"] .ry-chats .clean-conversation .bub.me:not(.bot) [data-quote] { background: rgba(255, 255, 255, .16); color: #ffffff; border-color: rgba(255, 255, 255, .5); }
 :root[data-ui-look="royal"] .ry-chats .clean-conversation .bub .lnk { min-height: 32px; font-size: 14px; font-weight: 600; color: var(--rh-ui-primary-ink); }
