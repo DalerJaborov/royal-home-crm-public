@@ -29,9 +29,12 @@ import { detectSpam } from "../lib/incomingSpam.js";
 import { detectAgencyAd, detectListingAd } from "../lib/listingAd.js";
 import { detectHate } from "../lib/commentHate.js";
 import { createLeadFromCommentPhone } from "./commentPhoneLead.js";
+import { trackBackgroundTask } from "../lib/shutdownState.js";
+import { extractAllPhones } from "../lib/shared/phoneText.js";
 
 /** Пометка карточке по номеру из обсуждения Telegram (18.11.2026): личного разговора бот не ведёт, комментарий не удаляем. */
 const TG_COMMENT_PHONE_NOTE = "Номер из комментария в обсуждении Telegram: бот не спросил, что нужно — позвоните и узнайте.";
+const TG_COMMENT_PHONE_OFF_NOTE = "Номер из комментария в обсуждении Telegram: бот в обсуждении выключен — позвоните и узнайте, что нужно.";
 import { loadBotAnswersItself } from "../lib/botAnswersItself.js";
 import { commentSelfReply } from "../ai/botSelfAnswerText.js";
 import { resolveTelegramCommentProperty } from "../lib/propertyVoice/commentProperty.js";
@@ -217,6 +220,12 @@ export async function ingestGroupComment(
         ...(enabled ? {} : { status: "SKIPPED", note: "bot_off" }),
       },
     });
+    // Бот выключен — номер из комментария всё равно заявка, без ответа и без удаления (второе ревью 1b, №1).
+    if (!enabled) {
+      void trackBackgroundTask(createLeadFromCommentPhone({ channel: "TELEGRAM", commentId: `${groupChatId}:${messageId}`,
+        authorId: String(authorId), authorName: msg.from?.username ?? msg.from?.first_name ?? null, text: text.slice(0, MAX_TEXT) },
+        TG_COMMENT_PHONE_OFF_NOTE));
+    }
     return true;
   } catch (err) {
     // P2002 (пара группа + messageId уже есть) — обычная повторная доставка, не ошибка.
@@ -320,6 +329,14 @@ export async function processDueTelegramComments(now: Date = new Date()): Promis
      * (см. ingestGroupComment) и что делает Instagram у себя в разборе:
      * «отвечать задним числом нельзя», но запись в журнале остаётся.
      */
+    // Номер из закрываемого комментария — заявка, без ответа и без удаления (второе ревью 1b, №1).
+    const closing = await prisma.telegramGroupComment.findMany({ where: { status: "PENDING", replyDueAt: { lte: now } }, take: 200,
+      select: { messageId: true, groupChatId: true, authorId: true, authorName: true, text: true } });
+    for (const c of closing) {
+      if (!extractAllPhones(c.text).length) continue;
+      await createLeadFromCommentPhone({ channel: "TELEGRAM", commentId: `${c.groupChatId ?? "legacy"}:${c.messageId}`, authorId: c.authorId,
+        authorName: c.authorName, text: c.text }, TG_COMMENT_PHONE_OFF_NOTE);
+    }
     const closed = await prisma.telegramGroupComment.updateMany({
       where: { status: "PENDING", replyDueAt: { lte: now } },
       data: { status: "SKIPPED", note: "bot_off" },

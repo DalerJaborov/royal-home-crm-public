@@ -3,7 +3,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
 import { captureCommentPhoneWhileBotOff, handleComment, type QueuedComment } from "../src/messengers/comments.js";
-import { handleTelegramComment } from "../src/messengers/telegramGroupComments.js";
+import { handleTelegramComment, ingestGroupComment } from "../src/messengers/telegramGroupComments.js";
+import { enqueueComments } from "../src/messengers/commentsQueue.js";
+import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
 import { COMMENT_HISTORY_PREFIX } from "../src/messengers/commentPhoneLead.js";
 import { resetAccountsCache } from "../src/messengers/accounts.js";
 import { COMMENT_PHONE_DM, COMMENT_PHONE_PUBLIC, COMMENT_SELF_REPLY } from "../src/ai/botSelfAnswerText.js";
@@ -356,6 +358,47 @@ describe("ревью 1b: постоянный клиент, рубильники
     const turn = await instagramTurn(`Нархаш? ${digits}`, REPLY);
     await turn.run();
     expect((await prisma.instagramComment.findUniqueOrThrow({ where: { id: turn.id } })).dmSentAt).toBeNull();
+  });
+});
+
+describe("второе ревью 1b: бот выключен при приёме, карточка в корзине", () => {
+  it("№1: Instagram, бот выключен уже при приёме (SKIPPED bot_off) — номер всё равно заявка, без текстов и скрытия", async () => {
+    const digits = freshDigits(); phones.push(digits);
+    const peer = `${tag}-off-${sequence++}`; peers.push(peer);
+    expect(await enqueueComments([{ channel: "INSTAGRAM", commentId: `${peer}-c`, mediaId: `${tag}-media`, accountExternalId, authorId: peer,
+      text: `Нархаш? ${digits}` }], false)).toBe(1);
+    await drainBackgroundTasks(15_000);
+    expect(await clientsWith(digits)).toHaveLength(1);
+    expect(mocks.privateReply).not.toHaveBeenCalled();
+    expect(mocks.graph).not.toHaveBeenCalled();
+    expect((await prisma.instagramComment.findUniqueOrThrow({ where: { commentId: `${peer}-c` } })).note).toMatch(/только заявка/);
+  });
+
+  it("№1: Telegram-обсуждение, бот выключен при приёме — номер заявка, комментарий не удаляется и без ответа", async () => {
+    const digits = freshDigits(); phones.push(digits);
+    const messageId = 500000 + Math.floor(Math.random() * 400_000);
+    const accepted = await ingestGroupComment({ message_id: messageId, chat: { id: Number(groupChatId) }, from: { id: 77001, username: `${tag}-tgoff` },
+      text: `Нарх чанд? ${digits}`, message_thread_id: messageId - 1 } as never, groupChatId, false);
+    expect(accepted).toBe(true);
+    await drainBackgroundTasks(15_000);
+    const [card] = await clientsWith(digits);
+    expect(card?.requirementsNotes).toMatch(/бот в обсуждении выключен/);
+    expect(mocks.telegramSend).not.toHaveBeenCalled();
+    expect(mocks.telegramDelete).not.toHaveBeenCalled();
+    await prisma.telegramGroupComment.deleteMany({ where: { groupChatId, messageId: String(messageId) } });
+  });
+
+  it("№2: карточка постоянного клиента в корзине — штатный приём достаёт её, номер из комментария в ней", async () => {
+    const known = freshDigits(); phones.push(known);
+    const card = await prisma.client.create({ data: { fullName: `Из корзины ${tag}`, phone: `+992${known}`, source: "INSTAGRAM", kind: "BUYER",
+      deletedAt: new Date() } });
+    const fresh = freshDigits(); phones.push(fresh);
+    const turn = await instagramTurn(`Новый номер ${fresh}`, REPLY);
+    await prisma.botConversation.create({ data: { channel: "INSTAGRAM", subscriberId: turn.peer, accountId, clientId: card.id, messages: [] } });
+    await turn.run();
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: card.id }, select: { deletedAt: true, phone: true, extraPhones: true } });
+    expect(after.deletedAt).toBeNull();
+    expect([after.phone, ...after.extraPhones].some((p) => p.endsWith(tailOf(fresh)))).toBe(true);
   });
 });
 

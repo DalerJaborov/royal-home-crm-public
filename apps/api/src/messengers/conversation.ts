@@ -1864,6 +1864,14 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * (см. lib/dealReviewIntake.ts).
    */
   if (inboundEffects.status === "applied" && inboundEffects.dealReview) {
+    // Аварийный рубильник канала / блокировка Meta (второе ревью 1b, №5): ответ на отзыв — тоже голос бота. Отзыв уже
+    // записан (applyInboundSideEffects), реплика клиента — в переписку, а ответа клиенту нет.
+    if (await isCustomerAgentTurnOff({ channel, accountId: account.id, conversationId: resolved.id }) ||
+        ((channel === "INSTAGRAM" || channel === "FACEBOOK" || channel === "WHATSAPP") &&
+          await isAccountSendBlocked({ accountId: account.id ?? null, channel }, "dm"))) {
+      await appendConversationMessages(resolved.id, [{ role: "user", content: text }]).catch(() => {});
+      return { reply: "", ready: true, accepted: true, shouldReply: false };
+    }
     // Записываем ход в историю сам — обычный путь ниже (debounceAndMerge/AI)
     // здесь не выполняется, и без этого реплика клиента и наш ответ выпали
     // бы из переписки, видимой в CRM. processMessengerTurn всегда работает с

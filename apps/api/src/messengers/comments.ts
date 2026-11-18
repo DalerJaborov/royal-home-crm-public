@@ -61,6 +61,7 @@ import { COMMENT_PHONE_DM, commentPhonePublicReply, commentSelfReply, selfLangua
 import { captureCommentPhoneIntoConversation, clientPhonesOf, COMMENT_HISTORY_PREFIX, COMMENT_PHONE_HOLD_MS, commentLeadBlocked,
   createLeadFromCommentPhone } from "./commentPhoneLead.js";
 import { releaseCommentPhoneHold } from "../lib/commentPhoneHold.js";
+import { onBotOffCommentsStored } from "../lib/commentBotOffHook.js";
 import { isAccountSendBlocked, isMetaSendBlockError } from "../lib/metaSendBlock.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 import { findPhoneOwners } from "../lib/clientPhones.js";
@@ -2399,6 +2400,29 @@ export async function captureCommentPhoneWhileBotOff(row: QueuedComment): Promis
     return false;
   }
 }
+
+/**
+ * ПРИЁМ ПРИ ВЫКЛЮЧЕННОМ БОТЕ (второе ревью 1b, №1): строки, которые приём сразу закрыл `SKIPPED bot_off`
+ * (commentsQueue.ts — Instagram/Facebook, customerPublicCommentStore.ts — полоса ядра), проходят дверь номера в режиме
+ * «только карточка»: без текстов и скрытия. Одна функция на оба приёма. Не бросает; зовётся в фоне после записи.
+ */
+export async function captureBotOffCommentPhones(commentIds: readonly string[]): Promise<number> {
+  if (!commentIds.length) return 0;
+  let captured = 0;
+  try {
+    const rows = await prisma.instagramComment.findMany({ where: { commentId: { in: [...commentIds] }, status: "SKIPPED", note: "bot_off" },
+      take: 200 });
+    for (const row of rows) {
+      if (!clientPhonesOf(row.text).length) continue;
+      if (await captureCommentPhoneWhileBotOff(row as QueuedComment)) captured++;
+    }
+  } catch (err) {
+    void logSystemError("meta", `[alarm] Номера из комментариев при выключенном боте не разобраны: ${describeError(err)}`);
+  }
+  return captured;
+}
+
+onBotOffCommentsStored(captureBotOffCommentPhones);
 
 /** Личное ушло — публичного ответа нет; не ушло — короткий публичный ответ (по очереди). Затем скрыть. */
 async function finishCommentPhone(

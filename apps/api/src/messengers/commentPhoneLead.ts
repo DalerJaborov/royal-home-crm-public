@@ -206,8 +206,18 @@ const digits9 = (value: string | null | undefined): string => (value ?? "").repl
 export async function attachCommentPhonesToCard(clientId: string, phones: readonly string[], row: Pick<CommentPhoneRow, "commentId" | "channel" | "text">): Promise<string[]> {
   try {
     const card = await prisma.client.findUnique({ where: { id: clientId },
-      select: { phone: true, whatsappPhone: true, extraPhones: true, deletedAt: true, assignedAgentId: true } });
-    if (!card || card.deletedAt) return [];
+      select: { phone: true, whatsappPhone: true, extraPhones: true, deletedAt: true, assignedAgentId: true, fullName: true, kind: true } });
+    if (!card) return [];
+    if (card.deletedAt) {
+      // Карточка в корзине (второе ревью 1b, №2): штатный приём по её номеру — resumeExistingChannelLead вернёт её по
+      // правилам раздачи и уведомит агента; номера из комментария — запасными. Номер не теряется.
+      const source: ClientSource = row.channel === "FACEBOOK" ? "FACEBOOK" : row.channel === "TELEGRAM" ? "TELEGRAM" : "INSTAGRAM";
+      await createLeadFromChannel({ fullName: card.fullName, phone: card.phone, extraPhones: [...phones], source,
+        ...(card.kind !== "OTHER" ? { kind: card.kind } : {}),
+        requirementsNotes: `Клиент снова оставил номер в комментарии под нашим постом: ${phones.join(", ")} — «${row.text.slice(0, 300)}»`,
+        socialChannel: row.channel, deferAssignment: !(await isWithinWorkingHours()) });
+      return [...phones];
+    }
     const own = new Set([card.phone, card.whatsappPhone, ...card.extraPhones].map(digits9).filter(Boolean));
     const added: string[] = [];
     for (const phone of phones) {
