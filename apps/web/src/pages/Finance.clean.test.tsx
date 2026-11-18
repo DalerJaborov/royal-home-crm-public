@@ -6,6 +6,8 @@ import type { FinanceMonth } from "../hooks/useFinance";
 
 const state = vi.hoisted(() => ({ clean: true, mobile: false, readOnly: false, data: undefined as unknown, loading: false, error: null as Error | null }));
 vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => state.clean }));
+// «Новый вид» здесь выключен: его сверяет Finance.royal.test.tsx.
+vi.mock("../hooks/useRoyalLook", () => ({ useRoyalLook: () => false }));
 vi.mock("../hooks/useMobileUx", () => ({ useMobileUx: () => state.mobile }));
 vi.mock("../lib/permissions", () => ({ useCan: () => () => true, useIsReadOnly: () => state.readOnly }));
 vi.mock("../hooks/useFinance", () => ({
