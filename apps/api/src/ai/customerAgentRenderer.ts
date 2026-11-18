@@ -898,11 +898,6 @@ function renderDecisionCore(input: {
       lines.push(recruitmentFollowUpLine("ask", lang));
       if (!nozaSaidBefore) pushRecruitmentPhone();
     } else if (nozaAlreadyGiven && !content.length && !receiptSaidBefore) lines.push(recruitmentFollowUpLine("thanks", lang));
-    // A candidate's statement («smm», «мне 23, опыт 2 года») with no catalog ref this turn left nothing to say, and the turn went
-    // HELD unsupported_decision_evidence — silence (attack stand multi-turn-ru-009/010, 18.11.2026): Noza's number once, then thanks.
-    else if (!content.length && !receiptSaidBefore && !lines.some(line => line && !isSocialLine(line))) {
-      if (!nozaSaidBefore) pushRecruitmentPhone(); else lines.push(recruitmentFollowUpLine("thanks", lang));
-    }
   }
   // The receipt was already said and nothing else is left: the same fact in other words, never an empty reply.
   if (receiptSaidBefore && !lines.some(line => line && !isSocialLine(line))) lines.push(RECEIPT_AGAIN[lang]);
@@ -979,8 +974,7 @@ function renderDecisionCore(input: {
     : question === "clarify_previous" && input.surface === "dm"
       ? repairPreviousQuestion(input.verifiedContext, lang) ?? questions[question][lang] : questions[question][lang]);
   if (question === "confirmation") lines.push(lang === "tg" ? "Тасдиқ мекунед?" : "Подтверждаете?");
-  if (!evidence.length && question === "none" && d.social === "none" && !visualSummary && !arithmetic && !followRequest && !languagePermissionRequested && !messengerChannelQuestion && !furnitureQuestion && !guidePresentation && !directLine &&
-      !(input.surface === "dm" && lines.some(Boolean))) return null;
+  if (!evidence.length && question === "none" && d.social === "none" && !visualSummary && !arithmetic && !followRequest && !languagePermissionRequested && !messengerChannelQuestion && !furnitureQuestion && !guidePresentation && !directLine) return null;
   // The greeting was already said in this chat and nothing else is left: the next step, never an empty reply.
   if (d.social === "greet" && greetedBefore && !lines.some(Boolean)) {
     lines.push(adOpening ? AD_OPEN_QUESTION[lang] : nothingNewLine(input, new Set(splitLines(input.verifiedContext?.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? ""))));
