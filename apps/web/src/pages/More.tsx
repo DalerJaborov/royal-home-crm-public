@@ -7,6 +7,8 @@ import { signOut } from "../lib/signOut";
 import { RH2_UNREAD_CHIP } from "../components/rh2/Rh2Scope";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { MobileMore } from "../components/mobile/MobileMore";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalMore } from "../components/look/team/RoyalMore";
 
 /**
  * «Ещё» — пятая вкладка нижней навигации телефона (view 'more' в прототипе
@@ -40,6 +42,7 @@ import { MobileMore } from "../components/mobile/MobileMore";
 export function More() {
   const navigate = useNavigate();
   const mobile = useMobileUx();
+  const royal = useRoyalLook();
   const { main, more, sections, system, bottom } = useNavigation();
 
   // Нижние вкладки уже на экране всегда — в «Ещё» их не дублируем.
@@ -58,6 +61,8 @@ export function More() {
   // видов. Разметка у него своя и область стилей своя (`.rh2 .mh`), поэтому
   // отдельным компонентом, а не набором условий внутри одной. Ветвление ПОСЛЕ
   // всех хуков — состав хуков не должен зависеть от ширины экрана.
+  // «Новый вид» (18.11.2026): один экран на телефон и ПК, тот же реестр разделов.
+  if (royal) return <RoyalMore />;
   if (mobile) return <MobileMore />;
 
   return (

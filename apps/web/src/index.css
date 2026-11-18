@@ -128,6 +128,8 @@
 @import './theme-look-royal-chats.css';
 /* «Новый вид», раздел «Объекты» (пачка objects): тоже только под :root[data-ui-look="royal"]. */
 @import './theme-look-royal-objects.css';
+/* «Новый вид», пачка team (Команда, Настройки, «Ещё», меню профиля) — после слоя основы. */
+@import './theme-look-royal-team.css';
 /* «Новый вид», раздел «Сделки» (пачка deals): тоже только под :root[data-ui-look="royal"] и меткой раздела. */
 @import './theme-look-royal-deals.css';
 
