@@ -932,13 +932,13 @@ function BotPowerSection() {
       {/* Номер из комментария (18.11.2026): apps/api/src/messengers/commentPhoneLead.ts. */}
       <SwitchRow
         title="Номер под постом: написать человеку и скрыть"
-        on={settings?.botCommentPhoneConversation ?? true}
+        on={settings?.botCommentPhoneConversation ?? false}
         hint={
-          settings?.botCommentPhoneConversation ?? true
+          settings?.botCommentPhoneConversation ?? false
             ? "Кто оставил номер под постом, получает от бота одно личное сообщение с вопросом, что ему нужно, а комментарий скрывается. Карточка заводится сразу."
             : "Номер из комментария сразу становится заявкой для агента. Бот человеку не пишет и комментарий не скрывает."
         }
-        onToggle={() => toggle("botCommentPhoneConversation", !(settings?.botCommentPhoneConversation ?? true))}
+        onToggle={() => toggle("botCommentPhoneConversation", !(settings?.botCommentPhoneConversation ?? false))}
       />
 
       <div className="grp-lab">Что бот умеет</div>

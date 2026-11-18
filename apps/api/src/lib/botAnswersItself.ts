@@ -32,15 +32,15 @@ export async function loadBotAnswersItself(): Promise<boolean> {
 }
 
 /**
- * Рубильник «номер из комментария — разговор» (Settings.botCommentPhoneConversation, по умолчанию ВКЛ): личное с вопросом,
- * публичный ответ, скрытие. Сбой чтения — ВКЛ (решение владельца — поведение по умолчанию).
+ * Рубильник «номер из комментария — разговор» (Settings.botCommentPhoneConversation, по умолчанию ВЫКЛ; включается после «да» владельца на тексты): личное с вопросом,
+ * публичный ответ, скрытие. Сбой чтения — ВЫКЛ: без «да» владельца клиентам не пишем.
  */
 export async function loadCommentPhoneConversation(): Promise<boolean> {
   try {
     const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { botCommentPhoneConversation: true } });
-    return row?.botCommentPhoneConversation !== false;
+    return row?.botCommentPhoneConversation === true;
   } catch {
-    return true;
+    return false;
   }
 }
 

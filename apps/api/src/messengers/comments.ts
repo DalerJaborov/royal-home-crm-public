@@ -2295,7 +2295,7 @@ async function handleCommentPhone(
 ): Promise<keyof CommentRunStats | null> {
   if (!clientPhonesOf(row.text).length || commentLeadBlocked(row.text)) return null;
   const channel = row.channel as MessengerChannel;
-  // Рубильник «номер под постом: написать человеку и скрыть» (Settings.botCommentPhoneConversation, по умолчанию ВКЛ).
+  // Рубильник «номер под постом: написать человеку и скрыть» (Settings.botCommentPhoneConversation, по умолчанию ВЫКЛ).
   if (mode === "lead_only" || !(await loadCommentPhoneConversation())) {
     return leadOnlyCommentPhone(row, account, accountGuess, mode === "lead_only" ? "бот на этом канале выключен"
       : "разговор по номеру из комментария выключен в Настройках → Бот");

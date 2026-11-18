@@ -3,6 +3,6 @@
 -- поведение не меняется, пока владелец не включит тумблер. Читает lib/botAnswersItself.ts и
 -- lib/commentPhoneHold.ts.
 ALTER TABLE "Settings" ADD COLUMN "botAnswersItself" BOOLEAN NOT NULL DEFAULT false;
--- Номер из комментария: разговор (личное, публичный ответ, скрытие). Включён по умолчанию — решение владельца.
-ALTER TABLE "Settings" ADD COLUMN "botCommentPhoneConversation" BOOLEAN NOT NULL DEFAULT true;
+-- Номер из комментария: разговор (личное, публичный ответ, скрытие). Выключен по умолчанию: включается после «да» владельца на тексты.
+ALTER TABLE "Settings" ADD COLUMN "botCommentPhoneConversation" BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE "Client" ADD COLUMN "commentPhoneHoldUntil" TIMESTAMP(3);

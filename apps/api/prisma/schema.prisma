@@ -7360,7 +7360,7 @@ model Settings {
   /// НОМЕР ИЗ КОММЕНТАРИЯ — РАЗГОВОР (18.11.2026, messengers/commentPhoneLead.ts): ВКЛ — одно личное с вопросом о цели,
   /// публичный ответ, если личное невозможно, и скрытие комментария. ВЫКЛ — только заявка с пометкой, без сообщений и
   /// скрытия. ВКЛЮЧЕН по умолчанию (решение владельца). Читает lib/botAnswersItself.ts.
-  botCommentPhoneConversation       Boolean   @default(true)
+  botCommentPhoneConversation       Boolean   @default(false)
   /// Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026). По умолчанию ВЫКЛ.
   marketBuyerAlertsEnabled          Boolean   @default(false)
   /// Когда рубильник пуша «объявление под покупателя» включили (ставит первый прогон; null при выключенном). «Новое» считается от неё.
