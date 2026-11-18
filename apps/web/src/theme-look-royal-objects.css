@@ -140,7 +140,8 @@
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; font-size: 15px; color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-selectall { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; color: var(--rh-ui-text); font-weight: 600; cursor: pointer; }
-:root[data-ui-look="royal"] :is(.ry-objects-page, .ry-object-page).rh2.screens[data-ry-section="objects"] input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--rh-ui-primary); }
+/* Только свои галочки (выбор объекта и «Выбрать все»); флажки блоков («Документы» и т.п.) — как в их рамке. */
+:root[data-ui-look="royal"] [data-ry-section="objects"] :is(.ry-obj-pick, .clean-catalog-selectall) input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--rh-ui-primary); }
 
 /* Выбранные: одна строка-капсула с действиями. */
 :root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .bulk {
@@ -273,7 +274,7 @@
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-card { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px; padding: 8px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo { width: 104px; border-radius: 16px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo > .ry-obj-pill,
-:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-count { display: none; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-count { right: 4px; bottom: 4px; gap: 2px; padding: 2px 6px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-state { display: inline; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-nophoto-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-body { flex: 1 1 0; padding: 2px 4px 2px 0; }
@@ -284,7 +285,7 @@
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-card { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px; padding: 8px; }
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo { width: 104px; border-radius: 16px; }
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo > .ry-obj-pill,
-  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-count { display: none; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-count { right: 4px; bottom: 4px; gap: 2px; padding: 2px 6px; }
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-state { display: inline; }
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-nophoto-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-body { flex: 1 1 0; padding: 2px 4px 2px 0; }
@@ -412,7 +413,7 @@
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row {
   min-height: var(--rh-ui-row-h); padding: 8px 0; border: 0; border-radius: 0; background: transparent; gap: 12px;
 }
-:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row + .rh-row { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row:not(:first-child) { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row .t b { font-size: 17px; font-weight: 600; line-height: 1.25; }
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row .t > span { font-size: 15px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row .meta { font-size: 15px; font-weight: 600; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
@@ -505,7 +506,7 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):is(.ghost, .soft):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .sheet-h .pill { min-width: 44px; padding: 0 14px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row { min-height: var(--rh-ui-row-h); padding: 8px 4px; border: 0; background: transparent; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row + .rh-row { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row:not(:first-child) { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row .t b { font-size: 17px; font-weight: 600; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row .t > span { font-size: 15px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
@@ -513,6 +514,8 @@
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .lab { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .chk { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; }
+/* Отключённая кнопка (до выбора причины в «Удалить объект?» и т.п.) — приглушена, в том числе красная. */
+:root[data-ui-look="royal"] [data-ry-section="objects"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
 /* Опасная кнопка в новом виде — сплошная красная таблетка; смысл старой темы не теряется. */
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]),
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }

@@ -26,6 +26,7 @@ import type { PropertyMapExplorerHandle } from "../components/PropertyMapExplore
 import { savePendingMapPin } from "../lib/pendingMapPin";
 import { ObjectsTabs } from "../components/SectionTabs";
 import { useRoyalLook } from "../hooks/useRoyalLook";
+import { useCleanShell } from "../hooks/useCleanShell";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { createLatestRequest } from "../lib/latestRequest";
 import { mapCardFacts } from "../lib/mapCardFacts";
@@ -212,7 +213,9 @@ function MapBuildingCard({
 
 export function PropertiesMap() {
   // «Новый вид» (облик royal): только класс страницы для слоя theme-look-royal-objects.css.
-  const royal = useRoyalLook();
+  // Та же проверка, что у каталога и карточки: новый вид только поверх чистой оболочки.
+  const clean = useCleanShell();
+  const royal = useRoyalLook() && clean;
   const can = useCan();
   // Вкладка «Изменения на сайте» (перенос меню 15.09.2026) — тот же счётчик и
   // право, что в lib/navigation.ts / pages/Properties.tsx.
