@@ -84,6 +84,14 @@ const HUMAN_REFUSAL = rx([
   `${BW}намехохам${EW}`,
 ]);
 
+/**
+ * Клиент сам хочет позвонить НАМ: «Куда можно позвонить?», «По какому номеру позвонить?», «Кому позвонить?». Это вопрос
+ * о номере, а не просьба перезвонить (ревью 18.11.2026: такое сообщение в WhatsApp заводило заявку). Вырезается до CALL_ASK.
+ */
+const CALL_US = rx([
+  `${BW}(?:куда|кому|по\\s+какому\\s+(?:номеру|телефону)|на\\s+какой\\s+(?:номер|телефон)|какой\\s+(?:номер|телефон))\\s+(?:мне\\s+|нам\\s+)?(?:можно\\s+|надо\\s+|нужно\\s+)?(?:пере|по)?звонить${EW}`,
+], "giu");
+
 /** Явная просьба о звонке. Тестируется ПОСЛЕ вырезания отрицаний и цитат. */
 const CALL_ASK = rx([
   // С опечатками: «пазвоните», «перизвоните», «пазвани».
@@ -182,7 +190,7 @@ export function customerRefusesCall(text: string): boolean {
 
 /** Явная просьба о звонке: отрицания и цитаты вырезаны, номер сам по себе — не просьба. */
 export function customerAsksForCall(text: string): boolean {
-  const own = customerAskText(text).replace(new RegExp(CALL_REFUSAL.source, "giu"), " ");
+  const own = customerAskText(text).replace(new RegExp(CALL_REFUSAL.source, "giu"), " ").replace(CALL_US, " ");
   return CALL_ASK.test(own);
 }
 

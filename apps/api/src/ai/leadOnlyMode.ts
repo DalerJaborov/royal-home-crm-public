@@ -27,6 +27,8 @@ import { clientOwnWords } from "./untrustedContent.js";
 import { looksLikeRentRequest } from "./rentGuard.js";
 import { withoutAgreementOpenings } from "./customerAgentHumanText.js";
 import { customerRoleSignals, foldCustomerText } from "./customerAgentRole.js";
+import { isCustomerShortCallbackYes } from "./customerAskSignals.js";
+import { customerCallbackConsentDecision } from "../lib/customerCallbackConsent.js";
 
 /** Кто клиент — перечень ответа модели (ai/leadOnlyIntent.ts). Здесь, а не там: тип нужен сценарию, а круга импортов быть не должно. */
 export const LEAD_ONLY_ROLES = ["buyer", "seller", "renter", "landlord", "job", "other"] as const;
@@ -323,10 +325,48 @@ const PROPERTY_INTEREST = new RegExp([
 // сложенном алфавите (foldCustomerText: ҳ→х, ӣ→и …).
 const FEE_SUBJECT = /(?:^|[^\p{L}])(?:услуг\p{L}*|комисси\p{L}*|хизмат\p{L}*)/u;
 const FEE_PRICE = /(?:^|[^\p{L}])(?:сколько|скока|цена|цену|стои\p{L}*|почем|процент\p{L}*|чанд|нарх\p{L}*|пул|арзиш\p{L}*|фоиз\p{L}*|ки?мм?ат\p{L}*)(?![\p{L}])/u;
-/** Чистая: клиент спрашивает цену услуг агентства. */
+// Сообщение о своём жилье — уже не «просто цена услуг»: «Квартира 3 комн., цена 70 000$, нужны ваши услуги» (ревью 18.11).
+const FEE_HOUSING = /(?:^|[^\p{L}])(?:квартир\p{L}*|дом|дома|домик\p{L}*|хона\p{L}*|хавли\p{L}*|участ\p{L}*|замин\p{L}*|объект\p{L}*|комнат\p{L}*|хучр\p{L}*|продаж\p{L}*)(?![\p{L}])/u;
+/**
+ * Чистая: клиент спрашивает ТОЛЬКО цену услуг агентства, ни слова о своём жилье и без цифр. Сложенный алфавит
+ * (foldCustomerText: ҳ→х, ӣ→и …).
+ */
 export function leadOnlyAgencyFeeQuestion(text: string): boolean {
   const folded = foldCustomerText(clientOwnWords(text ?? ""));
-  return FEE_SUBJECT.test(folded) && FEE_PRICE.test(folded);
+  return FEE_SUBJECT.test(folded) && FEE_PRICE.test(folded) && !/\d/u.test(folded) && !FEE_HOUSING.test(folded);
+}
+
+// ── Просьба звонка при известном номере (18.11.2026, #2f2c7d) ───────────────
+// Последнее предложение бота — вопрос о звонке: «Мехоҳед корманд ба шумо занг занад?», «Вы хотите, чтобы сотрудник вам
+// позвонил?», «Агент позвонит вам на этот номер, удобно?». Слово звонка в ПРЕЖНЕМ предложении не в счёт (ревью 18.11: «Агент
+// сможет позвонить. Подобрать варианты в Сино?» → «Да» — это про подборку).
+const CALL_QUESTION = /(?:^|[^\p{L}])(?:(?:пере|по)?звон\p{L}*|позвонит\p{L}*|занг)(?![\p{L}])[^?]*\?\s*$/iu;
+function lastSentence(text: string): string {
+  const parts = (text ?? "").trim().split(/(?<=[.!?])\s+/u).filter(Boolean);
+  return parts.at(-1) ?? "";
+}
+
+/**
+ * Чистая: эскалация режима (заявка при номере) запрещена — аренда (агентство её не ведёт, решение 21.08.2026) или
+ * вакансия (ведёт рекрутёр) в этом или прежних сообщениях клиента, либо такая роль у двери намерения.
+ */
+export function leadOnlyEscalationBlocked(input: { own: string; earlierUserTexts: readonly string[]; role: LeadOnlyRole | null }): boolean {
+  if (input.role === "job" || input.role === "renter" || input.role === "landlord") return true;
+  const all = [...input.earlierUserTexts, input.own];
+  return all.some(text => looksLikeRentRequest(text)) || customerRecruitmentRequested(all.join("\n"));
+}
+
+/**
+ * Чистая: в WhatsApp (номер есть по самому каналу) клиент просит звонка — повелительной просьбой («позвоните мне»,
+ * «перезвоните», «ба ман занг занед»: customerCallbackConsentDecision = requested) или коротким «да / ок / хо» сразу на
+ * вопрос бота о звонке. «Куда можно позвонить?», «не звоните», аренда и вакансии — никогда.
+ */
+export function leadOnlyCallWanted(input: { channel: string; useWhatsappNumber: boolean; own: string; lastBotText: string;
+  earlierUserTexts: readonly string[]; role: LeadOnlyRole | null }): boolean {
+  if (input.channel !== "WHATSAPP" || !input.useWhatsappNumber || leadOnlyPhoneRefused(input.own)) return false;
+  if (leadOnlyEscalationBlocked(input)) return false;
+  if (customerCallbackConsentDecision(input.own) === "requested") return true;
+  return CALL_QUESTION.test(lastSentence(input.lastBotText)) && isCustomerShortCallbackYes(input.own);
 }
 
 // ── Сценарий хода ───────────────────────────────────────────────────────────
@@ -349,6 +389,8 @@ export interface LeadOnlyScenarioInput {
    * регулярки). Обязательное поле: решить сценарий в обход двери нельзя (аудит 14.11.2026, «подскажите» → покупатель).
    */
   intent: LeadOnlyIntent;
+  /** Прежние слова клиента: «продаю» раньше, «сколько стоят ваши услуги?» сейчас — продавец. */
+  earlierUserTexts?: readonly string[];
 }
 
 /**
@@ -365,7 +407,7 @@ export function leadOnlyScenario(input: LeadOnlyScenarioInput): LeadOnlyScenario
   if (role === "job" || role === "renter" || role === "landlord") return null;
   // «Сколько стоят ваши услуги?» — готовый вопрос кнопки рекламы Meta, его задают и покупатели (18.11.2026: модель отвечала
   // «Да, поможем продать» каждому). Без слова о продаже своего это не продавец: ответит обычный путь — 0% и 2%.
-  if (role === "seller" && leadOnlyAgencyFeeQuestion(own) && !customerRoleSignals(own).sell) return null;
+  if (role === "seller" && leadOnlyAgencyFeeQuestion(own) && ![...(input.earlierUserTexts ?? []), own].some(text => customerRoleSignals(text).sell)) return null;
   // Продавец — первым: «продаю, адрес такой-то» не горячий покупатель, а объект, оставшийся в фокусе
   // с прошлого разговора, не перебивает ясное «хочу продать свою квартиру».
   if (role === "seller") return "seller";

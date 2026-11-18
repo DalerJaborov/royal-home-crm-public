@@ -82,13 +82,63 @@ describe("WhatsApp, номер известен, карточки нет: про
   });
 });
 
+describe("ревью 18.11: ложные заявки через «позвоните»", () => {
+  it("аренда: «Хочу снять квартиру, позвоните мне» — не заявка (аренду не ведём)", async () => {
+    const peer = waPeer(), id = await waConversation(peer);
+    const plan = await planCustomerLeadOnlyTurn(input({ peer, conversationId: id, inputText: "Хочу снять квартиру, позвоните мне",
+      classifyIntent: asModel("renter", "Хочу снять квартиру") }));
+    expect(sealedOf(plan)?.lead ?? false).toBe(false);
+  });
+
+  it("аренда раньше, сейчас только «Позвоните мне» — не заявка", async () => {
+    const peer = waPeer(), id = await waConversation(peer);
+    const turns = [{ role: "user" as const, text: "Ищу квартиру в аренду на месяц" }, { role: "assistant" as const, text: "Сейчас арендой не занимаемся." }];
+    const plan = await planCustomerLeadOnlyTurn(input({ peer, conversationId: id, inputText: "Позвоните мне", turns, classifyIntent: asModel("other", "") }));
+    expect(sealedOf(plan)?.lead ?? false).toBe(false);
+  });
+
+  it("«Куда можно позвонить?» — не просьба звонка", async () => {
+    const peer = waPeer(), id = await waConversation(peer);
+    const plan = await planCustomerLeadOnlyTurn(input({ peer, conversationId: id, inputText: "Куда можно позвонить?", classifyIntent: asModel("other", "") }));
+    expect(sealedOf(plan)?.lead ?? false).toBe(false);
+  });
+
+  it("«Да» на вопрос о подборке, а не о звонке — не согласие на звонок", async () => {
+    const peer = waPeer(), id = await waConversation(peer);
+    const sentTexts = ["Агент сможет позвонить в рабочее время. Подобрать варианты в Сино?"];
+    const plan = await planCustomerLeadOnlyTurn(input({ peer, conversationId: id, inputText: "Да", sentTexts, classifyIntent: asModel("other", "") }));
+    expect(sealedOf(plan)?.lead ?? false).toBe(false);
+  });
+
+  it("русский вопрос «Вы хотите, чтобы сотрудник вам позвонил?» → «Да, конечно» — заявка", async () => {
+    const peer = waPeer(), id = await waConversation(peer);
+    const sentTexts = ["Понял вас. Вы хотите, чтобы сотрудник вам позвонил?"];
+    const plan = await planCustomerLeadOnlyTurn(input({ peer, conversationId: id, inputText: "Да, конечно", sentTexts, classifyIntent: asModel("other", "") }));
+    expect(sealedOf(plan)?.lead).toBe(true);
+  });
+});
+
 describe("«Сколько стоят ваши услуги?» — это не продавец", () => {
-  it("кнопка рекламы Meta: даже если модель сказала seller, ответ не «Да, поможем продать» (ответит обычный путь: 0% и 2%)", async () => {
+  it("кнопка рекламы Meta: даже если модель сказала seller, режим не отвечает «Да, поможем продать» — ход идёт обычному пути (0% и 2%)", async () => {
     for (const [inputText, language] of [["Сколько стоят ваши услуги?", "ru"], ["Хизмати шумо чанд пул мешавад?", "tg"], ["Сколько стоит услуга?", "ru"]] as const) {
       const plan = await planCustomerLeadOnlyTurn(input({ channel: "FACEBOOK", peer: `live-${runId}-${randomUUID()}`, inputText, language,
         classifyIntent: asModel("seller", inputText) }));
-      expect(plan?.text ?? "").not.toMatch(/поможем продать|дар фурӯш кӯмак/u);
+      expect(plan, inputText).toBeNull();
     }
+  });
+
+  it("продавец без глагола «продаю»: «Квартира 3 комн., цена 70 000$, нужны ваши услуги» — продавец", async () => {
+    const inputText = "Квартира 3 комн., цена 70 000$, нужны ваши услуги";
+    const plan = await planCustomerLeadOnlyTurn(input({ channel: "FACEBOOK", peer: `live-${runId}-${randomUUID()}`, inputText,
+      classifyIntent: asModel("seller", inputText) }));
+    expect(plan?.scenario).toBe("seller");
+  });
+
+  it("«продаю» раньше, сейчас «сколько стоят ваши услуги?» — продавец", async () => {
+    const turns = [{ role: "user" as const, text: "Хочу продать свою квартиру" }, { role: "assistant" as const, text: "Понял вас." }];
+    const plan = await planCustomerLeadOnlyTurn(input({ channel: "FACEBOOK", peer: `live-${runId}-${randomUUID()}`, inputText: "Сколько стоят ваши услуги?",
+      turns, classifyIntent: asModel("seller", "Хочу продать свою квартиру") }));
+    expect(plan?.scenario).toBe("seller");
   });
 
   it("«Хочу продать квартиру, сколько стоят ваши услуги?» — продавец, как и был", async () => {

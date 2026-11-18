@@ -12,7 +12,7 @@ import { AGENCY_FACTS } from "../ai/agencyFacts.js";
 import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyAppliesTo, leadOnlyCallbackNotedLine, leadOnlyCallbackTime, leadOnlyCallDeclined,
   leadOnlyGivenLineAvoidingRepeat, leadOnlyNoAgentLine, leadOnlyNoCallNotedLine, leadOnlyNoteWithCallbackTime, leadOnlyPhoneAskHistory, leadOnlyPhoneRefused, leadOnlyRecentCallbackTime,
   leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
-  type LeadOnlyScenario, leadOnlyOutgoing } from "../ai/leadOnlyMode.js";
+  type LeadOnlyScenario, leadOnlyOutgoing, leadOnlyCallWanted, leadOnlyEscalationBlocked } from "../ai/leadOnlyMode.js";
 import { classifyLeadOnlyIntent, leadOnlyIntentOnce, type LeadOnlyIntent } from "../ai/leadOnlyIntent.js";
 import { customerSearchContinuation, customerSearchIntent } from "../ai/customerAgentSearchIntent.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
@@ -132,7 +132,7 @@ async function planLegacyLeadOnlyTurnText(input: {
   const intentOf = legacyIntentDoor(input);
   let scenario: LegacyScenario | null = input.forced ?? leadOnlyScenario({ text: own, propertyKnown: !!input.propertyId,
     propertyInMessage: input.propertyInMessage, propertyAsked: !!input.propertyId && leadOnlyPropertyAsked(own), jobTopic, config: input.config,
-    intent: await intentOf(own, userWords) });
+    intent: await intentOf(own, userWords), earlierUserTexts: userWords });
   // Тема пришла словами ЭТОГО сообщения (а не из памяти просьбы): прежняя просьба номера больше не о том.
   const topicNow = !!scenario && !input.forced;
   const turns = input.history.map(m => ({ role: m.role === "user" ? "user" as const : "assistant" as const, text: String(m.content ?? "") }));
@@ -167,7 +167,14 @@ async function planLegacyLeadOnlyTurnText(input: {
   }
   // «Соедините с человеком» (пятое ревью 13.11, №1): передачи сотруднику и пуша дежурному в режиме нет. Ответ — как на вопрос
   // к сотруднику: без номера просьба номера, потом номер офиса; с номером — заявка. Тему прежней просьбы номера не стирает.
-  if (!scenario && !input.forced && !jobTopic && customerAsksForStaff(own)) scenario = "escalate";
+  // Аренда и вакансии (в этом или прежних сообщениях) заявкой через «позвоните / соедините» не становятся (ревью 18.11).
+  const escalationBlocked = async () => leadOnlyEscalationBlocked({ own, earlierUserTexts: userWords, role: (await intentOf(own, userWords)).role });
+  if (!scenario && !input.forced && !jobTopic && customerAsksForStaff(own) && !await escalationBlocked()) scenario = "escalate";
+  // WhatsApp, номер известен, карточки нет: просьба звонка или «да» на вопрос бота о звонке — заявка (та же дверь, что у ядра:
+  // ai/leadOnlyMode.ts::leadOnlyCallWanted; 18.11.2026, #2f2c7d).
+  if (!scenario && !input.forced && !jobTopic && !input.linked && leadOnlyCallWanted({ channel: input.channel,
+    useWhatsappNumber: input.config.useWhatsappNumber, own, lastBotText: sent.at(-1) ?? "", earlierUserTexts: userWords,
+    role: (await intentOf(own, userWords)).role })) scenario = "escalate";
   // Только номер, карточка есть: тема — прежняя, ответ — короткое «номер получил».
   let numberOnly = false;
   if (!scenario && volunteered) { scenario = "escalate"; numberOnly = true; }
