@@ -1116,8 +1116,8 @@ export type SecurityReviewState = (typeof SECURITY_REVIEW_STATES)[number];
 
 export const SECURITY_REVIEW_LABELS: Record<SecurityReviewState, string> = {
   PENDING: "Ждёт проверки СБ",
-  CLEARED: "Закрыт после проверки СБ",
-  CONFIRMED: "Закрыт: нарушение подтверждено",
+  CLEARED: "Проверено СБ: вопросов нет",
+  CONFIRMED: "Нарушение подтверждено",
 };
 
 /**

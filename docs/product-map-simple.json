@@ -16,9 +16,9 @@
   "paths": 778,
   "cron": 143,
   "jobs": 34,
-  "conditions": 4099,
-  "untranslatedUnique": 472,
-  "untranslatedTotal": 609,
+  "conditions": 4102,
+  "untranslatedUnique": 473,
+  "untranslatedTotal": 610,
   "partialUnique": 1103,
   "translatedShare": 85
  },
@@ -30,6 +30,7 @@
   "!(await filterInvestigationRecipients([agentId], payload)).length",
   "!(await loadBotCapabilities()).comments",
   "!(await metaCatalogKeyOk(req))",
+  "!(await securityAutomationOn())",
   "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
   "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
   "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
@@ -19553,17 +19554,29 @@
      ]
     },
     {
-     "t": "если есть close",
+     "t": "если ответ — «trash»",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "если нет: получилось",
+       "t": "если есть получилось",
        "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "иначе",
+       "k": "else",
        "a": [],
        "c": []
       }
      ]
+    },
+    {
+     "t": "иначе если ответ — «delete-request»",
+     "k": "elseif",
+     "a": [],
+     "c": []
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -57344,6 +57357,19 @@
      ]
     },
     {
+     "t": "если есть звонок и нельзя прочитано investigations",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: не хватает прав: «Недостаточно прав»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
      "t": "если данные заполнены неправильно",
      "k": "if",
      "a": [],
@@ -74155,6 +74181,21 @@
          "k": "if",
          "a": [],
          "c": []
+        },
+        {
+         "t": "если !(await securityAutomationOn())",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ],
+         "raw": "!(await securityAutomationOn())"
         },
         {
          "t": "и так по каждому",

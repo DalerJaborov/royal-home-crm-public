@@ -387,7 +387,7 @@ export function SecurityCenter() {
             Ждёт проверки
           </button>
           <button type="button" aria-selected={verdict === "CLEARED"} onClick={() => setVerdict("CLEARED")}>
-            Закрыт после проверки
+            Вопросов нет
           </button>
           <button type="button" aria-selected={verdict === "CONFIRMED"} onClick={() => setVerdict("CONFIRMED")}>
             Нарушение подтверждено

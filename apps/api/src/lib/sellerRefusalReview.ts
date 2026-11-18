@@ -4,6 +4,7 @@ import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { recomputeSellerCardState } from "./sellerCardState.js";
 import { logTimeline } from "./timeline.js";
 import { fileEndOfWorkDeleteRequest } from "./clientDeleteRequest.js";
+import { reportSecuritySignal, securityAutomationOn } from "./securityAutomation.js";
 
 /**
  * ОТКАЗ ПРОДАВЦА, ОФОРМЛЕННЫЙ ЧЕРЕЗ СНЯТИЕ ОБЪЕКТА (владелец 09.09.2026).
@@ -74,7 +75,10 @@ export async function applySellerRefusal(input: SellerRefusalInput): Promise<voi
   // как и отказ покупателя (lib/clientRefuse.ts), руководителю уходит заявка на
   // удаление: в Корзину карточку убирает человек, а не автоматика. «Продан в обход»
   // остаётся у агента: по нему идёт проверка СБ.
-  if (verdict?.next === "LOST" && !SECURITY_REVIEW_REASONS.has(input.reason)) {
+  // Автоматика СБ выключена (18.11.2026) — проверки «продан в обход» не будет, поэтому
+  // конец работы оформляется так же, как при любой другой причине.
+  const securityHold = SECURITY_REVIEW_REASONS.has(input.reason) && (await securityAutomationOn());
+  if (verdict?.next === "LOST" && !securityHold) {
     await fileEndOfWorkDeleteRequest(seller, input.requestedById,
       `Продавец снял последний объект №${property.shortId} «${property.title}» (причина: ${PROPERTY_DELETE_REQUEST_REASON_LABELS[input.reason as PropertyDeleteRequestReason] ?? input.reason}). Объектов в работе и сделок нет — работа по карточке завершена.` +
         (input.comment?.trim() ? ` Комментарий: ${input.comment.trim()}` : ""));
@@ -86,14 +90,23 @@ async function escalateToSecurity(
   seller: { id: string; shortId: number; fullName: string; assignedAgentId: string | null; securityReview: string | null },
   input: SellerRefusalInput
 ): Promise<void> {
+  const agency = input.comment?.trim();
+  // Автоматика СБ выключена (владелец 18.11.2026): карточку на проверку не ставим —
+  // сигнал в дело и уведомлением директору и РОП, один раз на объект.
+  if (!(await securityAutomationOn())) {
+    await reportSecuritySignal({ clientId: seller.id, subjectAgentId: seller.assignedAgentId, source: "sold-elsewhere",
+      dedupeKey: `sold-elsewhere:${property.id}`, propertyId: property.id,
+      what: `объект №${property.shortId} снят с продажи с причиной «продан в обход агентства»${agency ? ` (${agency})` : ""}` });
+    return;
+  }
+
   // Тот же приём, что в sellerPropertyMissingAntifraud: updateMany с условием
   // securityReview: null — если проверка уже идёт, второй раз её не заводим.
   const started = await prisma.client.updateMany({
     where: { id: seller.id, securityReview: null },
-    data: { securityReview: "PENDING" },
+    data: { securityReview: "PENDING", securityReviewRequestedAt: new Date() },
   });
 
-  const agency = input.comment?.trim();
   const note = `Объект №${property.shortId} снят с продажи: продан в обход агентства${agency ? ` — ${agency}` : ""}. Карточка передана в СБ.`;
 
   if (seller.assignedAgentId) {
