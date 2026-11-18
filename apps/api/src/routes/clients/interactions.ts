@@ -19,6 +19,7 @@ import { notifyNoAnswerEscalation, planNoAnswerStep } from "../../lib/noAnswerSt
 import { runClientAutopilotInBackground } from "../../lib/clientAutopilot.js";
 import { foreignWriteDenied } from "./shared.js";
 import { trashClient } from "../../lib/trashClient.js";
+import { securityAutomationOn, securityReviewCloseBlocker } from "../../lib/securityAutomation.js";
 import { checkAgentPhoneAsk } from "../../lib/agentPhoneAskDetector.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { closeLeadPushNotifications, sendPushToAgents } from "../../push.js";
@@ -254,13 +255,16 @@ interactionsRouter.post("/:id/interactions", requireAuth, async (req, res) => {
 });
 
 /**
- * Решение службы безопасности по закрытой карточке.
+ * Решение службы безопасности по карточке на проверке.
  *
- * Два исхода, и оба закрывают карточку — разница в том, ЧТО зафиксировано.
- * «Проверено, вопросов нет» — обычное закрытие, сделка действительно прошла мимо
- * нас. «Нарушение подтверждено» — то же закрытие, но в истории остаётся запись, по
- * которой потом разбираются с человеком. Закрытие — обычная Корзина (16.11.2026:
- * «Архива» как состояния больше нет), восстановимо.
+ * С 18.11.2026 (случай ПР-000714: «вопросов нет» закрыло продавца, чей объект
+ * продавался) вердикт — прежде всего запись в деле, а не кнопка удаления:
+ *  - «Проверено, вопросов нет» карточку НЕ закрывает никогда;
+ *  - «Нарушение подтверждено» убирает её в Корзину (восстановимо), только если
+ *    автоматика СБ включена и карточка не в работе: нет второй роли, открытой
+ *    сделки, объекта в продаже, открытой задачи и работы агента после постановки
+ *    на проверку (lib/securityAutomation.ts, securityReviewCloseBlocker).
+ * Иначе карточка остаётся как есть, причина — в закрытой записи хронологии.
  *
  * Решение необратимо только в одну сторону: перепроверить карточку можно, снова
  * отправив её на проверку через обычный отказ. Возвращать «в PENDING» отдельной
@@ -289,8 +293,15 @@ interactionsRouter.post(
       await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
       const current = await tx.client.findUnique({ where: { id: client.id } });
       if (!current || current.deletedAt || current.securityReview !== "PENDING") return null;
-      const openDeal = await tx.deal.findFirst({ where: { clientId: client.id,
-        stage: { notIn: ["COMPLETED", "CANCELLED"] } }, select: { id: true } });
+      // ЧТО ВЕРДИКТ ДЕЛАЕТ С КАРТОЧКОЙ (владелец 18.11.2026, случай ПР-000714: «вопросов
+      // нет», а карточку закрыло, хотя объект продавался). «Вопросов нет» не закрывает
+      // никогда. «Нарушение подтверждено» закрывает, только если автоматика СБ включена
+      // и карточка не в работе (lib/securityAutomation.ts, securityReviewCloseBlocker).
+      // Иначе карточка остаётся как есть, причина — в закрытой записи ниже.
+      const automationOn = await securityAutomationOn(tx);
+      const keepReason = verdict === "CLEARED" ? "проверка не нашла нарушения"
+        : !automationOn ? "автоматика СБ выключена, удалить карточку можно вручную"
+        : await securityReviewCloseBlocker(tx, current);
       await tx.client.update({
         where: { id: client.id },
         data: {
@@ -307,7 +318,8 @@ interactionsRouter.post(
         outcome: verdict === "CONFIRMED" ? "NEGATIVE" : "NEUTRAL",
         investigationOnly: true,
         investigationOrigin: { sourceType: "investigation-decision", sourceId: client.id, independenceKey: `manual:${req.agent!.id}`, kind: "verdict" },
-        notes: [`Служба безопасности: ${label}`, note?.trim() ? `Установлено: ${note.trim()}` : null]
+        notes: [`Служба безопасности: ${label}`, note?.trim() ? `Установлено: ${note.trim()}` : null,
+          keepReason ? `Карточка осталась в работе: ${keepReason}` : "Карточка уходит в Корзину"]
           .filter(Boolean)
           .join(". "),
         // Голосовая заметка к решению (01.09.2026) — переиспользует поля,
@@ -321,9 +333,8 @@ interactionsRouter.post(
       await syncLegacyInvestigationVerdict(tx, { clientId: client.id, assignmentAt: current.assignedAt,
         subjectAgentId: current.assignedAgentId, actorId: req.agent!.id, verdict, note: note?.trim() || `Решение руководителя: ${label}` });
       // Карточка закрывается только ПОСЛЕ вердикта — до него она висела как есть
-      // нарочно, чтобы не выглядеть решённой. Вторая роль или открытая сделка —
-      // работа с клиентом продолжается, закрывать нечего.
-      return { close: !current.dualIntent && !openDeal };
+      // нарочно, чтобы не выглядеть решённой.
+      return { close: keepReason === null, keepReason };
     });
     if (!reviewed) return res.status(409).json({ error: "Проверка уже завершена или карточка изменилась — обновите страницу" });
 
@@ -344,6 +355,6 @@ interactionsRouter.post(
       await closeLeadPushNotifications(reviewers.map((id) => ({ agentId: id, tag: `security-review-${client.id}` })));
     })().catch((err) => console.error("[push] закрытие проверки СБ у остальных проверяющих:", err));
 
-    res.json({ ok: true, verdict, message: label });
+    res.json({ ok: true, verdict, message: reviewed.keepReason ? `${label}. Карточка осталась в работе: ${reviewed.keepReason}` : `${label}. Карточка ушла в Корзину` });
   }
 );

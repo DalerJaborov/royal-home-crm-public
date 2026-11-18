@@ -4,6 +4,7 @@ import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { recomputeSellerCardState } from "./sellerCardState.js";
 import { logTimeline } from "./timeline.js";
 import { fileEndOfWorkDeleteRequest } from "./clientDeleteRequest.js";
+import { reportSecuritySignal, securityAutomationOn } from "./securityAutomation.js";
 
 /**
  * ОТКАЗ ПРОДАВЦА, ОФОРМЛЕННЫЙ ЧЕРЕЗ СНЯТИЕ ОБЪЕКТА (владелец 09.09.2026).
@@ -86,6 +87,16 @@ async function escalateToSecurity(
   seller: { id: string; shortId: number; fullName: string; assignedAgentId: string | null; securityReview: string | null },
   input: SellerRefusalInput
 ): Promise<void> {
+  const agency = input.comment?.trim();
+  // Автоматика СБ выключена (владелец 18.11.2026): карточку на проверку не ставим —
+  // сигнал в дело и уведомлением директору и РОП, один раз на объект.
+  if (!(await securityAutomationOn())) {
+    await reportSecuritySignal({ clientId: seller.id, subjectAgentId: seller.assignedAgentId, source: "sold-elsewhere",
+      dedupeKey: `sold-elsewhere:${property.id}`, propertyId: property.id,
+      what: `объект №${property.shortId} снят с продажи с причиной «продан в обход агентства»${agency ? ` (${agency})` : ""}` });
+    return;
+  }
+
   // Тот же приём, что в sellerPropertyMissingAntifraud: updateMany с условием
   // securityReview: null — если проверка уже идёт, второй раз её не заводим.
   const started = await prisma.client.updateMany({
@@ -93,7 +104,6 @@ async function escalateToSecurity(
     data: { securityReview: "PENDING" },
   });
 
-  const agency = input.comment?.trim();
   const note = `Объект №${property.shortId} снят с продажи: продан в обход агентства${agency ? ` — ${agency}` : ""}. Карточка передана в СБ.`;
 
   if (seller.assignedAgentId) {

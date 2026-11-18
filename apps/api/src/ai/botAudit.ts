@@ -1,4 +1,6 @@
 import { investigationRecipients } from "../lib/investigationNotifications.js";
+import { reportSecuritySignal, securityAutomationOn } from "../lib/securityAutomation.js";
+import { dushanbeDateString } from "../lib/dushanbeTime.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { formatClientCode, formatClientName } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -313,6 +315,15 @@ async function flagAgentBypassSuspicion(clientId: string): Promise<void> {
       select: { id: true, shortId: true, fullName: true, kind: true, deletedAt: true, securityReview: true },
     });
     if (!client || client.deletedAt || client.securityReview === "PENDING") return;
+
+    // Автоматика СБ выключена (владелец 18.11.2026): карточку на проверку не ставим,
+    // сигнал — в дело и уведомлением директору и РОП. Один раз в сутки на карточку.
+    if (!(await securityAutomationOn())) {
+      await reportSecuritySignal({ clientId: client.id, subjectAgentId: null, source: "bot-audit-agent-bypass",
+        dedupeKey: `bot-audit-bypass:${client.id}:${dushanbeDateString()}`,
+        what: "аудит диалогов нашёл, что агент мог увести клиента мимо CRM" });
+      return;
+    }
 
     await prisma.client.update({
       where: { id: client.id },

@@ -41,6 +41,7 @@ import { changeClientAgent, ClientOwnerRaceError, throwIfNotClaimed } from "./ch
 import { publishClientUpdated } from "./livePublish.js";
 import { lastConductedShowingPropertyId } from "./propertyVoice/showingProperty.js";
 import { fileEndOfWorkDeleteRequest } from "./clientDeleteRequest.js";
+import { reportSecuritySignal, securityAutomationOn } from "./securityAutomation.js";
 
 export interface RefuseClientInput {
   clientId: string;
@@ -242,6 +243,11 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
    * место с точно такой же формулой для отказа продавца через «Итог объекта».
    */
   const needsSecurityReview = REASONS_REQUIRING_SECURITY_REVIEW.includes(reason);
+  // Рубильник «Служба безопасности: автоматика» (владелец 18.11.2026). Выключен —
+  // отказ оформляется так же (карточка остаётся у агента, не передаётся дальше и не
+  // уходит в заявку на удаление), но «на проверку СБ» её не ставим: руководству —
+  // уведомление, закрытая запись в хронологии остаётся.
+  const securityAutoOn = needsSecurityReview && (await securityAutomationOn());
   const openDeal = await prisma.deal.findFirst({
     where: { clientId: client.id, stage: { notIn: ["COMPLETED", "CANCELLED"] } },
     select: { id: true },
@@ -364,7 +370,7 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
           // Статус карточки отказ больше не трогает: «Горячий»/«Холодный» сняты
           // вместе с остальными статусами-папками (16.11.2026).
           ...(needsSecurityReview
-            ? { securityReview: "PENDING" as const, securityReviewedAt: null, securityReviewedById: null }
+            ? securityAutoOn ? { securityReview: "PENDING" as const, securityReviewedAt: null, securityReviewedById: null } : {}
             : needsManagementDecision ? {}
             : escalate
               ? { ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}) }
@@ -409,6 +415,11 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
       url: `/clients/${client.shortId}`,
       tag: `refusal-${client.id}`,
     }).catch(() => {});
+  } else if (needsSecurityReview && !securityAutoOn) {
+    // Запись «причина требует внутренней проверки» уже легла в хронологию выше.
+    void reportSecuritySignal({ clientId: client.id, subjectAgentId: client.assignedAgentId, source: "refusal-investigation",
+      dedupeKey: `refusal:${client.id}:${refusalCount}`, writeTimeline: false,
+      what: `агент оформил отказ с причиной «${reasonLabel}»${comment?.trim() ? `: ${comment.trim().slice(0, 80)}` : ""}. Карточка осталась у агента` });
   } else if (needsSecurityReview) {
     // Зовём тех, у кого есть право проверять, — по праву, а не по роли.
     // Часы алармов (владелец 07.09.2026): карточка уже ушла в очередь СБ прямо
@@ -475,7 +486,7 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
     isHot,
     refusalCount,
     transferred: !!nextAgentId,
-    securityReview: needsSecurityReview,
+    securityReview: securityAutoOn,
     nextAgentId,
     message: needsManagementDecision
       ? "Отказ сохранён. Текущая работа сохранена до решения руководителя"
