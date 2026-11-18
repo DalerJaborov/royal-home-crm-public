@@ -4,6 +4,7 @@ import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { isWithinAlarmHours } from "./workingHours.js";
 import { logTimeline } from "./timeline.js";
 import { sellerSwitchOn } from "./sellerSwitches.js";
+import { reportSecuritySignal, securityAutomationOn } from "./securityAutomation.js";
 
 const DAY_MS = 86_400_000;
 
@@ -147,11 +148,24 @@ export async function escalateSellerPropertyMissing(now: Date = new Date()): Pro
   const critical = items.filter((i) => i.level === "CRITICAL" && i.securityReview === null);
   if (critical.length === 0) return { escalated: 0 };
 
+  // Автоматика СБ выключена (владелец 18.11.2026): на проверку не передаём, карточку не
+  // трогаем — сигнал в дело и уведомлением директору и РОП. Дедуп — по моменту приёма
+  // объекта: тик каждые 30 минут один и тот же случай второй раз не шлёт.
+  if (!(await securityAutomationOn())) {
+    for (const c of critical) {
+      await reportSecuritySignal({ clientId: c.id, subjectAgentId: c.assignedAgent?.id ?? null,
+        source: "sellerPropertyMissingAntifraud",
+        dedupeKey: `seller-property-missing:${c.id}:${c.propertyAcceptedAt.getTime()}`,
+        what: `продавец принят в работу ${c.daysSince} дн назад, а карточки объекта всё ещё нет` });
+    }
+    return { escalated: 0 };
+  }
+
   let escalated = 0;
   for (const c of critical) {
     const result = await prisma.client.updateMany({
       where: { id: c.id, securityReview: null },
-      data: { securityReview: "PENDING" },
+      data: { securityReview: "PENDING", securityReviewRequestedAt: new Date() },
     });
     if (result.count === 0) continue; // securityReview сменился между чтением и записью — уже не наш случай
 

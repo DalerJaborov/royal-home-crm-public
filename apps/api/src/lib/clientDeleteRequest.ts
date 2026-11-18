@@ -49,13 +49,24 @@ export async function fileEndOfWorkDeleteRequest(
   requestedById: string | null,
   comment: string
 ): Promise<void> {
-  const note = async (text: string) =>
-    logTimeline({
+  // Заявка не завелась — одной строки в хронологии мало: её никто не увидит, и
+  // карточка повиснет ничьей (ревью 18.11.2026). Руководству — уведомление.
+  const note = async (text: string) => {
+    await logTimeline({
       clientId: client.id,
       actor: { kind: "system", source: "refuse", subjectAgentId: client.assignedAgentId },
       type: "SYSTEM",
       notes: text,
     }).catch(() => {});
+    const card = await prisma.client.findUnique({ where: { id: client.id }, select: { shortId: true, fullName: true } }).catch(() => null);
+    if (card) void enqueueDirectorAlert({
+      title: `⚠️ ${card.fullName}: решите судьбу карточки`,
+      body: text,
+      url: `/clients/${card.shortId}`,
+      tag: `end-of-work-unfiled-${client.id}`,
+      recipientPermission: "clients.delete",
+    });
+  };
   if (!requestedById) {
     await note("Работа завершена, но заявку на удаление завести не от кого: у карточки нет агента. Решение — за руководителем");
     return;

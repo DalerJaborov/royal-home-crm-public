@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **782**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **4139**. Модулей: **87**.
+Путей: **778**. Развилок в самих путях: **2490**; вместе с задачами по расписанию и фоновыми заданиями — **4129**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3819,7 +3819,6 @@
   · всё внутри — одной транзакцией
   · обращается к базе своим SQL
   · читает в базе: client
-  · читает в базе: deal
   · меняет в базе: client
   - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
     · обращается к базе своим SQL
@@ -3828,9 +3827,11 @@
   - если !current || current.deletedAt || current.securityReview !== "PENDING"
     - return null;
       · дословно из кода
-  - const openDeal = await tx.deal.findFirst({ where: { clientId: client.id, stage: { notIn: ["COMPLETED", "CANCE…
-    · читает в базе: deal
-  - await tx.client.update({ where: { id: client.id }, data: { securityReview: verdict, securityReviewedAt: new D…
+  - const automationOn = await securityAutomationOn(tx);
+    · зовёт securityAutomationOn()
+  - const blocker = await securityReviewCloseBlocker(tx, current);
+    · зовёт securityReviewCloseBlocker()
+  - await tx.client.update({ where: { id: client.id }, data: { ...(reopen ? { assignmentRefusedAt: null, assignme…
     · меняет в базе: client
   - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", ou…
     · зовёт logTimeline()
@@ -3841,18 +3842,24 @@
     · ответ 409 — «Проверка уже завершена или карточка изменилась — обновите страницу»
 - logAudit(req, "CLIENT_SECURITY_REVIEW", "Client", client.id, { verdict });
   · зовёт logAudit()
-- если reviewed.close
+- если reviewed.outcome === "trash"
   - const trashed = await trashClient(client.id, req.agent!.id, { notifyHolder: false });
     · зовёт trashClient()
-  - если !trashed.ok
-    - console.error("[security-review] карточка не убрана в Корзину:", trashed.error);
-      · пишет строку в журнал сервера
+  - если trashed.ok
+    - message = `${label}. Карточка ушла в Корзину`;
+      · дословно из кода
+  - иначе
+    - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", in…
+      · зовёт logTimeline()
+- иначе если reviewed.outcome === "delete-request"
+  - await fileEndOfWorkDeleteRequest(client, client.assignedAgentId ?? req.agent!.id, "Работа по карточке заверше…
+    · зовёт fileEndOfWorkDeleteRequest()
 - void (async ()
   - const reviewers = await findAgentsWithPermission("clients.securityReview");
     · зовёт findAgentsWithPermission()
   - await closeLeadPushNotifications(reviewers.map((id)
     · зовёт closeLeadPushNotifications()
-- res.json({ ok: true, verdict, message: label });
+- res.json({ ok: true, verdict, message });
   · ответ 200
 
 ### GET /api/v1/clients/:id/seller-object
@@ -13932,94 +13939,6 @@
     - return res.status(404).json({ error: "Запрос не найден" });
       · ответ 404 — «Запрос не найден»
 
-### GET /api/v1/properties/narration-music/:id/file
-
-`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- если !hasMarketingRole(req.agent)
-  - return res.status(403).json({ error: "Музыка доступна маркетингу и руководству" });
-    · ответ 403 — «Музыка доступна маркетингу и руководству»
-- const id = narrationMusicIdSchema.safeParse(req.params.id);
-  · проверяет данные схемой narrationMusicIdSchema
-- если !id.success
-  - return res.status(400).json({ error: "Некорректный трек" });
-    · ответ 400 — «Некорректный трек»
-- const row = await prisma.narrationMusicTrack.findUnique({ where: { id: id.data }, select: { storageKey: true,…
-  · читает в базе: narrationMusicTrack
-- const file = row ? localVideoFilePath(row.storageKey) : null;
-  · зовёт localVideoFilePath()
-- если !row || !file
-  - return res.status(404).json({ error: "Трек не найден" });
-    · ответ 404 — «Трек не найден»
-- res.setHeader("Cache-Control", "private, max-age=3600");
-  · ставит заголовок ответа
-- res.type(row.format === "m4a" ? "audio/mp4" : "audio/mpeg").sendFile(file, (err)
-  · ответ 404 — «Файл трека не найден на сервере»
-  · ставит заголовок ответа
-  - если err && !res.headersSent
-    - res.status(404).json({ error: "Файл трека не найден на сервере" });
-      · ответ 404 — «Файл трека не найден на сервере»
-
-### DELETE /api/v1/properties/narration-music/:id
-
-`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- если !canConfigure(req.agent!.role)
-  - return res.status(403).json({ error: "Музыку удаляет руководство" });
-    · ответ 403 — «Музыку удаляет руководство»
-- const id = narrationMusicIdSchema.safeParse(req.params.id);
-  · проверяет данные схемой narrationMusicIdSchema
-- если !id.success
-  - return res.status(400).json({ error: "Некорректный трек" });
-    · ответ 400 — «Некорректный трек»
-- если !(await deleteNarrationMusicTrack(id.data))
-  - return res.status(404).json({ error: "Трек не найден" });
-    · ответ 404 — «Трек не найден»
-- logAgentAudit(req.agent!.id, "NARRATION_MUSIC_DELETED", "NarrationMusicTrack", id.data, {});
-  · зовёт logAgentAudit()
-- res.json({ ok: true });
-  · ответ 200
-
-### GET /api/v1/properties/narration-music
-
-`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- если !hasMarketingRole(req.agent)
-  - return res.status(403).json({ error: "Музыка доступна маркетингу и руководству" });
-    · ответ 403 — «Музыка доступна маркетингу и руководству»
-- const tracks = await narrationMusicTracks();
-  · зовёт narrationMusicTracks()
-- res.json(view);
-  · ответ 200
-
-### POST /api/v1/properties/narration-music
-
-`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, narrationMusicUpload.single("file")
-
-- если !canConfigure(req.agent!.role)
-  - return res.status(403).json({ error: "Музыку загружает руководство" });
-    · ответ 403 — «Музыку загружает руководство»
-- const fields = narrationMusicUploadSchema.safeParse({ ...(typeof req.body?.title === "string" ? { title: req.…
-  · проверяет данные схемой narrationMusicUploadSchema
-- если !fields.success
-  - return res.status(400).json({ error: "Название трека — до 80 знаков" });
-    · ответ 400 — «Название трека — до 80 знаков»
-- если !req.file
-  - return res.status(400).json({ error: "Выберите файл mp3 или m4a" });
-    · ответ 400 — «Выберите файл mp3 или m4a»
-- если await prisma.narrationMusicTrack.count() >= NARRATION_MUSIC_LIMITS.maxTracks
-  - return res.status(409).json({ error: `В библиотеке уже ${NARRATION_MUSIC_LIMITS.maxTracks} треков: удалите ли…
-    · ответ 409 — «В библиотеке уже ${NARRATION_MUSIC_LIMITS.maxTracks} треков: удалите…»
-- const added = await addNarrationMusicTrack({ buffer: req.file.buffer, title, createdById: req.agent!.id });
-  · зовёт addNarrationMusicTrack()
-- если !added.ok
-  - return res.status(added.status).json({ error: added.error });
-    · ответ (код зависит от условия)
-- logAgentAudit(req.agent!.id, "NARRATION_MUSIC_ADDED", "NarrationMusicTrack", added.id, { title });
-  · зовёт logAgentAudit()
-- res.status(201).json({ id: added.id });
-  · ответ 201
-
 ### GET /api/v1/properties/narration-options
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
@@ -14054,7 +13973,7 @@
 - если unreadable
   - return res.status(409).json({ error: "Сохранённые настройки озвучки не читаются, поэтому сохранение остановле…
     · ответ 409 — «Сохранённые настройки озвучки не читаются, поэтому сохранение…»
-- const parsed = narrationConfigSchema.safeParse(since ? { ...withoutSince, ownMusicRemixSince: since } : witho…
+- const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…
   · проверяет данные схемой narrationConfigSchema
 - если !parsed.success
   - return res.status(400).json({ error: "Проверьте модель и список голосов", details: parsed.error.flatten() });
@@ -15912,7 +15831,7 @@
 - если !canReadInvestigations(req)
   - delete (response as Record<string, unknown>).postShowingCallEnabled;
     · дословно из кода
-  - delete (response as Record<string, unknown>).investigationCaseConfig;
+  - delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];
     · дословно из кода
 - res.json(response);
   · ответ 200
@@ -15922,6 +15841,9 @@
 `apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- если Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - const parsed = settingsUpdateSchema.safeParse(req.body);
@@ -20049,7 +19971,7 @@
         - await prisma.botAuditFinding.createMany({ data: findings.map((f)
           · создаёт в базе: botAuditFinding
         - если conv.clientId && findings.some((f) => f.type === "agent_bypassed_crm")
-          - await flagAgentBypassSuspicion(conv.clientId);
+          - await flagAgentBypassSuspicion(conv.clientId, conv.id);
             · дословно из кода
       - если сорвалось
         - void logSystemError("ai", `Аудит диалога ${conv.id} не удался: ${describeError(err)}`);
@@ -21149,9 +21071,6 @@
       - если row.videoMasterStorageKey
         - rawRefs.add(row.videoMasterStorageKey);
           · дословно из кода
-    - для каждого: const row of await prisma.narrationMusicTrack.findMany({ select: { storageKey: true } })
-      - rawRefs.add(row.storageKey);
-        · дословно из кода
     - const candidates = planDiskCleanup(files, facts, nowMs);
       · зовёт planDiskCleanup()
     - для каждого: const file of files
@@ -23458,8 +23377,13 @@
       · запись в журнал ошибок
       - void logSystemError("telegram", `Озвучка: напоминания об одобрении не ушли: ${err instanceof Error ? err.mess…
         · запись в журнал ошибок
-  - report.remixed = await remixFromMasters();
-    · зовёт remixFromMasters()
+
+### narration-auto-master — * * * * *
+
+- await runMachineMastersTick();
+  · зовёт runMachineMastersTick()
+  - return runMachineMasters(machineMasterDeps, now);
+    · зовёт runMachineMasters()
 
 ### narration-preview-due — * * * * *
 
@@ -24454,6 +24378,10 @@
     - если critical.length === 0
       - return { escalated: 0 };
         · дословно из кода
+    - если !(await securityAutomationOn())
+      - для каждого: const c of critical
+        - await reportSecuritySignal({ clientId: c.id, subjectAgentId: c.assignedAgent?.id ?? null, source: "sellerProp…
+          · зовёт reportSecuritySignal()
     - для каждого: const c of critical
       - const result = await prisma.client.updateMany({ where: { id: c.id, securityReview: null }, data: { securityRe…
         · меняет в базе: client
