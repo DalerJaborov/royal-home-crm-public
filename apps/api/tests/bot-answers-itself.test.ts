@@ -3,7 +3,7 @@ import { staffSignalAllowed, type StaffSignalKind } from "../src/lib/botAnswersI
 import { clientWaitingSignalKind } from "../src/lib/clientWaitingAlert.js";
 import { channelStaffSignalKind } from "../src/lib/channelStaffAlert.js";
 import { ATTACHMENT_UNREADABLE, COMMENT_PHONE_DM, COMMENT_PHONE_PUBLIC, COMMENT_SELF_REPLY, commentPhonePublicReply, commentSelfReply,
-  SELF_ASK_PHONE, SELF_NO_OFFICE, SELF_OFFICE, selfAnswerLine, selfAnswerLines, selfLanguageOf } from "../src/ai/botSelfAnswerText.js";
+  SELF_ASK_PHONE, SELF_CALLBACK_ASK, SELF_NO_OFFICE, SELF_OFFICE, selfAnswerLine, selfAnswerLines, selfCallbackRequested, selfLanguageOf } from "../src/ai/botSelfAnswerText.js";
 import { commentPhoneReplyOf } from "../src/lib/commentPhoneHold.js";
 import { COMMENT_HISTORY_PREFIX, commentPhoneDmInHistory } from "../src/messengers/commentPhoneLead.js";
 import { isDefinitiveSendRejection } from "../src/messengers/meta.js";
@@ -31,6 +31,10 @@ describe("staffSignalAllowed — таблица сигналов", () => {
       expect(staffSignalAllowed({ on: true, kind, ownAgent: true })).toBe(true);
       expect(staffSignalAllowed({ on: true, kind, hasCard: true })).toBe(true);
     }
+  });
+
+  it("ВКЛ: номер клиента известен, а заявки нет — сигнал идёт (ревью #283: «позвоните мне завтра» не теряется)", () => {
+    for (const kind of kinds) expect(staffSignalAllowed({ on: true, kind, phoneKnown: true })).toBe(true);
   });
 
 });
@@ -90,18 +94,37 @@ describe("фразы «бот отвечает сам» и номера из к�
     expect(COMMENT_PHONE_DM.tg).not.toMatch(/ҷалб/u);
   });
 
-  it("безопасная фраза ведёт к номеру; номер уже просили или он известен — телефон офиса, второй просьбы нет", () => {
-    expect(selfAnswerLine("tg", false)).toBe(SELF_ASK_PHONE.tg);
-    expect(selfAnswerLine("ru", true)).toBe(SELF_OFFICE.ru);
-    expect(selfAnswerLine("ru", false, true)).toBe(SELF_OFFICE.ru);
+  it("безопасная фраза ведёт к номеру; номер уже просили — телефон офиса, второй просьбы нет", () => {
+    expect(selfAnswerLine("tg", { phoneAsked: false })).toBe(SELF_ASK_PHONE.tg);
+    expect(selfAnswerLine("ru", { phoneAsked: true })).toBe(SELF_OFFICE.ru);
     expect(SELF_OFFICE.ru).toContain("+992 44 650 14 14");
   });
 
   it("телефон офиса Royal Home — только своему бренду: аккаунту Арвана номер не называем (ревью 1b, №10)", () => {
-    expect(selfAnswerLine("tg", true, false, "Арван")).toBe(SELF_NO_OFFICE.tg);
-    expect(selfAnswerLine("ru", false, true, "Арван")).toBe(SELF_NO_OFFICE.ru);
+    expect(selfAnswerLine("tg", { phoneAsked: true, brandName: "Арван" })).toBe(SELF_NO_OFFICE.tg);
     expect(SELF_NO_OFFICE.ru + SELF_NO_OFFICE.tg).not.toMatch(/\d{3}/u);
-    expect(selfAnswerLine("ru", false, false, "Арван")).toBe(SELF_ASK_PHONE.ru);
+    expect(selfAnswerLine("ru", { phoneAsked: false, brandName: "Арван" })).toBe(SELF_ASK_PHONE.ru);
+  });
+
+  it("ревью #283: клиент просит перезвонить — просьба номера, а не «позвоните нам», даже если номер уже просили", () => {
+    for (const phoneAsked of [false, true]) {
+      for (const brandName of [null, "Арван"]) {
+        expect(selfAnswerLine("ru", { phoneAsked, brandName, callback: true })).toBe(SELF_CALLBACK_ASK.ru);
+        expect(selfAnswerLine("tg", { phoneAsked, brandName, callback: true })).toBe(SELF_CALLBACK_ASK.tg);
+      }
+    }
+    expect(SELF_CALLBACK_ASK.ru + SELF_CALLBACK_ASK.tg).not.toMatch(/\d{3}|позвоните нам|занг занед/iu);
+  });
+
+  it("просьба перезвонить узнаётся; «можно вам позвонить?» и «не звоните» — нет", () => {
+    for (const text of ["Позвоните мне завтра", "Перезвоните мне, пожалуйста", "Можете перезвонить мне?", "Наберите мне вечером",
+      "Мне перезвоните", "позвоните завтра после обеда", "Ба ман занг занед", "Занг занед ба ман пагоҳ"]) {
+      expect(selfCallbackRequested(text), text).toBe(true);
+    }
+    for (const text of ["Можно вам позвонить?", "Куда позвонить?", "Не звоните мне, пишите сюда", "Звонить не надо",
+      "Занг назанед", "Сколько стоит квартира?", "Мне нужна двухкомнатная"]) {
+      expect(selfCallbackRequested(text), text).toBe(false);
+    }
   });
 
   it("под постом номер уже оставлен — второй раз его не просим (ревью 1b, №8)", () => {

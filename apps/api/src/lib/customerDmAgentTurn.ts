@@ -49,7 +49,7 @@ import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
 import { loadBotAnswersItself } from "./botAnswersItself.js";
 import { isAccountSendBlocked } from "./metaSendBlock.js";
-import { selfAnswerLine, selfAnswerLines } from "../ai/botSelfAnswerText.js";
+import { selfAnswerLine, selfAnswerLines, selfCallbackRequested } from "../ai/botSelfAnswerText.js";
 import { enqueueRecruitmentCandidateAlertTx } from "./customerRecruitmentAlert.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
@@ -333,6 +333,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // principal changed, every candidate line would be a repeat): the caller keeps the old held path.
     /** The bot's own last line asked the customer something: a bare «Да» is then an answer (re-review #205, Н-3). */
     const lastBotAsked = () => /[?？]/u.test(remembered.context.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? "");
+    /** «Бот отвечает сам»: страховочная дверь оформила заявку этим ходом — карточка будет, людей отдельно не зовём. */
+    let safetyLineMadeLead = false;
     const planSafetyLine = async (why: string): Promise<CustomerDmAgentTurnResult | null> => {
       try {
         // Lead-only mode: no «the agent will tell» and no staff signal before a lead (owner 13.11.2026). The mode's own
@@ -349,16 +351,33 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         const memory = customerSafetyMemory(assistantTexts, l => blocked.has(l));
         // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): без карточки человека не зовут — фраза «это скажет агент»
         // стала бы обещанием, которое некому выполнить. Выход из тупика — один шаг к номеру (номер есть — телефон офиса).
-        const selfAnswer = !jobTopicTurn && await loadBotAnswersItself() && !(await customerConversationHasCard(lane.ticket.conversationId));
+        let selfAnswer = !jobTopicTurn && await loadBotAnswersItself() && !(await customerConversationHasCard(lane.ticket.conversationId));
+        const callback = selfAnswer && selfCallbackRequested(fullInput());
+        if (selfAnswer && (lane.context.knownPhoneSource !== "none" || callback)) {
+          /**
+           * Номер известен (WhatsApp, номер в переписке) или клиент просит перезвонить (ревью #283: на «позвоните мне завтра»
+           * бот отвечал «позвоните нам сами» и заявка терялась). Номер есть — это заявка агенту (решение владельца 13.11:
+           * лид = номер): та же дверь, что у режима «только заявки» — задание приёма в одной транзакции с ответом, время звонка
+           * в пометке карточки, «прочие обращения» без обещания звонка. Сам режим при этом не включается: дверь берёт только
+           * этот ход.
+           */
+          const plan = await leadOnlyTurn("escalate", why !== "staff_or_supported_reply_required" && why !== "repeat_shield",
+            { ...leadOnlyConfig, enabled: true, useWhatsappNumber: true });
+          if (plan?.intake) { safetyLineMadeLead = true; return await planLeadOnly(plan); }
+          // Номер известен, а заявку оформить нельзя (канал вне двери, приём не нашёл номер): «позвоните нам» было бы
+          // отказом — прежний путь, человек узнаёт (как в main; staffSignalAllowed пропускает сигнал с известным номером).
+          if (lane.context.knownPhoneSource !== "none") selfAnswer = false;
+        }
         // Телефон офиса — только своему бренду: аккаунту Арвана номер Royal Home не называем (ревью 1b, №10).
-        const line = selfAnswer ? selfAnswerLine(language, memory.phoneAsked, lane.context.knownPhoneSource !== "none",
-          await (await import("../messengers/accounts.js")).accountBrandName(planningPrincipal.scope.accountId))
+        const line = selfAnswer ? selfAnswerLine(language, { phoneAsked: memory.phoneAsked, callback,
+          brandName: await (await import("../messengers/accounts.js")).accountBrandName(planningPrincipal.scope.accountId) })
           : customerSafetyLine(language, lane.context.knownPhoneSource, memory);
         if (blocked.has(line) || !await current(linkWait)) return null;
         const partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
           parts: [{ payload: { kind: "text" as const, text: line } }] }));
         // The model's own escalate keeps its push with the customer's words (caller); every other line is one follow_up.
-        if (why !== "staff_or_supported_reply_required") void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn);
+        if (why !== "staff_or_supported_reply_required") void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn,
+          lane.context.knownPhoneSource !== "none");
         void logSystemError("ai", `Бот не смог ответить по существу (${why}) — клиенту ушла короткая фраза «это скажет агент», ответственному — сигнал`,
           { dedupKey: `customer-safety-line:${why}`, quietPult: true });
         return { status: "planned", partIds };
@@ -367,7 +386,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         return null;
       }
     };
-    const leadOnlyTurn = (forced?: "escalate", modelFailed = false) => planCustomerLeadOnlyTurn({ config: leadOnly,
+    const leadOnlyTurn = (forced?: "escalate", modelFailed = false, config = leadOnly) => planCustomerLeadOnlyTurn({ config,
       channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer, conversationId: lane.ticket.conversationId,
       eventKey: claim.eventKey, language, inputText: fullInput(), focusPropertyId: leadOnlyFocusId, focusFromThisMessage: leadOnlyFocusFresh,
       turns: remembered.context.turns, sentTexts: leadOnlySent, jobTopic: remembered.context.publicState.topic === "job", ...(forced ? { forced } : {}),
@@ -636,7 +655,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
           // «Передать сотруднику»: the person still gets the customer's own words (review #205, С-3), as before this change.
           if (result.status === "ready" && result.decision.kind === "escalate") {
             await notifyEscalatedCustomerTurn({ conversationId: lane.ticket.conversationId, channel: lane.principal.scope.channel,
-              text: fullInput(), jobTopic: remembered.context.publicState.topic === "job", answered: true });
+              text: fullInput(), jobTopic: remembered.context.publicState.topic === "job", answered: true,
+              phoneKnown: lane.context.knownPhoneSource !== "none" && !safetyLineMadeLead });
           }
           return planned;
         }
@@ -859,10 +879,13 @@ async function customerConversationHasCard(conversationId: string | null | undef
 }
 
 /** The follow-up signal of a reply that promised an agent (15.11.2026). Exported for the class test; never throws. */
-export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number, jobTopic = false): Promise<"agent" | "director" | "already" | "skipped"> {
+export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number, jobTopic = false,
+  /** Номер клиента известен: при «бот отвечает сам» сигнал всё равно идёт (lib/botAnswersItself.ts, phoneKnown). */
+  phoneKnown = false): Promise<"agent" | "director" | "already" | "skipped"> {
   try {
     const { alertClientWaiting } = await import("./clientWaitingAlert.js");
-    const outcome = await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs), jobTopic });
+    const outcome = await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs), jobTopic,
+      ...(phoneKnown ? { phoneKnown: true } : {}) });
     // Meta keeps its four outcomes (review 0e463b02 N5 is the channel door's); «бот отвечает сам» (`self`) — никого не звали.
     return outcome === "excluded" || outcome === "self" ? "skipped" : outcome;
   } catch (error) {

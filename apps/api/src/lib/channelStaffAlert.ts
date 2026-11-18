@@ -42,13 +42,16 @@ export async function alertChannelStaff(input: { channel: string;
   /** TelegramConversation.id for TELEGRAM, TelegramDirectConversation.id for TELEGRAM_DIRECT, BotConversation.id otherwise. */
   conversationId: string | null | undefined; text: string; why: ChannelStaffWhy;
   /** Provider message id of the customer's message (dedupe of one message); null = batch window. */
-  eventId?: string | null }): Promise<"sent" | "already" | "skipped" | "excluded" | "self"> {
+  eventId?: string | null;
+  /** Номер клиента известен: при «бот отвечает сам» человек всё равно узнаёт — это заявка (lib/botAnswersItself.ts). */
+  phoneKnown?: boolean }): Promise<"sent" | "already" | "skipped" | "excluded" | "self"> {
   try {
     if (!input.conversationId) return "skipped";
     if (input.channel !== "TELEGRAM" && input.channel !== "TELEGRAM_DIRECT") {
       const { alertClientWaiting } = await import("./clientWaitingAlert.js");
       const outcome = await alertClientWaiting(HANDED_OVER.has(input.why)
-        ? { conversationId: input.conversationId, trigger: "handover", why: `${WHY_TEXT[input.why]}${HANDED_OVER_NOTE}` }
+        ? { conversationId: input.conversationId, trigger: "handover", why: `${WHY_TEXT[input.why]}${HANDED_OVER_NOTE}`,
+          ...(input.phoneKnown ? { phoneKnown: true } : {}) }
         : { conversationId: input.conversationId, trigger: "failed", why: WHY_TEXT[input.why] });
       // «Уже сказали» (сторож молчания или прошлый ход занял эпизод) — не «некого»: клиенту можно сказать «передал» (R1-2).
       // `excluded` (client in the trash, no chat): no signal by design — the door stays silent instead (review 0e463b02 N5).
@@ -64,7 +67,7 @@ export async function alertChannelStaff(input: { channel: string;
     const owner = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
     // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): чат без карточки и без своего агента — руководство не зовём,
     // клиенту вместо «передал сотруднику» бот сам отвечает шагом к номеру (ai/legacyQualifyDoor.ts).
-    const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId };
+    const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId, phoneKnown: input.phoneKnown === true };
     if (!staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal })) return "self";
     const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
     if (!recipients.length) {

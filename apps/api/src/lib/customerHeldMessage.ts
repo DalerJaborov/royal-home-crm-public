@@ -192,7 +192,9 @@ export async function notifyEscalatedCustomerTurn(input: { conversationId: strin
   /** Разговор о вакансии: его ведёт рекрутер прежним путём, режим «только заявки» его не глушит. */
   jobTopic?: boolean;
   /** Клиенту уже ушла безопасная строка (дверь ядра planSafetyLine): при «бот отвечает сам» — ни пуша, ни журнала. */
-  answered?: boolean }): Promise<"sent" | "skipped"> {
+  answered?: boolean;
+  /** Номер клиента известен, а заявку этим ходом не оформили: сигнал идёт при любой настройке (lib/botAnswersItself.ts). */
+  phoneKnown?: boolean }): Promise<"sent" | "skipped"> {
   try {
     const chat = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: { clientId: true } });
     if (!chat) return "skipped";
@@ -201,7 +203,8 @@ export async function notifyEscalatedCustomerTurn(input: { conversationId: strin
     if (!chat.clientId && !input.jobTopic && await leadOnlyQuietBeforeLead(input.channel)) return "skipped";
     // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): клиенту уже ушла безопасная строка, а карточки (значит, и
     // своего агента) нет — руководство не зовём. Клиент ответа не получил — сбой, сигнал как раньше (ревью 1b, №1).
-    const signal = { kind: input.answered ? "answered_handover" as const : "unanswered" as const, hasCard: !!chat.clientId };
+    const signal = { kind: input.answered ? "answered_handover" as const : "unanswered" as const, hasCard: !!chat.clientId,
+      phoneKnown: input.phoneKnown === true };
     if (!input.jobTopic && !staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal })) {
       return "skipped";
     }

@@ -129,7 +129,8 @@ beforeAll(async () => {
   settingsBefore = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botEnabled: true, metaEnabled: true,
     botInstagramEnabled: true, botWhatsappEnabled: true, geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
     botLeadOnlyMode: true, botUseWhatsappNumber: true, botMaxPhoneAsks: true, botHotIntentHandover: true,
-    workHoursStart: true, workHoursEnd: true, botCanRequestCallback: true, botCanAskOwner: true, botCanBookShowings: true } });
+    workHoursStart: true, workHoursEnd: true, botCanRequestCallback: true, botCanAskOwner: true, botCanBookShowings: true,
+    botAnswersItself: true } });
   policyBefore = await prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" } });
   const [row] = await prisma.$queryRaw<Array<{ rolloutConfig: unknown }>>`SELECT "rolloutConfig" FROM "CustomerRuntimePolicy" WHERE "id"='singleton'`;
   savedRollout = row.rolloutConfig;
@@ -605,5 +606,64 @@ describe("после заявки, ядро", () => {
       if (!marked) await new Promise(resolve => setTimeout(resolve, 150));
     }
     expect(marked).not.toBeNull();
+  });
+});
+
+/**
+ * «БОТ ОТВЕЧАЕТ САМ» (Settings.botAnswersItself, 18.11.2026) + просьба перезвонить (ревью #283): на «позвоните мне завтра»
+ * бот отвечал «позвоните нам сами» (телефон офиса, потому что номер WhatsApp известен) и никого не звал — заявка терялась.
+ * Теперь известный номер = заявка агенту той же дверью, что и режим «только заявки»; без номера — просьба номера, а не офис.
+ */
+describe("«бот отвечает сам»: просьба перезвонить — заявка, а не «позвоните нам сами»", () => {
+  const office = /650 14 14|позвоните нам|занг занед/iu;
+  const conversationOf = async (eventKey: string) => (await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey },
+    select: { conversationId: true } })).conversationId!;
+  beforeEach(async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false, botAnswersItself: true } });
+  });
+
+  it("WhatsApp: «Позвоните мне завтра после обеда», модель передаёт человеку — заявка на номер отправителя с временем звонка", async () => {
+    const f = await coreFixture("Позвоните мне завтра после обеда, пожалуйста", "WHATSAPP");
+    f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    const text = await plannedText(f.eventKey);
+    expect(text).not.toMatch(office);
+    const id = await conversationOf(f.eventKey);
+    const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } });
+    expect(job.payload).toMatchObject({ scenario: "escalate", conversationId: id });
+    await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date() } });
+    expect(await runCustomerLeadOnlyIntake(job.payload)).toEqual({ status: "accepted" });
+    const conv = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+    expect(conv.clientId).not.toBeNull();
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: conv.clientId! }, select: { phone: true, requirementsNotes: true } });
+    expect(client.phone.replace(/\D/g, "")).toBe(f.peer);
+    // Время звонка доходит до агента: пометка в карточке, событие или черновик заявки разговора.
+    const interactions = await prisma.interaction.findMany({ where: { clientId: conv.clientId! } });
+    const draft = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { leadDraft: true } });
+    expect(JSON.stringify([client.requirementsNotes, interactions, draft.leadDraft])).toMatch(/завтра/u);
+  });
+
+  it("Instagram без номера: «Перезвоните мне» — просьба номера, а не телефон офиса; заявки без номера нет", async () => {
+    const f = await coreFixture("Перезвоните мне, пожалуйста", "INSTAGRAM");
+    f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    const text = await plannedText(f.eventKey);
+    expect(text).not.toMatch(office);
+    expect(text).toMatch(/номер/u);
+    expect(await prisma.backgroundJob.findUnique({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } })).toBeNull();
+    // Номер уже просили, клиент снова просит перезвонить: снова просьба номера, а не «позвоните нам».
+    await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date(), acceptedAt: new Date() } });
+    const again = await f.receive("Перезвоните мне завтра утром");
+    f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    const second = await plannedText(again);
+    expect(second).not.toMatch(office);
+    expect(second).toMatch(/номер/u);
+  });
+
+  it("ВЫКЛ (как в main): тот же ход WhatsApp — прежняя строка и сигнал людям, задания заявки нет", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: false } });
+    const f = await coreFixture("Позвоните мне завтра после обеда, пожалуйста", "WHATSAPP");
+    f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    const text = await plannedText(f.eventKey);
+    expect(text).not.toMatch(office);
+    expect(await prisma.backgroundJob.findUnique({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } })).toBeNull();
   });
 });

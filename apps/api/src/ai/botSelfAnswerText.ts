@@ -10,6 +10,7 @@
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { detectClientLanguage } from "./clientLanguage.js";
 import { extractAllPhones } from "../lib/shared/phoneText.js";
+import { leadOnlyCallbackTime } from "./leadOnlyMode.js";
 
 export type SelfLang = "ru" | "tg";
 type Pair = Record<SelfLang, string>;
@@ -48,17 +49,47 @@ export function selfLanguageOf(text: string): SelfLang {
 }
 
 /**
- * Чистая: безопасная фраза вместо передачи человеку. `phoneAsked` — бот уже просил номер в этом разговоре; `phoneKnown` —
- * номер уже есть (WhatsApp, карточка): второй раз не просим, даём телефон офиса — только своему бренду (`brandName` пуст).
+ * Клиент просит перезвонить, а номера нет (ревью #283: на «позвоните мне завтра» бот отвечал «позвоните нам сами»).
+ * Телефон офиса здесь — отказ в просьбе; просим номер, сколько бы раз уже ни просили (щит повторов не выпустит третий
+ * одинаковый текст — тогда ход уходит прежним путём к людям).
+ * tg — «Рақами телефонатонро нависед» (просьба номера, live-agent-phrases) + «агенти мо … ба шумо занг мезанад»
+ * (COMMENT_PHONE_PUBLIC[2], «Передаю агенту»).
  */
-export function selfAnswerLine(language: SelfLang, phoneAsked: boolean, phoneKnown = false, brandName: string | null = null): string {
-  if (!phoneAsked && !phoneKnown) return SELF_ASK_PHONE[language];
-  return (brandName ? SELF_NO_OFFICE : SELF_OFFICE)[language];
+export const SELF_CALLBACK_ASK: Pair = {
+  ru: "Напишите, пожалуйста, ваш номер телефона, и агент вам перезвонит.",
+  tg: "Рақами телефонатонро нависед, агенти мо ба шумо занг мезанад.",
+};
+
+/**
+ * «Позвоните / перезвоните / наберите мне», «ба ман занг занед», «позвоните завтра в 10» — клиент просит звонка от нас.
+ * Время рядом со словом звонка — та же дверь, что у режима «только заявки» (leadOnlyCallbackTime: отрицание «не звоните»
+ * отсекает она же). «Можно вам позвонить?» сюда не попадает: нет «мне» и нет времени.
+ */
+const CALL_ME = /(?:^|[^\p{L}])(?:(?:пере|по)звон(?:ите|ить|и)|набер(?:ите|и)|набрать|звякн(?:ите|уть|и))(?:[\s,]+\p{L}+){0,2}?[\s,]+мне(?![\p{L}])|(?:^|[^\p{L}])мне[\s,]+(?:(?:пере|по)звон(?:ите|и)|набер(?:ите|и))(?![\p{L}])|(?:^|[^\p{L}])ба[\s,]+ман[\s,]+занг|(?:^|[^\p{L}])занг[\s,]+(?:занед|зан|занетон)[\s,]+ба[\s,]+ман/iu;
+/** «Не звоните мне», «звонить не надо», «занг назанед» — отказ, а не просьба. */
+const CALL_REFUSED = /(?:^|[^\p{L}])не[\s,]+(?:(?:надо|нужно|стоит)[\s,]+)?(?:мне[\s,]+)?(?:(?:пере|по)?звон|набир)|(?:^|[^\p{L}])звонить[\s,]+не[\s,]+(?:надо|нужно)|(?:^|[^\p{L}])занг[\s,]+назан/iu;
+
+/** Чистая: клиент просит, чтобы ему позвонили. */
+export function selfCallbackRequested(text: string): boolean {
+  const own = text ?? "";
+  if (CALL_REFUSED.test(own)) return false;
+  return CALL_ME.test(own) || !!leadOnlyCallbackTime(own);
+}
+
+/**
+ * Чистая: безопасная фраза вместо передачи человеку, когда номера клиента у бота нет (номер известен — это заявка, её
+ * делает вызывающий, а не эта фраза). `phoneAsked` — бот уже просил номер в этом разговоре: второй раз не просим, даём
+ * телефон офиса — только своему бренду (`brandName` пуст). `callback` — клиент сам просит перезвонить: просим номер всегда.
+ */
+export function selfAnswerLine(language: SelfLang, input: { phoneAsked: boolean; brandName?: string | null; callback?: boolean }): string {
+  if (input.callback) return SELF_CALLBACK_ASK[language];
+  if (!input.phoneAsked) return SELF_ASK_PHONE[language];
+  return (input.brandName ? SELF_NO_OFFICE : SELF_OFFICE)[language];
 }
 
 /** Все строки двери (сравнение «уже говорили» и сторож повторов). */
 export function selfAnswerLines(): string[] {
-  return [SELF_ASK_PHONE, SELF_OFFICE, SELF_NO_OFFICE].flatMap(pair => [pair.ru, pair.tg]);
+  return [SELF_ASK_PHONE, SELF_CALLBACK_ASK, SELF_OFFICE, SELF_NO_OFFICE].flatMap(pair => [pair.ru, pair.tg]);
 }
 
 /**

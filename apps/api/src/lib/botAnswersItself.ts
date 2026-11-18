@@ -63,6 +63,12 @@ export interface StaffSignalContext {
   ownAgent?: boolean;
   /** У чата есть карточка клиента (заявка уже есть). */
   hasCard?: boolean;
+  /**
+   * Номер клиента известен (WhatsApp, контакт, номер в переписке), а заявку этим ходом не оформили (ревью #283: «позвоните
+   * мне завтра» → «позвоните нам сами», заявка потеряна). Номер есть — это заявка (решение владельца 13.11: лид = номер):
+   * человек узнаёт, как раньше. Ядро Meta оформляет такую заявку само (lib/customerDmAgentTurn.ts) и сюда не доходит.
+   */
+  phoneKnown?: boolean;
 }
 
 /** Чистая: сигнал людям уходит? Таблица — в шапке файла, тест — tests/bot-answers-itself.test.ts. */
@@ -70,5 +76,6 @@ export function staffSignalAllowed(ctx: StaffSignalContext): boolean {
   if (!ctx.on || ctx.kind === "technical" || ctx.kind === "unanswered") return true;
   if (ctx.ownAgent) return true;
   if (ctx.hasCard) return true;
+  if (ctx.phoneKnown) return true;
   return false;
 }

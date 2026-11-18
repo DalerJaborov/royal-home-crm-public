@@ -276,6 +276,8 @@ export async function alertClientWaiting(input: {
   jobTopic?: boolean;
   /** Аварийный рубильник канала (CUSTOMER_AGENT_CHANNEL_OFF): бот молчит, человек обязан узнать при любой настройке. */
   alwaysTell?: boolean;
+  /** Номер клиента известен, а заявки нет: при «бот отвечает сам» человек всё равно узнаёт (lib/botAnswersItself.ts). */
+  phoneKnown?: boolean;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
@@ -286,7 +288,8 @@ export async function alertClientWaiting(input: {
    * уточнит», ни «передал сотруднику» (клиенту бот уже ответил). Клиент совсем без ответа (escalate/silence) — сбой, сигнал
    * как раньше, один на эпизод. Агент своего клиента, карточка без агента, техсбой, аварийный рубильник и вакансия — как раньше.
    */
-  const signal = { kind: clientWaitingSignalKind(input.trigger, input.alwaysTell === true), ownAgent: !!chat.agentId, hasCard: chat.hasCard };
+  const signal = { kind: clientWaitingSignalKind(input.trigger, input.alwaysTell === true), ownAgent: !!chat.agentId, hasCard: chat.hasCard,
+    phoneKnown: input.phoneKnown === true };
   // Настройку читаем, только когда она может что-то решить (техсбой, свой агент и карточка проходят при любом положении).
   const selfAnswer = !input.jobTopic && staffSignalAllowed({ on: true, ...signal }) === false &&
     !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal });
