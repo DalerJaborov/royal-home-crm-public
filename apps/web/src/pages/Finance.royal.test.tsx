@@ -52,14 +52,14 @@ const oct: FinanceMonth = {
 
 const render = (url: string) => renderToStaticMarkup(<MemoryRouter initialEntries={[url]}><Finance /></MemoryRouter>);
 /**
- * Все числа страницы в порядке сортировки: «21 000 с.», «-4 501 с.», «7 000».
- * Разряды ru-RU разделены неразрывным пробелом — им и склеиваем, чтобы две
- * соседние суммы через обычный пробел не слились в одну.
+ * Все числа страницы, отсортированные: «21 000 с.», «-4 501 с.», «7 000», «850»,
+ * «539,5 с.», «20 %» — любой длины, с дробью и процентом. Оба вида разбираются
+ * одним шаблоном, так что одинаковая склейка соседних чисел их не различит.
  */
 const sums = (html: string) => {
-  const text = html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, "\u00a0").replace(/[ \t\n]+/g, " ");
-  return [...text.matchAll(/-?\d{1,3}(?:[\u00a0\u202f]\d{3})+(?:,\d+)?(?: ?(?:с\.|сомони|\$))?/g)]
-    .map((m) => m[0].replace(/[\u00a0\u202f]/g, " ").trim()).sort();
+  const text = html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/[ \t\n]+/g, " ");
+  return [...text.matchAll(/-?\d{1,3}(?:[   ]\d{3})*(?:[.,]\d+)?(?: ?(?:%|с\.|сомони|\$))?/g)]
+    .map((m) => m[0].replace(/[  ]/g, " ").trim()).sort();
 };
 
 beforeEach(() => {
@@ -86,12 +86,23 @@ describe("«Деньги» в новом виде: те же суммы, что 
     const html = render("/finance?workspace=overview");
     for (const [label, value] of [["Валовая комиссия", "21 000 с."], ["Доход компании", "14 000 с."], ["Операционные расходы", "18 500 с."], ["Прибыль", "-4 501 с."]]) {
       expect(html).toContain(label);
-      expect(html.replace(/[  ]/g, " ")).toContain(value);
+      expect(html.replace(/<[^>]+>/g, "").replace(/[  ]/g, " ")).toContain(value);
     }
     // Убыток — красной плиткой со значком, а не только цветом.
     expect(html).toMatch(/class="ry-money-tile" data-tone="crit"><span class="ry-circle" data-tone="crit">/);
     // Валовые расходы с долями агентов (22 500) обзор по-прежнему НЕ показывает: доли не вычитаются дважды.
     expect(html).not.toContain("22 500");
+  });
+  it("прибыль больше нуля — плитка НЕ красная, со значком роста; убыток — красная со значком «!»", () => {
+    state.royal = true;
+    state.data = { months: [sep, { ...oct, profit: 9450.4 }], usdToTjsRate: 10.9 };
+    const gain = render("/finance?workspace=overview");
+    expect(gain.replace(/[\u00a0\u202f]/g, " ")).toContain("9 450");
+    expect(gain).not.toContain('data-tone="crit"');
+    expect(gain).toMatch(/class="ry-money-tile" data-tone="ok">(?:(?!ry-money-tile").)*Прибыль/);
+    state.data = { months: [sep, oct], usdToTjsRate: 10.9 };
+    const loss = render("/finance?workspace=overview");
+    expect(loss).toMatch(/class="ry-money-tile" data-tone="crit"><span class="ry-circle" data-tone="crit">(?:(?!ry-money-tile").)*Прибыль/);
   });
   it("метка раздела стоит только в новом виде; прежний вид разметкой не тронут", () => {
     state.royal = true;
@@ -121,17 +132,17 @@ describe("«Деньги» в новом виде: те же суммы, что 
 
 describe("кольцо расходов: та же доля и та же подпись, что у полосы прежнего вида", () => {
   const parts = [
-    { key: "OFFICE", tone: "office", value: 2500, title: "Офис: 2 500 с." },
-    { key: "ADVERTISING", tone: "ads", value: 16000, title: "Реклама: 16 000 с." },
-    { key: "SALARY", tone: "salary", value: 0, title: "Зарплаты: 0 с." },
+    { key: "OFFICE", tone: "office", value: 2500, name: "Офис", amount: "2 500 с." },
+    { key: "ADVERTISING", tone: "ads", value: 16000, name: "Реклама", amount: "16 000 с." },
+    { key: "SALARY", tone: "salary", value: 0, name: "Зарплаты", amount: "0 с." },
   ];
   it("пустые категории не рисует, подписи — те же строки", () => {
     const html = renderToStaticMarkup(<RoyalExpenseDonut parts={parts} total={18500} center="18 500 с." caption="всего" />);
     expect(html).toContain("<title>Офис: 2 500 с.</title>");
     expect(html).toContain("<title>Реклама: 16 000 с.</title>");
     expect(html).not.toContain("Зарплаты");
-    expect(html).toContain('aria-label="Распределение расходов"');
-    expect(html).toContain("18 500 с.");
+    expect(html).toContain('aria-label="Распределение расходов: Офис — 2 500 с. — 14 %; Реклама — 16 000 с. — 86 %"');
+    expect(html.replace(/<[^>]+>/g, "")).toContain("18 500 с.");
   });
   it("длины дуг пропорциональны долям (как ширины полосы)", () => {
     const html = renderToStaticMarkup(<RoyalExpenseDonut parts={parts} total={18500} center="" caption="" />);

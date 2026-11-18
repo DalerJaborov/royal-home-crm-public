@@ -1,25 +1,45 @@
+import { RoyalAmount } from "./RoyalAmount";
+
 /**
  * «НОВЫЙ ВИД» раздела «Деньги»: кольцо «на что ушли деньги» во вкладке «Расходы».
  *
  * Та же диаграмма, что полоса `.cef-bar` прежнего вида (ClaudeExpenseFeed), только
- * кольцом: те же категории, те же доли (`total / всего`), та же подпись
+ * кольцом: те же категории, те же доли (`сумма категории / всего`), та же подпись
  * «Категория: сумма» — строки сумм приходят уже отформатированными тем же
- * `claudeMoney`, компонент ничего не считает, кроме длины дуги. Подсказка — по
- * наведению (`<title>`) и с клавиатуры (сегмент в порядке Tab), а суммы всех
- * категорий видны рядом в легенде — на телефоне касание ничего не прячет.
+ * `claudeMoney`, компонент ничего не считает, кроме длины дуги и доли в подписи.
+ * Кольцо — одна картинка (`role="img"`): экранный чтец получает весь перечень
+ * «категория — сумма — доля» одной подписью, дуги в порядок Tab не попадают.
+ * Наведение мышью показывает `<title>` дуги; суммы всех категорий и так видны
+ * рядом в легенде, так что на телефоне касание ничего не прячет.
  */
 export interface RoyalDonutPart {
   key: string;
   /** Тон категории прежнего вида (office/ads/salary/other) — цвет дуги. */
   tone: string;
-  /** Сумма категории в сомони — только для длины дуги. */
+  /** Сумма категории в сомони — для длины дуги и доли. */
   value: number;
-  /** «Категория: сумма» — та же строка, что title у полосы прежнего вида. */
-  title: string;
+  /** Название категории. */
+  name: string;
+  /** Сумма категории, уже отформатированная (`claudeMoney`). */
+  amount: string;
 }
 
-const R = 52;
-const C = 2 * Math.PI * R;
+/** Радиус и длина окружности кольца (viewBox 128×128). Экспорт — для теста долей. */
+export const DONUT_R = 52;
+export const DONUT_C = 2 * Math.PI * DONUT_R;
+/** Просвет между соседними дугами — вычитается из длины каждой дуги, если дуг больше одной. */
+export const DONUT_GAP = 2;
+
+/** Доля в процентах для подписи: целое, как «Доля» в сводке таблицы. */
+function percent(value: number, total: number): number {
+  return Math.round((value / total) * 100);
+}
+
+export function donutLabel(parts: RoyalDonutPart[], total: number): string {
+  const shown = parts.filter((p) => p.value > 0);
+  if (!(total > 0) || !shown.length) return "Распределение расходов: расходов нет";
+  return `Распределение расходов: ${shown.map((p) => `${p.name} — ${p.amount} — ${percent(p.value, total)} %`).join("; ")}`;
+}
 
 export function RoyalExpenseDonut({ parts, total, center, caption, selected }: {
   parts: RoyalDonutPart[];
@@ -32,24 +52,24 @@ export function RoyalExpenseDonut({ parts, total, center, caption, selected }: {
   selected?: string;
 }) {
   const shown = parts.filter((p) => p.value > 0);
+  const gap = shown.length > 1 ? DONUT_GAP : 0;
   let offset = 0;
   return (
     <figure className="ry-donut" data-selected={selected || undefined}>
-      <svg viewBox="0 0 128 128" role="img" aria-label="Распределение расходов">
-        <circle className="ry-donut-track" cx="64" cy="64" r={R} />
+      <svg viewBox="0 0 128 128" role="img" aria-label={donutLabel(parts, total)}>
+        <circle className="ry-donut-track" cx="64" cy="64" r={DONUT_R} />
         {total > 0 && shown.map((p) => {
-          const length = (p.value / total) * C;
+          const length = (p.value / total) * DONUT_C;
           const seg = (
             <circle
               key={p.key}
               className={`ry-donut-seg cef-${p.tone}`}
               data-active={selected === p.key || undefined}
-              cx="64" cy="64" r={R}
-              strokeDasharray={`${Math.max(0, length - (shown.length > 1 ? 2 : 0))} ${C}`}
+              cx="64" cy="64" r={DONUT_R}
+              strokeDasharray={`${Math.max(0, length - gap)} ${DONUT_C}`}
               strokeDashoffset={-offset}
-              tabIndex={0}
             >
-              <title>{p.title}</title>
+              <title>{`${p.name}: ${p.amount}`}</title>
             </circle>
           );
           offset += length;
@@ -57,7 +77,7 @@ export function RoyalExpenseDonut({ parts, total, center, caption, selected }: {
         })}
       </svg>
       <figcaption className="ry-donut-center">
-        <strong className="ry-num">{center}</strong>
+        <strong className="ry-num"><RoyalAmount text={center} /></strong>
         <span>{caption}</span>
       </figcaption>
     </figure>

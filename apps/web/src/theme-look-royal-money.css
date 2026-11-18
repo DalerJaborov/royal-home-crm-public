@@ -43,13 +43,22 @@
   font-family: var(--font-sans, "Onest", system-ui, sans-serif);
   font-size: 15px;
 }
-/* Цвет категорий (офис, реклама, зарплата, прочее) — тот же смысл, что в прежнем виде;
-   ночью чуть светлее, чтобы кольцо и точки не тонули на тёмной карточке. */
+/* Цвет категорий (офис, реклама, зарплата, прочее) — тот же смысл, что в прежнем виде,
+   но насыщеннее: белый значок на круге категории держит >= 4,4:1, а сам круг на ночной
+   карточке — >= 3,6:1 (прежние светлые оттенки давали 1,9–3,7). Одни значения на обе темы. */
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef, .cef-sheet),
+:root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] .cef-sheet {
+  --cef-office: #4a66e8; --cef-ads: #c2571c; --cef-salary: #26836d; --cef-other: #7a68c9;
+}
 :root[data-ui-look="royal"][data-theme="royal-home-2026-night"] [data-ry-section="money"] :is(.cef, .cef-sheet),
 :root[data-ui-look="royal"][data-theme="royal-home-2026-night"] .cef-sheet-backdrop[data-ry-section="money"] .cef-sheet {
-  --cef-office: #7d97ff; --cef-ads: #f09a63; --cef-salary: #5fd08a; --cef-other: #b4a8ec;
   --ry-money-amber: #f2b45a;
 }
+/* Синяя подложка под белым текстом (плита комиссии, «Всего» учредителей, сегодняшнее
+   число, главная кнопка): днём — синий вида (4,9:1), ночью — темнее синего вида,
+   у которого с белым только 4,2:1. Задаётся на корне раздела, окна и шторки. */
+:root[data-ui-look="royal"] [data-ry-section="money"] { --ry-money-solid: #2c66f2; --ry-money-solid-hover: #2459d6; }
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] [data-ry-section="money"] { --ry-money-solid: #2a5fd9; --ry-money-solid-hover: #2457d6; }
 
 /* ================================ страница ================================ */
 
@@ -88,12 +97,13 @@
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-icon-btn { width: 44px; padding: 10px; background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-icon-btn svg { width: 22px; height: 22px; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)) {
-  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
+  background: var(--ry-money-solid); color: #ffffff;
 }
 /* «Оплатил» в каждой строке списка — одно действие строки, но не главное действие экрана:
    мягкий синий, чтобы синяя заливка оставалась только у «+ Расход». */
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-row .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)),
-:root[data-ui-look="royal"] [data-ry-section="money"] .cef-section-head .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)) {
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-section-head .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)),
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-empty .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)) {
   background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
 }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-btn.cef-soft { background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
@@ -102,11 +112,10 @@
 :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger) {
   background: var(--ry-money-crit-soft); color: var(--rh-ui-crit-text); box-shadow: none;
 }
-:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn, .cef-chip, .cef-switch, button, a):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
 @media (hover: hover) {
-  :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):not(:disabled):hover { opacity: 1; filter: none; background-color: var(--rh-ui-hover); }
-  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)):not(:disabled):hover { background: var(--rh-ui-primary-hover); }
-  :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger):not(:disabled):hover { background: color-mix(in srgb, var(--rh-ui-crit) 18%, transparent); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):not(:disabled):not([aria-disabled="true"]):hover { filter: none; background-color: var(--rh-ui-hover); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)):not(:disabled):not([aria-disabled="true"]):hover { background: var(--ry-money-solid-hover); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger):not(:disabled):not([aria-disabled="true"]):hover { background: color-mix(in srgb, var(--rh-ui-crit) 18%, transparent); }
 }
 :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-btn, .cef-icon-btn, .cef-chip):active { transform: scale(.97); }
 
@@ -135,8 +144,13 @@
 /* Крупная сумма — как «Комиссия» на главной: Onest 700, табличные цифры. */
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-kpi {
   font-family: var(--rh-ui-font-num); font-size: 40px; font-weight: 700; line-height: 1.05; letter-spacing: -.035em;
-  font-variant-numeric: tabular-nums; color: var(--rh-ui-text); overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums; color: var(--rh-ui-text);
 }
+/* Крупные суммы не рвутся посреди числа: число одним куском (перенос — только перед
+   «с.»), а при нехватке ширины шрифт уменьшается по ширине своей рамки, не ниже 13 px. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-amount-num { white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-head > div:first-child { flex: 1 1 200px; min-width: 0; container-type: inline-size; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { white-space: nowrap; font-size: clamp(13px, 11cqi, 40px); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-head small { font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
 
 /* Строка списка: круг 48 со значком 24, ~60 px, разделитель, без серой подложки. */
@@ -149,6 +163,9 @@
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-row-button:active { background: var(--rh-ui-press); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-ic { width: 48px; height: 48px; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-ic svg { width: 24px; height: 24px; }
+/* Цвет статьи из настроек (любой, хоть белый) — затемнён до 58 %: белый значок на нём
+   держит >= 3:1 при любом исходном цвете, оттенок статьи узнаётся. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-ic[data-ry-cat] { background-color: color-mix(in srgb, var(--ry-cat) 58%, #000); }
 :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-row-text, .cef-row-copy) :is(strong, b) { font-size: 17px; font-weight: 600; line-height: 1.3; }
 :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-row-text, .cef-row-copy) :is(span, small) { font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-row-text .cef-overdue { color: var(--rh-ui-crit-text); font-weight: 600; }
@@ -223,17 +240,17 @@
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut circle { fill: none; stroke-width: 16; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-track { stroke: var(--rh-ui-raised); }
-:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg { cursor: help; outline: none; transition: opacity 160ms ease; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg { cursor: help; transition: opacity 160ms ease; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg.cef-office { stroke: var(--cef-office); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg.cef-ads { stroke: var(--cef-ads); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg.cef-salary { stroke: var(--cef-salary); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg.cef-other { stroke: var(--cef-other); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut[data-selected] .ry-donut-seg:not([data-active]) { opacity: .28; }
-:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut .ry-donut-seg:focus-visible { opacity: 1; stroke-width: 20; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut-center {
+  container-type: inline-size;
   position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 2px; padding: 0 30px; text-align: center; pointer-events: none;
 }
-:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut-center strong { font-size: 20px; line-height: 1.1; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut-center strong { font-size: clamp(13px, 14cqi, 20px); line-height: 1.15; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut-center span { font-size: 13px; color: var(--rh-ui-hint); }
 
 /* Лента трат по дням. */
@@ -253,12 +270,13 @@
 }
 :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong,
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong {
-  font-family: var(--rh-ui-font-num); font-size: 28px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
+  font-family: var(--rh-ui-font-num); font-size: clamp(13px, 11cqi, 28px); font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
 }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) { container-type: inline-size; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div > span { font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
 /* «Всего» учредителей — синяя плита. Вес выше общего правила карточек (там :is с `> div`),
    иначе белый текст ляжет на белую карточку и итог станет невидимым. */
-:root[data-ui-look="royal"] [data-ry-section="money"] .cef-founder-cards > .cef-founder-card.cef-founder-total { background: var(--rh-ui-primary); color: #ffffff; box-shadow: none; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-founder-cards > .cef-founder-card.cef-founder-total { background: var(--ry-money-solid); color: #ffffff; box-shadow: none; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-founder-cards > .cef-founder-card.cef-founder-total :is(span, em, strong, small) { color: #ffffff; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-row {
   gap: 12px; min-height: 76px; padding: 10px 14px; margin-bottom: 10px; border-radius: var(--rh-ui-r-card);
@@ -298,7 +316,7 @@
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-day.outside { background: transparent; box-shadow: none; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-day.selected { box-shadow: inset 0 0 0 2px var(--rh-ui-primary); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-day[aria-current="date"] .cef-calendar-number {
-  display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
+  display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: var(--ry-money-solid); color: #ffffff;
 }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-number { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-calendar-event { border-radius: 10px; font-size: 13px; background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
@@ -331,8 +349,9 @@
   flex: 1 1 180px; display: grid; gap: 4px; padding: 14px 18px; border-radius: 20px; background: var(--rh-ui-bg);
 }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis small { font-size: 14px; font-weight: 600; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis > div { container-type: inline-size; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis strong {
-  font-family: var(--rh-ui-font-num); font-size: 26px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
+  font-family: var(--rh-ui-font-num); font-size: clamp(13px, 12cqi, 26px); font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
 }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-filters label { display: grid; gap: 6px; flex: 1 1 160px; min-width: 0; font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-filters label.cef-search { display: flex; flex: 2 1 240px; }
@@ -369,17 +388,18 @@
 }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero {
   display: grid; align-content: space-between; gap: 14px; min-width: 0; min-height: 148px; padding: 20px 22px;
-  border-radius: var(--rh-ui-r-tile); background: var(--rh-ui-primary); color: #ffffff;
+  border-radius: var(--rh-ui-r-tile); background: var(--ry-money-solid); color: #ffffff;
+  container-type: inline-size;
 }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-label { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: #ffffff; }
-:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-value { font-size: 40px; line-height: 1; color: #ffffff; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-value { font-size: clamp(13px, 10.5cqi, 40px); line-height: 1.05; color: #ffffff; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile {
   display: grid; align-content: space-between; gap: 14px; min-width: 0; min-height: 148px; padding: 18px 20px;
   border-radius: var(--rh-ui-r-tile); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-text { display: grid; gap: 4px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-text { display: grid; gap: 4px; min-width: 0; container-type: inline-size; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-label { font-size: 15px; font-weight: 600; line-height: 1.25; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-value { font-size: 30px; line-height: 1.05; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-value { font-size: clamp(13px, 11cqi, 30px); line-height: 1.1; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile[data-tone="crit"] .ry-money-tile-value { color: var(--rh-ui-crit-text); }
 
 /* Обзор — блоки старой темы (.rh2 .sec/.card/.trio) в оформлении нового вида. */
@@ -412,6 +432,14 @@
 
 /* Графики: сетка едва видна, подписи 13 px; прибыль — зелёная (убыток красный),
    комиссия — синяя, текущий месяц ярче прошлых. Подсказка — тёмная плашка. */
+/* Длинный ряд месяцев («Год», «2 года»): график в натуральную ширину (подписи 13 px,
+   а не сжатые до ~10,5), листается внутри своей рамки; подсказка остаётся у столбца. */
+/* Лента открывается с правого края — с последних месяцев (rtl только у рамки, график ltr);
+   слева запас под длинные подписи оси вроде «-12500к». */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .rh2-bar-chart { max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; direction: rtl; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .rh2-bar-chart > .chart { direction: ltr; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .rh2-bar-chart > .chart.wide { min-width: 688px; padding-inline: 24px; overflow: visible; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .rh2-bar-chart > .chart.wide > svg { min-width: 640px; width: 640px; overflow: visible; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .gl { stroke: var(--rh-ui-sep); stroke-dasharray: 2 4; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .ax { stroke: color-mix(in srgb, var(--rh-ui-hint) 40%, transparent); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .chart .axl { font-size: 13px; fill: var(--rh-ui-hint); }
@@ -481,15 +509,14 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .sheet-h { min-height: 64px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .sheet-h :is(h2, h3, b) { font-size: 22px; font-weight: 700; letter-spacing: -.025em; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn) { min-height: 48px; padding: 0 20px; border: 0; border-radius: 999px; font-size: 15px; font-weight: 600; box-shadow: none; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--ry-money-solid); color: #ffffff; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn):is(.ghost, .soft):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .sheet-h .pill { min-width: 44px; padding: 0 14px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.pill, .rh-btn, .cef-btn, .cef-icon-btn, button):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet.cef-sheet { background: var(--rh-ui-card); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.cef-btn, .cef-icon-btn) { min-height: 48px; border-radius: 999px; font-size: 15px; font-weight: 600; background: var(--rh-ui-press); color: var(--rh-ui-text); box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-icon-btn { width: 48px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-btn:is(.cef-blue, .cef-black, .primary):not(:is(.danger, .cef-danger)) { background: var(--ry-money-solid); color: #ffffff; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet :is(.cef-btn, .cef-icon-btn):is(.danger, .cef-danger) { background: var(--ry-money-crit-soft, rgba(179, 38, 30, .12)); color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-row-button { min-height: var(--rh-ui-row-h); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .sheet .cef-budget { accent-color: var(--rh-ui-primary); }
@@ -505,8 +532,8 @@
   :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile {
     grid-template-columns: auto minmax(0, 1fr); align-items: center; align-content: center; min-height: 0; padding: 12px 16px;
   }
-  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-value { font-size: 24px; }
-  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-value { font-size: 36px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-value { font-size: clamp(13px, 11cqi, 26px); }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-value { font-size: clamp(13px, 10.5cqi, 36px); }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child {
     grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "ring" "legend" "note"; justify-items: stretch;
   }
@@ -529,7 +556,7 @@
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-tool-actions :is(.cef-btn, .cef-icon-btn):active { background: var(--rh-ui-press); }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-tool-actions { border-radius: 20px; background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
   :root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-card, .cef-table, .cef-calendar-day-panel, .cef-subscription-detail) { padding: 16px; border-radius: var(--rh-ui-r-card); }
-  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-kpi { font-size: 34px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: clamp(13px, 11cqi, 34px); }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-row { gap: 12px; padding: 10px 4px; }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .card { padding: 16px; }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-overview .scr .trio :is(.tc, .n) b { font-size: 22px; }
@@ -538,12 +565,12 @@
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis > div:first-child { grid-column: 1 / -1; }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis > div { padding: 12px 14px; }
-  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis strong { font-size: 22px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis strong { font-size: clamp(13px, 12cqi, 22px); }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-filters label { flex-basis: 100%; }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div:first-child { grid-column: 1 / -1; }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div { min-height: 0; padding: 14px 16px; }
-  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: 24px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: clamp(13px, 11cqi, 24px); }
   :root[data-ui-look="royal"] .cef-sheet-backdrop[data-ry-section="money"] > .cef-sheet { border-radius: var(--rh-ui-r-card) var(--rh-ui-r-card) 0 0; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -554,3 +581,11 @@
 /* Отказ без права на финансы — тот же текст, заголовок раздела в масштабе нового вида. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .pg-h h1 { font-size: 32px; font-weight: 700; letter-spacing: -.028em; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="money"] .pg-h .sub { font-size: 16px; color: var(--rh-ui-hint); }
+
+/* Выключенная кнопка — приглушена ВСЕГДА, какое бы правило выше её ни перекрашивало
+   (синяя «Сохранить», таблетка вкладки, кнопка шторки, `aria-disabled` у «Оплатил»).
+   `:not(#ry-never)` даёт правилу вес id: оно тяжелее любой перекраски раздела и
+   старого `.pill:disabled{opacity:1}`; сторож theme-look-royal.test.ts сверяет вес. */
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(button, a, .pill, .rh-btn, .ry-btn, .cef-btn, .cef-icon-btn, .cef-chip, .cef-switch):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-never) {
+  opacity: .5; cursor: not-allowed;
+}
