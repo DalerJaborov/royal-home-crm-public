@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4139**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4141**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19726,13 +19726,15 @@
       · читает в базе: assistantTelegramGroup
     - для каждого: const { chatId } of groups
       - пробует
+        - const verdict = await inspectTelegramChat(chatId);
+          · зовёт inspectTelegramChat()
         - если verdict.kind === "migrated"
           - const outcome = await migrateAssistantGroupChat(chatId, verdict.newChatId);
             · зовёт migrateAssistantGroupChat()
           - console.log(`[assistant-group] группа стала супергруппой, регистрация перенесена (${outcome})`);
             · пишет строку в журнал сервера
         - иначе если verdict.kind === "absent"
-          - await logSystemError( "telegram", `Шабнам не состоит в подключённой группе «${await groupLabel(chatId)}» — ве…
+          - await logSystemError( "telegram", `Шабнам не состоит в подключённой группе «${await telegramChatLabel(chatId)…
             · запись в журнал ошибок
         - иначе если verdict.kind === "unknown"
           - console.warn(`[assistant-group] проверка группы не удалась, повтор в следующий обход: ${verdict.detail}`);
@@ -19743,6 +19745,9 @@
   - если сорвалось
     - await logSystemError("telegram", `Шабнам: обход подключённых групп не удался: ${describeError(err)}`, { dedup…
       · запись в журнал ошибок
+  - пробует
+    - result.settingsChats = await sweepSettingsTelegramChats();
+      · зовёт sweepSettingsTelegramChats()
   - в любом случае
     - sweeping = false;
       · дословно из кода
@@ -25413,8 +25418,14 @@
         - const outcome = await handleTelegramComment(row, settings.discussionGroupId);
           · зовёт handleTelegramComment()
       - если сорвалось
-        - await failComment(row, err);
-          · дословно из кода
+        - const movedTo = telegramMigratedChatId(err);
+          · зовёт telegramMigratedChatId()
+        - если movedTo
+          - continue;
+            · переходит к следующему
+    - если closedFromOldGroup > 0
+      - void logSystemError( "telegram", `Комментарии из прежней группы обсуждения Telegram-канала закрыты без ответа…
+        · запись в журнал ошибок
   - если replied || hidden || escalated
     - console.log(`[cron] Комментарии Telegram: ответов ${replied}, удалено ${hidden}, эскалаций ${escalated}`);
       · пишет строку в журнал сервера

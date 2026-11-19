@@ -233,6 +233,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   // Настройки и служебное.
   SETTINGS_UPDATE: "Изменение настроек",
   REELS_AUTOBOOST_TICK: "Автопродвижение роликов: проход",
+  SETTINGS_TELEGRAM_CHAT_MIGRATED: "Группа Telegram стала супергруппой: адрес в настройках обновлён",
   LIVE_VOICE_TEST_CALL: "Проверочный звонок роботом",
   LIVE_VOICE_CALL_CLIENT: "Звонок роботом клиенту",
   ARCHIVE_REVIEW_CALL: "Звонок удалённому клиенту (разбор Корзины)",

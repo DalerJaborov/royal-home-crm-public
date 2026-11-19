@@ -23,7 +23,8 @@ import {
   stripShowingInvite,
   emojiThanksReply,
 } from "./comments.js";
-import { deleteChannelCommentMessage, sendMessage, type TelegramIncomingMessage } from "../telegram/api.js";
+import { deleteChannelCommentMessage, sendMessage, telegramMigratedChatId, type TelegramIncomingMessage } from "../telegram/api.js";
+import { migrateSettingsTelegramChat } from "../lib/settingsTelegramChatMigration.js";
 import { moderationErrorOutcome, moderationAcceptedNote } from "./commentModerationOutcome.js";
 import { detectSpam } from "../lib/incomingSpam.js";
 import { detectAgencyAd, detectListingAd } from "../lib/listingAd.js";
@@ -333,6 +334,7 @@ export async function processDueTelegramComments(now: Date = new Date()): Promis
     take: BATCH_LIMIT,
   })) as QueuedComment[];
 
+  let closedFromOldGroup = 0;
   for (const row of due) {
     const claimed = await prisma.telegramGroupComment.updateMany({
       where: { id: row.id, status: row.status, updatedAt: row.updatedAt },
@@ -346,6 +348,7 @@ export async function processDueTelegramComments(now: Date = new Date()): Promis
     if (row.groupChatId && row.groupChatId !== settings.discussionGroupId) {
       await finish(row.id, { status: "SKIPPED", note: "group_changed" });
       stats.skipped++;
+      closedFromOldGroup++;
       continue;
     }
 
@@ -353,10 +356,53 @@ export async function processDueTelegramComments(now: Date = new Date()): Promis
       const outcome = await handleTelegramComment(row, settings.discussionGroupId);
       stats[outcome]++;
     } catch (err) {
+      const movedTo = telegramMigratedChatId(err);
+      if (movedTo) {
+        await closeCommentOfMigratedGroup(row, row.groupChatId ?? settings.discussionGroupId, movedTo);
+        stats.skipped++;
+        continue;
+      }
       await failComment(row, err);
     }
   }
+  if (closedFromOldGroup > 0) {
+    // Не тихо (20.11.2026): владелец должен знать, что эти комментарии остались без ответа и почему.
+    void logSystemError(
+      "telegram",
+      `Комментарии из прежней группы обсуждения Telegram-канала закрыты без ответа (${closedFromOldGroup}): группу сменили в ` +
+        "Настройках или она стала супергруппой. Номера этих сообщений действуют только в прежней группе, поэтому ответить " +
+        "на них из новой нельзя. Новые комментарии принимаются как обычно.",
+      { dedupKey: "telegram-comments-from-old-group", dedupWindowMs: GROUP_MOVED_LOG_EVERY_MS },
+    );
+  }
   return stats;
+}
+
+const GROUP_MOVED_LOG_EVERY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * ГРУППА КОММЕНТАРИЕВ СТАЛА СУПЕРГРУППОЙ ПОСРЕДИ ОТВЕТА (20.11.2026). Telegram отказал с
+ * parameters.migrate_to_chat_id: адрес группы в Настройках переезжает дверью migrateSettingsTelegramChat, а сам
+ * комментарий закрывается без ответа. Переписать ему groupChatId на новый id НЕЛЬЗЯ: история обычной группы не
+ * переносится в супергруппу (core.telegram.org/api/channel: у обычных групп общая с личными чатами нумерация
+ * сообщений, клиенты склеивают две истории из двух разных чатов), и тот же message_id в новой группе — чужое
+ * сообщение или пустое место. Ответ ушёл бы не тому человеку.
+ */
+async function closeCommentOfMigratedGroup(row: QueuedComment, oldChatId: string, newChatId: string): Promise<void> {
+  await finish(row.id, { status: "SKIPPED", note: "group_migrated" });
+  let moved = "";
+  try {
+    const outcome = await migrateSettingsTelegramChat(oldChatId, newChatId);
+    moved = outcome.kind === "done" && outcome.moved.length > 0 ? " Адрес группы в Настройках заменён на новый автоматически." : "";
+  } catch (err) {
+    moved = ` Заменить адрес группы в Настройках не удалось (${describeError(err)}), сторож повторит в течение часа.`;
+  }
+  void logSystemError(
+    "telegram",
+    `Группа обсуждения Telegram-канала стала супергруппой: комментарий ${row.messageId}, пришедший до переезда, закрыт ` +
+      `без ответа — в новой группе у него другой номер, и ответ ушёл бы не тому сообщению.${moved}`,
+    { dedupKey: "telegram-comments-group-migrated", dedupWindowMs: GROUP_MOVED_LOG_EVERY_MS },
+  );
 }
 
 async function finish(id: string, data: Record<string, unknown>): Promise<void> {
@@ -530,6 +576,11 @@ async function removeComment(
   try {
     await deleteChannelCommentMessage(groupChatId, Number(row.messageId));
   } catch (err) {
+    const movedTo = telegramMigratedChatId(err);
+    if (movedTo) {
+      await closeCommentOfMigratedGroup(row, groupChatId, movedTo);
+      return "skipped";
+    }
     const text = describeError(err);
     if (/message to delete not found/i.test(text)) {
       await finish(row.id, { status: "FAILED", note: "gone" });

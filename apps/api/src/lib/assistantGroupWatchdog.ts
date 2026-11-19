@@ -1,15 +1,10 @@
 import { prisma } from "../db.js";
-import {
-  TelegramApiError,
-  getChatMemberStatus,
-  getChatTitle,
-  isTelegramEnabled,
-  probeChatAction,
-  telegramMigratedChatId,
-} from "../telegram/api.js";
+import { isTelegramEnabled } from "../telegram/api.js";
 import { migrateAssistantGroupChat } from "./assistantGroupMigration.js";
 import { describeError } from "./describeError.js";
+import { sweepSettingsTelegramChats, type SettingsChatSweepResult } from "./settingsTelegramChatWatchdog.js";
 import { logSystemError } from "./systemError.js";
+import { inspectTelegramChat, telegramChatLabel } from "./telegramChatInspect.js";
 
 /**
  * СТОРОЖ ПОДКЛЮЧЁННЫХ ГРУПП ПОМОЩНИЦЫ (20.11.2026).
@@ -18,6 +13,9 @@ import { logSystemError } from "./systemError.js";
  * а регистрация осталась на старом — обработчик группы для незарегистрированного чата молча выходит. Живое
  * служебное сообщение о переезде (assistantBot.ts) Telegram присылает один раз; если его не поймали (бот был
  * выключен, обработчик упал), повторно оно не придёт. Сторож спрашивает Telegram сам и ничего не пишет в группу.
+ *
+ * Осмотр чата вынесен в telegramChatInspect.ts (общий с чатами из Настроек, 20.11.2026); в конце того же прохода
+ * идёт сторож чатов из Настроек (settingsTelegramChatWatchdog.ts) — без второй плановой задачи.
  *
  * Что он делает с каждой зарегистрированной группой:
  *  1. getChatMember о самом боте. «member»/«administrator» — всё в порядке.
@@ -38,44 +36,8 @@ export interface AssistantGroupSweepResult {
   migrated: number;
   botAbsent: number;
   unknown: number;
-}
-
-type Verdict =
-  | { kind: "present" }
-  | { kind: "migrated"; newChatId: string }
-  | { kind: "absent"; detail: string }
-  | { kind: "unknown"; detail: string };
-
-/** Отказ, в котором Telegram ясно сказал «этого чата для бота нет»; всё прочее — сбой связи, не ответ про группу. */
-const isDefiniteRefusal = (err: unknown): boolean =>
-  err instanceof TelegramApiError && (err.errorCode === 400 || err.errorCode === 403 || err.errorCode === 404);
-
-async function judge(chatId: string): Promise<Verdict> {
-  let status: string;
-  try {
-    status = (await getChatMemberStatus(chatId)).status;
-  } catch (err) {
-    const moved = telegramMigratedChatId(err);
-    if (moved) return { kind: "migrated", newChatId: moved };
-    return isDefiniteRefusal(err) ? { kind: "absent", detail: describeError(err) } : { kind: "unknown", detail: describeError(err) };
-  }
-  if (status !== "left" && status !== "kicked") return { kind: "present" };
-  try {
-    await probeChatAction(chatId);
-    return { kind: "present" };
-  } catch (err) {
-    const moved = telegramMigratedChatId(err);
-    if (moved) return { kind: "migrated", newChatId: moved };
-    return isDefiniteRefusal(err) ? { kind: "absent", detail: `статус бота «${status}»: ${describeError(err)}` } : { kind: "unknown", detail: describeError(err) };
-  }
-}
-
-async function groupLabel(chatId: string): Promise<string> {
-  try {
-    return (await getChatTitle(chatId)) ?? `чат ${chatId}`;
-  } catch {
-    return `чат ${chatId}`;
-  }
+  /** Тот же обход по чатам из Настроек (группа комментариев канала, чаты публикации) — 20.11.2026. */
+  settingsChats?: SettingsChatSweepResult;
 }
 
 let sweeping = false;
@@ -94,7 +56,7 @@ export async function sweepAssistantGroups(): Promise<AssistantGroupSweepResult>
     for (const { chatId } of groups) {
       result.checked++;
       try {
-        const verdict = await judge(chatId);
+        const verdict = await inspectTelegramChat(chatId);
         if (verdict.kind === "migrated") {
           const outcome = await migrateAssistantGroupChat(chatId, verdict.newChatId);
           result.migrated++;
@@ -103,7 +65,7 @@ export async function sweepAssistantGroups(): Promise<AssistantGroupSweepResult>
           result.botAbsent++;
           await logSystemError(
             "telegram",
-            `Шабнам не состоит в подключённой группе «${await groupLabel(chatId)}» — верните бота в группу или отключите её. Пока бота нет, помощница там молчит. Ответ Telegram: ${verdict.detail}`,
+            `Шабнам не состоит в подключённой группе «${await telegramChatLabel(chatId)}» — верните бота в группу или отключите её. Пока бота нет, помощница там молчит. Ответ Telegram: ${verdict.detail}`,
             { dedupKey: `assistant-group-bot-absent:${chatId}`, dedupWindowMs: ABSENT_REMINDER_MS },
           );
         } else if (verdict.kind === "unknown") {
@@ -121,6 +83,10 @@ export async function sweepAssistantGroups(): Promise<AssistantGroupSweepResult>
     await logSystemError("telegram", `Шабнам: обход подключённых групп не удался: ${describeError(err)}`, {
       dedupKey: "assistant-group-sweep-failed",
     });
+  }
+  // Чаты из Настроек — тем же проходом и тем же осмотром, без второй плановой задачи. Сам никогда не бросает.
+  try {
+    result.settingsChats = await sweepSettingsTelegramChats();
   } finally {
     sweeping = false;
   }
