@@ -164,7 +164,7 @@ describe("экраны контроля в новом виде: тот же те
     expect(renderToStaticMarkup(<ControlRoot royal><i /></ControlRoot>)).toBe('<div class="rh2 screens ry-control" data-ry-section="control"><i></i></div>');
   });
 
-  it("срочность плитки — одна переменная на подпись и на круг (ревью PR #305; проверено поломкой)", () => {
+  it("срочность плитки — одна переменная на подпись и на круг (ревью PR 305; проверено поломкой)", () => {
     const checked: string[] = [];
     for (const page of ["Oversight", "SecurityCenter", "Health", "AiLearning"]) {
       const src = readFileSync(new URL(`../../../pages/${page}.tsx`, import.meta.url), "utf8");
