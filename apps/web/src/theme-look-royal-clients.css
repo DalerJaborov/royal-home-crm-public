@@ -252,7 +252,7 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-next { display: contents; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-step {
   /* Следующий шаг — данные: плашка целиком, длинный текст переносится (ревью PR 286: было
-     «Следующий шаг н…» посреди слова). Ответственный на ≤390 — только кружок с инициалами. */
+     «Следующий шаг н…» посреди слова). Ответственный на ≤390 — своей строкой ниже, полным именем. */
   grid-area: foot; justify-self: start; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; max-width: 58%; white-space: normal; font-size: 15px;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow:not([data-agent]) .ry-crow-step { max-width: 100%; }
@@ -260,13 +260,17 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-step .chip { min-height: 28px; padding: 3px 10px; white-space: normal; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-step > span:not(.chip) { min-width: 0; font-size: 15px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-step.ry-crow-hint { overflow-wrap: anywhere; line-height: 1.3; }
+/* ≤390: ответственный — ПОЛНЫМ именем своей строкой под шагом, с переносом (решение владельца
+   19.11: «нет полные имена»; до 19.11 здесь был только кружок с инициалами). */
 @media (max-width: 390px) {
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-step { max-width: calc(100% - 34px); }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent { max-width: none; }
-  /* Имя ответственного — для экранного чтеца; на экране кружок с инициалами (решение ревью PR 286). */
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent > .ry-crow-text {
-    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] {
+    grid-template-areas: "av top acts" "av req acts" "av foot acts" "av agent acts";
   }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent]:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) {
+    grid-template-areas: "av top" "av req" "av foot" "av agent" ". acts";
+  }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-step { max-width: 100%; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-agent { grid-area: agent; justify-self: start; max-width: 100%; }
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-when {
   grid-area: top; justify-self: end; min-width: 0; max-width: 112px; white-space: normal; text-align: right;
@@ -284,7 +288,8 @@
   grid-area: foot; justify-self: end; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 40%;
   font-size: 14px; color: var(--rh-ui-hint);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent > .ry-crow-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--rh-ui-hint); }
+/* Имя ответственного — целиком, с переносом, без многоточия (владелец 19.11: «полные имена»). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent > .ry-crow-text { min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent-av {
   display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 999px;
   background: var(--rh-ui-a0); color: var(--rh-ui-a0f); font-size: 13px; font-weight: 700; line-height: 1;
