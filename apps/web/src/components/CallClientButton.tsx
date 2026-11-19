@@ -26,7 +26,8 @@ interface CallClientButtonProps {
   /** icon — компактная кнопка для тесных списков/тайлов (только иконка).
    *  full — кнопка с подписью, как на карточке клиента. */
   variant?: "icon" | "full";
-  /** Подпись рядом с иконкой в варианте full. По умолчанию — «Позвонить». */
+  /** Подпись рядом с иконкой в варианте full. По умолчанию — «Позвонить».
+   *  В варианте icon — имя кнопки для экранного чтеца («Перезвонить»); без неё — «Позвонить». */
   label?: string;
   className?: string;
   title?: string;
@@ -162,6 +163,9 @@ export function CallClientButton({
   if (!clientId && !candidateId) {
     return (
       <span
+        // Кружок без подписи — не кнопка, но чтецу причина нужна словами (ревью #303).
+        role={variant === "icon" ? "img" : undefined}
+        aria-label={variant === "icon" ? (!hasPhone ? "Позвонить нельзя: нет телефона" : "Позвонить нельзя: нет карточки клиента") : undefined}
         title={
           !hasPhone
             ? "У клиента ещё нет телефона, звонить нечем"
@@ -174,6 +178,15 @@ export function CallClientButton({
       </span>
     );
   }
+
+  // Одно состояние кнопки на оба варианта: подпись full и имя значка для чтеца.
+  const stateLabel = isThisClient && callInProgress
+    ? "Идёт звонок…"
+    : callInProgress
+      ? "Линия занята"
+      : callClient.isPending
+        ? "Соединяем…"
+        : (label ?? "Позвонить");
 
   return (
     <div className={variant === "icon" ? "relative shrink-0" : "relative"}>
@@ -199,20 +212,14 @@ export function CallClientButton({
               : "Сначала завершите текущий разговор"
             : (title ?? (variant === "icon" ? "Позвонить через CRM" : undefined))
         }
-        aria-label={variant === "icon" ? "Позвонить" : undefined}
+        // Значок озвучивается тем же состоянием, что подпись варианта full (ревью #303).
+        aria-label={variant === "icon" ? stateLabel : undefined}
         className={`${className ?? (variant === "icon" ? DEFAULT_ICON_CLASS : DEFAULT_FULL_CLASS)} ${
           callInProgress ? "cursor-not-allowed" : foreignBlocked ? "opacity-60" : ""
         }`}
       >
         <Phone className={variant === "icon" ? "h-3.5 w-3.5" : "w-3.5 h-3.5"} />
-        {variant === "full" &&
-          (isThisClient && callInProgress
-            ? "Идёт звонок…"
-            : callInProgress
-              ? "Линия занята"
-              : callClient.isPending
-                ? "Соединяем…"
-                : (label ?? "Позвонить"))}
+        {variant === "full" && stateLabel}
       </button>
       {error && (
         // bg-card-solid, а НЕ bg-card: обычный --c-card полупрозрачен (матовое стекло,

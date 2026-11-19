@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RoyalCallFlag, RoyalCallListen, RoyalCallRow } from "./RoyalCallRow";
 import { CALL_ICONS } from "./callIconData";
+import { CallIcon } from "./CallIcon";
 import { TranscriptView } from "../../TranscriptView";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -121,6 +122,31 @@ describe("слой calls: кнопки звонка крупные и со св�
   });
 });
 
+// Решения владельца 19.11 (только новый вид, только телефон): кнопка звонка в строке — зелёный
+// круг с белой трубкой без слова; на узком телефоне круги уходят под текст строки.
+describe("телефонные «Звонки»: зелёный круг и круги под текстом", () => {
+  const mobileSrc = readFileSync(resolve(CSS_FILE, "../components/mobile/MobileCalls.tsx"), "utf8");
+  it("в строках телефона нет кнопки со словом: только ry-call-round с именем для чтеца", () => {
+    expect(mobileSrc).not.toMatch(/className="ry-call-act"/);
+    const rounds = mobileSrc.match(/<CallClientButton[^>]*className="ry-call-round"[^>]*>/g) ?? [];
+    expect(rounds.length).toBeGreaterThanOrEqual(5);
+    for (const tag of rounds) expect(tag, tag).toMatch(/variant="icon"/);
+    expect(rounds.filter((tag) => /label=/.test(tag)).length).toBeGreaterThanOrEqual(3);
+  });
+  it("круг звонка — 44 px, зелёный, значок белый", () => {
+    const rule = /\[data-ry-section="calls"\] \.ry-call-round \{([^}]*)\}/.exec(callsCss)![1];
+    expect(rule).toMatch(/width:\s*44px/);
+    expect(rule).toMatch(/height:\s*44px/);
+    expect(rule).toMatch(/background:\s*var\(--ry-call-green\)/);
+    expect(rule).toMatch(/color:\s*#f{6}\b/i); // белая трубка
+  });
+  it("≤480 px: строка с кругами переносится, круги — под текстом", () => {
+    const narrow = callsCss.slice(callsCss.indexOf("@media (max-width: 480px)"));
+    expect(narrow).toMatch(/\.ry-call-row:has\(> \.ry-call-action :is\(\.ry-call-act, \.ry-call-round, \.ry-call-listen\)\) \{ flex-wrap: wrap; \}/);
+    expect(narrow).toMatch(/\.ry-call-action:has\(:is\(\.ry-call-act, \.ry-call-round, \.ry-call-listen\)\) \{ flex: 1 1 100%;/);
+  });
+});
+
 describe("строка звонка", () => {
   const html = (node: React.ReactNode) => renderToStaticMarkup(<MemoryRouter>{node}</MemoryRouter>);
 
@@ -140,7 +166,7 @@ describe("строка звонка", () => {
     const markup = html(
       <RoyalCallRow dir="out" dirLabel="Исходящий" title="Клиент" meta={["Исходящий", "5 мин назад", "4:05", "Ноза"]}
         note="Договорились о показе" flags={<><RoyalCallFlag tone="ok">Балл 82</RoyalCallFlag><RoyalCallFlag tone="crit">Без договорённости</RoyalCallFlag></>}
-        action={<RoyalCallListen open={false} onToggle={() => {}} controls="d1" duration="4:05" />} />,
+        action={<RoyalCallListen open={false} onToggle={() => {}} controls="d1" duration="4:05" canListen />} />,
     );
     for (const text of ["Договорились о показе", "Балл 82", "Без договорённости", "4:05", "Ноза"]) expect(markup).toContain(text);
     expect(markup.match(/<button/g)).toHaveLength(1);
@@ -148,7 +174,7 @@ describe("строка звонка", () => {
   });
 
   it("телефон: «слушать» кругом без подписи, длительность — в имени кнопки", () => {
-    const markup = html(<RoyalCallListen compact open={false} onToggle={() => {}} controls="d1" duration="6:12" />);
+    const markup = html(<RoyalCallListen compact open={false} onToggle={() => {}} controls="d1" duration="6:12" canListen />);
     expect(markup).toContain("data-compact");
     expect(markup).toContain('aria-label="Слушать и открыть разбор, разговор 6:12"');
     expect(markup).not.toContain('class="ry-num"');
@@ -156,8 +182,23 @@ describe("строка звонка", () => {
 
   it("«Слушать» переключает раскрытие тем же состоянием", () => {
     const onToggle = vi.fn();
-    render(<RoyalCallListen open={false} onToggle={onToggle} controls="d1" duration="1:20" />);
+    render(<RoyalCallListen open={false} onToggle={onToggle} controls="d1" duration="1:20" canListen />);
     fireEvent.click(screen.getByRole("button", { name: /Слушать/ }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  // Хвост ревью #285 (19.11): «▶ Слушать» стоял и у разговора без записи (или без права слушать).
+  it("без записи — не «Слушать»: значок разбора, та же кнопка раскрывает разбор", () => {
+    const onToggle = vi.fn();
+    const { container } = render(<RoyalCallListen open={false} onToggle={onToggle} controls="d1" duration="1:20" canListen={false} />);
+    expect(screen.queryByRole("button", { name: /Слушать/ })).toBeNull();
+    const button = screen.getByRole("button", { name: "Открыть разбор, разговор 1:20" });
+    expect(button.getAttribute("aria-controls")).toBe("d1");
+    const icon = (name: "list-checks" | "play") => render(<CallIcon name={name} size={20} />).container.innerHTML;
+    expect(button.innerHTML).toContain(icon("list-checks"));
+    expect(button.innerHTML).not.toContain(icon("play"));
+    expect(container.textContent).toContain("1:20");
+    fireEvent.click(button);
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 });
@@ -176,5 +217,25 @@ describe("расшифровка пузырями", () => {
     const { container } = render(<TranscriptView text={text} agentName="Ноза" />);
     expect(container.querySelector(".ry-tr-line")).toBeNull();
     expect(container.textContent).toContain("Можно посмотреть завтра?");
+  });
+  // Хвост ревью #285 (19.11): служебная строка расшифровки красилась как речь правилом
+  // абзацев разбора (`.ry-call-details p … !important`). Теперь у неё свой класс, текст на месте.
+  const withSystem = `Агент: Здравствуйте.\n[Клиент перезвонит позже]\nКлиент: Хорошо, спасибо.`;
+  it("служебная строка — свой класс в новом виде, текст виден; без признака класса нет", () => {
+    const { container } = render(<TranscriptView text={withSystem} agentName="Ноза" royal />);
+    const sys = container.querySelectorAll("p.ry-tr-sys");
+    expect(sys).toHaveLength(1);
+    expect(sys[0].textContent).toBe("[Клиент перезвонит позже]");
+    expect(sys[0].closest(".ry-tr-line")).toBeNull();
+    const plain = render(<TranscriptView text={withSystem} agentName="Ноза" />).container;
+    expect(plain.querySelector(".ry-tr-sys")).toBeNull();
+    expect(plain.textContent).toContain("[Клиент перезвонит позже]");
+  });
+  it("слой: служебная строка приглушена и курсивом, правило тяжелее абзацев разбора", () => {
+    const rule = /\.ry-call-details p\.ry-tr-sys,[^{]*\{([^}]*)\}/.exec(callsCss);
+    expect(rule, "правило .ry-call-details p.ry-tr-sys").not.toBeNull();
+    expect(rule![1]).toMatch(/font-style:\s*italic/);
+    expect(rule![1]).toMatch(/color:\s*var\(--rh-ui-hint\)\s*!important/);
+    expect(rule![1]).not.toMatch(/display:\s*none|visibility|opacity:\s*0/);
   });
 });

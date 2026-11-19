@@ -115,7 +115,9 @@ test("новый вид: окно «звонок не прошёл» у «Пер
     await page.setViewportSize({ width, height: 800 });
     await page.goto("/calls");
     await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
-    const redial = page.locator(".ry-call button.ry-call-act", { hasText: "Перезвонить" }).first();
+    // ПК — кнопка со словом; телефон (800, 390) — зелёный круг без слова, имя для чтеца то же
+    // (решение владельца 19.11: «зеленый значок с белой трубкой»).
+    const redial = page.locator(".ry-call").getByRole("button", { name: "Перезвонить", exact: true }).first();
     await expect(redial).toBeVisible({ timeout: 20_000 });
     // Кнопку — в середину экрана ДО нажатия; само окно не прокручиваем: прокрутка к
     // нему сдвинула бы содержимое режущей карточки и спрятала бы обрезку.
