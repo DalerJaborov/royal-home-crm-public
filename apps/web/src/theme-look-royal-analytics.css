@@ -296,13 +296,14 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .t > span, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .t .s {
   font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .meta { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .list > .row { flex-wrap: wrap; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .meta { flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: normal; font-size: 14px; color: var(--rh-ui-hint); }
 
 /* Плашки: форма у всех, цвет только у смысловых (срочно — сплошная красная, внимание —
    светлая янтарная с обводкой, норма — светлая зелёная, справка — светло-синяя). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .chip {
   display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 12px;
-  border-radius: 999px; font-size: 14px; font-weight: 600; line-height: 1.2;
+  border-radius: 999px; font-size: 14px; font-weight: 600; line-height: 1.2; max-width: 100%; white-space: normal;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .chip:is(.crit, .danger) { border: 0; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); font-weight: 700; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .chip:is(.warn, .hot) {
