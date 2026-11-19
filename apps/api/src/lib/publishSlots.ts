@@ -1,4 +1,5 @@
 import type { TxClient } from "../db.js";
+import { DUSHANBE_OFFSET_MS } from "./dushanbeTime.js";
 
 /**
  * Один замок на всю шкалу публикаций: ролики объектов, фото-посты, повторы, подборки и свободные ролики
@@ -21,7 +22,7 @@ export const OCCUPIED_SLOT_KIND_LABEL: Record<OccupiedSlotKind, string> = {
   photoPost: "фото-пост объекта",
   repost: "повтор поста",
   digest: "подборка объектов",
-  freeVideo: "другой свободный ролик",
+  freeVideo: "другой ролик из «Роликов в соцсети»",
 };
 
 /**
@@ -63,14 +64,17 @@ export async function loadOccupiedPublishSlotsDetailed(
   tx: TxClient,
   since: Date,
   excludePropertyId?: string,
-  excludeFreeVideoId?: string
+  excludeFreeVideoId?: string,
+  /** Верхняя граница выборки: проверке времени нужны только слоты рядом, а не всё расписание на годы вперёд. */
+  until?: Date
 ): Promise<OccupiedSlot[]> {
+  const upTo = until ? { lte: until } : {};
   const [videoRows, photoRows, repostRows, digestRows, freeRows] = await Promise.all([
     tx.property.findMany({
       where: {
         deletedAt: null,
         ...(excludePropertyId ? { id: { not: excludePropertyId } } : {}),
-        scheduledPublishAt: { gte: since },
+        scheduledPublishAt: { gte: since, ...upTo },
       },
       orderBy: { scheduledPublishAt: "asc" },
       take: 1000,
@@ -82,7 +86,7 @@ export async function loadOccupiedPublishSlotsDetailed(
     tx.propertyPhotoPost.findMany({
       where: {
         status: "SCHEDULED",
-        scheduledAt: { gte: since },
+        scheduledAt: { gte: since, ...upTo },
         ...(excludePropertyId ? { propertyId: { not: excludePropertyId } } : {}),
       },
       orderBy: { scheduledAt: "asc" },
@@ -92,7 +96,7 @@ export async function loadOccupiedPublishSlotsDetailed(
     tx.propertySocialRepost.findMany({
       where: {
         status: "SCHEDULED",
-        scheduledAt: { gte: since },
+        scheduledAt: { gte: since, ...upTo },
         ...(excludePropertyId ? { propertyId: { not: excludePropertyId } } : {}),
       },
       orderBy: { scheduledAt: "asc" },
@@ -112,7 +116,7 @@ export async function loadOccupiedPublishSlotsDetailed(
       where: {
         deletedAt: null,
         status: "SCHEDULED",
-        scheduledAt: { gte: since },
+        scheduledAt: { gte: since, ...upTo },
         ...(excludeFreeVideoId ? { id: { not: excludeFreeVideoId } } : {}),
       },
       orderBy: { scheduledAt: "asc" },
@@ -142,19 +146,35 @@ export interface SlotCollision {
   suggestedAt: Date;
 }
 
+/** Рабочее окно публикаций, минуты от полуночи по Душанбе. */
+export interface PublishWindow {
+  startMin: number;
+  endMin: number;
+}
+
+/** Время `t` (мс), приведённое в рабочее окно: до открытия — на открытие того же дня, после закрытия — на открытие завтра. */
+function intoWindow(t: number, w: PublishWindow): number {
+  const dayStart = Math.floor((t + DUSHANBE_OFFSET_MS) / 86_400_000) * 86_400_000 - DUSHANBE_OFFSET_MS;
+  const minute = (t - dayStart) / 60_000;
+  if (minute < w.startMin) return dayStart + w.startMin * 60_000;
+  if (minute >= w.endMin) return dayStart + 86_400_000 + w.startMin * 60_000;
+  return t;
+}
+
 /**
  * Столкновение выбранного человеком времени с уже занятыми слотами: ближе промежутка `gapMs` к любому из них.
- * null — время свободно. Подсказка — ближайшее свободное время ПОСЛЕ выбранного (сдвигаемся за каждую занятую
- * публикацию на промежуток, пока не освободимся).
+ * null — время свободно. Подсказка — ближайшее свободное время ПОСЛЕ выбранного: сдвигаемся за каждую занятую
+ * публикацию на промежуток и, если вышли за рабочее окно (`window`), переносим на открытие окна — ночью не публикуем.
  */
-export function findSlotCollision(at: Date, occupied: readonly OccupiedSlot[], gapMs: number): SlotCollision | null {
+export function findSlotCollision(at: Date, occupied: readonly OccupiedSlot[], gapMs: number, window?: PublishWindow): SlotCollision | null {
   const clash = (t: number) => occupied.filter((o) => Math.abs(t - o.at.getTime()) < gapMs);
   const first = clash(at.getTime());
   if (first.length === 0) return null;
   const nearest = first.reduce((a, b) => (Math.abs(a.at.getTime() - at.getTime()) <= Math.abs(b.at.getTime() - at.getTime()) ? a : b));
   let t = at.getTime();
-  // Предел шагов — страховка от бесконечного цикла; каждый шаг уходит за очередную занятую публикацию.
-  for (let i = 0; i < occupied.length + 1; i++) {
+  // Предел шагов — страховка от бесконечного цикла; каждый шаг уходит за очередную занятую публикацию или за окно.
+  for (let i = 0; i < occupied.length * 2 + 30; i++) {
+    if (window) t = intoWindow(t, window);
     const blocking = clash(t);
     if (blocking.length === 0) break;
     t = Math.max(...blocking.map((o) => o.at.getTime())) + gapMs;

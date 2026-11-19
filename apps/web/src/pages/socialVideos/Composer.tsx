@@ -766,7 +766,6 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
       {slotTaken && (
         <ConfirmDialog
           danger={false}
-          dismissible={false}
           title="В это время уже выходит другая публикация"
           description={slotTaken.message}
           confirmLabel={`Выйти в ${exactDateTime(slotTaken.suggestedAt)}`}

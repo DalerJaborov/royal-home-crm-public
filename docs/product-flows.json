@@ -110911,6 +110911,14 @@
        "c": [
         {
          "k": "do",
+         "t": "await releaseAbandonedClaims();",
+         "a": [
+          "зовёт releaseAbandonedClaims()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const due = await prisma.socialVideoPost.findMany({ where: { status: \"SCHEDULED\", deletedAt: null, scheduledA…",
          "a": [
           "читает в базе: socialVideoPost"

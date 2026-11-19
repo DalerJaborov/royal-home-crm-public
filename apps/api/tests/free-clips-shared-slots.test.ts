@@ -37,6 +37,9 @@ import {
   loadOccupiedPublishSlotsDetailed,
 } from "../src/lib/publishSlots.js";
 import { DEFAULT_PUBLISH_SCHEDULE_RULES, nextNarrationSlot, nextPublishSlot } from "../src/lib/publishSchedule.js";
+import { PROCESS_IDENTITY, isClaimAbandoned } from "../src/lib/socialVideoPosts.js";
+import os from "node:os";
+import { spawnSync } from "node:child_process";
 import { PUBLISH_SLOT_LOCK_ID as lockFromHandoff } from "../src/lib/videoHandoff.js";
 
 /**
@@ -227,6 +230,19 @@ describe("findSlotCollision", () => {
   });
 });
 
+describe("подсказка не уходит в ночь", () => {
+  const w = { startMin: 9 * 60, endMin: 21 * 60 };
+  it("занято вечером до закрытия окна — подсказка на открытие следующего дня (09:00 по Душанбе)", () => {
+    const at = new Date("2026-12-01T15:00:00Z"); // 20:00 Душанбе
+    const hit = findSlotCollision(at, [{ at, kind: "propertyVideo" }], GAP_MS, w);
+    expect(hit?.suggestedAt.toISOString()).toBe("2026-12-02T04:00:00.000Z");
+  });
+  it("без окна поведение прежнее", () => {
+    const at = new Date("2026-12-01T15:00:00Z");
+    expect(findSlotCollision(at, [{ at, kind: "propertyVideo" }], GAP_MS)?.suggestedAt.getTime()).toBe(at.getTime() + GAP_MS);
+  });
+});
+
 describe("выбранное человеком время: не двигаем, предупреждаем, настоять можно", () => {
   it("занятое другой публикацией — отказ SLOT_TAKEN с ближайшим свободным; свободное и «настоять» — ставятся как есть", async () => {
     const t = nextDay();
@@ -238,7 +254,7 @@ describe("выбранное человеком время: не двигаем,
     const err = await rejection(schedule(second.id, clash));
     expect(err.status).toBe(409);
     expect(err.extra).toMatchObject({ code: "SLOT_TAKEN", takenKind: "freeVideo", suggestedAt: new Date(t.getTime() + GAP_MS).toISOString(), minGapMin: 90 });
-    expect(err.message).toMatch(/уже выходит другой свободный ролик, ближайшее свободное время — 15:30/);
+    expect(err.message).toMatch(/уже выходит другой ролик из «Роликов в соцсети», ближайшее свободное время — 15:30/);
     const untouched = await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: second.id } });
     expect(untouched).toMatchObject({ status: "DRAFT", scheduledAt: null });
 
@@ -318,11 +334,37 @@ describe("один ролик — одна публикация: тик и ис�
       status: "PUBLISHING",
       startedAt: new Date(),
       runClaimedAt: new Date(),
+      runClaimedBy: `${os.hostname()}:${process.pid}:1`,
       channelResults: { INSTAGRAM: { state: "QUEUED", error: null, note: null, postId: null, url: null, retriable: false, attempts: 0, startedAt: null, finishedAt: null } },
     });
     await runSocialVideoPublish(row.id);
     expect(mockedPublish).not.toHaveBeenCalled();
     expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("PUBLISHING");
+  });
+
+  it("бронь умершего процесса (перезапуск посреди публикации) не мешает: повтор задания доделывает адреса", async () => {
+    planInstagramOk();
+    const dead = spawnSync(process.execPath, ["-e", "0"]).pid ?? 0;
+    expect(dead).toBeGreaterThan(0);
+    const row = await makeRow({
+      status: "PUBLISHING",
+      startedAt: new Date(),
+      runClaimedAt: new Date(),
+      runClaimedBy: `${os.hostname()}:${dead}:1`,
+      channelResults: { INSTAGRAM: { state: "QUEUED", error: null, note: null, postId: null, url: null, retriable: false, attempts: 0, startedAt: null, finishedAt: null } },
+    });
+    await runSocialVideoPublish(row.id);
+    expect(mockedPublish).toHaveBeenCalledTimes(1);
+    expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("DONE");
+  });
+
+  it("бронь этого же живого процесса и другого живого процесса — пропускают; чужого хоста — только после срока", () => {
+    const now = Date.now();
+    const fresh = new Date(now - 60_000);
+    expect(isClaimAbandoned(PROCESS_IDENTITY, new Date(now - 3 * 60 * 60_000))).toBe(false);
+    expect(isClaimAbandoned(`${os.hostname()}:${process.pid}:1`, fresh)).toBe(false);
+    expect(isClaimAbandoned("other-host:123:1", fresh)).toBe(false);
+    expect(isClaimAbandoned("other-host:123:1", new Date(now - 60 * 60_000))).toBe(true);
   });
 
   it("свободный исполнитель берёт бронь и публикует ровно один раз, повтор задания после этого ничего не делает", async () => {
