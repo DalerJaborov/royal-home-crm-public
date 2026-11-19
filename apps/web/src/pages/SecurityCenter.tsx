@@ -20,6 +20,9 @@ import { useOversightSummary } from "../hooks/useOversight";
 import { TeamTabs } from "../components/SectionTabs";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
 import { InvestigationCasesPanel } from "../components/security/InvestigationCasesPanel";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { ControlRoot } from "../components/look/control/ControlRoot";
+import { controlTile } from "../components/look/control/controlTileIcon";
 
 type Tab = "clients" | "properties";
 type VerdictFilter = SecurityReviewState | "";
@@ -68,6 +71,7 @@ function scrollToResults() {
 
 export function SecurityCenter() {
   const can = useCan();
+  const royal = useRoyalLook();
   const canView = can("clients.securityReview");
   // Вкладки раздела «Команда» (перенос меню 15.09.2026) — тот же набор и та же
   // логика подписи, что в pages/Team.tsx / lib/navigation.ts. Не путать с
@@ -133,7 +137,7 @@ export function SecurityCenter() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <ControlRoot royal={royal}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -145,12 +149,18 @@ export function SecurityCenter() {
             <Rh2EmptyState icon={Lock} title="Недостаточно прав для просмотра." />
           </div>
         </div>
-      </div>
+      </ControlRoot>
     );
   }
 
+  // Срочность плиток — одна переменная на подпись (critical) и круг нового вида (controlTile).
+  // «Нарушение подтверждено» в прежнем виде красная всегда (так было) — прежний вид не меняем;
+  // в новом виде красный круг только когда нарушения есть, иначе «0» горел бы тревогой.
+  const pendingOld = (summaryQuery.data?.pendingOldCount ?? 0) > 0;
+  const confirmedCritical = royal ? (summaryQuery.data?.confirmed ?? 0) > 0 : true;
+
   return (
-    <div className="rh2 screens">
+    <ControlRoot royal={royal}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -199,6 +209,7 @@ export function SecurityCenter() {
         {summaryQuery.data ? (
           <div className="tiles">
             <StatTile
+              {...(royal ? controlTile("hourglass", pendingOld) : {})}
               label="Ждут проверки"
               value={summaryQuery.data.pending}
               line={
@@ -206,7 +217,7 @@ export function SecurityCenter() {
                   ? `из них ${summaryQuery.data.pendingOldCount} старше недели`
                   : "старше недели нет"
               }
-              critical={summaryQuery.data.pendingOldCount > 0}
+              critical={pendingOld}
               onClick={() => {
                 setVerdict("PENDING");
                 scrollToResults();
@@ -214,6 +225,7 @@ export function SecurityCenter() {
               title="Отфильтровать список: ждут проверки"
             />
             <StatTile
+              {...(royal ? controlTile("shield-check") : {})}
               label="Закрыто после проверки"
               value={summaryQuery.data.cleared}
               line="вопросов не возникло"
@@ -224,10 +236,11 @@ export function SecurityCenter() {
               title="Отфильтровать список: закрыто после проверки"
             />
             <StatTile
+              {...(royal ? controlTile("circle-alert", confirmedCritical) : {})}
               label="Нарушение подтверждено"
               value={summaryQuery.data.confirmed}
               line="сделка прошла мимо компании"
-              critical
+              critical={confirmedCritical}
               onClick={() => {
                 setVerdict("CONFIRMED");
                 scrollToResults();
@@ -235,6 +248,7 @@ export function SecurityCenter() {
               title="Отфильтровать список: нарушение подтверждено"
             />
             <StatTile
+              {...(royal ? controlTile("clock") : {})}
               label="С просрочками агента"
               value={summaryQuery.data.agentFault}
               line="вина видна по задачам"
@@ -406,6 +420,6 @@ export function SecurityCenter() {
           </button>
         </div>
       </Rh2Sheet>
-    </div>
+    </ControlRoot>
   );
 }
