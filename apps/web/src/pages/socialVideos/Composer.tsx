@@ -774,11 +774,11 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
           onCancel={() => setSlotTaken(null)}
         >
           <button
-            className="pill ghost sm"
+            className="pill ghost min-h-12! text-base!"
             type="button"
             onClick={() => void doPublish({ acceptSlotConflict: true })}
           >
-            Оставить моё время{scheduledAt ? ` — ${exactDateTime(scheduledAt)}` : ""}
+            Оставить моё время{scheduledAt ? `: ${exactDateTime(scheduledAt)}` : ""}
           </button>
         </ConfirmDialog>
       )}
