@@ -82,7 +82,7 @@ describe("таблица случаев SPEC.md (1–26)", () => {
     const turns = run(c, [ru({ role: "seller" }), ru({ details: { district: "Сино", rooms: "3" }, hasDetails: true }), ru({ ackOnly: true, role: null })]);
     expect(turns[0]!.keys).toEqual(["seller_intro", "lead_and_details_seller"]);
     expect(turns[0]!.text).toBe("Поможем продать, комиссия агентства 2%. Агент позвонит вам на этот номер в ближайшее время, " +
-      "а пока напишите одним сообщением: район, комнаты, площадь, этаж, ремонт и цену.");
+      "а пока опишите одним сообщением: район, комнаты, площадь, этаж, ремонт и цену.");
     expect(leads(turns.slice(0, 1))).toHaveLength(1);
     expect(turns[1]!.keys).toEqual(["note_added"]);
     expect(turns[1]!.actions[0]).toMatchObject({ type: "append_note" });
@@ -327,7 +327,7 @@ describe("пределы и запреты", () => {
   it("вопрос о деталях один раз, только про недостающее, любой ответ принимается", () => {
     const partial = one(ctx(), ru({ role: "buyer", details: { rooms: "2" }, hasDetails: true }));
     expect(partial.keys).toEqual(["lead_and_details_missing"]);
-    expect(partial.text).toBe("Агент позвонит вам на этот номер в ближайшее время, а пока напишите ещё район и сумму.");
+    expect(partial.text).toBe("Агент позвонит вам на этот номер в ближайшее время, а пока уточните ещё район и сумму.");
     expect(one(IG(), ru({ role: "buyer", details: { rooms: "2" }, hasDetails: true })).text)
       .toBe("Напишите, пожалуйста, ещё район и сумму и ваш номер телефона, агент перезвонит.");
     const full = one(ctx(), ru({ role: "buyer", details: { rooms: "2", district: "Сино", budget: "60000$" }, hasDetails: true }));

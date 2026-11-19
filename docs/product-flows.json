@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4118,
+  "forks": 4126,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -126576,11 +126576,79 @@
       },
       {
        "k": "do",
-       "t": "const note = leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? \"Вопрос, на который бот не ответил\" : SCENA…",
+       "t": "const note = sealed.note ?? leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? \"Вопрос, на который бот не о…",
        "a": [
         "зовёт leadOnlyNoteWithCallbackTime()"
        ],
        "c": []
+      },
+      {
+       "k": "if",
+       "t": "intake.scenario === \"note\"",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "!conversation.clientId && !options.force",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"wait\", reason: \"card_pending\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!conversation.clientId",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"ai\", `[alarm] Оператор заявок: пометка агенту без карточки (диалог ${conversation.id}). …",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intake_f…",
+           "a": [
+            "зовёт alarmLeadOnlyIntake()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "sealed.phone",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });",
+           "a": [
+            "зовёт noteLeadOnlyNewPhone()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: \"noted\" } : {…",
+         "a": [
+          "зовёт noteLeadOnlyOnCard()"
+         ],
+         "c": []
+        }
+       ]
       },
       {
        "k": "if",
@@ -126855,11 +126923,79 @@
           },
           {
            "k": "do",
-           "t": "const note = leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? \"Вопрос, на который бот не ответил\" : SCENA…",
+           "t": "const note = sealed.note ?? leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? \"Вопрос, на который бот не о…",
            "a": [
             "зовёт leadOnlyNoteWithCallbackTime()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "intake.scenario === \"note\"",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "!conversation.clientId && !options.force",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return { status: \"wait\", reason: \"card_pending\" };",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!conversation.clientId",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"ai\", `[alarm] Оператор заявок: пометка агенту без карточки (диалог ${conversation.id}). …",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intake_f…",
+               "a": [
+                "зовёт alarmLeadOnlyIntake()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "sealed.phone",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });",
+               "a": [
+                "зовёт noteLeadOnlyNewPhone()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: \"noted\" } : {…",
+             "a": [
+              "зовёт noteLeadOnlyOnCard()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",

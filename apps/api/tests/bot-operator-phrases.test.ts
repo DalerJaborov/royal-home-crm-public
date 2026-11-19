@@ -93,6 +93,21 @@ describe("сторож фраз оператора", () => {
     expect([...commissionKeys].sort()).toEqual(["seller_commission", "seller_intro"]);
   });
 
+  it("совместимость со сторожем лидов (#301): фраза заявки — обещание звонка, фраза грубости — не обещание агента", () => {
+    // Копия словарей ai/callbackPromiseGuard.ts::promisesAgentContact из main (#301, 52a231ff): после свода с main этот тест
+    // переходит на сам promisesAgentContact. Фраза заявки со словом условного обещания («напишите», «нависед») сторож не
+    // засчитывает, и незаведённая заявка прошла бы мимо него; «передаю сотруднику» он засчитывает — грубияну завёл бы заявку.
+    const CALL_PROMISE = /(?<![\p{L}])(?:занг\s+(?:мезан(?:ад|анд|ем)|зада(?![\p{L}])(?!\s+метавон))|мунтазири\s+занг\p{L}*|(?:по|пере)звон(?:ит|ят|им)(?![\p{L}])|свяж(?:ется|утся|емся)(?![\p{L}])|тамос\s+(?:мегир(?:ад|анд|ем)|гирифта(?![\p{L}])))/iu;
+    const CONDITIONAL = /(?<![\p{L}])(?:если|агар|оставьте|напишите|нависед|дайте|гузоред|бигузоред|фиристед|отправьте|пришлите|скиньте|укажите)(?![\p{L}])/iu;
+    const HANDOVER_TO_STAFF = /(?<![\p{L}])(?:передал[аи]?|переда(?:ю|м|ём))\s+(?:[\p{L}\d№-]+\s+){0,3}?(?:агент|сотрудник|менеджер|специалист)\p{L}*/iu;
+    for (const { key, language, text } of rendered()) {
+      if (["lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing", "lead_known_phone", "phone_received"].includes(key)) {
+        expect(CALL_PROMISE.test(text) && !CONDITIONAL.test(text), `${key}/${language}: ${text}`).toBe(true);
+      }
+      if (key === "rude_calm") expect(HANDOVER_TO_STAFF.test(text), `${key}/${language}: ${text}`).toBe(false);
+    }
+  });
+
   it("переменная из данных не протаскивает тире и переносы, неизвестная переменная — ошибка, а не «{price}» клиенту", () => {
     const text = renderOperatorStep({ key: "job_open", vars: { position: "SMM — специалист\nстарший" }, variant: 0 }, "ru");
     expect(text).toBe("Вакансия «SMM, специалист старший» открыта.");

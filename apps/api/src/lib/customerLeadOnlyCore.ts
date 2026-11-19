@@ -240,7 +240,15 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
     sealed.callbackWhen);
   if (intake.scenario === "note") {
     // Пометка к заявке, которую заводит задание этого же разговора: карточки может ещё не быть — подождём её (не теряем).
-    if (!conversation.clientId) return options.force ? { status: "skipped", reason: "card_missing" } : { status: "wait", reason: "card_pending" };
+    if (!conversation.clientId && !options.force) return { status: "wait", reason: "card_pending" };
+    if (!conversation.clientId) {
+      // Бот уже сказал «Передал агенту», а карточки так и нет (заявка этого разговора не завелась): не тихий пропуск.
+      // Сторож лидов (lib/phoneLeadWatchdog.ts) считает задание этого типа «заботой приёма ядра» и сам не тревожит.
+      void logSystemError("ai", `[alarm] Оператор заявок: пометка агенту без карточки (диалог ${conversation.id}). Откройте переписку и заведите карточку руками.`,
+        { dedupKey: `lead-only-note-no-card:${conversation.id}` });
+      await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_failed" });
+      return { status: "notified", reason: "card_missing" };
+    }
     if (sealed.phone) {
       const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });
       return phoneNote === "noted" ? { status: "noted" } : { status: "skipped", reason: phoneNote };

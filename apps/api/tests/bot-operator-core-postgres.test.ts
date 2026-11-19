@@ -219,7 +219,7 @@ describe("оператор приёма заявок на настоящем п�
   it("случай 3, WhatsApp: заявка в этот же ход и вопрос о деталях; ответ — заметка; модель ядра не звалась; память v2 переживает приём", async () => {
     const f = await coreFixture("Хочу продать квартиру", "WHATSAPP");
     expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Агент позвонит вам на этот номер в ближайшее время, " +
-      "а пока напишите одним сообщением: район, комнаты, площадь, этаж, ремонт и цену.");
+      "а пока опишите одним сообщением: район, комнаты, площадь, этаж, ремонт и цену.");
     const lead = await intakeJob(f.eventKey);
     expect(lead?.payload).toMatchObject({ scenario: "seller", propertyId: null });
     const sealed = JSON.parse(decryptSecret((lead!.payload as { sealed: string }).sealed)) as { phone: string; note: string };
@@ -246,7 +246,7 @@ describe("оператор приёма заявок на настоящем п�
 
   it("случай 4, WhatsApp: «С 11 до 2.30 удобно» после заявки — время повторяем и пишем агенту заметкой", async () => {
     const f = await coreFixture("Продать недвижимость", "WHATSAPP");
-    expect(await plannedText(f.eventKey)).toContain("а пока напишите одним сообщением");
+    expect(await plannedText(f.eventKey)).toContain("а пока опишите одним сообщением");
     await settle(f.eventKey);
     const second = await f.receive("С 11 до 2.30 удобно");
     expect(await plannedText(second)).toBe("Передам агенту: звонить с 11:00 до 14:30.");

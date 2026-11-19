@@ -74,7 +74,7 @@ describe("оператор приёма заявок, старый путь", ()
     const peer = digits();
     const first = await turn(peer, "Здравствуйте, хочу продать свою квартиру");
     expect(first.reply).toBe("Поможем продать, комиссия агентства 2%. Агент позвонит вам на этот номер в ближайшее время, " +
-      "а пока напишите одним сообщением: район, комнаты, площадь, этаж, ремонт и цену.");
+      "а пока опишите одним сообщением: район, комнаты, площадь, этаж, ремонт и цену.");
     const conv = await conversationOf(peer);
     expect(conv.clientId).not.toBeNull();
     const client = await prisma.client.findUniqueOrThrow({ where: { id: conv.clientId! } });
