@@ -51,7 +51,10 @@ const DIGIT_RUN_RE = /\+?\(?\d(?:[\s().-]{0,2}\d){6,}/gu;
 /** Pure: what may be stored. Phones, e-mails and links masked, length bounded. */
 export function sampleSafeText(text: string): string {
   const masked = maskPhonesInFreeText(text.replace(LINK_RE, "[ссылка]").replace(EMAIL_RE, "[почта]"))
-    .replace(DIGIT_RUN_RE, run => /^\d{1,3}(?: \d{3})+$/u.test(run.trim()) ? run : "[номер]").replace(/\+?[\d•]*•[\d•]*/gu, "[номер]");
+    // Сначала уже закрытый номер целиком: у маски «кроме середины» по обе стороны от точек
+    // стоят цифры, и счёт цепочек раньше маски рвал её на два «[номер]». Потом остальные цепочки.
+    .replace(/\+?[\d•]*•[\d•]*(?: •{7,})?/gu, "[номер]")
+    .replace(DIGIT_RUN_RE, run => /^\d{1,3}(?: \d{3})+$/u.test(run.trim()) ? run : "[номер]");
   return masked.length > SAMPLE_TEXT_MAX ? `${masked.slice(0, SAMPLE_TEXT_MAX - 1)}…` : masked;
 }
 

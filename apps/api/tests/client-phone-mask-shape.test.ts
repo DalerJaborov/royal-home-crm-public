@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CLIENT_PHONE_MASK_CHAR, isDialableTajikNumber, isForeignPhone, isMaskedClientPhone, tajikNationalNumber } from "@royal-home/shared";
-import { maskClientPhone, maskPhonesInText } from "../src/lib/clientPhone.js";
+import { maskClientPhone, maskPhonesInFreeText, maskPhonesInText } from "../src/lib/clientPhone.js";
 import { maskOwnerContact } from "../src/lib/ownerContact.js";
 
 /**
@@ -80,6 +80,44 @@ describe("maskClientPhone — форма", () => {
     }
     expect(isDialableTajikNumber("+992931234456")).toBe(true);
     expect(tajikNationalNumber("+992931234456")).toBe("931234456");
+  });
+});
+
+describe("номер внутри текста: за ним идут другие цифры", () => {
+  // Облачный прогон 19.11.2026: имя карточки с цифрами после номера отдавало номер целиком —
+  // маска «две цифры перед тремя последними» закрывала цифры хвоста, а не номера.
+  const phone = "+992900112233";
+  it("хвост из цифр после номера не сдвигает маску и не открывает номер", () => {
+    for (const tail of ["7", "12", "2 комнаты", "1794955089320", "5 этаж 9"]) {
+      for (const mask of [maskPhonesInText, maskPhonesInFreeText]) {
+        const out = mask(`Иван ${phone} ${tail}`);
+        expect(out).not.toContain("900112233");
+        // закрыты именно те две цифры, что и в поле «Телефон»
+        expect(out.startsWith(`Иван ${maskClientPhone(phone)}`)).toBe(true);
+      }
+    }
+  });
+  it("местная запись и запись без плюса с приписанными цифрами — закрыта осторожно", () => {
+    for (const text of ["900112233 7", "900 11 22 33 12345", "8 900 112 23 31", "12 992900112233"]) {
+      const out = maskPhonesInFreeText(`тел ${text}`);
+      expect(out).not.toContain("0112233");
+      expect(out.replace(/\D/g, "").length).toBeLessThanOrEqual(text.replace(/\D/g, "").length - 2);
+    }
+  });
+  it("второй номер, приклеенный к первому, закрыт целиком", () => {
+    const out = maskPhonesInText("+992900112233 992935551234");
+    expect(out).not.toContain("935551234");
+    expect(out).not.toContain("900112233");
+  });
+  it("контакт собственника: номер с приписанной цифрой не открывается сдвигом маски", () => {
+    const out = maskOwnerContact("93 555 12 34 2")!;
+    expect(out).not.toContain("5551234");
+    expect([...out].filter((c) => c === CLIENT_PHONE_MASK_CHAR).length).toBeGreaterThanOrEqual(5);
+  });
+  it("чистый номер в тексте выглядит так же, как в поле", () => {
+    expect(maskPhonesInText(`звоните ${phone}`)).toBe(`звоните ${maskClientPhone(phone)}`);
+    expect(maskPhonesInFreeText("900112233")).toBe(maskClientPhone("900112233"));
+    expect(maskPhonesInText("+7 916 123 45 67")).toBe(maskClientPhone("+79161234567"));
   });
 });
 

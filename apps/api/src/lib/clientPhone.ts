@@ -61,6 +61,41 @@ export function maskClientPhone(phone: string): string {
   return out;
 }
 
+/**
+ * НОМЕР ВНУТРИ ТЕКСТА: ГДЕ ОН КОНЧАЕТСЯ (19.11.2026, облачный прогон поймал утечку).
+ *
+ * Разбор текста берёт цепочку цифр с разделителями, а за номером в тексте часто
+ * идут ещё цифры: номер и «2 комнаты», имя карточки с меткой времени после номера.
+ * Маска «две цифры перед тремя последними» по такой цепочке закрывала чужие цифры
+ * в хвосте, а сам номер оставляла открытым целиком. Сдвиг на одну цифру не лучше:
+ * в поле закрыты одни две цифры, в тексте соседние, вместе остаётся десять
+ * вариантов. Прежняя маска (пять и больше закрытых знаков) этого не замечала.
+ *
+ * Поэтому маска «кроме середины» ставится только там, где границы номера известны:
+ *   · 992 и девять цифр — таджикский, первые двенадцать цифр;
+ *   · «+7» и десять цифр — первые одиннадцать;
+ *   · ровно девять цифр без плюса или десять с ведущим нулём — местная запись.
+ * Хвост после номера: короткий остаётся как есть (это не номер), от семи цифр
+ * закрывается целиком (может быть вторым номером). Границы неизвестны — видны
+ * только первые четыре цифры, остальное закрыто, как у прежней маски.
+ */
+export function maskPhoneRun(digits: string, withPlus: boolean): string {
+  const sign = withPlus ? "+" : "";
+  let phoneLength = 0;
+  if (digits.startsWith("992") && digits.length >= 12) phoneLength = 12;
+  else if (withPlus && digits.startsWith("7") && digits.length >= 11) phoneLength = 11;
+  else if (!withPlus && digits.length === 9) phoneLength = 9;
+  else if (!withPlus && digits.length === 10 && digits.startsWith("0")) phoneLength = 10;
+  if (phoneLength === 0) {
+    const head = digits.slice(0, 4);
+    return sign + head + CLIENT_PHONE_MASK_CHAR.repeat(Math.max(digits.length - head.length, MASK_HIDDEN_DIGITS));
+  }
+  const masked = maskClientPhone(sign + digits.slice(0, phoneLength));
+  const rest = digits.slice(phoneLength);
+  if (!rest) return masked;
+  return `${masked} ${rest.length >= 7 ? CLIENT_PHONE_MASK_CHAR.repeat(rest.length) : rest}`;
+}
+
 /** Телефон в том виде, в каком его можно показать этому сотруднику. */
 export function clientPhoneFor(phone: string, canSeeFull: CanSeeFullPhone): string {
   return canSeeFull ? phone : maskClientPhone(phone);
@@ -155,7 +190,7 @@ export function maskPhoneNumbersInText(text: string): string {
   return text.replace(PHONE_IN_TEXT_RE, (match) => {
     const digits = match.replace(/\D/g, "");
     if (digits.length < 9) return match;
-    return maskClientPhone(match.trim().startsWith("+") ? `+${digits}` : digits);
+    return maskPhoneRun(digits, match.trim().startsWith("+"));
   });
 }
 
@@ -176,7 +211,7 @@ export function maskPhonesInFreeText(text: string): string {
   // Порядок важен: узкий разбор оставляет после себя «•», и добивка уже не видит
   // в замаскированном номере длинную цепочку цифр.
   return maskPhonesInText(text).replace(DIGIT_RUN_IN_TEXT_RE, (match) =>
-    maskClientPhone(match.replace(/\D/g, ""))
+    maskPhoneRun(match.replace(/\D/g, ""), false)
   );
 }
 

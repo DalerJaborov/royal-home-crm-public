@@ -14,7 +14,7 @@ it('returns exact DB IDs and asks to choose when ambiguous', async () => {
   expect(result?.cards).toHaveLength(2);
   expect(result?.reply).toContain('/clients/00000000-0000-4000-8000-000000000001');
   expect(result?.reply).toContain('Уточните');
-  expect(result?.cards[0]).toMatchObject({ phone: '+992•••••67' });
+  expect(result?.cards[0]).toMatchObject({ phone: '+9929012••567' });
   const where = findMany.mock.calls[0][0].where;
   expect(where.shortId).toBe(112);
   expect(JSON.stringify(where)).toContain('test-agent');
