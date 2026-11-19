@@ -11,7 +11,11 @@
  *  - имя компании — переменная {brand}, номер объекта, цена, время — переменные из базы и Настроек, ничего своего.
  * Таджикский — по скиллу tajik-phrasebook: тёплый и простой, без «лутфан», «безаҳмат», «мутахассис», «қулай».
  */
+import { SERVICE_AREA_WORK_RU, SERVICE_AREA_WORK_TG } from "../../lib/serviceArea.js";
 import type { OperatorChannel, OperatorDetailField, OperatorLanguage, OperatorStepOut, PhraseKey, PhraseVars } from "./types.js";
+
+/** Фраза о зоне живёт в lib/serviceArea.ts (сторож одной двери в voice-anna-fixes-16-11.test.ts); здесь только заглавная буква. */
+const capitalize = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
 type Variants = readonly [string, string, ...string[]];
 type Phrase = Readonly<Record<OperatorLanguage, Variants>>;
@@ -155,7 +159,7 @@ export const OPERATOR_PHRASES: Readonly<Record<PhraseKey, Phrase>> = {
   },
   note_added: { ru: ["Передал агенту.", "Передал это агенту."], tg: ["Ба агент расондам.", "Инро ба агент расондам."] },
   welcome: { ru: ["Пожалуйста.", "Всегда пожалуйста."], tg: ["Марҳамат.", "Марҳамат, саломат бошед."] },
-  where_work: { ru: ["Работаем по Душанбе.", "Мы работаем по Душанбе."], tg: ["Мо дар Душанбе кор мекунем.", "Дар Душанбе кор мекунем."] },
+  where_work: { ru: [`${capitalize(SERVICE_AREA_WORK_RU)}.`, `Мы ${SERVICE_AREA_WORK_RU}.`], tg: [`Мо ${SERVICE_AREA_WORK_TG}.`, `${capitalize(SERVICE_AREA_WORK_TG)}.`] },
   rent_refusal: {
     ru: ["Арендой не занимаемся, только покупка и продажа.", "С арендой мы не работаем, только с покупкой и продажей."],
     tg: ["Мо бо иҷора кор намекунем, танҳо хариду фурӯш.", "Иҷора намекунем, танҳо хариду фурӯши хона."],
