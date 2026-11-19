@@ -19,7 +19,7 @@
 
 import type { Request } from "express";
 import { can } from "../auth/middleware.js";
-import { maskClientPhone } from "./clientPhone.js";
+import { maskClientPhone, maskPhoneRun } from "./clientPhone.js";
 
 /**
  * Семантический вектор карточки (Property.embedding, 768 float ≈ 15 КБ JSON) —
@@ -59,15 +59,20 @@ export function stripOwnerContact<T extends { ownerContact?: string | null }>(
  *
  * Агенту на своём объекте нужно видеть, что номер у продавца есть и какой из
  * них (хвост), и звонить кнопкой — набирает станция. Сам номер — нет. Каждый
- * номер из поля приводим к `+992•••••57`: «как записан» маскировать нельзя —
- * у номера без плюса маска клиента оставила бы начало («9000•••••57»).
+ * номер из поля приводим к `+9929300••456`: «как записан» маскировать нельзя —
+ * у номера без плюса маска клиента оставила бы начало («9000••057»).
  */
 export function maskOwnerContact(raw: string | null | undefined): string | null {
   if (!raw?.trim()) return null;
   const masked: string[] = [];
   for (const chunk of raw.split(/(?=\+)|[^\d\s\-().+]+/u)) {
     const digits = chunk.replace(/\D/g, "");
-    if (digits.length >= 9) masked.push(maskClientPhone(`+992${digits.slice(-9)}`));
+    if (digits.length < 9) continue;
+    // Границы номера известны только у трёх записей: девять цифр, ноль и девять, 992 и
+    // девять. Всё прочее (за номером дописаны цифры, другая страна) — осторожной маской:
+    // иначе «две цифры в середине» закрыли бы не те цифры (lib/clientPhone.ts, maskPhoneRun).
+    const local = digits.length === 9 || (digits.length === 10 && digits.startsWith("0")) || (digits.length === 12 && digits.startsWith("992"));
+    masked.push(local ? maskClientPhone(`+992${digits.slice(-9)}`) : maskPhoneRun(digits, chunk.trimStart().startsWith("+")));
   }
   return masked.length > 0 ? [...new Set(masked)].join(", ") : "номер записан";
 }

@@ -13,8 +13,21 @@ function token(clientId: string, slot: string, phone: string): string {
 export function clientPhoneSelectionTokens(client: Phones): Record<string, string> {
   return Object.fromEntries(slots(client).map(([slot, phone]) => [slot, token(client.id, slot, phone)]));
 }
-/** Tokens contain no phone/hash. Slot and current full number are both authenticated. */
-export function resolveClientPhoneSelection(client: Phones, input: { phone?: string; phoneKey?: string }): { phone?: string; conflict?: true } {
+/**
+ * Tokens contain no phone/hash. Slot and current full number are both authenticated.
+ *
+ * ОТКРЫТЫЙ НОМЕР — ТОЛЬКО ОТ ТОГО, КТО ЕГО И ТАК ВИДИТ (ревью 19.11.2026). Маска
+ * закрывает две цифры, то есть сто вариантов. Пока сюда принимался номер цифрами от
+ * любого, ответ «принадлежит карточке / не принадлежит» работал как подсказка:
+ * сто тихих запросов — и номер клиента известен. Без права видеть номер годятся
+ * только ключ выбора или та самая маска, которую сотруднику показали; на открытые
+ * цифры ответ один и тот же, угадал он или нет.
+ */
+export function resolveClientPhoneSelection(
+  client: Phones,
+  input: { phone?: string; phoneKey?: string },
+  canSeeFullPhone: boolean
+): { phone?: string; conflict?: true } {
   if (input.phoneKey !== undefined) {
     const supplied = Buffer.from(input.phoneKey);
     for (const [slot, phone] of slots(client)) {
@@ -29,5 +42,6 @@ export function resolveClientPhoneSelection(client: Phones, input: { phone?: str
     const matches = [...byDigits.values()];
     return matches.length === 1 ? { phone: matches[0] } : { conflict: true };
   }
+  if (input.phone !== undefined && !canSeeFullPhone) return { conflict: true };
   return { phone: input.phone };
 }

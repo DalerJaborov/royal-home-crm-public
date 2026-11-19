@@ -191,7 +191,7 @@ describe("GET /insights/:id", () => {
     if (caseWithStringTimeline) {
       expect(caseWithStringTimeline.timeline).not.toContain("+992900123456");
       // maskPhonesDeep использует CLIENT_PHONE_MASK_CHAR = "•"
-      expect(caseWithStringTimeline.timeline).toContain("•••••");
+      expect(caseWithStringTimeline.timeline).toContain("••");
     }
 
     // Ищем кейс с объектом timeline
@@ -199,7 +199,7 @@ describe("GET /insights/:id", () => {
     if (caseWithObjectTimeline) {
       const timelineStr = JSON.stringify(caseWithObjectTimeline.timeline);
       expect(timelineStr).not.toContain("+992910001003");
-      expect(timelineStr).toContain("•••••");
+      expect(timelineStr).toContain("••");
     }
   });
 });

@@ -15,6 +15,7 @@ import { encryptSecret } from "../src/crypto.js";
 import { resetCalls } from "../src/lib/telephony/callTracker.js";
 import { originateCall } from "../src/lib/telephony/ariClient.js";
 import { signAccessToken } from "../src/auth/jwt.js";
+import { maskClientPhone } from "../src/lib/clientPhone.js";
 import { reserveExtensionBase } from "./helpers/extensionBase.js";
 
 /**
@@ -173,7 +174,8 @@ describe("звонок из CRM на иностранный номер", () => {
     const res = await request(app)
       .post(`/api/v1/clients/${tajikClientId}/call`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ phone: foreignPhone.replace("+79", "+77") });
+      // Агент номера не видит: сайт шлёт маску, которую ему показали (открытые цифры не принимаются).
+      .send({ phone: maskClientPhone(foreignPhone.replace("+79", "+77")) });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe("not_dialable");
     expect(res.body.error).toBe(FOREIGN_PHONE_CALL_ERROR);
