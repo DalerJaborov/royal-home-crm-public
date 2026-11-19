@@ -90,7 +90,8 @@ reactivationOffersRouter.post("/:id/reactivation-offer/decline", requireAuth, as
   if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
   const { client } = outcome;
 
-  const { nextAgentId } = await releaseReactivationOffer(client, req.agent!.id, "declined");
+  const { nextAgentId, raced } = await releaseReactivationOffer(client, req.agent!.id, "declined");
+  if (raced) return res.status(409).json({ error: "Предложение уже снято — обновите страницу" });
 
   logAudit(req, "REACTIVATION_DECLINE", "Client", client.id, {
     shortId: client.shortId,

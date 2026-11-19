@@ -15,8 +15,18 @@ export type StageEventRow = {
  * которые запишутся только после фиксации. `open` снимается, как только колбэк
  * транзакции завершился: дело, запущенное из колбэка и пережившее его, читает и
  * пишет уже обычным путём, а не через закрытую транзакцию.
+ *
+ * `afterCommit` (19.11.2026, аудит переназначения, находка №4) — дела, которые
+ * имеют смысл только если транзакция зафиксирована (спутники смены владельца
+ * клиента в `lib/changeClientAgent.ts`). Запускаются по порядку постановки
+ * после фиксации, при откате выбрасываются — тем же путём, что `pending`.
  */
-export type TxScope = { tx: unknown; open: boolean; pending: StageEventRow[] };
+export type TxScope = {
+  tx: unknown;
+  open: boolean;
+  pending: StageEventRow[];
+  afterCommit: Array<() => void | Promise<void>>;
+};
 export const txScope = new AsyncLocalStorage<TxScope>();
 
 export function openScope(): TxScope | undefined {
