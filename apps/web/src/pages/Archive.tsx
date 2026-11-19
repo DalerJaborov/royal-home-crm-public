@@ -40,6 +40,7 @@ import { ClientTrashReviewSheet } from "../components/ClientTrashReviewSheet";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
 import { PropertyChangeRequestsInbox } from "../components/PropertyChangeRequestsInbox";
+import { RecordsSection, useRecordsSectionMark } from "../components/look/records/RecordsSection";
 
 /**
  * «Архив и корзина».
@@ -409,7 +410,18 @@ function PropertyDeleteRequestsQueue() {
   );
 }
 
+/** «Новый вид» (пачка records): метка раздела над экраном; без признака разметка прежняя. */
 export function Archive() {
+  return (
+    <RecordsSection>
+      <ArchiveScreen />
+    </RecordsSection>
+  );
+}
+
+function ArchiveScreen() {
+  const section = useRecordsSectionMark();
+  const rootClass = section ? "rh2 screens ry-archive" : "rh2 screens";
   const can = useCan();
   const canView = can("archive.view");
   const canPurgeProperties = can("properties.purge");
@@ -532,7 +544,7 @@ export function Archive() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <div className={rootClass} data-ry-section={section}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -546,7 +558,7 @@ export function Archive() {
   }
 
   return (
-    <div className="rh2 screens">
+    <div className={rootClass} data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>

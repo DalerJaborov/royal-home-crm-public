@@ -26,6 +26,10 @@ import { useClients, useAcceptLead } from "../hooks/useClients";
 import { MutationError } from "../components/MutationError";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { AdminScreen } from "../components/look/admin/AdminRoot";
+import { RhBlockState, RhButton, RhCircle, type RhTone } from "../components/look/ui";
+import type { RoyalIconName } from "../components/look/royalIconData";
 
 /**
  * `/notifications` — полноэкранная лента уведомлений.
@@ -220,6 +224,32 @@ const KIND_LOOK: Record<string, { icon: LucideIcon; tone: CSSProperties }> = {
 };
 const DEFAULT_LOOK = { icon: Bell, tone: { background: "var(--soft)", color: "var(--muted)" } };
 
+/**
+ * Новый вид (пачка admin, 20.11.2026): круг 48 со значком MingCute по поводу, на своей
+ * пастели. Смысл уровня держится яркостью и значком, а не только оттенком: «Критичное» /
+ * «Контроль» — сплошной красный круг с пламенем, «Ждёт решения» / «Согласования» —
+ * светлый янтарный круг со значком повода, остальное — спокойная пастель.
+ */
+const ROYAL_KIND: Record<string, { icon: RoyalIconName; tone: RhTone }> = {
+  lead: { icon: "user-plus", tone: "a0" },
+  message: { icon: "message-circle", tone: "a1" },
+  showing: { icon: "calendar-days", tone: "a3" },
+  task: { icon: "list-checks", tone: "a2" },
+  score: { icon: "trend-up", tone: "a4" },
+  look: { icon: "map-pin", tone: "a5" },
+  hot: { icon: "trend-up", tone: "a2" },
+  market: { icon: "storefront", tone: "a4" },
+  /** Предложение объекта коллегой (10.11.2026). */
+  "property-offer": { icon: "building-2", tone: "a3" },
+};
+function royalCircle(n: AppNotification): { icon: RoyalIconName; tone: RhTone } {
+  const kind = ROYAL_KIND[n.kind] ?? { icon: "bell" as const, tone: "a0" as const };
+  const level = levelOf(n);
+  if (level === "CRITICAL") return { icon: "flame", tone: "crit" };
+  if (level === "APPROVAL") return { icon: kind.icon, tone: "warn" };
+  return kind;
+}
+
 /** Подпись дня, как в прототипе: «Сегодня, 7 сентября», «Вчера, 6 сентября», «5 сентября». */
 function dayCaption(at: string): string {
   const label = dushanbeDayLabel(at);
@@ -246,6 +276,7 @@ export function Notifications() {
   // «Назад» экрана: запасной путь — «Ещё», откуда уведомления и открывают.
   const goBack = useGoBack("/more");
   const mobile = useMobileUx();
+  const royal = useRoyalLook();
   const { data, isLoading, isError, refetch } = useNotifications();
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
@@ -470,6 +501,124 @@ export function Notifications() {
         </div>
       </div>
     ));
+  }
+
+  /**
+   * Новый вид (пачка admin): ОДНА разметка на телефон и ПК — те же значения из
+   * замыкания (items/newIds/open/pending), второго запроса нет. Действия строки прежние:
+   * открыть (заголовок и «Открыть»), «Принять» свой лид, ответ на предложение объекта.
+   */
+  function royalRows(list: AppNotification[]) {
+    return byDay(list).map((g) => (
+      <div className="ry-ntf-day" key={g.key}>
+        <div className="ry-ntf-day-h">{g.caption}</div>
+        {g.items.map((n) => {
+          const circle = royalCircle(n);
+          const isNew = newIds ? newIds.has(n.id) : !n.read;
+          const shortId = leadShortId(n);
+          const acceptClientId = shortId != null ? pendingIdByShortId.get(shortId) : undefined;
+          return (
+            <div className={isNew ? "ry-ntf" : "ry-ntf done"} key={n.id}>
+              <RhCircle icon={n.retiredAt ? "bell" : circle.icon} tone={n.retiredAt ? "a0" : circle.tone} />
+              <div className="ry-ntf-t">
+                <button className="ry-ntf-title" type="button" onClick={() => open(n)}>
+                  {n.title}
+                </button>
+                <span className="ry-ntf-body">{n.body}</span>
+                <span className="ry-ntf-meta">
+                  <span className="ry-ntf-time">{dushanbeTime(n.createdAt)}</span>
+                  {n.count > 1 && (
+                    <span className="chip mute">
+                      {n.count} раз, последний в {dushanbeTime(n.createdAt)}
+                    </span>
+                  )}
+                  {isNew ? (
+                    <span className="chip warn">Новое</span>
+                  ) : n.retiredAt ? (
+                    <span className="chip mute" title={n.retiredReason ?? undefined}>
+                      Передан
+                    </span>
+                  ) : (
+                    <span className="chip mute">{readLabel(n)}</span>
+                  )}
+                </span>
+              </div>
+              <div className="ry-ntf-acts">
+                {acceptClientId && <LeadAcceptAction clientId={acceptClientId} className="pill sm" />}
+                {n.offer && <OfferAnswerAction offer={n.offer} className="pill ghost sm" line />}
+                <button className="pill ghost sm" type="button" onClick={() => open(n)}>
+                  Открыть
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    ));
+  }
+
+  if (royal) {
+    return (
+      <AdminScreen royal title="Уведомления" back="/more" onBack={goBack} className="ry-ntf-page">
+        <div className="pg-h">
+          <div>
+            <h1 data-dup="">Уведомления</h1>
+            <p className="sub">
+              Всё, что приходило пушем.{" "}
+              {unreadCount > 0 ? `Непрочитанных ${unreadCount}.` : "Непрочитанных нет."}
+            </p>
+          </div>
+          <div className="acts">
+            <RhButton variant="gray" onClick={() => markAllRead.mutate()} disabled={unreadCount === 0 || markAllRead.isPending}>
+              Прочитать всё
+            </RhButton>
+          </div>
+        </div>
+
+        {isLoading && <RhBlockState kind="loading" />}
+
+        {isError && (
+          <div className="ry-adm-card" role="alert">
+            <div className="ry-adm-head">
+              <RhCircle icon="flame" tone="crit" />
+              <p className="ry-adm-text" data-tone="crit">
+                Не удалось загрузить ленту. Это не значит, что уведомлений нет — попробуйте ещё раз.
+              </p>
+            </div>
+            <div className="ry-adm-acts">
+              <RhButton variant="gray" onClick={() => refetch()}>Повторить</RhButton>
+            </div>
+          </div>
+        )}
+
+        {!isLoading && !isError && filled.length === 0 && (
+          <div className="ry-adm-empty">
+            <RhCircle icon="bell" size={60} />
+            <h2>Новых уведомлений нет.</h2>
+          </div>
+        )}
+
+        {filled.map(({ level, title, note, section }, i) => (
+          <section className="ry-adm-card ry-ntf-sec" key={level} aria-label={title}>
+            <header className="ry-adm-sec-h">
+              <h2>{title}</h2>
+              <span>{note}</span>
+            </header>
+            {royalRows(section)}
+            {i === filled.length - 1 && (hasMore || moreError) && (
+              <div className="ry-ntf-pager">
+                <span className={moreError ? "ry-adm-text" : "ry-adm-text ry-adm-hint"} data-tone={moreError ? "crit" : undefined}>
+                  {moreError ?? `Показано ${items.length}`}
+                </span>
+                <RhButton variant="gray" disabled={loadingMore} onClick={() => void loadMore()}>
+                  {loadingMore ? "Загружаем…" : moreError ? "Повторить" : "Показать ещё"}
+                </RhButton>
+              </div>
+            )}
+          </section>
+        ))}
+      </AdminScreen>
+    );
   }
 
   if (mobile) {
