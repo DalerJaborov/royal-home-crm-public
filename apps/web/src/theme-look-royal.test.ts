@@ -841,6 +841,50 @@ ${P} + .rh2 .pill { color: red; }`, "analytics")).toEqual([`${P} + .rh2 .pill`])
     // выключенная кнопка без приглушения перебитым весом
     expect(disabledDimGaps(css.replace(':not(#ry-dim) { opacity: .5; cursor: not-allowed; }', ' { opacity: .5; cursor: not-allowed; }'))).not.toEqual([]);
   });
+  it("знает слой пачки records и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-records.css");
+    expect(lookSectionOf("theme-look-royal-records.css")).toBe("records");
+    const css = readFileSync(new URL("./theme-look-royal-records.css", import.meta.url), "utf8");
+    const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="records"]';
+    // правило без метки (страница по ссылке клиента!) и с чужой меткой
+    expect(unscopedSelectors(`${css}
+:root[data-ui-look="royal"] .rh2 .lgn .pill { color: red; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .or-tile { color: red; }`, "records"))
+      .toEqual([':root[data-ui-look="royal"] .rh2 .lgn .pill', ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .or-tile']);
+    // «Стереть навсегда» (ConfirmDialog danger) синим; «золотая» кнопка входа перекрашена
+    expect(semanticButtonLeaks(`${css}
+${P} .sheet .pill.danger { background: var(--rh-ui-primary); }
+${P} .lgn .pill.gold { background: var(--rh-ui-primary); }`))
+      .toEqual([`${P} .sheet .pill.danger`, `${P} .lgn .pill.gold`]);
+    // выключенная «Получить код» снова горит как рабочая (находка пачки): без приглушения — красный
+    const undimmed = css.replace(/:root\[data-ui-look="royal"\] \[data-ry-section="records"\] :is\(\.pill[^\n]*\n/, "");
+    expect(undimmed).not.toBe(css);
+    expect(disabledDimGaps(undimmed)).not.toEqual([]);
+    // причина удаления в строке корзины обрезана; запас iPhone; сосед метки
+    expect(hiddenTextSelectors(`${css}
+${P} .list > .row > .t > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([`${P} .list > .row > .t > span`]);
+    expect(safeAreaOverrides(`${css}
+${P} .sheet.bottom .sheet-f { padding-bottom: 0; }`)).toEqual([`${P} .sheet.bottom .sheet-f`]);
+    expect(siblingEscapes(`${css}
+${P} ~ .rh2 .pill { color: red; }`, "records")).toEqual([`${P} ~ .rh2 .pill`]);
+  });
+  it("records: круглая кнопка-значок (.soft/.icon просмотрщика фото) не перекрашена в синюю таблетку (ревью #322, проверен поломкой)", () => {
+    const css = readFileSync(new URL("./theme-look-royal-records.css", import.meta.url), "utf8");
+    // Каждое правило, красящее .pill синим или задающее ей боковые поля таблетки, исключает .soft и .icon.
+    const pillRepaints = (text: string) => cssRules(text)
+      .filter((r) => /background:\s*var\(--rh-ui-primary\)|padding:\s*0 (16|20)px/.test(r.body))
+      .flatMap((r) => splitTopLevel(r.selector))
+      .filter((sel) => /\.pill\b/.test(notGroups(subjectOf(sel)).rest) && !/\.(lgn|mod)\b/.test(sel));
+    const leaks = (text: string) => pillRepaints(text).filter((sel) => {
+      const excluded = notGroups(subjectOf(sel)).inside.join(" ");
+      return !/\.soft\b/.test(excluded) || !/\.icon\b/.test(excluded);
+    });
+    expect(pillRepaints(css).length).toBeGreaterThan(0);
+    expect(leaks(css)).toEqual([]);
+    const broken = css.replace(/, \.soft, \.icon\)/g, ")");
+    expect(broken).not.toBe(css);
+    expect(leaks(broken)).not.toEqual([]);
+  });
   it("знает слой мастера и формы объекта (wizard) и ловит в нём поломки (проверен поломкой)", () => {
     expect(lookFiles).toContain("theme-look-royal-wizard.css");
     expect(lookSectionOf("theme-look-royal-wizard.css")).toBe("wizard");
