@@ -38,6 +38,7 @@ delete process.env.TELEGRAM_BOT_TOKEN;
 
 const { prisma } = await import("../src/db.js");
 const { handleTelegramUpdate } = await import("../src/telegram/bot.js");
+const { drainBackgroundTasks } = await import("../src/lib/shutdownState.js");
 
 const runId = Date.now();
 const CHAT_ID = 790000000 + (runId % 1_000_000);
@@ -155,6 +156,9 @@ describe("бот в Telegram не работает бесплатным ChatGPT"
       const client = await prisma.client.findUniqueOrThrow({ where: { id: conversation!.clientId! }, select: { phone: true } });
       expect(client.phone).toContain(digits.slice(-9));
     } finally {
+      // Новая карточка запускает фоновые разборы (card-fill, score-client), они тоже зовут модель: дождаться их здесь, иначе
+      // под нагрузкой их вызов попадает в счёт следующего теста («живой клиент проходит к модели», прогон 19.11).
+      await drainBackgroundTasks(5000);
       const row = await prisma.telegramConversation.findUnique({ where: { chatId }, select: { clientId: true } });
       if (row?.clientId) {
         await prisma.telegramConversation.deleteMany({ where: { chatId } });
