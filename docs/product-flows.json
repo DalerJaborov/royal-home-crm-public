@@ -61644,7 +61644,7 @@
     },
     {
      "k": "if",
-     "t": "spoken(existing) !== spoken(saved) || neverSynced",
+     "t": "pronunciationDictionaryStale(saved)",
      "a": [],
      "c": [
       {
@@ -104227,7 +104227,7 @@
       },
       {
        "k": "if",
-       "t": "narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode(\"NARRATION\")…",
+       "t": "narrationPlannerOpen(config, key)",
        "a": [],
        "c": [
         {

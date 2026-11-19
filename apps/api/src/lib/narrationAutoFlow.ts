@@ -26,7 +26,7 @@ import { mediaExecutionMode } from "./mediaExecution.js";
 import { logAgentAudit } from "./audit.js";
 import { sendBackToMontajer } from "./publishedVideoFix.js";
 import { NarrationDeliveryRefused, narrationDeliveryAttemptBudgetMs, narrationDeliveryRefusalIsExpected, narrationDeliveryStalled, prepareNarrationDeliveryPlan, type NarrationDeliveryRefusalCode } from "./narrationDelivery.js";
-import { generateNarrationVersion, loadNarrationConfiguration, narrationProviderReady, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS, speechChars } from "./narrationGeneration.js";
+import { generateNarrationVersion, loadNarrationConfiguration, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS, speechChars } from "./narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 import { narrationFacts, narrationFactsCurrent, narrationHash, narrationScriptError } from "./propertyNarration.js";
 import { logSystemError } from "./systemError.js";
@@ -35,6 +35,7 @@ import { narrationLastChoiceFor, rememberNarrationChoice } from "./narrationLast
 import { voicelessCopyHint } from "./narrationMontajerNote.js";
 import { sendToMontajer } from "./montageObservers.js";
 import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "./channelKeyAlarm.js";
+import { backfillNarrationWhere, firstNarrationBaseWhere, freshNarrationWhere, narrationAutoEnabled, narrationPlannerOpen } from "./narrationPlan.js";
 
 /**
  * АВТООЗВУЧКА РОЛИКА ОБЪЕКТА (схема владельца 10.11.2026, сделано 11.11).
@@ -85,9 +86,8 @@ export type AutoNarrationOutcome =
   | { status: "UNCHANGED" | "BUSY" | "CONFLICT" | "OFF" | "GONE" | "DISABLED" }
   | { status: "INVALID"; error: string };
 
-export function narrationAutoEnabled(config: NarrationConfig): boolean {
-  return config.autoGenerate === true && !!config.modelId && config.voices.length > 0;
-}
+// Условия «CRM сама готовит озвучку» — одно место, lib/narrationPlan.ts (его же читает строка монтажёру).
+export { narrationAutoEnabled };
 
 export async function requestAutoNarration(input: {
   propertyId: string; actorId: string; source: AutoNarrationSource;
@@ -876,7 +876,7 @@ export async function runNarrationAutoFlow(options: { notifyAgent?: NarrationApp
   report.retired = await retireNarrationsOfClosedProperties();
   // В PREVIEW (отправка монтажёру выключена на сервере) автоозвучка не платит вовсе: аудио некуда
   // отдать, а кредиты списались бы (ревью 12.11.2026). Черновики ждут и уйдут, когда включат LIVE.
-  if (narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode("NARRATION") === "LIVE") {
+  if (narrationPlannerOpen(config, key)) {
     // Разовый проход по очереди монтажа — только своим рубильником (по умолчанию выключен).
     if (config.backfillMontageQueue === true) report.backfilled = await backfillMontageQueue(config, now);
     report.drafted = await refreshNarrationDrafts(config, now);
@@ -904,7 +904,7 @@ export async function runNarrationAutoFlow(options: { notifyAgent?: NarrationApp
  */
 export async function backfillMontageQueue(config: NarrationConfig, now: Date): Promise<number> {
   const rows = await prisma.property.findMany({
-    where: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: { in: ["QUEUED", "SENT_TO_EDITOR"] }, videoHandoffManualSince: null, narrationVersions: { none: {} } },
+    where: { ...firstNarrationBaseWhere(), ...backfillNarrationWhere() },
     select: { id: true }, orderBy: [{ videoHandoffQueueOrder: "asc" }, { videoHandoffSentAt: "asc" }], take: 20,
   });
   let queued = 0;
@@ -943,7 +943,7 @@ export const NARRATION_AFTER_EDIT_DEBOUNCE_MS = 30_000;
  *  что у обхода refreshNarrationDrafts (платить — только при включённой автоозвучке и отправке LIVE). */
 export async function requestNarrationAfterEdit(propertyId: string, now: Date = new Date()): Promise<AutoNarrationOutcome | null> {
   const { config, key } = await loadNarrationConfiguration();
-  if (!narrationAutoEnabled(config) || !key || !narrationProviderReady(config, key) || mediaExecutionMode("NARRATION") !== "LIVE") return null;
+  if (!narrationPlannerOpen(config, key)) return null;
   const p = await prisma.property.findUnique({ where: { id: propertyId }, include: { district: true, narrationVersions: { orderBy: { revision: "desc" }, take: 1 } } });
   const latest = p?.narrationVersions[0];
   if (!p || p.deletedAt || p.narrationOff || !latest || narrationFactsCurrent(latest, p)) return null;
@@ -970,8 +970,7 @@ export async function refreshNarrationDrafts(config: NarrationConfig, now: Date)
   // Подстраховка: объект заведён мастером CRM или Шабнам за сутки, но озвучка не поставлена (сбой).
   // Заявки с сайта на модерации сюда не попадают (ревью 12.11.2026): только мастер и очередь монтажа.
   const fresh = await prisma.property.findMany({
-    where: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, createdAt: { gte: new Date(now.getTime() - DAY_MS) }, narrationVersions: { none: {} },
-      OR: [{ createdInCrmWizard: true }, { videoHandoffStatus: { in: ["QUEUED", "SENT_TO_EDITOR"] } }] },
+    where: { ...firstNarrationBaseWhere(), ...freshNarrationWhere(now) },
     select: { id: true, assignedAgentId: true, intakeAgentId: true, createdById: true }, take: 50,
   });
   for (const p of fresh) {

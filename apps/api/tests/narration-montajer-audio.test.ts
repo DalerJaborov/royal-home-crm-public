@@ -243,11 +243,13 @@ describe("E: соседние ситуации", () => {
       calls.push({ url, method: init.method ?? "GET", body: JSON.parse(String(init.body)) });
       return new Response(JSON.stringify({ id: "dict1", version_id: `ver${calls.length}` }), { status: 200, headers: { "content-type": "application/json" } });
     }) as unknown as typeof fetch;
-    const rules = [{ word: "ҳавлӣ", phoneme: "/havˈli/", needsNative: true }, { word: "Сино", alias: "Сино́" }];
+    // Звуки без проверки носителем в ElevenLabs не уходят (20.11.2026): «ҳавлӣ» остаётся в CRM, «хона» (проверено) уходит.
+    const rules = [{ word: "ҳавлӣ", phoneme: "/havˈli/", needsNative: true }, { word: "хона", phoneme: "/xoˈna/" }, { word: "Сино", alias: "Сино́" }];
     expect(await syncPronunciationDictionary({ ...CONFIG, modelId: "eleven_v4_turbo", pronunciationRules: rules }, "k", fetcher)).toEqual({ status: "SKIPPED" });
-    expect(await syncPronunciationDictionary({ ...CONFIG, pronunciationRules: rules }, "k", fetcher)).toEqual({ status: "SYNCED", dictionaries: [{ id: "dict1", versionId: "ver1" }] });
+    expect(await syncPronunciationDictionary({ ...CONFIG, pronunciationRules: rules }, "k", fetcher)).toMatchObject({ status: "SYNCED", dictionaries: [{ id: "dict1", versionId: "ver1" }] });
     expect(calls[0]!.url).toMatch(/add-from-rules$/);
-    expect(calls[0]!.body).toMatchObject({ rules: [{ type: "phoneme", string_to_replace: "ҳавлӣ", phoneme: "havˈli", alphabet: "ipa" }, { type: "alias", string_to_replace: "Сино", alias: "Сино́" }] });
+    expect(calls[0]!.body).toMatchObject({ rules: [{ type: "phoneme", string_to_replace: "хона", phoneme: "xoˈna", alphabet: "ipa" }, { type: "alias", string_to_replace: "Сино", alias: "Сино́" }] });
+    expect((calls[0]!.body as { rules: unknown[] }).rules).toHaveLength(2);
     await syncPronunciationDictionary({ ...CONFIG, pronunciationRules: rules, pronunciationDictionaries: [{ id: "dict1" }] }, "k", fetcher);
     expect(calls[1]!.url).toMatch(/dict1\/set-rules$/);
     expect(await syncPronunciationDictionary({ ...CONFIG, pronunciationRules: [], pronunciationDictionaries: [{ id: "dict1" }] }, "k", fetcher)).toEqual({ status: "SYNCED", dictionaries: [] });
