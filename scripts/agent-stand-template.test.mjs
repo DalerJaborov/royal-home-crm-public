@@ -6,7 +6,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ensureTemplate, READY_MARK } from "./agent-stand.mjs";
+import { readFileSync } from "node:fs";
+
+import { ensureTemplate, READY_MARK, standEnv, e2eHint, pidBelongsToStand } from "./agent-stand.mjs";
 
 /** Реестр баз: имя → { mark }. Ошибки миграции/сида включаются флагами. */
 function fakeIo({ failMigrate = false, failSeed = false, legacy = null, onBuild = () => {} } = {}) {
@@ -110,4 +112,36 @@ test("OPS09: сосед успел собрать эталон, пока стр�
   assert.equal(f.dbs.has("seeded_building_2"), false);
   assert.equal(f.dbs.get("seeded").mark, true);
   assert.equal(READY_MARK, "rh-stand-ready");
+});
+
+// ОКРУЖЕНИЕ СТЕНДА (20.11.2026, Чат 3). Вход только по коду: без
+// LOGIN_CODE_DEV_ECHO=1 стенд кода не отдаёт, и войти формой нельзя вовсе —
+// так `serve` уронил e2e auth.setup 18.11. Список один на up и serve.
+test("standEnv: стенд отдаёт код входа и не притворяется продом", () => {
+  const env = standEnv("4799", "5299");
+  assert.equal(env.LOGIN_CODE_DEV_ECHO, "1");
+  assert.notEqual(env.NODE_ENV, "production", "в production сервер кода не отдаст и не стартует (env-check.ts)");
+  assert.equal(env.DATABASE_URL, "postgresql://postgres:postgres@localhost:15500/agent_4799");
+  assert.equal(env.PORT, "4799");
+  assert.equal(env.VITE_API_PROXY, "http://localhost:4799");
+  assert.equal(env.CORS_ORIGIN, "http://localhost:5299");
+  assert.match(e2eHint("4799", "5299"), /E2E_BASE_URL=http:\/\/localhost:5299 E2E_API_URL=http:\/\/localhost:4799/);
+});
+
+test("up и serve берут окружение из standEnv, а не из своих копий списка", () => {
+  const src = readFileSync(new URL("./agent-stand.mjs", import.meta.url), "utf8");
+  // Прежние копии: литералы `$env:JWT_...` в serve и `JWT_ACCESS_SECRET=stand-` в up.
+  assert.doesNotMatch(src, /\$env:JWT_ACCESS_SECRET/);
+  assert.doesNotMatch(src, /`JWT_ACCESS_SECRET=stand-/);
+  assert.equal((src.match(/Object\.entries\(standEnv\(\)\)/g) ?? []).length, 2, "и up, и serve зовут standEnv()");
+});
+
+// down по устаревшему файлу PID убивал чужой стенд (20.11.2026): номер
+// процесса Windows выдаёт заново. Гасим только процесс со своим логом в строке.
+test("pidBelongsToStand: свой процесс узнаётся по логу с портом, чужой — нет", () => {
+  const own = String.raw`C:\WINDOWS\system32\cmd.exe /c npx tsx src/index.ts > "D:\CRM\.rh-stand\api-4799.log" 2>&1`;
+  assert.equal(pidBelongsToStand(own, "api-4799.log"), true);
+  assert.equal(pidBelongsToStand(own.replace("4799", "4796"), "api-4799.log"), false, "соседний стенд");
+  assert.equal(pidBelongsToStand(String.raw`"node" D:\CRM-wt\x\tsx\dist\cli.mjs src/index.ts`, "api-4799.log"), false, "чужой API без нашего лога");
+  assert.equal(pidBelongsToStand("", "api-4799.log"), false, "процесса нет");
 });

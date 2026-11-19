@@ -32,7 +32,9 @@ type ListScreen = {
 };
 
 const SCREENS: ListScreen[] = [
-  { path: "/properties", api: /\/api\/v1\/properties(\?|$)/, title: "Объекты" },
+  // Строками: в плитке (вид по умолчанию с 12.11.2026, #159) старая тема показывает
+  // только цену, без названия — сверять записи сервера с экраном там не по чему.
+  { path: "/properties?view=table", api: /\/api\/v1\/properties(\?|$)/, title: "Объекты" },
   { path: "/clients", api: /\/api\/v1\/clients(\?|$)/, title: "Клиенты" },
   { path: "/sellers", api: /\/api\/v1\/clients(\?|$)/, title: "Продавцы" },
   { path: "/deals", api: /\/api\/v1\/deals(\?|$)/, title: "Сделки" },

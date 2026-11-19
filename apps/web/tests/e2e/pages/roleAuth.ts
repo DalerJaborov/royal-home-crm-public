@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Browser, BrowserContext } from "@playwright/test";
 import { request } from "@playwright/test";
+import { sessionStillValid } from "./sessionProbe";
 
 /**
  * Вход под конкретной ролью для ролевых проверок.
@@ -70,12 +71,11 @@ export async function contextForRole(browser: Browser, role: RoleName): Promise<
   let context = await browser.newContext({ storageState: file });
 
   // Состояние могло протухнуть (сменили пароль, вытеснила сессия другого
-  // устройства). Проверяем делом, а не по возрасту файла: открываем главную и
-  // смотрим, не увело ли на вход. Увело — логинимся заново и пробуем ещё раз.
-  const probe = await context.newPage();
-  await probe.goto("/");
-  const dead = /\/login/.test(probe.url());
-  await probe.close();
+  // устройства). Проверяем делом, а не по возрасту файла: ответом /auth/refresh,
+  // а не адресом сразу после загрузки (pages/sessionProbe.ts — с вчерашним
+  // role-agent.json прежняя проверка пропускала мёртвую сессию, 20.11.2026).
+  // Живая — сохраняем ротированную refresh-cookie обратно в файл.
+  const dead = !(await sessionStillValid(context, { onValid: () => context.storageState({ path: file }).then(() => undefined) }));
   if (dead) {
     await context.close();
     await loginAndSave(role);

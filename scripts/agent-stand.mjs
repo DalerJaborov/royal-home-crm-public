@@ -277,7 +277,43 @@ function setupPrisma() {
 
 /** Имя базы агента выводится из порта API: у каждого агента он свой. */
 const dbName = `agent_${apiPort}`;
-const DB_URL = `postgresql://postgres:postgres@localhost:${PG_PORT}/${dbName}`;
+
+/**
+ * ОКРУЖЕНИЕ СТЕНДА — ОДНО МЕСТО НА `up` И `serve` (20.11.2026).
+ *
+ * Раньше список переменных жил дважды: строкой в подсказке `up` и списком
+ * `$env:` в `serve`. Они разошлись — разные ключи JWT, а главное, ни в одном не
+ * было `LOGIN_CODE_DEV_ECHO=1`. Вход в CRM с 19.10.2026 только по коду из СМС;
+ * без этой переменной сервер стенда кода в ответе не отдаёт, СМС не уходит
+ * (провайдера нет), и войти через форму нельзя вовсе: `auth.setup` e2e падал по
+ * таймауту на пустом поле кода при исправном приложении (18.11, Чат 3).
+ *
+ * Код в ответе сервер отдаёт только вне production (lib/loginSmsCode.ts), а
+ * env-check.ts не даёт серверу стартовать с этой переменной в production, —
+ * поэтому NODE_ENV здесь обязан оставаться development.
+ */
+function standEnv(api = apiPort, web = webPort) {
+  return {
+    DATABASE_URL: `postgresql://postgres:postgres@localhost:${PG_PORT}/agent_${api}`,
+    JWT_ACCESS_SECRET: `stand-${api}-access-secret-0123456789`,
+    JWT_REFRESH_SECRET: `stand-${api}-refresh-secret-0123456789`,
+    SETTINGS_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // gitleaks:allow -- reviewed synthetic test value or non-secret identifier
+    PORT: String(api),
+    API_RATE_LIMIT: "1000000",
+    NODE_ENV: "development",
+    LOGIN_CODE_DEV_ECHO: "1",
+    CORS_ORIGIN: `http://localhost:${web}`,
+    // Без этого Vite проксирует /api на свой умолчательный :4000 — чужой сервер
+    // с другой базой и другими ключами, и вход в интерфейсе отвечает 500 при
+    // полностью здоровом своём API (поймано на проверке 12.09).
+    VITE_API_PROXY: `http://localhost:${api}`,
+  };
+}
+
+/** Строка для e2e против своего стенда: тот же адрес, что поднял `serve`. */
+function e2eHint(api = apiPort, web = webPort) {
+  return `cd apps/web && E2E_BASE_URL=http://localhost:${web} E2E_API_URL=http://localhost:${api} npx playwright test --grep @smoke`;
+}
 const psql = (sql, db = "postgres") =>
   `docker exec ${PG_NAME} psql -U postgres -d ${db} -v ON_ERROR_STOP=1 -c ${JSON.stringify(sql)}`;
 
@@ -416,21 +452,29 @@ function up() {
   }
   shLoud(psql(`CREATE DATABASE ${dbName} TEMPLATE ${TEMPLATE_DB}`));
   console.log(`  своя база ${dbName} готова копией эталона`);
+  // ДОКАТИТЬ МИГРАЦИИ ПОВЕРХ ЭТАЛОНА (20.11.2026). Эталон пересобирается только
+  // руками (`refresh`), и 18.11 он отстал от main на 28 миграций, к 20.11 — на 36:
+  // стенд поднимался «зелёным», а API падал на первом же запросе к новой колонке,
+  // вход и e2e краснели при исправном коде. `migrate deploy` докатывает ровно
+  // недостающее из ЭТОГО дерева в СВОЮ базу (эталон и чужие базы не трогает) и
+  // при свежем эталоне ничего не делает.
+  realTemplateIo.migrate(dbName);
+  console.log(`  миграции этого дерева сверены с ${dbName}, недостающие докачены (если их было много — пересобери эталон: node scripts/agent-stand.mjs refresh)`);
 
-  const env =
-    `DATABASE_URL=${DB_URL} ` +
-    `JWT_ACCESS_SECRET=stand-${apiPort}-access-secret-0123456789 ` +
-    `JWT_REFRESH_SECRET=stand-${apiPort}-refresh-secret-0123456789 ` +
-    `SETTINGS_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef ` + // gitleaks:allow -- reviewed synthetic test value or non-secret identifier
-    `PORT=${apiPort} API_RATE_LIMIT=1000000 NODE_ENV=development CORS_ORIGIN=http://localhost:${webPort}`;
+  const env = Object.entries(standEnv())
+    .filter(([k]) => k !== "VITE_API_PROXY")
+    .map(([k, v]) => `${k}=${v}`)
+    .join(" ");
 
   console.log("\n== запусти сервер API (в отдельной команде):");
   console.log(`cd apps/api && ${env} npx tsx src/index.ts`);
   console.log("\n== запусти Vite:");
   console.log(`cd apps/web && VITE_API_PROXY=http://localhost:${apiPort} npx vite --port ${webPort} --strictPort`);
+  console.log("\n== e2e против этого стенда (после serve):");
+  console.log(e2eHint());
   console.log("\n== для тестов API:");
   console.log(`cd apps/api && ${env} NODE_ENV=test npx vitest run <файлы>`);
-  console.log("\n== учётки сида: +99290000000N / password123 (0 директор, 2 агент, 4 руководитель, 5 маркетинг)");
+  console.log("\n== учётки сида: +99290000000N (0 директор, 2 агент, 4 руководитель, 5 маркетинг); вход только формой, код стенд подставит сам");
   // Подсказка повторяет РОВНО те флаги, что были в `up`: `down` без `--api`
   // отказывается работать, чтобы не снести базу по умолчанию (см. разбор
   // флагов вверху файла).
@@ -456,20 +500,11 @@ function serve() {
   const webLog = path.join(dir, `web-${webPort}.log`);
   const pidFile = path.join(dir, `pids-${apiPort}.json`);
 
-  const env = [
-    `$env:DATABASE_URL='${DB_URL}'`,
-    `$env:JWT_ACCESS_SECRET='stand-access-secret-0123456789'`,
-    `$env:JWT_REFRESH_SECRET='stand-refresh-secret-0123456789'`,
-    `$env:SETTINGS_ENCRYPTION_KEY='0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'`, // gitleaks:allow -- reviewed synthetic test value or non-secret identifier
-    `$env:PORT='${apiPort}'`,
-    `$env:API_RATE_LIMIT='1000000'`,
-    `$env:NODE_ENV='development'`,
-    `$env:CORS_ORIGIN='http://localhost:${webPort}'`,
-    // Без этого Vite проксирует /api на свой умолчательный :4000 — чужой сервер
-    // с другой базой и другими ключами, и вход в интерфейсе отвечает 500 при
-    // полностью здоровом своём API (поймано на проверке 12.09).
-    `$env:VITE_API_PROXY='http://localhost:${apiPort}'`,
-  ].join("; ");
+  // Одно место с `up` (standEnv выше): тот самый список, в котором 18.11 не
+  // оказалось LOGIN_CODE_DEV_ECHO.
+  const env = Object.entries(standEnv())
+    .map(([k, v]) => `$env:${k}='${v}'`)
+    .join("; ");
 
   const start = (cwd, cmdline, log) =>
     execFileSync(
@@ -493,23 +528,63 @@ function serve() {
 
   console.log(`API  pid ${apiPid}  http://localhost:${apiPort}/api/v1/health   лог ${apiLog}`);
   console.log(`Vite pid ${webPid}  http://localhost:${webPort}                 лог ${webLog}`);
+  console.log(`e2e:      ${e2eHint()}`);
   console.log(`погасить: node scripts/agent-stand.mjs down --api ${apiPort}`);
 }
 
 /** Гасим ровно свои процессы по записанным идентификаторам. */
+/**
+ * ГАСИМ ТОЛЬКО ЕСЛИ ЭТО ВСЁ ЕЩЁ НАШ ПРОЦЕСС (20.11.2026).
+ *
+ * Файл с PID переживает сами процессы: стенд погас (перезагрузка, закрытое
+ * окно), файл остался. Windows быстро выдаёт освободившиеся номера заново, и
+ * `taskkill /PID <старый> /T` по такому файлу убивал ЧУЖОЕ дерево процессов —
+ * вместе с API соседнего стенда. 20.11 у Чата 3 сервер API четыре раза исчезал
+ * посреди прогона e2e без единой строки ошибки, каждый раз рядом с чужим
+ * `down`/`serve` (04:01:41 смерть, 04:01:51 соседний serve на 4796).
+ *
+ * Свой процесс узнаём по командной строке: `serve` запускает `cmd.exe /c ... >
+ * "<.rh-stand>\api-<порт>.log"` — путь к логу с портом есть только у нашего.
+ */
+function pidBelongsToStand(commandLine, marker) {
+  return typeof commandLine === "string" && commandLine.includes(marker);
+}
+
+function commandLineOf(pid) {
+  try {
+    return execFileSync(
+      "powershell",
+      ["-NoProfile", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").CommandLine`],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
 function killServers() {
   const pidFile = path.join(MAIN_TREE, ".rh-stand", `pids-${apiPort}.json`);
   if (!existsSync(pidFile)) return "серверов не запускали";
-  const { apiPid, webPid } = JSON.parse(readFileSync(pidFile, "utf8"));
-  for (const pid of [apiPid, webPid]) {
+  const saved = JSON.parse(readFileSync(pidFile, "utf8"));
+  const report = [];
+  for (const [pid, marker] of [
+    [saved.apiPid, `api-${saved.apiPort ?? apiPort}.log`],
+    [saved.webPid, `web-${saved.webPort ?? webPort}.log`],
+  ]) {
+    if (!/^\d+$/.test(String(pid))) continue;
+    if (!pidBelongsToStand(commandLineOf(pid), marker)) {
+      report.push(`${pid} уже не наш (процесс завершён или номер занят другим) — не трогаю`);
+      continue;
+    }
     try {
       execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "pipe" });
+      report.push(`${pid} остановлен`);
     } catch {
-      /* процесс мог уже завершиться */
+      report.push(`${pid} завершился сам`);
     }
   }
   rmSync(pidFile, { force: true });
-  return `процессы ${apiPid} и ${webPid} остановлены`;
+  return `процессы: ${report.join("; ")}`;
 }
 
 /** Пересобрать эталон после новых миграций: один раз на всех. */
@@ -568,4 +643,4 @@ if (isMain) {
   }
 }
 
-export { linkTargetRealpath, expectedSharedTarget, checkLinkDirections, linkSharedOverride, ensureTemplate, templateIsReady, READY_MARK };
+export { linkTargetRealpath, expectedSharedTarget, checkLinkDirections, linkSharedOverride, ensureTemplate, templateIsReady, READY_MARK, standEnv, e2eHint, pidBelongsToStand };
