@@ -4,6 +4,8 @@ import type { WizardDraftStatus } from "./draftAutosave";
 import { WizardDraftNotice } from "./WizardDraftNotice";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { WIZARD_STEP_ICONS } from "./wizardIcons";
+import { WizIcon } from "../look/wizard/WizIcon";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
 import "../../theme-2026-wizard-desktop.css";
 
 const DESKTOP_SECTIONS: Record<WizardStepKey, { label: string; title: string; next: string }> = {
@@ -101,6 +103,7 @@ export function WizardShell({
 }) {
   const step = WIZARD_STEPS[stepIndex];
   const SectionIcon = WIZARD_STEP_ICONS[step.key];
+  const section = useRoyalSectionName();
   const [modeOpen, setModeOpen] = useState(false);
   const modeRef = useFocusTrap<HTMLDivElement>(modeOpen);
   const controlsBusy = busy || deleteDraftPending;
@@ -111,7 +114,7 @@ export function WizardShell({
   }, [modeOpen, modeRef]);
 
   return (
-    <div className="rh2">
+    <div className="rh2" data-ry-section={section}>
       <div className="wiz wizard-workspace" data-step-key={step.key}>
         <div className="whead">
           <div className="line1">
@@ -191,7 +194,7 @@ export function WizardShell({
             const state = stepStates?.[item.key] ?? "empty";
             const label = DESKTOP_SECTIONS[item.key].label;
             const StepIcon = WIZARD_STEP_ICONS[item.key];
-            const content = <><span className="wizard-step-number" aria-hidden="true">{state === "complete" ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 4 4 10-10" /></svg> : <StepIcon size={22} strokeWidth={1.7} />}</span><span className="wizard-step-copy"><span>{label}</span>{state === "invalid" && <small>Нужно проверить</small>}</span></>;
+            const content = <><span className="wizard-step-number" aria-hidden="true">{state === "complete" ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 4 4 10-10" /></svg> : <WizIcon icon={StepIcon} size={22} strokeWidth={1.7} />}</span><span className="wizard-step-copy"><span>{label}</span>{state === "invalid" && <small>Нужно проверить</small>}</span></>;
             return <li key={item.key} data-step-state={state}>
               {onGoToStep ? <button type="button" className="wizard-step-link" data-testid={`wizard-step-${item.key}`}
                 aria-current={index === stepIndex ? "step" : undefined} aria-label={`${label}${state === "complete" ? ", заполнено" : state === "invalid" ? ", нужно проверить" : ""}`} disabled={controlsBusy} onClick={() => onGoToStep(index)}>{content}</button>
@@ -202,7 +205,7 @@ export function WizardShell({
 
         <section className="wizard-main" aria-labelledby="wizard-current-section">
           <div className="wizard-form-sheet">
-          <div className="wizard-section-heading"><span className="wizard-section-icon"><SectionIcon size={28} strokeWidth={1.7} aria-hidden="true" /></span><div><h2 className="wizard-step-title" id="wizard-current-section">{DESKTOP_SECTIONS[step.key].title}</h2></div></div>
+          <div className="wizard-section-heading"><span className="wizard-section-icon"><WizIcon icon={SectionIcon} size={28} strokeWidth={1.7} aria-hidden="true" /></span><div><h2 className="wizard-step-title" id="wizard-current-section">{DESKTOP_SECTIONS[step.key].title}</h2></div></div>
           <div className="wbody">{children}</div>
           </div>
         </section>

@@ -13,6 +13,18 @@ let totalSent = 0;
 const DEDUPE_MS = 5 * 60 * 1000;
 const MAX_PER_SESSION = 20;
 
+/**
+ * Сборка вкладки — первой строкой стека (20.11.2026). Падение 18.11 пришло со
+ * стеком `PultClean-Cbv4Qzsu.js:2:53534`, и чтобы понять, что телефон жил на
+ * сборке старше суток, пришлось собирать старые коммиты и искать смещение.
+ * С версией в записи это видно сразу: `git show <версия>`.
+ */
+function withBuild(stack?: string): string | undefined {
+  const build = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "";
+  if (!build) return stack;
+  return stack ? `сборка ${build}\n${stack}` : `сборка ${build}`;
+}
+
 function report(message: string, stack?: string) {
   if (!useAuthStore.getState().hasSession) return;
   if (totalSent >= MAX_PER_SESSION) return;
@@ -23,7 +35,7 @@ function report(message: string, stack?: string) {
   totalSent++;
   api("/errors", {
     method: "POST",
-    body: { message: message.slice(0, 2000), stack: stack?.slice(0, 8000), url: location.pathname },
+    body: { message: message.slice(0, 2000), stack: withBuild(stack)?.slice(0, 8000), url: location.pathname },
   }).catch(() => {});
 }
 

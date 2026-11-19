@@ -76,6 +76,9 @@ export const narrationVoiceSchema = z.object({
 export const narrationPronunciationDictionarySchema = z.object({
   id: z.string().trim().regex(/^[A-Za-z0-9_-]{1,100}$/),
   versionId: z.string().trim().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
+  /** Отпечаток правил, которые РЕАЛЬНО ушли в эту версию словаря (20.11.2026; lib/narrationPronunciation.ts).
+   *  Нет или не совпал с нынешними правилами — словарь устарел и обновится сам. Старые настройки без поля читаются. */
+  rulesFingerprint: z.string().trim().regex(/^[a-f0-9]{16,128}$/).optional(),
 }).strict();
 
 const narrationConfigBase = z.object({
@@ -175,6 +178,16 @@ export const NARRATION_PRONUNCIATION_MODELS: readonly string[] = ["eleven_v4"];
 const NARRATION_MODELS_WITHOUT_STYLE: readonly string[] = ["eleven_v4", "eleven_v4_turbo"];
 export function narrationPronunciationSupported(modelId: string | null | undefined): boolean {
   return !!modelId && NARRATION_PRONUNCIATION_MODELS.includes(modelId);
+}
+
+/**
+ * ПРАВИЛО-ЗВУКИ БЕЗ ПРОВЕРКИ НОСИТЕЛЕМ В ElevenLabs НЕ УХОДИТ (20.11.2026, ФАКТ на слух владельца: словарь с такими
+ * правилами даёт акцент — «ошёна» звучит как «ашёна», а без словаря eleven_v4 читает таджикский верно). Правило остаётся
+ * в CRM, но в озвучку не идёт, пока носитель не снял пометку «проверить носителем». Одно место: этим решением пользуются
+ * словарь ElevenLabs (api: lib/narrationPronunciation.ts) и подсказка в Настройках (web).
+ */
+export function narrationPronunciationRuleHeldBack(rule: { phoneme?: string | null; needsNative?: boolean | null }): boolean {
+  return !!rule.phoneme && rule.needsNative === true;
 }
 
 export function narrationTtsOptions(config: Pick<NarrationConfig, "voices" | "voiceSettings" | "languageCodes" | "pronunciationDictionaries"> & { modelId?: string }, voiceId: string, lang: NarrationLang | null | undefined): Record<string, unknown> {

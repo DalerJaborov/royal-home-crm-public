@@ -612,6 +612,9 @@ export const HIDING_ALLOWED = new Set<string>([
   // analytics: полосы прокрутки лент вкладок и переключателей (прокрутка пальцем остаётся).
   `${R} .rh2[data-ry-section="analytics"] .scr .seg-ai::-webkit-scrollbar`,
   `${R} .rh2[data-ry-section="analytics"] .scr .hscroll::-webkit-scrollbar`,
+  // admin: на телефоне экран на Rh2Screen отдаёт название шапке оболочки — второй такой же
+  // заголовок на странице («Уведомления», «Мой профиль») только для экранного чтеца.
+  `${R}[data-mobile-ux] .ry-admin[data-ry-section="admin"] .pg-h h1[data-dup]`,
 ]);
 export function hiddenTextSelectors(css: string): string[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -882,6 +885,35 @@ ${P} ~ .rh2 .pill { color: red; }`, "records")).toEqual([`${P} ~ .rh2 .pill`]);
     expect(broken).not.toBe(css);
     expect(leaks(broken)).not.toEqual([]);
   });
+  it("знает слой мастера и формы объекта (wizard) и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-wizard.css");
+    expect(lookSectionOf("theme-look-royal-wizard.css")).toBe("wizard");
+    const css = readFileSync(new URL("./theme-look-royal-wizard.css", import.meta.url), "utf8");
+    const Z = ':root[data-ui-look="royal"] .rh2[data-ry-section="wizard"]';
+    // правило без метки и с чужой меткой (мастер носит те же .chip/.tile/.ghost, что главная и пульт)
+    expect(unscopedSelectors(`${css}
+:root[data-ui-look="royal"] .rh2 .wiz .chip { color: red; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .wiz .blk { color: red; }`, "wizard"))
+      .toEqual([':root[data-ui-look="royal"] .rh2 .wiz .chip', ':root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .wiz .blk']);
+    // «Удалить черновик?» в окне подтверждения синим; «Осталось: …» (.chip.warn) срочным красным
+    expect(semanticButtonLeaks(`${css}
+${Z} > .scr > .sheet .pill.danger { background: var(--rh-ui-primary); }
+${Z} .sheet-f .pill { background: var(--rh-ui-primary); }`)).toEqual([`${Z} > .scr > .sheet .pill.danger`, `${Z} .sheet-f .pill`]);
+    expect(semanticColorLeaks(`${css}
+${Z} .wiz .chip.warn { background: var(--rh-ui-crit); }`)).toEqual([`${Z} .wiz .chip.warn`]);
+    // «Осталось: фото, район, цена» снова в одну строку с обрезкой
+    expect(hiddenTextSelectors(`${css}
+${Z} .wiz .chip { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([`${Z} .wiz .chip`]);
+    // запас iPhone у шторки и у подвала формы правки, сосед метки
+    expect(safeAreaOverrides(`${css}
+${Z} > .scr > .sheet.bottom .sheet-f { padding-bottom: 0; }`)).toEqual([`${Z} > .scr > .sheet.bottom .sheet-f`]);
+    expect(siblingEscapes(`${css}
+${Z} ~ .rh2 .pill { color: red; }`, "wizard")).toEqual([`${Z} ~ .rh2 .pill`]);
+    // без правила приглушения выключенная «Создать объект» горела бы как доступная
+    const undimmed = css.replace(/:root\[data-ui-look="royal"\] \[data-ry-section="wizard"\] :is\(\.pill[^\n]*\n/, "");
+    expect(undimmed).not.toBe(css);
+    expect(disabledDimGaps(undimmed)).not.toEqual([]);
+  });
   it("«Удалить» кампанию воронки красная по признаку смысла, а не по порядку ссылок (ревью #304)", () => {
     const css = readFileSync(new URL("./theme-look-royal-analytics.css", import.meta.url), "utf8");
     const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="analytics"]';
@@ -894,6 +926,34 @@ ${P} ~ .rh2 .pill { color: red; }`, "records")).toEqual([`${P} ~ .rh2 .pill`]);
       expect(src, file).toMatch(/<button className="lnk" type="button" data-variant="danger" onClick=\{onDelete\}>\s*Удалить\s*<\/button>/);
       expect(src.match(/data-variant="danger"/g)?.length, file).toBe(1);
     }
+  });
+  it("знает слой служебных экранов (admin) и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-admin.css");
+    expect(lookSectionOf("theme-look-royal-admin.css")).toBe("admin");
+    const css = readFileSync(new URL("./theme-look-royal-admin.css", import.meta.url), "utf8");
+    const K = ':root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"]';
+    // правило без метки и с чужой меткой
+    expect(unscopedSelectors(`${css}
+:root[data-ui-look="royal"] .rh2 .scr .mod { color: red; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .ry-ntf { color: red; }`, "admin"))
+      .toEqual([':root[data-ui-look="royal"] .rh2 .scr .mod', ':root[data-ui-look="royal"] .rh2[data-ry-section="control"] .ry-ntf']);
+    // смысловая кнопка общим синим, «Новое» (warn) срочным красным, причина функции обрезана многоточием
+    expect(semanticButtonLeaks(`${css}
+${K} .ry-ntf .pill.danger { background: var(--rh-ui-primary); }`)).toEqual([`${K} .ry-ntf .pill.danger`]);
+    expect(semanticColorLeaks(`${css}
+${K} .chip.warn { background: var(--rh-ui-crit); }`)).toEqual([`${K} .chip.warn`]);
+    expect(hiddenTextSelectors(`${css}
+${K} .scr .fs-reason { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([`${K} .scr .fs-reason`]);
+    // скрытый на ПК дубль заголовка — уже не «только для чтеца»: красный
+    expect(hiddenTextSelectors(`${css}
+${K} .pg-h h1[data-dup] { display: none; }`)).toEqual([`${K} .pg-h h1[data-dup]`]);
+    // соседи метки: правило, выходящее из раздела
+    expect(siblingEscapes(`${css}
+${K} ~ .rh2 .pill { color: red; }`, "admin")).toEqual([`${K} ~ .rh2 .pill`]);
+    // без правила приглушения выключенная «Прочитать всё» горела бы как доступная
+    const undimmed = css.replace(/:root\[data-ui-look="royal"\] \[data-ry-section="admin"\] :is\(\.pill[^\n]*\n/, "");
+    expect(undimmed).not.toBe(css);
+    expect(disabledDimGaps(undimmed)).not.toEqual([]);
   });
   // Без списков долга (KNOWN_DEBT / DISABLED_DIM_DEBT закрыты 18.11, пачка debt): каждый
   // слой, основа тоже, обязан быть чистым. Находка чинится в слое, а не вписывается сюда.

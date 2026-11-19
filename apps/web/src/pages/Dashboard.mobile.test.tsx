@@ -10,7 +10,7 @@ vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => state.clean }));
 vi.mock("../hooks/useRoyalLook", async (importOriginal) => ({ ...await importOriginal<typeof import("../hooks/useRoyalLook")>(), useRoyalLook: () => state.royal }));
 vi.mock("../lib/lazyWithReload", () => ({ lazyWithReload: (factory: () => unknown) => {
   const source = factory.toString();
-  const name = source.includes("TodayRoyal") ? "royal-home" : source.includes("HeadOfSalesHome") ? "head-of-sales-home" : source.includes("MobileManagerHome") ? "mobile-manager-home" : source.includes("MobileAgentHome") ? "legacy-agent-home" : source.includes("AgentHome") ? "desktop-agent-home" : source.includes("ManagerHome") ? "manager-home" : factory === state.cleanFactory ? "clean-director-home" : "other-role-home";
+  const name = source.includes("look/home/registry") ? "royal-role-home" : source.includes("TodayRoyal") ? "royal-home" : source.includes("HeadOfSalesHome") ? "head-of-sales-home" : source.includes("MobileManagerHome") ? "mobile-manager-home" : source.includes("MobileAgentHome") ? "legacy-agent-home" : source.includes("AgentHome") ? "desktop-agent-home" : source.includes("ManagerHome") ? "manager-home" : factory === state.cleanFactory ? "clean-director-home" : "other-role-home";
   return () => <div>{name}</div>;
 } }));
 describe("actual Dashboard route selection", () => {
@@ -47,9 +47,21 @@ describe("actual Dashboard route selection", () => {
       state.role = role;
       expect(renderToStaticMarkup(<Dashboard />)).toContain("royal-home");
     }
-    state.role = "MANAGER";
+    // Остальные роли — ядро главной на реестре блоков (пачка home, 20.11.2026), на ПК и телефоне.
+    for (const role of ["EDITOR", "MARKETING", "SECURITY", "MANAGER", "SHAREHOLDER"]) {
+      state.role = role;
+      for (const narrow of [false, true]) {
+        state.narrow = narrow;
+        const html = renderToStaticMarkup(<Dashboard />);
+        expect(html, `${role} narrow=${narrow}`).toContain("royal-role-home");
+        expect(html).not.toContain("manager-home");
+      }
+    }
+    state.narrow = false;
+    // Без признака у тех же ролей — прежние главные.
+    state.royal = false; state.role = "MANAGER";
     expect(renderToStaticMarkup(<Dashboard />)).toContain("manager-home");
-    state.royal = false; state.role = "DIRECTOR";
+    state.role = "DIRECTOR";
     expect(renderToStaticMarkup(<Dashboard />)).toContain("clean-director-home");
   });
 });

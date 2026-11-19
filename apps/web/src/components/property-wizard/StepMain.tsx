@@ -29,6 +29,7 @@ import { DETAIL_NOT_SET, DOCUMENT_PRESETS, needsLandArea, needsRooms, valuesForT
 import { detailFieldLabel, detailOptionLabel } from "./detailCopy";
 import { normalizeWizardNumber, type WizardNumberKind } from "./numericInput";
 import { WIZARD_DETAIL_ICONS, WIZARD_FIELD_ICONS, FileText, Wrench } from "./wizardIcons";
+import { WizIcon } from "../look/wizard/WizIcon";
 
 const TYPE_ICONS = { APARTMENT: Building2, HOUSE: House, COMMERCIAL: Store, LAND: LandPlot };
 
@@ -90,7 +91,7 @@ export function StepMain({
         <Segs<PropertyType>
           label="Вид объекта"
           value={values.type}
-          options={PROPERTY_TYPES.map((t) => { const Icon = TYPE_ICONS[t]; return { value: t, label: PROPERTY_TYPE_LABELS[t], icon: <Icon className="wizard-type-icon" size={20} strokeWidth={1.7} aria-hidden="true" /> }; })}
+          options={PROPERTY_TYPES.map((t) => { const Icon = TYPE_ICONS[t]; return { value: t, label: PROPERTY_TYPE_LABELS[t], icon: <WizIcon icon={Icon} className="wizard-type-icon" size={20} strokeWidth={1.7} aria-hidden="true" /> }; })}
           // Смена типа сразу очищает поля, которых у нового типа нет.
           onChange={(v) => onChange(valuesForTypeChange(values, v as PropertyType))}
         />
@@ -222,7 +223,7 @@ function DetailField({ detailKey, value, onChange }: {
   const label = detailFieldLabel(detailKey);
   const Icon = WIZARD_DETAIL_ICONS[detailKey];
   return <section className="blk wizard-detail-field">
-    <div className="f"><label><Icon className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />{label}</label>{options.includes(value) && <button className="wizard-detail-clear wizard-desktop-control" type="button" onClick={() => onChange(DETAIL_NOT_SET)} aria-label={`Очистить: ${label}`}>Очистить</button>}</div>
+    <div className="f"><label><WizIcon icon={Icon} className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />{label}</label>{options.includes(value) && <button className="wizard-detail-clear wizard-desktop-control" type="button" onClick={() => onChange(DETAIL_NOT_SET)} aria-label={`Очистить: ${label}`}>Очистить</button>}</div>
     <div className="wizard-desktop-control" id={id}><Segs label={label} value={value} options={options.map((option) => ({ value: option, label: detailOptionLabel(detailKey, option) }))} onChange={(selected, toggle) => onChange(selected, toggle)} /></div>
     {detailKey === "balcony" && <p className="wizard-field-help wizard-desktop-control">Лоджия — балкон, встроенный между стенами дома.</p>}
     <div className="wizard-mobile-control">
@@ -272,7 +273,7 @@ function Field({
   const Icon = fieldKey && fieldKey in WIZARD_FIELD_ICONS ? WIZARD_FIELD_ICONS[fieldKey as keyof typeof WIZARD_FIELD_ICONS] : null;
   return (
     <div className={className ? `f ${className}` : "f"}>
-      <label htmlFor={id}>{Icon && <Icon className="wizard-field-icon" size={22} strokeWidth={1.7} aria-hidden="true" />}{label}{required && <span className="wizard-required-mark" aria-hidden="true"> *</span>}</label>
+      <label htmlFor={id}>{Icon && <WizIcon icon={Icon} className="wizard-field-icon" size={22} strokeWidth={1.7} aria-hidden="true" />}{label}{required && <span className="wizard-required-mark" aria-hidden="true"> *</span>}</label>
       <input
         id={id}
         className={text ? "txt" : undefined}
@@ -320,7 +321,7 @@ function PropertyFinishSegs({
     <div className="wizard-finish-group">
       {hasMarket && (
         <section className="blk">
-        <span className="wizard-desktop-field-label"><Building2 className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Рынок</span>
+        <span className="wizard-desktop-field-label"><WizIcon icon={Building2} className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Рынок</span>
         <Segs<PropertyMarketSide | "">
           label="Рынок"
           value={side ?? ""}
@@ -344,7 +345,7 @@ function PropertyFinishSegs({
       {side === "NEW" ? (
         <section className="blk">
           <div className="f">
-            <label><Building2 className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Стадия и отделка</label>
+            <label><WizIcon icon={Building2} className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Стадия и отделка</label>
           </div>
           <Segs<NewBuildPhase | "">
             label="Стадия и отделка"
