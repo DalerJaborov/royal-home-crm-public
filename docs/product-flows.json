@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4121,
+  "forks": 4125,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -105599,6 +105599,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "continue;",
              "a": [
@@ -105615,12 +105630,27 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError( \"ai\", `Заявка оформлена сторожем: номер ${maskClientPhone(row.phone!)} был в переписке (…",
+             "t": "void logSystemError( \"ai\", (row.promised ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки…",
              "a": [
               "запись в журнал ошибок"
              ],
              "c": []
             },
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "outcome === \"accepted_other\"",
+           "a": [],
+           "c": [
             {
              "k": "do",
              "t": "continue;",
@@ -105659,6 +105689,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "row.promised",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await markWatchdogAttempted(row.conversationId, now);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "continue;",
              "a": [
@@ -105670,7 +105715,7 @@
           },
           {
            "k": "do",
-           "t": "const what = row.phone ? `Номер ${maskClientPhone(row.phone)} есть в переписке, карточки в базе нет` : `Клиен…",
+           "t": "const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…",
            "a": [
             "зовёт maskClientPhone()"
            ],
@@ -105704,6 +105749,21 @@
               "запись в журнал ошибок"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "row.promised",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await markWatchdogAttempted(row.conversationId, now);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
           },
