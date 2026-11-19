@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import bcrypt from "bcrypt";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 /**
  * МОНТАЖЁР УПРАВЛЯЕТ ОЧЕРЕДЬЮ ИЗ БОТА (19.11.2026, владелец: «дай монтажёру
@@ -16,7 +16,9 @@ import { randomUUID } from "node:crypto";
  *  — чужой сотрудник, пауза руководства, «Отложить», выключенный рубильник.
  */
 
-const { sendMessage, sendMessageWithButtons, answerCallbackQuery, sendDocumentFile, sendDocument, sendPushToAgents } = vi.hoisted(() => ({
+const { sendMessage, sendMessageWithButtons, answerCallbackQuery, sendDocumentFile, sendDocument, sendPushToAgents, resolveTelegramFileMaterialization, publishApprovedPost } = vi.hoisted(() => ({
+  resolveTelegramFileMaterialization: vi.fn(),
+  publishApprovedPost: vi.fn(async () => [] as unknown[]),
   sendMessage: vi.fn(async (_chatId: string, _text: string) => ({})),
   sendMessageWithButtons: vi.fn(async (_chatId: string, _text: string, _buttons: unknown) => ({ message_id: 1 })),
   answerCallbackQuery: vi.fn(async () => ({})),
@@ -32,6 +34,15 @@ vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   answerCallbackQuery,
   sendDocumentFile,
   sendDocument,
+  resolveTelegramFileMaterialization,
+}));
+vi.mock("../src/lib/socialPublish.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/socialPublish.js")>()),
+  publishApprovedPost,
+}));
+vi.mock("../src/lib/ffmpeg.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/ffmpeg.js")>()),
+  probeMediaInfo: vi.fn(async () => ({ hasVideo: true, hasAudio: true, videoCodec: "h264", audioCodec: "aac", width: 1080, height: 1920, rotation: 0, durationSec: 15, sizeBytes: 2048 })),
 }));
 vi.mock("../src/push.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/push.js")>()),
@@ -44,7 +55,7 @@ process.env.CRM_PUBLIC_URL = process.env.CRM_PUBLIC_URL ?? "https://crm-test.roy
 
 const { prisma } = await import("../src/db.js");
 const { handleTelegramUpdate } = await import("../src/telegram/bot.js");
-const { orderedQueue, setMontajerSendPauseMsForTests, settleBackgroundHandoffDispatches, queueVideoHandoff, montajerSkippedDoneText } = await import(
+const { orderedQueue, setMontajerSendPauseMsForTests, settleBackgroundHandoffDispatches, queueVideoHandoff, montajerSkippedDoneText, swapVideoHandoffHolder, cancelVideoHandoffQueueEntry, dispatchToEditor, videoHandoffPublishDedupeKey } = await import(
   "../src/lib/videoHandoff.js"
 );
 const { montajerSkipLater, NOT_MONTAJER_TEXT, QUEUE_CONTROL_OFF_TEXT } = await import("../src/lib/montajerQueueControl.js");
@@ -179,9 +190,16 @@ beforeEach(async () => {
     where: { videoHandoffStatus: { in: ["SENT_TO_EDITOR", "QUEUED"] }, id: { notIn: propertyIds } },
     data: { videoHandoffStatus: "RECEIVED", videoHandoffQueueOrder: null },
   });
-  await prisma.property.updateMany({ where: { id: { in: propertyIds } }, data: { videoHandoffStatus: "NONE", videoHandoffQueueOrder: null, videoHandoffHeldAt: null } });
+  await prisma.property.updateMany({
+    where: { id: { in: propertyIds } },
+    data: { videoHandoffStatus: "NONE", videoHandoffQueueOrder: null, videoHandoffHeldAt: null, videoHandoffMontajerSkippedAt: null },
+  });
   await prisma.agent.update({ where: { id: montajerId }, data: { isActive: true } });
   for (const m of [sendMessage, sendMessageWithButtons, answerCallbackQuery, sendDocumentFile, sendDocument, sendPushToAgents]) m.mockClear();
+  sendDocumentFile.mockImplementation(async (_c: string, _f: unknown, name: string) => ({ message_id: 1, document: { file_id: `fid-${name}` } }));
+  resolveTelegramFileMaterialization.mockReset().mockImplementation(async () => ({ kind: "buffer", buffer: randomBytes(4096) }));
+  await prisma.telegramDialogState.deleteMany({ where: { chatId: String(MONTAJER_CHAT) } });
+  await prisma.agent.update({ where: { id: montajerId }, data: { role: "MARKETING" } });
 });
 
 afterEach(async () => {
@@ -193,6 +211,8 @@ afterAll(async () => {
   if (savedSettings) await prisma.settings.update({ where: { id: "singleton" }, data: savedSettings });
   await waitForSettled(() => prisma.auditLog.count({ where: { entityId: { in: propertyIds } } }));
   await prisma.auditLog.deleteMany({ where: { entityId: { in: propertyIds } } });
+  await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: propertyIds.map(videoHandoffPublishDedupeKey) } } });
+  await prisma.telegramDialogState.deleteMany({ where: { chatId: String(MONTAJER_CHAT) } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   for (const d of rawDirs) await fs.rm(d, { recursive: true, force: true }).catch(() => {});
   await prisma.agent.deleteMany({ where: { phone: { in: [phone, otherPhone, bossPhone] } } });
@@ -273,10 +293,13 @@ describe("⏭ Пропустить — «Сделаю позже»", () => {
   });
 
   it("переделка не теряет причину: вернувшись в очередь, объект остаётся перемонтажом", async () => {
-    const h = await holder("переделка");
+    // Настоящий перемонтаж: постановка с причиной, отправка файлов (захват гасит
+    // videoHandoffRemake*, причина захода остаётся в videoHandoffRoundRemake*).
+    const h = await seedProperty("переделка");
+    await queueVideoHandoff(h.id, { reason: "OTHER", comment: "Поменять музыку" }, "front");
+    await settleBackgroundHandoffDispatches();
+    expect(await state(h)).toMatchObject({ videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffRemakeReason: null });
     const a = await queued("следом", 1);
-    await prisma.montajerMessage.create({ data: { propertyId: h.id, kind: "REMAKE", text: "🔁 ПЕРЕМОНТАЖ" } });
-    await prisma.videoRemakeRequest.create({ data: { propertyId: h.id, reason: "OTHER", comment: "Поменять музыку", requestedById: montajerId } });
 
     await press(MONTAJER_CHAT, `mj:skl:${h.shortId}`);
     expect((await state(a)).videoHandoffStatus).toBe("SENT_TO_EDITOR");
@@ -475,5 +498,158 @@ describe("кто и когда может", () => {
     await press(MONTAJER_CHAT, "mj:x");
     expect(lastReply()).toContain("Хорошо, ничего не меняю.");
     expect((await state(h)).videoHandoffStatus).toBe("SENT_TO_EDITOR");
+  });
+});
+
+/** Монтажёр прислал файл в бот (готовый ролик). */
+async function sendFile(fileName: string) {
+  const updateId = nextUpdateId++;
+  await handleTelegramUpdate({
+    update_id: updateId,
+    message: { chat: { id: MONTAJER_CHAT }, document: { file_id: `doc-${updateId}`, mime_type: "video/mp4", file_name: fileName } },
+  });
+  await settleBackgroundHandoffDispatches();
+  return updateId;
+}
+
+async function finalOf(p: Seeded) {
+  return (await prisma.property.findUniqueOrThrow({ where: { id: p.id }, select: { videoHandoffFinalPath: true } })).videoHandoffFinalPath;
+}
+
+describe("ревью 19.11: ролик не уходит чужому объекту после пропуска", () => {
+  it("снял «уже сделан», выдан следующий, файл без номера — вопрос «чей ролик», а не приём на новый; ответ — приём на снятый", async () => {
+    const h = await holder("сделан вне системы");
+    const a = await queued("выдан следом", 1);
+    await press(MONTAJER_CHAT, `mj:skd:${h.shortId}`);
+    expect((await state(a)).videoHandoffStatus).toBe("SENT_TO_EDITOR");
+
+    const updateId = await sendFile("final_edit.mp4");
+    expect(await finalOf(a)).toBeNull();
+    expect(lastReply()).toContain(`mj:rcv:${updateId}:${h.shortId}`);
+    expect(lastReply()).toContain(`mj:rcv:${updateId}:${a.shortId}`);
+
+    await press(MONTAJER_CHAT, `mj:rcv:${updateId}:${h.shortId}`);
+    expect(await finalOf(h)).toMatch(/^\/uploads\/handoff\//);
+    expect(await finalOf(a)).toBeNull();
+    expect((await state(a)).videoHandoffStatus).toBe("SENT_TO_EDITOR");
+    expect(said(`Ролик по объекту №${h.shortId} принят`)).toBe(true);
+  });
+
+  it("«Сделаю позже», потом ролик отложенного с номером — принят штатно к нему, место следующего не тронуто", async () => {
+    const h = await holder("отложил и доделал");
+    const a = await queued("следующий", 1);
+    await press(MONTAJER_CHAT, `mj:skl:${h.shortId}`);
+    await sendFile(`${h.shortId}.mp4`);
+    expect(await finalOf(h)).toMatch(/^\/uploads\/handoff\//);
+    expect((await state(h)).videoHandoffStatus).toBe("RECEIVED");
+    expect((await state(a)).videoHandoffStatus).toBe("SENT_TO_EDITOR");
+    expect(await queueShortIds()).toEqual([]);
+  });
+
+  it("без пропусков файл без номера по-прежнему уходит объекту в работе без вопроса", async () => {
+    const h = await holder("обычный");
+    await sendFile("final.mp4");
+    expect(await finalOf(h)).toMatch(/^\/uploads\/handoff\//);
+  });
+});
+
+describe("ревью 19.11: гонка обмена с приёмом ролика", () => {
+  it("ролик принят, пока шёл обмен, — принятый объект не возвращается в очередь", async () => {
+    const h = await holder("принят во время обмена");
+    await queued("ждёт", 1);
+    // Приём ролика держит строку объекта и пишет RECEIVED; обмен в это время уже прочитал «у монтажёра».
+    const receiving = prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT 1 FROM "Property" WHERE id = ${h.id} FOR UPDATE`;
+      await tx.property.update({ where: { id: h.id }, data: { videoHandoffStatus: "RECEIVED", videoHandoffFinalPath: "/uploads/handoff/race.mp4" } });
+      await new Promise((r) => setTimeout(r, 700));
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const result = await swapVideoHandoffHolder({ mode: "defer", holderId: h.id });
+    await receiving;
+    await settleBackgroundHandoffDispatches();
+    expect(result.ok).toBe(false);
+    expect((await state(h)).videoHandoffStatus).toBe("RECEIVED");
+  });
+});
+
+describe("ревью 19.11: причина переделки — только текущего захода", () => {
+  it("обычный заход после старой переделки: «Сделаю позже» не делает его переделкой", async () => {
+    const h = await seedProperty("старая переделка");
+    await prisma.montajerMessage.create({ data: { propertyId: h.id, kind: "REMAKE", text: "🔁 ПЕРЕМОНТАЖ (прошлый заход)" } });
+    await prisma.videoRemakeRequest.create({ data: { propertyId: h.id, reason: "NARRATION_CHANGED", requestedById: montajerId } });
+    // Обычная передача, файлы ещё идут: журнал HANDOFF этого захода ещё не записан.
+    await prisma.property.update({ where: { id: h.id }, data: { videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date() } });
+    await queued("следом", 1);
+    await press(MONTAJER_CHAT, `mj:skl:${h.shortId}`);
+    expect(await state(h)).toMatchObject({ videoHandoffStatus: "QUEUED", videoHandoffRemakeReason: null });
+  });
+});
+
+describe("ревью 19.11: отложенный руководителем", () => {
+  it("у отложенного нет «Уже сделан», и дверь его не снимает; снятие руководством гасит «отложен»", async () => {
+    await holder("в работе");
+    const held = await queued("отложен", 1, { videoHandoffHeldAt: new Date(), videoHandoffHoldReason: "ждём" });
+    await press(MONTAJER_CHAT, `mj:qi:${held.shortId}`);
+    expect(lastReply()).not.toContain(`mj:qd:${held.shortId}`);
+    await press(MONTAJER_CHAT, `mj:qd:${held.shortId}`);
+    expect((await state(held)).videoHandoffStatus).toBe("QUEUED");
+    expect(lastReply()).toContain("отложен руководителем");
+
+    expect((await cancelVideoHandoffQueueEntry(held.id)).ok).toBe(true);
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: held.id }, select: { videoHandoffHeldAt: true, videoHandoffHoldReason: true } });
+    expect(after).toEqual({ videoHandoffHeldAt: null, videoHandoffHoldReason: null });
+  });
+});
+
+describe("ревью 19.11: мелочи", () => {
+  it("пуш «уже сделан» не уходит самому монтажёру и говорит про старые посты у переделки вышедшего ролика", async () => {
+    await prisma.agent.update({ where: { id: montajerId }, data: { role: "DIRECTOR" } });
+    const h = await holder("переделка вышедшего");
+    // Заход — переделка вышедшего ролика (поля текущего захода записаны при захвате отправки).
+    await prisma.property.update({ where: { id: h.id }, data: { publishedChannels: ["TELEGRAM"], videoHandoffRoundRemakeReason: "OTHER" } });
+    await press(MONTAJER_CHAT, `mj:skd:${h.shortId}`);
+    await waitFor(() => (sendPushToAgents.mock.calls.length > 0 ? true : null));
+    const [ids, payload] = sendPushToAgents.mock.calls[0]!;
+    expect(ids).not.toContain(montajerId);
+    expect(JSON.stringify(payload)).toContain("старые посты");
+  });
+
+  it("рубильник выключен — в меню нет строки «пропустить»; включён — есть", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { montajerQueueControlEnabled: false } });
+    await handleTelegramUpdate({ update_id: nextUpdateId++, message: { chat: { id: MONTAJER_CHAT }, text: "меню" } });
+    expect(lastReply()).not.toContain("«пропустить»");
+    await prisma.settings.update({ where: { id: "singleton" }, data: { montajerQueueControlEnabled: true } });
+    await handleTelegramUpdate({ update_id: nextUpdateId++, message: { chat: { id: MONTAJER_CHAT }, text: "меню" } });
+    expect(lastReply()).toContain("«пропустить»");
+  });
+
+  it("больше десяти ждущих — «и ещё N» в тексте очереди", async () => {
+    for (let i = 1; i <= 12; i++) await queued(`много-${i}`, i);
+    await press(MONTAJER_CHAT, "mj:queue");
+    expect(lastReply()).toContain("… и ещё 2");
+  });
+
+  it("отложен, пока шли файлы, — отправка остановлена без записи «объект сняли» в журнал ошибок", async () => {
+    const h = await holder("отложен на лету");
+    await prisma.property.update({ where: { id: h.id }, data: { videoHandoffDeliveredAt: null } });
+    // Второй файл того же объекта: первый «уходит», и в этот момент монтажёр жмёт «Сделаю позже».
+    const storageKey = `${h.id}/${randomUUID()}.mp4`;
+    const filePath = localVideoFilePath(storageKey)!;
+    await fs.writeFile(filePath, Buffer.alloc(300));
+    await prisma.propertyVideo.create({ data: { propertyId: h.id, storageKey, filename: "IMG_2.MOV", sizeBytes: 300, durationSec: 20, hasAudio: true, uploadedById: montajerId } });
+    const a = await queued("следующий", 1);
+    sendDocumentFile.mockImplementationOnce(async (_c: string, _f: unknown, name: string) => {
+      await swapVideoHandoffHolder({ mode: "defer", holderId: h.id });
+      return { message_id: 1, document: { file_id: `fid-${name}` } };
+    });
+    const since = new Date();
+    await dispatchToEditor(h.id, montajerId);
+    await settleBackgroundHandoffDispatches();
+    expect((await state(h)).videoHandoffStatus).toBe("QUEUED");
+    expect((await state(a)).videoHandoffStatus).toBe("SENT_TO_EDITOR");
+    const errors = await waitForSettled(() =>
+      prisma.errorLog.findMany({ where: { createdAt: { gte: since }, message: { contains: `№${h.shortId}` } }, select: { message: true } })
+    );
+    expect(errors.map((e) => e.message).filter((m) => /прервана|сняли/.test(m))).toEqual([]);
   });
 });

@@ -13,7 +13,7 @@ import { PublicationMetadataReconcile, type MetadataAttemptSummary } from "./Pub
  * собственнику и площадки. Агент этот блок не видит вовсе; маркетинг видит его свёрнутым.
  * Перенесено из PropertyNarrationManager без изменения запросов.
  */
-const DELIVERY_STATUS: Record<string, string> = { PREVIEW: "Предварительный просмотр · не отправлено", QUEUED: "В очереди", SENDING: "Передаётся", SENT: "Принято сервисом · получение человеком не подтверждено", DELIVERED: "Провайдер подтвердил доставку", NOT_DELIVERED: "Провайдер сообщил: не доставлено", UNKNOWN: "Результат неизвестен · повтор отключён", FAILED: "Отказ или завершённая сверка", CANCELLED: "Остановлено: данные изменились" };
+const DELIVERY_STATUS: Record<string, string> = { PREVIEW: "Предварительный просмотр · не отправлено", QUEUED: "В очереди", WAITING: "Ждёт: объект вернётся к монтажёру, голос уйдёт сам", SENDING: "Передаётся", SENT: "Принято сервисом · получение человеком не подтверждено", DELIVERED: "Провайдер подтвердил доставку", NOT_DELIVERED: "Провайдер сообщил: не доставлено", UNKNOWN: "Результат неизвестен · повтор отключён", FAILED: "Отказ или завершённая сверка", CANCELLED: "Остановлено: данные изменились" };
 
 export function PropertyNarrationService({ propertyId, data, busy, run, setMessage, onListen }: {
   propertyId: string;

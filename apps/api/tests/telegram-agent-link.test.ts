@@ -127,6 +127,11 @@ vi.mock("../src/lib/videoHandoff.js", () => ({
   onClipReviewRequested: () => {},
   propertyFactsForMontajer: async () => "",
   videoHandoffFinalDiskPath: () => null,
+  // Пропущенные монтажёром объекты (19.11.2026, кнопки очереди): здесь их нет — приём как раньше.
+  // Свои тесты — tests/montajer-queue-controls.test.ts.
+  montajerSkippedAwaitingFinal: async () => [],
+  openSkippedForMontajerFinal: async () => null,
+  undoOpenSkippedForMontajerFinal: async () => {},
 }));
 vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),

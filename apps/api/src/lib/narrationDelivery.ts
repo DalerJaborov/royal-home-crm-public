@@ -166,9 +166,16 @@ export async function executeNarrationDelivery(id: string) {
         const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
         const editor = row.editorId ? await tx.agent.findFirst({ where: usableMontajerWhere(row.editorId) }) : null;
         const videos = row.mode === "WITH_SOURCES" ? await tx.propertyVideo.findMany({ where: { propertyId: row.propertyId }, orderBy: [{ uploadedAt: "asc" }, { id: "asc" }] }) : [];
-        // Штатные причины (объект ушёл от монтажёра, «Без озвучки», версию сменила новая) — молча: голос уйдёт со своей
-        // версией. Монтажёра сменили, у него пропал Telegram, поменялись исходники — голос не уйдёт сам, нужен журнал.
-        if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || latest?.id !== row.versionId || latest.status !== "READY" || latest.factsHash !== plan.factsHash || !narrationFactsCurrent(latest, p)) return { refused: null };
+        // Версия та же и актуальна, а объект сейчас НЕ у монтажёра (монтажёр нажал «Сделаю позже» или взял другой,
+        // 19.11.2026) — передача ЖДЁТ (WAITING): обход озвучки отправит её, когда объект вернётся к монтажёру
+        // (narrationAutoFlow.ts::queueNarrationDelivery берёт ту же строку). Раньше она гасла в FAILED, а обход версию
+        // с любой передачей больше не брал — объект монтировался без голоса.
+        const versionCurrent = !!p && !!latest && latest.id === row.versionId && latest.status === "READY" && latest.factsHash === plan.factsHash && narrationFactsCurrent(latest, p);
+        if (mediaExecutionMode("NARRATION") === "LIVE" && p && !p.deletedAt && !p.narrationOff && versionCurrent && (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince)) return { refused: null, waiting: true };
+        // Остальные штатные причины («Без озвучки», объект удалён, версию сменила новая, факты поменялись) — молча, без
+        // повтора: новую версию обход отправит сам. Монтажёра сменили, у него пропал Telegram, поменялись исходники —
+        // голос не уйдёт сам, нужен журнал.
+        if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || !versionCurrent) return { refused: null };
         if (settings?.videoMontajerAgentId !== row.editorId) return { refused: "монтажёра сменили в Настройках после постановки передачи" };
         if (!editor) return { refused: "монтажёр отключён" };
         if (!editor.telegramChatId || mediaRecipientHash(editor.id, editor.telegramChatId) !== plan.recipientHash) return { refused: "у монтажёра сменился или пропал Telegram" };
@@ -176,8 +183,12 @@ export async function executeNarrationDelivery(id: string) {
         return { chatId: editor.telegramChatId, shortId: p.shortId };
       });
       if ("refused" in target) {
-        const status = acknowledged ? "CANCELLED" : "FAILED";
-        const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError: "Назначение, очередь монтажа, факты, файлы или версия изменились. Полученные квитанции сохранены." } });
+        const waiting = "waiting" in target && target.waiting && !acknowledged;
+        const status = waiting ? "WAITING" : acknowledged ? "CANCELLED" : "FAILED";
+        const lastError = waiting
+          ? "Объект вернулся в очередь монтажа — голос уйдёт, когда объект снова будет у монтажёра."
+          : "Назначение, очередь монтажа, факты, файлы или версия изменились. Полученные квитанции сохранены.";
+        const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError, ...(waiting ? { claimStartedAt: null } : {}) } });
         if (done.count && status === "FAILED" && target.refused) reportNarrationDeliveryProblem(row.propertyId, id, "FAILED", target.refused);
         return { status };
       }

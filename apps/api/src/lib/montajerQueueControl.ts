@@ -141,6 +141,7 @@ export async function montajerMarkDone(agentId: string, shortId: number, expect:
   if (!result.ok) {
     return withQueueButton(
       result.code === "NOT_FOUND" ? `Объект №${shortId} не найден.`
+      : result.code === "HELD" ? `Объект №${shortId} отложен руководителем, снять его может только руководитель.`
       : expect === "holder" ? `Объект №${shortId} уже не у вас.`
       : `Объекта №${shortId} уже нет в очереди.`
     );
@@ -199,7 +200,10 @@ export async function montajerQueueItemView(agentId: string, shortId: number, no
   }
   if (position < queue.length) moves.push({ text: "⬇️ Ниже", callback_data: montajerQueueCallback.move(shortId, "down") });
   if (moves.length > 0) buttons.push(moves);
-  buttons.push([{ text: "✅ Уже сделан / не нужен", callback_data: montajerQueueCallback.queuedDone(shortId) }]);
+  // Отложенный — решение руководства: ни взять, ни снять его монтажёр не может (дверь тоже откажет).
+  if (!property.videoHandoffHeldAt) {
+    buttons.push([{ text: "✅ Уже сделан / не нужен", callback_data: montajerQueueCallback.queuedDone(shortId) }]);
+  }
   buttons.push([{ text: "📋 Данные", callback_data: `mj:obj:${shortId}` }, QUEUE_BUTTON]);
   return { text: lines.join("\n"), buttons };
 }

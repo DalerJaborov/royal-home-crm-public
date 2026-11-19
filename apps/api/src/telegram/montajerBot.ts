@@ -60,10 +60,13 @@ export const MONTAJER_HELP_TEXT = [
  * было»; расширено 25.09.2026). Главное — «объект <номер>»: данные карточки по
  * запросу, в любой момент и для любого объекта, а не один раз подписью.
  */
+/** Строка про управление очередью — только при включённом рубильнике (ревью 19.11.2026). */
+const MONTAJER_MENU_CONTROL_LINE =
+  "• «пропустить» — отложить объект в работе или отметить «уже сделан»; номер в «очереди» — взять другой сейчас или передвинуть.";
+
 export const MONTAJER_MENU_TEXT = [
   "Меню монтажёра:",
   "• «очередь» — что у вас в работе и что дальше, с адресами; номер — кнопкой.",
-  "• «пропустить» — отложить объект в работе или отметить «уже сделан»; номер в «очереди» — взять другой сейчас или передвинуть.",
   "• «объект 108» (или просто «108») — данные карточки. Работает всегда, даже после публикации.",
   "• «фото 108» — фото объекта альбомом.",
   "• «исходники 108» — список исходных видео со ссылками на скачивание.",
@@ -239,8 +242,12 @@ export async function runMontajerCommand(chatId: string, cmd: MontajerCommand, a
       return reply(chatId, await montajerMoveQueued(agentId, cmd.shortId, cmd.to));
     case "cancelControl":
       return reply(chatId, montajerCancelView());
-    case "menu":
-      return reply(chatId, { text: MONTAJER_MENU_TEXT, buttons: MONTAJER_MENU_BUTTONS });
+    case "menu": {
+      const text = (await montajerQueueControlsOn())
+        ? MONTAJER_MENU_TEXT.replace("\n• «объект 108»", `\n${MONTAJER_MENU_CONTROL_LINE}\n• «объект 108»`)
+        : MONTAJER_MENU_TEXT;
+      return reply(chatId, { text, buttons: MONTAJER_MENU_BUTTONS });
+    }
     case "help":
       return reply(chatId, { text: MONTAJER_HELP_TEXT });
     case "queue":
