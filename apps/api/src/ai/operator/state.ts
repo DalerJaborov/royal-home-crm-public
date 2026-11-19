@@ -99,13 +99,6 @@ export function isOperatorStateStored(raw: unknown): boolean {
   return !!raw && typeof raw === "object" && Reflect.get(raw, "version") === 2;
 }
 
-/** Память после принятой заявки (acceptLead): та же, с отметкой «заявка принята» — вопросов дальше нет (П6 приёмки 19.11). */
-export function operatorStateAfterLead(raw: unknown, now: Date = new Date()): StoredOperatorState | null {
-  if (!isOperatorStateStored(raw)) return null;
-  const state = readOperatorState(raw, now);
-  return serializeOperatorState({ ...state, leadAccepted: true, step: "done" }, now);
-}
-
 /**
  * Запись внутри транзакции ответа, но за точкой сохранения: сбой памяти откатывает только её, ответ клиенту остаётся
  * (тот же приём, что прежний applyLeadOnlyPendingIsolatedTx). Возвращает ошибку для журнала или null.

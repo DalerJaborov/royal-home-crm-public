@@ -65,9 +65,8 @@ import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, not
 import { leadOnlyQuietBeforeLead } from "../lib/leadOnlyConfig.js";
 import { runOperatorTurn, type OperatorTurnInput } from "../ai/operator/index.js";
 import { isCustomerAgentTurnOff } from "../lib/customerAgentChannelOff.js";
-import { operatorStateAfterLead, saveOperatorStateTx } from "../ai/operator/state.js";
+import { saveOperatorStateTx } from "../ai/operator/state.js";
 import { loadOperatorTurnSetup, operatorLeadDraft } from "../lib/operatorTurn.js";
-import { Prisma } from "../generated/prisma/client.js";
 import { adPropertyForLead } from "../lib/adPropertyRule.js";
 import { type LeadDraft } from "../ai/leadDraft.js";
 import { type ShowcaseAbility } from "../ai/botContract.js";
@@ -1494,19 +1493,18 @@ export async function acceptLead(
   // Режим «только заявки»: заявка оформлена. Прежняя память «о чём просили номер» (версия 1) стирается (третье ревью 13.11,
   // №2: иначе старый объект стал бы объектом разговора), а память оператора (версия 2) остаётся с отметкой «заявка
   // принята»: язык, роль и сказанное нужны следующим ходам, и вопросов после заявки нет (П6 приёмки 19.11).
-  // Чтение и запись памяти — в одной транзакции под блокировкой строки (ревью 19.11, Р10): ход, записавший память в промежутке,
-  // не затирается прочитанной раньше копией.
   try {
-    linked = await prisma.$transaction(async (tx) => {
-      const [row] = await tx.$queryRaw<Array<{ leadOnlyPending: unknown }>>`SELECT "leadOnlyPending" FROM "BotConversation"
-        WHERE "id"=${conversationId} FOR UPDATE`;
-      const operatorAfterLead = operatorStateAfterLead(row?.leadOnlyPending ?? null);
-      return tx.botConversation.update({
-        where: { id: conversationId },
-        data: { clientId, leadDraft: leadDraftDone, leadOnlyPending: operatorAfterLead ? (operatorAfterLead as object) : Prisma.DbNull },
-        select: { channel: true, subscriberId: true, adExternalId: true, contactProfileId: true },
-      });
+    linked = await prisma.botConversation.update({
+      where: { id: conversationId },
+      data: { clientId, leadDraft: leadDraftDone },
+      select: { channel: true, subscriberId: true, adExternalId: true, contactProfileId: true },
     });
+    // Память режима — одним атомарным UPDATE, без чтения заранее (ревью 19.11, Р10): ход, записавший память в промежутке,
+    // не затирается прочитанной раньше копией. Версия 1 стирается, версия 2 (оператор) получает «заявка принята».
+    await prisma.$executeRaw`UPDATE "BotConversation" SET "leadOnlyPending" = CASE
+        WHEN "leadOnlyPending"->>'version' = '2' THEN jsonb_set(jsonb_set("leadOnlyPending", '{leadAccepted}', 'true'::jsonb), '{step}', '"done"'::jsonb)
+        ELSE NULL END
+      WHERE "id"=${conversationId} AND "leadOnlyPending" IS NOT NULL`;
   } catch (err) {
     // Карточка уже заведена, а привязка не легла: без отката диалог остался бы в
     // «accepting» без clientId (AI-DIALOGUE01). Повтор найдёт ту же карточку по

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialOperatorState } from "../src/ai/operator/decide.js";
-import { OPERATOR_HANDOFF_RESET_MS, OPERATOR_STATE_TTL_MS, operatorStateAfterLead, readOperatorState, saveOperatorStateIsolatedTx,
+import { OPERATOR_HANDOFF_RESET_MS, OPERATOR_STATE_TTL_MS, readOperatorState, saveOperatorStateIsolatedTx,
   serializeOperatorState } from "../src/ai/operator/state.js";
 import { prisma } from "../src/db.js";
 import { randomUUID } from "node:crypto";
@@ -72,14 +72,8 @@ describe("память оператора: версия 1 → 2", () => {
     expect(readOperatorState(stored, new Date(NOW.getTime() + OPERATOR_HANDOFF_RESET_MS + 60_000)).spoken.note_added).toBeUndefined();
   });
 
-  it("Т6: память после принятой заявки (acceptLead) — та же, с «заявка принята»; версия 1 и пусто — стираются (null)", () => {
-    const state = initialOperatorState();
-    state.role = "seller"; state.language = "tg"; state.step = "details";
-    const after = operatorStateAfterLead(serializeOperatorState(state, NOW), NOW);
-    expect(after).toMatchObject({ version: 2, role: "seller", language: "tg", leadAccepted: true, step: "done" });
-    expect(operatorStateAfterLead(v1("seller", null), NOW)).toBeNull();
-    expect(operatorStateAfterLead(null, NOW)).toBeNull();
-  });
+  // Т6 (память оператора переживает приём заявки) — на настоящем acceptLead: bot-operator-core-postgres (случай 3) и
+  // bot-operator-legacy-postgres (случай 3): после приёма в колонке версия 2 с «заявка принята», версия 1 стирается.
 
   it("Т5: сбой записи памяти за точкой сохранения не валит транзакцию ответа", async () => {
     const id = (await prisma.botConversation.create({ data: { channel: "INSTAGRAM", subscriberId: `operator-state-${randomUUID()}`, messages: [] } })).id;

@@ -19,7 +19,8 @@ import { persistVerifiedCustomerIngressBatch } from "../src/lib/customerIngressP
 import { runCustomerDmAgentTurn } from "../src/lib/customerDmAgentTurn.js";
 import { decodeCustomerOutboxPayload } from "../src/lib/customerOutbox.js";
 import { ensureCustomerEndpoint } from "../src/lib/customerConversationScope.js";
-import { CUSTOMER_LEAD_ONLY_INTAKE_JOB, LEAD_ONLY_OPERATOR_SILENT, planCustomerLeadOnlyTurn, runCustomerLeadOnlyIntake } from "../src/lib/customerLeadOnlyCore.js";
+import { CUSTOMER_LEAD_ONLY_INTAKE_JOB, LEAD_ONLY_OPERATOR_SILENT, planCustomerLeadOnlyTurn, runCustomerLeadOnlyIntake,
+  sealCustomerLeadOnlyIntake } from "../src/lib/customerLeadOnlyCore.js";
 import { customerLeadOnlyIntakeJob } from "../src/jobs/customerLeadOnlyIntake.js";
 import { noteLeadOnlyNewPhone } from "../src/lib/leadOnlyHandover.js";
 import { LEAD_ONLY_DEFAULTS } from "../src/ai/leadOnlyMode.js";
@@ -230,8 +231,12 @@ describe("оператор приёма заявок на настоящем п�
     const sealed = JSON.parse(decryptSecret((lead!.payload as { sealed: string }).sealed)) as { phone: string; note: string };
     expect(sealed.phone).toContain(f.peer.slice(-9));
     expect(sealed.note).toContain("Хочет продать");
+    // Номер — только в зашифрованной части задания (перенесено из lead-only-mode-core-postgres, ревью 13.11, №8).
+    expect(JSON.stringify(lead!.payload)).not.toContain(f.peer.slice(-9));
     await settle(f.eventKey);
     expect(await runCustomerLeadOnlyIntake(lead!.payload)).toEqual({ status: "accepted" });
+    // Повтор задания безопасен: карточка уже есть — второй карточки нет (перенесено оттуда же).
+    expect(await runCustomerLeadOnlyIntake(lead!.payload)).toEqual({ status: "accepted", reason: "card_exists" });
     const conversationId = await conversationOf(f.eventKey);
     // П6: приём заявки стирает только прежнюю память (версия 1), память оператора остаётся с «заявка принята».
     expect(await operatorStateOf(conversationId)).toMatchObject({ version: 2, role: "seller", leadAccepted: true, step: "done" });
@@ -395,6 +400,25 @@ describe("ревью 19.11: недостающие тесты подключен
     expect(plan?.text).toMatch(/^Записали, с вами свяжутся /u);
     expect(plan?.signal).toEqual({ kind: "follow_up" });
     expect(plan?.intakes[0]).toMatchObject({ scenario: "note" });
+  });
+
+  it("Т6: приём заявки (acceptLead) стирает память версии 1, а память оператора (версия 2) сохраняет с «заявка принята»", async () => {
+    const seed = await coreFixture("Салом", "WHATSAPP");
+    const { subscriberId: _peer, ...transport } = seed.endpoint;
+    for (const [memory, expected] of [[{ version: 1, scenario: "seller", propertyId: null, askedAt: new Date().toISOString() }, null],
+      [serializeOperatorState({ ...initialOperatorState(), role: "seller", language: "tg" }), { version: 2, role: "seller", language: "tg", leadAccepted: true, step: "done" }]] as const) {
+      const peer = `992915${String(Math.floor(Math.random() * 1e6)).padStart(6, "0")}`;
+      const conversation = await prisma.$transaction(tx => ensureScopedBotConversation(tx, { channel: "WHATSAPP", subscriberId: peer, transport }));
+      nativeExtra.push(conversation.id);
+      await prisma.botConversation.update({ where: { id: conversation.id }, data: { leadOnlyPending: memory as object } });
+      const result = await runCustomerLeadOnlyIntake(sealCustomerLeadOnlyIntake({ eventKey: randomUUID().replaceAll("-", "").padEnd(64, "0"),
+        conversationId: conversation.id, scenario: "seller", propertyId: null },
+      { phone: `+${peer}`, whatsappPhone: `+${peer}`, clientText: "Хочу продать квартиру", promised: "call", lead: true }), { force: true });
+      expect(result).toEqual({ status: "accepted" });
+      const row = await prisma.botConversation.findUniqueOrThrow({ where: { id: conversation.id }, select: { clientId: true, leadOnlyPending: true } });
+      clientIds.push(row.clientId!);
+      if (expected === null) expect(row.leadOnlyPending).toBeNull(); else expect(row.leadOnlyPending).toMatchObject(expected);
+    }
   });
 
   it("Т4: новый номер клиента карточки — пометка; тот же номер — «уже известен»; без карточки — no_card", async () => {
