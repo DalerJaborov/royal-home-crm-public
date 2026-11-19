@@ -16,9 +16,9 @@
   "paths": 776,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4108,
-  "untranslatedUnique": 471,
-  "untranslatedTotal": 606,
+  "conditions": 4110,
+  "untranslatedUnique": 472,
+  "untranslatedTotal": 607,
   "partialUnique": 1109,
   "translatedShare": 85
  },
@@ -26,6 +26,7 @@
   "!(\"deal\" in outcome)",
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "!(SOCIAL_VIDEO_COVER_MIME_TYPES as readonly string[]).includes(req.file.mimetype)",
+  "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
   "!(await claimRun(id))",
   "!(await deleteNarrationMusicTrack(id.data))",
   "!(await discardDraft(d.id, { expiredAt: now }))",
@@ -66424,6 +66425,13 @@
          "k": "if",
          "a": [],
          "c": []
+        },
+        {
+         "t": "если !(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))"
         }
        ]
       },

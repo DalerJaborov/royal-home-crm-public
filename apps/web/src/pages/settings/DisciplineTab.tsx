@@ -5,6 +5,7 @@ import { MutationError } from "../../components/MutationError";
 import { SwitchRow } from "../../components/Switch";
 import { SellerAutomationSection } from "./SellerAutomationSection";
 import { SecurityAutomationSection } from "./SecurityAutomationSection";
+import { AutomationSwitchesSection } from "./AutomationSwitchesSection";
 
 /**
  * Числа, по которым система требует работу от агента.
@@ -87,6 +88,8 @@ export function DisciplineSection() {
       <SellerAutomationSection />
       {/* Рубильник автоматики СБ (18.11.2026) — сохраняется сам, как блок выше. */}
       <SecurityAutomationSection />
+      {/* Выключатели автоматики ИИ и напоминаний (19.11.2026) — сохраняются сами. */}
+      <AutomationSwitchesSection />
       {/* «Ждёт варианты» и «Ждёт показ» убраны с экрана 23.09.2026: блок обещал
           напоминания агенту и стоп на выдачу лидов, но ни напоминаний, ни стопа в
           коде нет — ни одна строка сервера это поле не читает (проверено поиском 23.09.2026). Поля

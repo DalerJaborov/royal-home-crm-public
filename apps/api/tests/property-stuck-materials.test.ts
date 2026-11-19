@@ -14,6 +14,13 @@ vi.mock("../src/lib/workingHours.js", async (importOriginal) => ({
   isWithinAlarmHours: async () => true,
 }));
 
+// Выключатель «Объект долго на проверке» (19.11.2026): подмена только в этом файле.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
+
 const { prisma } = await import("../src/db.js");
 const { notifyStuckMaterials, notifyOverdueMaterials, STUCK_VIDEO_AFTER_HOURS } = await import(
   "../src/lib/propertyPipeline.js"
@@ -182,5 +189,18 @@ describe("notifyOverdueMaterials: рубильник проверки не пр�
     expect(rows).toHaveLength(1);
     expect(rows[0].recipientPermission).toBe("clients.assign");
     expect(rows[0].title).toContain("завис на проверке");
+  });
+
+  it("выключатель «Объект долго на проверке»: выключен — уведомления нет; включён — как раньше", async () => {
+    const p = await makeProperty("PENDING_REVIEW", 24 * 5);
+    switchesOff.add("notifyPropertyReviewOverdueEnabled");
+    try {
+      await notifyOverdueMaterials();
+      expect(await alertRows(`pending-review-overdue-${p.id}`)).toHaveLength(0);
+    } finally {
+      switchesOff.delete("notifyPropertyReviewOverdueEnabled");
+    }
+    await notifyOverdueMaterials();
+    expect(await alertRows(`pending-review-overdue-${p.id}`)).toHaveLength(1);
   });
 });

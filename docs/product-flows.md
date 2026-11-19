@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4135**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4137**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20473,6 +20473,9 @@
     - если !(await isWithinWorkingHours(now))
       - return { checked: 0, alerted: 0, skippedOffHours: true };
         · дословно из кода
+    - если !(await automationSwitchOn("notifyClientWaitingEnabled"))
+      - return { checked: 0, alerted: 0, skippedOffHours: false };
+        · дословно из кода
   - если alerted > 0
     - console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
       · пишет строку в журнал сервера
@@ -20879,6 +20882,8 @@
       · зовёт loadDealStaleRules()
     - const sellersOn = await sellerSwitchOn("dealStaleSellersEnabled");
       · зовёт sellerSwitchOn()
+    - const buyersOn = await automationSwitchOn("dealStaleBuyersEnabled");
+      · зовёт automationSwitchOn()
     - для каждого: const client of sellers
       - пробует
       - если сорвалось
@@ -23915,12 +23920,17 @@
     - если overdueIds.length === 0
       - return 0;
         · дословно из кода
+    - const reviewAlertOn = await automationSwitchOn("notifyPropertyReviewOverdueEnabled");
+      · зовёт automationSwitchOn()
     - для каждого: const property of properties
       - пробует
         - если !overdueIds.includes(property.id)
           - continue;
             · переходит к следующему
         - если property.status === "PENDING_REVIEW"
+          - если !reviewAlertOn
+            - continue;
+              · переходит к следующему
           - если await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now)
             - const daysInStage = stageState(property.status, property.stageEnteredAt, deadlines, now).daysInStage;
               · зовёт stageState()

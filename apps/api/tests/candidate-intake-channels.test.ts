@@ -53,6 +53,13 @@ vi.mock("../src/lib/callbackRequests.js", async (importOriginal) => ({
   routeMessengerCallbackRequest: vi.fn(async () => false),
 }));
 
+// Выключатель «ИИ снимает агента, если клиент ищет работу» (19.11.2026): подмена только в этом файле.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
+
 delete process.env.TELEGRAM_BOT_TOKEN;
 
 const { prisma } = await import("../src/db.js");
@@ -278,6 +285,41 @@ describe("Meta: номер кандидата, у которого уже ест
       where: { clientId, notes: { startsWith: "Обращение переведено в кандидаты" } },
     });
     expect(events).toBe(1);
+  });
+
+  it("выключатель «ИИ снимает агента, если клиент ищет работу»: выключен — карточка у агента, анкета и уведомление есть", async () => {
+    const digits = freshDigits();
+    const { clientId } = await acceptedBuyer(digits);
+    const before = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { assignedAgentId: true, kind: true } });
+    const history = [{ role: "user" as const, content: "Салом, кор ҳаст? Мехоҳам агент шавам" }];
+    const conv = await botConversation({
+      subscriberId: `992${digits}`,
+      channel: "WHATSAPP",
+      leadDraft: { stage: "chatting", intent: "job", confident: true },
+      messages: history,
+    });
+    const draft = { stage: "chatting" as const, intent: "job" as const, confident: true };
+
+    switchesOff.add("aiJobSeekerAutoDetachEnabled");
+    try {
+      await acceptLead(conv.id, "WHATSAPP", "Фируз Назаров", `+992${digits}`, draft, history, {
+        clientText: `Рақамам ${digits}`,
+        whatsappPhone: `+992${digits}`,
+      });
+    } finally {
+      switchesOff.delete("aiJobSeekerAutoDetachEnabled");
+    }
+
+    const card = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { assignedAgentId: true, kind: true } });
+    expect(card).toEqual(before);
+    expect(card.assignedAgentId).not.toBeNull();
+    expect(await prisma.interaction.count({ where: { clientId, notes: { startsWith: "Обращение переведено в кандидаты" } } })).toBe(0);
+    // Анкета кандидата и уведомление руководству идут как обычно, но к карточке не привязаны.
+    const app = await prisma.jobApplication.findUnique({ where: { conversationId: conv.id } });
+    expect(app?.phone).toBe(`+992${digits}`);
+    expect(app?.clientId ?? null).toBeNull();
+    expect(notifyCandidateOwners).toHaveBeenCalledTimes(1);
+    expect(notifyCandidateOwners.mock.calls[0]?.[0]?.why).toBe("оставил номер в переписке");
   });
 
   it("привязанный диалог (карточка у агента) заговорил о работе — карточка снята с агента", async () => {
