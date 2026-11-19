@@ -1,0 +1,198 @@
+/*
+ * «НОВЫЙ ВИД» — ГЛАВНАЯ ОСТАЛЬНЫХ РОЛЕЙ (пачка home, 20.11.2026).
+ *
+ * Монтажёр, маркетинг, служба безопасности, менеджер и акционер
+ * (components/look/home/*). Раскладка, приветствие, плитки, разделы и строки —
+ * из основы (theme-look-royal.css, те же классы, что у главной директора); здесь
+ * только детали этих главных: быстрые переходы, подсказка, плашки смысла, фото в
+ * строке, вопрос помощнику, графики команды и число колонок полосы плиток.
+ *
+ * Каждое правило — под :root[data-ui-look="royal"] и меткой раздела
+ * [data-ry-section="home"] (сторож theme-look-royal.test.ts): без признака вида
+ * не меняется ни один пиксель. Генератор gen:typeset этот файл пропускает.
+ */
+
+/* ============================ ядро: блоки ============================ */
+
+/* Обёртка блока (ядро components/look/home/core.tsx) не даёт своей коробки: её дети —
+   ячейки сетки ry-blocks, а пустой (выключенный по данным) блок не оставляет дыры. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-blk { display: contents; }
+
+/* ============================ полоса плиток ============================ */
+
+/* Телефон (две колонки): нечётная последняя плитка — во всю ширину, без дыры справа. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip > .ry-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+/* ============================ быстрые переходы ============================ */
+
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quick {
+  grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; min-width: 0;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 8px 4px;
+  border-radius: 20px; color: var(--rh-ui-text); text-decoration: none;
+  transition: background-color 160ms cubic-bezier(.23, 1, .32, 1), transform 90ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q:active { transform: scale(.97); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q:focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-icon { position: relative; display: inline-flex; flex: none; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-count {
+  position: absolute; top: -6px; right: -12px; display: grid; place-items: center; min-width: 26px; height: 26px; padding: 0 7px;
+  border-radius: 999px; background: var(--rh-ui-text); color: var(--rh-ui-bg); font-size: 13px; letter-spacing: 0;
+  box-shadow: 0 0 0 2px var(--rh-ui-bg);
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-label {
+  font-size: 14px; font-weight: 600; line-height: 1.2; text-align: center; overflow-wrap: break-word; hyphens: auto;
+}
+
+/* ============================ подсказка ============================ */
+
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-hint {
+  grid-column: 1 / -1; display: flex; align-items: flex-start; gap: 12px; min-width: 0; padding: 12px 8px 12px 12px;
+  border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-hint > p {
+  flex: 1 1 auto; min-width: 0; margin: 0; padding-top: 10px; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint);
+  overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-hint-close {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px;
+  background: transparent; color: var(--rh-ui-hint); cursor: pointer;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-hint-close:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-hint-close:focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: 2px; }
+
+/* ============================ строки ============================ */
+
+/* Фото объекта на месте круга: 48, скругление как у плитки фото в «Объектах». */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-thumb {
+  display: block; flex: none; width: 48px; height: 48px; border-radius: 14px; object-fit: cover; background: var(--rh-ui-raised);
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-row-sub > span:first-child:not(.ry-home-state) { display: block; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-state { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-state-note { font-size: 14px; font-weight: 500; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-state[data-tone="crit"] .ry-home-state-note { color: var(--rh-ui-crit-text); font-weight: 700; }
+
+/* Плашка смысла: срочное — сплошной красный (самая тёмная), внимание и норма — светлые
+   с цветным текстом, нейтральное — серое. Различаются яркостью, а не одним оттенком. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chip {
+  display: inline-flex; align-items: center; min-height: 28px; padding: 3px 10px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; line-height: 1.2; white-space: normal; overflow-wrap: anywhere;
+  background: var(--rh-ui-raised); color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chip[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chip[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chip[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chip[data-tone="info"] { background: var(--rh-ui-info-soft); color: var(--rh-ui-info); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-row-right .ry-home-chip { max-width: 148px; text-align: right; justify-content: flex-end; }
+
+/* Деньги справа в строке: табличные цифры по правому краю, перенос перед валютой. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-value {
+  font-size: 18px; font-weight: 700; text-align: right; white-space: normal; overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
+}
+
+/* «Показать ещё» под списком — во всю ширину группы. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-more { padding: 8px 12px 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-more > .ry-btn { width: 100%; }
+
+/* ============================ вопрос помощнику ============================ */
+
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask {
+  padding: 16px; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask { display: grid; gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask > :is(form, div):first-child { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .inp {
+  flex: 1 1 100%; min-width: 0; min-height: 52px; padding: 0 18px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font: inherit; font-size: 16px;
+  box-shadow: none; outline: none;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .inp::placeholder { color: var(--rh-ui-hint); opacity: 1; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .inp:focus-visible { box-shadow: 0 0 0 3px var(--rh-ui-primary); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .inp:disabled { opacity: .5; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .inp:disabled::placeholder { opacity: .5; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)) {
+  flex: none; min-height: 52px; padding: 0 22px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font-size: 16px; font-weight: 700; cursor: pointer;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)):hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)):disabled { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-sugg { display: flex; flex-wrap: wrap; gap: 8px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-sugg button {
+  min-height: 44px; padding: 8px 16px; border: 0; border-radius: 999px; text-align: left; white-space: normal; overflow-wrap: anywhere;
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); font-size: 15px; font-weight: 600; line-height: 1.3; cursor: pointer;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-sugg button:disabled { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ans {
+  padding: 14px 16px; border-radius: 18px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: 16px; line-height: 1.5; overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ans .lk {
+  min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--rh-ui-primary-ink);
+  font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+}
+
+/* ============================ графики команды ============================ */
+
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart {
+  display: grid; gap: 12px; min-width: 0; padding: 16px; border-radius: var(--rh-ui-r-card);
+  background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+/* Сетка карточки не растягивается по ширине графика: широкий год листается ВНУТРИ карточки
+   (прежняя тема: `.chart.wide{overflow-x:auto}`, svg не уже 520 px), а не вылезает за край. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart > *,
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart :is(.rh2, .scr, .rh2-bar-chart) { min-width: 0; max-width: 100%; }
+/* Год по месяцам рисуется в настоящую величину (640), а не сжимается: сжатый svg уменьшал
+   подписи осей ниже 13 px. Лента листается внутри карточки и открывается на последних
+   месяцах (справа) — как в «Деньгах» (theme-look-royal-money.css). */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .rh2-bar-chart { overflow-x: auto; overscroll-behavior-x: contain; direction: rtl; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .rh2-bar-chart > .chart { direction: ltr; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .rh2-bar-chart > .chart.wide { min-width: 640px; overflow: visible; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .rh2-bar-chart > .chart.wide > svg { min-width: 640px; width: 640px; overflow: visible; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart-note { margin: 0; font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .scr p.state { margin: 0; font-size: 15px; color: var(--rh-ui-hint); }
+/* Полосы (источники, нагрузка): название переносится, а не режется. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars { display: grid; gap: 4px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b { min-height: 48px; gap: 12px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .nm3 {
+  width: min(42%, 220px); font-size: 15px; font-weight: 500; line-height: 1.3; color: var(--rh-ui-text);
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .tr { height: 12px; border-radius: 999px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .tr i { border-radius: 999px; background: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .vl {
+  font-family: var(--rh-ui-font-num); font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--rh-ui-text);
+}
+/* Столбики по месяцам. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .gl { stroke: var(--rh-ui-sep); stroke-dasharray: 2 4; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .ax { stroke: var(--rh-ui-sep); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .axl { font-size: 13px; fill: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .val { font-size: 14px; font-weight: 700; fill: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br { fill: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br.alt { fill: color-mix(in srgb, var(--rh-ui-primary) 42%, var(--rh-ui-card)); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br[data-negative] { fill: var(--rh-ui-crit); }
+
+/* ============================ ширина ============================ */
+
+@container ry-today (min-width: 720px) {
+  /* Две колонки: половинные блоки (ry-col-a/b) парами, остальное — во всю ширину
+     (основа делает это только для прямых детей ry-blocks, а здесь между ними обёртка). */
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-blk > :not(.ry-col-a):not(.ry-col-b) { grid-column: 1 / -1; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip > .ry-tile:last-child:nth-child(odd) { grid-column: auto; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-tiles="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* Пять плиток: три сверху, две снизу пошире — без пустой клетки. */
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-tiles="5"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-tiles="5"] > .ry-tile { grid-column: span 2; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-tiles="5"] > .ry-tile:nth-child(n + 4) { grid-column: span 3; }
+  /* Быстрые переходы на широком — капсулы в строку: значок и подпись рядом. */
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quick { display: flex; flex-wrap: wrap; gap: 12px; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q {
+    flex-direction: row; gap: 16px; padding: 6px 22px 6px 6px; border-radius: 999px;
+    background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q:hover { background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 2px var(--rh-ui-sep); }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-label { font-size: 16px; text-align: left; }
+  /* Счётчик в капсуле — на верхнем краю круга, не на подписи. */
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-count { top: -8px; right: -4px; }
+}

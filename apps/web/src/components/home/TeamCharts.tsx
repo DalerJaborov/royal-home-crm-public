@@ -9,6 +9,7 @@ import { Rh2BarChart } from "../rh2/Rh2BarChart";
 import { Rh2Bars } from "../rh2/Rh2Bars";
 import { Rh2Inline } from "../rh2/Rh2Scope";
 import { MhNoData, MhSection } from "./mh/MhScreen";
+import { RhBlockState, RhCircle, RhGroup, RhRow, RhSection } from "../look/ui";
 
 /**
  * ГРАФИКИ И ПОДСКАЗКИ ПО КОМАНДЕ НА ГЛАВНОЙ (28.09.2026, «сделанное — на экран»).
@@ -31,7 +32,8 @@ import { MhNoData, MhSection } from "./mh/MhScreen";
  * в «Деньгах» и пульта, и телефонной главной.
  */
 
-type Host = "screen" | "pult" | "phone";
+/** `royal` — главная «Нового вида» (components/look/home, 20.11.2026): разделы и строки нового вида. */
+type Host = "screen" | "pult" | "phone" | "royal";
 
 const MONTH_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 const MONTH_NOM = [
@@ -69,6 +71,11 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
   if (!charts.data && !insights.data) {
     if (charts.isError && insights.isError) {
       const text = "Графики по команде не загрузились. Обновите страницу чуть позже.";
+      if (host === "royal") return (
+        <RhSection title="Графики по команде">
+          <RhBlockState kind="error" onRetry={() => { void charts.refetch(); void insights.refetch(); }} />
+        </RhSection>
+      );
       if (host === "phone") return <MhNoData tone="warn">{text}</MhNoData>;
       return (
         <p className={host === "pult" ? "hint" : "quiet"}>
@@ -184,6 +191,26 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
   const weakText = weak ? `Слабое место недели: у ${weak.agentName} меньше всего баллов за «${weak.categoryLabel}».` : null;
 
   if (blocks.length === 0 && !weakText) return null;
+
+  if (host === "royal") {
+    return (
+      <>
+        {weakText && (
+          <RhSection title="Как идут дела у команды">
+            <RhGroup><RhRow lead={<RhCircle icon="circle-alert" tone="warn" />} title={weakText} /></RhGroup>
+          </RhSection>
+        )}
+        {blocks.map((b) => (
+          <RhSection key={b.key} title={b.title} className="ry-col-b">
+            <div className="ry-home-chart">
+              {b.note && <p className="ry-home-chart-note">{b.note}</p>}
+              <Rh2Inline>{b.body}</Rh2Inline>
+            </div>
+          </RhSection>
+        ))}
+      </>
+    );
+  }
 
   if (host === "phone") {
     return (
