@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4135,
+  "forks": 4139,
   "mounts": 87,
-  "cron": 141,
+  "cron": 142,
   "jobs": 34,
   "hidden": 0
  },
@@ -87278,6 +87278,165 @@
        "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "assistant-group-sweep",
+   "when": "12 * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await sweepAssistantGroups();",
+     "a": [
+      "зовёт sweepAssistantGroups()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!isTelegramEnabled() || sweeping",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return result;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const groups = await prisma.assistantTelegramGroup.findMany({ select: { chatId: true }, orderBy: { createdAt:…",
+         "a": [
+          "читает в базе: assistantTelegramGroup"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const { chatId } of groups",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "verdict.kind === \"migrated\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const outcome = await migrateAssistantGroupChat(chatId, verdict.newChatId);",
+               "a": [
+                "зовёт migrateAssistantGroupChat()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "console.log(`[assistant-group] группа стала супергруппой, регистрация перенесена (${outcome})`);",
+               "a": [
+                "пишет строку в журнал сервера"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "elseif",
+             "t": "verdict.kind === \"absent\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await logSystemError( \"telegram\", `Шабнам не состоит в подключённой группе «${await groupLabel(chatId)}» — ве…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "elseif",
+             "t": "verdict.kind === \"unknown\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "console.warn(`[assistant-group] проверка группы не удалась, повтор в следующий обход: ${verdict.detail}`);",
+               "a": [
+                "пишет строку в журнал сервера"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await logSystemError(\"telegram\", `Шабнам: проверка подключённой группы не удалась: ${describeError(err)}`, { …",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logSystemError(\"telegram\", `Шабнам: обход подключённых групп не удался: ${describeError(err)}`, { dedup…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "finally",
+       "t": "в любом случае",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "sweeping = false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "sweepAssistantGroups() — apps/api/src/lib/assistantGroupWatchdog.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"

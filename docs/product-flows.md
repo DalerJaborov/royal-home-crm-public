@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4135**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4139**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19713,6 +19713,39 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### assistant-group-sweep — 12 * * * *
+
+- await sweepAssistantGroups();
+  · зовёт sweepAssistantGroups()
+  - если !isTelegramEnabled() || sweeping
+    - return result;
+      · дословно из кода
+  - пробует
+    - const groups = await prisma.assistantTelegramGroup.findMany({ select: { chatId: true }, orderBy: { createdAt:…
+      · читает в базе: assistantTelegramGroup
+    - для каждого: const { chatId } of groups
+      - пробует
+        - если verdict.kind === "migrated"
+          - const outcome = await migrateAssistantGroupChat(chatId, verdict.newChatId);
+            · зовёт migrateAssistantGroupChat()
+          - console.log(`[assistant-group] группа стала супергруппой, регистрация перенесена (${outcome})`);
+            · пишет строку в журнал сервера
+        - иначе если verdict.kind === "absent"
+          - await logSystemError( "telegram", `Шабнам не состоит в подключённой группе «${await groupLabel(chatId)}» — ве…
+            · запись в журнал ошибок
+        - иначе если verdict.kind === "unknown"
+          - console.warn(`[assistant-group] проверка группы не удалась, повтор в следующий обход: ${verdict.detail}`);
+            · пишет строку в журнал сервера
+      - если сорвалось
+        - await logSystemError("telegram", `Шабнам: проверка подключённой группы не удалась: ${describeError(err)}`, { …
+          · запись в журнал ошибок
+  - если сорвалось
+    - await logSystemError("telegram", `Шабнам: обход подключённых групп не удался: ${describeError(err)}`, { dedup…
+      · запись в журнал ошибок
+  - в любом случае
+    - sweeping = false;
+      · дословно из кода
 
 ### assistant-log-retention — 25 4 * * *
 
