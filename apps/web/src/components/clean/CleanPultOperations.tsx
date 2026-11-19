@@ -8,10 +8,13 @@ import { CCard, CChip, CHead, CLink } from "./ui";
 /** Same counters and destination as DirectorHome; no inferred or merged totals. */
 export function CleanControlTiles({ control, allowed }: { control: McControlGaps | undefined; allowed: boolean }) {
   if (!control || !allowed) return null;
+  // Плитка без своих данных не рисуется (18.11.2026: сборка до #220 ждала третью
+  // плитку `atLimit`, сервер её уже не отдавал — `data.count` уронил главную).
   const tiles = [
     { label: "Просроченные задачи", data: control.overdueTasks, icon: ListChecks, slice: "slice-overdue-tasks" },
     { label: "Без ответа после показа", data: control.silentAfterShowing, icon: MessageCircle, slice: "slice-silent-after-showing" },
-  ];
+  ].filter((tile) => typeof tile.data?.count === "number");
+  if (tiles.length === 0) return null;
   return (
     <section className="grid gap-3 min-[1180px]:grid-cols-2" aria-label="Контроль руководителя">
       {tiles.map(({ label, data, icon: Icon, slice }) => (

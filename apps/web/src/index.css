@@ -145,6 +145,8 @@
 @import './theme-look-royal-analytics.css';
 /* «Новый вид», мастер и форма объекта (пачка wizard: /properties/new, /properties/:id/edit) — только под :root[data-ui-look="royal"] и меткой раздела. */
 @import './theme-look-royal-wizard.css';
+/* «Новый вид», главная остальных ролей (пачка home: монтажёр, маркетинг, СБ, менеджер, акционер). */
+@import './theme-look-royal-home.css';
 
 /* ВАЖНО: тематические файлы выше подключены БЕЗ layer(...).
  * Кодмод @tailwindcss/upgrade завернул их в layer(base) — и ночная тема
