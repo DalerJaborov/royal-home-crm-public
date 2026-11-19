@@ -21,13 +21,14 @@ const render = (props: Partial<React.ComponentProps<typeof CallClientButton>>) =
   renderToStaticMarkup(<CallClientButton clientId="c1" phone="+992930001001" variant="full" {...props} />);
 
 describe("CallClientButton: иностранный номер", () => {
-  it("российский номер: причина на экране сразу, кнопка приглушена, шрифт не мельче 13px", () => {
+  it("российский номер: кнопка приглушена, причина в подсказке, ряд действий не ломается", () => {
     const html = render({ phone: "+79922992084" });
-    expect(html).toContain("data-foreign-phone-note");
+    expect(html).toContain('data-foreign-phone="true"');
     expect(html).toContain(FOREIGN_PHONE_CALL_ERROR);
     expect(html).toContain('aria-disabled="true"');
-    expect(html).toContain("text-[13px]");
-    expect(html).not.toMatch(/text-\[(8|9|10|11|12)px\]/);
+    expect(html).toContain("opacity-60");
+    // Пояснение строкой под кнопкой растягивало ряд действий карточки (кадры 19.11).
+    expect(html).not.toMatch(/<p[ >]/);
   });
 
   it("компактная кнопка (список, телефон): приглушена и с причиной в подсказке", () => {
@@ -37,21 +38,21 @@ describe("CallClientButton: иностранный номер", () => {
   });
 
   it("закрытый номер (маска) с чужим кодом страны тоже иностранный", () => {
-    expect(render({ phone: "+799•••••84" })).toContain("data-foreign-phone-note");
+    expect(render({ phone: "+799•••••84" })).toContain('data-foreign-phone="true"');
   });
 
   it("таджикский номер: живая кнопка без пояснения", () => {
     const html = render({});
-    expect(html).not.toContain("data-foreign-phone-note");
+    expect(html).not.toContain('data-foreign-phone="true"');
     expect(html).not.toContain("aria-disabled");
   });
 
   it("кандидат вакансии не трогаем: номер проверяет свой маршрут", () => {
     const html = render({ clientId: null, candidateId: "k1", phone: "+79922992084" });
-    expect(html).not.toContain("data-foreign-phone-note");
+    expect(html).not.toContain('data-foreign-phone="true"');
   });
 
   it("звонок на дополнительный иностранный номер (WhatsApp) при таджикском основном", () => {
-    expect(render({ callPhone: "+79922992084" })).toContain("data-foreign-phone-note");
+    expect(render({ callPhone: "+79922992084" })).toContain('data-foreign-phone="true"');
   });
 });

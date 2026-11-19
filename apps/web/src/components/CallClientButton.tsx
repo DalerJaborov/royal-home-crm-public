@@ -186,8 +186,10 @@ export function CallClientButton({
         onClick={handleCall}
         disabled={callClient.isPending || callInProgress}
         // Иностранный номер: кнопка приглушена, но нажимаема — на телефоне подсказки title
-        // нет, и нажатие открывает ту же причину плашкой.
+        // нет, и нажатие открывает ту же причину плашкой. Строки под кнопкой нет: в ряду
+        // действий карточки она ломала ряд и на ПК, и на телефоне (кадры 19.11.2026).
         aria-disabled={foreignBlocked || undefined}
+        data-foreign-phone={foreignBlocked || undefined}
         title={
           foreignBlocked
             ? FOREIGN_PHONE_CALL_ERROR
@@ -212,11 +214,6 @@ export function CallClientButton({
                 ? "Соединяем…"
                 : (label ?? "Позвонить"))}
       </button>
-      {foreignBlocked && variant === "full" && !error && (
-        <p data-foreign-phone-note className="mt-1.5 max-w-xs text-[13px] leading-snug text-gray-500">
-          {FOREIGN_PHONE_CALL_ERROR}
-        </p>
-      )}
       {error && (
         // bg-card-solid, а НЕ bg-card: обычный --c-card полупрозрачен (матовое стекло,
         // index.css) — карточка под попапом просвечивала сквозь текст ошибки.
