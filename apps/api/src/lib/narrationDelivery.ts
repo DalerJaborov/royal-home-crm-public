@@ -171,7 +171,7 @@ export async function executeNarrationDelivery(id: string) {
         // (narrationAutoFlow.ts::queueNarrationDelivery берёт ту же строку). Раньше она гасла в FAILED, а обход версию
         // с любой передачей больше не брал — объект монтировался без голоса.
         const versionCurrent = !!p && !!latest && latest.id === row.versionId && latest.status === "READY" && latest.factsHash === plan.factsHash && narrationFactsCurrent(latest, p);
-        if (mediaExecutionMode("NARRATION") === "LIVE" && p && !p.deletedAt && !p.narrationOff && versionCurrent && (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince)) return { refused: null, waiting: true };
+        if (mediaExecutionMode("NARRATION") === "LIVE" && p && !p.deletedAt && !p.narrationOff && versionCurrent && (p.videoHandoffStatus === "QUEUED" || (p.videoHandoffStatus === "SENT_TO_EDITOR" && p.videoHandoffManualSince))) return { refused: null, waiting: true };
         // Остальные штатные причины («Без озвучки», объект удалён, версию сменила новая, факты поменялись) — молча, без
         // повтора: новую версию обход отправит сам. Монтажёра сменили, у него пропал Telegram, поменялись исходники —
         // голос не уйдёт сам, нужен журнал.
@@ -186,7 +186,7 @@ export async function executeNarrationDelivery(id: string) {
         const waiting = "waiting" in target && target.waiting && !acknowledged;
         const status = waiting ? "WAITING" : acknowledged ? "CANCELLED" : "FAILED";
         const lastError = waiting
-          ? "Объект вернулся в очередь монтажа — голос уйдёт, когда объект снова будет у монтажёра."
+          ? "Объект сейчас не у монтажёра (вернулся в очередь). Вернётся к нему — голос уйдёт; снимут с монтажа — передача отменится."
           : "Назначение, очередь монтажа, факты, файлы или версия изменились. Полученные квитанции сохранены.";
         const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError, ...(waiting ? { claimStartedAt: null } : {}) } });
         if (done.count && status === "FAILED" && target.refused) reportNarrationDeliveryProblem(row.propertyId, id, "FAILED", target.refused);

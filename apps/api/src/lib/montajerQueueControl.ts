@@ -8,7 +8,7 @@
  * telegram/montajerBot.ts. Своей логики очереди здесь НЕТ — только двери
  * lib/videoHandoff.ts под её замком:
  *  - «Сделаю позже» и «Взять сейчас» — swapVideoHandoffHolder (одна транзакция);
- *  - «Уже сделан / не нужен» — cancelVideoHandoffQueueEntry (штатное снятие, объект
+ *  - «Уже сделан, ролик пришлю» / «Не нужен» — cancelVideoHandoffQueueEntry (штатное снятие, объект
  *    остаётся на прежнем этапе) с ожидаемым состоянием и пушем руководству;
  *  - «выше / ниже / в начало» — moveVideoHandoffInQueue.
  *
@@ -99,9 +99,18 @@ export async function montajerSkipMenuView(agentId: string, shortId: number | nu
     lines.push(`🕓 «Сделаю позже»: №${n} встанет в конец очереди, вам сразу придёт следующий.`);
     row.push({ text: "🕓 Сделаю позже", callback_data: montajerQueueCallback.skipLater(n) });
   }
-  lines.push(`✅ «Уже сделан / не нужен»: №${n} уйдёт из очереди, руководитель получит уведомление. Готовый ролик, если он есть, загружают в карточку объекта в CRM.`);
-  row.push({ text: "✅ Уже сделан / не нужен", callback_data: montajerQueueCallback.skipDone(n) });
-  return { text: lines.join("\n"), buttons: [row, [{ text: "Отмена", callback_data: montajerQueueCallback.cancel() }]] };
+  // Два смысла «уже не делаю» (второй круг ревью 19.11.2026): ролик ещё придёт — бот его ждёт
+  // и спросит «чей ролик»; не нужен вовсе — ждать нечего, вопросов не будет.
+  lines.push(`✅ «Уже сделан, ролик пришлю»: №${n} уйдёт из очереди, готовый ролик пришлите сюда.`);
+  lines.push(`🚫 «Не нужен»: №${n} уйдёт из очереди, ролика по нему не будет.`);
+  lines.push("Руководитель получит уведомление.");
+  const rows: TelegramInlineButton[][] = row.length > 0 ? [row] : [];
+  rows.push([
+    { text: "✅ Уже сделан, ролик пришлю", callback_data: montajerQueueCallback.skipDone(n) },
+    { text: "🚫 Не нужен", callback_data: montajerQueueCallback.skipNotNeeded(n) },
+  ]);
+  rows.push([{ text: "Отмена", callback_data: montajerQueueCallback.cancel() }]);
+  return { text: lines.join("\n"), buttons: rows };
 }
 
 /** «🕓 Сделаю позже»: держатель — в конец очереди, место — следующему. */
@@ -131,13 +140,13 @@ export async function montajerSkipLater(agentId: string, shortId: number): Promi
   return withQueueButton(`Хорошо, №${shortId} в очереди ${position}-м. Вам идёт №${result.seated.shortId}, файлы придут следом.`);
 }
 
-/** «✅ Уже сделан / не нужен» — у держателя (`expect: holder`) или у ждущего (`queued`). */
-export async function montajerMarkDone(agentId: string, shortId: number, expect: "holder" | "queued"): Promise<MontajerView> {
+/** «✅ Уже сделан, ролик пришлю» (`willSend`) или «🚫 Не нужен» — у держателя (`expect: holder`) или у ждущего (`queued`). */
+export async function montajerMarkDone(agentId: string, shortId: number, expect: "holder" | "queued", willSend = true): Promise<MontajerView> {
   const a = await access(agentId);
   if (!a.ok) return a.view;
   const property = await findByShortId(shortId);
   if (!property) return withQueueButton(`Объект №${shortId} не найден.`);
-  const result = await cancelVideoHandoffQueueEntry(property.id, { expect, byMontajer: true });
+  const result = await cancelVideoHandoffQueueEntry(property.id, { expect, byMontajer: true, montajerWillSend: willSend });
   if (!result.ok) {
     return withQueueButton(
       result.code === "NOT_FOUND" ? `Объект №${shortId} не найден.`
@@ -149,10 +158,11 @@ export async function montajerMarkDone(agentId: string, shortId: number, expect:
   logAgentAudit(agentId, "PROPERTY_VIDEO_HANDOFF_MONTAJER_DONE", "Property", property.id, {
     shortId,
     wasHolder: expect === "holder",
-    text: `Монтажёр пропустил №${shortId}: уже сделан или не нужен`,
+    willSend,
+    text: willSend ? `Монтажёр пропустил №${shortId}: уже сделан, ролик пришлёт` : `Монтажёр пропустил №${shortId}: ролик не нужен`,
     source: "telegram-montajer",
   });
-  const lines = [`Готово: №${shortId} снят из очереди, руководителю сообщил.`];
+  const lines = [`Готово: №${shortId} снят из очереди, руководителю сообщил.${willSend ? ` Ролик №${shortId} пришлите сюда, когда будет готов.` : ""}`];
   if (expect === "holder") {
     const next = await currentHolder();
     if (next) lines.push(`Следующий у вас: №${next.shortId}, файлы придут следом.`);
@@ -202,7 +212,10 @@ export async function montajerQueueItemView(agentId: string, shortId: number, no
   if (moves.length > 0) buttons.push(moves);
   // Отложенный — решение руководства: ни взять, ни снять его монтажёр не может (дверь тоже откажет).
   if (!property.videoHandoffHeldAt) {
-    buttons.push([{ text: "✅ Уже сделан / не нужен", callback_data: montajerQueueCallback.queuedDone(shortId) }]);
+    buttons.push([
+      { text: "✅ Уже сделан, ролик пришлю", callback_data: montajerQueueCallback.queuedDone(shortId) },
+      { text: "🚫 Не нужен", callback_data: montajerQueueCallback.queuedNotNeeded(shortId) },
+    ]);
   }
   buttons.push([{ text: "📋 Данные", callback_data: `mj:obj:${shortId}` }, QUEUE_BUTTON]);
   return { text: lines.join("\n"), buttons };

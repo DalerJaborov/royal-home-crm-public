@@ -2446,6 +2446,10 @@ model Property {
   /// файл без номера бот не кладёт молча на объект в работе, а спрашивает «чей это
   /// ролик», и ролик по этому объекту принимается штатно. Гаснет при приёме ролика.
   videoHandoffMontajerSkippedAt   DateTime?
+  /// Куда вернуть пропущенный монтажёром объект, открытый под приём его ролика
+  /// (openSkippedForMontajerFinal): "QUEUED" или "RECEIVED". Если приём оборвался
+  /// (упал процесс), обход брошенных ручных ожиданий возвращает объект сюда, а не в NONE.
+  videoHandoffManualRestoreStatus String?
   /// Факты карточки (propertyFactsForMontajer), которые ушли монтажёру В ПРОШЛЫЙ
   /// РАЗ — по ним считается блок «что изменилось в карточке» при перемонтаже с
   /// причиной WRONG_CAPTION/CARD_DATA_CHANGED (cardFactsDiff в videoHandoff.ts).

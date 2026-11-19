@@ -25798,6 +25798,8 @@
         · запись в журнал ошибок
         - void logSystemError("video-handoff", `Тревога «монтажёр не назначен» не ушла: ${describeError(err)}`);
           · запись в журнал ошибок
+    - await expireMontajerSkipMarks(now).catch((err)
+      · запись в журнал ошибок
     - если await handOverHolderToCurrentMontajer(montajerAgentId, now)
       - handedOver++;
         · дословно из кода

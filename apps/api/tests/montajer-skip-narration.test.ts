@@ -22,7 +22,7 @@ import { afterNarrationApproved, runNarrationAutoFlow } from "../src/lib/narrati
 import { executeNarrationDelivery } from "../src/lib/narrationDelivery.js";
 import { narrationFacts, narrationHash } from "../src/lib/propertyNarration.js";
 import { localVideoDelete, localVideoUpload } from "../src/lib/localVideoStorage.js";
-import { waitForSettled } from "./helpers/waitFor.js";
+import { waitFor, waitForSettled } from "./helpers/waitFor.js";
 
 const fx = { approverId: randomUUID(), montajerId: randomUUID(), districtId: randomUUID(), propertyIds: [] as string[], clientIds: [] as string[], storageKeys: [] as string[] };
 let oldMontajerId: string | null = null;
@@ -104,6 +104,48 @@ describe("«Сделаю позже» и голос", () => {
     expect(await prisma.propertyNarrationDelivery.count({ where: { propertyId: p.id } })).toBe(1);
     expect(net.document).toHaveBeenCalledTimes(1);
     expect(await voiceErrors(p.id)).toBe(errorsBefore);
+  });
+
+  it("ручная передача версии MANUAL тоже ждёт и уходит, когда объект вернулся (обход берёт все ждущие)", async () => {
+    const { p, version } = await holderWithApprovedVoice();
+    await prisma.propertyNarrationVersion.update({ where: { id: version.id }, data: { source: "MANUAL" } });
+    expect(await afterNarrationApproved(p.id, version.id)).toBe("QUEUED");
+    const [row] = await prisma.propertyNarrationDelivery.findMany({ where: { propertyId: p.id } });
+    await prisma.propertyNarrationDelivery.update({ where: { id: row!.id }, data: { requestKey: `manual:${row!.id}` } });
+    await setHandoff(p.id, "QUEUED");
+    expect((await executeNarrationDelivery(row!.id)).status).toBe("WAITING");
+    await setHandoff(p.id, "SENT_TO_EDITOR");
+    await runNarrationAutoFlow({});
+    expect((await prisma.propertyNarrationDelivery.findUniqueOrThrow({ where: { id: row!.id } })).status).toBe("QUEUED");
+  });
+
+  it("объект сняли, пока передача ждала, — она гаснет с понятной причиной, а не висит вечно", async () => {
+    const { p, version } = await holderWithApprovedVoice();
+    await afterNarrationApproved(p.id, version.id);
+    const [row] = await prisma.propertyNarrationDelivery.findMany({ where: { propertyId: p.id } });
+    await setHandoff(p.id, "QUEUED");
+    expect((await executeNarrationDelivery(row!.id)).status).toBe("WAITING");
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "RECEIVED" } }); // «Уже сделан» / снят
+    await runNarrationAutoFlow({});
+    const after = await prisma.propertyNarrationDelivery.findUniqueOrThrow({ where: { id: row!.id } });
+    expect(after.status).toBe("CANCELLED");
+    expect(after.lastError).toContain("снят");
+  });
+
+  it("объект у монтажёра дольше бюджета, а ждущий голос так и не ушёл, — сторож пишет в журнал", async () => {
+    const { p, version } = await holderWithApprovedVoice();
+    await afterNarrationApproved(p.id, version.id);
+    const [row] = await prisma.propertyNarrationDelivery.findMany({ where: { propertyId: p.id } });
+    await setHandoff(p.id, "QUEUED");
+    expect((await executeNarrationDelivery(row!.id)).status).toBe("WAITING");
+    // Вернулся к монтажёру давно, а отправку держит другая живая передача — ждущая не может уйти.
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date(Date.now() - 3 * 3600_000) } });
+    await prisma.propertyNarrationDelivery.create({ data: { propertyId: p.id, versionId: version.id, editorId: fx.montajerId, mode: "AUDIO_ONLY", requestKey: `blocker:${row!.id}`,
+      createdById: fx.approverId, plan: row!.plan ?? {}, status: "SENDING", claimStartedAt: new Date(), executionMode: "LIVE" } });
+    await runNarrationAutoFlow({});
+    expect((await prisma.propertyNarrationDelivery.findUniqueOrThrow({ where: { id: row!.id } })).status).toBe("WAITING");
+    const alarm = await waitFor(() => prisma.errorLog.findFirst({ where: { dedupKey: { contains: `narration-voice-not-sent:${p.id}` } } }));
+    expect(alarm?.message).toContain("ждёт");
   });
 
   it("голос уже ушёл в этом заходе — после «Сделаю позже» и возврата второй раз не уходит", async () => {

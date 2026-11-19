@@ -97,11 +97,11 @@ export type MontajerCommand =
   // Управление очередью (19.11.2026, lib/montajerQueueControl.ts). shortId: null — кто сейчас в работе.
   | { kind: "skipMenu"; shortId: number | null }
   | { kind: "skipLater"; shortId: number }
-  | { kind: "skipDone"; shortId: number }
+  | { kind: "skipDone"; shortId: number; willSend: boolean }
   | { kind: "queueItem"; shortId: number }
   | { kind: "take"; shortId: number; holderShortId: number }
   | { kind: "move"; shortId: number; to: MontajerQueueMove }
-  | { kind: "queuedDone"; shortId: number }
+  | { kind: "queuedDone"; shortId: number; willSend: boolean }
   | { kind: "cancelControl" }
   | { kind: "menu" }
   | { kind: "help" }
@@ -168,7 +168,7 @@ export function parseMontajerCallback(data: string): MontajerCommand | null {
   if (take) return { kind: "take", shortId: Number(take[1]), holderShortId: Number(take[2]) };
   const move = data.match(/^mj:mv:(\d{1,7}):([udf])$/);
   if (move) return { kind: "move", shortId: Number(move[1]), to: move[2] === "u" ? "up" : move[2] === "d" ? "down" : "front" };
-  const control = data.match(/^mj:(sk|skl|skd|qi|qd):(\d{1,7})$/);
+  const control = data.match(/^mj:(sk|skl|skd|skn|qi|qd|qn):(\d{1,7})$/);
   if (control) {
     const shortId = Number(control[2]);
     switch (control[1]) {
@@ -177,11 +177,15 @@ export function parseMontajerCallback(data: string): MontajerCommand | null {
       case "skl":
         return { kind: "skipLater", shortId };
       case "skd":
-        return { kind: "skipDone", shortId };
+        return { kind: "skipDone", shortId, willSend: true };
+      case "skn":
+        return { kind: "skipDone", shortId, willSend: false };
+      case "qn":
+        return { kind: "queuedDone", shortId, willSend: false };
       case "qi":
         return { kind: "queueItem", shortId };
       default:
-        return { kind: "queuedDone", shortId };
+        return { kind: "queuedDone", shortId, willSend: true };
     }
   }
   const m = data.match(/^mj:(obj|ph|src|sf|pub):(\d{1,7})$/);
@@ -231,9 +235,9 @@ export async function runMontajerCommand(chatId: string, cmd: MontajerCommand, a
     case "skipLater":
       return reply(chatId, await montajerSkipLater(agentId, cmd.shortId));
     case "skipDone":
-      return reply(chatId, await montajerMarkDone(agentId, cmd.shortId, "holder"));
+      return reply(chatId, await montajerMarkDone(agentId, cmd.shortId, "holder", cmd.willSend));
     case "queuedDone":
-      return reply(chatId, await montajerMarkDone(agentId, cmd.shortId, "queued"));
+      return reply(chatId, await montajerMarkDone(agentId, cmd.shortId, "queued", cmd.willSend));
     case "queueItem":
       return reply(chatId, await montajerQueueItemView(agentId, cmd.shortId));
     case "take":

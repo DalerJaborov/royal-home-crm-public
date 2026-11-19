@@ -48,6 +48,6 @@ export async function retireNarrationsOfClosedProperties(propertyId?: string): P
   const closed = { OR: [{ deletedAt: { not: null } }, { status: { in: [...CLOSED_STATUSES] } }, { narrationOff: true }] };
   const where = propertyId ? { id: propertyId, ...closed } : closed;
   const drafts = await prisma.propertyNarrationVersion.updateMany({ where: { status: "DRAFT", generateAfter: { not: null }, property: where }, data: { generateAfter: null } });
-  const deliveries = await prisma.propertyNarrationDelivery.updateMany({ where: { status: "QUEUED", property: where }, data: { status: "CANCELLED", lastError: "Объект продан, снят, удалён или без озвучки — передача не нужна" } });
+  const deliveries = await prisma.propertyNarrationDelivery.updateMany({ where: { status: { in: ["QUEUED", "WAITING"] }, property: where }, data: { status: "CANCELLED", lastError: "Объект продан, снят, удалён или без озвучки — передача не нужна" } });
   return drafts.count + deliveries.count;
 }

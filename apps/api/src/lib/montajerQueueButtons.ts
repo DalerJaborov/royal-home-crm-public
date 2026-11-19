@@ -20,15 +20,19 @@ export const montajerQueueCallback = {
   skip: (shortId: number) => `mj:sk:${shortId}`,
   /** «Сделаю позже» — держатель в конец очереди. */
   skipLater: (shortId: number) => `mj:skl:${shortId}`,
-  /** «Уже сделан / не нужен» — держатель снимается из очереди. */
+  /** «✅ Уже сделан, ролик пришлю» — держатель снимается, бот ждёт его ролик. */
   skipDone: (shortId: number) => `mj:skd:${shortId}`,
+  /** «🚫 Не нужен» — держатель снимается, ролика не ждём. */
+  skipNotNeeded: (shortId: number) => `mj:skn:${shortId}`,
   /** Ждущий объект — подменю действий. */
   item: (shortId: number) => `mj:qi:${shortId}`,
   /** «Взять сейчас»; второй номер — кто держал место, когда кнопку рисовали (0 — никто). */
   take: (shortId: number, holderShortId: number | null) => `mj:tk:${shortId}:${holderShortId ?? 0}`,
   move: (shortId: number, to: MontajerQueueMove) => `mj:mv:${shortId}:${to === "up" ? "u" : to === "down" ? "d" : "f"}`,
-  /** Ждущий «уже сделан / не нужен». */
+  /** Ждущий «✅ Уже сделан, ролик пришлю». */
   queuedDone: (shortId: number) => `mj:qd:${shortId}`,
+  /** Ждущий «🚫 Не нужен». */
+  queuedNotNeeded: (shortId: number) => `mj:qn:${shortId}`,
   cancel: () => "mj:x",
 } as const;
 
