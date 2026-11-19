@@ -3,7 +3,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { dealQuerySchema, parseShortCode } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { can, requireAuth, scopeDealsToOwnAgent } from "../auth/middleware.js";
-import { withMaskedClient } from "../lib/clientPhone.js";
+import { dealTextPhoneSafe, withMaskedClient } from "../lib/clientPhone.js";
 import { createDealFor, seesDealMoneyFor, updateDealFor } from "../lib/dealWrites.js";
 
 /**
@@ -178,19 +178,26 @@ dealsRouter.get("/", requireAuth, async (req, res) => {
   // незнакомых звонивших номер лежит В ИМЕНИ («Входящий +992910001003»), и
   // список сделок отдавал его рядом с честно замаскированным `phone`. Общая
   // точка закрывает оба поля разом — см. lib/clientPhone.ts.
-  res.json(deals.map((d) => serializeDealMoney(withMaskedClient(d, seesClientContacts), seesDealMoney(req, d))));
+  // Свободный текст сделки (заметка, причина отмены, отметка выплаты) — тот же
+  // номер «не в том поле», что и в заметках клиента (18.11.2026): include отдаёт все
+  // колонки Deal, а РОП с deals.viewAll читает заметки всех агентов.
+  res.json(deals.map((d) => serializeDealMoney(withMaskedClient(dealTextPhoneSafe(d, seesClientContacts), seesClientContacts), seesDealMoney(req, d))));
 });
 
 dealsRouter.post("/", requireAuth, async (req, res) => {
   const outcome = await createDealFor(req, req.body);
   if (!outcome.ok) return res.status(outcome.status).json(outcome.body);
   if (!("deal" in outcome)) throw new Error("createDealFor вернул план без dryRun");
-  res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+  // Ответ записи — та же маска, что у списка (ревью 18.11.2026): РОП, сменивший этап
+  // чужой сделки, иначе получал заметку с номером целиком.
+  const seesPhones = can(req, "clients.viewPhone");
+  res.status(201).json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));
 });
 
 dealsRouter.patch("/:id", requireAuth, async (req, res) => {
   const outcome = await updateDealFor(req, req.params.id, req.body);
   if (!outcome.ok) return res.status(outcome.status).json(outcome.body);
   if (!("deal" in outcome)) throw new Error("updateDealFor вернул план без dryRun");
-  res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+  const seesPhones = can(req, "clients.viewPhone");
+  res.json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));
 });

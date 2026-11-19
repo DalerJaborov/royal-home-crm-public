@@ -13,6 +13,7 @@ import { loadMoneyContext } from "../money.js";
 import { SERVICE_NUMBER_IRRELEVANT_MARKS } from "./incomingCallConstants.js";
 import { loadIncomingSettings } from "./incomingSettings.js";
 import { createClientForCall, qualifyIncomingCall } from "./qualifyIncoming.js";
+import { automationSwitchOn } from "../automationSwitches.js";
 
 /**
  * КАРТОЧКА ПО ВХОДЯЩЕМУ ЗВОНКУ ЗАВОДИТСЯ САМА (решение владельца 18.08.2026).
@@ -554,6 +555,11 @@ async function candidateFromAssignedClientCall(call: {
 }): Promise<AutoLeadResult | null> {
   const transcript = call.interactionId ? await loadTranscript(call.interactionId) : null;
   if (!callSoundsLikeJobSeeker(transcript)) return null;
+  // Выключатель «ИИ снимает агента, если клиент ищет работу» (19.11.2026): выключено — звонок ведёт себя
+  // как чат: анкета кандидата и уведомление руководству есть, а карточку с агента не снимаем
+  // (captureCandidateFromCall → candidateCardDecision вернёт «keep»). Снимать нечего, подтверждение
+  // модели не нужно: платный разбор пропускаем, хватает слов расшифровки.
+  if (!(await automationSwitchOn("aiJobSeekerAutoDetachEnabled"))) return takeCandidate(call, null, transcript);
   // Здесь одних слов мало: снимать с агента живого клиента без подтверждения
   // модели нельзя. Модель не ответила — оставляем как было.
   const extract = await extractIncomingCallLead(transcript!);

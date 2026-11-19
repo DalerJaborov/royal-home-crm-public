@@ -3,8 +3,7 @@ import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
 import { nextPublishSlot } from "./publishSchedule.js";
-import { loadOccupiedPublishSlots } from "./publishSlots.js";
-import { PUBLISH_SLOT_LOCK_ID } from "./videoHandoff.js";
+import { loadOccupiedPublishSlots, PUBLISH_SLOT_LOCK_ID } from "./publishSlots.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import {
   PHOTO_POST_CHANNELS,

@@ -16,16 +16,18 @@
   "paths": 776,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4095,
+  "conditions": 4107,
   "untranslatedUnique": 470,
   "untranslatedTotal": 605,
-  "partialUnique": 1106,
+  "partialUnique": 1111,
   "translatedShare": 85
  },
  "untranslated": [
   "!(\"deal\" in outcome)",
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "!(SOCIAL_VIDEO_COVER_MIME_TYPES as readonly string[]).includes(req.file.mimetype)",
+  "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+  "!(await claimRun(id))",
   "!(await deleteNarrationMusicTrack(id.data))",
   "!(await discardDraft(d.id, { expiredAt: now }))",
   "!(await filterInvestigationRecipients([agentId], payload)).length",
@@ -219,8 +221,6 @@
   "await handledByQuietHours([agentId], payload)",
   "await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…",
   "await manualRobotCallLimitReached(req.agent!.id)",
-  "await phoneBelongsToHiddenOwner(req, phone)",
-  "await phoneBelongsToHiddenOwner(req, stored)",
   "await prepareOwnerReportDelivery(optIn.propertyId, now)",
   "await prisma.narrationMusicTrack.count() >= NARRATION_MUSIC_LIMITS.maxTracks",
   "await raise(directorIds, \"incoming-calls-dead\", dead, now)",
@@ -278,7 +278,7 @@
   "data.kind && data.kind !== existing.kind",
   "data.kind && data.kind !== existing.kind && existing.assignedAgentId && existing.assignedAgentId !== req.agen…",
   "data.notes && typeof data.notes === \"string\" && data.notes.trim().length > 0",
-  "data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, \"properties.viewOwners…",
+  "data.ownerContact !== undefined && stripOwnerContact(existing, can(req, \"properties.viewOwners\")).ownerContac…",
   "data.ownerContact?.trim() && phoneTail(data.ownerContact) !== phoneTail(existing.ownerContact ?? \"\")",
   "data.stage && data.stage !== existing.stage",
   "data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId",
@@ -8649,11 +8649,6 @@
     },
     {
      "i": 584,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 735,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -33002,18 +32997,17 @@
      "a": [],
      "c": [
       {
-       "t": "если await phoneBelongsToHiddenOwner(req, stored)",
+       "t": "если это hidden CRM телефон",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "отказ: не хватает прав: «Номер совпадает с контактом владельца объекта, доступ закрыт»",
+         "t": "отказ: не хватает прав",
          "k": "do",
          "a": [],
          "c": []
         }
-       ],
-       "raw": "await phoneBelongsToHiddenOwner(req, stored)"
+       ]
       },
       {
        "t": "всё хорошо, отвечает данными",
@@ -33061,18 +33055,17 @@
        "c": []
       },
       {
-       "t": "если await phoneBelongsToHiddenOwner(req, phone)",
+       "t": "если это hidden CRM телефон",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "отказ: не хватает прав: «Номер совпадает с контактом владельца объекта, доступ закрыт»",
+         "t": "отказ: не хватает прав",
          "k": "do",
          "a": [],
          "c": []
         }
-       ],
-       "raw": "await phoneBelongsToHiddenOwner(req, phone)"
+       ]
       },
       {
        "t": "всё хорошо, отвечает данными",
@@ -33320,6 +33313,12 @@
        "c": []
       }
      ]
+    },
+    {
+     "t": "если нельзя see CRM contact phones и недавно gone количество больше 0",
+     "k": "if",
+     "a": [],
+     "c": []
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -45776,11 +45775,11 @@
      ]
     },
     {
-     "t": "если data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, \"properties.viewOwners…",
+     "t": "если data.ownerContact !== undefined && stripOwnerContact(existing, can(req, \"properties.viewOwners\")).ownerContac…",
      "k": "if",
      "a": [],
      "c": [],
-     "raw": "data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, \"properties.viewOwners…"
+     "raw": "data.ownerContact !== undefined && stripOwnerContact(existing, can(req, \"properties.viewOwners\")).ownerContac…"
     },
     {
      "t": "если data.ownerContact?.trim() && phoneTail(data.ownerContact) !== phoneTail(existing.ownerContact ?? \"\")",
@@ -60643,7 +60642,6 @@
     "/properties/:id",
     "/reports",
     "/settings",
-    "/sources",
     "/team",
     "/vacancies",
     "/vacancies/:id"
@@ -66392,6 +66390,13 @@
          "k": "if",
          "a": [],
          "c": []
+        },
+        {
+         "t": "если !(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))"
         }
        ]
       },
@@ -81281,6 +81286,38 @@
        ]
       },
       {
+       "t": "если scenario — «note»",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: клиент (переписка) и нет: force",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: клиент (переписка)",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если есть телефон",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
        "t": "если есть клиент (переписка)",
        "k": "if",
        "a": [],
@@ -81399,6 +81436,13 @@
           },
           {
            "t": "если нет: sealed",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если scenario — «note»",
            "k": "if",
            "a": [],
            "c": [],
@@ -84393,7 +84437,34 @@
        "t": "пробует сделать",
        "k": "try",
        "a": [],
-       "c": []
+       "c": [
+        {
+         "t": "если !(await claimRun(id))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await claimRun(id))"
+        },
+        {
+         "t": "меняет: social видео публикация",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: social видео публикация",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": []
+        }
+       ]
       }
      ]
     }

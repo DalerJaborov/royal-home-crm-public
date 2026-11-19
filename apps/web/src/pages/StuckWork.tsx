@@ -4,6 +4,9 @@ import { useCan } from "../lib/permissions";
 import { api } from "../lib/api";
 import { exactDateTime } from "../lib/format";
 import { SettingsTabs } from "../components/SectionTabs";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { ControlRoot } from "../components/look/control/ControlRoot";
+import { RhCircle } from "../components/look/ui";
 
 interface StuckWorkItem {
   id: string;
@@ -72,6 +75,7 @@ const STATUS_LABEL: Record<StuckWorkItem["status"], string> = {
  */
 export function StuckWork() {
   const can = useCan();
+  const royal = useRoyalLook();
   const allowed = can("auditLog.view");
   const [data, setData] = useState<StuckWorkData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -120,7 +124,7 @@ export function StuckWork() {
 
   if (!allowed) {
     return (
-      <div className="rh2 screens">
+      <ControlRoot royal={royal}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -136,7 +140,7 @@ export function StuckWork() {
             </div>
           </div>
         </div>
-      </div>
+      </ControlRoot>
     );
   }
 
@@ -148,7 +152,11 @@ export function StuckWork() {
   function renderRow(item: StuckWorkItem) {
     return (
       <div className="row wrapt" key={item.id}>
-        <span className={`dot ${item.status === "GIVEN_UP" ? "crit" : "warn"}`} aria-hidden="true" />
+        {royal ? (
+          <RhCircle icon={item.status === "GIVEN_UP" ? "flame" : "hourglass"} tone={item.status === "GIVEN_UP" ? "crit" : "warn"} />
+        ) : (
+          <span className={`dot ${item.status === "GIVEN_UP" ? "crit" : "warn"}`} aria-hidden="true" />
+        )}
         <div className="t">
           <b>{item.label}</b>
           <span>
@@ -172,7 +180,7 @@ export function StuckWork() {
   }
 
   return (
-    <div className="rh2 screens">
+    <ControlRoot royal={royal}>
       <div className="scr" data-stagger>
         <div className="pg-h">
           <div>
@@ -253,9 +261,13 @@ export function StuckWork() {
                 <div className="list">
                   {instagramContainers.map((c) => (
                     <div className="row wrapt" key={c.id}>
-                      <span className="ic" style={{ "--c": "var(--crit)" } as React.CSSProperties}>
-                        <Instagram className="i" aria-hidden />
-                      </span>
+                      {royal ? (
+                        <RhCircle brand="instagram" />
+                      ) : (
+                        <span className="ic" style={{ "--c": "var(--crit)" } as React.CSSProperties}>
+                          <Instagram className="i" aria-hidden />
+                        </span>
+                      )}
                       <div className="t">
                         <b>
                           Объект №{c.propertyShortId} «{c.propertyTitle}»
@@ -275,7 +287,7 @@ export function StuckWork() {
           </>
         )}
       </div>
-    </div>
+    </ControlRoot>
   );
 }
 

@@ -137,6 +137,7 @@ export * from "./liveVoiceSpend.js";
 export * from "./metaEternal.js";
 export * from "./sellerAutomationSwitches.js";
 export * from "./securityAutomationSwitch.js";
+export * from "./automationSwitches.js";
 export * from "./functionStatus.js";
 
 export * from "./reportPdf.js";

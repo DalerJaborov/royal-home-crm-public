@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2476**; вместе с задачами по расписанию и фоновыми заданиями — **4122**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4134**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -6066,7 +6066,7 @@
 - если !("deal" in outcome)
   - throw new Error("updateDealFor вернул план без dryRun");
     · ошибка Error — «updateDealFor вернул план без dryRun»
-- res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+- res.json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));
   · ответ 200
 
 ### GET /api/v1/deals/payouts
@@ -6231,7 +6231,7 @@
 - если !("deal" in outcome)
   - throw new Error("createDealFor вернул план без dryRun");
     · ошибка Error — «createDealFor вернул план без dryRun»
-- res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+- res.status(201).json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outco…
   · ответ 201
 
 ## /api/v1/districts
@@ -8576,9 +8576,9 @@
 - const stored = listing.sellerPhone ? normalizeListingPhone(listing.sellerPhone) : null;
   · зовёт normalizeListingPhone()
 - если stored
-  - если await phoneBelongsToHiddenOwner(req, stored)
-    - return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
-      · ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»
+  - если await isHiddenCrmPhone(req, stored)
+    - return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: "CRM_PHONE_HIDDEN" });
+      · ответ 403
   - return res.json({ phone: stored, cached: true });
     · ответ 200
 - если listing.source !== "somon.tj"
@@ -8592,9 +8592,9 @@
       · ответ 200
   - await prisma.marketListing.update({ where: { id: listing.id }, data: { sellerPhone: phone } });
     · меняет в базе: marketListing
-  - если await phoneBelongsToHiddenOwner(req, phone)
-    - return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
-      · ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»
+  - если await isHiddenCrmPhone(req, phone)
+    - return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: "CRM_PHONE_HIDDEN" });
+      · ответ 403
   - return res.json({ phone, cached: false });
     · ответ 200
 - если сорвалось
@@ -8630,7 +8630,14 @@
 - если (p.type !== "APARTMENT" && p.type !== "HOUSE") || !(areaSqm > 0)
   - return res.json(emptyDynamics("для этого типа объекта динамика рынка не считается", "unsupported"));
     · ответ 200
-- res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null,…
+- const dynamics = await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name …
+  · зовёт findDynamics()
+- если !canSeeCrmContactPhones(req) && dynamics.recentlyGone.length > 0
+  - const crmTails = await crmContactTails(dynamics.recentlyGone.map((g)
+    · зовёт crmContactTails()
+  - dynamics.recentlyGone = dynamics.recentlyGone.map((g)
+    · зовёт phoneTail()
+- res.json(dynamics);
   · ответ 200
 
 ### GET /api/v1/market/property/:id/history
@@ -8723,10 +8730,10 @@
   · читает в базе: propertyMarketMatch
 - const money = await loadMoneyContext();
   · зовёт loadMoneyContext()
-- const ownerHidden = stripOwnerContact( { ownerContact: "x", assignedAgentId: p.assignedAgentId, intakeAgentId…
-  · зовёт stripOwnerContact()
-- const ownerTails = ownerHidden ? new Set(extractPhoneTails(p.ownerContact)) : new Set<string>();
-  · зовёт extractPhoneTails()
+- const phonesHidden = !canSeeCrmContactPhones(req);
+  · зовёт canSeeCrmContactPhones()
+- const crmTails = phonesHidden ? await crmContactTails(rows.map((m)
+  · зовёт crmContactTails()
 - res.json({ ourPriceTjs, matches: rows.map((m)
   · ответ 200
   - const sellerTail = l.sellerPhone ? phoneTail(l.sellerPhone) : "";
@@ -12894,9 +12901,11 @@
 - если property.deletedAt && !canOpenTrashedPropertyPage({ agentId: req.agent!.id, can: (permission) => can(req, per…
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
-- const presented = stripEmbedding(stripOwnerContact(property, req.agent!.id, can(req, "properties.viewOwners")…
+- const presented = stripEmbedding(stripOwnerContact(property, can(req, "properties.viewOwners")));
   · зовёт stripEmbedding()
-- res.json({ ...presented, sellerClient: presented.ownerContactHidden ? null : await loadSellerClientRef(proper…
+- const ownsIt = ownsProperty(req.agent!.id, property);
+  · зовёт ownsProperty()
+- res.json({ ...presented, ownerContactMasked: presented.ownerContactHidden && ownsIt ? maskOwnerContact(proper…
   · ответ 200
 
 ### PATCH /api/v1/properties/:id
@@ -12952,7 +12961,7 @@
   - если block
     - return res.status(block.status).json({ error: block.error });
       · ответ (код зависит от условия)
-- если data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, "properties.viewOwners…
+- если data.ownerContact !== undefined && stripOwnerContact(existing, can(req, "properties.viewOwners")).ownerContac…
   - delete data.ownerContact;
     · дословно из кода
 - если data.ownerContact?.trim() && phoneTail(data.ownerContact) !== phoneTail(existing.ownerContact ?? "")
@@ -20450,6 +20459,9 @@
     - если !(await isWithinWorkingHours(now))
       - return { checked: 0, alerted: 0, skippedOffHours: true };
         · дословно из кода
+    - если !(await automationSwitchOn("notifyClientWaitingEnabled"))
+      - return { checked: 0, alerted: 0, skippedOffHours: false };
+        · дословно из кода
   - если alerted > 0
     - console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
       · пишет строку в журнал сервера
@@ -20856,6 +20868,8 @@
       · зовёт loadDealStaleRules()
     - const sellersOn = await sellerSwitchOn("dealStaleSellersEnabled");
       · зовёт sellerSwitchOn()
+    - const buyersOn = await automationSwitchOn("dealStaleBuyersEnabled");
+      · зовёт automationSwitchOn()
     - для каждого: const client of sellers
       - пробует
       - если сорвалось
@@ -23892,12 +23906,17 @@
     - если overdueIds.length === 0
       - return 0;
         · дословно из кода
+    - const reviewAlertOn = await automationSwitchOn("notifyPropertyReviewOverdueEnabled");
+      · зовёт automationSwitchOn()
     - для каждого: const property of properties
       - пробует
         - если !overdueIds.includes(property.id)
           - continue;
             · переходит к следующему
         - если property.status === "PENDING_REVIEW"
+          - если !reviewAlertOn
+            - continue;
+              · переходит к следующему
           - если await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now)
             - const daysInStage = stageState(property.status, property.stageEnteredAt, deadlines, now).daysInStage;
               · зовёт stageState()
@@ -24767,6 +24786,8 @@
 - пробует
   - const { started, recovered } = await runSocialVideoScheduleTick();
     · зовёт runSocialVideoScheduleTick()
+    - await releaseAbandonedClaims();
+      · зовёт releaseAbandonedClaims()
     - const due = await prisma.socialVideoPost.findMany({ where: { status: "SCHEDULED", deletedAt: null, scheduledA…
       · читает в базе: socialVideoPost
     - для каждого: const row of due
@@ -28125,8 +28146,22 @@
       · запись в журнал ошибок
     - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
       · зовёт alarmLeadOnlyIntake()
-  - const note = leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? "Вопрос, на который бот не ответил" : SCENA…
+  - const note = sealed.note ?? leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? "Вопрос, на который бот не о…
     · зовёт leadOnlyNoteWithCallbackTime()
+  - если intake.scenario === "note"
+    - если !conversation.clientId && !options.force
+      - return { status: "wait", reason: "card_pending" };
+        · дословно из кода
+    - если !conversation.clientId
+      - void logSystemError("ai", `[alarm] Оператор заявок: пометка агенту без карточки (диалог ${conversation.id}). …
+        · запись в журнал ошибок
+      - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
+        · зовёт alarmLeadOnlyIntake()
+    - если sealed.phone
+      - const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });
+        · зовёт noteLeadOnlyNewPhone()
+    - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : {…
+      · зовёт noteLeadOnlyOnCard()
   - если conversation.clientId
     - если sealed.lead
       - return { status: "accepted", reason: "card_exists" };
@@ -28184,8 +28219,22 @@
           · запись в журнал ошибок
         - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
           · зовёт alarmLeadOnlyIntake()
-      - const note = leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? "Вопрос, на который бот не ответил" : SCENA…
+      - const note = sealed.note ?? leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? "Вопрос, на который бот не о…
         · зовёт leadOnlyNoteWithCallbackTime()
+      - если intake.scenario === "note"
+        - если !conversation.clientId && !options.force
+          - return { status: "wait", reason: "card_pending" };
+            · дословно из кода
+        - если !conversation.clientId
+          - void logSystemError("ai", `[alarm] Оператор заявок: пометка агенту без карточки (диалог ${conversation.id}). …
+            · запись в журнал ошибок
+          - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
+            · зовёт alarmLeadOnlyIntake()
+        - если sealed.phone
+          - const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });
+            · зовёт noteLeadOnlyNewPhone()
+        - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : {…
+          · зовёт noteLeadOnlyOnCard()
       - если conversation.clientId
         - если sealed.lead
           - return { status: "accepted", reason: "card_exists" };
@@ -29674,6 +29723,17 @@
     - return;
       · дальше не идёт, ничего не меняя
   - пробует
+    - если !(await claimRun(id))
+      - return;
+        · дальше не идёт, ничего не меняя
+    - const heartbeat = setInterval(()
+      · меняет в базе: socialVideoPost
+      - prisma.socialVideoPost .updateMany({ where: { id, status: "PUBLISHING" }, data: { runClaimedAt: new Date() } …
+        · меняет в базе: socialVideoPost
+    - пробует
+    - в любом случае
+      - clearInterval(heartbeat);
+        · дословно из кода
   - в любом случае
     - inFlight.delete(id);
       · дословно из кода

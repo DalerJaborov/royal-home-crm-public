@@ -15,6 +15,13 @@ vi.mock("../src/lib/sellerSwitches.js", async (importOriginal) => ({
   sellerSwitchOn: async (key: string) => !switchesOff.has(key),
 }));
 
+// Выключатель «Застой: покупатель без сделки» (19.11.2026) — тоже только подменой в этом файле.
+const automationOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (automationOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
+
 /**
  * СРОК ЗАДАЧИ «ЗАКРОЙТЕ СДЕЛКУ…» — КОНЕЦ РАБОЧЕГО ДНЯ, А НЕ МОМЕНТ КРОНА
  * (жалоба владельца 17.09.2026: Главная показывала «к 00:20» — время, когда
@@ -109,5 +116,41 @@ describe("застой сделки — выключатель владельц�
 
     await runDealStalePipeline(NOW);
     expect(await tasks()).toBe(1);
+  });
+});
+
+describe("застой сделки — выключатель по покупателям (19.11.2026)", () => {
+  it("выключен — покупателей не ищем и задачу «Закройте сделку» не ставим; продавцы идут как раньше; включили — задача появляется", async () => {
+    const make = (kind: "BUYER" | "SELLER", phone: string) =>
+      prisma.client.create({
+        data: {
+          fullName: `${kind} застоя выкл покупателей ${runId}`,
+          phone,
+          source: "PHONE_CALL",
+          kind,
+          status: "CONTACTED",
+          assignedAgentId: agentId,
+          desiredDistrictId: districtId,
+          createdAt: new Date(NOW.getTime() - 40 * DAY_MS),
+        },
+      });
+    const buyer = await make("BUYER", `+992907${runId}`);
+    const seller = await make("SELLER", `+992906${runId}`);
+    clientIds.push(buyer.id, seller.id);
+    const tasks = (id: string) => prisma.interaction.count({ where: { clientId: id, type: "SYSTEM" } });
+
+    automationOff.add("dealStaleBuyersEnabled");
+    try {
+      await runDealStalePipeline(NOW);
+      expect(await tasks(buyer.id)).toBe(0);
+      expect((await prisma.client.findUniqueOrThrow({ where: { id: buyer.id }, select: { dealStaleEscalatedAt: true } })).dealStaleEscalatedAt).toBeNull();
+      // Ветка продавцов — свой выключатель (включён): задача есть.
+      expect(await tasks(seller.id)).toBe(1);
+    } finally {
+      automationOff.delete("dealStaleBuyersEnabled");
+    }
+
+    await runDealStalePipeline(NOW);
+    expect(await tasks(buyer.id)).toBe(1);
   });
 });

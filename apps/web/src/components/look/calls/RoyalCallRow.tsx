@@ -46,23 +46,34 @@ export function scoreFlagTone(tone: string): RoyalCallFlagTone {
  * «Слушать»: раскрывает запись, расшифровку и разбор под строкой (то же
  * состояние open, что у прежней кнопки «Открыть разбор»). Длительность — на
  * самой кнопке, как в макете.
+ *
+ * `canListen` — запись есть И её можно слушать (`hasRecording && canHear`, как у плеера
+ * в CallDetails). Без неё «▶ Слушать» обещал бы то, чего нет (хвост ревью #285, 19.11):
+ * та же кнопка раскрывает разбор и расшифровку, но со значком разбора и словами
+ * «Открыть разбор». Обязательный признак — каждый вызов решает явно.
  */
-export function RoyalCallListen({ open, onToggle, controls, duration, compact = false }: {
+export function RoyalCallListen({ open, onToggle, controls, duration, canListen, compact = false }: {
   open: boolean; onToggle: () => void; controls: string; duration: string;
+  canListen: boolean;
   /** Телефон: круг 44 без подписи (длительность — в строке и в aria-label), рядом — круг звонка. */
   compact?: boolean;
 }) {
+  const label = open
+    ? `Свернуть разбор, разговор ${duration}`
+    : canListen ? `Слушать и открыть разбор, разговор ${duration}` : `Открыть разбор, разговор ${duration}`;
   return (
     <button
       type="button"
       className="ry-call-listen"
       data-compact={compact ? "" : undefined}
+      data-no-record={canListen ? undefined : ""}
       onClick={onToggle}
       aria-expanded={open}
       aria-controls={controls}
-      aria-label={open ? `Свернуть разбор, разговор ${duration}` : `Слушать и открыть разбор, разговор ${duration}`}
+      aria-label={label}
+      title={canListen ? undefined : "Записи нет — откроются разбор и расшифровка"}
     >
-      <CallIcon name="play" size={20} />
+      <CallIcon name={canListen ? "play" : "list-checks"} size={20} />
       {!compact && <span className="ry-num">{duration}</span>}
     </button>
   );

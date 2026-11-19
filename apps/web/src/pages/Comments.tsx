@@ -16,6 +16,7 @@ import { Rh2CommentCard } from "../components/Rh2CommentCard";
 import { exactDateTime } from "../lib/format";
 import { ScreenTabs } from "../components/ScreenTabs";
 import { InboxTabs } from "../components/SectionTabs";
+import { MarketingSection, useMarketingSectionMark } from "../components/look/marketing/MarketingSection";
 
 /**
  * Экран «Комментарии» — что бот сказал и что он спрятал под нашими публикациями.
@@ -56,6 +57,11 @@ import { InboxTabs } from "../components/SectionTabs";
 const TABS = COMMENT_TABS;
 
 export function Comments() {
+  return <MarketingSection><CommentsScreen /></MarketingSection>;
+}
+
+function CommentsScreen() {
+  const section = useMarketingSectionMark();
   const can = useCan();
   const canView = can("messages.view");
   // Скрытие видно посторонним в Instagram — оно закрыто своим правом, а не общим
@@ -117,7 +123,7 @@ export function Comments() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -135,7 +141,7 @@ export function Comments() {
   const counts = data?.counts;
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>

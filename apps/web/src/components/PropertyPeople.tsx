@@ -24,7 +24,10 @@ export function PropertyPeople({
   showOwner = true,
   ownerPhoneInField = false,
 }: {
-  property: Pick<Property, "assignedAgent" | "intakeAgent" | "ownerContact" | "ownerContactHidden" | "sellerClient">;
+  property: Pick<
+    Property,
+    "assignedAgent" | "intakeAgent" | "ownerContact" | "ownerContactHidden" | "ownerContactMasked" | "sellerClient"
+  >;
   /** Доля принявшего объект — финансовая информация, только при finance.view. */
   showIntakeShare?: boolean;
   /** Монтажёру собственник не нужен вовсе (решение владельца 17.08.2026). */
@@ -75,8 +78,10 @@ export function PropertyPeople({
           вовсе (контракт 06.10.2026, review-pc.md: «контракт показывает недоступное»).
           Раньше стояли заголовок и строка «видят руководитель и агент объекта»:
           выглядело как место, куда можно нажать. Остаётся «Кто ведёт» выше: к кому
-          идти за номером, видно и так. */}
-      {showOwner && !property.ownerContactHidden && (
+          идти за номером, видно и так.
+          С 18.11.2026 полный номер видит только директор; тот, кто ведёт объект, видит
+          продавца именем и номером маской (`ownerContactMasked`) и звонит кнопкой. */}
+      {showOwner && (!property.ownerContactHidden || !!property.ownerContactMasked || !!property.sellerClient) && (
         <>
           <h3 className="sec-t">Собственник</h3>
           <OwnerRow property={property} phoneInField={ownerPhoneInField} />
@@ -90,11 +95,13 @@ function OwnerRow({
   property,
   phoneInField = false,
 }: {
-  property: Pick<Property, "ownerContact" | "sellerClient">;
+  property: Pick<Property, "ownerContact" | "ownerContactMasked" | "sellerClient">;
   phoneInField?: boolean;
 }) {
   const seller = property.sellerClient ?? null;
-  const phone = property.ownerContact?.trim() || null;
+  const fullPhone = property.ownerContact?.trim() || null;
+  // Маска — только для глаз: набирать по ней нельзя, станция звонит на номер карточки продавца.
+  const phone = fullPhone ?? (property.ownerContactMasked?.trim() || null);
   const name = seller?.fullName?.trim() || "Имя не записано";
   const canOpen = !!seller?.canOpen;
   // Строка больше не ссылка целиком (24.09.2026): в ней появилась кнопка звонка,
@@ -122,7 +129,7 @@ function OwnerRow({
             <CallClientButton
               clientId={canOpen ? seller!.id : null}
               phone={phone}
-              callPhone={canOpen ? phone : undefined}
+              callPhone={canOpen && fullPhone ? fullPhone : undefined}
               variant="full"
               label="Позвонить"
               title="Позвонить собственнику через CRM, разговор запишется в карточку продавца"

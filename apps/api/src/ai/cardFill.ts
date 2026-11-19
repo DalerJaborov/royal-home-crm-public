@@ -271,7 +271,11 @@ export type CardFillResult = CardFillSuggestion & {
  * Собирает предложение по заполнению карточки. Клиент должен существовать —
  * проверка доступа и наличия остаётся на маршруте.
  */
-export async function buildCardFillSuggestion(clientId: string): Promise<CardFillResult> {
+export async function buildCardFillSuggestion(
+  clientId: string,
+  /** false — расшифровки звонков не читаем (выключатель «ИИ дописывает карточку по звонку», 19.11.2026): остаётся только переписка. */
+  options: { includeCalls?: boolean } = {}
+): Promise<CardFillResult> {
   const [botConversation, telegramConversation, districts] = await Promise.all([
     // findFirst, не findUnique (19.08.2026) — у клиента теперь может быть несколько
     // диалогов бот-платформы (Instagram + WhatsApp и т.п.), берём самый свежий:
@@ -340,12 +344,15 @@ export async function buildCardFillSuggestion(clientId: string): Promise<CardFil
   // не пишет, — и именно эти карточки раньше оставались пустыми, потому что «звонок
   // был, а записать некогда». Расшифровки берутся только у этого клиента и только
   // свежие: старый разговор описывает уже неактуальный запрос.
-  const callTranscripts = await prisma.interaction.findMany({
-    where: { clientId, type: "CALL", transcript: { not: null } },
-    orderBy: { createdAt: "desc" },
-    take: MAX_CALLS,
-    select: { transcript: true, createdAt: true },
-  });
+  const callTranscripts =
+    options.includeCalls === false
+      ? []
+      : await prisma.interaction.findMany({
+          where: { clientId, type: "CALL", transcript: { not: null } },
+          orderBy: { createdAt: "desc" },
+          take: MAX_CALLS,
+          select: { transcript: true, createdAt: true },
+        });
 
   // Разбирать нечего: клиент не писал и не звонил (заявку завели руками) — платный
   // вызов пропускаем.
