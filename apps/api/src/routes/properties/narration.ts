@@ -18,7 +18,7 @@ import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
 import { NARRATION_VOICE_LONGER_MARK } from "../../lib/narrationMix.js";
 import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAwaitsHuman, narrationAutoEnabled, narrationMixNoteFor, ownMusicRemixApplies, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
 import { setPropertyNarrationOff } from "../../lib/narrationOptOut.js";
-import { syncPronunciationDictionary } from "../../lib/narrationPronunciation.js";
+import { pronunciationDictionaryStale, syncPronunciationDictionary } from "../../lib/narrationPronunciation.js";
 import { narrationLastChoiceFor } from "../../lib/narrationLastChoice.js";
 import { sendToMontajer } from "../../lib/montageObservers.js";
 import { setOwnerReportConsent, prepareOwnerReportDelivery } from "../../lib/ownerReport/delivery.js";
@@ -208,10 +208,10 @@ narrationRouter.put("/narration-settings", async (req, res) => {
   // поддержанных моделей (lib/narrationPronunciation.ts); иначе правила просто хранятся.
   let saved = parsed.data;
   let pronunciationNote: string | undefined;
-  const spoken = (c: typeof saved) => JSON.stringify((c.pronunciationRules ?? []).map(({ word, alias, phoneme }) => [word, alias ?? "", phoneme ?? ""]));
-  // Правила поменялись, или стартовый набор ещё ни разу не ушёл в ElevenLabs (нет id словаря).
-  const neverSynced = (saved.pronunciationRules ?? []).length > 0 && !(saved.pronunciationDictionaries ?? []).length;
-  if (spoken(existing) !== spoken(saved) || neverSynced) {
+  // Словарь устарел (20.11.2026): правила, которые РЕАЛЬНО уходят в ElevenLabs, не совпали с отпечатком уже отправленных —
+  // правка, нет словаря, нет отпечатка (настройки до этой даты) или снята пометка «проверить носителем». Одно решение с
+  // проходом при запуске фонового процесса (lib/narrationPronunciation.ts); правка непроверенного звука словарь не трогает.
+  if (pronunciationDictionaryStale(saved)) {
     const sync = await syncPronunciationDictionary(saved, (await configuration()).key);
     if (sync.status === "SYNCED") saved = { ...saved, pronunciationDictionaries: sync.dictionaries };
     if (sync.status === "FAILED") pronunciationNote = `Словарь произношения сохранён в CRM, но в ElevenLabs не обновился: ${sync.error}`;
