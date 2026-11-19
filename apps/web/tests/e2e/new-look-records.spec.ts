@@ -173,6 +173,7 @@ test.describe("страницы без входа", () => {
 
   test("просмотрщик фото на /l?look=royal: круглые кнопки-значки не стали синей таблеткой (ревью #322)", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "chromium", "проверяется в десктопном проекте");
+    test.setTimeout(60_000);
     await stubPublic(page);
     await page.goto("/l/e2e-token?look=royal");
     await page.locator(".ry-share .gal .cell").first().click();
@@ -188,5 +189,8 @@ test.describe("страницы без входа", () => {
       const b = await page.getByRole("button", { name }).boundingBox();
       expect(b && Math.abs(b.width - b.height), name).toBeLessThanOrEqual(2);
     }
+    // Закрыть просмотрщик и снять подмены: иначе разбор контекста ждёт незавершённые загрузки фото.
+    await close.click();
+    await page.unrouteAll({ behavior: "ignoreErrors" });
   });
 });
