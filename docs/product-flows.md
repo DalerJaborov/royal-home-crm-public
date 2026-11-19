@@ -2866,7 +2866,7 @@
 - если client.deletedAt && !archiveReview
   - return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
     · ответ 409 — «Карточка в Корзине — сначала восстановите её»
-- const selection = resolveClientPhoneSelection(client, parsed.data);
+- const selection = resolveClientPhoneSelection(client, parsed.data, can(req, "clients.viewPhone"));
   · зовёт resolveClientPhoneSelection()
 - если selection.conflict
   - return res.status(409).json({ error: "Список номеров изменился или маска неоднозначна. Обновите карточку и вы…

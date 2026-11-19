@@ -43,6 +43,29 @@ describe("maskClientPhone — форма", () => {
       [...masked].forEach((c, i) => { if (c !== CLIENT_PHONE_MASK_CHAR) expect(c).toBe(phone[i]); });
     }
   });
+  it("позиции считаются по цифрам: пробелы, скобки и подпись после номера не съедают маску (ревью 19.11.2026)", () => {
+    // Счёт по знакам закрывал здесь пробел и одну цифру, а у номера с подписью — буквы имени.
+    expect(maskClientPhone("+992 931 234 567")).toBe(`+992 931 2${DOTS} 567`);
+    expect(maskClientPhone("+992931234456 Мадина")).toBe(`+9929312${DOTS}456 Мадина`);
+    expect(maskClientPhone("(93) 123-44-56")).toBe(`(93) 12${CLIENT_PHONE_MASK_CHAR}-${CLIENT_PHONE_MASK_CHAR}4-56`);
+    expect(maskClientPhone("12 34 56")).toBe("12 34 56");
+  });
+  it("в любой записи закрыты ровно две цифры, и это одни и те же две цифры", () => {
+    const onlySlots = (s: string) => [...s].filter((c) => /\d/.test(c) || c === CLIENT_PHONE_MASK_CHAR).join("");
+    for (const phone of ["+992 931 234 567", "+992 (93) 123-45-67", "992 93 1234567 жена", "+7 916 123 45 67", "8 (916) 123-45-67 Иван"]) {
+      const masked = maskClientPhone(phone);
+      expect([...masked].filter((c) => c === CLIENT_PHONE_MASK_CHAR).length).toBe(2);
+      // та же запись без разделителей (так номер маскируется в тексте) закрывает те же позиции
+      expect(onlySlots(masked)).toBe(maskClientPhone(phone.replace(/\D/g, "")));
+      // всё, что не цифра, осталось на месте
+      [...masked].forEach((c, i) => { if (c !== CLIENT_PHONE_MASK_CHAR) expect(c).toBe(phone[i]); });
+    }
+  });
+  it("повторная маска ничего не меняет", () => {
+    for (const phone of ["+992931234456", "+992 931 234 567", "+79161234567", "1234567"]) {
+      expect(maskClientPhone(maskClientPhone(phone))).toBe(maskClientPhone(phone));
+    }
+  });
   it("закрытый номер распознаётся как маска и не набирается", () => {
     const masked = maskClientPhone("+992931234456");
     expect(isMaskedClientPhone(masked)).toBe(true);

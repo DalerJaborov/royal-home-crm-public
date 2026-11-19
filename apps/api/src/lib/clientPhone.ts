@@ -34,12 +34,31 @@ export type CanSeeFullPhone = boolean;
 const MASK_HIDDEN_DIGITS = 2;
 const MASK_TAIL_DIGITS = 3;
 
+/**
+ * ПОЗИЦИИ СЧИТАЮТСЯ ПО ЦИФРАМ, А НЕ ПО ЗНАКАМ (ревью 19.11.2026). Номер в базе
+ * лежит «как набрали»: с пробелами, скобками, иногда с подписью после цифр. Счёт
+ * по знакам на `+992 931 234 567` закрывал пробел и ОДНУ цифру (десять вариантов
+ * вместо ста), а на `+992931234456 Мадина` — две буквы имени, и номер был открыт
+ * целиком. Тот же номер в тексте маскировался по чистым цифрам, то есть закрывал
+ * другие позиции: две маски накладывались и оставляли десять вариантов.
+ *
+ * Уже закрытый знак считается занятой позицией цифры — повторная маска ничего не
+ * сдвигает и не закрывает лишнего. Разделители и подпись остаются на месте.
+ */
 export function maskClientPhone(phone: string): string {
-  if (phone.length <= 6) return phone;
+  const digitAt: number[] = [];
+  for (let i = 0; i < phone.length; i++) {
+    const c = phone[i];
+    if ((c >= "0" && c <= "9") || c === CLIENT_PHONE_MASK_CHAR) digitAt.push(i);
+  }
+  // Внутренние номера (1006) и служебные коды — не личные данные клиента.
+  if (digitAt.length <= 6) return phone;
   // Символ маски — общий с @royal-home/shared: по нему и сервер, и форма
   // «Изменить клиента» узнаю́т закрытый номер и не принимают его за набранный.
-  const headEnd = Math.max(0, phone.length - MASK_TAIL_DIGITS - MASK_HIDDEN_DIGITS);
-  return phone.slice(0, headEnd) + CLIENT_PHONE_MASK_CHAR.repeat(MASK_HIDDEN_DIGITS) + phone.slice(-MASK_TAIL_DIGITS);
+  const hidden = new Set(digitAt.slice(-(MASK_TAIL_DIGITS + MASK_HIDDEN_DIGITS), -MASK_TAIL_DIGITS));
+  let out = "";
+  for (let i = 0; i < phone.length; i++) out += hidden.has(i) ? CLIENT_PHONE_MASK_CHAR : phone[i];
+  return out;
 }
 
 /** Телефон в том виде, в каком его можно показать этому сотруднику. */

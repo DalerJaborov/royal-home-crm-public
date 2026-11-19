@@ -403,7 +403,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
     if (denied) return res.status(403).json({ error: denied });
   }
   if (client.deletedAt && !archiveReview) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
-  const selection = resolveClientPhoneSelection(client, parsed.data);
+  const selection = resolveClientPhoneSelection(client, parsed.data, can(req, "clients.viewPhone"));
   if (selection.conflict) return res.status(409).json({ error: "Список номеров изменился или маска неоднозначна. Обновите карточку и выберите номер снова." });
 
   /**
