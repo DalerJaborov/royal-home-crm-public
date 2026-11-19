@@ -33,6 +33,7 @@ import { BW, EW } from "../ai/wordBoundary.js";
 import { isAiAssistantEnabled } from "../ai/assistant.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
+import { assistantLimitText } from "../ai/assistant/limitText.js";
 import { can, canBindClient, invalidateAgentAccess, loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { prisma, type TxClient } from "../db.js";
 import { findActiveAgentByName } from "../lib/agentNameLookup.js";
@@ -782,7 +783,9 @@ async function updateDescription(
     if (options.handOff && turn.intent !== "field_update") return turn.intent === "cancel" ? "cancel" : "other";
     extracted = turn.fields;
   } catch (error) {
-    await sendMessageWithButtons(ctx.chatId, error instanceof Error && error.message === "draft_daily_limit" ? t(lang).dailyLimit : t(lang).parseFailed, buttons);
+    // Отказ денежной защиты — правдой: «не разобрала поля, напишите иначе» отправил бы перепечатывать зря.
+    await sendMessageWithButtons(ctx.chatId, error instanceof Error && error.message === "draft_daily_limit" ? t(lang).dailyLimit
+      : assistantLimitText(error, lang) ?? t(lang).parseFailed, buttons);
     return "applied";
   }
   const { districtName: foundDistrict, intakeAgentName, placement: place, documents: foundDocuments, details: foundDetails, ...patch } = extracted;

@@ -810,7 +810,9 @@ async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wa
     standalone ? "assistant-telegram-group-standalone-voice" : "assistant-telegram-voice",
     standalone ? ASSISTANT_TG_STANDALONE_VOICE_DAILY_LIMIT : ASSISTANT_TG_VOICE_DAILY_LIMIT);
   if (!cap.allowed) return { error: "Лимит голосовых на сегодня исчерпан — напишите текстом." };
-  const media = await handleAssistantMedia(msg, agentId, { allowGroup: msg.chat.type !== "private", wallet });
+  const media = await handleAssistantMedia(msg, agentId, {
+    allowGroup: msg.chat.type !== "private", wallet, language: () => stepUpLanguageOf(String(msg.chat.id), agentId),
+  });
   if (media.error) return { error: media.text };
   const text = media.extraction?.transcript;
   if (!text?.trim() || media.extraction?.incomplete) {
@@ -903,7 +905,7 @@ export async function handleAssistantPrivate(
       const access = await loadAgentAccess(agent.id);
       if (!access?.isActive) { await send("Ваша учётка отключена."); return; }
       void sendChatAction(chatId).catch(() => {});
-      const media = await handleAssistantMedia(msg, agent.id, { wallet: moneyWallet });
+      const media = await handleAssistantMedia(msg, agent.id, { wallet: moneyWallet, language: () => stepUpLanguageOf(chatId, agent.id) });
       const extracted = access.permissions.has("clients.viewPhone") ? media.text : maskAssistantContacts(media.text);
       if (forwardedPlain || media.error || !media.extraction) {
         // File text is quoted evidence, never a request that may authorize CRM writes.
