@@ -78,7 +78,8 @@ async function makeLead(label: string) {
   const lead = await prisma.client.create({
     data: {
       fullName: `Лид эскалации ${label} ${runId}`,
-      phone: `+99298${label === "гонка" ? 3 : 4}${runId}`,
+      // Настоящий таджикский номер (12 цифр): иначе срыв считается «номер не набирается» и клиент остаётся (19.11.2026).
+      phone: `+992983${label === "гонка" ? 3 : 4}${String(runId).slice(-5)}`,
       source: "PHONE_CALL",
       kind: "BUYER",
       assignedAgentId: agentAId,

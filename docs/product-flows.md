@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4124**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4125**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -22125,20 +22125,23 @@
       - если verdict.keepLead || !verdict.missed
         - continue;
           · переходит к следующему
-      - const ownLeadKept = reassignOnMissedCall && holdsOwnPropertyLead(client);
-        · зовёт holdsOwnPropertyLead()
+      - const afterDue = firstCallAfterDue(client, reassignOnMissedCall);
+        · зовёт firstCallAfterDue()
       - const alreadyNoted = await prisma.interaction.findFirst({ where: { clientId: client.id, actorKind: "SYSTEM", …
         · читает в базе: interaction
-      - если alreadyNoted && (!reassignOnMissedCall || ownLeadKept)
+      - если alreadyNoted && (!reassignOnMissedCall || keptByRule)
         - continue;
           · переходит к следующему
-      - если !reassignOnMissedCall || ownLeadKept
+      - если !reassignOnMissedCall || keptByRule
         - await logTimeline({ clientId: client.id, actor: { kind: "system", source: "first-call-missed", subjectAgentId…
           · зовёт logTimeline()
-        - await notifyFeedOnly(supervisors, { kind: "lead", title: ownLeadKept ? "Первый звонок по объекту сорван" : "П…
+        - await notifyFeedOnly(supervisors, { kind: "lead", title: ownLeadKept ? "Первый звонок по объекту сорван" : no…
           · зовёт notifyFeedOnly()
         - если ownLeadKept
           - sendPushToAgents([agentId], { title: "⏰ Клиент по вашему объекту ждёт звонка", body: `${client.fullName}: поз…
+            · push-уведомление
+        - если notDialableKept
+          - sendPushToAgents([agentId], { title: "Клиенту не дозвониться через CRM", body: `${client.fullName}: номер не …
             · push-уведомление
         - continue;
           · переходит к следующему
@@ -22207,8 +22210,8 @@
       - если already
         - continue;
           · переходит к следующему
-      - const after = holdsOwnPropertyLead(client) ? "потом минус к Royal Score" : afterDue;
-        · зовёт holdsOwnPropertyLead()
+      - const after = firstCallAfterDue(client, reassignOn).text;
+        · зовёт firstCallAfterDue()
       - await logTimeline({ clientId: client.id, actor: { kind: "system", source: "first-call-reminder", subjectAgent…
         · зовёт logTimeline()
       - sendPushToAgents([agentId], { title: "⏱ Позвонить клиенту", body: `${client.fullName}: осталось ${minutesLeft…

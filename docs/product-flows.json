@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4124,
+  "forks": 4125,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -98592,9 +98592,9 @@
           },
           {
            "k": "do",
-           "t": "const ownLeadKept = reassignOnMissedCall && holdsOwnPropertyLead(client);",
+           "t": "const afterDue = firstCallAfterDue(client, reassignOnMissedCall);",
            "a": [
-            "зовёт holdsOwnPropertyLead()"
+            "зовёт firstCallAfterDue()"
            ],
            "c": []
           },
@@ -98608,7 +98608,7 @@
           },
           {
            "k": "if",
-           "t": "alreadyNoted && (!reassignOnMissedCall || ownLeadKept)",
+           "t": "alreadyNoted && (!reassignOnMissedCall || keptByRule)",
            "a": [],
            "c": [
             {
@@ -98623,7 +98623,7 @@
           },
           {
            "k": "if",
-           "t": "!reassignOnMissedCall || ownLeadKept",
+           "t": "!reassignOnMissedCall || keptByRule",
            "a": [],
            "c": [
             {
@@ -98636,7 +98636,7 @@
             },
             {
              "k": "do",
-             "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: ownLeadKept ? \"Первый звонок по объекту сорван\" : \"П…",
+             "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: ownLeadKept ? \"Первый звонок по объекту сорван\" : no…",
              "a": [
               "зовёт notifyFeedOnly()"
              ],
@@ -98650,6 +98650,21 @@
               {
                "k": "do",
                "t": "sendPushToAgents([agentId], { title: \"⏰ Клиент по вашему объекту ждёт звонка\", body: `${client.fullName}: поз…",
+               "a": [
+                "push-уведомление"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "notDialableKept",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "sendPushToAgents([agentId], { title: \"Клиенту не дозвониться через CRM\", body: `${client.fullName}: номер не …",
                "a": [
                 "push-уведомление"
                ],
@@ -98974,9 +98989,9 @@
           },
           {
            "k": "do",
-           "t": "const after = holdsOwnPropertyLead(client) ? \"потом минус к Royal Score\" : afterDue;",
+           "t": "const after = firstCallAfterDue(client, reassignOn).text;",
            "a": [
-            "зовёт holdsOwnPropertyLead()"
+            "зовёт firstCallAfterDue()"
            ],
            "c": []
           },
