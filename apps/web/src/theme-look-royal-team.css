@@ -89,6 +89,12 @@
   margin: 0; padding: 2px; background: transparent; border: 0; box-shadow: none;
 }
 :root[data-ui-look="royal"] [data-ry-section="team"]:is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .seg-ai::-webkit-scrollbar { display: none; }
+/* От 820 px (ниже ScreenTabs сам ставит выбор вместо длинной полосы) ряд вкладок переносится,
+   а не листается без полосы: на 820–1250 px последние вкладки («Обучение бота», «Архив»)
+   иначе уезжали за край и мышью были недоступны (ревью PR #305). */
+@media (min-width: 820px) {
+  :root[data-ui-look="royal"] [data-ry-section="team"]:is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .seg-ai { flex-wrap: wrap; overflow-x: visible; }
+}
 :root[data-ui-look="royal"] [data-ry-section="team"]:is(.ry-set, .ry-teamp, .ry-member, .ry-activity) .seg-ai > a {
   display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px;
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring);

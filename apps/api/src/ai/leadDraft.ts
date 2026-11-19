@@ -6,6 +6,8 @@ import type { LeadIntent, ShowingRequest, WhoIsThis } from "./botContract.js";
 export interface LeadDraft {
   stage: "chatting" | "awaiting_phone" | "done";
   intent?: LeadIntent;
+  /** Объект не в Душанбе (оператор приёма заявок, 19.11.2026): зацепка этапа 1.5 — решение директора о заявке. */
+  outOfArea?: true;
   /**
    * КТО ПИШЕТ (21.09.2026) — шире, чем `intent`, и живёт дольше одного хода.
    *

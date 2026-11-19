@@ -9,6 +9,8 @@ import { useCan } from "../lib/permissions";
 import { MoneyTabs } from "../components/SectionTabs";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection, useRoyalSectionName } from "../components/look/clients/RoyalSection";
 
 /**
  * «Инсайты от ИИ» — тема «Royal Home 2026», эталон `screens/insights.html`.
@@ -25,9 +27,16 @@ import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
  * молча в переносе облика.
  */
 export function Insights() {
+  // «Новый вид» (пачка analytics): метка раздела; без признака — прежнее дерево и разметка.
+  const royal = useRoyalLook();
+  return <RoyalSection name={royal ? "analytics" : undefined}><InsightsScreen /></RoyalSection>;
+}
+
+function InsightsScreen() {
   const mobile = useMobileUx();
   const can = useCan();
-  if (!can("insights.view")) return <div className="rh2 screens"><div className="scr">
+  const section = useRoyalSectionName();
+  if (!can("insights.view")) return <div className="rh2 screens" data-ry-section={section}><div className="scr">
     <div className="pg-h"><h1>Инсайты от ИИ</h1></div>
     <div className="card tight"><p>Недостаточно прав для просмотра этого раздела.</p></div>
   </div></div>;
@@ -36,6 +45,7 @@ export function Insights() {
 }
 
 function DesktopInsights() {
+  const section = useRoyalSectionName();
   const digests = useInsightDigests();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(() => {
@@ -45,7 +55,7 @@ function DesktopInsights() {
   const selected = digests.data?.find((d) => d.id === selectedId) ?? null;
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>

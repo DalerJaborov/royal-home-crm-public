@@ -607,6 +607,11 @@ export const HIDING_ALLOWED = new Set<string>([
   // marketing: значок-картинка у комментария на телефоне — украшение (aria-hidden), публикация
   // открывается ссылкой «Открыть публикацию» в той же карточке.
   `${R}[data-mobile-ux] .rh2.screens[data-ry-section="marketing"] .scr .cmt > .thumb`,
+  // control: тот же значок искр у «Разобрать сейчас» в шапке «Обучения бота» — украшение, подпись рядом.
+  `${R} .ry-control[data-ry-section="control"] .pg-h .acts svg.lucide-sparkles`,
+  // analytics: полосы прокрутки лент вкладок и переключателей (прокрутка пальцем остаётся).
+  `${R} .rh2[data-ry-section="analytics"] .scr .seg-ai::-webkit-scrollbar`,
+  `${R} .rh2[data-ry-section="analytics"] .scr .hscroll::-webkit-scrollbar`,
 ]);
 export function hiddenTextSelectors(css: string): string[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -788,6 +793,63 @@ ${M} ~ .rh2 .pill { color: red; }`, "marketing")).toEqual([`${M} ~ .rh2 .pill`])
     const broken = css.replace(/:has\(~ \.pill(:not\(\.[\w-]+\))+\)/g, ":not(:last-child)");
     expect(broken).not.toBe(css);
     expect(() => { for (const sel of dimmed(broken)) expect(sel).toMatch(/:has\(~ \.pill/); }).toThrow();
+  });
+  it("знает слой экранов контроля и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-control.css");
+    expect(lookSectionOf("theme-look-royal-control.css")).toBe("control");
+    const css = readFileSync(new URL("./theme-look-royal-control.css", import.meta.url), "utf8");
+    const K = ':root[data-ui-look="royal"] .ry-control[data-ry-section="control"]';
+    // правило без метки и с чужой меткой
+    expect(unscopedSelectors(`${css}\n:root[data-ui-look="royal"] .rh2 .scr .tile { color: red; }\n:root[data-ui-look="royal"] .rh2[data-ry-section="team"] .quiet { color: red; }`, "control"))
+      .toEqual([':root[data-ui-look="royal"] .rh2 .scr .tile', ':root[data-ui-look="royal"] .rh2[data-ry-section="team"] .quiet']);
+    // смысловая кнопка общим синим, «внимание» срочным красным, срез «Контроля» обрезан многоточием
+    expect(semanticButtonLeaks(`${css}\n${K} .quiet .pill { background: var(--rh-ui-primary); }`)).toEqual([`${K} .quiet .pill`]);
+    expect(semanticColorLeaks(`${css}\n${K} .chip.warn { background: var(--rh-ui-crit); }`)).toEqual([`${K} .chip.warn`]);
+    expect(hiddenTextSelectors(`${css}\n${K} .scr .quiet .txt { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([`${K} .scr .quiet .txt`]);
+    // без правила приглушения выключенная «Повторить» горела бы как доступная
+    const undimmed = css.replace(/:root\[data-ui-look="royal"\] \[data-ry-section="control"\] :is\(\.pill[^\n]*\n/, "");
+    expect(undimmed).not.toBe(css);
+    expect(disabledDimGaps(undimmed)).not.toEqual([]);
+  });
+  it("знает слой раздела «Аналитика» и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-analytics.css");
+    expect(lookSectionOf("theme-look-royal-analytics.css")).toBe("analytics");
+    const css = readFileSync(new URL("./theme-look-royal-analytics.css", import.meta.url), "utf8");
+    const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="analytics"]';
+    // чужая метка и правило без метки
+    expect(unscopedSelectors(`${css}
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .tile { color: red; }
+:root[data-ui-look="royal"] .rh2 .bars { color: red; }`, "analytics"))
+      .toEqual([':root[data-ui-look="royal"] .rh2[data-ry-section="money"] .tile', ':root[data-ui-look="royal"] .rh2 .bars']);
+    // «Удалить кампанию» стала синей; «Обновить» без исключения смысловых
+    expect(semanticButtonLeaks(`${css}
+${P} .pill.danger { background: var(--rh-ui-primary); }
+${P} .acts .pill { background: var(--rh-ui-primary); }`))
+      .toEqual([`${P} .pill.danger`, `${P} .acts .pill`]);
+    // название канала в кольце снова режется многоточием (ровно поведение старой темы)
+    expect(hiddenTextSelectors(`${css}
+${P} .scr .donut .keys button .nm2 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`))
+      .toEqual([`${P} .scr .donut .keys button .nm2`]);
+    // запас iPhone у шторки «Отложить №…» и сосед метки
+    expect(safeAreaOverrides(`${css}
+${P} .sheet .sheet-f { padding: 0; }`)).toEqual([`${P} .sheet .sheet-f`]);
+    expect(siblingEscapes(`${css}
+${P} + .rh2 .pill { color: red; }`, "analytics")).toEqual([`${P} + .rh2 .pill`]);
+    // выключенная кнопка без приглушения перебитым весом
+    expect(disabledDimGaps(css.replace(':not(#ry-dim) { opacity: .5; cursor: not-allowed; }', ' { opacity: .5; cursor: not-allowed; }'))).not.toEqual([]);
+  });
+  it("«Удалить» кампанию воронки красная по признаку смысла, а не по порядку ссылок (ревью #304)", () => {
+    const css = readFileSync(new URL("./theme-look-royal-analytics.css", import.meta.url), "utf8");
+    const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="analytics"]';
+    const rule = cssRules(css).find((r) => r.selector === `${P} .scr button.lnk[data-variant="danger"]`);
+    expect(rule?.body ?? "", "правило красной ссылки по data-variant").toMatch(/color:\s*var\(--rh-ui-crit-text\)/);
+    expect(css, "хрупкое правило по соседству ссылок вернулось").not.toMatch(/button\.lnk\s*\+\s*button\.lnk/);
+    // Обе ветки (ПК и телефон) ставят признак ровно на «Удалить»: снятый признак — красный тест.
+    for (const file of ["./pages/settings/FunnelTab.tsx", "./components/mobile/MobileFunnel.tsx"]) {
+      const src = readFileSync(new URL(file, import.meta.url), "utf8");
+      expect(src, file).toMatch(/<button className="lnk" type="button" data-variant="danger" onClick=\{onDelete\}>\s*Удалить\s*<\/button>/);
+      expect(src.match(/data-variant="danger"/g)?.length, file).toBe(1);
+    }
   });
   // Без списков долга (KNOWN_DEBT / DISABLED_DIM_DEBT закрыты 18.11, пачка debt): каждый
   // слой, основа тоже, обязан быть чистым. Находка чинится в слое, а не вписывается сюда.

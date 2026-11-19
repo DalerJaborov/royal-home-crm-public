@@ -19,6 +19,7 @@ import {
 import { FunnelEditor } from "./FunnelEditor";
 import { FunnelRehearsal } from "./FunnelRehearsal";
 import { scrollableRegion } from "../../lib/a11y";
+import { useRoyalSectionName } from "../../components/look/clients/RoyalSection";
 
 /**
  * Экран «Воронка» — кампании «комментарий под рекламой → чек-лист в директ».
@@ -37,6 +38,8 @@ import { scrollableRegion } from "../../lib/a11y";
  * менять — settings.manage. Порядок карточек — как отдаёт сервер.
  */
 export function FunnelTab() {
+  // Метка раздела «Нового вида» (пачка analytics); без признака — пусто, атрибута нет.
+  const section = useRoyalSectionName();
   const can = useCan();
   const canManage = can("settings.manage");
   const { data: campaigns, isLoading, error } = useLeadMagnets();
@@ -51,7 +54,7 @@ export function FunnelTab() {
     // Обёртка темы и рамка экрана — здесь: редактор возвращается ВМЕСТО этого
     // экрана, и без `.rh2` его разметка макета осталась бы без единого стиля.
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <FunnelEditor campaign={resolveEditingCampaign(editing, campaigns)} onClose={() => setEditing(null)} />
         </div>
@@ -64,7 +67,7 @@ export function FunnelTab() {
   const disabledCount = (campaigns?.length ?? 0) - enabledCount;
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -374,7 +377,7 @@ function CampaignCard({
           Журнал выдач
         </button>
         {canManage && (
-          <button className="lnk" type="button" onClick={onDelete}>
+          <button className="lnk" type="button" data-variant="danger" onClick={onDelete}>
             Удалить
           </button>
         )}

@@ -17,7 +17,7 @@ vi.mock("react", async importOriginal => {
     return original.useState(override);
   }) as typeof original.useState };
 });
-vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => state.clean }));
+vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => state.clean, useCleanShellSelection: () => ({ clean: state.clean, look: undefined }) }));
 vi.mock("../hooks/useMobileUx", () => ({ useMobileUx: () => state.mobile }));
 vi.mock("../lib/permissions", () => ({ useCan: () => (permission: string) => permission !== "properties.export" || state.exportAllowed }));
 vi.mock("../store/auth", () => ({ useAuthStore: (select: (value: { agent: { role: string } }) => unknown) => select({ agent: { role: state.role } }) }));
