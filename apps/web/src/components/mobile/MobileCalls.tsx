@@ -120,13 +120,14 @@ function MhJournalRow({ call, showAgent, royal = false }: { call: CallRow; showA
   const name = call.client?.fullName ?? "Клиент удалён";
 
   // «Новый вид» (пачка calls): та же строка, что на ПК. Звонок — ВСЕГДА в строке
-  // (как было): у строки с записью справа два круга 44 — зелёный «позвонить» и
-  // «слушать»; без записи — одна кнопка «Позвонить/Перезвонить». Ошибка звонка
-  // показывается у кнопки, раскрыт блок или нет (ревью PR 285).
+  // (как было): у строки с записью два круга 44 — зелёный «позвонить» и
+  // «слушать»; без записи — один зелёный круг с белой трубкой, без слова (решение
+  // владельца 19.11: «зеленый значок с белой трубкой»; слово — имя кнопки для
+  // экранного чтеца). Ошибка звонка показывается у кнопки, раскрыт блок или нет.
   if (royal) {
     const callButton = call.client && (expandable
       ? <CallClientButton clientId={call.client.id} phone="" variant="icon" title="Позвонить через CRM" className="ry-call-round" />
-      : <CallClientButton clientId={call.client.id} phone="" variant="full" label={noAnswer ? "Перезвонить" : "Позвонить"} title="Позвонить через CRM" className="ry-call-act" />);
+      : <CallClientButton clientId={call.client.id} phone="" variant="icon" label={noAnswer ? "Перезвонить" : "Позвонить"} title={noAnswer ? "Перезвонить через CRM" : "Позвонить через CRM"} className="ry-call-round" />);
     return (
       <RoyalCallRow
         dir={noAnswer ? "missed" : "out"}
@@ -144,7 +145,7 @@ function MhJournalRow({ call, showAgent, royal = false }: { call: CallRow; showA
           {!analysis.agreedNextStep && <RoyalCallFlag tone="crit">без договорённости</RoyalCallFlag>}
         </> : <RoyalCallFlag tone="mute">{call.transcriptionStage ? "расшифровываем" : missingAnalysisReason(call.transcript)}</RoyalCallFlag>)}
         action={expandable
-          ? <>{callButton}<RoyalCallListen compact open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={formatCallDuration(call.durationSec)} /></>
+          ? <>{callButton}<RoyalCallListen compact open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={formatCallDuration(call.durationSec)} canListen={call.hasRecording && call.canHear !== false} /></>
           : callButton}
         details={open && (
           <div className="ry-call-details" id={detailsId}>
@@ -289,7 +290,7 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
           <BlockCallerButton callId={call.id} known={!!call.client} />
         </>}
         action={!call.answered && (
-          <CallClientButton clientId={call.client?.id} phone={call.phone} variant="full" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-act" />
+          <CallClientButton clientId={call.client?.id} phone={call.phone} variant="icon" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-round" />
         )}
       />
     );
@@ -603,9 +604,9 @@ export function MobileCallsSupervisor() {
     >
       {/* Полоса «Обращения» — тот же набор, что на компьютере (pages/Calls.tsx) и на
           остальных трёх экранах группы (docs/archive/menu-wave2-brief-15-09.md).
-          В новом виде — переключатель значками, как у «Чатов» (заголовок в нём
-          для экранного чтеца, на экране его уже несёт шапка). */}
-      {royal ? <RoyalInboxSwitch title="Звонки" /> : <InboxTabs />}
+          В новом виде — переключатель значками, как у «Чатов», без своего
+          заголовка: h1 экрана один, его несёт шапка MhListScreen. */}
+      {royal ? <RoyalInboxSwitch /> : <InboxTabs />}
 
       {/* Идущие сейчас разговоры робота: слушать вживую (блока нет, пока на линии пусто). */}
       <LiveVoiceListenMh />
@@ -1052,7 +1053,7 @@ export function MobileCallsAgent() {
       {/* Лента вкладок разделов — перенос пунктов из меню (вторая сессия,
           15.09.2026). При слиянии с переодеванием экрана встала первой
           строкой тела, как на «Клиентах» и «Объектах». */}
-      {royal ? <RoyalInboxSwitch title="Мои звонки" /> : <InboxTabs />}
+      {royal ? <RoyalInboxSwitch /> : <InboxTabs />}
 
       <div className="sec" style={{ marginTop: 6 }}>
         <div className="srch">
@@ -1154,12 +1155,12 @@ function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }
   const detailsId = `mfeed-${call.id}`;
 
   // «Новый вид» (пачка calls): звонок — ВСЕГДА в строке, как было. С записью —
-  // два круга 44 (зелёный «позвонить» и «слушать»), без записи — одна зелёная
-  // «Позвонить/Перезвонить». Ошибка звонка — у кнопки при любом раскрытии.
+  // два круга 44 (зелёный «позвонить» и «слушать»), без записи — один зелёный круг
+  // с белой трубкой без слова (владелец 19.11). Ошибка звонка — у кнопки при любом раскрытии.
   if (royal) {
     const callButton = expandable
       ? <CallClientButton clientId={call.client?.id} phone={call.phone ?? ""} variant="icon" title="Позвонить через CRM" className="ry-call-round" />
-      : <CallClientButton clientId={call.client?.id} phone={call.phone ?? ""} variant="full" label={missedLook ? "Перезвонить" : "Позвонить"} title="Позвонить через CRM" className="ry-call-act" />;
+      : <CallClientButton clientId={call.client?.id} phone={call.phone ?? ""} variant="icon" label={missedLook ? "Перезвонить" : "Позвонить"} title={missedLook ? "Перезвонить через CRM" : "Позвонить через CRM"} className="ry-call-round" />;
     return (
       <RoyalCallRow
         dir={missedLook ? "missed" : kind.dir}
@@ -1177,7 +1178,7 @@ function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }
           {analysis && <RoyalCallFlag tone={scoreFlagTone(scoreTone(analysis.score))}>балл {analysis.score}</RoyalCallFlag>}
         </>}
         action={expandable
-          ? <>{callButton}<RoyalCallListen compact open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={formatCallDuration(call.durationSec)} /></>
+          ? <>{callButton}<RoyalCallListen compact open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={formatCallDuration(call.durationSec)} canListen={call.hasRecording && call.canHear !== false} /></>
           : callButton}
         details={open && (
           <div className="ry-call-details" id={detailsId}>

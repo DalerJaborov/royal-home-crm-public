@@ -213,6 +213,9 @@ function TranscriptBody({
           return (
             <p
               key={i}
+              // Новый вид: служебная строка (не речь) — своим классом, иначе правило
+              // абзацев разбора звонка (`.ry-call-details p !important`) красило её как реплику.
+              className={royal ? "ry-tr-sys" : undefined}
               style={{ margin: "0 0 10px", textAlign: "center", fontSize: "var(--fs-13)", color: "var(--faint)", whiteSpace: "pre-wrap" }}
             >
               {rendered}

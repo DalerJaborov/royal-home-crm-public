@@ -155,7 +155,7 @@ export async function presentPropertyListItems(items: PropertyListRecord[], req:
   const briefs = await computeVideoHandoffBriefs(items, positions);
   const viewOwners = can(req, "properties.viewOwners");
   return items.map((p) => ({
-    ...stripEmbedding(stripOwnerContact(p, req.agent!.id, viewOwners)),
+    ...stripEmbedding(stripOwnerContact(p, viewOwners)),
     demandCount: demandCounts.get(p.id) ?? 0,
     // Этап конвейера считается на сервере: у интерфейса не должно быть своей копии
     // правила «просрочен», иначе список и карточка однажды покрасятся по-разному.

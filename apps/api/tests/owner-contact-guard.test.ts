@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stripOwnerContact } from "../src/lib/ownerContact.js";
+import { maskOwnerContact, stripOwnerContact } from "../src/lib/ownerContact.js";
 
 /**
  * Контакт собственника — самая ценная часть базы.
@@ -9,67 +9,58 @@ import { stripOwnerContact } from "../src/lib/ownerContact.js";
  * (`GET /clients/:id/match`) возвращал карточки целиком — рядовому агенту хватало
  * собственного клиента с широким бюджетом, чтобы пачками вытаскивать телефоны
  * владельцев чужих объектов. Теперь правило одно на всю CRM и лежит отдельно.
+ *
+ * С 18.11.2026 (владелец: «кроме директора, ни у кого вообще не будет доступа к
+ * номерам телефона вообще») решает ТОЛЬКО право properties.viewOwners: свой объект —
+ * риелтор, интейкер, создатель карточки — номер больше не открывает.
  */
 
-const AGENT = "agent-1";
-const OTHER = "agent-2";
-const contact = "+992 900 00 00";
+const contact = "+992 900 00 00 57";
 
 describe("Кому виден телефон собственника", () => {
-  it("руководителю — по праву properties.viewAll", () => {
-    const p = { ownerContact: contact, assignedAgentId: OTHER, intakeAgentId: OTHER, createdById: OTHER };
-    expect(stripOwnerContact(p, AGENT, true).ownerContact).toBe(contact);
+  it("с правом properties.viewOwners (директор) — виден", () => {
+    expect(stripOwnerContact({ ownerContact: contact }, true).ownerContact).toBe(contact);
   });
 
-  it("тому, кто ведёт объект сам — риелтору, интейкеру, создателю карточки", () => {
-    expect(stripOwnerContact({ ownerContact: contact, assignedAgentId: AGENT }, AGENT, false).ownerContact).toBe(contact);
-    expect(stripOwnerContact({ ownerContact: contact, intakeAgentId: AGENT }, AGENT, false).ownerContact).toBe(contact);
-    expect(stripOwnerContact({ ownerContact: contact, createdById: AGENT }, AGENT, false).ownerContact).toBe(contact);
-  });
-
-  it("постороннему агенту — нет, и это главное правило", () => {
-    const p = { ownerContact: contact, assignedAgentId: OTHER, intakeAgentId: OTHER, createdById: OTHER };
-    expect(stripOwnerContact(p, AGENT, false).ownerContact).toBeNull();
+  it("без права — закрыт, даже на своём объекте (риелтор, интейкер, создатель)", () => {
+    for (const own of [{ assignedAgentId: "a1" }, { intakeAgentId: "a1" }, { createdById: "a1" }]) {
+      const stripped = stripOwnerContact({ ownerContact: contact, ...own }, false);
+      expect(stripped.ownerContact).toBeNull();
+      expect(stripped.ownerContactHidden).toBe(true);
+    }
   });
 
   it("исходная запись не портится — режется копия", () => {
-    const p = { ownerContact: contact, assignedAgentId: OTHER };
-    stripOwnerContact(p, AGENT, false);
+    const p = { ownerContact: contact };
+    stripOwnerContact(p, false);
     expect(p.ownerContact).toBe(contact);
   });
 });
 
-/**
- * `ownerContactHidden` (docs/TASKS.md, «дашборд агента против ТЗ» 07.09.2026):
- * `ownerContact: null` одинаково значит и «телефон не заполнен», и «скрыт
- * правом» — карточка объекта не могла отличить одно от другого и показывала
- * агенту на его собственном объекте «скрыто от вас», хотя сервер как раз
- * отдавал бы ему настоящий контакт. Флаг делает решение сервера видимым, а не
- * пересчитываемым второй раз на клиенте.
- */
 describe("ownerContactHidden — честный признак «скрыто», а не просто null", () => {
-  it("руководителю — false, даже когда объект чужой", () => {
-    const p = { ownerContact: contact, assignedAgentId: OTHER, intakeAgentId: OTHER, createdById: OTHER };
-    expect(stripOwnerContact(p, AGENT, true).ownerContactHidden).toBe(false);
+  it("с правом — false", () => {
+    expect(stripOwnerContact({ ownerContact: contact }, true).ownerContactHidden).toBe(false);
   });
 
-  it("тому, кто ведёт объект сам — false: контакт виден по-настоящему, не спрятан", () => {
-    expect(stripOwnerContact({ ownerContact: contact, assignedAgentId: AGENT }, AGENT, false).ownerContactHidden).toBe(
-      false
-    );
+  it("без права — true, и когда номер пуст: менять его без права тоже нельзя", () => {
+    expect(stripOwnerContact({ ownerContact: null }, false).ownerContactHidden).toBe(true);
+  });
+});
+
+describe("maskOwnerContact — маска для того, кто ведёт объект", () => {
+  it("каждый номер — +992 и две последние цифры, без начала номера", () => {
+    expect(maskOwnerContact("900000057")).toBe("+992•••••57");
+    expect(maskOwnerContact("+992 900 00 00 57, +992 911 11 11 23")).toBe("+992•••••57, +992•••••23");
   });
 
-  it("постороннему агенту без права — true, а не просто пустой ownerContact", () => {
-    const p = { ownerContact: contact, assignedAgentId: OTHER, intakeAgentId: OTHER, createdById: OTHER };
-    const stripped = stripOwnerContact(p, AGENT, false);
-    expect(stripped.ownerContact).toBeNull();
-    expect(stripped.ownerContactHidden).toBe(true);
+  it("ни одной цифры номера, кроме двух последних, в маске нет", () => {
+    const masked = maskOwnerContact("+992 935 12 34 57") ?? "";
+    expect(masked.replace(/\D/g, "")).toBe("99257");
   });
 
-  it("телефон правда не заполнен у того, кто и так его видит — false: это не скрытие", () => {
-    const p = { ownerContact: null, assignedAgentId: AGENT };
-    const stripped = stripOwnerContact(p, AGENT, false);
-    expect(stripped.ownerContact).toBeNull();
-    expect(stripped.ownerContactHidden).toBe(false);
+  it("пусто — null; обрывок без номера — подпись, а не цифры", () => {
+    expect(maskOwnerContact(null)).toBeNull();
+    expect(maskOwnerContact("   ")).toBeNull();
+    expect(maskOwnerContact("звонить соседу 1234")).toBe("номер записан");
   });
 });
