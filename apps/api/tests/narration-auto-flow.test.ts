@@ -84,6 +84,7 @@ vi.mock("../src/lib/mediaExecution.js", async (importOriginal) => ({ ...await im
 
 const { requestAutoNarration, startNarrationForNewProperty, approveNarrationVersion, afterNarrationApproved, runNarrationAutoFlow } = await import("../src/lib/narrationAutoFlow.js");
 const { generateNarrationVersion } = await import("../src/lib/narrationGeneration.js");
+const { NarrationDeliveryRefused } = await import("../src/lib/narrationDelivery.js");
 
 const propertyId = "11111111-1111-4111-8111-111111111111";
 const TEMPLATES = [
@@ -233,7 +234,7 @@ describe("approval by the property's agent and hand-over to the editor", () => {
   it("waits for the montage queue; in PREVIEW nothing is marked as sent, after LIVE exactly one delivery goes", async () => {
     const v = await readyVersion();
     await approveNarrationVersion({ propertyId, versionId: v.id, expectedRevision: 1, actorId: "agent", isManager: false });
-    s.prepare.mockRejectedValueOnce(new Error("Сначала передайте объект в работу монтажёру"));
+    s.prepare.mockRejectedValueOnce(new NarrationDeliveryRefused("NOT_WITH_MONTAJER", "Сначала передайте объект в работу монтажёру"));
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("WAITING_FOR_MONTAGE");
     s.mode = "PREVIEW";
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("PREVIEW");
@@ -301,7 +302,7 @@ describe("spoken price (owner 11.11.2026): new version on price change, sound-on
     await runNarrationAutoFlow({ now: later(60_000) });
     const second = s.versions[1];
     expect(await approveNarrationVersion({ propertyId, versionId: second.id, expectedRevision: 2, actorId: "agent", isManager: false })).toBe("AUDIO_APPROVED");
-    s.prepare.mockRejectedValue(new Error("Сначала передайте объект в работу монтажёру"));
+    s.prepare.mockRejectedValue(new NarrationDeliveryRefused("NOT_WITH_MONTAJER", "Сначала передайте объект в работу монтажёру"));
     return second;
   }
   it("published clip with the old narration: after approval the editor gets a sound-only task, old posts go when the new one is out", async () => {

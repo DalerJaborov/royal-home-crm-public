@@ -4,11 +4,13 @@ import { z } from "zod";
 import { narrationConfigSchema, narrationMixByCrm } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { buildMontajerDelivery, EDITOR_HOLDER_WHERE } from "./videoHandoff.js";
+import { usableMontajerWhere } from "./montajerHandover.js";
 import { narrationFactsCurrent, narrationHash } from "./propertyNarration.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
 import { sendDocumentFile, TELEGRAM_BOT_SEND_LIMIT_BYTES } from "../telegram/api.js";
 import { voicelessCopyHint } from "./narrationMontajerNote.js";
+import { logSystemError } from "./systemError.js";
 
 const fileSchema = z.object({ id: z.string(), storageKey: z.string(), filename: z.string(), caption: z.string() });
 /** mixByCrm — монтажёру сказано «пришлите ролик без голоса»: принятый ролик станет мастером (lib/narrationMaster.ts). */
@@ -19,6 +21,40 @@ export function narrationDeliveryAttemptBudgetMs(plan: unknown): number {
   const parsed = planSchema.safeParse(plan);
   return (parsed.success ? parsed.data.files.length : 1) * 90_000 + 120_000;
 }
+/**
+ * ПОЧЕМУ ГОЛОС НЕ ГОТОВ К ОТПРАВКЕ — РАЗЛИЧИМО (19.11.2026). Раньше любая причина была голым Error,
+ * и afterNarrationApproved глотал её как «объект не у монтажёра»: на проде полтора месяца озвучка
+ * не уходила ни разу, а журнал ошибок молчал. Текст — для человека (маршрут отдаёт его в карточку),
+ * код — для кода: что считать штатным ожиданием, а что поломкой.
+ */
+export type NarrationDeliveryRefusalCode =
+  /** Объекта нет или он удалён. */
+  | "PROPERTY_GONE"
+  /** Версия не та, не готова или факты объекта с тех пор поменялись. */
+  | "VERSION_STALE"
+  /** У объекта выбрано «Без озвучки». */
+  | "NARRATION_OFF"
+  /** Объект сейчас не у монтажёра — штатное ожидание: голос уйдёт, когда встанет. */
+  | "NOT_WITH_MONTAJER"
+  /** Монтажёр не назначен в Настройках или запрос назвал другого. */
+  | "MONTAJER_NOT_ASSIGNED"
+  /** Назначенный монтажёр отключён. */
+  | "MONTAJER_INACTIVE"
+  /** У назначенного монтажёра не подключён Telegram. */
+  | "MONTAJER_NO_TELEGRAM"
+  /** Просили с исходниками, а исходников нет. */
+  | "NO_SOURCES";
+export class NarrationDeliveryRefused extends Error {
+  constructor(readonly code: NarrationDeliveryRefusalCode, message: string) {
+    super(message);
+    this.name = "NarrationDeliveryRefused";
+  }
+}
+/** Штатные «пока нельзя», а не поломки: объект ещё не у монтажёра, у объекта «Без озвучки». */
+export function narrationDeliveryRefusalIsExpected(code: NarrationDeliveryRefusalCode): boolean {
+  return code === "NOT_WITH_MONTAJER" || code === "NARRATION_OFF";
+}
+
 /** Same immutable source builder as the existing montage pipeline. No queue reassignment. */
 export async function prepareNarrationDeliveryPlan(propertyId: string, versionId: string, mode: string, requestedEditorId?: string) {
   const [p, version, settings, sources] = await Promise.all([
@@ -28,12 +64,15 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
     buildMontajerDelivery(propertyId),
   ]);
   const editorId = requestedEditorId ?? settings?.videoMontajerAgentId;
-  if (!p || p.deletedAt || !sources || !version || version.propertyId !== p.id || !version.storageKey || version.status !== "READY" || !narrationFactsCurrent(version, p)) throw new Error("Нужна актуальная озвучка");
-  if (p.narrationOff) throw new Error("Для объекта выбрано «Без озвучки»");
-  if (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince) throw new Error("Сначала передайте объект в работу монтажёру через существующую очередь монтажа");
-  if (!editorId || editorId !== settings?.videoMontajerAgentId) throw new Error("Сначала назначьте монтажёра в существующих настройках монтажа");
-  const editor = await prisma.agent.findFirst({ where: { id: editorId, role: "EDITOR", isActive: true }, select: { telegramChatId: true } });
-  if (!editor?.telegramChatId) throw new Error("У назначенного монтажёра не подключён Telegram");
+  if (!p || p.deletedAt || !sources) throw new NarrationDeliveryRefused("PROPERTY_GONE", "Нужна актуальная озвучка: объект удалён");
+  if (!version || version.propertyId !== p.id || !version.storageKey || version.status !== "READY" || !narrationFactsCurrent(version, p)) throw new NarrationDeliveryRefused("VERSION_STALE", "Нужна актуальная озвучка");
+  if (p.narrationOff) throw new NarrationDeliveryRefused("NARRATION_OFF", "Для объекта выбрано «Без озвучки»");
+  if (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince) throw new NarrationDeliveryRefused("NOT_WITH_MONTAJER", "Сначала передайте объект в работу монтажёру через существующую очередь монтажа");
+  if (!editorId || editorId !== settings?.videoMontajerAgentId) throw new NarrationDeliveryRefused("MONTAJER_NOT_ASSIGNED", "Сначала назначьте монтажёра в существующих настройках монтажа");
+  // Монтажёр — назначенный в Настройках и не отключённый; роль не важна (lib/montajerHandover.ts::usableMontajerWhere).
+  const editor = await prisma.agent.findFirst({ where: usableMontajerWhere(editorId), select: { telegramChatId: true } });
+  if (!editor) throw new NarrationDeliveryRefused("MONTAJER_INACTIVE", "Назначенный монтажёр отключён: выберите монтажёра в настройках монтажа");
+  if (!editor.telegramChatId) throw new NarrationDeliveryRefused("MONTAJER_NO_TELEGRAM", "У назначенного монтажёра не подключён Telegram");
   // Новый порядок (11.11.2026): голос накладывает CRM, монтажёру озвучка — для длины и темпа.
   const parsedConfig = narrationConfigSchema.safeParse(settings?.propertyNarrationConfig ?? {});
   const mixByCrm = parsedConfig.success && narrationMixByCrm(parsedConfig.data);
@@ -50,7 +89,7 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   const files: Plan["files"] = [{ id: version.id, storageKey: version.storageKey, filename: `property-${p.shortId}-voice-v${version.revision}.mp3`, caption: audioCaption },
     { id: `${version.id}-script`, storageKey: "SCRIPT", filename: `property-${p.shortId}-voice-v${version.revision}.txt`, caption: version.script }];
   if (mode === "WITH_SOURCES") {
-    if (!sources.videos.length) throw new Error("У объекта нет исходников");
+    if (!sources.videos.length) throw new NarrationDeliveryRefused("NO_SOURCES", "У объекта нет исходников");
     for (const video of sources.videos) files.push({ id: video.id, storageKey: video.storageKey, filename: video.filename, caption: `Объект №${p.shortId}. Исходник. Озвучка v${version.revision}.\n${sources.factsText}` });
   }
   return { editorId, plan: { factsHash: version.factsHash, recipientHash: mediaRecipientHash(editorId, editor.telegramChatId), files,
@@ -85,7 +124,7 @@ export async function executeNarrationDelivery(id: string) {
         const p = await tx.property.findUnique({ where: { id: row.propertyId }, include: { district: true } });
         const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" } });
         const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
-        const editor = await tx.agent.findFirst({ where: { id: row.editorId!, role: "EDITOR", isActive: true } });
+        const editor = row.editorId ? await tx.agent.findFirst({ where: usableMontajerWhere(row.editorId) }) : null;
         const videos = row.mode === "WITH_SOURCES" ? await tx.propertyVideo.findMany({ where: { propertyId: row.propertyId }, orderBy: [{ uploadedAt: "asc" }, { id: "asc" }] }) : [];
         if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || latest?.id !== row.versionId || latest.status !== "READY" || latest.factsHash !== plan.factsHash || !narrationFactsCurrent(latest, p) || settings?.videoMontajerAgentId !== row.editorId || !editor?.telegramChatId || mediaRecipientHash(editor.id, editor.telegramChatId) !== plan.recipientHash || narrationHash(videos.map(v => [v.id, v.storageKey])) !== plan.sourcesHash) return null;
         return { chatId: editor.telegramChatId, shortId: p.shortId };
@@ -153,8 +192,13 @@ export async function handOverNarrationToCurrentMontajer(currentEditorId: string
   let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;
   try {
     prepared = await prepareNarrationDeliveryPlan(holder.id, latest.id, "AUDIO_ONLY", currentEditorId);
-  } catch {
+  } catch (err) {
     // Нет Telegram у монтажёра, факты устарели и т.п. — отправлять нечего; сверка повторится тиком.
+    // Не штатная причина — в журнал ошибок, не тишина (19.11.2026: так же молча гас голос при роли MARKETING).
+    if (!(err instanceof NarrationDeliveryRefused && narrationDeliveryRefusalIsExpected(err.code))) {
+      void logSystemError("api", `Озвучка: новому монтажёру голос не передан — ${err instanceof Error ? err.message : String(err)}`,
+        { dedupKey: `narration-handover-refused:${holder.id}:${err instanceof NarrationDeliveryRefused ? err.code : "UNEXPECTED"}`, dedupWindowMs: 6 * 60 * 60_000 });
+    }
     return false;
   }
   return prisma.$transaction(async (tx) => {

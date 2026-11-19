@@ -393,7 +393,7 @@
   "pair.liveVoicePrompt !== undefined && pair.liveVoicePrompt.trim() && pair.liveVoicePrompt.trim() !== DEFAULT_…",
   "pair.workHoursStart !== undefined || pair.workHoursEnd !== undefined || pair.alarmHoursStart !== undefined ||…",
   "parsed.data.draftId && draft?.id !== parsed.data.draftId",
-  "parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…",
+  "parsed.data.editorId && !await prisma.agent.findFirst({ where: usableMontajerWhere(parsed.data.editorId), sel…",
   "parsed.data.ownerContact?.trim()",
   "parsed.data.previewFingerprint && parsed.data.previewFingerprint !== previewFingerprint",
   "parsed.data.status && parsed.data.status !== existing.status",
@@ -39627,7 +39627,7 @@
      "raw": "!row || latest?.id !== row.id || !narrationFactsCurrent(row, p)"
     },
     {
-     "t": "если parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…",
+     "t": "если parsed.data.editorId && !await prisma.agent.findFirst({ where: usableMontajerWhere(parsed.data.editorId), sel…",
      "k": "if",
      "a": [],
      "c": [
@@ -39638,7 +39638,7 @@
        "c": []
       }
      ],
-     "raw": "parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…"
+     "raw": "parsed.data.editorId && !await prisma.agent.findFirst({ where: usableMontajerWhere(parsed.data.editorId), sel…"
     },
     {
      "t": "пробует сделать",

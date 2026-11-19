@@ -48063,7 +48063,7 @@
     },
     {
      "k": "if",
-     "t": "parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…",
+     "t": "parsed.data.editorId && !await prisma.agent.findFirst({ where: usableMontajerWhere(parsed.data.editorId), sel…",
      "a": [],
      "c": [
       {

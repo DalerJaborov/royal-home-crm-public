@@ -23,6 +23,7 @@ import { narrationLastChoiceFor } from "../../lib/narrationLastChoice.js";
 import { sendToMontajer } from "../../lib/montageObservers.js";
 import { setOwnerReportConsent, prepareOwnerReportDelivery } from "../../lib/ownerReport/delivery.js";
 import { prepareNarrationDeliveryPlan, narrationDeliveryAttemptBudgetMs } from "../../lib/narrationDelivery.js";
+import { usableMontajerWhere } from "../../lib/montajerHandover.js";
 import { mediaExecutionMode } from "../../lib/mediaExecution.js";
 import { preparePublicationMetadataPreview } from "../../lib/publicationMetadataSync.js";
 import { listPriceCaptionDelivery } from "../../lib/priceCaptionDelivery.js";
@@ -442,7 +443,9 @@ narrationRouter.post("/:id/narration/:versionId/handoff-preview", async (req, re
   const row = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id, revision: parsed.data.expectedRevision, status: "READY", approvedAt: { not: null } } });
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision: "desc" } });
   if (!row || latest?.id !== row.id || !narrationFactsCurrent(row, p)) return res.status(409).json({ error: "Нужна готовая актуальная озвучка" });
-  if (parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: "EDITOR", isActive: true } })) return res.status(400).json({ error: "Монтажёр недоступен" });
+  // Монтажёр — назначенный в Настройках и не отключённый, роль не важна (19.11.2026, lib/montajerHandover.ts);
+  // что он именно назначенный, проверяет prepareNarrationDeliveryPlan.
+  if (parsed.data.editorId && !await prisma.agent.findFirst({ where: usableMontajerWhere(parsed.data.editorId), select: { id: true } })) return res.status(400).json({ error: "Монтажёр недоступен" });
   const existing = await prisma.propertyNarrationDelivery.findUnique({ where: { requestKey: parsed.data.requestKey } });
   let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;
   try { prepared = await prepareNarrationDeliveryPlan(p.id, row.id, parsed.data.mode, parsed.data.editorId); }
