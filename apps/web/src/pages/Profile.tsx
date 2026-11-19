@@ -7,7 +7,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUiPrefs } from "../store/uiPrefs";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
-import { Rh2Screen } from "../components/rh2/Rh2Screen";
 import { Tabs } from "../components/rh2/Tabs";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
 import {
@@ -45,6 +44,9 @@ import { dushanbeDateTime } from "../lib/date";
 import { VoiceNotePlayer } from "../components/VoiceNotePlayer";
 import { MhQuiet } from "../components/home/mh/MhScreen";
 import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { AdminScreen } from "../components/look/admin/AdminRoot";
+import { RhAvatar } from "../components/look/ui";
 
 /**
  * «Мой профиль»: личные данные, вход и вид приложения.
@@ -192,15 +194,17 @@ function CleanProfile({ profile, royalScoreEnabled, canSettings, onLogout }: {
   onLogout: () => void;
 }) {
   const [section, setSection] = useState<ProfileSection>("details");
+  // Новый вид (пачка admin): тот же экран, класс `ry-admin` и метка раздела — оформление в слое.
+  const royal = useRoyalLook();
   const [visited, setVisited] = useState(() => new Set<ProfileSection>(["details"]));
   const navigate = useNavigate();
   const selectSection = (next: ProfileSection) => {
     setSection(next);
     setVisited((previous) => previous.has(next) ? previous : new Set([...previous, next]));
   };
-  return <Rh2Screen title="Мой профиль" className="clean-profile-page">
+  return <AdminScreen royal={royal} title="Мой профиль" className="clean-profile-page">
     <header className="pg-h">
-      <div><h1>Мой профиль</h1><p className="sub">Личные данные, приложение и безопасность. Видно только вам.</p></div>
+      <div><h1 data-dup={royal ? "" : undefined}>Мой профиль</h1><p className="sub">Личные данные, приложение и безопасность. Видно только вам.</p></div>
       <button className="pill ghost" type="button" onClick={onLogout}>Выйти из CRM</button>
     </header>
     <Tabs options={PROFILE_SECTIONS} value={section} onChange={selectSection} idPrefix="profile-section" aria-label="Разделы профиля" className="clean-profile-tabs" />
@@ -221,7 +225,7 @@ function CleanProfile({ profile, royalScoreEnabled, canSettings, onLogout }: {
       {id === "connections" && <section className="card"><div className="sec-h stack"><h2>Служебные подключения</h2><span className="note">Личные привязки для работы, не клиентские каналы</span></div>{canReceiveMontageCopies(profile?.role) && <MontageCopiesSection />}{(profile?.role === "AGENT" || profile?.isVideoMontajer || profile?.telegramLinked || profile?.montageCopiesTelegram || profile?.permissions.includes("properties.moderate")) ? <TelegramLinkSection /> : <p className="state">Для вашей роли нет дополнительных служебных подключений.</p>}</section>}
       </>}
     </section>)}
-  </Rh2Screen>;
+  </AdminScreen>;
 }
 
 // Та же область, что в TeamMemberDetail.tsx / components/home/mh/MhScreen.tsx:
@@ -472,6 +476,7 @@ function AvatarSection() {
   const uploadAvatar = useUploadMyAvatar();
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const royal = useRoyalLook();
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -489,14 +494,18 @@ function AvatarSection() {
   return (
     <section className="card">
       <div className="prof-h">
-        <span className="av xl" style={AVATAR_TONES[2]}>
-          {profile?.avatarUrl ? (
-            <img src={profile.avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-          ) : (
-            initials(profile?.fullName ?? "")
-          )}
-          <i className="pres on" />
-        </span>
+        {royal ? (
+          <RhAvatar name={profile?.fullName ?? ""} src={profile?.avatarUrl} size={64} />
+        ) : (
+          <span className="av xl" style={AVATAR_TONES[2]}>
+            {profile?.avatarUrl ? (
+              <img src={profile.avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+            ) : (
+              initials(profile?.fullName ?? "")
+            )}
+            <i className="pres on" />
+          </span>
+        )}
         <div className="who">
           <h1>{profile?.fullName ?? ""}</h1>
           <p className="sub">

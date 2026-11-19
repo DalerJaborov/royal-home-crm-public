@@ -612,6 +612,9 @@ export const HIDING_ALLOWED = new Set<string>([
   // analytics: полосы прокрутки лент вкладок и переключателей (прокрутка пальцем остаётся).
   `${R} .rh2[data-ry-section="analytics"] .scr .seg-ai::-webkit-scrollbar`,
   `${R} .rh2[data-ry-section="analytics"] .scr .hscroll::-webkit-scrollbar`,
+  // admin: на телефоне экран на Rh2Screen отдаёт название шапке оболочки — второй такой же
+  // заголовок на странице («Уведомления», «Мой профиль») только для экранного чтеца.
+  `${R}[data-mobile-ux] .ry-admin[data-ry-section="admin"] .pg-h h1[data-dup]`,
 ]);
 export function hiddenTextSelectors(css: string): string[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -850,6 +853,34 @@ ${P} + .rh2 .pill { color: red; }`, "analytics")).toEqual([`${P} + .rh2 .pill`])
       expect(src, file).toMatch(/<button className="lnk" type="button" data-variant="danger" onClick=\{onDelete\}>\s*Удалить\s*<\/button>/);
       expect(src.match(/data-variant="danger"/g)?.length, file).toBe(1);
     }
+  });
+  it("знает слой служебных экранов (admin) и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-admin.css");
+    expect(lookSectionOf("theme-look-royal-admin.css")).toBe("admin");
+    const css = readFileSync(new URL("./theme-look-royal-admin.css", import.meta.url), "utf8");
+    const K = ':root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"]';
+    // правило без метки и с чужой меткой
+    expect(unscopedSelectors(`${css}
+:root[data-ui-look="royal"] .rh2 .scr .mod { color: red; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .ry-ntf { color: red; }`, "admin"))
+      .toEqual([':root[data-ui-look="royal"] .rh2 .scr .mod', ':root[data-ui-look="royal"] .rh2[data-ry-section="control"] .ry-ntf']);
+    // смысловая кнопка общим синим, «Новое» (warn) срочным красным, причина функции обрезана многоточием
+    expect(semanticButtonLeaks(`${css}
+${K} .ry-ntf .pill.danger { background: var(--rh-ui-primary); }`)).toEqual([`${K} .ry-ntf .pill.danger`]);
+    expect(semanticColorLeaks(`${css}
+${K} .chip.warn { background: var(--rh-ui-crit); }`)).toEqual([`${K} .chip.warn`]);
+    expect(hiddenTextSelectors(`${css}
+${K} .scr .fs-reason { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([`${K} .scr .fs-reason`]);
+    // скрытый на ПК дубль заголовка — уже не «только для чтеца»: красный
+    expect(hiddenTextSelectors(`${css}
+${K} .pg-h h1[data-dup] { display: none; }`)).toEqual([`${K} .pg-h h1[data-dup]`]);
+    // соседи метки: правило, выходящее из раздела
+    expect(siblingEscapes(`${css}
+${K} ~ .rh2 .pill { color: red; }`, "admin")).toEqual([`${K} ~ .rh2 .pill`]);
+    // без правила приглушения выключенная «Прочитать всё» горела бы как доступная
+    const undimmed = css.replace(/:root\[data-ui-look="royal"\] \[data-ry-section="admin"\] :is\(\.pill[^\n]*\n/, "");
+    expect(undimmed).not.toBe(css);
+    expect(disabledDimGaps(undimmed)).not.toEqual([]);
   });
   // Без списков долга (KNOWN_DEBT / DISABLED_DIM_DEBT закрыты 18.11, пачка debt): каждый
   // слой, основа тоже, обязан быть чистым. Находка чинится в слое, а не вписывается сюда.
