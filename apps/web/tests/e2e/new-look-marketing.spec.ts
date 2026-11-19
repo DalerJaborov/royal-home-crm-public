@@ -84,10 +84,10 @@ for (const screen of SCREENS) {
     await stub(page, true);
     for (const width of LOOK_WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
-      // Корень окна (Rh2Portal) тоже несёт метку, но нулевой высоты — ждём шапку экрана.
+      // Корень окна (Rh2Portal) тоже несёт метку, но нулевой высоты — ждём само содержимое экрана
+      // (шапка .pg-h на телефоне может быть пустой: заголовок экрана там в шапке оболочки).
       await page.goto(screen.url, { waitUntil: "domcontentloaded" });
       await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
-      await expect(page.locator('.rh2.screens[data-ry-section="marketing"] .pg-h').first()).toBeVisible({ timeout: 20_000 });
       await expect(page.locator(`[data-ry-section="marketing"] ${screen.ready}`).first()).toBeVisible({ timeout: 20_000 });
       await expectNoOverflowAt(page, width, `[data-ry-section="marketing"] :is(${screen.check})`, { strips: STRIPS });
     }
