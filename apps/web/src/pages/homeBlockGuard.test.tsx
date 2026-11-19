@@ -14,11 +14,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ mc: { data: undefined as unknown, isLoading: false, isError: false } }));
+const state = vi.hoisted(() => ({
+  role: "ADMIN",
+  mc: { data: undefined as unknown, isLoading: false, isError: false },
+  /** Ответы сервера для экрана РОП (`api(path)`). */
+  api: {} as Record<string, unknown>,
+  /** Заявки, ждущие принятия, — экран агента. */
+  pendingClients: [] as unknown[],
+}));
 
 vi.mock("../store/auth", async (importOriginal) => ({
   ...await importOriginal<typeof import("../store/auth")>(),
-  useAuthStore: (select: (s: unknown) => unknown) => select({ agent: { id: "a1", fullName: "Далер Тестов", role: "ADMIN" } }),
+  useAuthStore: (select: (s: unknown) => unknown) => select({ agent: { id: "a1", fullName: "Далер Тестов", role: state.role } }),
 }));
 vi.mock("../lib/permissions", async (importOriginal) => ({
   ...await importOriginal<typeof import("../lib/permissions")>(),
@@ -43,6 +50,25 @@ vi.mock("../components/pult/PultActions", async (importOriginal) => ({
   ...await importOriginal<typeof import("../components/pult/PultActions")>(),
   usePultActionRows: () => [],
   usePultActionStatus: () => ({ isLoading: false, isError: false }),
+}));
+vi.mock("../lib/api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../lib/api")>(),
+  api: async (path: string) => {
+    if (path in state.api) return state.api[path];
+    throw new Error(`нет ответа для ${path}`);
+  },
+}));
+vi.mock("../hooks/useTeamLive", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../hooks/useTeamLive")>(),
+  useTeamLive: () => ({ data: { agents: [{ id: "ag1", fullName: "Ноза Агентова", avatarUrl: null, activeLoad: 5, pendingAccept: 1 }] }, isPending: false, isError: false, refetch: vi.fn() }),
+}));
+vi.mock("../hooks/useDashboard", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../hooks/useDashboard")>(),
+  useDashboardSummary: () => ({ data: { tasksToday: [] }, isPending: false, isError: false, refetch: vi.fn() }),
+}));
+vi.mock("../hooks/useClients", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../hooks/useClients")>(),
+  useClients: () => ({ data: { items: state.pendingClients, total: state.pendingClients.length }, isPending: false, isError: false, refetch: vi.fn() }),
 }));
 // Блоки со своими запросами к серверу — к проверяемому классу не относятся.
 vi.mock("../components/clean/CleanPultInbox", async (importOriginal) => ({ ...await importOriginal<typeof import("../components/clean/CleanPultInbox")>(), CleanPultInbox: () => null }));
@@ -149,6 +175,9 @@ function renderPage(page: "today" | "pult") {
 
 beforeEach(() => {
   journal.length = 0;
+  state.role = "ADMIN";
+  state.api = {};
+  state.pendingClients = [];
   window.addEventListener("error", captureJournal, true);
   state.mc = { data: fullSnapshot(), isLoading: false, isError: false };
   // Границы честно пишут пойманную ошибку в консоль — в этом тесте это шум.
@@ -237,4 +266,29 @@ describe("главная: один блок без данных не роняе�
     }
     expect(crashed).toEqual([]);
   }, 120_000);
+
+  it("РОП: упал блок «Где теряем клиентов» — остальной экран РОП на месте", async () => {
+    state.role = "HEAD_OF_SALES";
+    state.api = {
+      "/dashboard/sales-control": { tasks: [{ id: "t1", clientName: "Фарход", clientShortId: 2, responseAction: "ACTION", dueAt: null, title: "Позвонить" }] },
+      // Сервер прислал раздел без списка метрик — блок читает `metrics.length`.
+      "/reports/problems?period=week": [{ id: "r1", metrics: { sections: [{ key: "clients", metrics: null }] } }],
+    };
+    renderPage("today");
+    await waitFor(() => expect(screen.getByText("Фарход")).toBeTruthy());
+    await waitFor(() => expect(journal.some((m) => m.startsWith("[блок today.ropLosses]"))).toBe(true));
+    expect(screen.getAllByText("Не загрузилось")).toHaveLength(1);
+    expect(screen.getByText("Требуют ответа")).toBeTruthy();
+    expect(screen.getByText("Ноза Агентова")).toBeTruthy();
+  });
+
+  it("агент: битая заявка роняет только блок «Ждут принятия», показы и плитки на месте", () => {
+    state.role = "AGENT";
+    state.pendingClients = [null];
+    renderPage("today");
+    expect(journal.some((m) => m.startsWith("[блок today.agentPending]"))).toBe(true);
+    expect(screen.getAllByText("Не загрузилось")).toHaveLength(1);
+    expect(screen.getByText("Показов нет")).toBeTruthy();
+    expect(screen.getByText("Дела сегодня")).toBeTruthy();
+  });
 });

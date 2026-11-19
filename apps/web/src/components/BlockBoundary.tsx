@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
+import { useQueryClient, type Query } from "@tanstack/react-query";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { isChunkLoadError } from "../lib/chunkLoadError";
 
 /**
  * ГРАНИЦА ОДНОГО БЛОКА ГЛАВНОЙ (20.11.2026).
@@ -21,25 +22,55 @@ import { ErrorBoundary } from "./ErrorBoundary";
  * ничего бы не поймала, и упала бы вся страница. Функция откладывает вычисление
  * внутрь границы: `<CleanBlock>{() => <Kpi value={hero.x.count} />}</CleanBlock>`.
  *
- * «Повторить» снимает ошибку и перезапрашивает активные запросы экрана: если
- * упало от неполного ответа сервера, свежий ответ обычно чинит блок. Если упало
- * от старой сборки против нового сервера, вкладку обновит UpdatePrompt.
+ * «Повторить» перезапрашивает только упавшие, помеченные к обновлению и
+ * устаревшие запросы (не все подряд), кнопка заблокирована, пока они идут, и
+ * лишь потом блок рисуется заново: на том же ответе повтор бессмыслен.
+ *
+ * КУСОК СБОРКИ НЕ ЗАГРУЗИЛСЯ (`isChunkLoadError`) — это вкладка на старой сборке
+ * после выката, а не данные. «Повторить» тут не поможет: React.lazy запоминает
+ * отказ навсегда. Такой блок говорит «Вышла новая версия» и предлагает обновить
+ * страницу — тем же действием, что граница страницы.
  */
 export type BlockContent = ReactNode | (() => ReactNode);
 
+export interface BlockFallbackProps {
+  /** Перезапросить упавшее и нарисовать блок заново. */
+  retry: () => void;
+  /** Перезапрос идёт — кнопку держим заблокированной. */
+  retrying: boolean;
+  /** Кусок сборки не загрузился: нужен не повтор, а обновление страницы. */
+  stale: boolean;
+  /** Обновить страницу (для `stale`). */
+  reload: () => void;
+}
+
+/** Какие запросы «Повторить» перезапрашивает: упавшие, помеченные к обновлению и устаревшие. */
+export function needsRetry(query: Query): boolean {
+  return query.state.status === "error" || query.state.isInvalidated || query.isStale();
+}
+
 export function BlockBoundary({ name, fallback, children }: {
   name: string;
-  fallback: (retry: () => void) => ReactNode;
+  fallback: (props: BlockFallbackProps) => ReactNode;
   children: BlockContent;
 }) {
   const queryClient = useQueryClient();
+  const [retrying, setRetrying] = useState(false);
   return (
     <ErrorBoundary
       name={name}
-      // Сначала свежие данные, потом повторная отрисовка: иначе блок перерисуется
-      // на том же ответе, на котором только что упал.
-      fallback={(reset) => fallback(() => {
-        void queryClient.refetchQueries({ type: "active" }).finally(reset);
+      fallback={(reset, error) => fallback({
+        stale: isChunkLoadError(error),
+        reload: () => window.location.reload(),
+        retrying,
+        retry: () => {
+          if (retrying) return;
+          setRetrying(true);
+          void queryClient.refetchQueries({ type: "active", predicate: needsRetry }).finally(() => {
+            setRetrying(false);
+            reset();
+          });
+        },
       })}
     >
       <BlockBody content={children} />

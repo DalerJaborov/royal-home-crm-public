@@ -22,9 +22,10 @@ interface Props {
   /**
    * Своя заглушка вместо полноэкранной «Что-то пошло не так» — для границы
    * БЛОКА (components/BlockBoundary.tsx): упал один блок, остальные живут.
-   * `retry` снимает ошибку и рисует блок заново.
+   * `retry` снимает ошибку и рисует блок заново; `error` — пойманная ошибка
+   * (по ней граница блока отличает «кусок сборки не загрузился»).
    */
-  fallback?: (retry: () => void) => React.ReactNode;
+  fallback?: (retry: () => void, error: Error) => React.ReactNode;
   /** Имя блока — уходит в журнал ошибок префиксом, чтобы было видно, что упало. */
   name?: string;
 }
@@ -52,7 +53,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
-    if (this.props.fallback) return this.props.fallback(this.retry);
+    if (this.props.fallback) return this.props.fallback(this.retry, this.state.error);
     // Кусок сборки не загрузился — почти всегда это выкат при открытой вкладке, а
     // не поломка: lazyWithReload уже дважды пробовал перезагрузить страницу сам.
     // Человеку честно говорим, что делать, а не «что-то пошло не так» (аудит

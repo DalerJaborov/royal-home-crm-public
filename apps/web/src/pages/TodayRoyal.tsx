@@ -18,7 +18,7 @@ import { useDashboardSummary } from "../hooks/useDashboard";
 import { useClients } from "../hooks/useClients";
 import { buildShowings } from "../lib/agentDay";
 import { RoyalIcon } from "../components/look/RoyalIcon";
-import { RoyalBlock } from "../components/look/RoyalBlock";
+import { RoyalBlock, type RoyalBlockSpan } from "../components/look/RoyalBlock";
 import { RH_SEVERITY_ICON, RhAvatar, RhBlockState, RhButton, RhCircle, RhGroup, RhRow, RhSection, RhTile, type RhBrand } from "../components/look/ui";
 
 /**
@@ -53,6 +53,19 @@ export const ROYAL_HOME_BLOCKS = {
   AGENT: ["agentTiles", "agentPending", "agentShowings", "full"],
 } as const;
 export type RoyalHomeRole = keyof typeof ROYAL_HOME_BLOCKS;
+type RoyalHomeBlockId = (typeof ROYAL_HOME_BLOCKS)[RoyalHomeRole][number];
+
+/**
+ * Где блок стоит в сетке ПК — то же, что его класс (ry-col-a / ry-col-b, полоса и
+ * «весь экран» — на всю строку). Нужно заглушке упавшего блока, чтобы она встала
+ * в ту же клетку, а не в полколонки. Запись обязательна для каждого блока: тип
+ * не даст добавить блок без места.
+ */
+const ROYAL_BLOCK_SPAN: Record<RoyalHomeBlockId, RoyalBlockSpan> = {
+  money: "wide", decisions: "a", burning: "b", check: "a", team: "b", channels: "wide", full: "wide",
+  ropTiles: "wide", ropTasks: "a", ropTeam: "b", ropLosses: "a",
+  agentTiles: "wide", agentPending: "a", agentShowings: "b",
+};
 
 export function royalHomeRole(role: string | undefined): RoyalHomeRole | null {
   return role === "DIRECTOR" || role === "ADMIN" ? "DIRECTOR" : role === "HEAD_OF_SALES" ? "HEAD_OF_SALES" : role === "AGENT" ? "AGENT" : null;
@@ -140,8 +153,8 @@ function FullScreenToggle({ label, children }: { label: string; children: ReactN
  * вычисляется уже внутри границы. Новый блок попадает под защиту сам — другого
  * пути на главную, кроме этого списка, нет.
  */
-function RoyalBlocks<Id extends string>({ order, blocks }: { order: readonly Id[]; blocks: Record<Id, () => ReactNode> }) {
-  return <div className="ry-blocks">{order.map((id) => <RoyalBlock key={id} name={`today.${id}`}>{blocks[id]}</RoyalBlock>)}</div>;
+function RoyalBlocks<Id extends RoyalHomeBlockId>({ order, blocks }: { order: readonly Id[]; blocks: Record<Id, () => ReactNode> }) {
+  return <div className="ry-blocks">{order.map((id) => <RoyalBlock key={id} name={`today.${id}`} span={ROYAL_BLOCK_SPAN[id]}>{blocks[id]}</RoyalBlock>)}</div>;
 }
 
 export function TodayRoyal() {
