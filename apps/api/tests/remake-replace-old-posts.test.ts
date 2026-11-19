@@ -2,11 +2,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 /**
  * СТАРЫЕ ПОСТЫ УХОДЯТ, КОГДА ВЫХОДИТ НОВЫЙ РОЛИК (30.10.2026, владелец: «когда выйдет
- * новый»). Перемонтаж по новой цене оставляет старый ролик висеть, а задание публикации
- * нового ролика (replaceOldPostsBeforeRemakePublish) снимает его перед своим выходом.
+ * новый»). С 18.11.2026 — сначала новый, потом старый (lib/remakeOldPosts.ts): снимок перед
+ * публикацией вычёркивает каналы, чтобы новый ролик туда вышел, снятие — после нового.
  *
  * Сеть подменена: TikTok не даёт удалять вовсе, поэтому для него проверяется главное —
- * канал вычеркнут из карточки, и новый ролик туда выйдет, а хозяину ушёл пуш.
+ * канал вычеркнут из карточки, новый ролик туда выйдет, а хозяину ушёл пуш со ссылкой.
+ * Подробные случаи (сеть за сетью, отказы, рубильник) — narration-release-order.test.ts.
  */
 const { sendPushToAgent } = vi.hoisted(() => ({ sendPushToAgent: vi.fn(async () => 1) }));
 vi.mock("../src/push.js", async (importOriginal) => ({
@@ -15,7 +16,8 @@ vi.mock("../src/push.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { replaceOldPostsBeforeRemakePublish, sendBackToMontajer } = await import("../src/lib/publishedVideoFix.js");
+const { sendBackToMontajer } = await import("../src/lib/publishedVideoFix.js");
+const { finishOldPostsAfterRemakePublish, prepareOldPostsBeforeRemakePublish } = await import("../src/lib/remakeOldPosts.js");
 
 const runId = Date.now();
 let districtId = "";
@@ -61,13 +63,13 @@ afterAll(async () => {
   await prisma.district.deleteMany({ where: { id: districtId } });
 });
 
-describe("replaceOldPostsBeforeRemakePublish", () => {
+describe("замена старых постов при перемонтаже", () => {
   it("без отметки замены ничего не трогает", async () => {
     const p = await seed(["TIKTOK"], { TIKTOK: "777" });
     await prisma.videoRemakeRequest.create({
       data: { propertyId: p.id, reason: "POOR_EDIT", requestedById: agentId },
     });
-    expect(await replaceOldPostsBeforeRemakePublish(p.id)).toBeNull();
+    expect(await prepareOldPostsBeforeRemakePublish(p.id)).toBe(false);
     const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
     expect(after.publishedChannels).toEqual(["TIKTOK"]);
   });
@@ -79,17 +81,22 @@ describe("replaceOldPostsBeforeRemakePublish", () => {
       data: { propertyId: p.id, reason: "CARD_DATA_CHANGED", requestedById: agentId, replaceOldPostsOnPublish: true },
     });
 
-    const res = await replaceOldPostsBeforeRemakePublish(p.id);
-    expect(res?.manual.map((m) => m.channel)).toEqual(["TIKTOK"]);
+    expect(await prepareOldPostsBeforeRemakePublish(p.id)).toBe(true);
     const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
     expect(after.publishedChannels).toEqual([]);
     expect((after.publishedPostIds as Record<string, unknown>).TIKTOK).toBeUndefined();
+
+    // Новый ролик вышел в TikTok — старый удаляют руками, хозяину пуш.
+    await prisma.property.update({ where: { id: p.id }, data: { publishedChannels: ["TIKTOK"], publishedPostIds: { TIKTOK: "888" } } });
+    const res = await finishOldPostsAfterRemakePublish(p.id, { failedChannels: [], pendingChannels: [] });
+    expect(res?.manual).toEqual(["TIKTOK"]);
     expect(sendPushToAgent).toHaveBeenCalledWith(agentId, expect.objectContaining({ tag: `remake-old-posts-${p.id}` }));
 
     const request = await prisma.videoRemakeRequest.findFirstOrThrow({ where: { propertyId: p.id } });
     expect(request.oldPostsReplacedAt).not.toBeNull();
     // Повтор задания после сбоя сети не снимает уже вышедший новый ролик.
-    expect(await replaceOldPostsBeforeRemakePublish(p.id)).toBeNull();
+    expect(await finishOldPostsAfterRemakePublish(p.id, { failedChannels: [], pendingChannels: [] })).toBeNull();
+    expect(await prepareOldPostsBeforeRemakePublish(p.id)).toBe(false);
   });
 
   it("sendBackToMontajer с on-new-video ставит отметку и не снимает посты сразу", async () => {

@@ -252,17 +252,17 @@ describe.skipIf(!ffmpegReady)("своя музыка: перемонтаж вы�
     expect((await prisma.property.findUniqueOrThrow({ where: { id: empty.p.id } })).narrationMusicTrackId).toBeNull();
   });
 
-  it("«прослушать перед выпуском» включено: новый ролик — кандидат, вышедший не тронут", async () => {
+  it("18.11: утверждённая озвучка на вышедшем ролике со своей музыкой выходит сразу, без кандидата (старый рубильник «прослушать» ничего не держит)", async () => {
     await setConfig({ previewBeforeRepublish: true });
     await addTrack(media.trackA, "А");
     const { p } = await priceChanged();
     const before = (await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).videoHandoffFinalPath;
-    expect(await remixFromMaster(p.id)).toBe("PREVIEW");
+    expect(await remixFromMaster(p.id)).toBe("REMIXED");
     const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
-    expect(after.videoHandoffFinalPath).toBe(before);
-    expect(after.narrationPreviewPath).not.toBeNull();
-    expect(bandDb(diskOf(after.narrationPreviewPath!), 1000)).toBeLessThan(-60);
-    // Ждёт хозяина — следующий тик не сводит заново.
+    expect(after.videoHandoffFinalPath).not.toBe(before);
+    expect(after.narrationPreviewPath).toBeNull();
+    expect(bandDb(diskOf(after.videoHandoffFinalPath!), 1000)).toBeLessThan(-60);
+    // Наложено — следующий тик не сводит заново.
     expect(await remixFromMaster(p.id)).toBe("SKIPPED");
   });
 });

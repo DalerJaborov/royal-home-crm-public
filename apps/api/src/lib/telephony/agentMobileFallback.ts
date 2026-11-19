@@ -1,7 +1,7 @@
 import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
 import { amiDbGet, amiDbPut, loadAmiCredentials, type AmiCredentials } from "./amiClient.js";
-import { normalizeDialNumber, isDialableTajikNumber } from "./ariClient.js";
+import { normalizeDialNumber, isDialableTajikNumber, listEndpointsRetrying, loadAriCredentials, type AriEndpoint } from "./ariClient.js";
 import { internalExtensionDigits } from "./failoverSync.js";
 import { createNotifications, shouldAlert } from "../notifications.js";
 import { sendPushToAgents } from "../../push.js";
@@ -228,27 +228,115 @@ export function syncIncomingPrimaryReachabilityInBackground(): void {
 }
 
 /**
- * Аппарат приёма есть, а достучаться до него нечем — сказать об этом в журнал.
- *
- * Именно это молчание и стоило месяца: станция отвечала CHANUNAVAIL, CRM о
- * решении станции не знает вовсе, и ни одного следа нигде не появлялось. Плечо
- * поставить не из чего, если у аппарата нет владельца в CRM (аппарат ресепшена)
- * или у владельца ненаборный номер — тогда чинить должен человек, но узнать об
- * этом он обязан сегодня, а не через месяц по жалобе клиента.
+ * Есть ли у аппарата приёма мобильный запасной путь: владелец в CRM с номером,
+ * который транк наберёт. Одна дверь — её читают и эта проверка, и сторож
+ * офисного аппарата (officeDeskPhoneWatch.ts).
  */
-async function warnIfIncomingPrimaryUnreachable(primary: string): Promise<void> {
-  if (!primary) return;
+export async function incomingPrimaryHasMobileLeg(primary: string): Promise<boolean> {
   const owner = await prisma.agent.findFirst({
     where: { sipExtension: primary, isActive: true },
     select: { phone: true },
   });
-  if (owner && mobileFallbackTarget(owner.phone)) return;
+  return !!owner && !!mobileFallbackTarget(owner.phone);
+}
+
+/**
+ * Что делает станция с незнакомым звонком, когда до аппарата приёма не достучаться
+ * (ops/asterisk/extensions_custom.conf, блок офисного аппарата): аппарат сразу
+ * отвечает «недоступен», дальше очередь операторов и правило «если не ответили» —
+ * консультант, дежурный или автоответчик (правило «нет» с 09.10.2026 тоже ведёт на
+ * автоответчик). Звонок не обрывается, но человек его не примет.
+ */
+export const PRIMARY_UNREACHABLE_CALL_PATH =
+  "Незнакомые звонки и звонки из WhatsApp сейчас до людей не доходят: станция ведёт их в очередь операторов, " +
+  "а затем по правилу «если не ответили» (консультант, дежурный или автоответчик, как задано в Настройках).";
+
+export interface PrimaryReachabilityDeps {
+  loadCreds?: typeof loadAriCredentials;
+  listEndpoints?: (creds: NonNullable<Awaited<ReturnType<typeof loadAriCredentials>>>) => Promise<AriEndpoint[]>;
+}
+
+/**
+ * Аппарат приёма заведён, а живого пути до него нет — журнал и директор.
+ *
+ * Изначальный случай (месяц тишины): станция отвечала CHANUNAVAIL, CRM об этом не
+ * знала. Плечо поставить не из чего, если у аппарата нет владельца в CRM (аппарат
+ * ресепшена) или у владельца ненаборный номер.
+ *
+ * ЛОЖНАЯ ТРЕВОГА 18.11.2026 16:44. Решение владельца — незнакомые звонки ТОЛЬКО на
+ * офисный аппарат 2020, без владельца и без мобильного плеча. Это законная
+ * настройка: аппарат зарегистрирован на станции и сам по себе живое плечо. Прежняя
+ * проверка смотрела только на владельца и будила директоров «аппарат недостижим»
+ * при работающем телефоне. Теперь станцию спрашивают, есть ли такой аппарат:
+ *  - мобильное плечо есть — молчим;
+ *  - аппарат есть на станции и на связи — молчим;
+ *  - аппарат есть, но не на связи — молчим ЗДЕСЬ: эту тревогу ведёт один хозяин,
+ *    officeDeskPhoneWatch.ts (рабочие часы, утренняя отсрочка, две проверки подряд,
+ *    автозакрытие, и он же зовёт директора). Иначе выключенный ночью телефон будил
+ *    бы директора CRITICAL-пушем каждые сутки, а днём тревог было бы две;
+ *  - аппарата на станции НЕТ (опечатка в Настройках, номер удалён) — тревога сразу,
+ *    в любое время: это не «выключили трубку», а настройка, которая не работает;
+ *  - станция не ответила — молчим: обрыв связи ведёт своя сводная тревога;
+ *  - ARI не настроен вовсе — проверить нечем, поведение прежнее (тревога).
+ */
+export async function warnIfIncomingPrimaryUnreachable(primary: string, deps: PrimaryReachabilityDeps = {}): Promise<void> {
+  // Приём ушёл на очередь — прежние тревоги про любой аппарат приёма больше не правда.
+  if (!primary) return resolvePrimaryAlarms(null);
+  if (await incomingPrimaryHasMobileLeg(primary)) return resolvePrimaryAlarms(primary);
+  const owner = await prisma.agent.findFirst({ where: { sipExtension: primary, isActive: true }, select: { id: true } });
+
+  const creds = await (deps.loadCreds ?? loadAriCredentials)();
+  let onStation: boolean | null = null;
+  if (creds) {
+    let endpoints: AriEndpoint[];
+    try {
+      endpoints = await (deps.listEndpoints ?? listEndpointsRetrying)(creds);
+    } catch {
+      return;
+    }
+    // Тот же признак аппарата, что у agentDeviceOnline (софтфон или rh-web-<номер>).
+    onStation = endpoints.some((e) => e.resource === primary || e.resource === `rh-web-${primary}`);
+    if (onStation) return resolvePrimaryAlarms(primary);
+  }
+
   const reason = owner ? "у владельца аппарата ненаборный номер" : "аппарат ни за кем не закреплён в CRM";
+  const where = onStation === false ? "такого аппарата нет на станции" : "проверить аппарат на станции нечем (ARI не настроен)";
   const message =
-    `Весь приём входящих заведён на аппарат ${primary}, но мобильное плечо ему поставить не из чего: ` +
-    `${reason}. Пока на аппарате нет ни одного живого плеча, звонок клиента обрывается сразу.`;
-  void logSystemError("telephony", message);
+    `Весь приём входящих заведён на аппарат ${primary}, но ${where}, а мобильного запасного пути нет: ${reason}. ` +
+    PRIMARY_UNREACHABLE_CALL_PATH;
+  // Одна открытая строка на поломку: обход идёт каждые 15 минут, а дедуп журнала —
+  // 10 минут по началу текста, и раньше на проде ложилась новая строка каждый обход.
+  if (!(await openPrimaryAlarm(primary))) {
+    await logSystemError("telephony", message, { dedupKey: `${PRIMARY_ALARM_PREFIX} ${primary},` });
+  }
   await notifyDirectorsAboutUnreachablePrimary(primary, message);
+}
+
+/** Начало текста тревоги про аппарат приёма — и нынешней, и прежней («…мобильное плечо ему поставить не из чего»). */
+const PRIMARY_ALARM_PREFIX = "Весь приём входящих заведён на аппарат";
+
+/** Запятая после номера обязательна: иначе тревога про 202 гасила бы и тревогу про 2020. */
+function primaryAlarmWhere(primary: string | null) {
+  return {
+    source: "telephony",
+    resolvedAt: null,
+    message: { startsWith: primary ? `${PRIMARY_ALARM_PREFIX} ${primary},` : PRIMARY_ALARM_PREFIX },
+  };
+}
+
+async function openPrimaryAlarm(primary: string): Promise<boolean> {
+  return (await prisma.errorLog.count({ where: primaryAlarmWhere(primary) })) > 0;
+}
+
+/**
+ * Условие тревоги больше не выполняется — открытые строки закрываются сами (18.11.2026:
+ * на проде висели строки, заведённые ложной тревогой). null — приём не на аппарат:
+ * закрыть все тревоги про аппарат приёма. Сбой записи не роняет обход.
+ */
+async function resolvePrimaryAlarms(primary: string | null): Promise<void> {
+  await prisma.errorLog
+    .updateMany({ where: primaryAlarmWhere(primary), data: { resolvedAt: new Date() } })
+    .catch((err) => console.error("[telephony] тревога аппарата приёма не закрыта:", err instanceof Error ? err.message : err));
 }
 
 /**
@@ -262,7 +350,7 @@ async function warnIfIncomingPrimaryUnreachable(primary: string): Promise<void> 
  * приём входящих сломан прямо сейчас, это не отчёт к утру. Ничего не бросает —
  * сбой уведомления не должен ронять синхронизацию со станцией.
  */
-async function notifyDirectorsAboutUnreachablePrimary(primary: string, message: string): Promise<void> {
+export async function notifyDirectorsAboutUnreachablePrimary(primary: string, message: string): Promise<void> {
   try {
     const tag = `incoming-primary-unreachable-${primary}`;
     if (!(await shouldAlert(tag, 24 * 60 * 60 * 1000))) return;

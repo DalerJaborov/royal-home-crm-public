@@ -111,11 +111,15 @@ const narrationConfigBase = z.object({
   /** Рубильник (12.11.2026): озвучка к роликам, которые уже стоят в монтаже, на одобрение владельцу.
    *  По умолчанию ВЫКЛЮЧЕН и сам с автоозвучкой не включается (решение владельца — завтра). */
   backfillMontageQueue: z.boolean().optional(),
-  /** Рубильник (17.11.2026, «прослушать перед выпуском»): CRM наложила новую озвучку на ВЫШЕДШИЙ ролик —
-   *  новый ролик сначала уходит хозяину объекта послушать («Выпустить / Другой голос или текст / Оставить
-   *  старый»), молчит — выходит сам через часы из «Ролик подтверждает хозяин». По умолчанию ВКЛЮЧЁН;
-   *  false — как раньше, новый ролик сразу заменяет вышедший. */
+  /** УСТАРЕЛО 18.11.2026: «прослушать перед выпуском» убрано — человек слушает озвучку и утверждает один раз,
+   *  ролик выходит сразу. Поле остаётся только затем, чтобы старые сохранённые настройки читались; CRM его не смотрит. */
   previewBeforeRepublish: z.boolean().optional(),
+  /** Рубильник (18.11.2026, владелец): новая озвучка вышла — старые посты этого объекта CRM снимает сама, в каждой сети
+   *  только ПОСЛЕ того, как там вышел новый. По умолчанию ВКЛЮЧЁН; false — старые посты остаются рядом с новыми. */
+  removeOldPostsOnNarration: z.boolean().optional(),
+  /** Промежуток между роликами после новой озвучки, минуты (18.11.2026): утвердили пять сразу — выходят по очереди
+   *  через этот промежуток, а не залпом и не через обычные 90 минут. По умолчанию 15. */
+  narrationPublishGapMin: z.number().int().min(5).max(180).optional(),
   /** Рубильник (18.11.2026, «своя музыка при перемонтаже»): у вышедшего ролика нет ролика без голоса, а озвучка
    *  поменялась — CRM снимает со старого ролика весь звук и кладёт случайный трек библиотеки (Настройки → Озвучка)
    *  и новый голос. По умолчанию ВЫКЛЮЧЕН: треки подбирает владелец; выключен или треков нет — монтажёру. */
@@ -217,9 +221,14 @@ export function narrationOwnMusicRemix(config: Pick<NarrationConfig, "ownMusicRe
   return config.ownMusicRemix === true;
 }
 
-/** Новая озвучка на вышедший ролик сначала идёт хозяину послушать (17.11.2026): включено, пока не выключили. */
-export function narrationPreviewBeforeRepublish(config: Pick<NarrationConfig, "previewBeforeRepublish">): boolean {
-  return config.previewBeforeRepublish !== false;
+/** Снимать старые посты при новой озвучке (18.11.2026): включено, пока не выключили. */
+export function narrationRemovesOldPosts(config: Pick<NarrationConfig, "removeOldPostsOnNarration">): boolean {
+  return config.removeOldPostsOnNarration !== false;
+}
+/** Промежуток между роликами после новой озвучки, минуты (18.11.2026): по умолчанию 15. */
+export const NARRATION_PUBLISH_GAP_DEFAULT_MIN = 15;
+export function narrationPublishGapMin(config: Pick<NarrationConfig, "narrationPublishGapMin">): number {
+  return config.narrationPublishGapMin ?? NARRATION_PUBLISH_GAP_DEFAULT_MIN;
 }
 
 /**
@@ -600,6 +609,10 @@ export type PropertyNarrationItem = {
   approvedAt: string | null; stale: boolean; hasAudio: boolean; errorCode: string | null; createdAt: string;
   canReconcile?: boolean;
   source?: string; templateId?: string | null; endingId?: string | null; language?: string | null; generateAfter?: string | null;
+  /** Настоящая длина готового голоса, секунды (18.11.2026): есть — кнопку «Утвердить» решает она, а не оценка по тексту. */
+  audioSec?: number | null;
+  /** Только у последней версии: ждёт утверждения человеком (не утверждена или утверждена самой CRM на вышедшем ролике). */
+  awaitsHuman?: boolean;
 };
 /** Что видит мастер: шаблоны и голоса без ключей и моделей. */
 export type NarrationOptionsView = {
@@ -633,22 +646,25 @@ export type PropertyNarrationView = {
   mix?: { hasMaster: boolean; error: string | null; problem?: "VOICE_LONGER" | "FAILED" | null;
     /** Одна строка агенту простыми словами (16.11.2026): CRM убирает старый голос, подогнала длину и т.п. */
     note?: string | null };
-  /**
-   * ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026): CRM наложила новую озвучку на вышедший ролик, новый ролик
-   * ждёт решения. previewPath / currentPath — ролики для сравнения (/uploads/handoff/…, закрытые);
-   * oldVersionId — озвучка вышедшего ролика, если её наложила CRM (иначе голос вклеивал монтажёр).
-   * dueAt — когда выйдет сам (null — сам не выйдет). canDecide — этот сотрудник может решить.
-   */
-  preview?: {
-    versionId: string; revision: number; previewPath: string; currentPath: string | null; oldVersionId: string | null;
-    createdAt: string; dueAt: string | null; voiceSec: number | null; clipSec: number | null; note: string | null; canDecide: boolean;
-  } | null;
-  /** Хозяин отказался накладывать последнюю версию: «Оставить старый» или «Другой голос или текст». */
-  previewDeclined?: boolean;
+  /** Длина вышедшего ролика, секунды (18.11.2026): по ней карточка считает «укладывается ли текст»; null — ролика нет. */
+  clipSec?: number | null;
+  /** Скорость речи по замерам уже озвученных версий (знаков в секунду); нет замеров — постоянная из shared. */
+  charsPerSec?: Partial<Record<NarrationLang, number>>;
+  /** Ролик объекта уже вышел в соцсети: новая озвучка выйдет только после «Утвердить и выпустить». */
+  published?: boolean;
+  /** Что поменялось с последней утверждённой озвучки: «цена», «этаж»… (narrationFactsChanges). */
+  changed?: string[];
+  /** Ход выпуска новой озвучки (18.11.2026): от утверждения до «старые посты сняты». */
+  release?: NarrationReleaseView | null;
 };
-/** Решение по новому ролику (17.11.2026): RELEASE — выпустить, KEEP_OLD — оставить вышедший, CHANGE — другой голос или текст. */
-export const narrationPreviewDecisionSchema = z.object({ versionId: z.string().uuid(), decision: z.enum(["RELEASE", "KEEP_OLD", "CHANGE"]) }).strict();
-export type NarrationPreviewDecision = z.infer<typeof narrationPreviewDecisionSchema>["decision"];
+/** Канал выпуска новой озвучки: NEW — новый пост вышел; OLD_REMOVED — и старый снят; OLD_MANUAL — старый удалите сами (url);
+ *  OLD_KEPT — старый оставлен (рубильник выключен); NEW_FAILED — новый не вышел, старый остался; WAITING — ещё выходит. */
+export type NarrationReleaseChannel = { channel: string; state: "WAITING" | "NEW" | "OLD_REMOVED" | "OLD_MANUAL" | "OLD_KEPT" | "NEW_FAILED"; url?: string | null };
+export type NarrationReleaseView = {
+  /** MIXING — CRM накладывает голос; SCHEDULED — ждёт своего времени (at); PUBLISHING — уходит в сети; DONE — вышло. */
+  stage: "MIXING" | "SCHEDULED" | "PUBLISHING" | "DONE";
+  versionId: string; at: string | null; reason: string | null; channels: NarrationReleaseChannel[];
+};
 /** Настройки CRM → «Озвучка роликов» (14.11.2026): вся техника, которую агент в карточке не видит. */
 export type NarrationSettingsView = {
   config: NarrationConfig; apiKeyConfigured: boolean; sendsEnabled: boolean; quotaExceeded: boolean;

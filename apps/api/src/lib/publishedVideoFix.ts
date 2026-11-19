@@ -30,6 +30,7 @@ import { randomUUID } from "node:crypto";
 import { prisma, type TxClient } from "../db.js";
 import { logSystemError } from "./systemError.js";
 import { updatePublishedMarks } from "./publishedMarks.js";
+import { openReplacement, recordRemakeHistory } from "./remakeRequests.js";
 import { isYoutubeScopeError, reportYoutubeScopeMissing, YOUTUBE_SCOPE_MISSING_SHORT } from "./youtubeScope.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { loadCredentials } from "../messengers/meta.js";
@@ -187,7 +188,7 @@ function manualSteps(
  * (`Settings.tiktokCreatorUsername`). Нет любой из половин — честный `null`,
  * а не собранная наугад ссылка: та вела бы в никуда.
  */
-async function tiktokPostUrl(postId: string | undefined): Promise<string | null> {
+export async function tiktokPostUrl(postId: string | undefined): Promise<string | null> {
   if (!postId) return null;
   const settings = await prisma.settings.findUnique({
     where: { id: "singleton" },
@@ -230,15 +231,26 @@ export function isTelegramMessageGone(err: unknown): boolean {
  * Канал, который снять не удалось, из списка НЕ вычёркивается: иначе второй
  * ролик встал бы рядом с первым вместо того, чтобы его заменить.
  */
+/** Снимок старых постов перед выпуском нового ролика (VideoRemakeRequest.oldPosts, lib/remakeOldPosts.ts). */
+export type OldPostsSnapshot = { channels: string[]; postIds: Record<string, unknown>; instagramUrl: string | null };
+
 export async function removeFromSocial(
   propertyId: string,
   only?: string[],
-  opts: { insidePublishJob?: boolean } = {}
+  opts: {
+    insidePublishJob?: boolean;
+    /** СТАРЫЕ ПОСТЫ ПО СНИМКУ (18.11.2026, lib/remakeOldPosts.ts): снять посты из снимка, а не из карточки —
+     *  в карточке уже новые посты того же канала. Пометки карточки при этом не трогаются. */
+    snapshot?: OldPostsSnapshot;
+  } = {}
 ): Promise<SocialRemovalResult> {
-  const property = await prisma.property.findUnique({
+  const row = await prisma.property.findUnique({
     where: { id: propertyId },
     select: { id: true, deletedAt: true, publishedChannels: true, publishedPostIds: true, instagramUrl: true },
   });
+  const property = row && opts.snapshot
+    ? { ...row, publishedChannels: opts.snapshot.channels, publishedPostIds: opts.snapshot.postIds as typeof row.publishedPostIds, instagramUrl: opts.snapshot.instagramUrl }
+    : row;
   if (!property) return { removed: [], failed: [{ channel: "—", error: "Объект не найден" }], manual: [], notes: [] };
   // ЗАМОК ПРОТИВ ИДУЩЕЙ ПУБЛИКАЦИИ (25.09.2026, Б3). Задание публикации пишет
   // вышедший канал в конце своего шага: снятие посреди него вычеркнуло бы
@@ -247,7 +259,7 @@ export async function removeFromSocial(
   // Само задание публикации (insidePublishJob) снимает старые посты ДО своего
   // шага публикации — это не гонка с ним, а его же первый шаг.
   if (property.deletedAt) return { removed: [], failed: [], manual: [], notes: [], blocked: "Объект удалён — снимать его посты отсюда нельзя." };
-  if (!opts.insidePublishJob && (await isHandoffPublishRunning(propertyId))) {
+  if (!opts.insidePublishJob && !opts.snapshot && (await isHandoffPublishRunning(propertyId))) {
     return { removed: [], failed: [], manual: [], notes: [], blocked: HANDOFF_PUBLISH_RUNNING_ERROR };
   }
 
@@ -508,7 +520,7 @@ export async function removeFromSocial(
   }
 
   const telegramPartial = telegramExtraFailed.length > 0 && telegramMainRemoved;
-  if (removed.length > 0 || telegramPartial) {
+  if (!opts.snapshot && (removed.length > 0 || telegramPartial)) {
     // ДЕЛЬТА К СВЕЖЕЙ КАРТОЧКЕ, а не снимок, прочитанный в начале (аудит 04.10.2026,
     // PUB06/PUB07): за время сетевых вызовов параллельная публикация могла сохранить
     // новый id или канал, и запись всего старого publishedPostIds стёрла бы его.
@@ -903,16 +915,12 @@ export async function sendBackToMontajer(
       where: { propertyId, status: "PENDING", kind: "REEL" },
       data: { status: "CANCELLED", resolvedAt: new Date(), error: "Ролик возвращён монтажёру — Reels прежнего ролика отменён" },
     });
-    await tx.videoRemakeRequest.create({
-      data: {
-        propertyId,
-        reason,
-        comment: comment ?? null,
-        requestedById,
-        messageText,
-        replaceOldPostsOnPublish: options?.removeFromSocial === "on-new-video",
-      },
-    });
+    // «Когда выйдет новый» — одна дверь замены (lib/remakeRequests.ts, ревью 18.11): без второй открытой заявки-дубля;
+    // идущая замена закрывается, её нерешённые старые посты переходят в новую. Запись возврата в историю — всегда.
+    const replacement = options?.removeFromSocial === "on-new-video"
+      ? await openReplacement(tx, { propertyId, reason, requestedById, comment: comment ?? null, messageText })
+      : null;
+    if (!replacement || replacement.reused) await recordRemakeHistory(tx, { propertyId, reason, requestedById, comment: comment ?? null, messageText });
 
     if (property.sellerClientId) {
       await logTimeline({
@@ -977,74 +985,8 @@ export async function sendBackToMontajer(
   };
 }
 
-/**
- * СТАРЫЕ ПОСТЫ УХОДЯТ, КОГДА ВЫХОДИТ НОВЫЙ РОЛИК (30.10.2026, владелец: «когда выйдет
- * новый»). Возврат по смене цены или данных карточки (`removeFromSocial: "on-new-video"`)
- * оставляет старый ролик висеть, пока монтажёр работает, — объект всё это время виден.
- * Зовёт задание публикации нового ролика ПЕРЕД публикацией (jobs/videoHandoffPublish.ts):
- *
- *  1. снимает старые посты тем же removeFromSocial, что у кнопки «Убрать из соцсетей»;
- *  2. Instagram и TikTok, которые снять нельзя (только руками), вычёркивает из
- *     `publishedChannels` — иначе публикация пропустила бы их, и новая цена туда не
- *     попала бы; хозяину объекта уходит пуш со ссылками на старые посты;
- *  3. канал, где снятие отказало по сбою, остаётся в карточке: новый ролик туда не
- *     выйдет, зато не встанет дублем рядом со старым (причина — в журнале).
- *
- * Отметка `oldPostsReplacedAt` ставится один раз: повтор задания после сбоя сети не
- * снимает уже вышедший НОВЫЙ ролик. Возвращает null, если замены не просили.
- */
-export async function replaceOldPostsBeforeRemakePublish(
-  propertyId: string
-): Promise<{ social: SocialRemovalResult; manual: ManualStep[] } | null> {
-  const request = await prisma.videoRemakeRequest.findFirst({
-    where: { propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null },
-    orderBy: { createdAt: "desc" },
-    select: { id: true },
-  });
-  if (!request) return null;
-  // Отметка ДО сетевых вызовов: упади задание посреди снятия — повтор не пойдёт снимать
-  // второй раз то, что могло уже стать новым роликом.
-  const claimed = await prisma.videoRemakeRequest.updateMany({
-    where: { propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null },
-    data: { oldPostsReplacedAt: new Date() },
-  });
-  if (claimed.count === 0) return null;
-
-  const social = await removeFromSocial(propertyId, undefined, { insidePublishJob: true });
-  const manual = social.manual.filter((s) => s.channel === "INSTAGRAM" || s.channel === "TIKTOK");
-  if (manual.length > 0) {
-    const leave = manual.map((s) => s.channel as string);
-    await updatePublishedMarks(propertyId, (current) => {
-      const nextPostIds = { ...current.postIds };
-      for (const c of leave) delete nextPostIds[c];
-      return {
-        channels: current.channels.filter((c) => !leave.includes(c)),
-        postIds: nextPostIds,
-        ...(leave.includes("INSTAGRAM") ? { data: { instagramUrl: null } } : {}),
-      };
-    });
-    const property = await prisma.property.findUnique({
-      where: { id: propertyId },
-      select: { shortId: true, title: true, intakeAgentId: true, assignedAgentId: true, createdById: true },
-    });
-    const body = manual.map((s) => `${s.channel === "INSTAGRAM" ? "Instagram" : "TikTok"}: ${s.url ?? "найдите старый ролик в приложении"}`).join("\n");
-    void logSystemError(
-      "meta",
-      `Объект №${property?.shortId ?? propertyId}: вышел перемонтированный ролик, старый удалите руками — ${body.replace(/\n/g, "; ")}`,
-      { dedupKey: "Объект №…: вышел перемонтированный ролик, старый удалите руками" }
-    );
-    const ownerId = property ? propertyOwnerAgentId(property) : null;
-    if (ownerId && property) {
-      void sendPushToAgent(ownerId, {
-        title: `Новый ролик №${property.shortId} выходит — удалите старый`,
-        body: `${property.title}\n${body}`,
-        url: `/properties/${property.shortId}`,
-        tag: `remake-old-posts-${propertyId}`,
-      }).catch(() => {});
-    }
-  }
-  return { social, manual };
-}
+/* СТАРЫЕ ПОСТЫ ПРИ ПЕРЕМОНТАЖЕ (30.10.2026 → 18.11.2026): прежний replaceOldPostsBeforeRemakePublish снимал их ДО
+ * публикации нового ролика. Теперь сначала новый, потом старый, по каждой сети отдельно — lib/remakeOldPosts.ts. */
 
 /**
  * ОТКРЫТЬ ОБЪЕКТ ДЛЯ РУЧНОЙ ЗАГРУЗКИ ГОТОВОГО РОЛИКА.
