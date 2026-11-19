@@ -12,7 +12,7 @@ import {
 } from "../lib/ownerReportView";
 import "../owner-report.css";
 import { RoyalSection, useRoyalSectionName } from "../components/look/clients/RoyalSection";
-import { RECORDS_SECTION, usePublicRoyalLook } from "../components/look/records/publicLook";
+import { RECORDS_SECTION, usePublicLookRoot } from "../components/look/records/publicLook";
 
 type LoadState =
   | { kind: "loading" }
@@ -45,7 +45,7 @@ type PeriodKey = (typeof PERIODS)[number]["key"];
 export function PublicOwnerReport() {
   // «Новый вид» — только по `?look=royal` или выбору сотрудника на этом устройстве (publicLook.ts):
   // владелец квартиры признака не имеет, и отчёт прежний до пикселя, без единого нового запроса.
-  const royal = usePublicRoyalLook();
+  const royal = usePublicLookRoot();
   return (
     <RoyalSection name={royal ? RECORDS_SECTION : undefined}>
       <OwnerReportScreen />

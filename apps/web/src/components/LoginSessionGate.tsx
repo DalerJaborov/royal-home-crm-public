@@ -5,7 +5,7 @@ import { restoreLoginSession, type LoginSessionResult } from "../lib/loginSessio
 import { AppSkeleton } from "./AppSkeleton";
 import { Rh2Screen } from "./rh2/Rh2Screen";
 import { RoyalSection } from "./look/clients/RoyalSection";
-import { RECORDS_SECTION, usePublicRoyalLook } from "./look/records/publicLook";
+import { RECORDS_SECTION, usePublicLookRoot } from "./look/records/publicLook";
 
 /** Check only the session present on route entry. A new OTP login still owns
  * its passkey-offer step; setting its session must not skip that screen. */
@@ -17,7 +17,7 @@ export function LoginSessionGate({ children }: { children: React.ReactNode }) {
   const [result, setResult] = useState<LoginSessionResult | "restore">(entry);
   const [attempt, setAttempt] = useState(0);
   // «Новый вид» экрана входа (пачка records): только по `?look=royal` или выбору сотрудника на устройстве.
-  const royal = usePublicRoyalLook();
+  const royal = usePublicLookRoot();
   useEffect(() => {
     if (entry !== "restore") return;
     let active = true;

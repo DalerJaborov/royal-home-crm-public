@@ -6,7 +6,7 @@ import { formatMoney } from "../lib/format";
 import { lightboxItemsFromShared, openIndexForCell, SHARE_GALLERY_CELLS } from "../lib/sharedGallery";
 import { PhotoLightbox } from "../components/PhotoLightbox";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
-import { RECORDS_SECTION, usePublicRoyalLook } from "../components/look/records/publicLook";
+import { RECORDS_SECTION, usePublicLookRoot } from "../components/look/records/publicLook";
 import {
   PROPERTY_CONDITION_LABELS,
   PROPERTY_TYPE_LABELS,
@@ -71,7 +71,7 @@ interface ShareResponse {
 export function PublicPropertyShare() {
   // «Новый вид» — только по `?look=royal` или выбору сотрудника на этом устройстве (publicLook.ts):
   // у клиента признака нет, и страница прежняя до пикселя, без единого нового запроса.
-  const royal = usePublicRoyalLook();
+  const royal = usePublicLookRoot();
   return (
     <RoyalSection name={royal ? RECORDS_SECTION : undefined}>
       <ShareScreen royal={royal} />

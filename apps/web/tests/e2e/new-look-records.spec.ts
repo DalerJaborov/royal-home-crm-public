@@ -23,7 +23,7 @@ const SHARE = {
     title: "3-комн · Сино, у парка, длинное название объекта для проверки переноса", type: "APARTMENT", rooms: 3, areaSqm: "86",
     price: "785000", currency: "TJS", district: "Сино", city: "Душанбе", condition: "EXCELLENT",
     amenities: ["Лифт", "Парковка", "Мебель", "Кондиционер"], description: "Светлая квартира, окна на две стороны.",
-    photos: [], clipVideoUrl: null, sold: false, saleStatus: "AVAILABLE",
+    photos: [1, 2, 3].map((n) => ({ url: `/uploads/e2e-records/p${n}.png`, thumbUrl: `/uploads/e2e-records/p${n}.png` })), clipVideoUrl: null, sold: false, saleStatus: "AVAILABLE",
   },
   agent: { fullName: "Сотрудник Один", phone: "+992900000002" },
 };
@@ -39,7 +39,10 @@ const REPORT = {
   topics: [{ key: "PRICE", label: "Цена", count: 7 }, { key: "BARGAIN", label: "Торг и скидка", count: 5 }],
   nextStep: { kind: "PRICE", title: "Обсудить цену", text: "Чаще всего спрашивают про торг.", evidence: ["7 вопросов о цене"] },
 };
+/** Однопиксельный PNG вместо фото объекта: e2e не зависит от файлов стенда. */
+const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 async function stubPublic(page: Page) {
+  await page.route((u) => u.pathname.startsWith("/uploads/e2e-records/"), (r) => r.fulfill({ body: PIXEL, contentType: "image/png" }));
   await page.route((u) => u.pathname === "/api/v1/l/e2e-token", (r) => r.fulfill({ json: SHARE }));
   await page.route((u) => u.pathname === "/api/v1/public/owner-report/e2e-token", (r) => r.fulfill({ json: REPORT }));
 }
@@ -93,6 +96,19 @@ test("без признака метки раздела нет — прежни�
   }
 });
 
+test("AppLayout ставит флаг устройства при новом виде и снимает, когда сервер вид не дал", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "проверяется в десктопном проекте");
+  await stubShell(page, true);
+  await page.goto("/archive");
+  await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal", { timeout: 20_000 });
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("rh-look-device"))).toBe("royal");
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await stubShell(page, false);
+  await page.goto("/archive");
+  await expect(page.locator(".rh2.screens .scr").first()).toBeVisible({ timeout: 20_000 });
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("rh-look-device"))).toBeNull();
+});
+
 test.describe("страницы без входа", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
   const PUBLIC = [
@@ -134,9 +150,9 @@ test.describe("страницы без входа", () => {
     });
   }
 
-  test("запомненный на устройстве выбор сотрудника включает новый вид входа; ?look=legacy его снимает", async ({ page }, testInfo) => {
+  test("флаг устройства (ставит AppLayout) включает новый вид входа; ?look=legacy его снимает", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "chromium", "проверяется в десктопном проекте");
-    await page.addInitScript(() => { try { localStorage.setItem("rh-look:e2e-staff", "royal"); } catch { /* приватный режим */ } });
+    await page.addInitScript(() => { try { localStorage.setItem("rh-look-device", "royal"); } catch { /* приватный режим */ } });
     await page.goto("/login");
     await expect(page.locator(".ry-login .lgn-card")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
@@ -153,5 +169,24 @@ test.describe("страницы без входа", () => {
     expect(Number(await go.evaluate((el) => getComputedStyle(el).opacity))).toBe(1);
     await go.evaluate((el) => (el as HTMLButtonElement).setAttribute("disabled", ""));
     expect(Number(await go.evaluate((el) => getComputedStyle(el).opacity))).toBeLessThanOrEqual(0.5);
+  });
+
+  test("просмотрщик фото на /l?look=royal: круглые кнопки-значки не стали синей таблеткой (ревью #322)", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "проверяется в десктопном проекте");
+    await stubPublic(page);
+    await page.goto("/l/e2e-token?look=royal");
+    await page.locator(".ry-share .gal .cell").first().click();
+    const close = page.getByRole("button", { name: "Закрыть" });
+    await expect(close).toBeVisible({ timeout: 15_000 });
+    const box = await close.boundingBox();
+    expect(box && Math.abs(box.width - box.height)).toBeLessThanOrEqual(2);
+    const primary = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--rh-ui-primary").trim());
+    const bg = await close.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const toRgb = (hex: string) => `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
+    expect(bg).not.toBe(toRgb(primary));
+    for (const name of ["Предыдущее фото", "Следующее фото"]) {
+      const b = await page.getByRole("button", { name }).boundingBox();
+      expect(b && Math.abs(b.width - b.height), name).toBeLessThanOrEqual(2);
+    }
   });
 });

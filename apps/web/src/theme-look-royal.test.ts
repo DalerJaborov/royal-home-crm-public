@@ -865,6 +865,23 @@ ${P} .sheet.bottom .sheet-f { padding-bottom: 0; }`)).toEqual([`${P} .sheet.bott
     expect(siblingEscapes(`${css}
 ${P} ~ .rh2 .pill { color: red; }`, "records")).toEqual([`${P} ~ .rh2 .pill`]);
   });
+  it("records: круглая кнопка-значок (.soft/.icon просмотрщика фото) не перекрашена в синюю таблетку (ревью #322, проверен поломкой)", () => {
+    const css = readFileSync(new URL("./theme-look-royal-records.css", import.meta.url), "utf8");
+    // Каждое правило, красящее .pill синим или задающее ей боковые поля таблетки, исключает .soft и .icon.
+    const pillRepaints = (text: string) => cssRules(text)
+      .filter((r) => /background:\s*var\(--rh-ui-primary\)|padding:\s*0 (16|20)px/.test(r.body))
+      .flatMap((r) => splitTopLevel(r.selector))
+      .filter((sel) => /\.pill\b/.test(notGroups(subjectOf(sel)).rest) && !/\.(lgn|mod)\b/.test(sel));
+    const leaks = (text: string) => pillRepaints(text).filter((sel) => {
+      const excluded = notGroups(subjectOf(sel)).inside.join(" ");
+      return !/\.soft\b/.test(excluded) || !/\.icon\b/.test(excluded);
+    });
+    expect(pillRepaints(css).length).toBeGreaterThan(0);
+    expect(leaks(css)).toEqual([]);
+    const broken = css.replace(/, \.soft, \.icon\)/g, ")");
+    expect(broken).not.toBe(css);
+    expect(leaks(broken)).not.toEqual([]);
+  });
   it("«Удалить» кампанию воронки красная по признаку смысла, а не по порядку ссылок (ревью #304)", () => {
     const css = readFileSync(new URL("./theme-look-royal-analytics.css", import.meta.url), "utf8");
     const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="analytics"]';

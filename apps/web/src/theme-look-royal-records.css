@@ -70,9 +70,11 @@
 
 /* ================================ кнопки ================================ */
 /* Сплошная (главная) — синяя; тихая (ghost) — белая с кольцом; смысловые варианты
-   старой темы (.danger, .crit, .warn, .ok, .gold, .hot, звонок) не перекрашиваются. */
+   старой темы (.danger, .crit, .warn, .ok, .gold, .hot, звонок) не перекрашиваются.
+   Круглые кнопки-значки (.soft/.icon: «Закрыть», «‹ ›» просмотрщика фото) — свои, не
+   синий овал (ревью #322: правило без исключения тянуло их в таблетку 20 px по бокам). */
 
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .soft, .icon)) {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; height: auto; padding: 0 20px;
   border: 0; border-radius: 999px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
   font: inherit; font-size: 15px; font-weight: 600; line-height: 1.25; text-decoration: none; white-space: normal; box-shadow: none; cursor: pointer;
@@ -81,14 +83,14 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.ghost:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rh-ui-text) 14%, transparent);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.sm:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) { padding: 0 16px; font-size: 14px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .ghost)):hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.sm:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .soft, .icon)) { padding: 0 16px; font-size: 14px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .ghost, .soft, .icon)):hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.ghost:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)):hover:not(:disabled) { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.danger { border: 0; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-crit) 86%, #000); color: var(--rh-ui-crit-fg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:active:not(:disabled) { transform: scale(.97); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill svg { flex: none; width: 18px; height: 18px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:not(.icon) svg { flex: none; width: 18px; height: 18px; }
 
 /* Выключенная кнопка раздела приглушена ВСЕГДА — любая: :not(#ry-dim) даёт вес id,
    правило тяжелее любой перекраски выше и прежнего `.pill:disabled{opacity:1}`
