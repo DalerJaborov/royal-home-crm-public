@@ -5,7 +5,9 @@ import { assistantStyle } from "./assistant/personaStyle.js";
 import { searchAssistantCompanyKnowledge, knowledgeContext } from "./assistant/knowledge.js";
 import { tajikGlossaryFor } from "./assistant/tajikGlossary.js";
 import { LAST_ROUND_INSTRUCTION, hasFoundItems, partialAnswerFromResults, type CollectedToolResult } from "./assistant/partialAnswer.js";
-import { createAssistantAttemptLimit } from "./assistant/attemptLimit.js";
+import { assistantLimitMeasureOf, assistantLimitReasonOf, createAssistantAttemptLimit, type AssistantLimitReason } from "./assistant/attemptLimit.js";
+import { MAX_SHRINK_RETRIES, shrinkConversation } from "./assistant/requestShrink.js";
+import { ASSISTANT_LIMIT_TEXTS, assistantLimitCode } from "./assistant/limitText.js";
 import { reserveAssistantGeminiAttempt } from "./assistant/attemptBudget.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { buildExpenseSummary } from "../lib/expenseQueries.js";
@@ -1227,7 +1229,12 @@ export function pluginDeclarations(
  * (retryable), по которому интерфейс решает, предлагать ли «Повторить».
  */
 export type AssistantErrorCode =
-  | "attempt_limit"
+  /** Запрос не влез в предел даже после сжатия, или на ответ ушло слишком много шагов/денег хода. */
+  | "too_large"
+  /** Дневной предел расходов (или числа вызовов) на ИИ действительно исчерпан. */
+  | "daily_limit"
+  /** Учёт расходов недоступен или тарифы требуют проверки — платные вызовы закрыты. */
+  | "unavailable"
   | "no_key"
   | "deadline"
   | "aborted"
@@ -1243,7 +1250,9 @@ export type AssistantOutcome =
 
 /** Текст для человека по коду отказа — одна таблица на роут и на любой другой вход. */
 export const ASSISTANT_ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
-  attempt_limit: "Лимит вызовов ИИ достигнут или учёт расходов недоступен. Новые платные запросы остановлены.",
+  too_large: ASSISTANT_LIMIT_TEXTS.too_large.ru,
+  daily_limit: ASSISTANT_LIMIT_TEXTS.daily_limit.ru,
+  unavailable: ASSISTANT_LIMIT_TEXTS.unavailable.ru,
   no_key: "ИИ недоступен: ключ Gemini не настроен (Настройки → ИИ)",
   deadline: "ИИ отвечал слишком долго — повторите вопрос или задайте его короче",
   aborted: "Запрос отменён",
@@ -1256,7 +1265,9 @@ export const ASSISTANT_ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
 
 /** Те же отказы по-таджикски, на «шумо» (ревью пачки 2, 07.11.2026). */
 export const ASSISTANT_ERROR_MESSAGES_TG: Record<AssistantErrorCode, string> = {
-  attempt_limit: "Ҳадди дархостҳо ба ИИ тамом шуд ё ҳисоби хароҷот дастрас нест. Дархостҳои нави пулакӣ қатъ шуданд.",
+  too_large: ASSISTANT_LIMIT_TEXTS.too_large.tg,
+  daily_limit: ASSISTANT_LIMIT_TEXTS.daily_limit.tg,
+  unavailable: ASSISTANT_LIMIT_TEXTS.unavailable.tg,
   no_key: "ИИ дастрас нест: калиди Gemini танзим нашудааст (Танзимот → ИИ).",
   deadline: "ИИ хеле дер ҷавоб дод. Лутфан саволро такрор кунед ё кӯтоҳтар нависед.",
   aborted: "Дархост бекор шуд.",
@@ -1369,18 +1380,26 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-function failureOf(err: unknown, signal: AbortSignal): { code: AssistantErrorCode; retryable: boolean } {
+/** Отказ денежной защиты: брошен напрямую (кошелёк) или изнутри вызова модели (beforeAttempt).
+ *  Код и текст для человека — ai/assistant/limitText.ts (19.11.2026). */
+function limitReasonOf(err: unknown): AssistantLimitReason | null {
+  return assistantLimitReasonOf(err instanceof ModelCallError ? err.original : err);
+}
+
+function failureOf(err: unknown, signal: AbortSignal): { code: AssistantErrorCode; retryable: boolean; reason?: AssistantLimitReason } {
   const stop = signal.aborted && signal.reason instanceof AssistantStop ? signal.reason : err instanceof AssistantStop ? err : null;
   if (stop) return { code: stop.code, retryable: true };
+  const limit = limitReasonOf(err);
+  if (limit) {
+    const code = assistantLimitCode(limit);
+    return { code, retryable: code === "internal" || code === "aborted", reason: limit };
+  }
   if (err instanceof AssistantFailure) {
     return { code: err.code, retryable: err.code !== "no_key" && err.code !== "provider_rejected" };
   }
   // По коду, а не instanceof: узкие подмены geminiClient в тестах класса не отдают.
   if (err instanceof ModelCallError && (err.original as Partial<GeminiStreamInterruptedError> | null)?.code === "stream_interrupted") {
     return { code: "stream_interrupted", retryable: true };
-  }
-  if (err instanceof ModelCallError && (err.original as { code?: string } | null)?.code === "assistant_attempt_limit") {
-    return { code: "attempt_limit", retryable: false };
   }
   if (err instanceof ModelCallError) {
     // Без HTTP-кода — сеть или таймаут попытки: та же «сейчас не получилось», что и 503.
@@ -1587,9 +1606,11 @@ export async function runAssistantDetailed(
     reason: null,
     replyChars: null,
   };
+  // Сколько раз за ход запрос ужимали (requestShrink.ts) — видно в журнале хода как «input_shrunk».
+  let shrinkEvents = 0;
   const replied = (reply: string, outcome: AssistantTurnOutcome, reason: string | null = null): AssistantOutcome => {
     turnLog.outcome = outcome;
-    turnLog.reason = reason;
+    turnLog.reason = reason ?? (shrinkEvents > 0 ? "input_shrunk" : null);
     turnLog.replyChars = reply.length;
     return { ok: true, reply };
   };
@@ -1663,6 +1684,8 @@ export async function runAssistantDetailed(
       parts: [{ text: m.content }],
     }));
     const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
+    // С этого индекса — текущий вопрос и шаги хода: сжатие их не удаляет (requestShrink.ts).
+    let currentTurnFrom = Math.max(0, history.map((m) => m.role).lastIndexOf("user"));
     // Недоступный актору инструмент модели не объявляется (задача 2.5).
     const confirmUi = options.confirmUi === true && !options.readOnly;
     const tools = [
@@ -1728,9 +1751,31 @@ export async function runAssistantDetailed(
       };
       const onToken = modelTokenSink;
       turnLog.rounds += 1;
-      const turn = await modelCall(() =>
-        onToken ? callGeminiToolsStream({ ...request, onToken }) : callGeminiTools(request),
-      );
+      // Слишком большой вход — не отказ (19.11.2026, ai/assistant/requestShrink.ts): ужать
+      // результаты инструментов и старую историю и повторить, не больше MAX_SHRINK_RETRIES
+      // раз за шаг. Каждая попытка идёт через тот же beforeAttempt: счётчик вызовов и
+      // кошелёк хода; до резервирования отказ «велик вход» денег не берёт.
+      let turn: Awaited<ReturnType<typeof callGeminiTools>>;
+      for (let shrinkAttempt = 0; ; shrinkAttempt++) {
+        try {
+          turn = await modelCall(() =>
+            onToken ? callGeminiToolsStream({ ...request, onToken }) : callGeminiTools(request),
+          );
+          break;
+        } catch (err) {
+          const measure = assistantLimitMeasureOf(err instanceof ModelCallError ? err.original : null);
+          if (limitReasonOf(err) !== "input_too_large" || !measure || shrinkAttempt >= MAX_SHRINK_RETRIES) throw err;
+          const shrunk = shrinkConversation(conversation, currentTurnFrom, measure, shrinkAttempt + 1);
+          if (!shrunk.changed) throw err;
+          currentTurnFrom -= shrunk.droppedHistory;
+          shrinkEvents += 1;
+          console.warn("[ai:assistant] вход больше предела, запрос ужат", {
+            inputTokens: measure.inputTokens, limit: measure.limitTokens, attempt: shrinkAttempt + 1,
+            truncated: shrunk.truncated, droppedHistory: shrunk.droppedHistory,
+          });
+          onStatus?.("Данных много, сокращаю…");
+        }
+      }
       tokens += turn.tokens;
 
       // Модель закончила — отдаём текст. Пустой текст без просьбы об инструментах
@@ -1858,14 +1903,15 @@ export async function runAssistantDetailed(
     return replied(partialAnswerFromResults(collected, turnLanguage, turnWrites), "partial", "rounds");
   } catch (err) {
     const failure = failureOf(err, signal);
-    turnLog.reason = failure.code;
+    // Точная причина в журнал хода (input_too_large, money_daily …), а не общий код для человека.
+    turnLog.reason = failure.reason ?? failure.code;
     // Человек ушёл до ответа — отдельный итог, не «сбой» помощницы (ревью пачки 2).
     if (failure.code === "aborted") turnLog.outcome = "aborted";
     if (failure.code !== "aborted" && failure.code !== "no_key" && failure.code !== "provider_rejected" && hasFoundItems(collected)) {
       // Срыв посреди поиска (срок, лимит попыток): найденное не выбрасываем.
       console.warn("[ai:assistant] срыв после находок, отдаю частичный ответ:", failure.code);
-      void logSystemError("ai", `Ассистент CRM: срыв (${failure.code}) после находок — отдан частичный ответ`);
-      return replied(partialAnswerFromResults(collected, turnLanguage, turnWrites), "partial", failure.code);
+      void logSystemError("ai", `Ассистент CRM: срыв (${failure.reason ?? failure.code}) после находок — отдан частичный ответ`);
+      return replied(partialAnswerFromResults(collected, turnLanguage, turnWrites), "partial", failure.reason ?? failure.code);
     }
     if (failure.code === "aborted") {
       // Клиент закрыл панель — это не сбой, в «Здоровье системы» ему не место.
@@ -1880,10 +1926,19 @@ export async function runAssistantDetailed(
        * молчаливый отказ уже дважды стоил месяцев.
        */
       const cause = err instanceof ModelCallError ? err.original : err;
-      console.error("[ai:assistant]", failure.code, cause instanceof Error ? cause.message : cause);
-      void logSystemError("ai", `Ассистент CRM не ответил (${failure.code}): ${describeError(cause)}`);
+      console.error("[ai:assistant]", failure.reason ?? failure.code, cause instanceof Error ? cause.message : cause);
+      // Дневной предел и недоступный учёт уже записаны там, где родились (limitNotice.ts:
+      // одна запись и один пуш руководству в день) — второй строкой не дублируем. Слишком
+      // большой вопрос — не поломка: строка в журнал без пуша директорам.
+      if (failure.code === "too_large") {
+        void logSystemError("ai", `Ассистент CRM не ответил (${failure.reason}): ${describeError(cause)}`, {
+          dedupKey: `assistant-refusal:${failure.reason}`, silent: true,
+        });
+      } else if (failure.code !== "daily_limit" && failure.code !== "unavailable") {
+        void logSystemError("ai", `Ассистент CRM не ответил (${failure.reason ?? failure.code}): ${describeError(cause)}`);
+      }
     }
-    return { ok: false, ...failure };
+    return { ok: false, code: failure.code, retryable: failure.retryable };
   } finally {
     clearTimeout(deadlineTimer);
     options.signal?.removeEventListener("abort", onClientGone);

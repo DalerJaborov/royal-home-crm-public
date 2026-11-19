@@ -6,6 +6,7 @@ import { ASSISTANT_TAJIK_MODEL } from "../ai/assistant/languageRouting.js";
 import { createAssistantMoneyGuard, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { createAssistantAttemptLimit } from "../ai/assistant/attemptLimit.js";
 import { reserveAssistantGeminiAttempt } from "../ai/assistant/attemptBudget.js";
+import { assistantLimitText } from "../ai/assistant/limitText.js";
 import { recognizeShortAssistantVoice } from "./assistantScribe.js";
 
 /** Bounded download even when Telegram's reported file_size is wrong. No arbitrary URL input. */
@@ -108,6 +109,9 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
   } catch (error) {
     // Never expose token-bearing Telegram URLs or private file paths to the chat.
     const message = error instanceof Error ? error.message : "";
+    // Отказ денежной защиты (дневной предел, учёт недоступен) — правдой, а не «пришлите ещё раз».
+    const limitText = assistantLimitText(error);
+    if (limitText) return { text: limitText, error: "media_money_limit" };
     if (message === "media_audio_limit" || (isVoice && message === "media_size_rejected")) {
       return { text: "Пришлите голосовое до двух минут и до 1 МБ или напишите текстом.", error: "media_audio_limit" };
     }
