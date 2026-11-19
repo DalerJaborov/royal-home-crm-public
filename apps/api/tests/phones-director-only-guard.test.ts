@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import { maskClientPhone } from "../src/lib/clientPhone.js";
 
 /**
  * СТОРОЖ «НОМЕРА ВИДИТ ТОЛЬКО ДИРЕКТОР» (владелец 18.11.2026, дословно: «Номера
@@ -217,7 +218,7 @@ describe.each(["AGENT", "HEAD_OF_SALES"] as const)("%s не получает н�
     if (role !== "AGENT") return;
     const res = await SURFACES[0].call(tokens.AGENT);
     expect(res.body.ownerContactHidden).toBe(true);
-    expect(res.body.ownerContactMasked).toBe(`+992•••••${String(SELLER_MAIN)}`);
+    expect(res.body.ownerContactMasked).toBe(maskClientPhone(phone(SELLER_MAIN)));
     expect(res.body.sellerClient?.id).toBe(clientIds[0]);
     expect(res.body.sellerClient?.canOpen).toBe(true);
   });

@@ -13,7 +13,7 @@ export { isDialableTajikNumber };
 
 /** Показывать ли кнопку «Позвонить» на этот номер.
  *
- *  Замаскированный номер (`+992•••••57` — у смотрящего нет права
+ *  Замаскированный номер (`+99293••••456` — у смотрящего нет права
  *  `clients.viewPhone`) даёт при подсчёте цифр «99257», 5 знаков — ни один
  *  формат isDialableTajikNumber не подходит, и кнопка не рисовалась вовсе,
  *  хотя звонок работает: сервер сам разворачивает маску по клиенту и
@@ -22,7 +22,7 @@ export { isDialableTajikNumber };
  *  на мобильной версии — MobileClientPhones). */
 export function isCallableClientPhone(phone: string | null | undefined): boolean {
   if (!phone) return false;
-  // Закрытый номер другой страны (`+799•••••84`) — тоже не звонок: станция
+  // Закрытый номер другой страны (`+7991••••684`) — тоже не звонок: станция
   // агентства звонит только по Таджикистану (17.11.2026, isForeignPhone).
   if (isMaskedClientPhone(phone)) return !isForeignPhone(phone);
   return isDialableTajikNumber(phone);
