@@ -16,10 +16,10 @@
   "paths": 776,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4110,
-  "untranslatedUnique": 472,
-  "untranslatedTotal": 607,
-  "partialUnique": 1109,
+  "conditions": 4107,
+  "untranslatedUnique": 470,
+  "untranslatedTotal": 605,
+  "partialUnique": 1111,
   "translatedShare": 85
  },
  "untranslated": [
@@ -96,6 +96,7 @@
   "!failed(res, err)",
   "!filePath || !(await localVideoExists(video.storageKey))",
   "!fresh || fresh.closedAt || !managedCustomerCallbackWitnessMatches(row.handoverFence, fresh) || !resource || …",
+  "!fromId || !toId || fromId === toId",
   "!fs.existsSync(filePath)",
   "!fs.existsSync(from)",
   "!hasBuyerCriteria(wants)",
@@ -122,7 +123,6 @@
   "!parsed.success || !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success",
   "!permissions.has(\"clients.viewAll\") && (first.clientAssignedAgentId !== agent.id || !first.clientAcceptedAt)",
   "!photo || photo.propertyId !== req.params.id",
-  "!prevAgentId || prevAgentId === t.agentId",
   "!property || property.deletedAt || property.videoHandoffFinalPath !== payload.videoPath",
   "!property.address?.trim()",
   "!propertyVideoFileExists(property.videoHandoffFinalPath)",
@@ -442,10 +442,8 @@
   "row.attemptAt && Date.now() - row.attemptAt.getTime() > 120_000",
   "row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget",
   "row.client.aiInsightAt && startedAt - row.client.aiInsightAt.getTime() < NIGHTLY_SCORING_FRESH_MS",
-  "row.createdAt.getTime() >= t.createdAt.getTime()",
   "row.doneAt || row.supersededAt || !intent || intent.status !== \"committed\" || intent.generation !== row.gener…",
   "row.groupChatId && row.groupChatId !== settings.discussionGroupId",
-  "row.id === t.id",
   "row.status !== status",
   "row.type in byType",
   "row?.factsInputHash === inputHash",
@@ -18841,6 +18839,19 @@
      "c": [
       {
        "t": "ответ (код зависит от условия)",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если есть raced",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: такое уже есть: «Предложение уже снято — обновите страницу»",
        "k": "do",
        "a": [],
        "c": []
@@ -37612,7 +37623,7 @@
    ],
    "tree": [
     {
-     "t": "если передачи количество — «0»",
+     "t": "если changes количество — «0»",
      "k": "if",
      "a": [],
      "c": [
@@ -37630,63 +37641,17 @@
      "a": [],
      "c": [
       {
-       "t": "если есть arr",
+       "t": "если нет: entity или вживую клиент не содержит есть entity",
        "k": "if",
        "a": [],
        "c": []
       },
       {
-       "t": "иначе",
-       "k": "else",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "и так по каждому",
-     "k": "loop",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: сотрудник",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "и так по каждому",
-       "k": "loop",
-       "a": [],
-       "c": [
-        {
-         "t": "если row.id === t.id",
-         "k": "if",
-         "a": [],
-         "c": [],
-         "raw": "row.id === t.id"
-        },
-        {
-         "t": "если row.createdAt.getTime() >= t.createdAt.getTime()",
-         "k": "if",
-         "a": [],
-         "c": [],
-         "raw": "row.createdAt.getTime() >= t.createdAt.getTime()"
-        },
-        {
-         "t": "если есть сотрудник",
-         "k": "if",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если !prevAgentId || prevAgentId === t.agentId",
+       "t": "если !fromId || !toId || fromId === toId",
        "k": "if",
        "a": [],
        "c": [],
-       "raw": "!prevAgentId || prevAgentId === t.agentId"
+       "raw": "!fromId || !toId || fromId === toId"
       },
       {
        "t": "если есть такая запись",

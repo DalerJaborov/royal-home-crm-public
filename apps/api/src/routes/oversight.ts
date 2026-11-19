@@ -606,65 +606,61 @@ oversightRouter.get("/refused-high-score", requireInvestigations, async (req, re
  * подозрительна — просто список, часто повторяющаяся пара помечена `frequent`
  * для глаза руководителя, решение остаётся за человеком.
  *
- * Структурного поля «от какого агента» у передачи нет (см. lib/clientTransfer.ts —
- * Interaction хранит только НОВОГО agentId), поэтому «от кого» восстанавливается
- * по цепочке: агент последней записи ЭТОГО клиента, сделанной строго до передачи,
- * — тот, кто вёл клиента перед ней. Best-effort, как и восстановление «инициатора»
- * в routes/security.ts: если у клиента до передачи вовсе не было записей (первая
- * же запись — сама передача), пара пропускается — восстанавливать «от кого» не из чего.
+ * ОТКУДА ПАРА (ревью 19.11.2026). Раньше «от кого» восстанавливалось по
+ * хронологии: агент последней записи клиента до передачи, а «кому» — агент самой
+ * записи «Передан другому агенту». Это держалось на допущении, что запись
+ * подписана получателем. Подписывал её отдающий агент (пара «сам себе»
+ * отбрасывалась, и флаг молчал), а с 19.11.2026 — нажавший руководитель, и флаг
+ * начал бы показывать пары «агент → директор», которых не было. Теперь пара
+ * берётся из журнала единой двери смены владельца (`lib/changeClientAgent.ts`,
+ * запись `CLIENT_AGENT_CHANGE`): там «от кого» и «кому» записаны как есть.
+ * Считаются только передачи по решению человека: кнопка «Передать» и раздача
+ * дел уходящего сотрудника.
  */
 const TRANSFER_PAIRS_WINDOW_DAYS = 30;
 const TRANSFER_PAIRS_WINDOW_MS = TRANSFER_PAIRS_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 const TRANSFER_PAIRS_FREQUENT_THRESHOLD = 3;
+/** `source` единой двери у передач по решению человека (lib/clientTransfer.ts, lib/agentHandover.ts). */
+const TRANSFER_PAIR_SOURCES = ["transfer", "handover"] as const;
 
 oversightRouter.get("/transfer-pairs", requireInvestigations, async (_req, res) => {
   const since = new Date(Date.now() - TRANSFER_PAIRS_WINDOW_MS);
-  const transfers = await prisma.interaction.findMany({
-    where: { ...transferEventsWhere(), createdAt: { gte: since } },
+  const changes = await prisma.auditLog.findMany({
+    where: {
+      action: "CLIENT_AGENT_CHANGE",
+      entityType: "Client",
+      createdAt: { gte: since },
+      OR: TRANSFER_PAIR_SOURCES.map((source) => ({ meta: { path: ["source"], equals: source } })),
+    },
     orderBy: { createdAt: "asc" },
     take: 1000,
-    select: { id: true, clientId: true, agentId: true, createdAt: true },
+    select: { entityId: true, meta: true },
   });
 
-  if (transfers.length === 0) {
+  if (changes.length === 0) {
     return res.json({ pairs: [], windowDays: TRANSFER_PAIRS_WINDOW_DAYS, frequentThreshold: TRANSFER_PAIRS_FREQUENT_THRESHOLD });
   }
 
-  const clientIds = [...new Set(transfers.map((t) => t.clientId))];
-  // Вся хронология этих клиентов, не только передачи — «от кого» вычисляется по
-  // ЛЮБОЙ предыдущей записи (звонок, показ, служебная), а не только по передачам.
-  const history = await prisma.interaction.findMany({
-    where: { clientId: { in: clientIds } },
-    orderBy: { createdAt: "asc" },
-    take: 5000,
-    select: { id: true, clientId: true, agentId: true, createdAt: true },
+  // Клиенты в Корзине в подсчёт не идут — как и раньше (transferEventsWhere).
+  const clientIds = [...new Set(changes.map((c) => c.entityId).filter((id): id is string => typeof id === "string"))];
+  const liveClients = await prisma.client.findMany({
+    where: { id: { in: clientIds }, deletedAt: null },
+    select: { id: true },
   });
-  const byClient = new Map<string, typeof history>();
-  for (const row of history) {
-    const arr = byClient.get(row.clientId);
-    if (arr) arr.push(row);
-    else byClient.set(row.clientId, [row]);
-  }
+  const liveClientIds = new Set(liveClients.map((c) => c.id));
 
   const pairCounts = new Map<string, { fromId: string; toId: string; count: number }>();
-  for (const t of transfers) {
-    if (!t.agentId) continue; // передача без явного нового агента — восстановить пару не из чего
-    const list = byClient.get(t.clientId) ?? [];
-    // Последняя запись строго до этой передачи (по времени, не считая её саму) —
-    // список уже отсортирован по возрастанию createdAt, поэтому это последний
-    // элемент, прошедший фильтр. Записи без агента (SYSTEM/AI, П-10) пропускаем —
-    // «от кого» нужен живой человек.
-    let prevAgentId: string | null = null;
-    for (const row of list) {
-      if (row.id === t.id) break;
-      if (row.createdAt.getTime() >= t.createdAt.getTime()) break;
-      if (row.agentId) prevAgentId = row.agentId;
-    }
-    if (!prevAgentId || prevAgentId === t.agentId) continue;
-    const key = `${prevAgentId}->${t.agentId}`;
+  for (const change of changes) {
+    if (!change.entityId || !liveClientIds.has(change.entityId)) continue;
+    const meta = change.meta as { fromAgentId?: unknown; toAgentId?: unknown } | null;
+    const fromId = typeof meta?.fromAgentId === "string" ? meta.fromAgentId : null;
+    const toId = typeof meta?.toAgentId === "string" ? meta.toAgentId : null;
+    // Из очереди или в очередь — не «от агента к агенту»; пары тут нет.
+    if (!fromId || !toId || fromId === toId) continue;
+    const key = `${fromId}->${toId}`;
     const existing = pairCounts.get(key);
     if (existing) existing.count++;
-    else pairCounts.set(key, { fromId: prevAgentId, toId: t.agentId, count: 1 });
+    else pairCounts.set(key, { fromId, toId, count: 1 });
   }
 
   const involvedAgentIds = new Set<string>();
