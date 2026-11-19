@@ -16,10 +16,10 @@
   "paths": 776,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4112,
+  "conditions": 4114,
   "untranslatedUnique": 470,
   "untranslatedTotal": 605,
-  "partialUnique": 1112,
+  "partialUnique": 1113,
   "translatedShare": 85
  },
  "untranslated": [
@@ -64878,6 +64878,12 @@
          "c": []
         }
        ]
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": []
       }
      ]
     }
@@ -75808,6 +75814,19 @@
            "a": [],
            "c": [],
            "more": true
+          }
+         ]
+        },
+        {
+         "t": "если закрыт from old группа больше 0",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
           }
          ]
         }
