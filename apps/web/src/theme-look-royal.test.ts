@@ -619,6 +619,19 @@ ${P} + .rh2 .pill { color: red; }`, "analytics")).toEqual([`${P} + .rh2 .pill`])
     // выключенная кнопка без приглушения перебитым весом
     expect(disabledDimGaps(css.replace(':not(#ry-dim) { opacity: .5; cursor: not-allowed; }', ' { opacity: .5; cursor: not-allowed; }'))).not.toEqual([]);
   });
+  it("«Удалить» кампанию воронки красная по признаку смысла, а не по порядку ссылок (ревью #304)", () => {
+    const css = readFileSync(new URL("./theme-look-royal-analytics.css", import.meta.url), "utf8");
+    const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="analytics"]';
+    const rule = cssRules(css).find((r) => r.selector === `${P} .scr button.lnk[data-variant="danger"]`);
+    expect(rule?.body ?? "", "правило красной ссылки по data-variant").toMatch(/color:\s*var\(--rh-ui-crit-text\)/);
+    expect(css, "хрупкое правило по соседству ссылок вернулось").not.toMatch(/button\.lnk\s*\+\s*button\.lnk/);
+    // Обе ветки (ПК и телефон) ставят признак ровно на «Удалить»: снятый признак — красный тест.
+    for (const file of ["./pages/settings/FunnelTab.tsx", "./components/mobile/MobileFunnel.tsx"]) {
+      const src = readFileSync(new URL(file, import.meta.url), "utf8");
+      expect(src, file).toMatch(/<button className="lnk" type="button" data-variant="danger" onClick=\{onDelete\}>\s*Удалить\s*<\/button>/);
+      expect(src.match(/data-variant="danger"/g)?.length, file).toBe(1);
+    }
+  });
   // Без списков долга (KNOWN_DEBT / DISABLED_DIM_DEBT закрыты 18.11, пачка debt): каждый
   // слой, основа тоже, обязан быть чистым. Находка чинится в слое, а не вписывается сюда.
   it.each(lookFiles)("%s: смысловые кнопки и плашки не перекрашены, запас iPhone не тронут", (file) => {

@@ -344,7 +344,7 @@ function CampaignCard({
           Журнал выдач
         </button>
         {canManage && (
-          <button className="lnk" type="button" onClick={onDelete}>
+          <button className="lnk" type="button" data-variant="danger" onClick={onDelete}>
             Удалить
           </button>
         )}
