@@ -143,6 +143,10 @@
 @import './theme-look-royal-control.css';
 /* «Новый вид», раздел «Аналитика» (пачка analytics: отчёты, источники, инсайты, воронка, подготовка объектов). */
 @import './theme-look-royal-analytics.css';
+/* «Новый вид», мастер и форма объекта (пачка wizard: /properties/new, /properties/:id/edit) — только под :root[data-ui-look="royal"] и меткой раздела. */
+@import './theme-look-royal-wizard.css';
+/* «Новый вид», главная остальных ролей (пачка home: монтажёр, маркетинг, СБ, менеджер, акционер). */
+@import './theme-look-royal-home.css';
 /* «Новый вид», служебные экраны (пачка admin): права по ролям, состояние функций, профиль, интеграции и канал, уведомления, «Страница не найдена». */
 @import './theme-look-royal-admin.css';
 

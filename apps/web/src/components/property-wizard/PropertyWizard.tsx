@@ -53,6 +53,7 @@ import { StepPlace } from "./StepPlace";
 import { StepSeller } from "./StepSeller";
 import { StepReview } from "./StepReview";
 import { runRestartDraft } from "./restartDraft";
+import { WizardRoot } from "../look/wizard/WizardRoot";
 import {
   buildCreateBody,
   EMPTY_WIZARD_VALUES,
@@ -949,7 +950,7 @@ export function PropertyWizard({
   // Ответ про черновик ещё в пути — шагов не рисуем вовсе (см. `draftChecked`).
   if (agentId && !draftChecked) {
     return (
-      <div className="rh2">
+      <WizardRoot>
         <div className="wiz">
           <div className="whead">
             <div className="line1">
@@ -980,7 +981,7 @@ export function PropertyWizard({
             </div>
           </div>
         </div>
-      </div>
+      </WizardRoot>
     );
   }
 

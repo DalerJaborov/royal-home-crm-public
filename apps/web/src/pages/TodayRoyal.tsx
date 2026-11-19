@@ -18,6 +18,7 @@ import { useDashboardSummary } from "../hooks/useDashboard";
 import { useClients } from "../hooks/useClients";
 import { buildShowings } from "../lib/agentDay";
 import { RoyalIcon } from "../components/look/RoyalIcon";
+import { RoyalBlock, type RoyalBlockSpan } from "../components/look/RoyalBlock";
 import { RH_SEVERITY_ICON, RhAvatar, RhBlockState, RhButton, RhCircle, RhGroup, RhRow, RhSection, RhTile, type RhBrand } from "../components/look/ui";
 
 /**
@@ -52,6 +53,19 @@ export const ROYAL_HOME_BLOCKS = {
   AGENT: ["agentTiles", "agentPending", "agentShowings", "full"],
 } as const;
 export type RoyalHomeRole = keyof typeof ROYAL_HOME_BLOCKS;
+type RoyalHomeBlockId = (typeof ROYAL_HOME_BLOCKS)[RoyalHomeRole][number];
+
+/**
+ * Где блок стоит в сетке ПК — то же, что его класс (ry-col-a / ry-col-b, полоса и
+ * «весь экран» — на всю строку). Нужно заглушке упавшего блока, чтобы она встала
+ * в ту же клетку, а не в полколонки. Запись обязательна для каждого блока: тип
+ * не даст добавить блок без места.
+ */
+const ROYAL_BLOCK_SPAN: Record<RoyalHomeBlockId, RoyalBlockSpan> = {
+  money: "wide", decisions: "a", burning: "b", check: "a", team: "b", channels: "wide", full: "wide",
+  ropTiles: "wide", ropTasks: "a", ropTeam: "b", ropLosses: "a",
+  agentTiles: "wide", agentPending: "a", agentShowings: "b",
+};
 
 export function royalHomeRole(role: string | undefined): RoyalHomeRole | null {
   return role === "DIRECTOR" || role === "ADMIN" ? "DIRECTOR" : role === "HEAD_OF_SALES" ? "HEAD_OF_SALES" : role === "AGENT" ? "AGENT" : null;
@@ -132,6 +146,17 @@ function FullScreenToggle({ label, children }: { label: string; children: ReactN
   );
 }
 
+/**
+ * Блоки роли — каждый за своей границей (components/BlockBoundary.tsx): ответ
+ * сервера без поля, который ждёт этот блок, роняет только его, а не главную.
+ * Блок — функция, а не готовый JSX: так всё, что он читает из данных,
+ * вычисляется уже внутри границы. Новый блок попадает под защиту сам — другого
+ * пути на главную, кроме этого списка, нет.
+ */
+function RoyalBlocks<Id extends RoyalHomeBlockId>({ order, blocks }: { order: readonly Id[]; blocks: Record<Id, () => ReactNode> }) {
+  return <div className="ry-blocks">{order.map((id) => <RoyalBlock key={id} name={`today.${id}`} span={ROYAL_BLOCK_SPAN[id]}>{blocks[id]}</RoyalBlock>)}</div>;
+}
+
 export function TodayRoyal() {
   const role = royalHomeRole(useAuthStore((s) => s.agent?.role));
   return (
@@ -183,8 +208,8 @@ function DirectorToday() {
   if (isError && !data) return <RhBlockState kind="error" onRetry={() => void refetch()} />;
 
   const showMoney = !!hero?.commission && !!data?.seesMoney;
-  const blocks: Record<(typeof ROYAL_HOME_BLOCKS.DIRECTOR)[number], ReactNode> = {
-    money: (
+  const blocks: Record<(typeof ROYAL_HOME_BLOCKS.DIRECTOR)[number], () => ReactNode> = {
+    money: () => (
       <div className="ry-strip" key="money">
         {isLoading && !data ? <div className="ry-hero ry-hero-skeleton" aria-busy="true" /> : showMoney && hero?.commission ? (
           <MoneyHero
@@ -209,7 +234,7 @@ function DirectorToday() {
         )}
       </div>
     ),
-    decisions: (
+    decisions: () => (
       <RhSection key="decisions" title="Нужно ваше решение" to={hasRoute("/oversight") ? "/oversight" : undefined} className="ry-col-a">
         {rows === null ? <RhBlockState kind={isError || actionStatus.isError ? "error" : "loading"} onRetry={retryFailed} />
           : rows.length === 0 ? (actionStatus.isError ? <RhBlockState kind="error" onRetry={retryFailed} />
@@ -220,7 +245,7 @@ function DirectorToday() {
           </div>}
       </RhSection>
     ),
-    burning: (firstLine || firstLineBroken || isLoading) ? (
+    burning: () => (firstLine || firstLineBroken || isLoading) ? (
       <RhSection key="burning" id="ry-burning" title="Горит сейчас" to={hasRoute("/oversight") ? "/oversight" : undefined} className="ry-col-b">
         {firstLineBroken ? <RhBlockState kind="error" onRetry={() => void refetch()} />
           : !firstLine ? <RhBlockState kind="loading" />
@@ -228,7 +253,7 @@ function DirectorToday() {
           : <RhGroup>{firstLine.items.slice(0, 6).map((item) => <BurningRow key={item.id} item={item} />)}</RhGroup>}
       </RhSection>
     ) : null,
-    check: (() => {
+    check: () => {
       const items: ReactNode[] = [];
       if (hero && hasRoute("/calls") && hero.missedCallsToday > 0)
         items.push(<RhRow key="missed" to="/calls" lead={<RhCircle icon="phone-missed" tone="warn" />} title="Пропущенные звонки" sub="сегодня" right={<b className="ry-num ry-count">{hero.missedCallsToday}</b>} />);
@@ -241,8 +266,8 @@ function DirectorToday() {
       if (system && can("auditLog.view") && hasRoute("/health") && (system.errorsToday > 0 || (system.unresolvedTotal ?? 0) > 0))
         items.push(<RhRow key="errors" to="/health" lead={<RhCircle icon="gauge" tone={system.errorsToday >= 10 ? "crit" : "warn"} />} title="Ошибки системы" sub="за сегодня" right={<b className="ry-num ry-count">{system.errorsToday}</b>} />);
       return items.length ? <RhSection key="check" title="Проверить" className="ry-col-a"><RhGroup>{items}</RhGroup></RhSection> : null;
-    })(),
-    team: team && team.agents.length > 0 && hasRoute("/team") ? (
+    },
+    team: () => team && team.agents.length > 0 && hasRoute("/team") ? (
       <RhSection key="team" title="Команда" to="/team" className="ry-col-b">
         <div className="ry-team">
           {team.agents.slice(0, 6).map((agent) => (
@@ -257,14 +282,14 @@ function DirectorToday() {
         </div>
       </RhSection>
     ) : null,
-    channels: marketing && marketing.funnel.length > 0 ? (
+    channels: () => marketing && marketing.funnel.length > 0 ? (
       <RhSection key="channels" title="Заявки за месяц" to={hasRoute("/sources") ? "/sources" : undefined}>
         <Channels funnel={marketing.funnel} />
       </RhSection>
     ) : null,
-    full: <FullScreenToggle key="full" label="Весь пульт"><PultClean /></FullScreenToggle>,
+    full: () => <FullScreenToggle key="full" label="Весь пульт"><PultClean /></FullScreenToggle>,
   };
-  return <div className="ry-blocks">{ROYAL_HOME_BLOCKS.DIRECTOR.map((id) => blocks[id])}</div>;
+  return <RoyalBlocks order={ROYAL_HOME_BLOCKS.DIRECTOR} blocks={blocks} />;
 }
 
 function MoneyHero({ fact, plan, deals, leadsToday, to }: { fact: number; plan: number | null; deals: number; leadsToday: number; to?: string }) {
@@ -344,16 +369,17 @@ function RopToday() {
   const losses = useQuery({ queryKey: ["problem-reports", "week"], enabled: canSeeLosses,
     queryFn: () => api<{ id: string; metrics: ProblemReportMetrics }[]>("/reports/problems?period=week") });
   const lossReport = losses.data?.[0]?.metrics;
-  const lossSection = lossReport?.sections.find((section) => section.key === "clients");
+  const lossSection = lossReport?.sections?.find((section) => section.key === "clients");
 
-  const tasks = work.data?.tasks ?? [];
+  // Ответ без поля — пустой список, а не падение всей главной (класс 18.11.2026).
+  const tasks = Array.isArray(work.data?.tasks) ? work.data.tasks : [];
   const waiting = work.data ? tasks.filter((task) => task.responseAction === "RECEIPT").length : null;
   const reporting = work.data ? tasks.filter((task) => task.responseAction === "ACTION").length : null;
   const overdue = work.data ? tasks.filter((task) => task.dueAt && Date.parse(task.dueAt) < Date.now()).length : null;
-  const load = teamData ? teamData.agents.reduce((sum, agent) => sum + agent.activeLoad, 0) : null;
+  const load = Array.isArray(teamData?.agents) ? teamData.agents.reduce((sum, agent) => sum + (agent.activeLoad ?? 0), 0) : null;
 
-  const blocks: Record<(typeof ROYAL_HOME_BLOCKS.HEAD_OF_SALES)[number], ReactNode> = {
-    ropTiles: (
+  const blocks: Record<(typeof ROYAL_HOME_BLOCKS.HEAD_OF_SALES)[number], () => ReactNode> = {
+    ropTiles: () => (
       <div className="ry-strip ry-strip-tiles" key="ropTiles">
         <RhTile variant="brand" icon="inbox" label="Ждут принятия" value={waiting ?? "—"} to="#ry-rop-tasks" alert={work.isError} />
         <RhTile variant="ink" icon="hourglass" label="Просрочено" value={overdue ?? "—"} to="#ry-rop-tasks" />
@@ -361,7 +387,7 @@ function RopToday() {
         {load !== null && <RhTile variant="plain" icon="users" label="В работе у команды" value={load} to="/team" />}
       </div>
     ),
-    ropTasks: (
+    ropTasks: () => (
       <RhSection key="ropTasks" id="ry-rop-tasks" title="Требуют ответа" to="/calendar" linkLabel="Календарь" className="ry-col-a">
         {work.isPending ? <RhBlockState kind="loading" /> : work.isError ? <RhBlockState kind="error" onRetry={() => void work.refetch()} />
           : tasks.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Задач нет" /></RhGroup>
@@ -378,7 +404,7 @@ function RopToday() {
           })}</RhGroup>}
       </RhSection>
     ),
-    ropTeam: canSeeTeam ? (
+    ropTeam: () => canSeeTeam ? (
       <RhSection key="ropTeam" title="Команда" to="/team" className="ry-col-b">
         {team.isPending ? <RhBlockState kind="loading" /> : team.isError ? <RhBlockState kind="error" onRetry={() => void team.refetch()} />
           : !teamData?.agents.length ? null
@@ -389,16 +415,16 @@ function RopToday() {
           ))}</RhGroup>}
       </RhSection>
     ) : null,
-    ropLosses: canSeeLosses && lossSection && lossSection.metrics.length > 0 ? (
+    ropLosses: () => canSeeLosses && lossSection && lossSection.metrics.length > 0 ? (
       <RhSection key="ropLosses" title="Где теряем клиентов" to="/reports" linkLabel="Весь разбор" className="ry-col-a">
         <RhGroup>{lossSection.metrics.slice(0, 5).map((metric) => (
           <RhRow key={metric.key} to={metric.href ?? "/reports"} lead={<RhCircle icon="target" tone="a4" />} title={metric.label} right={<b className="ry-num ry-count">{metric.value}</b>} />
         ))}</RhGroup>
       </RhSection>
     ) : null,
-    full: <FullScreenToggle key="full" label="Весь кабинет"><HeadOfSalesHome /></FullScreenToggle>,
+    full: () => <FullScreenToggle key="full" label="Весь кабинет"><HeadOfSalesHome /></FullScreenToggle>,
   };
-  return <div className="ry-blocks">{ROYAL_HOME_BLOCKS.HEAD_OF_SALES.map((id) => blocks[id])}</div>;
+  return <RoyalBlocks order={ROYAL_HOME_BLOCKS.HEAD_OF_SALES} blocks={blocks} />;
 }
 
 /* ================================ агент ================================ */
@@ -407,20 +433,23 @@ function AgentToday() {
   // Те же запросы, что у AgentHome: сервер сам ограничивает выборку правами агента.
   const summary = useDashboardSummary();
   const pendingPage = useClients({ pageSize: 20, pendingAcceptance: true });
-  const tasks = useMemo(() => summary.data?.tasksToday ?? [], [summary.data]);
-  const showings = useMemo(() => buildShowings(tasks), [tasks]);
+  const tasks = useMemo(() => Array.isArray(summary.data?.tasksToday) ? summary.data.tasksToday : [], [summary.data]);
+  // Показы считаются внутри блоков (границы ловят только то, что вычислено в них),
+  // один раз на отрисовку.
+  let showingsOnce: ReturnType<typeof buildShowings> | undefined;
+  const showings = () => (showingsOnce ??= buildShowings(tasks));
   const pending = pendingPage.data?.items ?? [];
   const pendingTotal = pendingPage.data?.total ?? pending.length;
 
-  const blocks: Record<(typeof ROYAL_HOME_BLOCKS.AGENT)[number], ReactNode> = {
-    agentTiles: (
+  const blocks: Record<(typeof ROYAL_HOME_BLOCKS.AGENT)[number], () => ReactNode> = {
+    agentTiles: () => (
       <div className="ry-strip ry-strip-tiles" key="agentTiles">
         <RhTile variant="brand" icon="user-plus" label="Новые заявки" value={pendingPage.data ? pendingTotal : "—"} to="#ry-agent-pending" alert={pendingPage.isError} />
-        <RhTile variant="ink" icon="calendar-days" label="Показы сегодня" value={summary.data ? showings.length : "—"} to="#ry-agent-showings" alert={summary.isError} />
+        <RhTile variant="ink" icon="calendar-days" label="Показы сегодня" value={summary.data ? showings().length : "—"} to="#ry-agent-showings" alert={summary.isError} />
         <RhTile variant="plain" icon="list-checks" label="Дела сегодня" value={summary.data ? tasks.length : "—"} to="/calendar" />
       </div>
     ),
-    agentPending: (
+    agentPending: () => (
       <RhSection key="agentPending" id="ry-agent-pending" title="Ждут принятия" to="/clients" className="ry-col-a">
         {pendingPage.isPending ? <RhBlockState kind="loading" /> : pendingPage.isError ? <RhBlockState kind="error" onRetry={() => void pendingPage.refetch()} />
           : pending.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Новых заявок нет" /></RhGroup>
@@ -429,11 +458,11 @@ function AgentToday() {
           ))}</RhGroup>}
       </RhSection>
     ),
-    agentShowings: (
+    agentShowings: () => (
       <RhSection key="agentShowings" id="ry-agent-showings" title="Показы сегодня" to="/calendar" linkLabel="Календарь" className="ry-col-b">
         {summary.isPending ? <RhBlockState kind="loading" /> : summary.isError ? <RhBlockState kind="error" onRetry={() => void summary.refetch()} />
-          : showings.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="calendar-days" tone="a5" />} title="Показов нет" /></RhGroup>
-          : <RhGroup>{showings.slice(0, 6).map((showing) => (
+          : showings().length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="calendar-days" tone="a5" />} title="Показов нет" /></RhGroup>
+          : <RhGroup>{showings().slice(0, 6).map((showing) => (
             <RhRow key={showing.id} to={showing.client?.shortId ? `/clients/${showing.client.shortId}` : "/calendar"}
               lead={<RhCircle icon="calendar-days" tone="a5" />}
               title={showing.client?.fullName ?? "Показ"} sub={showing.confirmedAt ? "подтверждён" : "ждём ответ"} subTone={showing.confirmedAt ? "ok" : undefined}
@@ -441,7 +470,7 @@ function AgentToday() {
           ))}</RhGroup>}
       </RhSection>
     ),
-    full: <FullScreenToggle key="full" label="Весь экран"><AgentHome /></FullScreenToggle>,
+    full: () => <FullScreenToggle key="full" label="Весь экран"><AgentHome /></FullScreenToggle>,
   };
-  return <div className="ry-blocks">{ROYAL_HOME_BLOCKS.AGENT.map((id) => blocks[id])}</div>;
+  return <RoyalBlocks order={ROYAL_HOME_BLOCKS.AGENT} blocks={blocks} />;
 }

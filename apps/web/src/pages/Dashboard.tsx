@@ -12,6 +12,11 @@ const PultClean = lazyWithReload(loadCleanPult);
 // своим куском, только тем, кому вид включён (hooks/useRoyalLook.ts).
 const TodayRoyal = lazyWithReload(() => import("./TodayRoyal").then((m) => ({ default: m.TodayRoyal })));
 const ROYAL_HOME_ROLES = new Set(["DIRECTOR", "ADMIN", "HEAD_OF_SALES", "AGENT"]);
+// Остальные роли в «Новом виде» (пачка home, 20.11.2026): одно ядро главной на
+// реестре блоков (components/look/home/registry.tsx) — монтажёр, маркетинг, СБ,
+// менеджер и все прочие роли (акционер), как в прежней развилке ниже. Тот же
+// кусок сборки на все пять ролей: блоки общие, роль лишь выбирает их набор.
+const RoyalRoleHome = lazyWithReload(() => import("../components/look/home/registry").then((m) => ({ default: m.RoyalRoleHome })));
 
 /**
  * КАЖДАЯ ГЛАВНАЯ — СВОИМ КУСКОМ (10.09.2026, разгрузка входного куска).
@@ -104,6 +109,8 @@ export function Dashboard() {
       {/* У монтажёра Главная — очередь монтажа, не дашборд продавца. */}
       {royal && role && ROYAL_HOME_ROLES.has(role) ? (
         <TodayRoyal />
+      ) : royal && role ? (
+        <RoyalRoleHome />
       ) : role === "EDITOR" ? (
         mobile ? (
           <MobileEditorHome />
