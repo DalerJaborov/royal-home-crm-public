@@ -35,6 +35,7 @@ import { MarketingOverview } from "../components/marketing/MarketingOverview";
 import { SearchPanel } from "../components/marketing/SearchPanel";
 import { MarketingTabs } from "../components/SectionTabs";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
+import { MarketingSection, useMarketingSectionMark } from "../components/look/marketing/MarketingSection";
 
 export type MarketingTab = "overview" | "queue" | "editors" | "schedule" | "channels" | "search";
 
@@ -386,6 +387,11 @@ function EditorsList({ editors }: { editors: EditorRef[] }) {
 }
 
 export function MarketingCenter() {
+  return <MarketingSection><MarketingCenterScreen /></MarketingSection>;
+}
+
+function MarketingCenterScreen() {
+  const section = useMarketingSectionMark();
   const role = useAuthStore((s) => s.agent?.role);
   const isEditor = role === "EDITOR";
   // Две разные группы прав — совпадают с requireMarketingRole/requireEditorsLoadRole
@@ -451,7 +457,7 @@ export function MarketingCenter() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -471,7 +477,7 @@ export function MarketingCenter() {
   const s = canViewQueue ? summaryQuery.data : undefined;
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>

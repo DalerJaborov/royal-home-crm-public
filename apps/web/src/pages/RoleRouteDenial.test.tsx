@@ -7,6 +7,10 @@ vi.mock("../store/auth", () => ({ useAuthStore: (select: (value: { agent: { role
 vi.mock("../lib/permissions", () => ({ useCan: () => (permission: string) => permission === "properties.moderate" }));
 vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => false }));
 vi.mock("../hooks/useMobileUx", () => ({ useMobileUx: () => state.mobile }));
+// Признак «Нового вида» берётся из общего запроса оболочки /ui-shell (его держит AppLayout),
+// а не из данных экрана; здесь его нет — прежний вид. Подмена с importOriginal: остальные
+// вывозы модуля настоящие (сторож audit:mocks).
+vi.mock("../hooks/useRoyalLook", async (importOriginal) => ({ ...(await importOriginal<typeof import("../hooks/useRoyalLook")>()), useRoyalLook: () => false }));
 import { Pipeline } from "./Pipeline";
 import { Insights } from "./Insights";
 import { Ads } from "./Ads";

@@ -532,6 +532,13 @@ export const HIDING_ALLOWED = new Set<string>([
   // вводе — украшение, подпись и поле рядом (знак ИИ в интерфейсе не подчёркиваем).
   `${R} [data-ry-section="money"] .cef-toolbar .cef-main-tabs::-webkit-scrollbar`,
   `${R} [data-ry-section="money"] .cef-line-input > svg.lucide-sparkles`,
+  // marketing: полосы прокрутки ленты вкладок раздела и лент срезов/статусов (прокрутка
+  // пальцем и колесом остаётся, сами вкладки видны).
+  `${R} .rh2.screens[data-ry-section="marketing"] .seg-ai::-webkit-scrollbar`,
+  `${R} .rh2.screens[data-ry-section="marketing"] .hscroll::-webkit-scrollbar`,
+  // marketing: значок-картинка у комментария на телефоне — украшение (aria-hidden), публикация
+  // открывается ссылкой «Открыть публикацию» в той же карточке.
+  `${R}[data-mobile-ux] .rh2.screens[data-ry-section="marketing"] .scr .cmt > .thumb`,
 ]);
 export function hiddenTextSelectors(css: string): string[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -588,6 +595,35 @@ describe("все слои нового вида: смысловые цвета, 
     expect(safeAreaOverrides(`${css}\n:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-f { padding: 0; }`))
       .toEqual([':root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-f']);
     expect(siblingEscapes(`${css}\n${P} ~ .rh2 .pill { color: red; }`, "deals")).toEqual([`${P} ~ .rh2 .pill`]);
+  });
+  it("знает слой раздела «Маркетинг» и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-marketing.css");
+    expect(lookSectionOf("theme-look-royal-marketing.css")).toBe("marketing");
+    const css = readFileSync(new URL("./theme-look-royal-marketing.css", import.meta.url), "utf8");
+    const M = ':root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"]';
+    // правило без метки и с чужой меткой; общий портал без метки
+    expect(unscopedSelectors(`${css}
+:root[data-ui-look="royal"] .rh2 .tiles .tile { color: red; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="money"] .chip { color: red; }`, "marketing"))
+      .toEqual([':root[data-ui-look="royal"] .rh2 .tiles .tile', ':root[data-ui-look="royal"] .rh2[data-ry-section="money"] .chip']);
+    // красная «Удалить» синим, «На проверке» (.hot) срочным красным, срез без исключения смысла
+    expect(semanticButtonLeaks(`${css}
+${M} .sheet .pill.danger { background: var(--rh-ui-primary); }
+${M} .acts .pill { background: var(--rh-ui-primary); }`))
+      .toEqual([`${M} .sheet .pill.danger`, `${M} .acts .pill`]);
+    expect(semanticColorLeaks(`${css}
+${M} .chip:is(.crit, .hot) { background: var(--rh-ui-crit); }`)).toEqual([`${M} .chip:is(.crit, .hot)`]);
+    // выключенная кнопка: без правила приглушения перекраска кнопки — красная
+    const undimmed = css.replace(/:is\(\.pill, \.rh-btn, \.ry-btn, button\):is\(:disabled, \[disabled\], \[aria-disabled="true"\]\):not\(#ry-dim\)/, ".ry-zzz:disabled");
+    expect(undimmed).not.toBe(css);
+    expect(disabledDimGaps(undimmed)).not.toEqual([]);
+    // скрытие текста, запас iPhone, сосед метки
+    expect(hiddenTextSelectors(`${css}
+${M} .tiles .tile small { display: none; }`)).toEqual([`${M} .tiles .tile small`]);
+    expect(safeAreaOverrides(`${css}
+${M} .sheet.bottom .sheet-f { padding-bottom: 0; }`)).toEqual([`${M} .sheet.bottom .sheet-f`]);
+    expect(siblingEscapes(`${css}
+${M} ~ .rh2 .pill { color: red; }`, "marketing")).toEqual([`${M} ~ .rh2 .pill`]);
   });
   // Без списков долга (KNOWN_DEBT / DISABLED_DIM_DEBT закрыты 18.11, пачка debt): каждый
   // слой, основа тоже, обязан быть чистым. Находка чинится в слое, а не вписывается сюда.
