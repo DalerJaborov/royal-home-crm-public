@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   outsideAreaAcceptedText, serviceAreaBuyerOffer, serviceAreaIn, serviceAreaOnly, RUDAKI_ERA_SERVICE_AREA_LINES, SERVICE_AREA_RU,
 } from "../src/lib/serviceArea.js";
-import { leadOnlyReply } from "../src/ai/leadOnlyMode.js";
+import { OPERATOR_PHRASES } from "../src/ai/operator/phrases.js";
 
 /**
  * Владелец 19.11.2026: «Не нужно говорить, что мы работаем по Душанбе и Рудаки. Надо просто говорить, что мы
@@ -24,15 +24,14 @@ describe("клиентские фразы зоны не называют Руд�
     expect(SERVICE_AREA_RU).toBe("Душанбе");
   });
 
-  it("шаблоны режима «только заявки», где звучит зона (продавец, WhatsApp и чат без номера)", () => {
-    const base = { sellerCommissionPercent: 2, when: { kind: "soon" as const } };
-    const phones = [{ kind: "whatsapp" as const }, { kind: "ask" as const, asksSoFar: 0, maxAsks: 2, officeAlreadyOffered: false }];
-    for (const language of ["ru", "tg"] as const) {
-      for (const phone of phones) {
-        const text = leadOnlyReply({ ...base, scenario: "seller", language, phone });
-        expect(text).toContain(serviceAreaIn("Душанбе", language));
-        expect(text).not.toMatch(RUDAKI_WORD);
+  it("фразы оператора приёма заявок (режим «только заявки»): ни одна не называет Рудаки, «где работаем» — Душанбе", () => {
+    for (const [key, phrase] of Object.entries(OPERATOR_PHRASES)) {
+      for (const language of ["ru", "tg"] as const) {
+        for (const variant of phrase[language]) expect(variant, `${key} ${language}`).not.toMatch(RUDAKI_WORD);
       }
+    }
+    for (const language of ["ru", "tg"] as const) {
+      for (const variant of OPERATOR_PHRASES.where_work[language]) expect(variant).toContain("Душанбе");
     }
   });
 

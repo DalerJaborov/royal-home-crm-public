@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { InsightCaseCard, formatDayMonth } from "../insights/InsightCaseCard";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
 import { DigestStatusBadge, GenerateDigestButton, TeamTalkingPoints, formatPeriod, pluralCases } from "../insights/DigestBits";
 import { useInsightCases, useInsightDigests } from "../../hooks/useInsights";
 import { MoneyTabs } from "../SectionTabs";
@@ -14,6 +15,8 @@ import { MoneyTabs } from "../SectionTabs";
  * состояния — `.state` и `.empty`.
  */
 export function MobileInsights() {
+  // Метка раздела «Нового вида» (пачка analytics); без признака — пусто, атрибута нет.
+  const section = useRoyalSectionName();
   const digests = useInsightDigests();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const cases = useInsightCases(selectedId);
@@ -21,7 +24,7 @@ export function MobileInsights() {
 
   if (selected && selectedId) {
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr" data-stagger>
           <div className="pg-h">
             <div>
@@ -105,7 +108,7 @@ export function MobileInsights() {
   }
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr" data-stagger>
         <div className="pg-h">
           <div>

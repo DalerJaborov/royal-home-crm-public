@@ -18,7 +18,7 @@ import { phoneSafeText } from "./clientPhone.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { customerDmDialogueLanguage } from "../ai/customerDmLanguage.js";
 import { renderCustomerAgentDecision, customerAgentFixedLines, customerAgentLineDigest, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
-import { leadOnlyServerLine } from "../ai/leadOnlyMode.js";
+import { operatorServerLine } from "../ai/operator/phrases.js";
 import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentInput.js";
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
@@ -312,7 +312,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
           }
           // Lead-only replies are server templates (ai/leadOnlyMode.ts): without them the model would not know next turn
           // that the bot already asked for the phone or named the property (second review 13.11, №7).
-          const allowed = new Set([...safePublicLines(evidence, revision), ...payload.text.split("\n").map(line => line.trim()).filter(leadOnlyServerLine)]);
+          const allowed = new Set([...safePublicLines(evidence, revision), ...payload.text.split("\n").map(line => line.trim()).filter(operatorServerLine)]);
           const text = customerAgentMemoryText(payload.text, allowed);
           if (text) {
             candidates.push({ role: "assistant", text, observedAt: part.acceptedAt.getTime(), stableKey: `out:${part.id}` });

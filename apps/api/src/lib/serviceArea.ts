@@ -51,6 +51,8 @@ export const SERVICE_AREA_RU = "Душанбе";
 /** «Где работаем» одной фразой для подсказок модели и внутренних подписей — чтобы копии фразы не жили по файлам (сторож в voice-anna-fixes-16-11.test.ts). */
 export const SERVICE_AREA_WORK_RU = `работаем по ${SERVICE_AREA_RU}`;
 export const SERVICE_AREA_ONLY_RU = `работаем только в ${SERVICE_AREA_RU}`;
+/** То же по-таджикски — для фраз оператора приёма заявок (ai/operator/phrases.ts). */
+export const SERVICE_AREA_WORK_TG = `дар ${SERVICE_AREA_RU} кор мекунем`;
 
 /** Фразы зоны до 19.11.2026 («…и районе Рудаки»): клиенту не уходят, нужны, чтобы бот узнавал их в памяти старых чатов. */
 export const RUDAKI_ERA_SERVICE_AREA_LINES: readonly string[] = [
