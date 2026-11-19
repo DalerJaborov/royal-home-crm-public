@@ -975,6 +975,8 @@ const settingsUpdateSchema = z.object({
   videoHandoffEnabled: z.boolean().optional(),
   /** Ролик от СММщика или другого сотрудника через Шабнам (12.11.2026, telegram/staffClip.ts). */
   staffClipIntakeEnabled: z.boolean().optional(),
+  /** Монтажёр управляет очередью из бота: пропустить, взять другой, передвинуть (19.11.2026, lib/montajerQueueControl.ts). */
+  montajerQueueControlEnabled: z.boolean().optional(),
   /** Проверка фото и видео агента перед монтажом (25.09.2026). false — CRM
    *  одобряет сама (lib/propertyReview.ts::autoApproveIfRawReviewOff). */
   rawReviewRequired: z.boolean().optional(),

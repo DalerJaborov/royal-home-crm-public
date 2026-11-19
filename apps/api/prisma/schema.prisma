@@ -1413,7 +1413,7 @@ model MontajerMessage {
   id         String   @id @default(uuid())
   propertyId String
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  /// "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED" —
+  /// "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED" | "QUEUE_CONTROL" —
   /// см. MontajerMessageKind в lib/videoHandoff.ts.
   kind       String
   text       String
@@ -6590,6 +6590,12 @@ model Settings {
   videoHandoffQueuePausedAt         DateTime?
   videoHandoffQueuePausedById       String?
   videoHandoffQueuePauseReason      String?
+  /// МОНТАЖЁР УПРАВЛЯЕТ ОЧЕРЕДЬЮ ИЗ БОТА (19.11.2026, владелец: «дай монтажёру
+  /// пропускать очередь кнопкой или передвигать её»). true — в боте кнопки
+  /// «⏭ Пропустить», «Взять сейчас», «выше/ниже», «уже сделан»; false — кнопок
+  /// нет, нажатие отвечает «выключено руководителем». Паузу и «Отложить»
+  /// руководства монтажёр не обходит в любом положении. lib/montajerQueueControl.ts.
+  montajerQueueControlEnabled       Boolean   @default(true)
   /// Канал для кросспоста (Bot API уже подключён для личных сообщений —
   /// apps/api/src/telegram/api.ts; здесь просто chat_id канала, где бот админ).
   telegramChannelId                 String?

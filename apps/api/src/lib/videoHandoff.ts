@@ -40,6 +40,7 @@ import type { VideoHandoffMoveBody, VideoHandoffQueueState, PropertyVideoHandoff
 import { logSystemError } from "./systemError.js";
 import { logAgentAudit } from "./audit.js";
 import { montageCopyNote, sendMontageCopies, montageNotificationRecipients, sendToMontajer } from "./montageObservers.js";
+import { holderTaskButtons } from "./montajerQueueButtons.js";
 import { describeError } from "./describeError.js";
 import { publishApprovedPost } from "./socialPublish.js";
 import { crosspostAfterFacebookPublish } from "./facebookCrosspost.js";
@@ -341,8 +342,10 @@ export async function buildMontajerMessageText(
 /** "HANDOFF" — первая передача на монтаж, "REMAKE" — перемонтаж с причиной,
  *  "CANCELLED" — сняли с монтажа, "PROPERTY_DELETED" — объект удалён, пока
  *  монтажёр его держал, "RECEIPT" — квитанция после приёма готового файла,
- *  "FACTS_CHANGED" — агент поправил карточку, пока ролик у монтажёра (07.10.2026). */
-export type MontajerMessageKind = "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED";
+ *  "FACTS_CHANGED" — агент поправил карточку, пока ролик у монтажёра (07.10.2026),
+ *  "QUEUE_CONTROL" — монтажёр сам сдвинул очередь из бота: отложил, взял другой,
+ *  передвинул (19.11.2026, lib/montajerQueueControl.ts). */
+export type MontajerMessageKind = "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED" | "QUEUE_CONTROL";
 
 /**
  * ЖУРНАЛ ВСЕГО, ЧТО CRM ОТПРАВИЛА МОНТАЖЁРУ (20.09.2026, владелец: «я хочу
@@ -1320,10 +1323,16 @@ async function dispatchToEditorAfterClaim(
 
   // Контрольное «отправлено N из N» — только если в этот раз что-то реально ушло.
   if (result.sentVideoIds.size > 0) {
+    // Кнопки «🗂 Очередь» и «⏭ Пропустить» под заданием (19.11.2026) — только
+    // при включённом рубильнике; наблюдателям копия уходит без кнопок.
+    const controls = await prisma.settings
+      .findUnique({ where: { id: "singleton" }, select: { montajerQueueControlEnabled: true } })
+      .then((s) => s?.montajerQueueControlEnabled !== false)
+      .catch(() => false);
     await sendToMontajer(
       montajer.telegramChatId,
       montajerDeliveryControlText(property.shortId, result.withMontajerCount, delivery.videos.length),
-      { copy: true, propertyShortId: property.shortId }
+      { copy: true, propertyShortId: property.shortId, ...(controls ? { replyMarkup: holderTaskButtons(property.shortId) } : {}) }
     ).catch((err) =>
       logSystemError("video-handoff", `Объект №${property.shortId}: контрольное сообщение монтажёру не ушло: ${describeError(err)}`)
     );
@@ -3694,6 +3703,20 @@ export interface CloseVideoHandoffOpts {
    *  паузой (25.09.2026, А4), тем же замком, что и снятие. */
   pauseReason?: string;
   pausedById?: string;
+  /** Снять, только если объект СЕЙЧАС в этом состоянии (19.11.2026, кнопки
+   *  монтажёра): «holder» — держит место монтажёра, «queued» — ждёт в очереди.
+   *  Иначе `state-changed`, ничего не тронуто: кнопка под старым сообщением не
+   *  должна снять объект, который за это время сдвинулся. Проверка под замком. */
+  expect?: "holder" | "queued";
+  /** Снял сам монтажёр из бота («уже сделан / не нужен», 19.11.2026). Ему
+   *  в Telegram не пишем (он получает ответ бота), руководству — пуш и для ждущего
+   *  объекта: иначе снятый молча объект никто не хватится. */
+  byMontajer?: boolean;
+}
+
+/** Текст журнала и пуша, когда объект снял сам монтажёр (19.11.2026). */
+export function montajerSkippedDoneText(shortId: number): string {
+  return `Монтажёр снял объект №${shortId} из очереди: уже сделан или не нужен. Объект остался на прежнем этапе: готовый ролик, если он есть, загрузите в карточку объекта.`;
 }
 
 /**
@@ -3709,11 +3732,18 @@ export async function closeVideoHandoff(propertyId: string, opts: CloseVideoHand
   const closed = await withQueueLock(async (tx) => {
     const property = await tx.property.findUnique({
       where: { id: propertyId },
-      select: { videoHandoffStatus: true, videoHandoffManualSince: true, shortId: true },
+      select: { videoHandoffStatus: true, videoHandoffManualSince: true, shortId: true, deletedAt: true },
     });
     if (!property) return { outcome: "not-found" as const };
     const status = property.videoHandoffStatus;
     if (status !== "QUEUED" && status !== "SENT_TO_EDITOR") return { outcome: "not-in-queue" as const };
+    // Ожидаемое состояние (кнопки монтажёра, 19.11.2026) — то же определение
+    // держателя, что у EDITOR_HOLDER_WHERE: не удалён и не ручная загрузка.
+    if (opts.expect) {
+      const isHolder = status === "SENT_TO_EDITOR" && !property.videoHandoffManualSince && !property.deletedAt;
+      const isQueued = status === "QUEUED" && !property.deletedAt;
+      if (opts.expect === "holder" ? !isHolder : !isQueued) return { outcome: "state-changed" as const };
+    }
     const updated = await tx.property.updateMany({
       where: { id: propertyId, videoHandoffStatus: status, videoHandoffManualSince: property.videoHandoffManualSince },
       data: { videoHandoffStatus: "RECEIVED", videoHandoffSentAt: null, videoHandoffManualSince: null, videoHandoffQueueOrder: null },
@@ -3743,7 +3773,12 @@ export async function closeVideoHandoff(propertyId: string, opts: CloseVideoHand
   });
   if (closed.outcome !== "closed") return closed.outcome;
 
-  if (closed.wasWithEditor) {
+  if (opts.byMontajer) {
+    // Снял сам монтажёр (19.11.2026): ему ответит бот, а здесь — журнал и пуш
+    // руководству и для держателя, и для ждущего. ДО освобождения места, как и
+    // остальные ветки: следующий объект не должен обогнать запись о снятии.
+    notifyMontajerSkippedDone(propertyId, closed.shortId);
+  } else if (closed.wasWithEditor) {
     await notifyMontajerHandoffCancelled(propertyId, closed.shortId, reason, kind);
   } else if (closed.wasQueuedOnly) {
     // Монтажёр этот объект никогда не видел — Telegram не шлём, но журнал
@@ -3767,6 +3802,26 @@ export async function closeVideoHandoff(propertyId: string, opts: CloseVideoHand
  */
 export async function notifyMontajerFinalUploadedManually(propertyId: string, shortId: number): Promise<void> {
   await notifyMontajerHandoffCancelled(propertyId, shortId, "готов — ролик загрузили из CRM", "CANCELLED");
+}
+
+/** Монтажёр сам снял объект «уже сделан / не нужен» — журнал монтажа и пуш тем,
+ *  кто ведёт очередь (тот же круг, что у снятия с монтажа), с видом «task». */
+function notifyMontajerSkippedDone(propertyId: string, shortId: number): void {
+  const text = montajerSkippedDoneText(shortId);
+  void recordMontajerMessage(propertyId, "CANCELLED", text);
+  void montageNotificationRecipients()
+    .then((ids) =>
+      ids.length > 0
+        ? sendPushToAgents(ids, {
+            kind: "task",
+            title: `Монтажёр пропустил №${shortId}: уже сделан`,
+            body: text,
+            url: `/properties/${propertyId}`,
+            tag: `video-handoff-montajer-done-${propertyId}`,
+          })
+        : undefined
+    )
+    .catch((err) => void logSystemError("video-handoff", `Объект №${shortId}: пуш «монтажёр снял, уже сделан» не ушёл: ${describeError(err)}`));
 }
 
 /** «Объект №N <reason>» — монтажёру, который уже держит файлы. Отказ
@@ -3910,12 +3965,21 @@ export type CancelVideoHandoffResult =
  */
 export async function cancelVideoHandoffQueueEntry(
   propertyId: string,
-  opts: { holdQueue?: boolean; pauseReason?: string; pausedById?: string } = {}
+  opts: {
+    holdQueue?: boolean;
+    pauseReason?: string;
+    pausedById?: string;
+    /** Кнопки монтажёра (19.11.2026) — см. CloseVideoHandoffOpts. */
+    expect?: "holder" | "queued";
+    byMontajer?: boolean;
+  } = {}
 ): Promise<CancelVideoHandoffResult> {
   const outcome = await closeVideoHandoff(propertyId, {
     holdQueue: opts.holdQueue === true,
     pauseReason: opts.pauseReason,
     pausedById: opts.pausedById,
+    expect: opts.expect,
+    byMontajer: opts.byMontajer,
   });
   switch (outcome) {
     case "closed":
@@ -3974,6 +4038,130 @@ export async function moveVideoHandoffInQueue(propertyId: string, move: VideoHan
     ids.splice(to, 0, propertyId);
     await renumberQueue(tx, ids);
     return { ok: true, shortId: property.shortId, from: from + 1, to: to + 1 };
+  });
+}
+
+export type SwapVideoHandoffHolderRequest =
+  /** «Сделаю позже»: держатель — в КОНЕЦ ждущих, место — голове очереди. */
+  | { mode: "defer"; holderId: string }
+  /** «Взять сейчас»: `takeId` — монтажёру; прежний держатель (если был) — ПЕРВЫМ
+   *  среди ждущих. `expectedHolderId` — кто держал место, когда монтажёр смотрел
+   *  на кнопку (null — никто): место сменилось — отказ, а не обмен вслепую. */
+  | { mode: "take"; takeId: string; expectedHolderId: string | null };
+
+export type SwapVideoHandoffHolderResult =
+  | {
+      ok: true;
+      seated: { id: string; shortId: number };
+      /** Прежний держатель и его место среди ждущих (1 — следующий). */
+      returned: { id: string; shortId: number; position: number } | null;
+    }
+  | { ok: false; code: "STALE" | "PAUSED" | "HELD" | "NOT_IN_QUEUE" | "NOTHING_NEXT"; error: string };
+
+/**
+ * Перемонтаж текущего круга, если его поля уже погашены отправкой
+ * (dispatchToEditor гасит videoHandoffRemakeReason при захвате). Признак круга —
+ * последняя запись журнала о передаче: REMAKE, значит причина — последний возврат
+ * (VideoRemakeRequest, единственный источник перемонтажа, sendBackToMontajer).
+ * Без этого «Сделаю позже» превращал бы переделку в обычную передачу без причины.
+ */
+async function currentRoundRemake(tx: TxClient, propertyId: string): Promise<RemakeMessageContext | null> {
+  const last = await tx.montajerMessage.findFirst({
+    where: { propertyId, kind: { in: ["HANDOFF", "REMAKE"] } },
+    orderBy: { sentAt: "desc" },
+    select: { kind: true },
+  });
+  if (last?.kind !== "REMAKE") return null;
+  const request = await tx.videoRemakeRequest.findFirst({
+    where: { propertyId },
+    orderBy: { createdAt: "desc" },
+    select: { reason: true, comment: true },
+  });
+  return request ? { reason: request.reason as VideoRemakeReason, comment: request.comment } : null;
+}
+
+/**
+ * МОНТАЖЁР МЕНЯЕТ ТО, ЧТО У НЕГО В РАБОТЕ (19.11.2026, владелец: «дай монтажёру
+ * пропускать очередь кнопкой или передвигать её или переходить к другим»).
+ *
+ * Одна транзакция под замком очереди: держатель возвращается в QUEUED, место
+ * занимает выбранный (или голова очереди) — между этими шагами никто не выдаст
+ * место третьему, и объект не может «пропасть»: после хода каждый либо у
+ * монтажёра, либо в очереди. Состояние перечитывается здесь же, под замком:
+ * монтажёр мог думать минуту, а место за это время уйти дальше (сдал ролик,
+ * руководство сняло объект). Пауза руководства и «Отложить» не обходятся: на
+ * паузе обмен запрещён целиком, отложенного взять нельзя, «Сделаю позже» не
+ * выдаёт отложенного (nextInQueue их пропускает).
+ *
+ * Файлы шлёт вызывающий, ПОСЛЕ коммита — `seated.id`, как у releaseQueueIfClear.
+ * Отметки «файл у монтажёра» прежнего держателя гаснут: вернувшись на место, он
+ * получит свои файлы заново (по file_id это секунды) — тот же приём, что у
+ * любого входа в очередь.
+ */
+export async function swapVideoHandoffHolder(req: SwapVideoHandoffHolderRequest): Promise<SwapVideoHandoffHolderResult> {
+  return withQueueLock(async (tx) => {
+    const holder = await tx.property.findFirst({
+      where: EDITOR_HOLDER_WHERE,
+      orderBy: { videoHandoffSentAt: "asc" },
+      select: { id: true, shortId: true, videoHandoffRemakeReason: true, videoHandoffRemakeComment: true },
+    });
+    const expectedHolderId = req.mode === "defer" ? req.holderId : req.expectedHolderId;
+    if ((holder?.id ?? null) !== expectedHolderId) {
+      return {
+        ok: false,
+        code: "STALE",
+        error: req.mode === "defer" ? "Этот объект уже не у вас." : "Очередь только что изменилась.",
+      };
+    }
+    if (await queuePaused(tx)) {
+      return { ok: false, code: "PAUSED", error: "Очередь на паузе, включает руководитель." };
+    }
+
+    let target: { id: string; shortId: number };
+    if (req.mode === "take") {
+      const candidate = await tx.property.findFirst({
+        where: { id: req.takeId, ...QUEUED_WHERE },
+        select: { id: true, shortId: true, videoHandoffHeldAt: true },
+      });
+      if (!candidate) return { ok: false, code: "NOT_IN_QUEUE", error: "Этого объекта уже нет в очереди." };
+      if (candidate.videoHandoffHeldAt) return { ok: false, code: "HELD", error: "Объект отложен руководителем, взять его нельзя." };
+      target = candidate;
+    } else {
+      const next = await nextInQueue(tx, req.holderId);
+      if (!next) return { ok: false, code: "NOTHING_NEXT", error: "Других объектов в очереди нет, пропускать не к чему." };
+      target = next;
+    }
+
+    if (holder) {
+      const remake: RemakeMessageContext | null = holder.videoHandoffRemakeReason
+        ? { reason: holder.videoHandoffRemakeReason as VideoRemakeReason, comment: holder.videoHandoffRemakeComment }
+        : await currentRoundRemake(tx, holder.id);
+      const tail = await queueTailOrder(tx);
+      await resetMontajerDeliveryMarks(tx, holder.id);
+      await tx.property.update({
+        where: { id: holder.id },
+        data: {
+          videoHandoffStatus: "QUEUED",
+          videoHandoffSentAt: new Date(),
+          // «В начало» — 0, перенумеровка ниже ставит его первым среди ждущих.
+          videoHandoffQueueOrder: req.mode === "defer" ? tail : 0,
+          videoHandoffDeliveredAt: null,
+          videoHandoffDispatchAttempts: 0,
+          videoHandoffManualSince: null,
+          videoHandoffRemakeReason: remake?.reason ?? null,
+          videoHandoffRemakeComment: remake?.comment ?? null,
+        },
+      });
+    }
+    await seatFromQueue(tx, target.id);
+    // Порядок 1..N без дыр и дублей после любого хода (как у moveVideoHandoffInQueue).
+    const ids = (await orderedQueue(tx)).map((p) => p.id);
+    await renumberQueue(tx, ids);
+    return {
+      ok: true,
+      seated: { id: target.id, shortId: target.shortId },
+      returned: holder ? { id: holder.id, shortId: holder.shortId, position: ids.indexOf(holder.id) + 1 } : null,
+    };
   });
 }
 

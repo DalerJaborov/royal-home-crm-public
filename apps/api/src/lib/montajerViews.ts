@@ -15,6 +15,7 @@ import { prisma } from "../db.js";
 import type { TelegramInlineButton } from "../telegram/api.js";
 import { EDITOR_HOLDER_WHERE, montajerCardText, orderedQueue, rawVideoDownloadLink, SOURCE_VIDEO_ORDER } from "./videoHandoff.js";
 import { describeRawVideo } from "./rawVideoFacts.js";
+import { montajerQueueCallback } from "./montajerQueueButtons.js";
 import { crmPropertyUrl, humanFileSize } from "./telegramModeration.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
 
@@ -66,13 +67,13 @@ type ObjectLineRow = {
   _count: { videos: number };
 };
 
-function objectLine(p: ObjectLineRow): string {
+export function objectLine(p: ObjectLineRow): string {
   const place = [p.district?.name, p.address?.trim()].filter(Boolean).join(", ");
   const parts = [`№${p.shortId}`, place || null, p.rooms ? `${p.rooms} комн.` : null, `видео: ${p._count.videos}`];
   return parts.filter(Boolean).join(" · ");
 }
 
-const OBJECT_LINE_SELECT = {
+export const OBJECT_LINE_SELECT = {
   id: true,
   shortId: true,
   address: true,
@@ -81,8 +82,20 @@ const OBJECT_LINE_SELECT = {
   _count: { select: { videos: true } },
 } as const;
 
-/** «🗂 Очередь» — держатель и очередь с адресом и комнатами, кнопка на каждый. */
-export async function montajerQueueView(now: Date = new Date()): Promise<MontajerView> {
+/** Пометки ждущего объекта в списке: переделка (перемонтаж с причиной) и «отложен». */
+function queueMarks(row: { videoHandoffRemakeReason?: string | null } | undefined, heldAt: Date | null): string {
+  return `${row?.videoHandoffRemakeReason ? " · 🔁 переделка" : ""}${heldAt ? " · ⏸ отложен" : ""}`;
+}
+
+/**
+ * «🗂 Очередь» — держатель и очередь с адресом и комнатами, кнопка на каждый.
+ *
+ * `controls` (19.11.2026, рубильник Settings.montajerQueueControlEnabled): под
+ * держателем «⏭ Пропустить», номер ждущего открывает его подменю (взять сейчас,
+ * выше/ниже, уже сделан) — lib/montajerQueueControl.ts. Без рубильника номер, как
+ * раньше, открывает карточку объекта.
+ */
+export async function montajerQueueView(now: Date = new Date(), opts: { controls?: boolean } = {}): Promise<MontajerView> {
   const [holder, queue, settings] = await Promise.all([
     prisma.property.findFirst({
       where: EDITOR_HOLDER_WHERE,
@@ -98,7 +111,7 @@ export async function montajerQueueView(now: Date = new Date()): Promise<Montaje
   const shown = queue.slice(0, QUEUE_VIEW_LIMIT);
   const ids = [...(holder ? [holder.id] : []), ...shown.map((q) => q.id)];
   const rows = ids.length
-    ? await prisma.property.findMany({ where: { id: { in: ids } }, select: OBJECT_LINE_SELECT })
+    ? await prisma.property.findMany({ where: { id: { in: ids } }, select: { ...OBJECT_LINE_SELECT, videoHandoffRemakeReason: true } })
     : [];
   const byId = new Map(rows.map((r) => [r.id, r]));
 
@@ -118,7 +131,7 @@ export async function montajerQueueView(now: Date = new Date()): Promise<Montaje
     lines.push("", "Дальше:");
     shown.forEach((q, i) => {
       const row = byId.get(q.id);
-      lines.push(`${i + 1}) ${row ? objectLine(row) : `№${q.shortId}`}`);
+      lines.push(`${i + 1}) ${row ? objectLine(row) : `№${q.shortId}`}${queueMarks(row, q.heldAt)}`);
       buttonIds.push(q.shortId);
     });
     if (queue.length > shown.length) lines.push(`… и ещё ${queue.length - shown.length}`);
@@ -126,11 +139,27 @@ export async function montajerQueueView(now: Date = new Date()): Promise<Montaje
   if (settings?.videoHandoffQueuePaused) {
     lines.push(
       "",
-      `⏸ Очередь на паузе — новые объекты пока не придут.${settings.videoHandoffQueuePauseReason ? ` Причина: ${settings.videoHandoffQueuePauseReason}.` : ""}`
+      `⏸ Очередь на паузе, включает руководитель: новые объекты пока не придут.${settings.videoHandoffQueuePauseReason ? ` Причина: ${settings.videoHandoffQueuePauseReason}.` : ""}`
     );
   }
-  lines.push("", "Нажмите номер — откроется карточка объекта.");
-  return { text: lines.join("\n"), buttons: objectButtons(buttonIds) };
+  if (!opts.controls) {
+    lines.push("", "Нажмите номер — откроется карточка объекта.");
+    return { text: lines.join("\n"), buttons: objectButtons(buttonIds) };
+  }
+  // С управлением: держатель — карточка и «Пропустить», ждущие — номер открывает подменю.
+  const buttons: TelegramInlineButton[][] = [];
+  if (holderRow) {
+    buttons.push([
+      { text: `📋 №${holderRow.shortId}`, callback_data: `mj:obj:${holderRow.shortId}` },
+      { text: `⏭ Пропустить №${holderRow.shortId}`, callback_data: montajerQueueCallback.skip(holderRow.shortId) },
+    ]);
+  }
+  const queuedIds = shown.map((q) => q.shortId);
+  for (let i = 0; i < queuedIds.length; i += 4) {
+    buttons.push(queuedIds.slice(i, i + 4).map((n) => ({ text: `№${n}`, callback_data: montajerQueueCallback.item(n) })));
+  }
+  lines.push("", queuedIds.length > 0 ? "Нажмите номер из очереди: взять сейчас, передвинуть или отметить «уже сделан»." : "");
+  return { text: lines.join("\n").trimEnd(), buttons };
 }
 
 /** «📋 Данные объекта №N» — те же факты, что в подписи к файлам, и кнопки по объекту. */
