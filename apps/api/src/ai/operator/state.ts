@@ -37,7 +37,6 @@ const storedSchema = z.object({
   details: z.object(Object.fromEntries(OPERATOR_DETAIL_FIELDS.map(field => [field, shortText.default(null)])) as Record<(typeof OPERATOR_DETAIL_FIELDS)[number], z.ZodDefault<typeof shortText>>),
   callback: z.object({ when: shortText, textOnly: z.boolean() }),
   noCall: z.boolean().default(false),
-  phoneKnown: z.boolean(),
   outOfArea: z.boolean(),
   place: shortText.default(null),
   flags: z.object({ bargainAsked: z.boolean().default(false), adPriceAsked: z.boolean().default(false),
@@ -61,6 +60,8 @@ export function readOperatorState(raw: unknown, now: Date = new Date()): Operato
     if (!(age >= 0 && age <= OPERATOR_STATE_TTL_MS)) return initialOperatorState();
     const { updatedAt: _updatedAt, ...rest } = parsed.data;
     const state = { ...rest, details: { ...emptyOperatorDetails(), ...rest.details }, spoken: { ...rest.spoken } } as OperatorState;
+    // Через сутки «Передал агенту» снова можно сказать один раз (ревью 19.11, Р5).
+    if (age > OPERATOR_HANDOFF_RESET_MS) { delete state.spoken.note_added; delete state.spoken.no_agent_noted; }
     if ((state.closed || state.step === "handoff") && age > OPERATOR_HANDOFF_RESET_MS) {
       state.closed = false; state.staffCalled = false;
       state.step = state.leadAccepted ? "done" : "start";

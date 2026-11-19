@@ -20,8 +20,13 @@ import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { readCustomerOpenVacancies } from "./recruitmentPositions.js";
 import { leadOnlyWhen } from "./leadOnlySettings.js";
+import { leadOnlyCardAgentActive } from "./leadOnlyHandover.js";
+import { contactWhenWithoutAgent } from "./handoffPromise.js";
+
 
 const AD_TOPICS = new Set(["property", "seller", "job"]);
+/** Фоновое задание приёма заявки режима (lib/customerLeadOnlyCore.ts вывозит его оттуда же; здесь — без круга импортов). */
+export const CUSTOMER_LEAD_ONLY_INTAKE_JOB = "customer-lead-only-intake";
 
 export interface OperatorTurnSetup {
   ctx: OperatorContext;
@@ -40,8 +45,20 @@ async function focusOf(propertyId: string | null, channel: string): Promise<Oper
     sold: facts.availability === "SOLD" };
 }
 
-async function openVacancies(): Promise<readonly RecruitmentPosition[]> {
-  try { return (await readCustomerOpenVacancies()).positions; } catch { return []; }
+/** Открытые вакансии и включён ли приём вакансий (Настройки: botCanHandleVacancies → путь рекрутёра). */
+async function vacancies(): Promise<{ open: readonly RecruitmentPosition[]; collecting: boolean }> {
+  try { const read = await readCustomerOpenVacancies(); return { open: read.positions, collecting: read.collecting }; }
+  catch { return { open: [], collecting: true }; }
+}
+
+/** Заявка этого разговора ещё оформляется: задание приёма (не пометка) ждёт или работает. */
+async function leadIntakePending(conversationId: string): Promise<boolean> {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ n: number }>>`SELECT 1 AS "n" FROM "BackgroundJob"
+      WHERE "type"=${CUSTOMER_LEAD_ONLY_INTAKE_JOB} AND "status" IN ('PENDING','RUNNING')
+        AND "payload"->>'conversationId'=${conversationId} AND COALESCE("payload"->>'scenario','') <> 'note' LIMIT 1`;
+    return rows.length > 0;
+  } catch { return true; }
 }
 
 /** Контекст хода оператора из базы и Настроек. Сбой чтения необязательного (вакансии, объект) — без него, не отказ хода. */
@@ -59,23 +76,31 @@ export async function loadOperatorTurnSetup(input: {
   const state = readOperatorState(row?.leadOnlyPending ?? null, now);
   // Объект разговора: этого хода, иначе тот, о котором уже говорили, иначе объект рекламы.
   const propertyId = input.focusPropertyId ?? state.propertyId ?? row?.adPropertyId ?? null;
-  const [focus, open] = await Promise.all([focusOf(propertyId, input.channel), openVacancies()]);
+  const clientId = row?.clientId ?? null;
+  const [focus, jobs, leadPending, cardAgentActive, noAgentWhen] = await Promise.all([focusOf(propertyId, input.channel), vacancies(),
+    clientId ? Promise.resolve(false) : leadIntakePending(input.conversationId),
+    clientId ? leadOnlyCardAgentActive(clientId).catch(() => true) : Promise.resolve(true),
+    contactWhenWithoutAgent(now).catch(() => ({ ru: "в рабочее время", tg: "дар вақти корӣ" }))]);
   const topic = row?.adTopic && AD_TOPICS.has(row.adTopic) ? row.adTopic as "property" | "seller" | "job" : null;
   const ctx: OperatorContext = {
     channel: input.channel as OperatorChannel,
     phoneKnown: input.phoneKnownByChannel,
-    leadExists: !!row?.clientId,
+    leadExists: !!clientId,
+    leadPending,
+    cardAgentActive,
+    noAgentWhen,
+    recruiterPath: jobs.collecting,
     ad: { topic: topic ?? (row?.adPropertyId ? "property" : null), propertyId: row?.adPropertyId ?? null },
     focus,
     callbackWhen: operatorWhenText(leadOnlyWhen(input.config, now)),
     maxPhoneAsks: input.config.maxPhoneAsks,
-    vacancies: { open, contactPhone: RECRUITMENT_CONTACT.phone },
+    vacancies: { open: jobs.open, contactPhone: RECRUITMENT_CONTACT.phone },
     brandName: row?.account?.brandName?.trim() || AGENCY_FACTS.name,
     officePhone: PUBLIC_AGENCY_CONTACT.phone,
     sellerCommissionPercent: AGENCY_FACTS.commission.sellerPercent,
     outOfArea: false,
   };
-  return { ctx, stored: row?.leadOnlyPending ?? null, state, clientId: row?.clientId ?? null };
+  return { ctx, stored: row?.leadOnlyPending ?? null, state, clientId };
 }
 
 /**
@@ -87,5 +112,6 @@ export function operatorLeadDraft(action: Extract<OperatorAction, { type: "accep
   return { ...base, stage: base.stage === "awaiting_phone" ? "awaiting_phone" : "chatting",
     ...(action.role ? { intent: action.role === "seller" ? "sell" : "buy", confident: true } : {}),
     callbackTopic: action.note,
+    ...(action.outOfArea ? { outOfArea: true } : {}),
     ...(action.propertyId ? { requestedPropertyId: action.propertyId } : {}) } as LeadDraft;
 }

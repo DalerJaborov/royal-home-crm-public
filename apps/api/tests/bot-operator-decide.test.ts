@@ -30,7 +30,8 @@ const MANAGER = position("sales-manager", "менеджер по продажа�
 
 const focus164 = { propertyId: PROPERTY_ID, shortId: 164, priceText: { ru: "520 000 сомони", tg: "520 000 сомонӣ" }, sold: false };
 const ctx = (over: Partial<OperatorContext> = {}): OperatorContext => ({
-  channel: "WHATSAPP", phoneKnown: true, leadExists: false, ad: { topic: null, propertyId: null }, focus: null,
+  channel: "WHATSAPP", phoneKnown: true, leadExists: false, leadPending: false, cardAgentActive: true,
+  noAgentWhen: { ru: "завтра с 09:30", tg: "пагоҳ аз соати 09:30" }, recruiterPath: false, ad: { topic: null, propertyId: null }, focus: null,
   callbackWhen: { ru: "в ближайшее время", tg: "ба зудӣ" }, maxPhoneAsks: 2, vacancies: { open: [MANAGER], contactPhone: CONTACT_PHONE },
   brandName: "Royal Home", officePhone: "+992 00 000 00 02", sellerCommissionPercent: 2, outOfArea: false, ...over,
 });
@@ -39,9 +40,11 @@ const FB = (over: Partial<OperatorContext> = {}) => ctx({ channel: "FACEBOOK", p
 
 type Turn = OperatorDecision & { text: string; keys: string[] };
 function run(c: OperatorContext, turns: readonly Understanding[], start: OperatorState = initialOperatorState()): Turn[] {
-  let state = start;
+  let state = start, accepted = false;
   return turns.map(turn => {
-    const d = decide(state, turn, c);
+    // Как в жизни: после принятой заявки, пока карточки нет, задание приёма в очереди (leadPending), а не «карточку удалили».
+    const d = decide(state, turn, accepted && !c.leadExists ? { ...c, leadPending: true } : c);
+    accepted ||= d.actions.some(a => a.type === "accept_lead");
     state = d.state;
     return { ...d, text: renderOperatorReply(d.steps, d.language), keys: d.steps.map(step => step.key) };
   });
@@ -272,7 +275,7 @@ describe("таблица случаев SPEC.md (1–26)", () => {
   it("22. грубость → одна спокойная фраза, сотрудник, дальше бот молчит и вопросов не задаёт", () => {
     const turns = run(IG(), [ru({ rude: true }), ru({ role: "buyer" }), ru({ question: "fee" })]);
     expect(turns[0]!.keys).toEqual(["rude_calm"]);
-    expect(turns[0]!.actions).toEqual([{ type: "call_staff", reason: "rude", manager: false }]);
+    expect(turns[0]!.actions).toEqual([{ type: "call_staff", reason: "rude" }]);
     expect(turns[1]!.silent && turns[2]!.silent).toBe(true);
     expect(leads(turns)).toHaveLength(0);
   });
@@ -303,10 +306,10 @@ describe("таблица случаев SPEC.md (1–26)", () => {
     expect(turns.flatMap(t => t.actions).filter(a => a.type === "call_staff")).toHaveLength(0);
   });
 
-  it("26. жалоба на агента → «Передам руководителю, с вами свяжутся.», руководитель, заявку не заводим", () => {
+  it("26. жалоба на агента → «Ваше сообщение увидит руководитель.» (без обещания контакта), сотрудник, заявку не заводим", () => {
     const t = one(ctx(), ru({ complaint: true, role: "buyer" }));
-    expect(t.text).toBe("Передам руководителю, с вами свяжутся.");
-    expect(t.actions).toEqual([{ type: "call_staff", reason: "complaint", manager: true }]);
+    expect(t.text).toBe("Ваше сообщение увидит руководитель.");
+    expect(t.actions).toEqual([{ type: "call_staff", reason: "complaint" }]);
     expect(t.state.closed).toBe(true);
   });
 });
@@ -399,10 +402,12 @@ describe("пределы и запреты", () => {
     expect(leads(turns)).toHaveLength(1);
   });
 
-  it("карточка уже есть (leadExists) — состояние с нуля, но вопросов нет", () => {
+  it("карточка уже есть (leadExists) — состояние с нуля, вопросов нет; новая цель — пометка агенту (Р5), «ок» — тишина", () => {
     const t = one(ctx({ leadExists: true }), ru({ role: "buyer" }));
-    expect(t.silent).toBe(true);
+    expect(t.keys).toEqual(["note_added"]);
+    expect(t.keys.filter(key => ASKS.includes(key))).toEqual([]);
     expect(t.state.leadAccepted).toBe(true);
+    expect(one(ctx({ leadExists: true }), ru({ ackOnly: true })).silent).toBe(true);
   });
 
   it("вложения: фото продавца — одно «агент снимет сам», шаг не двигается; наш пост — покупатель объекта", () => {
@@ -451,6 +456,82 @@ describe("пределы и запреты", () => {
   });
 });
 
+describe("ревью 19.11: Р1–Р8 и путь рекрутёра", () => {
+  const fullBuyer = { rooms: "2", district: "Сино", budget: "60000$" };
+  it("Р1: карточку удалили — память «заявка принята» сбрасывается, новый запрос — новая заявка; пока задание в очереди — нет", () => {
+    const [first] = run(ctx(), [ru({ role: "buyer", details: fullBuyer, hasDetails: true })]);
+    expect(first!.state.leadAccepted).toBe(true);
+    const pending = one(ctx({ leadPending: true }), ru({ role: "buyer", details: fullBuyer, hasDetails: true }), first!.state);
+    expect(leads([pending as Turn])).toHaveLength(0);
+    const again = one(ctx(), ru({ role: "buyer", details: fullBuyer, hasDetails: true }), first!.state);
+    expect(leads([again as Turn])).toHaveLength(1);
+    expect(again.state).toMatchObject({ role: "buyer", language: "ru", details: { district: "Сино" } });
+  });
+
+  it("Р2: номер из хода без заявки (аренда) не помнится — позже «хочу купить» в Instagram просит номер, а не обещает звонок", () => {
+    const turns = run(IG(), [ru({ role: "rent", phone: "+992935551234" }), ru({ role: "buyer", details: fullBuyer, hasDetails: true })]);
+    expect(leads(turns)).toHaveLength(0);
+    expect(turns[1]!.keys).toEqual(["ask_phone"]);
+    expect((turns[1]!.state as Record<string, unknown>).phoneKnown).toBeUndefined();
+  });
+
+  it("Р3: WhatsApp «не звоните, я просто смотрю» → потом детали: заявка с «не звонить», клиенту «агент напишет вам в WhatsApp»", () => {
+    const noCall = { when: null, textOnly: false, noCall: true };
+    const turns = run(ctx(), [ru({ callback: noCall }), ru({ role: "buyer", details: fullBuyer, hasDetails: true })]);
+    expect(turns[0]!.keys).toEqual(["no_call_ack"]);
+    expect(leads(turns.slice(0, 1))).toHaveLength(0);
+    expect(turns[1]!.keys).toEqual(["lead_text_only"]);
+    expect(turns[1]!.text).toBe("Спасибо, передал агенту, он напишет вам в WhatsApp.");
+    const [lead] = leads(turns);
+    expect(lead).toMatchObject({ noCall: true });
+    expect(lead && "note" in lead ? lead.note : "").toContain("Просит не звонить");
+    // Номер, данный клиентом сам, — согласие на звонок: «не звонить» снимается.
+    const ig = run(IG(), [ru({ callback: noCall }), ru({ role: "buyer", details: fullBuyer, hasDetails: true, phone: "+992935551234" })]);
+    expect(leads(ig)[0]).toMatchObject({ noCall: false });
+  });
+
+  it("Р4: карточка без живого агента — «Записали, с вами свяжутся …» и сигнал руководству, без «передал агенту»", () => {
+    const c = ctx({ leadExists: true, cardAgentActive: false });
+    const t = one(c, ru({ details: { floor: "5" }, hasDetails: true }));
+    expect(t.keys).toEqual(["no_agent_noted"]);
+    expect(t.text).toBe("Записали, с вами свяжутся завтра с 09:30.");
+    expect(t.actions.map(a => a.type)).toEqual(["append_note", "follow_up"]);
+    expect(one(c, ru({ callback: { when: "с 11:00 до 14:30", textOnly: false, noCall: false } })).actions.map(a => a.type)).toEqual(["append_note", "follow_up"]);
+  });
+
+  it("Р5: после заявки — вопрос об объекте получает строку объекта и пометку; новая цель — пометка и «Передал агенту» (раз в сутки)", () => {
+    const c = ctx({ leadExists: true, focus: focus164 });
+    const asked = one(c, ru({ aboutThisProperty: true, question: "property_price", quote: "Сколько стоит эта квартира?" }));
+    expect(asked.keys).toEqual(["property_price"]);
+    expect(asked.actions[0]).toMatchObject({ type: "append_note", note: expect.stringContaining("Спрашивает объект №164") });
+    const goals = run(ctx({ leadExists: true }), [ru({ role: "seller" }), ru({ role: "seller", details: { district: "Сино" }, hasDetails: true }), ru({ thanksOnly: true, ackOnly: true })]);
+    expect(goals[0]!.keys).toEqual(["note_added"]);
+    expect(goals[0]!.actions[0]).toMatchObject({ type: "append_note", note: expect.stringContaining("Хочет продать") });
+    expect(goals[1]!.silent).toBe(true);
+    expect(goals[1]!.actions[0]).toMatchObject({ type: "append_note" });
+    expect(goals[2]!.keys).toEqual(["welcome"]);
+  });
+
+  it("Р8: торгуется продавец — «Условия агент обсудит с вами…», не «с собственником»", () => {
+    const turns = run(IG(), [ru({ role: "seller" }), ru({ bargain: true })]);
+    expect(turns[1]!.keys[0]).toBe("bargain_seller");
+    expect(turns[1]!.text).toMatch(/^Условия агент обсудит с вами, передам ему ваш вопрос\./u);
+    expect(turns[1]!.text).not.toMatch(/собственник/u);
+  });
+
+  it("Р6: вакансия при включённом приёме вакансий — ход отдаётся пути рекрутёра, оператор молчит и помнит роль; «хочу купить» — снова оператор", () => {
+    const c = ctx({ recruiterPath: true, ad: { topic: "job", propertyId: null } });
+    const turns = run(c, [ru({ adOpener: true }), ru({ question: "other" }), ru({ role: "buyer" })]);
+    for (const t of turns.slice(0, 2)) {
+      expect(t.handoff).toBe("recruiter");
+      expect(t.silent && t.actions.length === 0).toBe(true);
+      expect(t.state.role).toBe("job");
+    }
+    expect(turns[2]!.handoff).toBeUndefined();
+    expect(turns[2]!.keys).toEqual(["lead_and_details_buyer"]);
+  });
+});
+
 describe("сторож-перебор: инварианты на случайных разговорах", () => {
   // Детерминированный генератор (без Math.random): падение воспроизводится по номеру разговора.
   function rng(seed: number) { let x = seed >>> 0 || 1; return () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 4294967296; }; }
@@ -476,7 +557,9 @@ describe("сторож-перебор: инварианты на случайн�
       const r = rng(n);
       const c = ctx({ channel: pick(r, ["WHATSAPP", "INSTAGRAM", "FACEBOOK", "TELEGRAM"] as const), phoneKnown: r() < 0.5,
         ad: { topic: pick(r, [null, "property", "seller", "job"] as const), propertyId: r() < 0.5 ? PROPERTY_ID : null },
-        focus: r() < 0.5 ? focus164 : null, maxPhoneAsks: 1 + Math.floor(r() * 3), leadExists: r() < 0.05 });
+        focus: r() < 0.5 ? focus164 : null, maxPhoneAsks: 1 + Math.floor(r() * 3), leadExists: r() < 0.05,
+        // Заявка этого перебора всегда «в очереди», пока карточки нет: сброс Р1 проверяется отдельным тестом.
+        leadPending: true, cardAgentActive: r() < 0.8, recruiterPath: r() < 0.5 });
       let state = initialOperatorState(), accepted = 0;
       for (let turn = 0; turn < 8; turn++) {
         const before = state;
@@ -490,7 +573,8 @@ describe("сторож-перебор: инварианты на случайн�
         expect(d.state.asked.details, where).toBeLessThanOrEqual(1);
         expect(d.state.asked.phone, where).toBeLessThanOrEqual(c.maxPhoneAsks);
         if (d.steps.some(step => step.key === "seller_intro" || step.key === "seller_commission")) expect(d.state.role, where).toBe("seller");
-        if (before.leadAccepted || before.closed) expect(d.steps.filter(step => ASKS.includes(step.key)), where).toEqual([]);
+        if ((before.leadAccepted && (c.leadExists || c.leadPending)) || before.closed) expect(d.steps.filter(step => ASKS.includes(step.key)), where).toEqual([]);
+        if (d.handoff) expect(d.steps, where).toEqual([]);
         if (c.phoneKnown) expect(d.steps.map(step => step.key), where).not.toContain("ask_phone");
         accepted += d.actions.filter(a => a.type === "accept_lead").length;
         // Людей зовём только при грубости и жалобе (решение владельца 13.11: до заявки никого не беспокоим).

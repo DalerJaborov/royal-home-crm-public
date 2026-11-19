@@ -3,6 +3,7 @@ import { OPERATOR_PHRASES, renderOperatorStep } from "../src/ai/operator/phrases
 import { OPERATOR_PHRASE_KEYS, type OperatorLanguage, type PhraseKey, type PhraseVars } from "../src/ai/operator/types.js";
 import { withoutAgreementOpenings } from "../src/ai/customerAgentHumanText.js";
 import { foldCustomerText } from "../src/ai/customerAgentRole.js";
+import { promisesAgentContact } from "../src/ai/callbackPromiseGuard.js";
 
 /**
  * СТОРОЖ ФРАЗ ОПЕРАТОРА (docs/bot-operator/SPEC.md: «Чего бот не делает никогда», «Тон», «Фразы»).
@@ -23,6 +24,7 @@ const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
   where_work: {}, rent_refusal: {}, photo_ack: {}, voice_failed: {}, foreign_post: {}, jobs_list: { list: ["менеджер по продажам", "SMM-специалист"] },
   job_open: { position: "менеджер по продажам" }, job_closed: { position: "SMM", list: ["менеджер по продажам"] }, jobs_none: {},
   job_contact: { phone: "+992 00 000 00 01" }, no_call_ack: {}, rude_calm: {}, off_topic: {}, complaint_ack: {},
+  bargain_seller: {}, no_agent_noted: { when: "завтра с 09:30" },
 };
 const LANGUAGES: readonly OperatorLanguage[] = ["ru", "tg"];
 /** Вопрос («?») — только у вопроса о роли: тогда в ответе из двух шагов вопрос всегда один. */
@@ -93,18 +95,15 @@ describe("сторож фраз оператора", () => {
     expect([...commissionKeys].sort()).toEqual(["seller_commission", "seller_intro"]);
   });
 
-  it("совместимость со сторожем лидов (#301): фраза заявки — обещание звонка, фраза грубости — не обещание агента", () => {
-    // Копия словарей ai/callbackPromiseGuard.ts::promisesAgentContact из main (#301, 52a231ff): после свода с main этот тест
-    // переходит на сам promisesAgentContact. Фраза заявки со словом условного обещания («напишите», «нависед») сторож не
-    // засчитывает, и незаведённая заявка прошла бы мимо него; «передаю сотруднику» он засчитывает — грубияну завёл бы заявку.
-    const CALL_PROMISE = /(?<![\p{L}])(?:занг\s+(?:мезан(?:ад|анд|ем)|зада(?![\p{L}])(?!\s+метавон))|мунтазири\s+занг\p{L}*|(?:по|пере)звон(?:ит|ят|им)(?![\p{L}])|свяж(?:ется|утся|емся)(?![\p{L}])|тамос\s+(?:мегир(?:ад|анд|ем)|гирифта(?![\p{L}])))/iu;
-    const CONDITIONAL = /(?<![\p{L}])(?:если|агар|оставьте|напишите|нависед|дайте|гузоред|бигузоред|фиристед|отправьте|пришлите|скиньте|укажите)(?![\p{L}])/iu;
-    const HANDOVER_TO_STAFF = /(?<![\p{L}])(?:передал[аи]?|переда(?:ю|м|ём))\s+(?:[\p{L}\d№-]+\s+){0,3}?(?:агент|сотрудник|менеджер|специалист)\p{L}*/iu;
+  it("сторож лидов (#301, promisesAgentContact): фразы заявки — обещание агента; фразы до заявки — нет (иначе заявка жалобщику, грубияну)", () => {
+    // Фразы, которые звучат ТОЛЬКО вместе с принятой заявкой: сторож обязан узнать в них обещание, иначе незаведённая заявка
+    // прошла бы мимо него. Пометки после заявки (callback_noted, text_only_noted, note_added, no_agent_noted) — свободны.
+    const LEAD_KEYS = ["lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing", "lead_known_phone", "lead_callback",
+      "lead_text_only", "phone_received", "out_of_area_accepted"];
+    const AFTER_LEAD = ["callback_noted", "text_only_noted", "note_added", "no_agent_noted"];
     for (const { key, language, text } of rendered()) {
-      if (["lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing", "lead_known_phone", "phone_received"].includes(key)) {
-        expect(CALL_PROMISE.test(text) && !CONDITIONAL.test(text), `${key}/${language}: ${text}`).toBe(true);
-      }
-      if (key === "rude_calm") expect(HANDOVER_TO_STAFF.test(text), `${key}/${language}: ${text}`).toBe(false);
+      if (LEAD_KEYS.includes(key)) expect(promisesAgentContact(text), `${key}/${language}: ${text}`).toBe(true);
+      else if (!AFTER_LEAD.includes(key)) expect(promisesAgentContact(text), `${key}/${language}: ${text}`).toBe(false);
     }
   });
 

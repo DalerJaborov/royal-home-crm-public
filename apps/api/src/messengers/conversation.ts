@@ -1494,14 +1494,18 @@ export async function acceptLead(
   // Режим «только заявки»: заявка оформлена. Прежняя память «о чём просили номер» (версия 1) стирается (третье ревью 13.11,
   // №2: иначе старый объект стал бы объектом разговора), а память оператора (версия 2) остаётся с отметкой «заявка
   // принята»: язык, роль и сказанное нужны следующим ходам, и вопросов после заявки нет (П6 приёмки 19.11).
-  const pendingNow = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { leadOnlyPending: true } })
-    .then((row) => row?.leadOnlyPending ?? null).catch(() => null);
-  const operatorAfterLead = operatorStateAfterLead(pendingNow);
+  // Чтение и запись памяти — в одной транзакции под блокировкой строки (ревью 19.11, Р10): ход, записавший память в промежутке,
+  // не затирается прочитанной раньше копией.
   try {
-    linked = await prisma.botConversation.update({
-      where: { id: conversationId },
-      data: { clientId, leadDraft: leadDraftDone, leadOnlyPending: operatorAfterLead ? (operatorAfterLead as object) : Prisma.DbNull },
-      select: { channel: true, subscriberId: true, adExternalId: true, contactProfileId: true },
+    linked = await prisma.$transaction(async (tx) => {
+      const [row] = await tx.$queryRaw<Array<{ leadOnlyPending: unknown }>>`SELECT "leadOnlyPending" FROM "BotConversation"
+        WHERE "id"=${conversationId} FOR UPDATE`;
+      const operatorAfterLead = operatorStateAfterLead(row?.leadOnlyPending ?? null);
+      return tx.botConversation.update({
+        where: { id: conversationId },
+        data: { clientId, leadDraft: leadDraftDone, leadOnlyPending: operatorAfterLead ? (operatorAfterLead as object) : Prisma.DbNull },
+        select: { channel: true, subscriberId: true, adExternalId: true, contactProfileId: true },
+      });
     });
   } catch (err) {
     // Карточка уже заведена, а привязка не легла: без отката диалог остался бы в
@@ -3095,7 +3099,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * приёмом (acceptLead, тихо), пометки — в карточку (lib/leadOnlyHandover.ts), человека зовём только при грубости и
    * жалобе. Память оператора — в той же транзакции, что и реплика бота.
    */
-  const runLeadOnlyOperator = async (said: string, attachments: OperatorTurnInput["attachments"]): Promise<MessengerTurnResult> => {
+  /** null — ход отдан прежнему пути рекрутёра (вакансия): вызывающий идёт дальше обычным путём. */
+  const runLeadOnlyOperator = async (said: string, attachments: OperatorTurnInput["attachments"]): Promise<MessengerTurnResult | null> => {
     // Объект ЭТОГО сообщения (пост, реклама, ссылка), иначе фокус разговора, иначе объект чата агента; объект рекламы
     // разговора (adPropertyId) оператор берёт сам запасным фокусом.
     let focusPropertyId: string | null = input.sharedPropertyId ?? input.adPropertyId ?? null;
@@ -3147,11 +3152,17 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
           : noteLeadOnlyOnCard({ conversationId: conversation.id, summary: action.note });
         await Promise.resolve(noted).catch((err) => console.error("[messenger] оператор заявок → карточка:", err));
       } else {
-        // Грубость или жалоба: одна дверь «клиент ждёт» (кому — решает она сама).
+        // Грубость, жалоба или пометка в карточку без живого агента: одна дверь «клиент ждёт» (кому — решает она сама).
         void import("../lib/clientWaitingAlert.js").then(({ alertClientWaiting }) =>
           alertClientWaiting({ conversationId: conversation.id, trigger: "follow_up", since: new Date() }))
           .catch((err) => console.error("[messenger] оператор заявок → сигнал:", err instanceof Error ? err.message : err));
       }
+    }
+    if (operator.handoff === "recruiter") {
+      // Вакансия (ревью 19.11, Р6): ход ведёт прежний путь рекрутёра ниже; оператор помнит роль «вакансия» и не отвечает.
+      await saveOperatorStateTx(prisma, conversation.id, operator.state).catch((err) =>
+        console.error("[messenger] оператор заявок: память перед путём рекрутёра", err instanceof Error ? err.message : err));
+      return null;
     }
     const reply = operator.text ? leadOnlyOutgoing(operator.text, operator.language) : "";
     if (reply) {
@@ -3191,8 +3202,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   // к карточке диалог тоже доходит до этой строки, и без проверки повторный
   // номер, названный тем же клиентом, заводил бы ему ВТОРОГО клиента-двойника.
   // Такой номер — не новая заявка, а «доп. номер» (см. блок выше, до debounce).
-  // Режим «только заявки»: номер ведёт оператор (ниже, после окна склейки) — одна дверь заявок режима.
-  const phoneForLead = conversation.clientId || leadOnlyChannel ? null : typedPhone;
+  // Режим «только заявки»: номер ведёт оператор (ниже, после окна склейки) — одна дверь заявок режима. Чат о вакансии —
+  // прежним путём рекрутёра, и номер кандидата тоже (ревью 19.11, Р6).
+  const phoneForLead = conversation.clientId || (leadOnlyChannel && !vacancyTopic && draft.intent !== "job") ? null : typedPhone;
   if (phoneForLead) {
     /**
      * ЗАБИРАЕМ БУФЕР ПЕРЕД ПРИЁМОМ ЗАЯВКИ — иначе предыдущее сообщение исчезает.
@@ -3251,8 +3263,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     // в переписку CRM.
     await saveIncoming(historyText);
     if (leadOnlyChannel) {
-      return await runLeadOnlyOperator("", { voice: voiceNotUnderstood ? "failed" : "none", ownPost: !!input.sharedPropertyId,
+      const handled = await runLeadOnlyOperator("", { voice: voiceNotUnderstood ? "failed" : "none", ownPost: !!input.sharedPropertyId,
         media: saved.some((file) => file.kind === "image" || file.kind === "video") || images.length > 0 });
+      if (handled) return handled;
     }
     return {
       // Текста в этом ходе нет вовсе (голосовое, стикер) — язык берём из истории.
@@ -3392,9 +3405,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   await saveIncoming(merged);
 
   // Режим «только заявки»: ход целиком у оператора (runLeadOnlyOperator выше). Свободный путь ниже в режиме не отвечает.
+  // Вакансия — исключение: оператор отдаёт ход прежнему пути рекрутёра (null) и ход идёт дальше обычным путём (ревью 19.11, Р6).
   if (leadOnlyChannel) {
-    return await runLeadOnlyOperator(merged, { voice: voiceNotUnderstood ? "failed" : "none", ownPost: !!input.sharedPropertyId,
+    const handled = await runLeadOnlyOperator(merged, { voice: voiceNotUnderstood ? "failed" : "none", ownPost: !!input.sharedPropertyId,
       media: saved.some((file) => file.kind === "image" || file.kind === "video") || images.length > 0 });
+    if (handled) return handled;
   }
 
   if (propertyAdmission && customerPropertyContextEnabled()) {

@@ -35,7 +35,7 @@ export function emptyOperatorDetails(): OperatorDetails {
 
 export function initialOperatorState(): OperatorState {
   return { version: 2, role: "unknown", step: "start", language: null, asked: { role: 0, details: 0, phone: 0 }, spoken: {},
-    propertyId: null, details: emptyOperatorDetails(), callback: { when: null, textOnly: false }, noCall: false, phoneKnown: false,
+    propertyId: null, details: emptyOperatorDetails(), callback: { when: null, textOnly: false }, noCall: false,
     outOfArea: false, place: null, flags: { bargainAsked: false, adPriceAsked: false, propertyLineFor: null }, leadAccepted: false,
     staffCalled: false, closed: false, jobAnswered: null };
 }
@@ -62,6 +62,7 @@ export function operatorLeadNote(s: OperatorState, u: Understanding, ctx: Operat
   if (s.flags.bargainAsked) parts.push("Спрашивал про торг и скидку");
   if (s.callback.when) parts.push(`Когда звонить: «${s.callback.when}»`);
   if (s.callback.textOnly) parts.push(textOnlyNote(ctx));
+  else if (s.noCall) parts.push("Просит не звонить");
   if (u.quote) parts.push(`Слова клиента: «${u.quote}»`);
   return parts.join(". ").slice(0, 600);
 }
@@ -77,26 +78,34 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   const flow: Draft[] = [];
   const said = (key: PhraseKey) => (s.spoken[key] ?? 0) > 0;
   const commissionSaid = () => said("seller_intro") || said("seller_commission") || answers.some(a => a.key === "seller_commission");
-  const callStaff = (reason: Extract<OperatorAction, { type: "call_staff" }>["reason"], manager = false) => {
+  const callStaff = (reason: Extract<OperatorAction, { type: "call_staff" }>["reason"]) => {
     if (s.staffCalled && reason !== "complaint") return;
     s.staffCalled = true;
-    actions.push({ type: "call_staff", reason, manager });
+    actions.push({ type: "call_staff", reason });
   };
+  let handoff: OperatorDecision["handoff"];
 
   // ── язык: липкий, меняет только осмысленный текст ─────────────────────────
   if (u.language) s.language = u.language;
   else if (!s.language && u.languageHint) s.language = u.languageHint;
   // Чужой пост при неизвестном языке — таджикский (SPEC, случай 20); язык разговора от этого не меняется.
   const language: OperatorLanguage = s.language ?? (u.attachments.foreignPost ? "tg" : "ru");
-  const finish = () => compose(s, language, answers, flow, actions);
+  const finish = () => ({ ...compose(s, language, answers, flow, actions), ...(handoff ? { handoff } : {}) });
 
   // ── факты хода в память ────────────────────────────────────────────────────
   if (ctx.leadExists && !s.leadAccepted) { s.leadAccepted = true; s.step = "done"; }
+  // Карточку удалили (или заявка так и не завелась), а память говорит «заявка принята»: клиент — снова новый. Роль, язык
+  // и детали остаются, шаг и счётчики вопросов — с начала (ревью 19.11, Р1). Пока задание приёма в очереди — не трогаем.
+  if (!ctx.leadExists && !ctx.leadPending && s.leadAccepted) {
+    s.leadAccepted = false; s.step = "start"; s.asked = { role: 0, details: 0, phone: 0 };
+    delete s.spoken.note_added; delete s.spoken.no_agent_noted;
+  }
   const newCallback = !!u.callback.when && u.callback.when !== s.callback.when;
   const newTextOnly = u.callback.textOnly && !s.callback.textOnly;
   if (u.callback.when) s.callback.when = u.callback.when;
   if (u.callback.textOnly) s.callback.textOnly = true;
-  if (u.phone) s.phoneKnown = true;
+  // Клиент сам дал номер — это согласие на звонок: прежнее «не звоните» снимается.
+  if (u.phone) s.noCall = false;
   const newOutOfArea = !!u.outsidePlace && !s.outOfArea;
   if (u.outsidePlace) { s.outOfArea = true; s.place = u.outsidePlace; }
   if (ctx.outOfArea) s.outOfArea = true;
@@ -109,7 +118,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     return finish();
   }
   if (u.complaint) {
-    answers.push(draft("complaint_ack")); callStaff("complaint", true); s.closed = true; s.step = "handoff";
+    answers.push(draft("complaint_ack")); callStaff("complaint"); s.closed = true; s.step = "handoff";
     return finish();
   }
 
@@ -132,36 +141,58 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     if (u.question === "area") answers.push(draft("where_work"));
     if (u.question === "identity") answers.push(draft("identity", { brand: ctx.brandName }));
     if (u.botQuestion) answers.push(draft("bot_identity"));
-    if (u.bargain) answers.push(draft("bargain"));
+    // Продавец сам собственник: «агент обсуждает с собственником» ему не подходит (ревью 19.11, Р8).
+    if (u.bargain) answers.push(draft(s.role === "seller" ? "bargain_seller" : "bargain"));
   };
 
-  // ── заявка уже принята: вопросов нет ──────────────────────────────────────
+  // ── заявка уже принята: вопросов нет, но содержательный ход не остаётся без ответа (ревью 19.11, Р5) ───
   if (s.leadAccepted) {
     answerQuestions(false);
     // Продавцу комиссию называем сами один раз: если в ход заявки место занял ответ на его вопрос — теперь.
     if (s.role === "seller" && !commissionSaid() && answers.length === 0) answers.push(draft("seller_commission", { percent: ctx.sellerCommissionPercent }));
-    if (newOutOfArea) {
+    // Карточка без живого агента: «передал агенту» — неправда; честно «записали», руководство узнаёт (Р4).
+    const noAgent = !ctx.cardAgentActive;
+    const noted = (key: PhraseKey, vars: PhraseVars = {}, oncePerDay = true): void => {
+      if (noAgent) { if (!said("no_agent_noted")) flow.push(draft("no_agent_noted", { when: ctx.noAgentWhen[language] })); return; }
+      if (!oncePerDay || !said(key)) flow.push(draft(key, vars));
+    };
+    const note = (text: string, extra: { phone?: string | null; outOfArea?: true } = {}) =>
+      actions.push({ type: "append_note", note: text, phone: extra.phone ?? null, ...(extra.outOfArea ? { outOfArea: true as const } : {}) });
+    // Роль, названная ЭТИМ ходом («хочу продать»), идёт в заметку как новая цель, память роли разговора не трогает.
+    const goalRole = u.role === "seller" ? "seller" as const : u.role === "buyer" ? "buyer" as const : null;
+    const newGoal = !!goalRole && leadRole(s.role) !== goalRole;
+    const noteState = goalRole ? { ...s, role: goalRole } : s;
+    const askedProperty = !!ctx.focus && (u.attachments.ownPost || (u.aboutThisProperty && !u.adOpener) || u.question === "property_price" ||
+      (u.adOpener && ctx.ad.topic === "property"));
+    if (askedProperty && ctx.focus) {
+      const f = ctx.focus;
+      flow.push(f.sold ? draft("property_sold", { id: f.shortId }) : f.priceText ? draft("property_price", { id: f.shortId, price: f.priceText[language] })
+        : draft("property_no_price", { id: f.shortId }));
+      note(`Спрашивает объект №${f.shortId}${u.quote ? `: «${u.quote}»` : ""}`);
+    } else if (newOutOfArea) {
       // Заявка уже ушла, а объект оказался не в Душанбе: пометка с признаком (этап 1.5 — решение директора), клиенту без отказа.
-      actions.push({ type: "append_note", note: operatorLeadNote(s, u, ctx), phone: null, outOfArea: true });
-      flow.push(draft("out_of_area_accepted"));
+      note(operatorLeadNote(s, u, ctx), { outOfArea: true });
+      if (noAgent) noted("out_of_area_accepted"); else flow.push(draft("out_of_area_accepted"));
     } else if (newTextOnly) {
-      actions.push({ type: "append_note", note: textOnlyNote(ctx), phone: null });
-      flow.push(draft("text_only_noted", { where: operatorWhereVar(ctx.channel) }));
+      note(textOnlyNote(ctx));
+      noted("text_only_noted", { where: operatorWhereVar(ctx.channel) }, false);
     } else if (newCallback) {
-      actions.push({ type: "append_note", note: `Когда звонить: «${s.callback.when}»`, phone: null });
-      flow.push(draft("callback_noted", { time: s.callback.when! }));
+      note(`Когда звонить: «${s.callback.when}»`);
+      noted("callback_noted", { time: s.callback.when! }, false);
     } else if (u.callback.noCall) {
-      actions.push({ type: "append_note", note: "Просит не звонить", phone: null });
+      s.noCall = true;
+      note("Просит не звонить");
       if (!said("no_call_ack")) flow.push(draft("no_call_ack"));
     } else if (u.phone) {
-      actions.push({ type: "append_note", note: "Клиент написал номер для звонка", phone: u.phone });
-      if (!said("note_added")) flow.push(draft("note_added"));
-    } else if (u.hasDetails || u.outsidePlace || u.bargain) {
-      actions.push({ type: "append_note", note: operatorLeadNote(s, u, ctx), phone: null });
-      if (!said("note_added") && !u.bargain) flow.push(draft("note_added"));
+      note("Клиент написал номер для звонка", { phone: u.phone });
+      noted("note_added");
+    } else if (u.hasDetails || u.outsidePlace || u.bargain || newGoal) {
+      note(operatorLeadNote(noteState, u, ctx));
+      if (!u.bargain) noted("note_added");
     } else if (u.offTopic) {
       if (!said("off_topic")) flow.push(draft("off_topic"));
     } else if (u.thanksOnly && !said("welcome")) flow.push(draft("welcome"));
+    if (noAgent && actions.some(action => action.type === "append_note")) actions.push({ type: "follow_up" });
     return finish();
   }
 
@@ -180,6 +211,9 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // ── вакансия: ровно по спрошенной должности (случаи 12, 13) ────────────────
   if (u.role === "job" || (u.role === null && !u.aboutThisProperty && (s.role === "job" || (s.role === "unknown" && ctx.ad.topic === "job")))) {
     s.role = "job";
+    // Вакансии ведёт прежний путь рекрутёра (анкета кандидата, Ноза): оператор ход отдаёт и сам не отвечает (ревью 19.11,
+    // Р6). Свои фразы о вакансиях — только запасной ответ, когда приём вакансий выключен в Настройках.
+    if (ctx.recruiterPath) { answers.length = 0; flow.length = 0; handoff = "recruiter"; return finish(); }
     jobAnswer(s, u, ctx, language, answers, said);
     return finish();
   }
@@ -214,16 +248,18 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   const leadMessage = (): Draft => {
     const when = ctx.callbackWhen[language];
     if (s.outOfArea) return draft("out_of_area_accepted");
-    if (s.callback.textOnly) return draft("lead_text_only", { where: operatorWhereVar(ctx.channel) });
+    // «Пишите» или «не звоните» (Р3): заявка без обещания звонка — агент напишет.
+    if (s.callback.textOnly || s.noCall) return draft("lead_text_only", { where: operatorWhereVar(ctx.channel) });
     if (s.callback.when) return draft("lead_callback", { time: s.callback.when });
     if (u.phone && !ctx.phoneKnown) return draft("phone_received", { when });
     return draft("lead_known_phone", { when });
   };
-  const phoneKnown = () => ctx.phoneKnown || s.phoneKnown;
+  // Номер известен только по каналу (WhatsApp) или из слов ЭТОГО хода: номер прошлых ходов нигде не сохранён (Р2).
+  const phoneKnown = () => ctx.phoneKnown || !!u.phone;
   const acceptLead = () => {
     actions.push({ type: "accept_lead", role: leadRole(s.role), propertyId: s.role === "buyer_property" ? s.propertyId : null,
       phone: u.phone, note: operatorLeadNote(s, u, ctx), outOfArea: s.outOfArea, callbackWhen: s.callback.when,
-      textOnly: s.callback.textOnly });
+      textOnly: s.callback.textOnly, noCall: s.noCall });
     s.leadAccepted = true; s.step = "done";
   };
   const contact = () => {
@@ -289,7 +325,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     const all = missing.length === fields.length;
     // Номер известен (WhatsApp): заявка в ЭТОТ ход, вопрос о деталях — в том же ответе. Клиент, не ответивший на вопрос,
     // не пропадает (П1 приёмки 19.11). Время звонка, «пишите», вне Душанбе — обычная строка заявки без вопроса.
-    if (phoneKnown() && (s.outOfArea || s.callback.textOnly || s.callback.when)) { contact(); return finish(); }
+    if (phoneKnown() && (s.outOfArea || s.callback.textOnly || s.callback.when || s.noCall)) { contact(); return finish(); }
     s.asked.details = 1;
     if (seller && !commissionSaid() && answers.length === 0) flow.push(draft("seller_intro", { percent: ctx.sellerCommissionPercent }));
     if (phoneKnown()) {

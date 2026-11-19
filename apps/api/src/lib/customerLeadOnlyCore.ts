@@ -27,7 +27,8 @@ import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
 import { LEAD_MODEL_FAILED_NOTE } from "../services/leads/intentUnknown.js";
 
-export const CUSTOMER_LEAD_ONLY_INTAKE_JOB = "customer-lead-only-intake";
+import { CUSTOMER_LEAD_ONLY_INTAKE_JOB } from "./operatorTurn.js";
+export { CUSTOMER_LEAD_ONLY_INTAKE_JOB };
 
 /** Номер и слова клиента — только в зашифрованном виде (ревью 13.11: PII открытым текстом в очереди заданий). */
 const sealedSchema = z.object({
@@ -95,8 +96,32 @@ export interface CustomerLeadOnlyTurnPlan {
   intakes: CustomerLeadOnlyIntake[];
   /** Память оператора для `BotConversation.leadOnlyPending`. */
   operator: OperatorTurnResult;
-  /** Сотрудника зовём только при грубости и жалобе (решение владельца 13.11.2026). */
-  signal?: { kind: "follow_up"; manager: boolean };
+  /**
+   * Дверь «клиент ждёт» (follow_up): грубость и жалоба (до заявки людей не беспокоим, решение владельца 13.11.2026) и пометка
+   * в карточку без живого агента (ревью 19.11, Р4). Кому именно — решает сама дверь (агент карточки или директор).
+   */
+  signal?: { kind: "follow_up" };
+  /** Ход отдан прежнему пути рекрутёра (вакансия, ревью 19.11, Р6): ответа нет, ядро идёт своим обычным путём. */
+  handoff?: "recruiter";
+  /** Отметка времени памяти, от которой оператор решал (Р14): запись сверяет её, устаревшее решение не пишется. */
+  baseUpdatedAt: string | null;
+}
+
+/** Память разговора изменил параллельный ход, пока этот думал (Р14): решение на устаревшей памяти не записывается. */
+export class OperatorStateStaleError extends Error {
+  constructor() { super("operator_state_stale"); }
+}
+
+/** Отметка времени сохранённой памяти оператора (версия 2), иначе null. */
+export function operatorStoredUpdatedAt(raw: unknown): string | null {
+  const value = raw && typeof raw === "object" ? Reflect.get(raw, "updatedAt") : null;
+  return typeof value === "string" ? value : null;
+}
+
+/** В транзакции записи: память всё ещё та, от которой решали (строка диалога заблокирована до конца транзакции). */
+export async function assertOperatorStateCurrentTx(tx: TxClient, conversationId: string, baseUpdatedAt: string | null): Promise<void> {
+  const rows = await tx.$queryRaw<Array<{ leadOnlyPending: unknown }>>`SELECT "leadOnlyPending" FROM "BotConversation" WHERE "id"=${conversationId} FOR UPDATE`;
+  if (operatorStoredUpdatedAt(rows[0]?.leadOnlyPending ?? null) !== baseUpdatedAt) throw new OperatorStateStaleError();
 }
 
 /** Тишина оператора — продуктовое решение, а не сбой (lib/customerIntendedSilence.ts). */
@@ -153,19 +178,21 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput)
       }
       intakes.push(sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId, scenario: LEAD_SCENARIO(action),
         propertyId: action.propertyId, ...(action.outOfArea ? { outOfArea: true as const } : {}) },
-      { phone, whatsappPhone: wa?.waPhone ?? null, clientText: own.slice(0, 1500), promised: action.textOnly ? "chat" : "call", lead: true,
-        callbackWhen: action.callbackWhen, ...(action.textOnly ? { noCall: true } : {}), note: action.note.slice(0, 800) }));
+      { phone, whatsappPhone: wa?.waPhone ?? null, clientText: own.slice(0, 1500), promised: action.textOnly || action.noCall ? "chat" : "call", lead: true,
+        callbackWhen: action.callbackWhen, ...(action.textOnly || action.noCall ? { noCall: true } : {}), note: action.note.slice(0, 800) }));
     } else if (action.type === "append_note") {
       intakes.push(sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId, scenario: "note", propertyId: null,
         ...(action.outOfArea ? { outOfArea: true as const } : {}) },
       { phone: action.phone, whatsappPhone: null, clientText: own.slice(0, 1500), promised: "call", lead: false, note: action.note.slice(0, 800) }));
     } else {
-      signal = { kind: "follow_up", manager: action.manager };
+      // call_staff (грубость, жалоба) и follow_up (пометка без живого агента): одна дверь «клиент ждёт».
+      signal = { kind: "follow_up" };
     }
   }
   // Последняя дверь текста режима (ai/leadOnlyMode.ts::leadOnlyOutgoing): начало-согласие не уходит никогда.
   const text = operator.text ? leadOnlyOutgoing(operator.text, operator.language) : null;
-  return { text, intakes, operator, ...(signal ? { signal } : {}) };
+  return { text, intakes, operator, baseUpdatedAt: operatorStoredUpdatedAt(setup.stored),
+    ...(signal ? { signal } : {}), ...(operator.handoff ? { handoff: operator.handoff } : {}) };
 }
 
 /** Ставится в той же транзакции, что и ответ хода: ответ без заявки или заявка без ответа не остаются. */
@@ -278,6 +305,7 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
   const draft = { ...prior, stage: prior.stage === "awaiting_phone" ? "awaiting_phone" : "chatting",
     // Номер в ответ на просьбу без ясной темы: намерение — из прежнего черновика, классификатор приёма решит сам.
     ...(intake.scenario === "escalate" ? {} : { intent: intake.scenario === "seller" ? "sell" : "buy", confident: true }), callbackTopic: note,
+    ...(intake.outOfArea ? { outOfArea: true } : {}),
     ...(intake.propertyId ? { requestedPropertyId: intake.propertyId } : {}) };
   const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefined, sealed.phone,
     draft as never, (conversation.messages ?? []) as never, {

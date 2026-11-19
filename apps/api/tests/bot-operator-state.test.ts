@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { initialOperatorState } from "../src/ai/operator/decide.js";
-import { OPERATOR_HANDOFF_RESET_MS, OPERATOR_STATE_TTL_MS, readOperatorState, serializeOperatorState } from "../src/ai/operator/state.js";
+import { OPERATOR_HANDOFF_RESET_MS, OPERATOR_STATE_TTL_MS, operatorStateAfterLead, readOperatorState, saveOperatorStateIsolatedTx,
+  serializeOperatorState } from "../src/ai/operator/state.js";
+import { prisma } from "../src/db.js";
+import { randomUUID } from "node:crypto";
 import { parseLeadOnlyPending } from "../src/lib/leadOnlyPending.js";
 
 /**
@@ -61,9 +64,43 @@ describe("память оператора: версия 1 → 2", () => {
       .toMatchObject({ leadAccepted: true, step: "done", closed: false });
   });
 
+  it("«Передал агенту» снова можно сказать через сутки (ревью 19.11, Р5); внутри суток — нет", () => {
+    const state = initialOperatorState();
+    state.leadAccepted = true; state.step = "done"; state.spoken.note_added = 1;
+    const stored = serializeOperatorState(state, NOW);
+    expect(readOperatorState(stored, new Date(NOW.getTime() + 60_000)).spoken.note_added).toBe(1);
+    expect(readOperatorState(stored, new Date(NOW.getTime() + OPERATOR_HANDOFF_RESET_MS + 60_000)).spoken.note_added).toBeUndefined();
+  });
+
+  it("Т6: память после принятой заявки (acceptLead) — та же, с «заявка принята»; версия 1 и пусто — стираются (null)", () => {
+    const state = initialOperatorState();
+    state.role = "seller"; state.language = "tg"; state.step = "details";
+    const after = operatorStateAfterLead(serializeOperatorState(state, NOW), NOW);
+    expect(after).toMatchObject({ version: 2, role: "seller", language: "tg", leadAccepted: true, step: "done" });
+    expect(operatorStateAfterLead(v1("seller", null), NOW)).toBeNull();
+    expect(operatorStateAfterLead(null, NOW)).toBeNull();
+  });
+
+  it("Т5: сбой записи памяти за точкой сохранения не валит транзакцию ответа", async () => {
+    const id = (await prisma.botConversation.create({ data: { channel: "INSTAGRAM", subscriberId: `operator-state-${randomUUID()}`, messages: [] } })).id;
+    try {
+      const broken = { ...initialOperatorState(), propertyId: "не-uuid" };
+      const error = await prisma.$transaction(async tx => {
+        await tx.botConversation.update({ where: { id }, data: { name: "ответ хода записан" } });
+        return saveOperatorStateIsolatedTx(tx, id, broken, NOW);
+      });
+      expect(error).toBeTruthy();
+      const row = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { name: true, leadOnlyPending: true } });
+      expect(row.name).toBe("ответ хода записан");
+      expect(row.leadOnlyPending).toBeNull();
+      expect(await prisma.$transaction(tx => saveOperatorStateIsolatedTx(tx, id, initialOperatorState(), NOW))).toBeNull();
+      expect((await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { leadOnlyPending: true } })).leadOnlyPending).toMatchObject({ version: 2 });
+    } finally { await prisma.botConversation.delete({ where: { id } }); }
+  });
+
   it("запись обрезает длинные слова клиента и не пишет номер телефона", () => {
     const state = initialOperatorState();
-    state.details.district = "Сино ".repeat(60); state.phoneKnown = true;
+    state.details.district = "Сино ".repeat(60);
     const stored = serializeOperatorState(state, NOW);
     expect(stored.details.district!.length).toBeLessThanOrEqual(120);
     expect(JSON.stringify(stored)).not.toMatch(/\d{7,}/u);

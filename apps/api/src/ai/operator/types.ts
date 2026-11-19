@@ -44,7 +44,7 @@ export const OPERATOR_PHRASE_KEYS = [
   "lead_known_phone", "lead_callback", "lead_text_only", "ask_phone", "phone_received", "out_of_area_accepted",
   "callback_noted", "text_only_noted", "note_added", "welcome", "where_work", "rent_refusal", "photo_ack",
   "voice_failed", "foreign_post", "jobs_list", "job_open", "job_closed", "jobs_none", "job_contact",
-  "no_call_ack", "rude_calm", "off_topic", "complaint_ack",
+  "no_call_ack", "rude_calm", "off_topic", "complaint_ack", "bargain_seller", "no_agent_noted",
 ] as const;
 export type PhraseKey = typeof OPERATOR_PHRASE_KEYS[number];
 
@@ -66,10 +66,8 @@ export interface OperatorState {
   details: OperatorDetails;
   /** Пожелание по звонку: когда звонить (словами клиента, 24 ч) и «пишите, не звоните». */
   callback: { when: string | null; textOnly: boolean };
-  /** «Не звоните, я просто смотрю» (случай 25): номер больше не просим. */
+  /** «Не звоните, я просто смотрю» (случай 25): номер больше не просим, заявка — без обещания звонка, агенту пометка. */
   noCall: boolean;
-  /** Номер для звонка получен в разговоре (сам номер здесь не хранится). */
-  phoneKnown: boolean;
   /** Объект не в Душанбе: заявка без раздачи агентам, решение за директором (SPEC, решение владельца 19.11). */
   outOfArea: boolean;
   /** Место вне Душанбе словами клиента (для заметки директору). */
@@ -168,6 +166,14 @@ export interface OperatorContext {
   phoneKnown: boolean;
   /** Карточка клиента уже есть (заявка принята раньше): вопросов нет. */
   leadExists: boolean;
+  /** Заявка этого разговора ещё оформляется (задание приёма в очереди): карточки нет, но и сбрасывать «заявка принята» рано. */
+  leadPending: boolean;
+  /** У карточки есть живой агент. false — пометка в карточку зовёт руководство дверью «клиент ждёт». */
+  cardAgentActive: boolean;
+  /** Когда свяжутся с клиентом карточки без агента (lib/handoffPromise.ts::contactWhenWithoutAgent). */
+  noAgentWhen: { ru: string; tg: string };
+  /** Вакансии ведёт путь рекрутёра (Настройки: botCanHandleVacancies). false — оператор отвечает сам списком вакансий. */
+  recruiterPath: boolean;
   /** Метка рекламы, с которой пришёл клиент. */
   ad: { topic: "property" | "seller" | "job" | null; propertyId: string | null };
   /** Объект в фокусе (факты из базы) — его номер и цена в ответе только отсюда. */
@@ -201,11 +207,18 @@ export type OperatorAction =
     outOfArea: boolean;
     callbackWhen: string | null;
     textOnly: boolean;
+    /** «Не звоните»: заявка без обещания звонка, агенту пометка «Просит не звонить». */
+    noCall: boolean;
   }
   /** `outOfArea` — пометка о том, что объект не в Душанбе (зацепка этапа 1.5). */
   | { type: "append_note"; note: string; phone: string | null; outOfArea?: true }
-  /** Человека зовём только при грубости и жалобе: до заявки людей не беспокоим (решение владельца 13.11.2026). */
-  | { type: "call_staff"; reason: "rude" | "complaint"; manager: boolean };
+  /**
+   * Человека зовём только при грубости и жалобе: до заявки людей не беспокоим (решение владельца 13.11.2026). Дверь
+   * «клиент ждёт» адресует сама (агент карточки или директор); «жалоба — руководителю» — этап 3 плана.
+   */
+  | { type: "call_staff"; reason: "rude" | "complaint" }
+  /** Пометка в карточку без живого агента: руководство узнаёт дверью «клиент ждёт» (follow_up), как до оператора. */
+  | { type: "follow_up" };
 
 export interface OperatorDecision {
   state: OperatorState;
@@ -216,4 +229,6 @@ export interface OperatorDecision {
   actions: OperatorAction[];
   /** Ответа нет (тишина). */
   silent: boolean;
+  /** Ход отдан прежнему пути рекрутёра (вакансия): оператор не отвечает, маршрут сам ведёт анкету кандидата. */
+  handoff?: "recruiter";
 }

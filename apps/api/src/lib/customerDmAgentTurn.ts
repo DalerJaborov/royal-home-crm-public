@@ -62,7 +62,7 @@ import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
 import { fetchInstagramProfile, loadCredentials } from "../messengers/meta.js";
 import { bindCustomerMetaSendCredentials } from "./customerMetaTransport.js";
 import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
-import { enqueueCustomerLeadOnlyIntakeTx, LEAD_ONLY_OPERATOR_SILENT, planCustomerLeadOnlyTurn,
+import { assertOperatorStateCurrentTx, enqueueCustomerLeadOnlyIntakeTx, LEAD_ONLY_OPERATOR_SILENT, OperatorStateStaleError, planCustomerLeadOnlyTurn,
   type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
 import { leadOnlyAppliesTo } from "../ai/leadOnlyMode.js";
 import { z } from "zod";
@@ -71,7 +71,7 @@ import { coreReplyRepeatBlocked } from "./outboundShield.js";
 import { customerHeldForChangedContext, customerSafetyCandidateLines, customerSafetyLine,
   customerSafetyLineAllowed, customerSafetyLineFits, customerSafetyMemory } from "./customerNoSilence.js";
 import { clientTalksBusiness } from "../messengers/sharedMedia.js";
-import { saveOperatorStateIsolatedTx } from "../ai/operator/state.js";
+import { saveOperatorStateIsolatedTx, saveOperatorStateTx } from "../ai/operator/state.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -300,6 +300,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       let stateError: unknown = null;
       const now = new Date();
       const partIds = await prisma.$transaction(async tx => {
+        // Параллельный ход того же разговора успел записать память, пока этот ждал модель (Р14): решение устарело.
+        await assertOperatorStateCurrentTx(tx, lane.ticket.conversationId, plan.baseUpdatedAt);
         const ids = plan.text ? await createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
           parts: [{ payload: { kind: "text" as const, text: plan.text } }] }) : [];
         for (const intake of plan.intakes) await enqueueCustomerLeadOnlyIntakeTx(tx, intake);
@@ -353,17 +355,34 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       // (объект определён этим сообщением или публикация найдена), чужой пост (предварительная метка ядра), фото и видео.
       const kinds = prepared.attachmentInput?.kinds ?? [];
       const ownPost = ownPublicationFound || (leadOnlyFocusFresh && kinds.length > 0);
-      const plan = await planCustomerLeadOnlyTurn({ config: leadOnly, channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer,
+      const operatorTurn = () => planCustomerLeadOnlyTurn({ config: leadOnly, channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer,
         conversationId: lane.ticket.conversationId, eventKey: claim.eventKey, inputText: fullInput(), focusPropertyId: leadOnlyFocusId,
         turns: remembered.context.turns, attachments: {
           voice: kinds.includes("audio") ? (mediaPerception?.transcript?.trim() ? "transcribed" : "failed") : "none",
           ownPost, foreignPost: !ownPost && (prepared.foreignShareCandidate === true || kinds.includes("foreign_share")),
           media: kinds.some(kind => kind === "image" || kind === "video") } });
-      if (plan) return await planLeadOnly(plan);
-      // Режим включён, а оператор не построил ход (не бывает: дверь отвечает null только при выключенном режиме) — тишина
-      // с причиной, но НЕ свободная модель ядра.
-      await releaseHeldClaim(claim, "lead_only_operator_unavailable");
-      return { status: "held", reason: "lead_only_operator_unavailable" };
+      let operatorDone: CustomerDmAgentTurnResult | null = null, handedToRecruiter = false;
+      // Р14: решение на устаревшей памяти не пишется — ход решается заново от свежей памяти (одна повторная попытка).
+      for (let attempt = 0; attempt < 2 && !operatorDone && !handedToRecruiter; attempt++) {
+        const plan = await operatorTurn();
+        if (!plan) break;
+        if (plan.handoff === "recruiter") {
+          // Вакансия (ревью 19.11, Р6): ход ведёт прежний путь рекрутёра ниже; оператор помнит роль «вакансия».
+          await saveOperatorStateTx(prisma, lane.ticket.conversationId, plan.operator.state).catch(error =>
+            console.error("[lead-operator] память перед путём рекрутёра", error instanceof Error ? error.message : error));
+          handedToRecruiter = true;
+          break;
+        }
+        try { operatorDone = await planLeadOnly(plan); }
+        catch (error) { if (!(error instanceof OperatorStateStaleError) || attempt === 1) throw error; }
+      }
+      if (operatorDone) return operatorDone;
+      if (!handedToRecruiter) {
+        // Режим включён, а оператор не построил ход (не бывает: дверь отвечает null только при выключенном режиме) — тишина
+        // с причиной, но НЕ свободная модель ядра.
+        await releaseHeldClaim(claim, "lead_only_operator_unavailable");
+        return { status: "held", reason: "lead_only_operator_unavailable" };
+      }
     }
     // «Видео этой квартиры есть?» (lib/customerPropertyVideoAnswer.ts): decided from the customer's OWN words of this burst
     // only, about an object THIS burst pointed at (never an older focus), answered from the CRM — the published reel or

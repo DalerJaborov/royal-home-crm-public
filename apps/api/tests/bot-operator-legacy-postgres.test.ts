@@ -99,3 +99,35 @@ describe("оператор приёма заявок, старый путь", ()
     expect(replyModelCalls()).toEqual([]);
   });
 });
+
+describe("ревью 19.11: старый путь", () => {
+  it("Т1: режим выключен — прежний путь (модель ответа зовётся), оператор не вызывается", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false } });
+    const peer = digits();
+    await turn(peer, "Здравствуйте, хочу купить квартиру");
+    const endpoints = callAi.mock.calls.map((call) => String((call[0] as { endpoint?: string })?.endpoint ?? "?"));
+    expect(endpoints).not.toContain(OPERATOR_UNDERSTAND_ENDPOINT);
+    expect(replyModelCalls().length).toBeGreaterThan(0);
+  });
+
+  it("Р6: реклама вакансии — ход идёт прежним путём рекрутёра, оператор не отвечает списком и помнит роль «вакансия»", async () => {
+    const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanHandleVacancies: true } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botCanHandleVacancies: true } });
+    try {
+      const peer = digits();
+      const result = await turn(peer, "Привет! Можно узнать об этом подробнее?", { adTopic: "job" });
+      expect(result.reply).not.toMatch(/^Сейчас открыты вакансии|^Сейчас ищем/u);
+      expect((await conversationOf(peer)).leadOnlyPending).toMatchObject({ version: 2, role: "job" });
+      expect((await conversationOf(peer)).clientId).toBeNull();
+    } finally { await prisma.settings.update({ where: { id: "singleton" }, data: before }); }
+  });
+
+  it("Р4: карточка без живого агента — «Записали, с вами свяжутся …» вместо «Передал агенту» (старый путь)", async () => {
+    const peer = digits();
+    await turn(peer, "Здравствуйте, хочу продать свою квартиру");
+    const conv = await conversationOf(peer);
+    await prisma.client.update({ where: { id: conv.clientId! }, data: { assignedAgentId: null } });
+    const second = await turn(peer, "Сино, 3 комнаты, 5 этаж, 80 кв");
+    expect(second.reply).toMatch(/^Записали, с вами свяжутся /u);
+  });
+});

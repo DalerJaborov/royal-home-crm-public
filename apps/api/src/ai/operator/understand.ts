@@ -73,8 +73,17 @@ const GREETING_SALOM = /^(?:салом|салам|salom)(?![\p{L}])/u;
 const GREETING_RU = /^(?:здравствуй\p{L}*|привет\p{L}*|добр(?:ый|ое|ого)\s+\p{L}+)/u;
 const RUDAKI = new RegExp(RUDAKI_ANY_SOURCE, "iu");
 
-/** «с 11 до 2.30», «аз 9 то 13» → «с 11:00 до 14:30» / «аз 11:00 то 14:30». Часы 1–7 — дневные (рабочее окно). */
+/** Рядом со временем звонка: слово о звонке или о времени («позвоните», «занг», «соат», «час», «утром», «пагоҳ», «удобно»). */
+const CALL_OR_TIME_WORD = new RegExp(`${BW}(?:(?:пере|по)?звон${TAIL}|занг${TAIL}|соат${TAIL}|час${TAIL}|утр${TAIL}|вечер${TAIL}|дн[её]м|обед${TAIL}|` +
+  `пагоҳ|пагох|бегоҳ|бегох|саҳар|сахар|удобн${TAIL}|мувофиқ${TAIL}|мувофик${TAIL}|время|вақт${TAIL}|вакт${TAIL})${EW}`, "iu");
+/** «аз 2 то 3 хона», «с 1 до 5 этажа», «от 500 до 700 тысяч», «60 до 80 квадрат» — это не часы (ревью 19.11, Р7). */
+const NOT_TIME_WORD = new RegExp(`${BW}(?:комнат${TAIL}|хона${TAIL}|ҳуҷра${TAIL}|хуҷра${TAIL}|хучра${TAIL}|этаж${TAIL}|ошёна${TAIL}|ошена${TAIL}|` +
+  `тысяч${TAIL}|ҳазор${TAIL}|хазор${TAIL}|сомон${TAIL}|доллар${TAIL}|квадрат${TAIL}|кв|метр${TAIL}|м2|сотик${TAIL})${EW}|[$]`, "iu");
+
+/** «с 11 до 2.30», «аз 9 то 13» → «с 11:00 до 14:30» / «аз 11:00 то 14:30». Часы 1–7 — дневные (рабочее окно).
+ * Только рядом со словом о звонке или времени и без слов комнат, этажа, суммы, площади. */
 export function operatorCallbackRange(text: string, language: OperatorLanguage): string | null {
+  if (!CALL_OR_TIME_WORD.test(text) || NOT_TIME_WORD.test(text)) return null;
   const found = /(?:^|[^\p{L}])(?:с|аз|c)\s*(\d{1,2})(?:[:.](\d{2}))?\s*(?:до|то|-|–)\s*(\d{1,2})(?:[:.](\d{2}))?(?!\d)/iu.exec(text);
   if (!found) return null;
   const hour = (value: string) => { const h = Number(value); return h >= 1 && h <= 7 ? h + 12 : h; };
@@ -320,7 +329,8 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       aboutThisProperty: !code.adOpener && (answer.aboutThisProperty || fallback.aboutThisProperty),
       details, hasDetails: Object.keys(details).length > 0 || fallback.hasDetails,
       phone: code.phone,
-      callback: { when: when || fallback.callback.when, ...preference },
+      // Модель ответила (пусто — значит времени нет): запасные правила её не перебивают; только если ответ отброшен кодом.
+      callback: { when: when || (rejected.includes("callbackWhen") ? fallback.callback.when : null), ...preference },
       language: code.letters >= 2 && !isNeutralShortReply(code.own) && !code.adOpener && answer.language !== "none" ? answer.language : code.language,
       languageHint: code.languageHint, greeting: code.greeting, greetingOnly: code.greetingOnly,
       ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
