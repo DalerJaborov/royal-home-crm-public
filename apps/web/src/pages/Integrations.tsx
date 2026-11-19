@@ -10,6 +10,11 @@ function scrollToChannels() {
   document.getElementById("integrations-channels")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 import { SettingsTabs } from "../components/SectionTabs";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { AdminRoot } from "../components/look/admin/AdminRoot";
+import { RhCircle } from "../components/look/ui";
+import { RoyalIcon } from "../components/look/RoyalIcon";
+import { controlTile } from "../components/look/control/controlTileIcon";
 
 /**
  * «Интеграции и каналы» — экран /integrations (перенос мобильного макета
@@ -26,10 +31,11 @@ export function Integrations() {
   const allowed = can("auditLog.view");
   const { data, isLoading, isError, refetch, isRefetching } = useIntegrations();
   const navigate = useNavigate();
+  const royal = useRoyalLook();
 
   if (!allowed) {
     return (
-      <div className="rh2 screens">
+      <AdminRoot royal={royal} title="Интеграции и каналы">
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -39,13 +45,13 @@ export function Integrations() {
           <div className="card tight">
             <div className="empty">
               <span className="ic">
-                <Activity className="i" aria-hidden />
+                {royal ? <RoyalIcon name="shield-check" /> : <Activity className="i" aria-hidden />}
               </span>
               <p>Этот раздел доступен только тем, у кого есть право на журнал ошибок.</p>
             </div>
           </div>
         </div>
-      </div>
+      </AdminRoot>
     );
   }
 
@@ -62,7 +68,7 @@ export function Integrations() {
   ];
 
   return (
-    <div className="rh2 screens">
+    <AdminRoot royal={royal} title="Интеграции и каналы">
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -91,7 +97,7 @@ export function Integrations() {
           <div className="card tight">
             <div className="empty">
               <span className="ic">
-                <CircleDashed className="i" aria-hidden />
+                {royal ? <RoyalIcon name="plug" /> : <CircleDashed className="i" aria-hidden />}
               </span>
               <p>
                 Нет данных: ночная проверка ещё не сохранила ни одного снимка (первый прогон — в течение суток после
@@ -103,7 +109,7 @@ export function Integrations() {
           <>
             <div className="tiles">
               <StatTile
-                icon={CheckCircle2}
+                {...(royal ? controlTile("plug") : { icon: CheckCircle2 })}
                 label="Живые"
                 value={alive}
                 line="ключ принят, доступ есть"
@@ -111,7 +117,7 @@ export function Integrations() {
                 title="Список каналов ниже на этом экране"
               />
               <StatTile
-                icon={OctagonAlert}
+                {...(royal ? controlTile("circle-alert", broken > 0) : { icon: OctagonAlert })}
                 label="Сломаны"
                 value={broken}
                 line="проверить в Настройках → Ключи"
@@ -120,7 +126,7 @@ export function Integrations() {
                 title="Список каналов ниже на этом экране"
               />
               <StatTile
-                icon={CircleDashed}
+                {...(royal ? controlTile("x-circle") : { icon: CircleDashed })}
                 label="Не настроены"
                 value={notConfigured}
                 line="канал не используется"
@@ -148,10 +154,14 @@ export function Integrations() {
                       if (e.key === "Enter" || e.key === " ") navigate(`/integrations/${encodeURIComponent(c.name)}`);
                     }}
                   >
-                    <span
-                      className={`dot ${c.ok === true ? "ok" : c.ok === false ? "crit" : ""}`}
-                      aria-hidden="true"
-                    />
+                    {royal ? (
+                      <RhCircle icon={c.ok === true ? "plug" : c.ok === false ? "flame" : "x-circle"} tone={c.ok === true ? "ok" : c.ok === false ? "crit" : "a0"} />
+                    ) : (
+                      <span
+                        className={`dot ${c.ok === true ? "ok" : c.ok === false ? "crit" : ""}`}
+                        aria-hidden="true"
+                      />
+                    )}
                     <div className="t">
                       <b>{c.name}</b>
                       <span>
@@ -169,6 +179,6 @@ export function Integrations() {
           </>
         )}
       </div>
-    </div>
+    </AdminRoot>
   );
 }
