@@ -13914,7 +13914,7 @@
   - если problem
     - return res.status(400).json({ error: `Концовка «${ending.text.slice(0, 40)}…»: ${problem}` });
       · ответ 400 — «Концовка «${ending.text.slice(0, 40)}…»: ${problem}»
-- если spoken(existing) !== spoken(saved) || neverSynced
+- если pronunciationDictionaryStale(saved)
   - const sync = await syncPronunciationDictionary(saved, (await configuration()).key);
     · зовёт syncPronunciationDictionary()
   - если sync.status === "SYNCED"
@@ -23323,7 +23323,7 @@
     · зовёт loadNarrationConfiguration()
   - report.retired = await retireNarrationsOfClosedProperties();
     · зовёт retireNarrationsOfClosedProperties()
-  - если narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode("NARRATION")…
+  - если narrationPlannerOpen(config, key)
     - если config.backfillMontageQueue === true
       - report.backfilled = await backfillMontageQueue(config, now);
         · зовёт backfillMontageQueue()

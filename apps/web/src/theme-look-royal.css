@@ -490,6 +490,8 @@
   :root[data-ui-look="royal"] .ry-strip > .ry-hero { grid-column: span 2; }
   :root[data-ui-look="royal"] .ry-blocks { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; row-gap: 28px; align-items: start; }
   :root[data-ui-look="royal"] .ry-blocks > .ry-strip, :root[data-ui-look="royal"] .ry-blocks > .ry-full, :root[data-ui-look="royal"] .ry-blocks > .ry-section:not(.ry-col-a):not(.ry-col-b) { grid-column: 1 / -1; }
+  /* Заглушка упавшего блока (components/look/RoyalBlock.tsx) встаёт в клетку блока: широкий — на всю строку. */
+  :root[data-ui-look="royal"] .ry-blocks > .ry-block-failed[data-span="wide"] { grid-column: 1 / -1; }
   :root[data-ui-look="royal"] .ry-team { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
 @container ry-today (min-width: 1040px) {
