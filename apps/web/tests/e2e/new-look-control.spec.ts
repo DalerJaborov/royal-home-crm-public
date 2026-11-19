@@ -54,10 +54,45 @@ for (const screen of SCREENS) {
       // Первый заход в раздел на dev-сервере стенда компилирует модули: ждём признак дольше обычного.
       await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal", { timeout: 20_000 });
       await expect(page.locator(screen.ready).first()).toBeVisible({ timeout: 30_000 });
-      await expectNoOverflowAt(page, width, CHECK, { strips: ".hscroll, .seg-ai" });
+      // Вкладки раздела (.seg-ai) и экрана (.hscroll) не исключаются: от 820 px они переносятся,
+      // ниже длинная полоса раздела становится выбором (ScreenTabs) — вылезать нечему.
+      await expectNoOverflowAt(page, width, `${CHECK}, .ry-control .seg-ai > a, .ry-control .hscroll .seg > button`, { strips: "" });
     }
   });
 }
+
+/**
+ * Ревью PR #305: ряд вкладок раздела листался без полосы прокрутки, и на 820–1250 px
+ * последние вкладки («Обучение бота», «Архив») уезжали за край — мышью до них не добраться.
+ * На 1024 каждая вкладка раздела видна целиком и нажимается (в её середине — она сама).
+ */
+test("новый вид: последняя вкладка раздела видна и нажимается на 1024", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "проверяется в десктопном проекте");
+  test.setTimeout(90_000);
+  await stub(page, true);
+  await page.setViewportSize({ width: 1024, height: 800 });
+  for (const url of ["/health", "/oversight", "/ai-learning"]) {
+    await page.goto(url);
+    await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal", { timeout: 20_000 });
+    const tabs = page.locator(url === "/ai-learning" ? ".ry-control .hscroll .seg > button" : ".ry-control .seg-ai > a");
+    await expect(tabs.first()).toBeVisible({ timeout: 30_000 });
+    const last = tabs.last();
+    const reachable = await last.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      let clipped = false;
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        const s = getComputedStyle(p);
+        if (s.overflowX === "visible") continue;
+        const a = p.getBoundingClientRect();
+        if (r.right > a.right + 1 || r.left < a.left - 1) clipped = true;
+      }
+      return { inWindow: r.right <= window.innerWidth + 1 && r.left >= 0, onTop: !!hit && el.contains(hit), clipped };
+    });
+    expect(reachable, `${url}: последняя вкладка`).toEqual({ inWindow: true, onTop: true, clipped: false });
+    await last.click({ trial: true });
+  }
+});
 
 test("новый вид: срочное и внимание различаются яркостью и знаком, не только оттенком", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "проверяется в десктопном проекте");

@@ -153,6 +153,12 @@ export function SecurityCenter() {
     );
   }
 
+  // Срочность плиток — одна переменная на подпись (critical) и круг нового вида (controlTile).
+  // «Нарушение подтверждено» в прежнем виде красная всегда (так было) — прежний вид не меняем;
+  // в новом виде красный круг только когда нарушения есть, иначе «0» горел бы тревогой.
+  const pendingOld = (summaryQuery.data?.pendingOldCount ?? 0) > 0;
+  const confirmedCritical = royal ? (summaryQuery.data?.confirmed ?? 0) > 0 : true;
+
   return (
     <ControlRoot royal={royal}>
       <div className="scr">
@@ -203,7 +209,7 @@ export function SecurityCenter() {
         {summaryQuery.data ? (
           <div className="tiles">
             <StatTile
-              {...(royal ? controlTile("hourglass", summaryQuery.data.pendingOldCount > 0) : {})}
+              {...(royal ? controlTile("hourglass", pendingOld) : {})}
               label="Ждут проверки"
               value={summaryQuery.data.pending}
               line={
@@ -211,7 +217,7 @@ export function SecurityCenter() {
                   ? `из них ${summaryQuery.data.pendingOldCount} старше недели`
                   : "старше недели нет"
               }
-              critical={summaryQuery.data.pendingOldCount > 0}
+              critical={pendingOld}
               onClick={() => {
                 setVerdict("PENDING");
                 scrollToResults();
@@ -230,11 +236,11 @@ export function SecurityCenter() {
               title="Отфильтровать список: закрыто после проверки"
             />
             <StatTile
-              {...(royal ? controlTile("circle-alert", summaryQuery.data.confirmed > 0) : {})}
+              {...(royal ? controlTile("circle-alert", confirmedCritical) : {})}
               label="Нарушение подтверждено"
               value={summaryQuery.data.confirmed}
               line="сделка прошла мимо компании"
-              critical
+              critical={confirmedCritical}
               onClick={() => {
                 setVerdict("CONFIRMED");
                 scrollToResults();

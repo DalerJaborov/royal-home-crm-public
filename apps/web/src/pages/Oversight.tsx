@@ -977,6 +977,9 @@ export function Oversight() {
   }
 
   const sellerMissing = summary ? summary.sellerPropertyMissingWarn + summary.sellerPropertyMissingCritical : undefined;
+  // Срочность плиток — одна переменная на подпись и на круг нового вида.
+  const overdueCritical = !!summary?.overdueTasks;
+  const noContactCritical = !!summary?.noContactClients;
 
   return (
     <ControlRoot royal={royal}>
@@ -1004,20 +1007,20 @@ export function Oversight() {
             прокручивает к нему, а не уходит на выдуманный маршрут с фильтром. */}
         <div className="tiles">
           <StatTile
-            {...(royal ? controlTile("clock", !!summary?.overdueTasks) : {})}
+            {...(royal ? controlTile("clock", overdueCritical) : {})}
             label="Просроченных задач"
             value={summary?.overdueTasks ?? "—"}
             line="сроки обещаны клиентам"
-            critical={!!summary?.overdueTasks}
+            critical={overdueCritical}
             onClick={() => scrollToSlice("slice-overdue-tasks")}
             title="Список просроченных задач ниже на этом экране"
           />
           <StatTile
-            {...(royal ? controlTile("phone-missed", !!summary?.noContactClients) : {})}
+            {...(royal ? controlTile("phone-missed", noContactCritical) : {})}
             label={NO_CONTACT_TEXT.title}
             value={summary?.noContactClients ?? "—"}
             line={summary && summary.noContactClients === 0 ? NO_CONTACT_TEXT.zero : "ни звонка, ни сообщения сотрудника"}
-            critical={!!summary?.noContactClients}
+            critical={noContactCritical}
             onClick={() => scrollToSlice("slice-no-contact-clients")}
             title="Клиенты, с кем ни разу не связывались — список ниже на этом экране"
           />

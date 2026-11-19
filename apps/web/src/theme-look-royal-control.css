@@ -98,6 +98,12 @@
   font-size: 15px; font-weight: 600; text-decoration: none; white-space: nowrap;
 }
 :root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .seg-ai > a:hover { background: var(--rh-ui-hover); }
+/* От 820 px (ниже ScreenTabs сам ставит выбор вместо длинной полосы) ряд вкладок переносится,
+   а не листается без полосы: на 820–1250 px последние вкладки («Обучение бота», «Архив»)
+   иначе уезжали за край и мышью были недоступны (ревью PR #305). */
+@media (min-width: 820px) {
+  :root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .seg-ai { flex-wrap: wrap; overflow-x: visible; }
+}
 :root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .seg-ai > a[aria-current="page"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .seg-ai > a:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .seg-ai > a .n {
@@ -427,11 +433,13 @@
 
 /* ======================= вкладки внутри экрана (.seg) ======================= */
 
-:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .hscroll { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; margin: 0; padding: 2px 0; }
+/* Вкладки внутри экрана (СБ — две, обучение бота — пять) переносятся на всех ширинах: лента
+   без полосы прокрутки прятала хвост и на ПК, и на 320 (ревью PR #305, сторож e2e). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .hscroll { overflow-x: visible; margin: 0; padding: 2px 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="control"] .seg {
   display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .hscroll .seg { flex-wrap: nowrap; width: max-content; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .hscroll .seg { flex-wrap: wrap; width: auto; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="control"] .seg > button {
   display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-ring);

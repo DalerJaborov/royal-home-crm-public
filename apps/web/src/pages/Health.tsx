@@ -186,6 +186,11 @@ export function Health() {
     );
   }
 
+  // Срочность плиток — одна переменная на подпись и на круг нового вида.
+  const errors24h = !!tiles && tiles.count24h > 0;
+  const stuckNow = !!stuck && stuck > 0;
+  const stuckJobs = !!stuckWork && stuckWork.givenUp + stuckWork.hanging > 0;
+
   return (
     <ControlRoot royal={royal}>
       <div className="scr" data-stagger>
@@ -219,11 +224,11 @@ export function Health() {
 
         <div className="tiles">
           <StatTile
-            {...(royal ? controlTile("circle-alert", !!tiles && tiles.count24h > 0) : { icon: OctagonAlert })}
+            {...(royal ? controlTile("circle-alert", errors24h) : { icon: OctagonAlert })}
             label="За сутки"
             value={tiles ? tiles.count24h : "…"}
             line="ошибок сервера и браузера"
-            critical={!!tiles && tiles.count24h > 0}
+            critical={errors24h}
             onClick={() => scrollTo("health-error-log")}
             title="Журнал ошибок ниже на этом экране"
           />
@@ -244,22 +249,22 @@ export function Health() {
             title="Журнал ошибок ниже на этом экране"
           />
           <StatTile
-            {...(royal ? controlTile("messages-square", !!stuck && stuck > 0) : { icon: MessageCircleWarning })}
+            {...(royal ? controlTile("messages-square", stuckNow) : { icon: MessageCircleWarning })}
             label="Диалоги без ответа"
             value={stuck ?? "…"}
             line="бот ещё пробует в фоне"
-            critical={!!stuck && stuck > 0}
+            critical={stuckNow}
             onClick={() => scrollTo("health-stuck-conversations")}
             title="Список зависших диалогов ниже на этом экране"
           />
           {/* Очередь фоновых заданий (владелец 21.09.2026, п.4 задания) — сдавшиеся
               и зависшие задания BackgroundJob, экран «Что не доехало». */}
           <StatTile
-            {...(royal ? controlTile("hourglass", !!stuckWork && stuckWork.givenUp + stuckWork.hanging > 0) : { icon: TimerReset })}
+            {...(royal ? controlTile("hourglass", stuckJobs) : { icon: TimerReset })}
             label="Не доехало"
             value={stuckWork ? stuckWork.givenUp + stuckWork.hanging : "…"}
             line={stuckWork ? `сдалось ${stuckWork.givenUp}, висит ${stuckWork.hanging}` : undefined}
-            critical={!!stuckWork && stuckWork.givenUp + stuckWork.hanging > 0}
+            critical={stuckJobs}
             to="/stuck-work"
             title="Экран «Что не доехало»"
           />

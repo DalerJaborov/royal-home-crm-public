@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
@@ -161,5 +162,21 @@ describe("экраны контроля в новом виде: тот же те
   it("ControlRoot без признака — прежний корень до байта", () => {
     expect(renderToStaticMarkup(<ControlRoot royal={false}><i /></ControlRoot>)).toBe('<div class="rh2 screens"><i></i></div>');
     expect(renderToStaticMarkup(<ControlRoot royal><i /></ControlRoot>)).toBe('<div class="rh2 screens ry-control" data-ry-section="control"><i></i></div>');
+  });
+
+  it("срочность плитки — одна переменная на подпись и на круг (ревью PR #305; проверено поломкой)", () => {
+    const checked: string[] = [];
+    for (const page of ["Oversight", "SecurityCenter", "Health", "AiLearning"]) {
+      const src = readFileSync(new URL(`../../../pages/${page}.tsx`, import.meta.url), "utf8");
+      for (const m of src.matchAll(/controlTile\("[\w-]+", ([^)]+)\)/g)) {
+        expect(m[1], `${page}: второй аргумент controlTile — имя переменной, не выражение`).toMatch(/^\w+$/);
+        expect(src, `${page}: та же переменная в critical=`).toContain(`critical={${m[1]}}`);
+        checked.push(`${page}:${m[1]}`);
+      }
+    }
+    expect(checked.length).toBe(9);
+    // поломка: условие записано дважды — сторож краснеет
+    const dup = 'controlTile("clock", summary.overdue > 0)';
+    expect(/^\w+$/.test(/controlTile\("[\w-]+", ([^)]+)\)/.exec(dup)![1])).toBe(false);
   });
 });

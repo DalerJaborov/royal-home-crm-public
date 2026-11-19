@@ -148,6 +148,9 @@ export function AiLearning() {
 
   const data = learning.data;
   const canDecideTraining = can("settings.manage");
+  // Срочность плиток — одна переменная на подпись и на круг нового вида.
+  const questionsWaiting = !!data && data.questionsGroupsTotal > 0;
+  const auditOpen = !!audit.data && audit.data.unresolvedTotal > 0;
 
   return (
     <ControlRoot royal={royal}>
@@ -185,11 +188,11 @@ export function AiLearning() {
          */}
         <div className="tiles">
           <StatTile
-            {...(royal ? controlTile("lightbulb", !!data && data.questionsGroupsTotal > 0) : { icon: HelpCircle })}
+            {...(royal ? controlTile("lightbulb", questionsWaiting) : { icon: HelpCircle })}
             label="Ждут подсказки"
             value={data ? data.questionsGroupsTotal : "…"}
             line={data ? `разных вопросов (случаев — ${data.questionsTotal})` : "разговоров бот не понял"}
-            critical={!!data && data.questionsGroupsTotal > 0}
+            critical={questionsWaiting}
             onClick={() => goTo("rules", "ai-learning-questions")}
             title="Список вопросов ниже, во вкладке «Правила»"
           />
@@ -202,11 +205,11 @@ export function AiLearning() {
             title="Список правил ниже, во вкладке «Правила»"
           />
           <StatTile
-            {...(royal ? controlTile("shield-check", !!audit.data && audit.data.unresolvedTotal > 0) : { icon: ShieldAlert })}
+            {...(royal ? controlTile("shield-check", auditOpen) : { icon: ShieldAlert })}
             label="Находки судьи не разобраны"
             value={audit.data ? audit.data.unresolvedTotal : "…"}
             line="за случайные переписки"
-            critical={!!audit.data && audit.data.unresolvedTotal > 0}
+            critical={auditOpen}
             onClick={() => goTo("audit", "ai-learning-audit")}
             title="Находки судьи во вкладке «Аудит диалогов»"
           />
