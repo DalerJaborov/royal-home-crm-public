@@ -57,8 +57,10 @@ export function noteAssistantLimit(reason: AssistantLimitReason, now: number = D
       : reason === "policy_expired"
         ? "тарифы или пределы расходов Gemini требуют проверки (срок тарифов в moneyPolicy.ts, модель без тарифа или неверные ASSISTANT_GEMINI_*_USD)"
         : "запрос к Gemini вне поддержанного тарифицируемого вида";
+    // День в ключе (ревью 19.11): пуш «Новая проблема» уходит только на первое появление ключа
+    // за всю историю, и без дня второй сбой учёта через месяц руководству бы не пришёл.
     void logSystemError("ai", `Помощница временно недоступна: ${what}. Платные вызовы закрыты до починки.`, {
-      dedupKey: `assistant-${reason}`,
+      dedupKey: `assistant-${reason}:${dushanbeDayKey(now)}`,
     });
   }
 }

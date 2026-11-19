@@ -105,6 +105,9 @@ describe("count and reserve before every generation", () => {
     await expect(turn.reserve(1)).rejects.toMatchObject({ reason: "money_turn" });
     const daily = createAssistantMoneyWallet({ now, turnUsd: "1", dailyUsd: "3", reserveDaily: async () => false });
     await expect(daily.reserve(10)).rejects.toMatchObject({ reason: "money_daily" });
+    // Один вызов дороже всего дня — это настройка, а не «день исчерпан» (ревью 19.11.2026).
+    const tiny = createAssistantMoneyWallet({ now, turnUsd: "1", dailyUsd: "0.01", reserveDaily: async () => true });
+    await expect(tiny.reserve(20_000)).rejects.toMatchObject({ reason: "policy_expired" });
     const down = createAssistantMoneyWallet({ now, turnUsd: "1", dailyUsd: "3", reserveDaily: async () => { throw new Error("db"); } });
     await expect(down.reserve(10)).rejects.toMatchObject({ reason: "accounting_unavailable" });
     expect(() => generationReservation("gemini-3.6-flash", 1, 1, Date.UTC(2027, 0, 1))).toThrow(expect.objectContaining({ reason: "policy_expired" }));

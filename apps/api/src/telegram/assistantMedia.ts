@@ -2,7 +2,7 @@ import { open } from "node:fs/promises";
 import { IS_LOCAL_BOT_API, resolveTelegramFile, type TelegramIncomingMessage } from "./api.js";
 import { understandAssistantMedia } from "../ai/assistant/mediaUnderstanding.js";
 import { loadAssistantSettings, loadAssistantGeminiRuntime } from "../ai/assistant/runtime.js";
-import { ASSISTANT_TAJIK_MODEL } from "../ai/assistant/languageRouting.js";
+import { ASSISTANT_TAJIK_MODEL, assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { createAssistantMoneyGuard, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { createAssistantAttemptLimit } from "../ai/assistant/attemptLimit.js";
 import { reserveAssistantGeminiAttempt } from "../ai/assistant/attemptBudget.js";
@@ -73,6 +73,8 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
   /** Set only AFTER the caller's employee/group access and masking checks. */
   allowGroup?: boolean;
   wallet?: AssistantMoneyWallet;
+  /** Язык собеседника для отказа денежной защиты, если подписи нет (голосовое): по истории чата. */
+  language?: () => Promise<"ru" | "tg">;
 } = {}): Promise<{ text: string; error?: string; extraction?: Awaited<ReturnType<typeof understandAssistantMedia>>["extraction"] }> {
   if ((msg.chat.type !== "private" && !options.allowGroup) || !agentId) return { text: "Файлы помощник разбирает только в личном чате сотрудника.", error: "media_scope" };
   const isVoice = Boolean(msg.voice || msg.audio);
@@ -109,9 +111,15 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
   } catch (error) {
     // Never expose token-bearing Telegram URLs or private file paths to the chat.
     const message = error instanceof Error ? error.message : "";
-    // Отказ денежной защиты (дневной предел, учёт недоступен) — правдой, а не «пришлите ещё раз».
-    const limitText = assistantLimitText(error);
-    if (limitText) return { text: limitText, error: "media_money_limit" };
+    // Отказ денежной защиты (дневной предел, учёт недоступен) — правдой, а не «пришлите ещё раз»,
+    // и на языке собеседника: по подписи, иначе по истории чата (голосовое подписи не имеет).
+    if (assistantLimitText(error)) {
+      const caption = (msg.caption ?? msg.text ?? "").trim();
+      const spoken = caption ? assistantLanguage([{ role: "user", content: caption }]) : null;
+      const lang = spoken === "tg" || spoken === "mixed" ? "tg" : spoken === "ru" ? "ru"
+        : await (options.language?.() ?? Promise.resolve("ru" as const)).catch(() => "ru" as const);
+      return { text: assistantLimitText(error, lang) ?? "", error: "media_money_limit" };
+    }
     if (message === "media_audio_limit" || (isVoice && message === "media_size_rejected")) {
       return { text: "Пришлите голосовое до двух минут и до 1 МБ или напишите текстом.", error: "media_audio_limit" };
     }

@@ -5,6 +5,7 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
 import { createAssistantMoneyWallet } from "../src/ai/assistant/moneyBudget.js";
+import { AssistantAttemptLimitError } from "../src/ai/assistant/attemptLimit.js";
 import { decideExpensePhotoDraft, expireExpensePhotoDrafts, getExpenseDirector, stageExpensePhotoDraft } from "../src/lib/telegramExpenseReceipts.js";
 import { handleAssistantCallback, handleAssistantPrivate } from "../src/telegram/assistantBot.js";
 import { handleTelegramExpenseReceipt } from "../src/telegram/assistantExpenseReceipt.js";
@@ -189,6 +190,19 @@ describe("private Telegram expense from a receipt photo", () => {
     await handleAssistantPrivate(msg(), director);
     expect(io.buttons).toHaveBeenCalledOnce();
     expect(io.text.mock.calls.at(-1)?.[1]).toContain("Записала расход");
+  });
+
+  // Ревью 19.11.2026: у разбора чека потолок одна попытка, и повтор клиента Gemini после 503
+  // упирается в него (attempt_cap). Это сбой Google, а не размер: прежнее «пришлите ещё раз»,
+  // а не «сузьте вопрос… один агент». Дневной предел — правдой, он повтором не лечится.
+  it("refusal after a provider retry keeps the old text; a real daily limit says so", async () => {
+    io.extract.mockRejectedValueOnce(new AssistantAttemptLimitError("attempt_cap", "Слишком много шагов"));
+    expect(await handleTelegramExpenseReceipt(msg("чек"), director.id, createAssistantMoneyWallet())).toBe(true);
+    expect(io.text.mock.calls.at(-1)?.[1]).toBe("Не получилось разобрать чек. Пришлите его ещё раз.");
+    io.download.mockResolvedValueOnce(await createJpeg());
+    io.extract.mockRejectedValueOnce(new AssistantAttemptLimitError("money_daily", "Дневной предел"));
+    expect(await handleTelegramExpenseReceipt(msg("чек"), director.id, createAssistantMoneyWallet())).toBe(true);
+    expect(io.text.mock.calls.at(-1)?.[1]).toBe("На сегодня предел расходов на ИИ исчерпан, продолжим завтра. Руководителю уже сообщено.");
   });
 
   it("does not OCR group, forwarded, ordinary caption or non-director photos", async () => {

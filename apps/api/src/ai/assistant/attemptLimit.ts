@@ -47,7 +47,12 @@ export function createAssistantAttemptLimit(reserve: () => Promise<boolean>, max
     let allowed = false;
     try {
       allowed = await reserve();
-    } catch {
+    } catch (err) {
+      // Уже названный отказ (кривая настройка) — как есть, с записью в журнал.
+      if (err instanceof AssistantAttemptLimitError) {
+        noteAssistantLimit(err.reason);
+        throw err;
+      }
       // Accounting unavailable: fail closed.
       noteAssistantLimit("accounting_unavailable");
       throw new AssistantAttemptLimitError("accounting_unavailable", "Недоступен учёт вызовов ИИ");

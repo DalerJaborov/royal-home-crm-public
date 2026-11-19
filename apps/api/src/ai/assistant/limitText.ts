@@ -11,6 +11,11 @@ import { assistantLimitReasonOf, type AssistantLimitReason } from "./attemptLimi
  */
 export type AssistantLimitCode = "too_large" | "daily_limit" | "unavailable" | "aborted" | "internal";
 
+/**
+ * Код по одной причине, без знания хода. attempt_cap и money_turn здесь — «велико»; основной
+ * ход помощницы уточняет их сам (assistant.ts, failureOf): были ли в ходе отказы по размеру
+ * или попытки ушли на повторы после сбоя Google.
+ */
 export function assistantLimitCode(reason: AssistantLimitReason): AssistantLimitCode {
   switch (reason) {
     case "input_too_large":
@@ -47,13 +52,16 @@ export const ASSISTANT_LIMIT_TEXTS: Record<"too_large" | "daily_limit" | "unavai
 };
 
 /**
- * Текст для человека, если ошибка — отказ денежной защиты с причиной, о которой стоит
- * сказать (велик вопрос, дневной предел, учёт недоступен); иначе null — у входа своё
- * сообщение. Отмена и переход через полночь — тоже null: там повтор и так поможет.
+ * Текст для БОКОВЫХ путей (голосовые, файлы, мастер объекта, чеки): только дневной предел и
+ * недоступный учёт — о них человеку надо знать, «пришлите ещё раз» там не поможет. Остальное
+ * — null, у входа своё прежнее сообщение. Потолок попыток и конверт хода там съедают повторы
+ * после 503/таймаута Google (у чека потолок — одна попытка), а не размер: «сузьте вопрос…
+ * один агент» про фото чека было бы неправдой (ревью 19.11.2026). Велик вход — тоже null:
+ * у разбора одного файла нечего сужать, а его «пришлите ещё раз» прежнее.
  */
 export function assistantLimitText(err: unknown, lang: "ru" | "tg" = "ru"): string | null {
   const reason = assistantLimitReasonOf(err);
   if (!reason) return null;
   const code = assistantLimitCode(reason);
-  return code === "too_large" || code === "daily_limit" || code === "unavailable" ? ASSISTANT_LIMIT_TEXTS[code][lang] : null;
+  return code === "daily_limit" || code === "unavailable" ? ASSISTANT_LIMIT_TEXTS[code][lang] : null;
 }

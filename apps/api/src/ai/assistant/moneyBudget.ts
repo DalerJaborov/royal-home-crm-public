@@ -4,10 +4,18 @@ import { dushanbeDayKey } from "@royal-home/shared";
 import type { AssistantProviderAttempt } from "../geminiClient.js";
 import type { EmbeddingAttemptMetadata } from "../embeddings.js";
 import { geminiProxyHeaders, geminiUrl } from "../geminiTransport.js";
-import { assertCurrentMoneyPolicy, dollarLimit, generationReservation, MAX_ASSISTANT_INPUT_TOKENS, moneyError } from "./moneyPolicy.js";
+import { affordableInputTokens, assertCurrentMoneyPolicy, dollarLimit, generationReservation, MAX_ASSISTANT_INPUT_TOKENS, moneyError } from "./moneyPolicy.js";
+import { assistantLimitReasonOf } from "./attemptLimit.js";
+
+/** Меньше этого ужимать запрос под остаток конверта бессмысленно: ответ не соберётся. */
+const MIN_AFFORDABLE_INPUT_TOKENS = 4_096;
 
 type DailyReservation = (amount: number, day: string, limit: number) => Promise<boolean>;
-export interface AssistantMoneyWallet { reserve(amountMicroUsd: number, signal?: AbortSignal): Promise<void> }
+export interface AssistantMoneyWallet {
+  reserve(amountMicroUsd: number, signal?: AbortSignal): Promise<void>;
+  /** Остаток конверта хода, microUSD: по нему ход решает, стоит ли ужать запрос под остаток. */
+  remaining?(): number;
+}
 interface WalletOptions {
   dailyUsd?: string;
   turnUsd?: string;
@@ -45,7 +53,8 @@ export function createAssistantMoneyWallet(options: WalletOptions = {}): Assista
     if (day !== dushanbeDayKey(now())) throw moneyError("Ход перешёл через полночь по Душанбе", "day_rollover");
     if (!Number.isSafeInteger(amount) || amount <= 0) throw moneyError("Некорректная сумма резерва Gemini", "unsupported_request");
     if (amount > daily) {
-      throw moneyError("Один вызов дороже дневного денежного лимита Gemini", "money_daily");
+      // Предел дня меньше одного вызова — это настройка, а не исчерпанный день (ревью 19.11).
+      throw moneyError("Один вызов дороже дневного денежного лимита Gemini: проверьте ASSISTANT_GEMINI_DAILY_USD", "policy_expired");
     }
     if (used + amount > turn) throw moneyError("Достигнут денежный лимит Gemini на один ответ", "money_turn");
     used += amount; // Synchronous claim prevents concurrent calls overspending the turn.
@@ -61,7 +70,7 @@ export function createAssistantMoneyWallet(options: WalletOptions = {}): Assista
     if (!allowed) {
       throw moneyError("Достигнут дневной денежный лимит Gemini", "money_daily");
     }
-  } };
+  }, remaining: () => Math.max(0, turn - used) };
 }
 
 interface GuardOptions { wallet?: AssistantMoneyWallet; fetch?: typeof fetch; now?: () => number }
@@ -152,7 +161,19 @@ export function createAssistantMoneyGuard(options: GuardOptions = {}) {
       throw moneyError("Запрос превышает установленный лимит входных токенов", "input_too_large",
         { inputTokens: input, requestChars: serialized.length, limitTokens: MAX_ASSISTANT_INPUT_TOKENS });
     }
-    await wallet.reserve(generationReservation(attempt.model, input, output, now()), signal);
+    try {
+      await wallet.reserve(generationReservation(attempt.model, input, output, now()), signal);
+    } catch (err) {
+      // Конверт хода кончается: если ужатый запрос ещё влезет в остаток — ход сожмёт и повторит
+      // (тот же путь, что у «велик вход»), иначе отказ как был.
+      const affordable = assistantLimitReasonOf(err) === "money_turn" && wallet.remaining
+        ? affordableInputTokens(attempt.model, output, wallet.remaining()) : 0;
+      if (affordable >= MIN_AFFORDABLE_INPUT_TOKENS && affordable < input) {
+        throw moneyError("Достигнут денежный лимит Gemini на один ответ", "money_turn",
+          { inputTokens: input, requestChars: serialized.length, limitTokens: affordable });
+      }
+      throw err;
+    }
     if (JSON.stringify(attempt.body) !== serialized) throw moneyError("Запрос Gemini изменился после резервирования", "unsupported_request");
   };
 }

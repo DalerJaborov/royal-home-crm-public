@@ -38,6 +38,7 @@ const { MAX_ASSISTANT_INPUT_TOKENS } = await import("../src/ai/assistant/moneyPo
 const { registerAssistantToolPlugin } = await import("../src/ai/assistant/tools/index.js");
 const { resetAssistantRuntimeCache } = await import("../src/ai/assistant/runtime.js");
 const { waitFor } = await import("./helpers/waitFor.js");
+const { AssistantAttemptLimitError } = await import("../src/ai/assistant/attemptLimit.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
 const { cleanupAssistantActionAgents } = await import("./helpers/assistantActionFixture.js");
 
@@ -60,6 +61,8 @@ const actor = {
 
 const BIG_A = `big_requests_${runId}`;
 const BIG_B = `big_calls_${runId}`;
+const MID_A = `mid_requests_${runId}`;
+const MID_B = `mid_calls_${runId}`;
 /** Записи без поля code: иначе срыв отдал бы частичный ответ, а тест проверяет отказ. */
 const bigList = (prefix: string, n: number) => ({
   total: n,
@@ -136,7 +139,7 @@ function walletWith(daily: (amount: number) => Promise<boolean>) {
 
 beforeAll(async () => {
   actorId = await createTestAgent(`Слишком большой запрос ${runId}`);
-  for (const [name, n] of [[BIG_A, 450], [BIG_B, 450]] as const) {
+  for (const [name, n] of [[BIG_A, 450], [BIG_B, 450], [MID_A, 200], [MID_B, 200]] as const) {
     off.push(registerAssistantToolPlugin({
       name, level: "A", description: "Тестовый большой список", statusPhrase: "Смотрю…",
       run: async () => bigList(name, n),
@@ -263,6 +266,8 @@ describe("дневной предел расходов действительн�
     stubCountTokens();
     scriptModel(() => ({ text: "не должно дойти", calls: [] }));
     const { wallet } = walletWith(async () => { throw new Error("db down"); });
+    const dayKey = `assistant-accounting_unavailable:${dushanbeDayKey(Date.now())}`;
+    await prisma.errorLog.deleteMany({ where: { dedupKey: dayKey } });
     const question = `Сводка за день ${runId}-5`;
     const messages = [{ role: "user" as const, content: question }];
     const since = new Date();
@@ -271,5 +276,77 @@ describe("дневной предел расходов действительн�
     expect(assistantErrorMessage("unavailable", messages)).toBe("Помощница временно недоступна, уже чиним.");
     const log = await turnLogOf(since);
     expect(log).toMatchObject({ outcome: "error", reason: "accounting_unavailable" });
+    // В ключе дедупа — день: второй сбой учёта через месяц снова дойдёт до руководства пушем.
+    expect(await waitFor(() => prisma.errorLog.findFirst({ where: { dedupKey: dayKey } }))).toBeTruthy();
+  });
+});
+
+describe("потолок попыток и отмена — правдой (ревью 19.11.2026)", () => {
+  it("попытки съели повторы после 503 — не «сузьте вопрос», а «ИИ перегружен»", async () => {
+    stubCountTokens();
+    // Как клиент Gemini при 503: попытка (подсчёт + резерв), отказ Google, снова попытка — пока
+    // потолок попыток хода не скажет «хватит».
+    callGeminiTools.mockImplementation(async (params: ToolsParams) => {
+      const body = { contents: params.contents, systemInstruction: { parts: [{ text: params.system }] },
+        tools: [{ functionDeclarations: params.tools }], generationConfig: { maxOutputTokens: 1500 } };
+      for (;;) await params.beforeAttempt?.({ model: "gemini-3.1-pro-preview", body, apiKey: params.apiKey, signal: params.signal, kind: "generate" });
+    });
+    const { wallet } = walletWith(async () => true);
+    const question = `Сколько обращений ${runId}-6`;
+    const messages = [{ role: "user" as const, content: question }];
+    const since = new Date();
+    const outcome = await runAssistantDetailed(messages, actor, { moneyWallet: wallet, maxRounds: 4 });
+    expect(outcome).toEqual({ ok: false, code: "provider_unavailable", retryable: true });
+    expect(assistantErrorMessage("provider_unavailable", messages)).not.toMatch(/Сузьте/);
+    const log = await turnLogOf(since);
+    expect(log).toMatchObject({ outcome: "error", reason: "attempt_cap" });
+  });
+
+  it("попытку оборвал её таймер, а не человек — «слишком долго», ошибка в журнале, не «отменено»", async () => {
+    stubCountTokens();
+    const prefix = "Ассистент CRM не ответил (aborted)";
+    await prisma.errorLog.deleteMany({ where: { message: { startsWith: prefix } } });
+    callGeminiTools.mockImplementation(async (params: ToolsParams) => {
+      const attemptTimer = new AbortController();
+      attemptTimer.abort(); // таймер попытки geminiClient сработал, ход человеком не отменён
+      await params.beforeAttempt?.({ model: "gemini-3.1-pro-preview", apiKey: params.apiKey, signal: attemptTimer.signal, kind: "generate",
+        body: { contents: params.contents, systemInstruction: { parts: [{ text: params.system }] }, tools: [{ functionDeclarations: params.tools }], generationConfig: { maxOutputTokens: 1500 } } });
+      return { text: "не должно дойти", calls: [], modelParts: [{ text: "x" }], tokens: 1 };
+    });
+    const { wallet } = walletWith(async () => true);
+    const question = `Сводка ${runId}-7`;
+    const since = new Date();
+    const outcome = await runAssistantDetailed([{ role: "user", content: question }], actor, { moneyWallet: wallet, maxRounds: 2 });
+    expect(outcome).toEqual({ ok: false, code: "deadline", retryable: true });
+    const log = await turnLogOf(since);
+    expect(log).toMatchObject({ outcome: "error", reason: "aborted" });
+    expect(await waitFor(() => prisma.errorLog.findFirst({ where: { message: { startsWith: prefix } } }))).toBeTruthy();
+  });
+
+  it("конверт хода кончается, но ужатый запрос влезает в остаток — сжатие, а не отказ", async () => {
+    stubCountTokens();
+    scriptModel((params) => hasToolResults(params)
+      ? { text: "Вот первые обращения.", calls: [] }
+      : { text: "", calls: [{ name: MID_A, args: {} }, { name: MID_B, args: {} }] });
+    // Кошелёк по тому же договору: после первого шага в остатке хода — ровно на 20 000 входных токенов.
+    const reserved: number[] = [];
+    let turn = 0;
+    const wallet = {
+      remaining: () => Math.max(0, turn - reserved.reduce((a, b) => a + b, 0)),
+      async reserve(amount: number) {
+        if (!reserved.length) turn = amount + 20_000 * 2 + 1_500 * 12;
+        if (reserved.reduce((a, b) => a + b, 0) + amount > turn) throw new AssistantAttemptLimitError("money_turn", "Конверт хода");
+        reserved.push(amount);
+      },
+    };
+    const question = `Подробный список ${runId}-8`;
+    const since = new Date();
+    const outcome = await runAssistantDetailed([{ role: "user", content: question }], actor, { moneyWallet: wallet, maxRounds: 4 });
+    expect(outcome).toEqual({ ok: true, reply: "Вот первые обращения." });
+    expect(reserved).toHaveLength(2);
+    const results = lastResults() as { items: unknown[]; _обрезано?: string }[];
+    expect(results.some((r) => r._обрезано && r.items.length < 200)).toBe(true);
+    const log = await turnLogOf(since);
+    expect(log).toMatchObject({ outcome: "answer", reason: "input_shrunk" });
   });
 });

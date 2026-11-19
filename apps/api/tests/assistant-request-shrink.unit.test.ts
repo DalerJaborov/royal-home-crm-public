@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { shrinkConversation, shrinkToolResult, MAX_SHRINK_RETRIES, type ShrinkContent } from "../src/ai/assistant/requestShrink.js";
-import { assistantLimitCode, assistantLimitText } from "../src/ai/assistant/limitText.js";
-import { AssistantAttemptLimitError } from "../src/ai/assistant/attemptLimit.js";
+import { ASSISTANT_LIMIT_TEXTS, assistantLimitCode, assistantLimitText } from "../src/ai/assistant/limitText.js";
+import { AssistantAttemptLimitError, createAssistantAttemptLimit } from "../src/ai/assistant/attemptLimit.js";
+import { reserveAssistantGeminiAttempt } from "../src/ai/assistant/attemptBudget.js";
+import { affordableInputTokens } from "../src/ai/assistant/moneyPolicy.js";
 
 /**
  * Сжатие запроса помощницы (19.11.2026): чистые функции, без базы и без сети.
@@ -96,10 +98,27 @@ describe("truthful text for every refusal reason", () => {
     expect(assistantLimitText(new AssistantAttemptLimitError("money_daily"), "tg")).toBe(
       "Имрӯз ҳадди хароҷоти ИИ тамом шуд, пагоҳ идома медиҳем. Ба роҳбар хабар дода шуд.",
     );
-    expect(assistantLimitText(new AssistantAttemptLimitError("input_too_large"))).toMatch(/^Ответ получается слишком большим/);
+    expect(assistantLimitText(new AssistantAttemptLimitError("accounting_unavailable"))).toBe("Помощница временно недоступна, уже чиним.");
     expect(assistantLimitText(new Error("other"))).toBeNull();
-    for (const text of [assistantLimitText(new AssistantAttemptLimitError("accounting_unavailable")), assistantLimitText(new AssistantAttemptLimitError("money_turn"))]) {
+    // Потолок попыток и конверт хода у разбора файла съедают повторы после 503 — у входа свой
+    // прежний текст («пришлите ещё раз»), не «сузьте вопрос» (ревью 19.11.2026).
+    for (const reason of ["attempt_cap", "money_turn", "input_too_large", "aborted", "day_rollover"] as const) {
+      expect(assistantLimitText(new AssistantAttemptLimitError(reason))).toBeNull();
+    }
+    for (const text of Object.values(ASSISTANT_LIMIT_TEXTS).flatMap((t) => [t.ru, t.tg])) {
       expect(text).not.toMatch(/—/); // без длинного тире
     }
+  });
+  it("broken ASSISTANT_GEMINI_DAILY_ATTEMPTS is a setting failure, not «daily limit reached»", async () => {
+    vi.stubEnv("ASSISTANT_GEMINI_DAILY_ATTEMPTS", "abc");
+    try {
+      await expect(createAssistantAttemptLimit(reserveAssistantGeminiAttempt)()).rejects.toMatchObject({ reason: "policy_expired" });
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it("affordable input in the rest of the turn envelope follows the same tariff", () => {
+    // Pro: остаток 58 000 µ$, выход 1 500 × 12 $/М = 18 000 µ$ → (58 000 − 18 000) / 2 $/М = 20 000 токенов.
+    expect(affordableInputTokens("gemini-3.1-pro-preview", 1_500, 58_000)).toBe(20_000);
+    expect(affordableInputTokens("gemini-3.1-pro-preview", 1_500, 10_000)).toBe(0);
+    expect(affordableInputTokens("unknown", 1_500, 1_000_000)).toBe(0);
   });
 });

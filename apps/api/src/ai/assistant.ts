@@ -1386,11 +1386,32 @@ function limitReasonOf(err: unknown): AssistantLimitReason | null {
   return assistantLimitReasonOf(err instanceof ModelCallError ? err.original : err);
 }
 
-function failureOf(err: unknown, signal: AbortSignal): { code: AssistantErrorCode; retryable: boolean; reason?: AssistantLimitReason } {
+/** Что было в ходе до отказа — чтобы «потолок попыток» и «конверт хода» назвать правдой. */
+interface TurnPressure {
+  /** В этом ходе уже был отказ по размеру входа (и сжатие). */
+  sizePressure: boolean;
+  /** Попыток ушло больше, чем шагов: клиент Gemini повторял после 503/таймаута. */
+  retried: boolean;
+}
+
+function failureOf(
+  err: unknown,
+  signal: AbortSignal,
+  pressure: TurnPressure = { sizePressure: false, retried: false },
+): { code: AssistantErrorCode; retryable: boolean; reason?: AssistantLimitReason } {
   const stop = signal.aborted && signal.reason instanceof AssistantStop ? signal.reason : err instanceof AssistantStop ? err : null;
   if (stop) return { code: stop.code, retryable: true };
   const limit = limitReasonOf(err);
   if (limit) {
+    // Попытку оборвал её собственный таймер (попытки или 8 с подсчёта токенов), а не человек:
+    // ход не отменён — значит это «слишком долго», с записью в журнал, а не молчаливое «отменено».
+    if (limit === "aborted") return { code: "deadline", retryable: true, reason: limit };
+    // Потолок попыток и конверт хода — «сузьте вопрос», только если дело в размере: в ходе был
+    // отказ по размеру, либо попытки честно ушли на шаги. Ушли на повторы после сбоя Google —
+    // это сбой поставщика, «сузьте вопрос» было бы неправдой (ревью 19.11.2026).
+    if ((limit === "attempt_cap" || limit === "money_turn") && !pressure.sizePressure && pressure.retried) {
+      return { code: "provider_unavailable", retryable: true, reason: limit };
+    }
     const code = assistantLimitCode(limit);
     return { code, retryable: code === "internal" || code === "aborted", reason: limit };
   }
@@ -1608,6 +1629,10 @@ export async function runAssistantDetailed(
   };
   // Сколько раз за ход запрос ужимали (requestShrink.ts) — видно в журнале хода как «input_shrunk».
   let shrinkEvents = 0;
+  // Отказы по размеру входа или под остаток конверта и все попытки модели за ход — по ним
+  // failureOf отличает «вопрос велик» от «Google повторял после сбоя».
+  let sizeRefusals = 0;
+  let attemptsUsed = 0;
   const replied = (reply: string, outcome: AssistantTurnOutcome, reason: string | null = null): AssistantOutcome => {
     turnLog.outcome = outcome;
     turnLog.reason = reason ?? (shrinkEvents > 0 ? "input_shrunk" : null);
@@ -1643,6 +1668,7 @@ export async function runAssistantDetailed(
     const attemptLimit = createAssistantAttemptLimit(reserveAssistantGeminiAttempt);
     const moneyGuard = createAssistantMoneyGuard({ wallet });
     const beforeAttempt: NonNullable<Parameters<typeof callGeminiTools>[0]["beforeAttempt"]> = async (attempt) => {
+      attemptsUsed += 1;
       await attemptLimit();
       await moneyGuard(attempt);
     };
@@ -1764,7 +1790,12 @@ export async function runAssistantDetailed(
           break;
         } catch (err) {
           const measure = assistantLimitMeasureOf(err instanceof ModelCallError ? err.original : null);
-          if (limitReasonOf(err) !== "input_too_large" || !measure || shrinkAttempt >= MAX_SHRINK_RETRIES) throw err;
+          const sizeReason = limitReasonOf(err);
+          // «Велик вход» и «конверт хода кончается, но ужатый запрос влезет в остаток» (у второго
+          // предел в measure — сколько токенов по карману) лечатся одним сжатием.
+          if ((sizeReason !== "input_too_large" && sizeReason !== "money_turn") || !measure) throw err;
+          sizeRefusals += 1;
+          if (shrinkAttempt >= MAX_SHRINK_RETRIES) throw err;
           const shrunk = shrinkConversation(conversation, currentTurnFrom, measure, shrinkAttempt + 1);
           if (!shrunk.changed) throw err;
           currentTurnFrom -= shrunk.droppedHistory;
@@ -1902,7 +1933,11 @@ export async function runAssistantDetailed(
     ok = true;
     return replied(partialAnswerFromResults(collected, turnLanguage, turnWrites), "partial", "rounds");
   } catch (err) {
-    const failure = failureOf(err, signal);
+    const failure = failureOf(err, signal, {
+      sizePressure: sizeRefusals > 0,
+      // Каждый шаг и каждое сжатие — одна законная попытка; сверх этого — повторы клиента Gemini.
+      retried: attemptsUsed > turnLog.rounds + shrinkEvents,
+    });
     // Точная причина в журнал хода (input_too_large, money_daily …), а не общий код для человека.
     turnLog.reason = failure.reason ?? failure.code;
     // Человек ушёл до ответа — отдельный итог, не «сбой» помощницы (ревью пачки 2).

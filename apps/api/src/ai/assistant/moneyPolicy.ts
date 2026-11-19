@@ -55,6 +55,18 @@ export function generationReservation(model: string, input: number, output: numb
   return Number((BigInt(input) * BigInt(rate.input) + BigInt(output) * BigInt(rate.output) + 99n) / 100n);
 }
 
+/**
+ * Сколько входных токенов ещё по карману в остатке конверта хода при этом выходе — тот же
+ * тариф и то же округление вверх, что у generationReservation. 0 — не влезет ничего.
+ */
+export function affordableInputTokens(model: string, output: number, remainingMicroUsd: number): number {
+  if (!Object.hasOwn(RATES, model) || !Number.isSafeInteger(remainingMicroUsd) || remainingMicroUsd <= 0) return 0;
+  const rate = RATES[model]!;
+  const left = BigInt(remainingMicroUsd) * 100n - BigInt(output) * BigInt(rate.output);
+  if (left <= 0n) return 0;
+  return Math.min(MAX_ASSISTANT_INPUT_TOKENS, Number(left / BigInt(rate.input)));
+}
+
 export function dollarLimit(value: string): number {
   if (!/^\d{1,4}(?:\.\d{1,6})?$/.test(value)) throw moneyError("Некорректный денежный лимит Gemini", "policy_expired");
   const [whole, fraction = ""] = value.split(".");
