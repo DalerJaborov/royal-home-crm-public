@@ -9,7 +9,6 @@
  */
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { detectClientLanguage } from "./clientLanguage.js";
-import { extractAllPhones } from "../lib/shared/phoneText.js";
 import { leadOnlyCallbackTime } from "./leadOnlyMode.js";
 
 export type SelfLang = "ru" | "tg";
@@ -138,12 +137,14 @@ export function commentPhonePublicReply(language: SelfLang, turn: number): strin
  * Номер, оставленный в ответ, разберёт дверь номера из комментария (личный ответ + скрытие).
  */
 /**
- * Чистая: ответ под комментарием, когда бот отвечает сам. Номер уже есть в этом комментарии — не просим его второй раз
- * (ревью 1b, №8), а благодарим и обещаем звонок (заявку по номеру заводит дверь номера из комментария).
+ * Чистая: ответ под комментарием, когда бот отвечает сам. `phoneTaken` — номер из ЭТОГО комментария правда стал карточкой
+ * (приём принял или карточка уже была): тогда номер второй раз не просим (ревью 1b, №8), а благодарим и обещаем звонок.
+ * Номер в тексте есть, а карточки нет (приём отказал: вакансия, аренда, номер сотрудника) — «номер получили» было бы
+ * неправдой (ревью #283, блокер 3): такой комментарий вызывающий отдаёт человеку, а не сюда.
  */
-export function commentSelfReply(commentText: string): string {
+export function commentSelfReply(commentText: string, phoneTaken = false): string {
   const language = selfLanguageOf(commentText);
-  return extractAllPhones(commentText ?? "").length ? COMMENT_PHONE_PUBLIC[0]![language] : COMMENT_SELF_REPLY[language];
+  return phoneTaken ? COMMENT_PHONE_PUBLIC[0]![language] : COMMENT_SELF_REPLY[language];
 }
 
 export const COMMENT_SELF_REPLY: Pair = {

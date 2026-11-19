@@ -55,7 +55,7 @@ import { MANDATORY_BOT_RULES, propertyGeographyBlock } from "../ai/dushanbeGeogr
 import { folkGeographyBlock } from "../ai/folkPlaces.js";
 import { AGENCY_COMPANY_INFO } from "../ai/agencyVoice.js";
 import { extractAllPhones } from "../lib/shared/phoneText.js";
-import { loadBotAnswersItself, loadCommentPhoneConversation } from "../lib/botAnswersItself.js";
+import { commentNeedsPerson, loadBotAnswersItself, loadCommentPhoneConversation } from "../lib/botAnswersItself.js";
 import { isCustomerAgentCommentOff } from "../lib/customerAgentChannelOff.js";
 import { COMMENT_PHONE_DM, commentPhonePublicReply, commentSelfReply, selfLanguageOf } from "../ai/botSelfAnswerText.js";
 import { captureCommentPhoneIntoConversation, clientPhonesOf, COMMENT_HISTORY_PREFIX, COMMENT_PHONE_HOLD_MS, commentLeadBlocked,
@@ -1393,7 +1393,12 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // Дверь при выключенном тумблере разговора заводит карточку и отдаёт разбор дальше (null): комментарий уже лёг в
   // переписку — личное модели (если уйдёт) второй раз его не запишет.
   let commentInHistory = false;
-  const phoneDoor = () => handleCommentPhone(row, account, accountGuess, leakSafe, "conversation", () => { commentInHistory = true; });
+  /** Номер из этого комментария стал карточкой (тумблер разговора ВЫКЛ, разбор идёт дальше): «номер получили» — правда. */
+  let commentPhoneTaken = false;
+  const phoneDoor = () => handleCommentPhone(row, account, accountGuess, leakSafe, "conversation", (card) => {
+    if (card.recorded) commentInHistory = true;
+    if (card.taken) commentPhoneTaken = true;
+  });
   /** Цена под постом — только из карточки (messengers/commentPriceGuard.ts, 16.11.2026). */
   const priceSafe = async (t: string, ctx: MediaContext): Promise<string> => {
     if (!t) return t;
@@ -1983,9 +1988,12 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
    * настройке руководство не зовём, а отвечаем под постом сами: ответ модели, если он есть, иначе шаг к номеру
    * (ai/botSelfAnswerText.ts). Номер, оставленный в ответ, разберёт дверь номера из комментария (личное + скрытие).
    */
-  const selfAnswer = decision.action === "escalate" && await loadBotAnswersItself();
+  // Ревью #283, блокер 3: при ВКЛ — всегда свой текст (ответ модели при escalate по промпту «уточним и вернёмся» — обещание,
+  // которое некому выполнить); жалоба и номер, не ставший карточкой, — человеку, как при ВЫКЛ.
+  const selfAnswer = decision.action === "escalate" && await loadBotAnswersItself() &&
+    !commentNeedsPerson({ text: row.text, reason: decision.reason }) && (commentPhoneTaken || !clientPhonesOf(row.text).length);
   const modelReply = await priceSafe(leakSafe(cleanPublicCommentReply(rawReply, row.text)), context);
-  const replyText = modelReply || (selfAnswer ? leakSafe(commentSelfReply(row.text)) : modelReply);
+  const replyText = selfAnswer ? leakSafe(commentSelfReply(row.text, commentPhoneTaken)) : modelReply;
   if (replyText) await humanReplyDelay();
   const replyCommentId = replyText ? await postCommentReply(row, replyText, account.token) : null;
 
@@ -2290,8 +2298,11 @@ async function handleCommentPhone(
   leakSafe: (t: string) => string,
   /** `lead_only` — бот на канале выключен (bot_off): только карточка с пометкой, без сообщений и скрытия (ревью 1b, №6). */
   mode: "conversation" | "lead_only" = "conversation",
-  /** Карточка заведена приёмом, а комментарий уже лёг в переписку (тумблер разговора выключен, разбор идёт дальше). */
-  onRecorded?: () => void
+  /**
+   * Тумблер разговора выключен, разбор идёт дальше: `recorded` — комментарий уже лёг в переписку приёмом; `taken` — номер
+   * стал карточкой (принят сейчас или карточка уже была).
+   */
+  onRecorded?: (card: { recorded: boolean; taken: boolean }) => void
 ): Promise<keyof CommentRunStats | null> {
   if (!clientPhonesOf(row.text).length || commentLeadBlocked(row.text)) return null;
   const channel = row.channel as MessengerChannel;
@@ -2302,7 +2313,7 @@ async function handleCommentPhone(
    * ни личного от этой двери, ни скрытия.
    */
   if (!(await loadCommentPhoneConversation())) {
-    if (await captureCommentPhoneCardOnly(row, account, accountGuess)) onRecorded?.();
+    onRecorded?.(await captureCommentPhoneCardOnly(row, account, accountGuess));
     return null;
   }
   const language = selfLanguageOf(row.text);
@@ -2410,7 +2421,8 @@ async function leadOnlyCommentPhone(row: QueuedComment, account: { id: string | 
  * Тумблер разговора ВЫКЛ (ревью #283, Б2): только карточка с пометкой — без finish, без сообщений и скрытия; разбор
  * комментария идёт дальше прежним путём. true — комментарий лёг в переписку приёмом. Не бросает.
  */
-async function captureCommentPhoneCardOnly(row: QueuedComment, account: { id: string | null }, accountGuess: boolean): Promise<boolean> {
+async function captureCommentPhoneCardOnly(row: QueuedComment, account: { id: string | null }, accountGuess: boolean):
+  Promise<{ recorded: boolean; taken: boolean }> {
   const note = "Номер из комментария: бот человеку в личные не писал (разговор по номеру выключен) — позвоните и узнайте, что нужно.";
   try {
     if (row.channel === "INSTAGRAM" || row.channel === "FACEBOOK") {
@@ -2419,13 +2431,17 @@ async function captureCommentPhoneCardOnly(row: QueuedComment, account: { id: st
         scope.accountId, accountGuess, scope.transport);
       const capture = await captureCommentPhoneIntoConversation(row, conversationId, { dmTexts: PHONE_DM_TEXTS });
       if (capture.outcome === "accepted" && capture.clientId) await releaseCommentPhoneHold(capture.clientId, note, null, true);
-      return capture.recordedInHistory;
+      return { recorded: capture.recordedInHistory,
+        taken: (capture.outcome === "accepted" || capture.outcome === "already") && !!capture.clientId };
     }
-    if (row.channel === "YOUTUBE") await createLeadFromCommentPhone({ ...row, channel: "YOUTUBE" }, note);
+    if (row.channel === "YOUTUBE") {
+      const outcome = await createLeadFromCommentPhone({ ...row, channel: "YOUTUBE" }, note);
+      return { recorded: false, taken: outcome === "accepted" || outcome === "already" };
+    }
   } catch (err) {
     void logSystemError("meta", `[alarm] Номер в комментарии ${row.commentId}: заявка не оформлена: ${describeError(err)}`);
   }
-  return false;
+  return { recorded: false, taken: false };
 }
 
 /**

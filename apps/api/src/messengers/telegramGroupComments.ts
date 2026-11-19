@@ -28,14 +28,14 @@ import { moderationErrorOutcome, moderationAcceptedNote } from "./commentModerat
 import { detectSpam } from "../lib/incomingSpam.js";
 import { detectAgencyAd, detectListingAd } from "../lib/listingAd.js";
 import { detectHate } from "../lib/commentHate.js";
-import { createLeadFromCommentPhone } from "./commentPhoneLead.js";
+import { clientPhonesOf, createLeadFromCommentPhone } from "./commentPhoneLead.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
 import { extractAllPhones } from "../lib/shared/phoneText.js";
 
 /** Пометка карточке по номеру из обсуждения Telegram (18.11.2026): личного разговора бот не ведёт, комментарий не удаляем. */
 const TG_COMMENT_PHONE_NOTE = "Номер из комментария в обсуждении Telegram: бот не спросил, что нужно — позвоните и узнайте.";
 const TG_COMMENT_PHONE_OFF_NOTE = "Номер из комментария в обсуждении Telegram: бот в обсуждении выключен — позвоните и узнайте, что нужно.";
-import { loadBotAnswersItself } from "../lib/botAnswersItself.js";
+import { commentNeedsPerson, loadBotAnswersItself } from "../lib/botAnswersItself.js";
 import { commentSelfReply } from "../ai/botSelfAnswerText.js";
 import { resolveTelegramCommentProperty } from "../lib/propertyVoice/commentProperty.js";
 import { commentDecisionProviderSchema, type CommentDecision } from "@royal-home/shared";
@@ -522,17 +522,23 @@ export async function handleTelegramComment(
   // Живой человек (не спам, не конкурент, не собственник): номер из комментария — заявкой,
   // что бы ни решила модель дальше (ответить, промолчать, позвать человека), 17.11.2026.
   // id сообщения уникален только внутри группы: ключ повтора — группа + сообщение (ревью 1b).
-    await createLeadFromCommentPhone({ ...row, commentId: `${groupChatId}:${row.messageId}`, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
+  const phoneOutcome = await createLeadFromCommentPhone({ ...row, commentId: `${groupChatId}:${row.messageId}`, channel: "TELEGRAM" },
+    TG_COMMENT_PHONE_NOTE);
+  // Номер правда стал карточкой (принят сейчас или уже был): «номер получили» под ответом — правда.
+  const phoneTaken = phoneOutcome === "accepted" || phoneOutcome === "already";
 
   // «Бот отвечает сам» (владелец 18.11.2026, lib/botAnswersItself.ts): человека не зовём, отвечаем в обсуждении сами —
   // ответ модели, если он есть, иначе шаг к номеру (ai/botSelfAnswerText.ts).
-  const selfAnswer = decision.action === "escalate" && await loadBotAnswersItself();
+  // Ревью #283, блокер 3: жалоба и номер, не ставший карточкой, — человеку при любом положении настройки.
+  const selfAnswer = decision.action === "escalate" && await loadBotAnswersItself() &&
+    !commentNeedsPerson({ text: row.text, reason: decision.reason }) && (phoneTaken || !clientPhonesOf(row.text).length);
   if (decision.action === "escalate" && !selfAnswer) {
     await escalate(row, decision.reason);
     await finish(row.id, { status: "ESCALATED", note: decision.reason?.slice(0, 200) });
     return "escalated";
   }
-  if (selfAnswer && !decision.reply?.trim()) decision = { ...decision, reply: commentSelfReply(row.text) };
+  // Свой текст всегда: ответ модели при escalate — «уточним и вернёмся», обещание, которое некому выполнить.
+  if (selfAnswer) decision = { ...decision, reply: commentSelfReply(row.text, phoneTaken) };
 
   if (decision.action === "ignore" || !decision.reply?.trim()) {
     await finish(row.id, { status: "SKIPPED", note: "ignore" });

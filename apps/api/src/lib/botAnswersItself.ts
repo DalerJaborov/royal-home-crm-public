@@ -20,6 +20,7 @@
  *    эпизод разговора (ревью 1b, №1: «клиент 30 минут совсем без ответа — это сбой, админу сигнал»).
  */
 import { prisma } from "../db.js";
+import { looksLikeNoContactComplaint } from "../ai/complaintGuard.js";
 
 /** Сбой чтения настроек — ВЫКЛ: прежнее поведение (человека зовут) безопаснее тишины. */
 export async function loadBotAnswersItself(): Promise<boolean> {
@@ -78,4 +79,16 @@ export function staffSignalAllowed(ctx: StaffSignalContext): boolean {
   if (ctx.hasCard) return true;
   if (ctx.phoneKnown) return true;
   return false;
+}
+
+/** Причина решения модели «позвать человека» говорит о жалобе (промпт комментариев: «жалуются на сотрудника»). */
+const COMPLAINT_REASON = /жалоб|жалу[ею]|недовол|претензи|complain/iu;
+
+/**
+ * Чистая: комментарий, который человек должен увидеть при ЛЮБОМ положении «Бот отвечает сам» — жалоба на сотрудника или
+ * агентство («агент не перезвонил», «никто не звонит»). Решение владельца 19.11 (docs/bot-operator/SPEC.md, случай 26):
+ * жалобу видит руководитель; бот сам на неё не отвечает (ревью #283, блокер 3: иначе жалоба пропадала под постом).
+ */
+export function commentNeedsPerson(input: { text: string; reason?: string | null }): boolean {
+  return looksLikeNoContactComplaint(input.text ?? "") || COMPLAINT_REASON.test(input.reason ?? "");
 }

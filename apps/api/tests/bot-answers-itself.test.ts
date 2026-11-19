@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { staffSignalAllowed, type StaffSignalKind } from "../src/lib/botAnswersItself.js";
+import { commentNeedsPerson, staffSignalAllowed, type StaffSignalKind } from "../src/lib/botAnswersItself.js";
 import { clientWaitingSignalKind } from "../src/lib/clientWaitingAlert.js";
 import { channelStaffSignalKind } from "../src/lib/channelStaffAlert.js";
 import { ATTACHMENT_UNREADABLE, COMMENT_PHONE_DM, COMMENT_PHONE_PUBLIC, COMMENT_SELF_REPLY, commentPhonePublicReply, commentSelfReply,
@@ -127,9 +127,20 @@ describe("фразы «бот отвечает сам» и номера из к�
     }
   });
 
-  it("под постом номер уже оставлен — второй раз его не просим (ревью 1b, №8)", () => {
-    expect(commentSelfReply("Документы в порядке? 900123456")).toBe(COMMENT_PHONE_PUBLIC[0]!.tg);
+  it("под постом номер уже оставлен и стал карточкой — второй раз его не просим (ревью 1b, №8)", () => {
+    expect(commentSelfReply("Документы в порядке? 900123456", true)).toBe(COMMENT_PHONE_PUBLIC[0]!.tg);
     expect(commentSelfReply("Скажите, пожалуйста, документы на эту квартиру в порядке?")).toBe(COMMENT_SELF_REPLY.ru);
+  });
+
+  it("номер в тексте есть, а карточки нет — «номер получили» не говорим (ревью #283, блокер 3)", () => {
+    expect(commentSelfReply("Документы в порядке? 900123456", false)).toBe(COMMENT_SELF_REPLY.tg);
+  });
+
+  it("жалоба на сотрудника под постом — человеку при любом положении настройки (SPEC, случай 26)", () => {
+    expect(commentNeedsPerson({ text: "Ваш агент так и не перезвонил, никто не звонит" })).toBe(true);
+    expect(commentNeedsPerson({ text: "Агенти шумо занг назад", reason: "жалоба на сотрудника" })).toBe(true);
+    expect(commentNeedsPerson({ text: "А документы в порядке?", reason: "документы" })).toBe(false);
+    expect(commentNeedsPerson({ text: "Сколько стоит?" })).toBe(false);
   });
 
   it("язык готовой фразы: русский — только явно русский текст; номер без слов и таджикский — по-таджикски", () => {

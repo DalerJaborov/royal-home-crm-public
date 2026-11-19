@@ -43,6 +43,7 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
 import { StaffPhoneLeadError } from "../src/lib/staffPhoneGuard.js";
 import {
   captureCommentPhoneIntoConversation,
+  clientPhonesOf,
   COMMENT_HISTORY_PREFIX,
   createLeadFromCommentPhone,
 } from "../src/messengers/commentPhoneLead.js";
@@ -213,5 +214,28 @@ describe("ревью 17.11: кому заявка не полагается", ()
     expect(await createLeadFromCommentPhone({ ...row(), channel: "TELEGRAM" })).toBe("already");
     expect(mocks.createLead).toHaveBeenCalledTimes(1);
     expect(mocks.log).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ЛОЖНЫЕ СРАБАТЫВАНИЯ (решение «А» по #283, проводник 18.11: карточка по номеру из комментария заводится всегда, поэтому
+ * не-номер карточкой стать не должен — иначе это блокер). Цена, площадь, этаж, год, номер объекта, ссылка с цифрами.
+ */
+describe("clientPhonesOf: цифры, которые не телефон", () => {
+  it.each([
+    "Нарх 450000 сомонӣ? Арзон мешавад?",
+    "Площадь 85 м2, этаж 7/12, сколько стоит?",
+    "Цена 1 250 000 сомони, торг уместен?",
+    "Нарх 450000, 3 ҳуҷра, ошёнаи 5, 92 кв.м",
+    "Дом 2019 года, ремонт 2024 года?",
+    "Это объект №112? А №1045 ещё продаётся?",
+    "Смотрите https://royalhome.tj/listing/1045?utm=2024111912 — ещё актуально?",
+    "Цена $85000, 2 комнаты, 64,5 м²",
+  ])("«%s» — номеров нет", (text) => {
+    expect(clientPhonesOf(text)).toEqual([]);
+  });
+
+  it("настоящий номер рядом с ценой находится", () => {
+    expect(clientPhonesOf("Нарх 450000? Занг занед 900000001")).toHaveLength(1);
   });
 });

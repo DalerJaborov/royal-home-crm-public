@@ -394,6 +394,50 @@ describe("СТОРОЖ: оба тумблера ВЫКЛ — поведение 
     } finally { await restore(); }
   });
 
+  /**
+   * Решение «А» по ревью #283 (проводник, 18.11): при обоих ВЫКЛ ЕДИНСТВЕННОЕ отличие от main — карточка по номеру из
+   * комментария. Ни личного, ни скрытия, ни ответа сверх ответа модели, ни второго пуша сверх обычного «новая заявка».
+   */
+  it("ЗАКРЕПЛЕНИЕ: оба ВЫКЛ — единственное отличие от main: карточка по номеру; ответ модели тот же, статус тот же", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: both });
+    try {
+      const digits = freshDigits(); phones.push(digits);
+      const turn = await instagramTurn(`Нарх чанд? ${digits}`, { action: "reply", reply: "Нархаш дар корт аст." });
+      expect(await turn.run()).toBe("replied");
+      expect(publicReplies().map((b) => b!.message)).toEqual(["Нархаш дар корт аст"]);
+      expect(mocks.privateReply).not.toHaveBeenCalled();
+      expect(hides()).toHaveLength(0);
+      const stored = await prisma.instagramComment.findUniqueOrThrow({ where: { id: turn.id } });
+      expect(stored.status).toBe("REPLIED");
+      expect(stored.replyText).toBe("Нархаш дар корт аст");
+      // То, чего в main нет: карточка с номером и пометкой «бот человеку не писал».
+      const cards = await clientsWith(digits);
+      expect(cards).toHaveLength(1);
+      expect(cards[0]!.commentPhoneHoldUntil).toBeNull();
+    } finally { await restore(); }
+  });
+
+  /**
+   * Ложные срабатывания (решение «А», проводник 18.11: «если карточку заводит и не-номер — это блокер»): цена, площадь
+   * и этаж, год, номер объекта, ссылка с цифрами — карточки быть не должно.
+   */
+  it.each([
+    "Нарх 450000 сомонӣ? Арзон мешавад?",
+    "Площадь 85 м2, этаж 7/12, сколько стоит?",
+    "Цена 1 250 000 сомони, торг уместен?",
+    "Дом 2019 года, ремонт 2024 года?",
+    "Это объект №112? А №1045 ещё продаётся?",
+    "Смотрите https://royalhome.tj/listing/1045?utm=2024111912 — ещё актуально?",
+    "Нарх 450000, 3 ҳуҷра, ошёнаи 5, 92 кв.м",
+  ])("оба ВЫКЛ: «%s» — карточки нет", async (text) => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: both });
+    try {
+      const turn = await instagramTurn(text, { action: "reply", reply: "Агент ба шумо мегӯяд." });
+      await turn.run();
+      expect((await conversationOf(turn.peer))?.clientId ?? null).toBeNull();
+    } finally { await restore(); }
+  });
+
   it("INSTAGRAM: «не по теме» с матом и номером молча пропускается (как в main), не скрывается и не удаляется", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: both });
     try {
@@ -534,6 +578,70 @@ describe("«Бот отвечает сам» под постами", () => {
       const stored = await prisma.instagramComment.findUniqueOrThrow({ where: { id: turn.id } });
       expect(stored.status).toBe("REPLIED");
       expect(stored.note).toMatch(/^self_answer:/);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: false } });
+    }
+  });
+
+  /**
+   * Ревью #283, блокер 3: при ВКЛ под постом оставался ответ модели «сейчас уточним и вернёмся» (его требует промпт при
+   * escalate), а человека не звали — обещание, которое некому выполнить. Теперь при ВКЛ всегда свой текст шага к номеру.
+   */
+  it("ВКЛ: у модели есть свой текст «уточним и вернёмся» — под постом всё равно шаг к номеру, а не её обещание", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: true } });
+    try {
+      const turn = await instagramTurn("А документы на эту квартиру в порядке?",
+        { action: "escalate", reason: "документы", reply: "Сейчас уточним и вернёмся с ответом." });
+      expect(await turn.run()).toBe("replied");
+      expect(publicReplies().map((b) => b!.message)).toEqual([COMMENT_SELF_REPLY.ru]);
+      expect(mocks.push).not.toHaveBeenCalled();
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: false } });
+    }
+  });
+
+  /** Жалоба на сотрудника: решение владельца 19.11 (docs/bot-operator/SPEC.md, случай 26) — человека зовём всегда. */
+  it("ВКЛ: жалоба на агента под постом — человеку пуш, как при ВЫКЛ (жалоба не пропадает)", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: true } });
+    try {
+      const turn = await instagramTurn("Ваш агент Умед мне так и не перезвонил, никто не звонит уже неделю",
+        { action: "escalate", reason: "жалоба на сотрудника", reply: "Сейчас уточним и вернёмся с ответом." });
+      expect(await turn.run()).toBe("escalated");
+      expect(mocks.push).toHaveBeenCalledTimes(1);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: false } });
+    }
+  });
+
+  it("ВКЛ: номер в комментарии, а заявку приём отклонил (номер сотрудника) — не «номер получили», а человеку пуш", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: true } });
+    try {
+      const staff = await prisma.agent.findFirstOrThrow({ where: { isActive: true, phone: { not: "" } }, select: { phone: true } });
+      const turn = await instagramTurn(`Документы в порядке? Звоните ${staff.phone}`, { action: "escalate", reason: "документы" });
+      expect(await turn.run()).toBe("escalated");
+      expect((await conversationOf(turn.peer))?.clientId ?? null).toBeNull();
+      expect(publicReplies().map((b) => String(b!.message)).join(" ")).not.toMatch(/номер получили/u);
+      expect(mocks.push).toHaveBeenCalledTimes(1);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: false } });
+    }
+  });
+
+  it("Telegram, ВКЛ: у модели свой текст — в обсуждении шаг к номеру; жалоба — человеку", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: true } });
+    try {
+      const ask = await prisma.telegramGroupComment.create({ data: { groupChatId, messageId: String(100000 + Math.floor(Math.random() * 1_000_000)),
+        postMessageId: tag, authorId: `${tag}-tg-self-${sequence++}`, text: "А документы в порядке?", replyDueAt: new Date() } });
+      peers.push(ask.authorId);
+      decisions.push({ action: "escalate", reason: "документы", reply: "Сейчас уточним и вернёмся с ответом." });
+      expect(await handleTelegramComment(ask, groupChatId)).toBe("replied");
+      expect(mocks.telegramSend.mock.calls.map((call) => String(call[1])).join(" ")).not.toMatch(/уточним/u);
+      expect(mocks.push).not.toHaveBeenCalled();
+      const complaint = await prisma.telegramGroupComment.create({ data: { groupChatId, messageId: String(100000 + Math.floor(Math.random() * 1_000_000)),
+        postMessageId: tag, authorId: `${tag}-tg-self-${sequence++}`, text: "Ваш агент так и не перезвонил, никто не звонит", replyDueAt: new Date() } });
+      peers.push(complaint.authorId);
+      decisions.push({ action: "escalate", reason: "жалоба на сотрудника" });
+      expect(await handleTelegramComment(complaint, groupChatId)).toBe("escalated");
     } finally {
       await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: false } });
     }
