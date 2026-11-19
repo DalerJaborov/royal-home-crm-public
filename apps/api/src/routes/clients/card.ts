@@ -52,6 +52,7 @@ import { CLIENT_PHONE_MASK_CHAR } from "@royal-home/shared";
 import { computeHiddenReason, foreignWriteDenied, normalizePhone, phoneOwnershipError, presentClient, restoreMaskedNotes } from "./shared.js";
 import { findFuzzyDuplicateCandidate } from "../../lib/duplicateReview.js";
 import { phoneTail } from "../../lib/clientPhones.js";
+import { dealTextPhoneSafe } from "../../lib/clientPhone.js";
 import { clientPhoneSelectionTokens } from "../../lib/clientPhoneSelection.js";
 import { presentExtraPhoneOrigins } from "../../lib/clientPhoneOrigins.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
@@ -418,7 +419,10 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
    */
   const dealsOwnAgentId = scopeDealsToOwnAgent(req);
   const visibleDeals = dealsOwnAgentId ? client.deals.filter((d) => d.agentId === dealsOwnAgentId) : client.deals;
-  const scopedDeals = visibleDeals.map((d) => serializeDealMoney(d, seesDealMoney(req, d)));
+  // Заметки сделок — свободный текст: номер в них закрыт тем же правом (18.11.2026).
+  const scopedDeals = visibleDeals.map((d) =>
+    serializeDealMoney(dealTextPhoneSafe(d, can(req, "clients.viewPhone")), seesDealMoney(req, d))
+  );
 
   /**
    * ФАКТЫ ИСТОРИИ — ПО ПОЛНОЙ ТАБЛИЦЕ, А НЕ ПО 200 ЗАПИСЯМ КАРТОЧКИ (аудит

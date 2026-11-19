@@ -94,8 +94,10 @@ const patch = (token: string, ownerContact: string) =>
     .send({ ownerContact });
 
 describe("смена телефона собственника в объекте", () => {
+  // С 18.11.2026 номер собственника видит и меняет только директор (владелец: «кроме
+  // директора, ни у кого вообще не будет доступа к номерам») — перепривязку проверяем им.
   it("номер ничей — исправляется у того же продавца, связь прежняя", async () => {
-    const res = await patch(agentToken, num("11"));
+    const res = await patch(directorToken, num("11"));
     expect(res.status).toBe(200);
     const property = await prisma.property.findUniqueOrThrow({ where: { id: propertyId } });
     expect(property.sellerClientId).toBe(sellerId);
@@ -107,7 +109,7 @@ describe("смена телефона собственника в объекте
 
   it("номер записан у другой карточки — объект переходит к ней, старый продавец не тронут", async () => {
     const other = await client("Настоящий собственник", num("12"), agentId);
-    const res = await patch(agentToken, num("12"));
+    const res = await patch(directorToken, num("12"));
     expect(res.status).toBe(200);
     const property = await prisma.property.findUniqueOrThrow({ where: { id: propertyId } });
     expect(property.sellerClientId).toBe(other.id);
@@ -115,10 +117,11 @@ describe("смена телефона собственника в объекте
     expect(old.phone).toBe(num("10"));
   });
 
-  it("номер у клиента другого агента — агенту отказ, объект не меняется", async () => {
+  it("агент своего объекта номер не меняет: поле отбрасывается, объект прежний (18.11.2026)", async () => {
     await client("Чужой клиент", num("13"), otherAgentId);
     const res = await patch(agentToken, num("13"));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    expect(res.body.ownerContact).toBeNull();
     const property = await prisma.property.findUniqueOrThrow({ where: { id: propertyId } });
     expect(property.sellerClientId).toBe(sellerId);
     expect(property.ownerContact).toBe(num("10"));
@@ -135,7 +138,7 @@ describe("смена телефона собственника в объекте
   it("продавца ведёт другой агент — номер в его карточке агенту объекта не поменять", async () => {
     await prisma.client.update({ where: { id: sellerId }, data: { assignedAgentId: otherAgentId } });
     const res = await patch(agentToken, num("15"));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
     const seller = await prisma.client.findUniqueOrThrow({ where: { id: sellerId } });
     expect(seller.phone).toBe(num("10"));
   });
