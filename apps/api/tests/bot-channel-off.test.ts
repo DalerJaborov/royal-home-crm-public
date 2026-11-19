@@ -26,9 +26,9 @@ const { parseCustomerAgentChannelOff, isCustomerAgentChannelOff, customerAgentCh
 const { runLegacyQualifyTurn } = await import("../src/ai/legacyQualifyDoor.js");
 const { customerAgentHandoverLine } = await import("../src/ai/customerAgentRenderer.js");
 const { shortAgentReply } = await import("../src/ai/shortAgentReply.js");
-const { planLegacyLeadOnlyTurn } = await import("../src/messengers/leadOnlyLegacy.js");
-const { LEAD_ONLY_DEFAULTS } = await import("../src/ai/leadOnlyMode.js");
-const { leadOnlyIntentFallback } = await import("../src/ai/leadOnlyIntent.js");
+// Старый путь в режиме «только заявки» ведёт оператор (messengers/conversation.ts::runLeadOnlyOperator); его рубильник —
+// isCustomerAgentTurnOff по каналу и диалогу (оператор зовёт модель понимания и при выключенном канале не работает).
+const { isCustomerAgentTurnOff } = await import("../src/lib/customerAgentChannelOff.js");
 const { isCommentsBotEnabled } = await import("../src/messengers/commentIngest.js");
 const { isTelegramGroupCommentsEnabled } = await import("../src/messengers/telegramGroupComments.js");
 const { resetAccountsCache } = await import("../src/messengers/accounts.js");
@@ -276,14 +276,8 @@ describe("ключ arvan: аккаунты бренда (MessengerAccount.brandN
     const env = { CUSTOMER_AGENT_CHANNEL_OFF: "arvan" };
     expect(await isCustomerAgentConversationOff(arvanChat, env)).toBe(true);
     expect(await isCustomerAgentConversationOff(royalChat, env)).toBe(false);
-    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_OFF", "arvan");
-    const classify = vi.fn(async (text: string) => leadOnlyIntentFallback(text));
-    const base = { config: { ...LEAD_ONLY_DEFAULTS, enabled: true, workHoursStart: "00:00", workHoursEnd: "24:00" }, channel: "INSTAGRAM",
-      subscriberId: `off-lead-a-${runId}`, linked: false, draft: { stage: "chatting" as const }, propertyId: null, propertyInMessage: false,
-      language: "ru" as const, text: "Хочу продать дом", history: [] };
-    expect(await planLegacyLeadOnlyTurn({ ...base, conversationId: arvanChat, classifyIntent: classify })).toBeNull();
-    expect(classify).not.toHaveBeenCalled();
-    expect((await planLegacyLeadOnlyTurn({ ...base, conversationId: royalChat, classifyIntent: classify }))?.scenario).toBe("seller");
+    expect(await isCustomerAgentTurnOff({ channel: "INSTAGRAM", conversationId: arvanChat }, env)).toBe(true);
+    expect(await isCustomerAgentTurnOff({ channel: "INSTAGRAM", conversationId: royalChat }, env)).toBe(false);
   });
 });
 
@@ -303,17 +297,9 @@ describe("модель и вне хода не пишет на выключен�
     expect(await isCustomerAgentConversationOff(id, { CUSTOMER_AGENT_CHANNEL_OFF: "telegram_direct" })).toBe(false);
     expect(await isCustomerAgentConversationOff(id, {})).toBe(false);
   });
-  it("режим «только заявки» старого пути: ни разбора намерения моделью, ни ответа режима", async () => {
-    const base = { config: { ...LEAD_ONLY_DEFAULTS, enabled: true, workHoursStart: "00:00", workHoursEnd: "24:00" }, channel: "INSTAGRAM",
-      subscriberId: `off-lead-${runId}`, linked: false, draft: { stage: "chatting" as const }, propertyId: null, propertyInMessage: false,
-      language: "ru" as const, text: "Хочу продать дом", history: [] };
-    const classify = vi.fn(async (text: string) => leadOnlyIntentFallback(text));
-    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_OFF", "instagram");
-    expect(await planLegacyLeadOnlyTurn({ ...base, classifyIntent: classify })).toBeNull();
-    expect(classify).not.toHaveBeenCalled();
-    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_OFF", "whatsapp");
-    expect((await planLegacyLeadOnlyTurn({ ...base, classifyIntent: classify }))?.scenario).toBe("seller");
-    expect(classify).toHaveBeenCalled();
+  it("режим «только заявки» старого пути: рубильник оператора — по каналу (выключенный канал — оператор не работает)", async () => {
+    expect(await isCustomerAgentTurnOff({ channel: "INSTAGRAM" }, { CUSTOMER_AGENT_CHANNEL_OFF: "instagram" })).toBe(true);
+    expect(await isCustomerAgentTurnOff({ channel: "INSTAGRAM" }, { CUSTOMER_AGENT_CHANNEL_OFF: "whatsapp" })).toBe(false);
   });
   it("комментарии Instagram/Facebook/YouTube и под постами Telegram: бот не отвечает", async () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_OFF", "instagram,youtube,telegram");

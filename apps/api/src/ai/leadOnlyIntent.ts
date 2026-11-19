@@ -13,7 +13,7 @@
  * ответа модели (ai/leadOnlyMode.ts::leadOnlyScenario): аренда (ai/rentGuard.ts, решение 21.08.2026) и вакансии.
  *
  * Сценарий хода (продавец / горячий / объект / покупатель) отсюда не решается: это одна функция leadOnlyScenario,
- * она получает готовое намерение. Ядро (lib/customerLeadOnlyCore.ts) и старый путь (messengers/leadOnlyLegacy.ts)
+ * она получает готовое намерение. Оператор приёма заявок (ai/operator/understand.ts) берёт отсюда запасные правила и транспорт модели
  * берут намерение только здесь.
  */
 import { BW, EW, TAIL } from "./wordBoundary.js";

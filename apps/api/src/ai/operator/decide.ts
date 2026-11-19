@@ -6,14 +6,15 @@
  * (`spoken`), поэтому один и тот же вход всегда даёт один и тот же выход, и второй раз звучит другой вариант.
  *
  * Модель шаг не выбирает: она только понимает ход (understand.ts). Здесь — роли, шаги, пределы и запреты:
- *  - вопрос о роли не больше двух раз (второй раз другими словами), потом тишина и сотрудник;
+ *  - вопрос о роли не больше двух раз (второй раз другими словами), потом тишина;
  *  - вопрос о деталях один раз на роль, только про недостающее; любой ответ принимается;
- *  - номер известен (WhatsApp) — заявка в тот же ход, без «удобно?»; нет — просьба номера до `maxPhoneAsks`;
+ *  - номер известен (WhatsApp) — заявка в тот же ход (вопрос о деталях — в том же ответе), без «удобно?»;
+ *    нет — детали и номер одним сообщением, потом просьба номера до `maxPhoneAsks`, потом один раз номер офиса;
  *  - комиссия продавцу — сама один раз (и на его прямой вопрос), покупателю — никогда;
  *  - после принятой заявки вопросов нет, новые детали — заметкой агенту;
  *  - роль не теряется между ходами, язык липкий (меняет только осмысленный текст клиента);
  *  - вне Душанбе — заявка с `outOfArea` (её решает директор), клиенту не отказываем;
- *  - грубость и жалоба — одна спокойная фраза, сотрудник, дальше молчим.
+ *  - грубость и жалоба — одна спокойная фраза, сотрудник, дальше молчим (сотрудника зовём ТОЛЬКО здесь).
  * Ответ — не больше двух шагов (в каждой фразе одно предложение), вопрос — только у вопроса о роли.
  */
 import { operatorWhereVar } from "./phrases.js";
@@ -96,6 +97,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (u.callback.when) s.callback.when = u.callback.when;
   if (u.callback.textOnly) s.callback.textOnly = true;
   if (u.phone) s.phoneKnown = true;
+  const newOutOfArea = !!u.outsidePlace && !s.outOfArea;
   if (u.outsidePlace) { s.outOfArea = true; s.place = u.outsidePlace; }
   if (ctx.outOfArea) s.outOfArea = true;
   if (u.bargain) s.flags.bargainAsked = true;
@@ -136,7 +138,13 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // ── заявка уже принята: вопросов нет ──────────────────────────────────────
   if (s.leadAccepted) {
     answerQuestions(false);
-    if (newTextOnly) {
+    // Продавцу комиссию называем сами один раз: если в ход заявки место занял ответ на его вопрос — теперь.
+    if (s.role === "seller" && !commissionSaid() && answers.length === 0) answers.push(draft("seller_commission", { percent: ctx.sellerCommissionPercent }));
+    if (newOutOfArea) {
+      // Заявка уже ушла, а объект оказался не в Душанбе: пометка с признаком (этап 1.5 — решение директора), клиенту без отказа.
+      actions.push({ type: "append_note", note: operatorLeadNote(s, u, ctx), phone: null, outOfArea: true });
+      flow.push(draft("out_of_area_accepted"));
+    } else if (newTextOnly) {
       actions.push({ type: "append_note", note: textOnlyNote(ctx), phone: null });
       flow.push(draft("text_only_noted", { where: operatorWhereVar(ctx.channel) }));
     } else if (newCallback) {
@@ -211,16 +219,20 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     if (u.phone && !ctx.phoneKnown) return draft("phone_received", { when });
     return draft("lead_known_phone", { when });
   };
+  const phoneKnown = () => ctx.phoneKnown || s.phoneKnown;
+  const acceptLead = () => {
+    actions.push({ type: "accept_lead", role: leadRole(s.role), propertyId: s.role === "buyer_property" ? s.propertyId : null,
+      phone: u.phone, note: operatorLeadNote(s, u, ctx), outOfArea: s.outOfArea, callbackWhen: s.callback.when,
+      textOnly: s.callback.textOnly });
+    s.leadAccepted = true; s.step = "done";
+  };
   const contact = () => {
-    if (ctx.phoneKnown || s.phoneKnown) {
+    if (phoneKnown()) {
       // Продавцу комиссию называем сами один раз — если раньше не успели (вопрос клиента занял место).
       if (s.role === "seller" && !commissionSaid() && answers.length === 0 && flow.length === 0) {
         flow.push(draft("seller_commission", { percent: ctx.sellerCommissionPercent }));
       }
-      actions.push({ type: "accept_lead", role: leadRole(s.role), propertyId: s.role === "buyer_property" ? s.propertyId : null,
-        phone: u.phone, note: operatorLeadNote(s, u, ctx), outOfArea: s.outOfArea, callbackWhen: s.callback.when,
-        textOnly: s.callback.textOnly });
-      s.leadAccepted = true; s.step = "done";
+      acceptLead();
       flow.push(leadMessage());
       return;
     }
@@ -229,8 +241,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       flow.push(draft("ask_phone")); s.asked.phone += 1; s.step = "contact";
       return;
     }
-    // Номер не дали после всех просьб: молчим и зовём сотрудника (SPEC, шаг «контакт»).
-    callStaff("phone_not_given"); s.step = "handoff";
+    // Номер не дали после всех просьб: один раз номер офиса, дальше тишина. Людей до заявки не зовём (решение владельца
+    // 13.11.2026: «никаких уведомлений не надо никому высылать, пока он не станет лидом»).
+    if (!said("office_phone")) flow.push(draft("office_phone", { phone: ctx.officePhone }));
+    s.step = "handoff";
   };
   // Клиент сам дал номер, просит человека, спрашивает «вы бот?» или торгуется — сразу шаг «контакт».
   const wantsContact = !!u.phone || u.question === "staff" || u.botQuestion || u.bargain;
@@ -238,8 +252,8 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (s.role === "unknown" || s.role === "rent" || s.role === "job") {
     if (wantsContact) { contact(); return finish(); }
     if (s.asked.role >= 2) {
-      // Два непонятных ответа на вопрос о роли: молчим и зовём сотрудника (SPEC, роль «Непонятно»).
-      callStaff("role_unclear"); s.step = "handoff";
+      // Два непонятных ответа на вопрос о роли: молчим (до заявки людей не зовём; через сутки тишины — заново, state.ts).
+      s.step = "handoff";
       return finish();
     }
     if (u.greeting && !said("greet") && !said("greet_assalom") && answers.length === 0) {
@@ -271,12 +285,27 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (s.asked.details === 0) {
     const missing = fields.filter(field => !s.details[field]);
     if (missing.length === 0) { contact(); return finish(); }
-    s.asked.details = 1; s.step = "details";
-    if (s.role === "seller" && !commissionSaid() && answers.length === 0) {
-      flow.push(draft("seller_intro", { percent: ctx.sellerCommissionPercent }));
+    const seller = s.role === "seller";
+    const all = missing.length === fields.length;
+    // Номер известен (WhatsApp): заявка в ЭТОТ ход, вопрос о деталях — в том же ответе. Клиент, не ответивший на вопрос,
+    // не пропадает (П1 приёмки 19.11). Время звонка, «пишите», вне Душанбе — обычная строка заявки без вопроса.
+    if (phoneKnown() && (s.outOfArea || s.callback.textOnly || s.callback.when)) { contact(); return finish(); }
+    s.asked.details = 1;
+    if (seller && !commissionSaid() && answers.length === 0) flow.push(draft("seller_intro", { percent: ctx.sellerCommissionPercent }));
+    if (phoneKnown()) {
+      const when = ctx.callbackWhen[language];
+      acceptLead();
+      flow.push(all ? draft(seller ? "lead_and_details_seller" : "lead_and_details_buyer", { when }) : draft("lead_and_details_missing", { when, missing }));
+      return finish();
     }
-    flow.push(missing.length === fields.length ? draft(s.role === "seller" ? "ask_details_seller" : "ask_details_buyer")
-      : draft("ask_details_missing", { missing }));
+    // Номера нет: детали и номер одним сообщением — это первая просьба номера.
+    if (!s.noCall && s.asked.phone < ctx.maxPhoneAsks) {
+      flow.push(all ? draft(seller ? "ask_details_seller_phone" : "ask_details_buyer_phone") : draft("ask_details_missing_phone", { missing }));
+      s.asked.phone += 1; s.step = "contact";
+      return finish();
+    }
+    flow.push(all ? draft(seller ? "ask_details_seller" : "ask_details_buyer") : draft("ask_details_missing", { missing }));
+    s.step = "details";
     return finish();
   }
   // Вопрос о деталях уже был: любой ответ принимается. Встречный вопрос клиента без деталей шаг не двигает и

@@ -32,7 +32,7 @@ const focus164 = { propertyId: PROPERTY_ID, shortId: 164, priceText: { ru: "520 
 const ctx = (over: Partial<OperatorContext> = {}): OperatorContext => ({
   channel: "WHATSAPP", phoneKnown: true, leadExists: false, ad: { topic: null, propertyId: null }, focus: null,
   callbackWhen: { ru: "в ближайшее время", tg: "ба зудӣ" }, maxPhoneAsks: 2, vacancies: { open: [MANAGER], contactPhone: CONTACT_PHONE },
-  brandName: "Royal Home", sellerCommissionPercent: 2, outOfArea: false, ...over,
+  brandName: "Royal Home", officePhone: "+992 00 000 00 02", sellerCommissionPercent: 2, outOfArea: false, ...over,
 });
 const IG = (over: Partial<OperatorContext> = {}) => ctx({ channel: "INSTAGRAM", phoneKnown: false, ...over });
 const FB = (over: Partial<OperatorContext> = {}) => ctx({ channel: "FACEBOOK", phoneKnown: false, ...over });
@@ -77,13 +77,15 @@ describe("таблица случаев SPEC.md (1–26)", () => {
     expect(turns[2]!.keys).toEqual(["phone_received"]);
   });
 
-  it("3. WhatsApp, реклама собственникам, «Хочу продать квартиру» → детали; ответ → заявка без «удобно?»; дальше вопросов нет", () => {
+  it("3. WhatsApp, реклама собственникам, «Хочу продать квартиру» → заявка в этот же ход и вопрос о деталях; ответ → заметка; без «удобно?»", () => {
     const c = ctx({ ad: { topic: "seller", propertyId: null } });
     const turns = run(c, [ru({ role: "seller" }), ru({ details: { district: "Сино", rooms: "3" }, hasDetails: true }), ru({ ackOnly: true, role: null })]);
-    expect(turns[0]!.keys).toEqual(["seller_intro", "ask_details_seller"]);
-    expect(turns[0]!.text).toContain("2%");
-    expect(turns[1]!.keys).toEqual(["lead_known_phone"]);
-    expect(turns[1]!.text).toMatch(/передал агенту/u);
+    expect(turns[0]!.keys).toEqual(["seller_intro", "lead_and_details_seller"]);
+    expect(turns[0]!.text).toBe("Поможем продать, комиссия агентства 2%. Агент позвонит вам на этот номер в ближайшее время, " +
+      "а пока напишите одним сообщением: район, комнаты, площадь, этаж, ремонт и цену.");
+    expect(leads(turns.slice(0, 1))).toHaveLength(1);
+    expect(turns[1]!.keys).toEqual(["note_added"]);
+    expect(turns[1]!.actions[0]).toMatchObject({ type: "append_note" });
     expect(turns.map(t => t.text).join(" ")).not.toMatch(/удобно|купить или продать/iu);
     expect(leads(turns)).toHaveLength(1);
     expect(leads(turns)[0]).toMatchObject({ role: "seller", outOfArea: false });
@@ -92,11 +94,13 @@ describe("таблица случаев SPEC.md (1–26)", () => {
 
   it("4. WhatsApp, «Продать недвижимость» → «С 11 до 2.30 удобно»: время повторяем и пишем в заметку", () => {
     const turns = run(ctx(), [ru({ role: "seller" }), ru({ callback: { when: "с 11:00 до 14:30", textOnly: false, noCall: false } })]);
-    expect(turns[1]!.keys).toEqual(["lead_callback"]);
+    expect(turns[1]!.keys).toEqual(["callback_noted"]);
     expect(turns[1]!.text).toContain("с 11:00 до 14:30");
-    const [lead] = leads(turns);
-    expect(lead).toMatchObject({ callbackWhen: "с 11:00 до 14:30" });
-    expect(lead && "note" in lead ? lead.note : "").toContain("Когда звонить: «с 11:00 до 14:30»");
+    expect(turns[1]!.actions).toEqual([{ type: "append_note", note: "Когда звонить: «с 11:00 до 14:30»", phone: null }]);
+    // Время в первом же сообщении — в заявке и в ответе.
+    const first = one(ctx(), ru({ role: "seller", callback: { when: "с 11:00 до 14:30", textOnly: false, noCall: false } }));
+    expect(first.keys).toEqual(["seller_commission", "lead_callback"]);
+    expect(leads([first as Turn])[0]).toMatchObject({ callbackWhen: "с 11:00 до 14:30" });
     expect(turns.map(t => t.text).join(" ")).not.toMatch(/удобно\?/u);
   });
 
@@ -106,18 +110,24 @@ describe("таблица случаев SPEC.md (1–26)", () => {
     expect(turns[1]!.keys).toEqual(["out_of_area_accepted"]);
     expect(turns[1]!.text).toMatch(/^Ташаккур/u);
     expect(turns[1]!.text).not.toMatch(/Рӯдакӣ|Рудаки|намекунем|танҳо/u);
-    const [lead] = leads(turns);
-    expect(lead).toMatchObject({ role: "seller", outOfArea: true });
-    expect(lead && "note" in lead ? lead.note : "").toContain("Объект не в Душанбе: Ромит");
+    expect(leads(turns)).toHaveLength(1);
+    const note = turns[1]!.actions[0]!;
+    expect(note).toMatchObject({ type: "append_note", outOfArea: true });
+    expect("note" in note ? note.note : "").toContain("Объект не в Душанбе: Ромит");
+    // Место в первом сообщении — заявка сразу с признаком outOfArea.
+    const first = one(ctx(), tg({ role: "seller", outsidePlace: "Ромит" }));
+    expect(first.keys).toEqual(["seller_commission", "out_of_area_accepted"]);
+    expect(leads([first as Turn])[0]).toMatchObject({ role: "seller", outOfArea: true });
   });
 
   it("6. WhatsApp, покупатель: после первого ответа на вопрос о деталях — заявка, без списка и без второго вопроса", () => {
     const turns = run(ctx(), [tg({ role: "buyer" }), tg({ details: { rooms: "2", renovation: "ремонт", budget: "700 ҳазор" }, hasDetails: true })]);
-    expect(turns[0]!.keys).toEqual(["ask_details_buyer"]);
-    expect(turns[1]!.keys).toEqual(["lead_known_phone"]);
-    expect(turns[1]!.text).toMatch(/ба агент расондам/u);
-    expect(turns[1]!.text).not.toMatch(/№|варианты|https?:/u);
-    expect(leads(turns)[0]).toMatchObject({ role: "buyer", propertyId: null });
+    expect(turns[0]!.keys).toEqual(["lead_and_details_buyer"]);
+    expect(leads(turns.slice(0, 1))[0]).toMatchObject({ role: "buyer", propertyId: null });
+    expect(turns[1]!.keys).toEqual(["note_added"]);
+    expect(turns[1]!.text).toBe("Ба агент расондам.");
+    expect(turns.map(t => t.text).join(" ")).not.toMatch(/№|вариантҳо|https?:/u);
+    expect(leads(turns)).toHaveLength(1);
   });
 
   it("7. WhatsApp, «Не, ватсапда нависед» после обещания звонка → «агент напишет в WhatsApp», пометка агенту", () => {
@@ -131,13 +141,13 @@ describe("таблица случаев SPEC.md (1–26)", () => {
 
   it("8. голосовые: расшифровано — обычный ход; не расшифровано — одна просьба написать текстом, шаг не двигается", () => {
     const transcribed = one(ctx(), ru({ role: "seller", attachments: { voice: "transcribed", ownPost: false, foreignPost: false, media: false } }));
-    expect(transcribed.keys).toEqual(["seller_intro", "ask_details_seller"]);
+    expect(transcribed.keys).toEqual(["seller_intro", "lead_and_details_seller"]);
     const failed = u({ hasText: false, attachments: { voice: "failed", ownPost: false, foreignPost: false, media: false } });
     const turns = run(ctx(), [ru({ role: "seller" }), failed, failed, failed]);
     expect(turns[1]!.keys).toEqual(["voice_failed"]);
     expect(turns[2]!.silent).toBe(true);
     expect(turns[3]!.silent).toBe(true);
-    expect(turns[3]!.state.step).toBe("details");
+    expect(turns[3]!.state.step).toBe("done");
     expect(turns.map(t => t.text).join(" ").match(/2%/gu)?.length ?? 0).toBe(1);
   });
 
@@ -158,7 +168,8 @@ describe("таблица случаев SPEC.md (1–26)", () => {
     const c = IG({ ad: { topic: "property", propertyId: PROPERTY_ID }, focus: focus164 });
     const turns = run(c, [ru({ question: "fee" }), tg({ role: "seller", details: { units: "3" }, hasDetails: true, question: "other" }),
       tg({ details: { district: "Сино" }, hasDetails: true }), tg({ phone: "+992935551234" })]);
-    expect(turns[1]!.keys).toEqual(["seller_intro", "ask_details_seller"]);
+    expect(turns[1]!.keys).toEqual(["seller_intro", "ask_details_seller_phone"]);
+    expect(turns[2]!.keys).toEqual(["office_phone"]);
     expect(turns[1]!.state.role).toBe("seller");
     expect(turns[1]!.state.propertyId).toBeNull();
     expect(turns.map(t => t.text).join(" ").match(/2%/gu)?.length).toBe(1);
@@ -193,17 +204,16 @@ describe("таблица случаев SPEC.md (1–26)", () => {
     const turns = run(ctx(), [tg({ role: "seller" }), tg({ question: "fee" })]);
     expect(turns[1]!.text).toBe("Комиссияи агентӣ 2%.");
     expect(turns[1]!.state.role).toBe("seller");
-    expect(turns[1]!.state.step).toBe("details");
+    expect(turns[1]!.actions).toEqual([]);
   });
 
   it("15. «Я хочу продоват свою квартиру» после «Мефурушам» → роль продавца не теряется, вопроса покупателю нет", () => {
     const turns = run(IG(), [tg({ role: "seller" }), ru({ role: "seller" })]);
     expect(turns.flatMap(t => t.keys)).not.toContain("ask_details_buyer");
     expect(turns[1]!.state.role).toBe("seller");
-    // Тот же продавец, вопрос о деталях ещё не задавали (первым ходом был только вопрос о комиссии) — задаётся продавцу.
-    const start = run(ctx(), [tg({ role: "seller" })])[0]!.state;
-    const fresh = { ...start, asked: { ...start.asked, details: 0 }, step: "start" as const };
-    expect(one(ctx(), ru({ role: "seller" }), fresh).keys).toContain("ask_details_seller");
+    // Продавец известен, вопрос о деталях ещё не задавали — задаётся продавцу (не покупателю).
+    const fresh = { ...initialOperatorState(), role: "seller" as const };
+    expect(one(ctx(), ru({ role: null }), fresh).keys).toEqual(["seller_intro", "lead_and_details_seller"]);
   });
 
   it("16. «Салом» → «Ту <имя> нестӣ?» → «Не, ин агентии {бренд}…» + вопрос о роли другими словами", () => {
@@ -307,29 +317,40 @@ describe("пределы и запреты", () => {
     expect(turns[0]!.keys).toEqual(["greet", "ask_role"]);
     expect(turns[1]!.keys).toEqual(["ask_role"]);
     expect(turns[1]!.text).not.toBe(turns[0]!.text.replace(/^Здравствуйте! /u, ""));
-    expect(turns[2]!.silent).toBe(true);
-    expect(turns[2]!.actions).toEqual([{ type: "call_staff", reason: "role_unclear", manager: false }]);
+    // Людей до заявки не зовём (решение владельца 13.11): только тишина.
+    expect(turns[2]!.silent && turns[2]!.actions.length === 0).toBe(true);
     expect(turns[3]!.silent && turns[3]!.actions.length === 0).toBe(true);
-    // Ясная роль после передачи сотруднику — разговор продолжается.
-    expect(one(IG(), ru({ role: "buyer" }), turns[3]!.state).keys).toEqual(["ask_details_buyer"]);
+    // Ясная роль после тишины — разговор продолжается.
+    expect(one(IG(), ru({ role: "buyer" }), turns[3]!.state).keys).toEqual(["ask_details_buyer_phone"]);
   });
 
   it("вопрос о деталях один раз, только про недостающее, любой ответ принимается", () => {
     const partial = one(ctx(), ru({ role: "buyer", details: { rooms: "2" }, hasDetails: true }));
-    expect(partial.keys).toEqual(["ask_details_missing"]);
-    expect(partial.text).toBe("Напишите, пожалуйста, ещё район и сумму.");
+    expect(partial.keys).toEqual(["lead_and_details_missing"]);
+    expect(partial.text).toBe("Агент позвонит вам на этот номер в ближайшее время, а пока напишите ещё район и сумму.");
+    expect(one(IG(), ru({ role: "buyer", details: { rooms: "2" }, hasDetails: true })).text)
+      .toBe("Напишите, пожалуйста, ещё район и сумму и ваш номер телефона, агент перезвонит.");
     const full = one(ctx(), ru({ role: "buyer", details: { rooms: "2", district: "Сино", budget: "60000$" }, hasDetails: true }));
     expect(full.keys).toEqual(["lead_known_phone"]);
     const turns = run(ctx(), [ru({ role: "buyer" }), ru({ ackOnly: true })]);
-    expect(turns[1]!.keys).toEqual(["lead_known_phone"]);
+    expect(turns[0]!.keys).toEqual(["lead_and_details_buyer"]);
+    expect(turns[1]!.silent).toBe(true);
+    // Клиент, не ответивший на вопрос о деталях, не пропадает: заявка уже заведена первым ходом.
+    expect(leads(turns)).toHaveLength(1);
   });
 
-  it("встречный вопрос на вопрос о деталях: ответ на него, без повтора вопроса и без заявки; следующий ответ — заявка", () => {
-    const turns = run(ctx(), [ru({ role: "seller" }), ru({ question: "area" }), ru({ details: { price: "80000$" }, hasDetails: true })]);
-    expect(turns[1]!.keys).toEqual(["where_work"]);
-    expect(turns[1]!.text).toBe("Работаем по Душанбе.");
-    expect(leads(turns.slice(0, 2))).toHaveLength(0);
-    expect(turns[2]!.keys).toEqual(["lead_known_phone"]);
+  it("без номера: детали и номер одним сообщением (первая просьба), ответ без номера — вторая просьба, потом номер офиса один раз", () => {
+    const turns = run(IG(), [ru({ role: "seller" }), ru({ question: "area" }), ru({ details: { price: "80000$" }, hasDetails: true }),
+      ru({ ackOnly: true }), ru({ phone: "+992935551234" })]);
+    expect(turns[0]!.keys).toEqual(["seller_intro", "ask_details_seller_phone"]);
+    expect(turns[0]!.state.asked.phone).toBe(1);
+    expect(turns[1]!.keys).toEqual(["where_work", "ask_phone"]);
+    expect(turns[1]!.text).toBe("Работаем по Душанбе. Напишите, пожалуйста, ваш номер телефона, агент перезвонит.");
+    expect(turns[2]!.text).toBe("Можете позвонить нам сами: +992 00 000 00 02.");
+    expect(turns[3]!.silent).toBe(true);
+    expect(turns.slice(0, 4).flatMap(t => t.actions)).toEqual([]);
+    expect(turns[4]!.keys).toEqual(["phone_received"]);
+    expect(leads(turns)).toHaveLength(1);
   });
 
   it("WhatsApp (номер известен): ни просьбы номера, ни «удобно?», заявка в тот же ход", () => {
@@ -340,17 +361,17 @@ describe("пределы и запреты", () => {
     expect(t.text).not.toMatch(/удобно|номер телефона/iu);
   });
 
-  it("Instagram: номер просим до maxPhoneAsks (вторая просьба другими словами), дальше тишина и сотрудник", () => {
+  it("Instagram: номер просим до maxPhoneAsks (вторая просьба другими словами), дальше один раз номер офиса и тишина", () => {
     const c = IG({ ad: { topic: "property", propertyId: PROPERTY_ID }, focus: focus164 });
     const turns = run(c, [ru({ adOpener: true }), ru({ question: "other" }), ru({ ackOnly: true }), ru({ ackOnly: true })]);
     expect(turns[0]!.keys).toEqual(["property_price", "ask_phone"]);
     expect(turns[1]!.keys).toEqual(["ask_phone"]);
     expect(turns[1]!.steps[0]!.variant).toBe(1);
-    expect(turns[2]!.silent).toBe(true);
-    expect(turns[2]!.actions).toEqual([{ type: "call_staff", reason: "phone_not_given", manager: false }]);
-    expect(turns[3]!.actions).toEqual([]);
+    expect(turns[2]!.keys).toEqual(["office_phone"]);
+    expect(turns[2]!.actions).toEqual([]);
+    expect(turns[3]!.silent && turns[3]!.actions.length === 0).toBe(true);
     const strict = run(IG({ maxPhoneAsks: 1 }), [ru({ role: "buyer", details: { rooms: "2", district: "Сино", budget: "1" }, hasDetails: true }), ru({ ackOnly: true })]);
-    expect(strict[1]!.actions.map(a => a.type)).toEqual(["call_staff"]);
+    expect(strict[1]!.keys).toEqual(["office_phone"]);
     // Номер после передачи сотруднику — всё равно заявка.
     expect(leads(run(c, [ru({ phone: "+992935551234" })], turns[3]!.state))).toHaveLength(1);
   });
@@ -362,8 +383,8 @@ describe("пределы и запреты", () => {
     expect(buyer.map(t => t.text).join(" ")).not.toMatch(/%|комисси/iu);
     // Продавец с вопросом о районе в первом ходе: комиссия не теряется, звучит при заявке.
     const deferred = run(ctx(), [ru({ role: "seller", question: "area" }), ru({ details: { price: "1" }, hasDetails: true })]);
-    expect(deferred[0]!.keys).toEqual(["where_work", "ask_details_seller"]);
-    expect(deferred[1]!.keys).toEqual(["seller_commission", "lead_known_phone"]);
+    expect(deferred[0]!.keys).toEqual(["where_work", "lead_and_details_seller"]);
+    expect(deferred[1]!.keys).toEqual(["seller_commission", "note_added"]);
   });
 
   it("после принятой заявки — ни одного вопроса; новая деталь — заметка и одно «Передал агенту»", () => {
@@ -390,7 +411,7 @@ describe("пределы и запреты", () => {
     expect(turns[1]!.keys).toEqual(["photo_ack"]);
     expect(turns[1]!.text).toBe("Спасибо, фото и видео агент снимет сам.");
     expect(turns[2]!.silent).toBe(true);
-    expect(turns[2]!.state.step).toBe("details");
+    expect(turns[2]!.state.step).toBe("done");
     const ownPost = one(IG({ focus: focus164 }), u({ hasText: false, attachments: { voice: "none", ownPost: true, foreignPost: false, media: true } }));
     expect(ownPost.keys).toEqual(["property_price", "ask_phone"]);
     expect(ownPost.state.role).toBe("buyer_property");
@@ -410,7 +431,7 @@ describe("пределы и запреты", () => {
   it("аренда и вакансия не заводят заявку; продавец после отказа в аренде — обычный продавец", () => {
     const turns = run(ctx(), [ru({ role: "rent" }), ru({ thanksOnly: true, ackOnly: true }), ru({ role: "seller" })]);
     expect(turns[1]!.keys).toEqual(["welcome"]);
-    expect(turns[2]!.keys).toEqual(["seller_intro", "ask_details_seller"]);
+    expect(turns[2]!.keys).toEqual(["seller_intro", "lead_and_details_seller"]);
     expect(leads(run(ctx(), [ru({ role: "job", phone: "+992935551234" })]))).toHaveLength(0);
   });
 
@@ -472,6 +493,8 @@ describe("сторож-перебор: инварианты на случайн�
         if (before.leadAccepted || before.closed) expect(d.steps.filter(step => ASKS.includes(step.key)), where).toEqual([]);
         if (c.phoneKnown) expect(d.steps.map(step => step.key), where).not.toContain("ask_phone");
         accepted += d.actions.filter(a => a.type === "accept_lead").length;
+        // Людей зовём только при грубости и жалобе (решение владельца 13.11: до заявки никого не беспокоим).
+        for (const a of d.actions) if (a.type === "call_staff") expect(["rude", "complaint"], where).toContain(a.reason);
         expect(d.silent, where).toBe(d.steps.length === 0);
         state = d.state;
       }

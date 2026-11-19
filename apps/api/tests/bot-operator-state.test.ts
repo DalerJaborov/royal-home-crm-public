@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialOperatorState } from "../src/ai/operator/decide.js";
-import { OPERATOR_STATE_TTL_MS, readOperatorState, serializeOperatorState } from "../src/ai/operator/state.js";
+import { OPERATOR_HANDOFF_RESET_MS, OPERATOR_STATE_TTL_MS, readOperatorState, serializeOperatorState } from "../src/ai/operator/state.js";
 import { parseLeadOnlyPending } from "../src/lib/leadOnlyPending.js";
 
 /**
@@ -43,6 +43,22 @@ describe("память оператора: версия 1 → 2", () => {
     expect(stored.updatedAt).toBe(NOW.toISOString());
     expect(readOperatorState(JSON.parse(JSON.stringify(stored)), NOW)).toEqual(state);
     expect(readOperatorState(stored, new Date(NOW.getTime() + OPERATOR_STATE_TTL_MS + 1))).toEqual(initialOperatorState());
+  });
+
+  it("«бот замолчал» не навсегда: через сутки закрытый разговор и тишина снимаются, роль и язык остаются", () => {
+    const state = initialOperatorState();
+    state.role = "seller"; state.language = "tg"; state.closed = true; state.staffCalled = true; state.step = "handoff";
+    state.asked = { role: 2, details: 1, phone: 2 }; state.spoken.office_phone = 1;
+    const stored = serializeOperatorState(state, NOW);
+    expect(readOperatorState(stored, new Date(NOW.getTime() + OPERATOR_HANDOFF_RESET_MS - 60_000))).toMatchObject({ closed: true, step: "handoff" });
+    const later = readOperatorState(stored, new Date(NOW.getTime() + OPERATOR_HANDOFF_RESET_MS + 60_000));
+    expect(later).toMatchObject({ closed: false, staffCalled: false, step: "start", role: "seller", language: "tg",
+      asked: { role: 0, details: 1, phone: 0 } });
+    expect(later.spoken.office_phone).toBeUndefined();
+    // Принятая заявка остаётся принятой: вопросов после неё нет и через сутки.
+    const done = { ...state, leadAccepted: true };
+    expect(readOperatorState(serializeOperatorState(done, NOW), new Date(NOW.getTime() + 2 * OPERATOR_HANDOFF_RESET_MS)))
+      .toMatchObject({ leadAccepted: true, step: "done", closed: false });
   });
 
   it("запись обрезает длинные слова клиента и не пишет номер телефона", () => {

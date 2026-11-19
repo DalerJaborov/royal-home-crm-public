@@ -11,12 +11,17 @@
  */
 import { z } from "zod";
 import { parseLeadOnlyPending } from "../../lib/leadOnlyPending.js";
-import type { TxClient } from "../../db.js";
+import type { prisma, TxClient } from "../../db.js";
 import { emptyOperatorDetails, initialOperatorState } from "./decide.js";
 import { OPERATOR_DETAIL_FIELDS, OPERATOR_PHRASE_KEYS, type OperatorState } from "./types.js";
 
 /** Разговор, где клиент молчал дольше месяца, начинается заново (заявка и карточка живут в CRM, не здесь). */
 export const OPERATOR_STATE_TTL_MS = 30 * 24 * 60 * 60_000;
+/**
+ * Бот замолчал (грубость, жалоба, роль не прояснилась, номер не дали) — не навсегда: через сутки после последнего хода
+ * клиент, вернувшийся с новым вопросом, снова получает ответ (П3 приёмки 19.11). Роль, язык и детали остаются.
+ */
+export const OPERATOR_HANDOFF_RESET_MS = 24 * 60 * 60_000;
 
 const shortText = z.string().trim().max(120).nullable();
 const counter = z.number().int().min(0).max(1000);
@@ -54,8 +59,15 @@ export function readOperatorState(raw: unknown, now: Date = new Date()): Operato
     if (!parsed.success) return initialOperatorState();
     const age = now.getTime() - Date.parse(parsed.data.updatedAt);
     if (!(age >= 0 && age <= OPERATOR_STATE_TTL_MS)) return initialOperatorState();
-    const { updatedAt: _updatedAt, ...state } = parsed.data;
-    return { ...state, details: { ...emptyOperatorDetails(), ...state.details }, spoken: { ...state.spoken } } as OperatorState;
+    const { updatedAt: _updatedAt, ...rest } = parsed.data;
+    const state = { ...rest, details: { ...emptyOperatorDetails(), ...rest.details }, spoken: { ...rest.spoken } } as OperatorState;
+    if ((state.closed || state.step === "handoff") && age > OPERATOR_HANDOFF_RESET_MS) {
+      state.closed = false; state.staffCalled = false;
+      state.step = state.leadAccepted ? "done" : "start";
+      state.asked = { ...state.asked, role: 0, phone: 0 };
+      delete state.spoken.office_phone;
+    }
+    return state;
   }
   const v1 = parseLeadOnlyPending(raw, now);
   if (!v1) return initialOperatorState();
@@ -81,7 +93,35 @@ export function serializeOperatorState(state: OperatorState, now: Date = new Dat
   return stored;
 }
 
+/** В колонке лежит память оператора (версия 2), а не прежняя «о чём просили номер» (версия 1). */
+export function isOperatorStateStored(raw: unknown): boolean {
+  return !!raw && typeof raw === "object" && Reflect.get(raw, "version") === 2;
+}
+
+/** Память после принятой заявки (acceptLead): та же, с отметкой «заявка принята» — вопросов дальше нет (П6 приёмки 19.11). */
+export function operatorStateAfterLead(raw: unknown, now: Date = new Date()): StoredOperatorState | null {
+  if (!isOperatorStateStored(raw)) return null;
+  const state = readOperatorState(raw, now);
+  return serializeOperatorState({ ...state, leadAccepted: true, step: "done" }, now);
+}
+
+/**
+ * Запись внутри транзакции ответа, но за точкой сохранения: сбой памяти откатывает только её, ответ клиенту остаётся
+ * (тот же приём, что прежний applyLeadOnlyPendingIsolatedTx). Возвращает ошибку для журнала или null.
+ */
+export async function saveOperatorStateIsolatedTx(tx: TxClient, conversationId: string, state: OperatorState, now: Date = new Date()): Promise<unknown> {
+  await tx.$executeRaw`SAVEPOINT operator_state`;
+  try {
+    await saveOperatorStateTx(tx, conversationId, state, now);
+    await tx.$executeRaw`RELEASE SAVEPOINT operator_state`;
+    return null;
+  } catch (err) {
+    await tx.$executeRaw`ROLLBACK TO SAVEPOINT operator_state`;
+    return err ?? new Error("operator state write failed");
+  }
+}
+
 /** Записать память в транзакции хода (вместе с ответом). */
-export async function saveOperatorStateTx(tx: TxClient, conversationId: string, state: OperatorState, now: Date = new Date()): Promise<void> {
+export async function saveOperatorStateTx(tx: TxClient | typeof prisma, conversationId: string, state: OperatorState, now: Date = new Date()): Promise<void> {
   await tx.botConversation.updateMany({ where: { id: conversationId }, data: { leadOnlyPending: serializeOperatorState(state, now) as object } });
 }

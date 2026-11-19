@@ -12,7 +12,11 @@ import { foldCustomerText } from "../src/ai/customerAgentRole.js";
 const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
   greet: {}, greet_assalom: {}, ask_role: {}, buyer_free: {}, identity: { brand: "Arvan estate" }, bot_identity: {},
   seller_intro: { percent: 2 }, seller_commission: { percent: 2 }, ask_details_buyer: {}, ask_details_seller: {},
-  ask_details_missing: { missing: ["district", "budget"] }, property_price: { id: 164, price: "520 000 сомони" },
+  ask_details_missing: { missing: ["district", "budget"] },
+  lead_and_details_seller: { when: "завтра с 09:30" }, lead_and_details_buyer: { when: "завтра с 09:30" },
+  lead_and_details_missing: { when: "завтра с 09:30", missing: ["district", "budget"] }, ask_details_seller_phone: {},
+  ask_details_buyer_phone: {}, ask_details_missing_phone: { missing: ["district", "budget"] }, office_phone: { phone: "+992 00 000 00 02" },
+  property_price: { id: 164, price: "520 000 сомони" },
   property_no_price: { id: 164 }, property_sold: { id: 164 }, bargain: {}, lead_known_phone: { when: "завтра с 09:30" },
   lead_callback: { time: "с 11:00 до 14:30" }, lead_text_only: { where: "WHATSAPP" }, ask_phone: {}, phone_received: { when: "в ближайшее время" },
   out_of_area_accepted: {}, callback_noted: { time: "с 11:00 до 14:30" }, text_only_noted: { where: "HERE" }, note_added: {}, welcome: {},
@@ -23,7 +27,9 @@ const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
 const LANGUAGES: readonly OperatorLanguage[] = ["ru", "tg"];
 /** Вопрос («?») — только у вопроса о роли: тогда в ответе из двух шагов вопрос всегда один. */
 const QUESTION_KEYS: ReadonlySet<PhraseKey> = new Set(["ask_role"]);
-const MAX_LENGTH = 140;
+const MAX_LENGTH = 160;
+/** Ключи, где два одинаковых варианта — решение ведущего (19.11: «Здравствуйте!» оба раза), а не забытая правка. */
+const SAME_VARIANTS_OK: ReadonlySet<string> = new Set(["greet/ru"]);
 /** Слова, запрещённые владельцем в таджикских текстах (tajik-phrasebook: do-not-say.md, SKILL.md). */
 const TG_BANNED = /(?:^|[^\p{L}])(?:лутфан|безахмат|мутахассис\p{L}*|муфассал\p{L}*|кулай\p{L}*|хохиш\s+мекунем|ту)(?![\p{L}])/u;
 const RU_BANNED = /(?:^|[^\p{L}])(?:ты|тебе|тебя|уникальн\p{L}*|успейте|лучшие\s+условия|вернусь|через\s+\d+\s+минут\p{L}*|удобно\?)(?![\p{L}])/iu;
@@ -41,7 +47,7 @@ describe("сторож фраз оператора", () => {
       expect(variants, `${key}/${language}`).toBeDefined();
       expect(variants!.length, `${key}/${language}`).toBeGreaterThanOrEqual(2);
       expect(variants!.length, `${key}/${language}`).toBeLessThanOrEqual(3);
-      expect(new Set(variants).size, `${key}/${language}`).toBe(variants!.length);
+      if (!SAME_VARIANTS_OK.has(`${key}/${language}`)) expect(new Set(variants).size, `${key}/${language}`).toBe(variants!.length);
     }
     expect(Object.keys(OPERATOR_PHRASES).sort()).toEqual([...OPERATOR_PHRASE_KEYS].sort());
   });
@@ -55,7 +61,7 @@ describe("сторож фраз оператора", () => {
     }
   });
 
-  it("каждый вариант — одно предложение до 140 знаков, «?» только у вопроса о роли", () => {
+  it("каждый вариант — одно предложение до 160 знаков, «?» только у вопроса о роли", () => {
     for (const { key, language, text } of rendered()) {
       const where = `${key}/${language}: ${text}`;
       expect(text.length, where).toBeLessThanOrEqual(MAX_LENGTH);

@@ -25,7 +25,7 @@ export type OperatorRole = "unknown" | "buyer" | "buyer_property" | "seller" | "
  *  - details — задали (единственный) вопрос о деталях;
  *  - contact — просим номер (Instagram/Facebook/Telegram);
  *  - done    — заявка принята (или карточка уже есть): вопросов больше нет;
- *  - handoff — разговор у сотрудника (роль не прояснилась, номер не дали, грубость, жалоба).
+ *  - handoff — бот замолчал (роль не прояснилась, номер не дали, грубость, жалоба); через сутки тишины снимается (state.ts).
  */
 export type OperatorStep = "start" | "role" | "details" | "contact" | "done" | "handoff";
 
@@ -38,6 +38,8 @@ export type OperatorDetails = Record<OperatorDetailField, string | null>;
 export const OPERATOR_PHRASE_KEYS = [
   "greet", "greet_assalom", "ask_role", "buyer_free", "identity", "bot_identity",
   "seller_intro", "seller_commission", "ask_details_buyer", "ask_details_seller", "ask_details_missing",
+  "lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing",
+  "ask_details_seller_phone", "ask_details_buyer_phone", "ask_details_missing_phone", "office_phone",
   "property_price", "property_no_price", "property_sold", "bargain",
   "lead_known_phone", "lead_callback", "lead_text_only", "ask_phone", "phone_received", "out_of_area_accepted",
   "callback_noted", "text_only_noted", "note_added", "welcome", "where_work", "rent_refusal", "photo_ack",
@@ -78,7 +80,7 @@ export interface OperatorState {
    */
   flags: { bargainAsked: boolean; adPriceAsked: boolean; propertyLineFor: string | null };
   leadAccepted: boolean;
-  /** Сотрудника уже звали (не зовём второй раз). */
+  /** Сотрудника уже звали (грубость, жалоба): не зовём второй раз. */
   staffCalled: boolean;
   /** Разговор закрыт для бота (грубость, жалоба): дальше молчим, ведёт человек. */
   closed: boolean;
@@ -177,6 +179,8 @@ export interface OperatorContext {
   vacancies: { open: readonly RecruitmentPosition[]; contactPhone: string | null };
   /** Имя компании аккаунта (MessengerAccount.brandName или основное), никогда не строка в тексте фразы. */
   brandName: string;
+  /** Телефон офиса для клиентов (lib/publicAgencyContact.ts): один раз, когда номер так и не дали. */
+  officePhone: string;
   sellerCommissionPercent: number;
   /** Сервер знает, что объект разговора вне Душанбе (адрес объекта, гео). */
   outOfArea: boolean;
@@ -198,8 +202,10 @@ export type OperatorAction =
     callbackWhen: string | null;
     textOnly: boolean;
   }
-  | { type: "append_note"; note: string; phone: string | null }
-  | { type: "call_staff"; reason: "role_unclear" | "phone_not_given" | "rude" | "complaint"; manager: boolean };
+  /** `outOfArea` — пометка о том, что объект не в Душанбе (зацепка этапа 1.5). */
+  | { type: "append_note"; note: string; phone: string | null; outOfArea?: true }
+  /** Человека зовём только при грубости и жалобе: до заявки людей не беспокоим (решение владельца 13.11.2026). */
+  | { type: "call_staff"; reason: "rude" | "complaint"; manager: boolean };
 
 export interface OperatorDecision {
   state: OperatorState;

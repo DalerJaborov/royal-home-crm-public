@@ -19,7 +19,7 @@ const MANAGER: RecruitmentPosition = { key: "sales-manager", revision: 1, titleR
   detailsRu: "", detailsTg: "", isOpen: true, keywords: ["менеджер"], postCodes: [] };
 const ctx = (over: Partial<Ctx> = {}): Ctx => ({ channel: "WHATSAPP", phoneKnown: true, leadExists: false, ad: { topic: null, propertyId: null },
   focus: null, callbackWhen: { ru: "в ближайшее время", tg: "ба зудӣ" }, maxPhoneAsks: 2,
-  vacancies: { open: [MANAGER], contactPhone: "+992 00 000 00 01" }, brandName: "Royal Home", sellerCommissionPercent: 2, outOfArea: false, ...over });
+  vacancies: { open: [MANAGER], contactPhone: "+992 00 000 00 01" }, brandName: "Royal Home", officePhone: "+992 00 000 00 02", sellerCommissionPercent: 2, outOfArea: false, ...over });
 const fb = (current: string, attachments?: Parameters<typeof understandFallback>[0]["attachments"]) =>
   understandFallback({ current, ...(attachments ? { attachments } : {}) }, initialOperatorState(), ctx());
 
@@ -165,14 +165,18 @@ describe("understandTurn и одна дверь runOperatorTurn", () => {
     const now = new Date("2026-11-19T10:00:00.000Z");
     const c = ctx({ ad: { topic: "seller", propertyId: null } });
     const first = await runOperatorTurn({ storedState: null, input: { current: "Хочу продать квартиру" }, ctx: c, now, model });
-    expect(first.text).toBe("Поможем продать, комиссия агентства 2%. Напишите одним сообщением: район, сколько комнат, площадь, этаж, ремонт и цену.");
-    expect(first.steps.map(step => step.key)).toEqual(["seller_intro", "ask_details_seller"]);
-    expect(first.facts).toMatchObject({ percent: 2 });
+    expect(first.text).toBe("Поможем продать, комиссия агентства 2%. Агент позвонит вам на этот номер в ближайшее время, " +
+      "а пока напишите одним сообщением: район, комнаты, площадь, этаж, ремонт и цену.");
+    expect(first.steps.map(step => step.key)).toEqual(["seller_intro", "lead_and_details_seller"]);
+    expect(first.facts).toMatchObject({ percent: 2, when: "в ближайшее время" });
+    // П1 приёмки 19.11: номер известен — заявка в этот же ход, клиент без ответа о деталях не пропадает.
+    expect(first.actions.filter(a => a.type === "accept_lead")).toHaveLength(1);
     const second = await runOperatorTurn({ storedState: JSON.parse(JSON.stringify(first.stored)),
       input: { current: "Сино, 3 комнаты, 80 кв, 5 этаж, ремонт, 90 000$", recent: [{ role: "user", text: "Хочу продать квартиру" }, { role: "assistant", text: first.text! }] },
       ctx: c, now, model });
-    expect(second.text).toBe("Спасибо, передал агенту, он позвонит вам на этот номер в ближайшее время.");
-    expect(second.actions.filter(a => a.type === "accept_lead")).toHaveLength(1);
+    expect(second.text).toBe("Передал агенту.");
+    expect(second.actions.filter(a => a.type === "accept_lead")).toHaveLength(0);
+    expect(second.actions[0]).toMatchObject({ type: "append_note" });
     const third = await runOperatorTurn({ storedState: second.stored, input: { current: "ок" }, ctx: c, now, model });
     expect(third.text).toBeNull();
     expect(third.actions).toEqual([]);
