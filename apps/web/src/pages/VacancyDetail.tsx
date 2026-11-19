@@ -26,6 +26,7 @@ import { canDeleteCandidates } from "../lib/vacancyQueue";
 // Карточка кандидата собрана из деталей карточки клиента — те же правила вкладок и шапки.
 import "../theme-client-workspace.css";
 import "../theme-2026-vacancies.css";
+import { RecordsSection } from "../components/look/records/RecordsSection";
 
 type Panel = "resume" | "chat" | "contact" | "files";
 const PANELS: ReadonlyArray<CleanRecordTab<Panel>> = [
@@ -48,6 +49,10 @@ function backPath(state: unknown): string {
  * `.card.clean-client-sections` с вкладками `.clean-record-tabs`.
  */
 export function VacancyDetail() {
+  return <RecordsSection><VacancyDetailScreen /></RecordsSection>;
+}
+
+function VacancyDetailScreen() {
   const id = usableRouteId(useParams().id);
   const location = useLocation();
   const navigate = useNavigate();

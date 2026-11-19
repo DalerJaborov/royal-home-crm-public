@@ -5,6 +5,8 @@ import { api, ApiError } from "../lib/api";
 import { formatMoney } from "../lib/format";
 import { lightboxItemsFromShared, openIndexForCell, SHARE_GALLERY_CELLS } from "../lib/sharedGallery";
 import { PhotoLightbox } from "../components/PhotoLightbox";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RECORDS_SECTION, usePublicRoyalLook } from "../components/look/records/publicLook";
 import {
   PROPERTY_CONDITION_LABELS,
   PROPERTY_TYPE_LABELS,
@@ -67,6 +69,19 @@ interface ShareResponse {
  * объекты ни в каком виде).
  */
 export function PublicPropertyShare() {
+  // «Новый вид» — только по `?look=royal` или выбору сотрудника на этом устройстве (publicLook.ts):
+  // у клиента признака нет, и страница прежняя до пикселя, без единого нового запроса.
+  const royal = usePublicRoyalLook();
+  return (
+    <RoyalSection name={royal ? RECORDS_SECTION : undefined}>
+      <ShareScreen royal={royal} />
+    </RoyalSection>
+  );
+}
+
+function ShareScreen({ royal }: { royal: boolean }) {
+  const root = royal ? "rh2 screens ry-public ry-share" : "rh2 screens";
+  const section = royal ? RECORDS_SECTION : undefined;
   const { token } = useParams<{ token: string }>();
   const [data, setData] = useState<ShareResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +112,7 @@ export function PublicPropertyShare() {
 
   if (loading) {
     return (
-      <div className="rh2 screens">
+      <div className={root} data-ry-section={section}>
         <div className="scr">
           <div className="card">
             <div className="quiet">
@@ -112,7 +127,7 @@ export function PublicPropertyShare() {
 
   if (error || !data) {
     return (
-      <div className="rh2 screens">
+      <div className={root} data-ry-section={section}>
         <div className="scr">
           <div className="card">
             <div className="empty">
@@ -145,7 +160,7 @@ export function PublicPropertyShare() {
     /* Публичная страница живёт вне AppLayout, поэтому область эталона `.rh2`
        и раскладку `.scr` она открывает сама. Ширина ограничена самим `.scr`
        (max-width 1240), внутри — те же карточки, что и в карточке объекта. */
-    <div className="rh2 screens" style={{ minHeight: "100dvh" }}>
+    <div className={root} data-ry-section={section} style={{ minHeight: "100dvh" }}>
       <div className="scr">
         <div className="pg-h">
           <div>

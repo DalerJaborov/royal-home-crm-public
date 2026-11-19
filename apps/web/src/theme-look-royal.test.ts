@@ -838,6 +838,33 @@ ${P} + .rh2 .pill { color: red; }`, "analytics")).toEqual([`${P} + .rh2 .pill`])
     // выключенная кнопка без приглушения перебитым весом
     expect(disabledDimGaps(css.replace(':not(#ry-dim) { opacity: .5; cursor: not-allowed; }', ' { opacity: .5; cursor: not-allowed; }'))).not.toEqual([]);
   });
+  it("знает слой пачки records и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-records.css");
+    expect(lookSectionOf("theme-look-royal-records.css")).toBe("records");
+    const css = readFileSync(new URL("./theme-look-royal-records.css", import.meta.url), "utf8");
+    const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="records"]';
+    // правило без метки (страница по ссылке клиента!) и с чужой меткой
+    expect(unscopedSelectors(`${css}
+:root[data-ui-look="royal"] .rh2 .lgn .pill { color: red; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .or-tile { color: red; }`, "records"))
+      .toEqual([':root[data-ui-look="royal"] .rh2 .lgn .pill', ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .or-tile']);
+    // «Стереть навсегда» (ConfirmDialog danger) синим; «золотая» кнопка входа перекрашена
+    expect(semanticButtonLeaks(`${css}
+${P} .sheet .pill.danger { background: var(--rh-ui-primary); }
+${P} .lgn .pill.gold { background: var(--rh-ui-primary); }`))
+      .toEqual([`${P} .sheet .pill.danger`, `${P} .lgn .pill.gold`]);
+    // выключенная «Получить код» снова горит как рабочая (находка пачки): без приглушения — красный
+    const undimmed = css.replace(/:root\[data-ui-look="royal"\] \[data-ry-section="records"\] :is\(\.pill[^\n]*\n/, "");
+    expect(undimmed).not.toBe(css);
+    expect(disabledDimGaps(undimmed)).not.toEqual([]);
+    // причина удаления в строке корзины обрезана; запас iPhone; сосед метки
+    expect(hiddenTextSelectors(`${css}
+${P} .list > .row > .t > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([`${P} .list > .row > .t > span`]);
+    expect(safeAreaOverrides(`${css}
+${P} .sheet.bottom .sheet-f { padding-bottom: 0; }`)).toEqual([`${P} .sheet.bottom .sheet-f`]);
+    expect(siblingEscapes(`${css}
+${P} ~ .rh2 .pill { color: red; }`, "records")).toEqual([`${P} ~ .rh2 .pill`]);
+  });
   it("«Удалить» кампанию воронки красная по признаку смысла, а не по порядку ссылок (ревью #304)", () => {
     const css = readFileSync(new URL("./theme-look-royal-analytics.css", import.meta.url), "utf8");
     const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="analytics"]';

@@ -4,6 +4,8 @@ import { useAuthStore } from "../store/auth";
 import { restoreLoginSession, type LoginSessionResult } from "../lib/loginSession";
 import { AppSkeleton } from "./AppSkeleton";
 import { Rh2Screen } from "./rh2/Rh2Screen";
+import { RoyalSection } from "./look/clients/RoyalSection";
+import { RECORDS_SECTION, usePublicRoyalLook } from "./look/records/publicLook";
 
 /** Check only the session present on route entry. A new OTP login still owns
  * its passkey-offer step; setting its session must not skip that screen. */
@@ -14,6 +16,8 @@ export function LoginSessionGate({ children }: { children: React.ReactNode }) {
   });
   const [result, setResult] = useState<LoginSessionResult | "restore">(entry);
   const [attempt, setAttempt] = useState(0);
+  // «Новый вид» экрана входа (пачка records): только по `?look=royal` или выбору сотрудника на устройстве.
+  const royal = usePublicRoyalLook();
   useEffect(() => {
     if (entry !== "restore") return;
     let active = true;
@@ -30,15 +34,17 @@ export function LoginSessionGate({ children }: { children: React.ReactNode }) {
   if (result === "restore") return <AppSkeleton />;
   if (result === "signed-in") return <Navigate to="/" replace />;
   if (result === "offline") return (
-    <Rh2Screen>
+    <RoyalSection name={royal ? RECORDS_SECTION : undefined}>
+    <Rh2Screen className={royal ? "ry-login" : undefined}>
       <div className="lgn">
         <section className="lgn-card" aria-labelledby="session-retry-title">
           <h1 id="session-retry-title">Восстанавливаем вход</h1>
           <p className="sub" role="status">Не удалось проверить сохранённый вход. Проверьте соединение и повторите.</p>
-          <button className="pill gold" type="button" onClick={() => setAttempt((n) => n + 1)}>Повторить</button>
+          <button className={royal ? "pill" : "pill gold"} type="button" onClick={() => setAttempt((n) => n + 1)}>Повторить</button>
         </section>
       </div>
     </Rh2Screen>
+    </RoyalSection>
   );
   return <>{children}</>;
 }
