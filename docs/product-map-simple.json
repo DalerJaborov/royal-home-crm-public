@@ -14,12 +14,12 @@
  "totals": {
   "screens": 49,
   "paths": 776,
-  "cron": 141,
+  "cron": 142,
   "jobs": 34,
-  "conditions": 4108,
+  "conditions": 4112,
   "untranslatedUnique": 470,
   "untranslatedTotal": 605,
-  "partialUnique": 1111,
+  "partialUnique": 1112,
   "translatedShare": 85
  },
  "untranslated": [
@@ -64808,6 +64808,67 @@
       {
        "t": "внутри этого шага",
        "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "assistant-group-sweep",
+   "when": "12 * * * *",
+   "label": "assistant-group-sweep",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если выключено: Telegram или есть sweeping",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
        "a": [],
        "c": [
         {

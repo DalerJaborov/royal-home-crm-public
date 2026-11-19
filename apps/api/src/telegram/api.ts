@@ -74,7 +74,9 @@ export interface TelegramApiResponse<T> {
   ok: boolean;
   description?: string;
   error_code?: number;
-  parameters?: { retry_after?: number };
+  /** `migrate_to_chat_id` — ResponseParameters Bot API: «The group has been migrated to a supergroup with
+   *  the specified identifier» (core.telegram.org/bots/api#responseparameters). */
+  parameters?: { retry_after?: number; migrate_to_chat_id?: number };
   result?: T;
 }
 
@@ -109,9 +111,22 @@ export function telegramRetryDelayMs(data: TelegramApiResponse<unknown>, attempt
 }
 
 export class TelegramApiError extends Error {
-  constructor(public readonly errorCode: number | undefined, method: string, description: string) {
+  /** Новый id, если обычную группу превратили в супергруппу (ResponseParameters.migrate_to_chat_id). */
+  public readonly migrateToChatId?: number;
+  constructor(public readonly errorCode: number | undefined, method: string, description: string, parameters?: TelegramApiResponse<unknown>["parameters"]) {
     super(`Telegram API ${method}: ${description}`);
+    if (typeof parameters?.migrate_to_chat_id === "number") this.migrateToChatId = parameters.migrate_to_chat_id;
   }
+}
+
+/**
+ * Куда переехала группа, если отказ Telegram это сообщает; иначе null. Число принимается только как
+ * id супергруппы (отрицательное, префикс -100): по документации оно укладывается в 52 бита, так что
+ * Number его не портит, а чужое значение здесь не нужно никому.
+ */
+export function telegramMigratedChatId(err: unknown): string | null {
+  const id = err instanceof TelegramApiError ? err.migrateToChatId : undefined;
+  return typeof id === "number" && Number.isSafeInteger(id) && String(id).startsWith("-100") ? String(id) : null;
 }
 
 async function call<T>(method: string, body: Record<string, unknown>, timeoutMs = CALL_TIMEOUT_MS, validateResult?: (data: unknown, status: number) => T, beforePost?: () => Promise<void>, singleAttempt = false): Promise<T> {
@@ -144,7 +159,7 @@ async function call<T>(method: string, body: Record<string, unknown>, timeoutMs 
         fix: "Проверьте ключ бота TELEGRAM_BOT_TOKEN на сервере (BotFather → /token).",
       });
     }
-    throw new TelegramApiError(data.error_code, method, data.description ?? "неизвестная ошибка");
+    throw new TelegramApiError(data.error_code, method, data.description ?? "неизвестная ошибка", data.parameters);
   }
 }
 
@@ -632,7 +647,7 @@ async function postMultipartWithRetry(
       await sleep(waitMs);
       continue;
     }
-    if (singleAttempt) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка");
+    if (singleAttempt) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка", data.parameters);
     throw new Error(`Telegram API ${label}: ${data.description ?? "неизвестная ошибка"}`);
   }
 }
@@ -844,6 +859,17 @@ export async function getChatMemberStatus(chatId: string): Promise<TelegramChatM
   const botId = await getBotId();
   if (!botId) throw new Error("не удалось определить id бота (getMe)");
   return call<TelegramChatMemberStatus>("getChatMember", { chat_id: chatId, user_id: botId });
+}
+
+/**
+ * Проба «чат ещё тот же» для сторожа переезда групп (lib/assistantGroupWatchdog.ts). Зовётся ТОЛЬКО когда
+ * getChatMember уже сказал «бота в чате нет» (left/kicked): боту некуда показать индикатор, так что людям
+ * ничего не видно, а Telegram на переехавшую в супергруппу группу отвечает отказом с
+ * parameters.migrate_to_chat_id. В отличие от sendChatAction выше НЕ глотает ошибку: решает вызывающий.
+ * Чьи методы вообще отдают этот параметр, документация не говорит; на проде 20.11.2026 это был sendChatAction.
+ */
+export async function probeChatAction(chatId: string): Promise<void> {
+  await call("sendChatAction", { chat_id: chatId, action: "typing" }, 5_000, undefined, undefined, true);
 }
 
 /** Может ли бот писать в чат — can_post_messages у канала (администратор без
@@ -1062,6 +1088,13 @@ export interface TelegramIncomingMessage extends TelegramMedia {
   contact?: { phone_number: string; first_name?: string; user_id?: number };
   new_chat_members?: { id: number; is_bot: boolean; username?: string }[];
   left_chat_member?: { id: number; is_bot: boolean; username?: string };
+  /** Служебное сообщение «группа стала супергруппой» (старая группа): новый id чата. Приходит один раз,
+   *  повторно Telegram его не доставит. Документация: «The group has been migrated to a supergroup with the
+   *  specified identifier». */
+  migrate_to_chat_id?: number;
+  /** Парное служебное сообщение в НОВОЙ супергруппе: id прежней группы («The supergroup has been migrated
+   *  from a group with the specified identifier»). */
+  migrate_from_chat_id?: number;
   /** true — Telegram сам переслал пост канала в группу-обсуждение (зеркало).
    *  Комментарий приходит ОТДЕЛЬНЫМ сообщением с reply_to_message на это зеркало,
    *  а не на сам пост в канале — у поста и у зеркала разные message_id. */
