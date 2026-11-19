@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, Clock, Film, Image as ImageIcon, Loader2 } from "lucide-react";
+import { WizIcon } from "../look/wizard/WizIcon";
 import type { DraftMediaItem } from "../../lib/draftUploads";
 import { computeSpeedBps, formatSpeedBps, formatUploadSize, type ProgressSample } from "../../lib/uploadFormat";
 
@@ -93,13 +94,13 @@ function Row({ item, speedBps }: { item: DraftMediaItem; speedBps: number | null
         ) : item.status === "ready" ? (
           <Check width={16} height={16} aria-hidden />
         ) : item.status === "queued" ? (
-          <Clock width={16} height={16} aria-hidden />
+          <WizIcon icon={Clock} width={16} height={16} aria-hidden />
         ) : bad ? (
-          <AlertTriangle width={16} height={16} aria-hidden />
+          <WizIcon icon={AlertTriangle} width={16} height={16} aria-hidden />
         ) : item.kind === "video" ? (
-          <Film width={16} height={16} aria-hidden />
+          <WizIcon icon={Film} width={16} height={16} aria-hidden />
         ) : (
-          <ImageIcon width={16} height={16} aria-hidden />
+          <WizIcon icon={ImageIcon} width={16} height={16} aria-hidden />
         )}
       </span>
       <div style={{ minWidth: 0, flex: 1 }}>

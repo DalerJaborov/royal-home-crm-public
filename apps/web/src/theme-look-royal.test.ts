@@ -838,6 +838,35 @@ ${P} + .rh2 .pill { color: red; }`, "analytics")).toEqual([`${P} + .rh2 .pill`])
     // выключенная кнопка без приглушения перебитым весом
     expect(disabledDimGaps(css.replace(':not(#ry-dim) { opacity: .5; cursor: not-allowed; }', ' { opacity: .5; cursor: not-allowed; }'))).not.toEqual([]);
   });
+  it("знает слой мастера и формы объекта (wizard) и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-wizard.css");
+    expect(lookSectionOf("theme-look-royal-wizard.css")).toBe("wizard");
+    const css = readFileSync(new URL("./theme-look-royal-wizard.css", import.meta.url), "utf8");
+    const Z = ':root[data-ui-look="royal"] .rh2[data-ry-section="wizard"]';
+    // правило без метки и с чужой меткой (мастер носит те же .chip/.tile/.ghost, что главная и пульт)
+    expect(unscopedSelectors(`${css}
+:root[data-ui-look="royal"] .rh2 .wiz .chip { color: red; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .wiz .blk { color: red; }`, "wizard"))
+      .toEqual([':root[data-ui-look="royal"] .rh2 .wiz .chip', ':root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .wiz .blk']);
+    // «Удалить черновик?» в окне подтверждения синим; «Осталось: …» (.chip.warn) срочным красным
+    expect(semanticButtonLeaks(`${css}
+${Z} > .scr > .sheet .pill.danger { background: var(--rh-ui-primary); }
+${Z} .sheet-f .pill { background: var(--rh-ui-primary); }`)).toEqual([`${Z} > .scr > .sheet .pill.danger`, `${Z} .sheet-f .pill`]);
+    expect(semanticColorLeaks(`${css}
+${Z} .wiz .chip.warn { background: var(--rh-ui-crit); }`)).toEqual([`${Z} .wiz .chip.warn`]);
+    // «Осталось: фото, район, цена» снова в одну строку с обрезкой
+    expect(hiddenTextSelectors(`${css}
+${Z} .wiz .chip { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([`${Z} .wiz .chip`]);
+    // запас iPhone у шторки и у подвала формы правки, сосед метки
+    expect(safeAreaOverrides(`${css}
+${Z} > .scr > .sheet.bottom .sheet-f { padding-bottom: 0; }`)).toEqual([`${Z} > .scr > .sheet.bottom .sheet-f`]);
+    expect(siblingEscapes(`${css}
+${Z} ~ .rh2 .pill { color: red; }`, "wizard")).toEqual([`${Z} ~ .rh2 .pill`]);
+    // без правила приглушения выключенная «Создать объект» горела бы как доступная
+    const undimmed = css.replace(/:root\[data-ui-look="royal"\] \[data-ry-section="wizard"\] :is\(\.pill[^\n]*\n/, "");
+    expect(undimmed).not.toBe(css);
+    expect(disabledDimGaps(undimmed)).not.toEqual([]);
+  });
   it("«Удалить» кампанию воронки красная по признаку смысла, а не по порядку ссылок (ревью #304)", () => {
     const css = readFileSync(new URL("./theme-look-royal-analytics.css", import.meta.url), "utf8");
     const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="analytics"]';
