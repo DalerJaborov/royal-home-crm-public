@@ -5,7 +5,7 @@
  * оставьте номер», следующим сообщением приходит ОДИН номер. Сам номер темы не несёт, объект
  * этого хода не пришёл, и заявка уходила в общую очередь (а ночью ждала утра) вместо агента
  * объекта. Поэтому в момент просьбы номера оба маршрута бота (ядро — lib/customerLeadOnlyCore.ts,
- * старый путь — messengers/leadOnlyLegacy.ts) записывают сюда сценарий и объект, а ход с номером
+ * старый путь — messengers/conversation.ts) записывали сюда сценарий и объект, а ход с номером
  * читает их отсюда. Одна дверь записи и чтения, колонка BotConversation.leadOnlyPending.
  *
  * Третье ревью 13.11.2026, №1–№2: память — запасной ответ, а не приказ.
@@ -20,11 +20,11 @@
  *    следующий день или после выходных; неделя держала чужой объект слишком долго.
  *
  * Хранится только id объекта и сценарий: ни слов, ни номера клиента.
+ *
+ * С 19.11.2026 (этап 1.2) колонку ведёт оператор приёма заявок (ai/operator/state.ts, версия 2). Отсюда остался только
+ * разбор версии 1: оператор читает старую память без падения и переводит её в свою.
  */
 import { z } from "zod";
-import { Prisma } from "../generated/prisma/client.js";
-import { prisma, type TxClient } from "../db.js";
-import type { LeadOnlyScenario } from "../ai/leadOnlyMode.js";
 
 /** Трое суток (третье ревью 13.11): после этого номер — новый разговор, а не ответ на старую просьбу. */
 export const LEAD_ONLY_PENDING_TTL_MS = 3 * 24 * 60 * 60_000;
@@ -37,64 +37,10 @@ const pendingSchema = z.object({
 }).strict();
 export type LeadOnlyPending = z.infer<typeof pendingSchema>;
 
-export function leadOnlyPendingOf(scenario: LeadOnlyScenario, propertyId: string | null, now: Date = new Date()): LeadOnlyPending {
-  // Объект храним только для разговора о нём: покупатель «ищу в Сино» не должен уехать агенту старого объекта.
-  return { version: 1, scenario, propertyId: scenario === "property" || scenario === "hot" ? propertyId : null, askedAt: now.toISOString() };
-}
-
-/** Разбор сохранённого: битое или просроченное — как будто ничего не просили. */
+/** Разбор сохранённого: битое, чужое (версия 2 оператора) или просроченное — как будто ничего не просили. */
 export function parseLeadOnlyPending(raw: unknown, now: Date = new Date()): LeadOnlyPending | null {
   const parsed = pendingSchema.safeParse(raw);
   if (!parsed.success) return null;
   const age = now.getTime() - Date.parse(parsed.data.askedAt);
   return age >= 0 && age <= LEAD_ONLY_PENDING_TTL_MS ? parsed.data : null;
-}
-
-/** Память из строки диалога: у диалога с карточкой её нет (номер у агента уже есть, просить было нечего). */
-export function leadOnlyPendingOfRow(row: { clientId: string | null; leadOnlyPending: unknown } | null | undefined,
-  now: Date = new Date()): LeadOnlyPending | null {
-  return row && !row.clientId ? parseLeadOnlyPending(row.leadOnlyPending, now) : null;
-}
-
-/** Записать, о чём попросили номер. `db` — транзакция хода (ядро и старый путь пишут вместе с ответом). */
-export async function rememberLeadOnlyAsk(db: TxClient | typeof prisma, conversationId: string, pending: LeadOnlyPending): Promise<void> {
-  await db.botConversation.updateMany({ where: { id: conversationId }, data: { leadOnlyPending: pending } });
-}
-
-/** Стереть память: заявка оформлена или тема сменилась. Пустая колонка не трогается (нет лишней записи). */
-export async function forgetLeadOnlyAsk(db: TxClient | typeof prisma, conversationId: string): Promise<void> {
-  await db.botConversation.updateMany({ where: { id: conversationId, leadOnlyPending: { not: Prisma.DbNull } },
-    data: { leadOnlyPending: Prisma.DbNull } });
-}
-
-/** Что сделать с памятью в конце хода режима: записать новую просьбу, стереть или не трогать. */
-export async function applyLeadOnlyPending(db: TxClient | typeof prisma, conversationId: string,
-  plan: { remember: LeadOnlyPending | null; forget?: boolean }): Promise<void> {
-  if (plan.remember) await rememberLeadOnlyAsk(db, conversationId, plan.remember);
-  else if (plan.forget) await forgetLeadOnlyAsk(db, conversationId);
-}
-
-/**
- * То же внутри транзакции ответа, но за точкой сохранения: сбой записи памяти откатывает только её, ответ бота остаётся
- * (как в старом пути — messengers/appendMessages.ts, пятое ревью 13.11, №5). Возвращает ошибку для журнала или null.
- * Без точки сохранения ошибка Postgres обрывает всю транзакцию, и клиент остаётся без ответа.
- */
-export async function applyLeadOnlyPendingIsolatedTx(tx: TxClient, conversationId: string,
-  plan: { remember: LeadOnlyPending | null; forget?: boolean }): Promise<unknown> {
-  if (!plan.remember && !plan.forget) return null;
-  await tx.$executeRaw`SAVEPOINT lead_only_pending`;
-  try {
-    await applyLeadOnlyPending(tx, conversationId, plan);
-    await tx.$executeRaw`RELEASE SAVEPOINT lead_only_pending`;
-    return null;
-  } catch (err) {
-    await tx.$executeRaw`ROLLBACK TO SAVEPOINT lead_only_pending`;
-    return err ?? new Error("lead-only pending write failed");
-  }
-}
-
-export async function readLeadOnlyPending(conversationId: string, now: Date = new Date()): Promise<LeadOnlyPending | null> {
-  const row = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { clientId: true, leadOnlyPending: true } })
-    .catch(() => null);
-  return leadOnlyPendingOfRow(row, now);
 }

@@ -1,3 +1,4 @@
+import { MarketingBrandMark } from "../look/marketing/MarketingSection";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { dushanbeLocalToIso, isoToDushanbeLocal } from "@royal-home/shared";
@@ -183,6 +184,7 @@ export function FreeScheduleRow({ item }: { item: PublishScheduleFreeItem }) {
           <span className="chip">Промо</span>
           {(item.channels.length > 0 ? item.channels : ["—"]).map((c) => (
             <span className="chip" key={c}>
+              {c !== "—" && <MarketingBrandMark channel={c} />}
               {c === "—" ? "площадок нет" : channelMeta(c).label}
             </span>
           ))}
@@ -262,6 +264,7 @@ export function ScheduleRow({ item, autoPublishEnabled }: { item: PublishSchedul
         <span className="chips">
           {(item.channels.length > 0 ? item.channels : ["—"]).map((c) => (
             <span className="chip" key={c}>
+              {c !== "—" && <MarketingBrandMark channel={c} />}
               {c === "—" ? "площадок нет" : channelMeta(c).label}
             </span>
           ))}

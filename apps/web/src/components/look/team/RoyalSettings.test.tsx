@@ -3,7 +3,7 @@ import { cleanup, render, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SETTINGS_TABS } from "../../../lib/settingsTabs";
-import { CLEAN_SETTINGS_GROUPS, cleanSettingsTasks } from "../../../lib/cleanSettingsTasks";
+import { CLEAN_SETTINGS_GROUPS, cleanSettingsGroupSub, cleanSettingsTasks } from "../../../lib/cleanSettingsTasks";
 
 // Формы внутри группы (запросы, права, сохранение) этот тест не проверяет — только навигацию.
 vi.mock("../../settings/SettingsTabContent", () => ({ CleanSettingsTaskContent: () => null }));
@@ -28,7 +28,8 @@ describe("RoyalSettings: короткая подпись группы и пол�
     const nav = container.querySelector<HTMLElement>('nav[aria-label="Группы настроек"]')!;
     const row = [...nav.querySelectorAll<HTMLAnchorElement>("a.ry-row")].find((a) => a.getAttribute("href")?.includes(`tab=${id}`))!;
     const sub = row.querySelector(".ry-row-sub")!.textContent!;
-    expect(sub).toBe(CLEAN_SETTINGS_GROUPS[id].shortLabel! + (CLEAN_SETTINGS_GROUPS[id].directorExtra ?? ""));
+    expect(sub).toBe(cleanSettingsGroupSub(id, "DIRECTOR"));
+    expect(sub.startsWith(CLEAN_SETTINGS_GROUPS[id].shortLabel!)).toBe(true);
     expect(sub.length).toBeLessThanOrEqual(40);
     expect(sub).not.toContain(" · ");
 
@@ -45,6 +46,6 @@ describe("RoyalSettings: короткая подпись группы и пол�
   it("в подписи упомянуто пропущенное по смыслу: реклама, обучение, внедрение", () => {
     expect(CLEAN_SETTINGS_GROUPS.channels.shortLabel).toMatch(/реклам/i);
     expect(CLEAN_SETTINGS_GROUPS.bot.shortLabel).toMatch(/обучени/i);
-    expect(CLEAN_SETTINGS_GROUPS.bot.shortLabel).toMatch(/внедрени/i);
+    expect(cleanSettingsGroupSub("bot", "DIRECTOR")).toMatch(/внедрени/i);
   });
 });

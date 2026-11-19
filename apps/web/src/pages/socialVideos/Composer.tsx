@@ -1,3 +1,4 @@
+import { useMarketingSectionMark } from "../../components/look/marketing/MarketingSection";
 import { toast } from "../../store/toast";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, CalendarClock, Image as ImageIcon, Share2, Film, PenLine, RefreshCw } from "lucide-react";
@@ -57,7 +58,9 @@ import {
   liveByChannel,
   mediaSrc,
   mergeFacts,
+  slotTakenOf,
   titleFromFileName,
+  type SlotTaken,
 } from "./helpers";
 
 /**
@@ -128,6 +131,7 @@ function Step({
 }
 
 export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKind = "VIDEO" }: ComposerProps) {
+  const section = useMarketingSectionMark();
   const [draftId, setDraftId] = useState<string | null>(editId);
   // Ролик или фото-пост (16.11.2026). У существующего черновика вид берётся с сервера и не меняется.
   const [kindChoice, setKindChoice] = useState<SocialPostMediaKind>(initialKind);
@@ -166,6 +170,8 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
   const [busy, setBusy] = useState<"saving" | "publishing" | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [confirmPublish, setConfirmPublish] = useState(false);
+  /** Выбранное время занято другой публикацией: сервер предложил ближайшее свободное (человек решает сам). */
+  const [slotTaken, setSlotTaken] = useState<SlotTaken | null>(null);
   const [replaceRequest, setReplaceRequest] = useState<{ file: File | null; facts: SocialVideoFacts | null } | null>(null);
 
   const { mutateAsync: createAsync } = useCreateSocialVideo();
@@ -450,10 +456,13 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
     }
   }
 
-  const doPublish = async () => {
+  const doPublish = async (opts: { acceptSlotConflict?: boolean; at?: string } = {}) => {
     setConfirmPublish(false);
+    setSlotTaken(null);
+    const at = opts.at ?? scheduledAt;
+    if (opts.at) setScheduledAt(opts.at);
     if (!draftId) return;
-    if (mode === "SCHEDULE" && scheduledAt && Date.parse(scheduledAt) < earliestScheduleMs()) {
+    if (mode === "SCHEDULE" && at && Date.parse(at) < earliestScheduleMs()) {
       setActionError(`Время уже слишком близко: выберите не раньше чем через ${SOCIAL_VIDEO_MIN_SCHEDULE_LEAD_MINUTES} мин.`);
       return;
     }
@@ -464,12 +473,15 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
       const item = await publishAsync({
         id: draftId,
         mode,
-        scheduledAt: mode === "SCHEDULE" ? (scheduledAt ?? undefined) : undefined,
+        scheduledAt: mode === "SCHEDULE" ? (at ?? undefined) : undefined,
         destinations,
+        ...(opts.acceptSlotConflict ? { acceptSlotConflict: true } : {}),
       });
       onPublished(item.id);
     } catch (err) {
-      setActionError(errorText(err, "Не удалось отправить ролик на публикацию"));
+      const taken = slotTakenOf(err);
+      if (taken) setSlotTaken(taken);
+      else setActionError(errorText(err, "Не удалось отправить ролик на публикацию"));
     } finally {
       setBusy(null);
     }
@@ -507,7 +519,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
   const uploading = progress !== null;
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -750,6 +762,26 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
               </div>
             ))}
           </div>
+        </ConfirmDialog>
+      )}
+
+      {slotTaken && (
+        <ConfirmDialog
+          danger={false}
+          title="В это время уже выходит другая публикация"
+          description={slotTaken.message}
+          confirmLabel={`Выйти в ${exactDateTime(slotTaken.suggestedAt)}`}
+          cancelLabel="Выбрать другое время"
+          onConfirm={() => void doPublish({ at: slotTaken.suggestedAt })}
+          onCancel={() => setSlotTaken(null)}
+        >
+          <button
+            className="pill ghost min-h-12! text-base!"
+            type="button"
+            onClick={() => void doPublish({ acceptSlotConflict: true })}
+          >
+            Оставить моё время{scheduledAt ? `: ${exactDateTime(scheduledAt)}` : ""}
+          </button>
         </ConfirmDialog>
       )}
 

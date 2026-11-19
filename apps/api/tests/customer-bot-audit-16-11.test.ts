@@ -68,10 +68,10 @@ describe("приветствие: «Ваалайкум ассалом!» на «
   });
 });
 
-describe("7. зона: Душанбе и район Рудаки", () => {
+describe("7. зона: клиенту только Душанбе", () => {
   it.each([["ru", "В каком городе вы работаете?"], ["tg", "Шумо дар кадом шаҳр кор мекунед?"]] as const)("%s", (language, input) => {
     const text = render(input, { language, evidence: [{ ref: "e0", value: policy("service_scope") }], decision: { refs: ["e0"] } })!;
-    expect(text).toMatch(language === "tg" ? /Душанбе ва ноҳияи Рӯдакӣ/u : /Душанбе и районе Рудаки/u);
+    expect(text).toMatch(language === "tg" ? /дар Душанбе/u : /в Душанбе\./u);
     expect(text).not.toMatch(/амвол|в городе Душанбе\./u);
   });
 });

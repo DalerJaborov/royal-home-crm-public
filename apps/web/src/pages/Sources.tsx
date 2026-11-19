@@ -23,6 +23,8 @@ import { Rh2Chart } from "../components/rh2/Rh2Chart";
 import { Rh2Heatmap } from "../components/rh2/Rh2Heatmap";
 import { Rh2ChannelActivity } from "../components/rh2/Rh2ChannelActivity";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { MoneyTabs } from "../components/SectionTabs";
 import { scrollableRegion } from "../lib/a11y";
 import { StatTile } from "../components/ui/StatTile";
@@ -143,9 +145,13 @@ function leadHoursText(n: number): string {
 
 export function Sources() {
   const can = useCan();
+  // «Новый вид» (пачка analytics): метка раздела; без признака — прежнее дерево и разметка.
+  const royal = useRoyalLook();
+  const section = royal ? "analytics" : undefined;
 
   if (!can("reports.view")) {
     return (
+      <RoyalSection name={section}>
       <Rh2Screen>
           <div className="pg-h">
             <div>
@@ -154,10 +160,11 @@ export function Sources() {
             </div>
           </div>
       </Rh2Screen>
+      </RoyalSection>
     );
   }
 
-  return <SourcesScreen />;
+  return <RoyalSection name={section}><SourcesScreen /></RoyalSection>;
 }
 
 function SourcesScreen() {

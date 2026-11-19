@@ -1,3 +1,4 @@
+import { MarketingBrandMark } from "../look/marketing/MarketingSection";
 import { CalendarClock, Eye, Heart, Radio, Send, TriangleAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
@@ -254,6 +255,7 @@ function PlatformsList({ platforms }: { platforms: PostStatsPlatform[] }) {
         if (!p || !p.connected) {
           return (
             <div className="row" key={channel}>
+              <MarketingBrandMark channel={channel} size={36} />
               <div className="t">
                 <b>{label}</b>
                 <span>не подключена — Маркетинг → Каналы</span>
@@ -265,6 +267,7 @@ function PlatformsList({ platforms }: { platforms: PostStatsPlatform[] }) {
         if (!p.available) {
           return (
             <div className="row" key={channel}>
+              <MarketingBrandMark channel={channel} size={36} />
               <div className="t">
                 <b>{label}</b>
                 <span>{p.reason ?? "цифры пока не отдаёт"}</span>
@@ -275,6 +278,7 @@ function PlatformsList({ platforms }: { platforms: PostStatsPlatform[] }) {
         }
         return (
           <div className="row" key={channel}>
+            <MarketingBrandMark channel={channel} size={36} />
             <div className="t">
               <b>{label}</b>
               <span>
@@ -302,10 +306,12 @@ function ChannelChips({ stats }: { stats: PostStatsItem["stats"] }) {
       {stats.map((s) =>
         s.url ? (
           <a className="chip" key={s.channel} href={s.url} target="_blank" rel="noreferrer">
+            <MarketingBrandMark channel={s.channel} />
             {channelMeta(s.channel).label} {s.views !== null ? num(s.views) : "—"}
           </a>
         ) : (
           <span className="chip" key={s.channel}>
+            <MarketingBrandMark channel={s.channel} />
             {channelMeta(s.channel).label} {s.views !== null ? num(s.views) : "—"}
           </span>
         )

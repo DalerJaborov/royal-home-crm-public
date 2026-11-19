@@ -14,7 +14,7 @@ vi.mock("react", async importOriginal => {
     return original.useState(override);
   }) as typeof original.useState };
 });
-vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => state.clean }));
+vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => state.clean, useCleanShellSelection: () => ({ clean: state.clean, look: undefined }) }));
 vi.mock("../lib/permissions", () => ({ useCan: () => () => true }));
 vi.mock("../components/SectionTabs", () => ({ MoneyTabs: () => null }));
 vi.mock("../components/ResponseSpeedSection", () => ({ ResponseSpeedSection: () => null }));
