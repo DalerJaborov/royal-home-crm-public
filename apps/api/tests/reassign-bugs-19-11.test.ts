@@ -238,6 +238,40 @@ describe("№3 intake меняет владельца только через ch
     });
     expect(read?.read).toBe(true);
   });
+
+  // Ревью 19.11.2026: дверь снимает карточку с прежнего агента, её спутники гасят его
+  // уведомления по клиенту, а пуш «вернуть карточку себе?» адресован ему же. Пуш уходил
+  // сразу после транзакции — наперегонки со спутниками, и предложение могло погаснуть.
+  it("возврат из Корзины с предложением прежнему агенту: пуш-предложение уходит после спутников двери", async () => {
+    const formerId = await makeAgent("Прежний агент с предложением", "AGENT");
+    const c = await makeClient({ assignedAgentId: formerId, lastAgentId: formerId, acceptedAt: new Date(), deletedAt: new Date() });
+    await prisma.interaction.create({
+      data: { clientId: c.id, agentId: formerId, type: "CALL", recordingDurationSec: 60, notes: "Звонок" },
+    });
+    const stale = await leadNotification(formerId, c);
+    const push = vi.mocked((await import("../src/push.js")).sendPushToAgent);
+    let staleReadWhenOfferSent: boolean | null = null;
+    push.mockImplementation(async (_agentId, payload) => {
+      if (payload.tag === `reactivation-offer-${c.id}`) {
+        staleReadWhenOfferSent = (await prisma.notification.findUniqueOrThrow({ where: { id: stale.id } })).read;
+      }
+      return 1;
+    });
+    try {
+      await createLeadFromChannel({ fullName: c.fullName, phone: c.phone, source: "WHATSAPP", kind: "BUYER" });
+      const after = await prisma.client.findUniqueOrThrow({ where: { id: c.id } });
+      // Условие самого случая: карточка вернулась без владельца, с предложением прежнему агенту.
+      expect(after.deletedAt).toBeNull();
+      expect(after.assignedAgentId).toBeNull();
+      expect(after.reactivationOfferedToAgentId).toBe(formerId);
+      await waitFor(async () => (staleReadWhenOfferSent === null ? null : true));
+      // К моменту пуша-предложения спутники двери уже отработали: старое уведомление погашено,
+      // значит новое предложение ляжет ПОСЛЕ гашения и останется непрочитанным.
+      expect(staleReadWhenOfferSent).toBe(true);
+    } finally {
+      push.mockImplementation(async () => 1);
+    }
+  });
 });
 
 describe("№4 спутники смены владельца — только после коммита чужой транзакции", () => {

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4126,
+  "forks": 4122,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -45071,15 +45071,15 @@
    "tree": [
     {
      "k": "do",
-     "t": "const transfers = await prisma.interaction.findMany({ where: { ...transferEventsWhere(), createdAt: { gte: si…",
+     "t": "const changes = await prisma.auditLog.findMany({ where: { action: \"CLIENT_AGENT_CHANGE\", entityType: \"Client\"…",
      "a": [
-      "читает в базе: interaction"
+      "читает в базе: auditLog"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "transfers.length === 0",
+     "t": "changes.length === 0",
      "a": [],
      "c": [
       {
@@ -45094,57 +45094,20 @@
     },
     {
      "k": "do",
-     "t": "const history = await prisma.interaction.findMany({ where: { clientId: { in: clientIds } }, orderBy: { create…",
+     "t": "const liveClients = await prisma.client.findMany({ where: { id: { in: clientIds }, deletedAt: null }, select:…",
      "a": [
-      "читает в базе: interaction"
+      "читает в базе: client"
      ],
      "c": []
     },
     {
      "k": "loop",
-     "t": "для каждого: const row of history",
+     "t": "для каждого: const change of changes",
      "a": [],
      "c": [
       {
        "k": "if",
-       "t": "arr",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "arr.push(row);",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "else",
-       "t": "иначе",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "byClient.set(row.clientId, [row]);",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const t of transfers",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "!t.agentId",
+       "t": "!change.entityId || !liveClientIds.has(change.entityId)",
        "a": [],
        "c": [
         {
@@ -45158,60 +45121,8 @@
        ]
       },
       {
-       "k": "loop",
-       "t": "для каждого: const row of list",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "row.id === t.id",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "break;",
-           "a": [
-            "прекращает перебор"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "row.createdAt.getTime() >= t.createdAt.getTime()",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "break;",
-           "a": [
-            "прекращает перебор"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "row.agentId",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "prevAgentId = row.agentId;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
        "k": "if",
-       "t": "!prevAgentId || prevAgentId === t.agentId",
+       "t": "!fromId || !toId || fromId === toId",
        "a": [],
        "c": [
         {
@@ -45246,7 +45157,7 @@
        "c": [
         {
          "k": "do",
-         "t": "pairCounts.set(key, { fromId: prevAgentId, toId: t.agentId, count: 1 });",
+         "t": "pairCounts.set(key, { fromId, toId, count: 1 });",
          "a": [
           "дословно из кода"
          ],

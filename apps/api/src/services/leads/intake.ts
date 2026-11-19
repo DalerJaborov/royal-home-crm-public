@@ -23,6 +23,7 @@ import { assignAgentForLead, recordAssignReason, recordAssignReasonTx, type Lead
 import { INTENT_UNKNOWN_NOTE } from "./intentUnknown.js";
 import { findStaffPhone, staffPhoneError, loadStaffPhoneChecker, StaffPhoneLeadError } from "../../lib/staffPhoneGuard.js";
 import { logSystemError } from "../../lib/systemError.js";
+import { openScope } from "../../lib/transactionScope.js";
 import { canAutomationChangeKind } from "../../lib/kindChangePolicy.js";
 import { returnAcceptDueFromNow } from "../../lib/workingDue.js";
 import { customerIntakeProgressSchema } from "../../lib/customerIntakeContext.js";
@@ -619,6 +620,16 @@ async function resumeExistingChannelLeadInner(
     // Владелец меняется только через changeClientAgent (ниже в той же транзакции) —
     // из данных типа его убираем, сам тип и остальные поля пишутся как раньше.
     const { assignedAgentId: _kindAgentId, ...revivedKindData } = kindChange.data;
+    /**
+     * ПРЕДЛОЖЕНИЕ ПРЕЖНЕМУ АГЕНТУ — ПОСЛЕ СПУТНИКОВ ДВЕРИ (ревью 19.11.2026).
+     * Дверь снимает карточку с прежнего агента (А → никто), и её спутники после
+     * фиксации гасят уведомления А по этому клиенту. Пуш «вернуть карточку себе?»
+     * адресован тому же А и уходил сразу после транзакции — наперегонки со
+     * спутниками: свежее предложение могло оказаться погашенным «клиент снят с
+     * агента». Поэтому пуш встаёт в ту же очередь `afterCommit` ПОСЛЕ двери —
+     * она идёт по порядку. Области нет (не должно быть) — шлём, как раньше.
+     */
+    let offerPushQueued = false;
     const revived = await prisma.$transaction(async (tx) => {
       const restored = await tx.client.update({
         where: { id: existing.id },
@@ -708,6 +719,13 @@ async function resumeExistingChannelLeadInner(
         });
         if (!changed.ok) throw new ClientOwnerRaceError(changed.reason);
       }
+      if (!assignedAgentId && offerAgentId) {
+        const scope = openScope();
+        if (scope) {
+          scope.afterCommit.push(() => sendReactivationOfferPush(offerAgentId, restored));
+          offerPushQueued = true;
+        }
+      }
       const updated = { ...restored, assignedAgentId };
       if (assignedAgentId) {
         const base = "Клиент из Корзины снова обратился — карточка восстановлена автоматически";
@@ -753,13 +771,8 @@ async function resumeExistingChannelLeadInner(
         url: `/clients/${revived.shortId}`,
         tag: `lead-${revived.id}`,
       }).catch((err) => console.error("[push] восстановление клиента:", err));
-    } else if (offerAgentId) {
-      sendPushToAgent(offerAgentId, {
-        title: "🔔 Прежний клиент снова написал",
-        body: `${revived.fullName} — вернуть карточку себе?`,
-        url: `/clients/${revived.shortId}`,
-        tag: `reactivation-offer-${revived.id}`,
-      }).catch((err) => console.error("[push] предложение реактивации:", err));
+    } else if (offerAgentId && !offerPushQueued) {
+      void sendReactivationOfferPush(offerAgentId, revived);
     }
     return { clientId: revived.id, created: false };
   }
@@ -1895,4 +1908,17 @@ export function leadGist(notes: string | null | undefined): string {
   const flat = (notes ?? "").replace(/\s*\n+\s*/g, "; ").replace(/\s{2,}/g, " ").trim();
   if (!flat) return "";
   return `: ${flat.length > 90 ? `${flat.slice(0, 89).trimEnd()}…` : flat}`;
+}
+
+/** Пуш «прежний клиент снова написал — вернуть карточку себе?» (возврат из Корзины). */
+async function sendReactivationOfferPush(
+  agentId: string,
+  client: { id: string; fullName: string; shortId: number }
+): Promise<void> {
+  await sendPushToAgent(agentId, {
+    title: "🔔 Прежний клиент снова написал",
+    body: `${client.fullName} — вернуть карточку себе?`,
+    url: `/clients/${client.shortId}`,
+    tag: `reactivation-offer-${client.id}`,
+  }).catch((err) => console.error("[push] предложение реактивации:", err));
 }

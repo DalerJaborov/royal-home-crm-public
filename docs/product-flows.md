@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4126**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2476**; вместе с задачами по расписанию и фоновыми заданиями — **4122**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10166,42 +10166,25 @@
 
 `apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
 
-- const transfers = await prisma.interaction.findMany({ where: { ...transferEventsWhere(), createdAt: { gte: si…
-  · читает в базе: interaction
-- если transfers.length === 0
+- const changes = await prisma.auditLog.findMany({ where: { action: "CLIENT_AGENT_CHANGE", entityType: "Client"…
+  · читает в базе: auditLog
+- если changes.length === 0
   - return res.json({ pairs: [], windowDays: TRANSFER_PAIRS_WINDOW_DAYS, frequentThreshold: TRANSFER_PAIRS_FREQUE…
     · ответ 200
-- const history = await prisma.interaction.findMany({ where: { clientId: { in: clientIds } }, orderBy: { create…
-  · читает в базе: interaction
-- для каждого: const row of history
-  - если arr
-    - arr.push(row);
-      · дословно из кода
-  - иначе
-    - byClient.set(row.clientId, [row]);
-      · дословно из кода
-- для каждого: const t of transfers
-  - если !t.agentId
+- const liveClients = await prisma.client.findMany({ where: { id: { in: clientIds }, deletedAt: null }, select:…
+  · читает в базе: client
+- для каждого: const change of changes
+  - если !change.entityId || !liveClientIds.has(change.entityId)
     - continue;
       · переходит к следующему
-  - для каждого: const row of list
-    - если row.id === t.id
-      - break;
-        · прекращает перебор
-    - если row.createdAt.getTime() >= t.createdAt.getTime()
-      - break;
-        · прекращает перебор
-    - если row.agentId
-      - prevAgentId = row.agentId;
-        · дословно из кода
-  - если !prevAgentId || prevAgentId === t.agentId
+  - если !fromId || !toId || fromId === toId
     - continue;
       · переходит к следующему
   - если existing
     - existing.count++;
       · дословно из кода
   - иначе
-    - pairCounts.set(key, { fromId: prevAgentId, toId: t.agentId, count: 1 });
+    - pairCounts.set(key, { fromId, toId, count: 1 });
       · дословно из кода
 - для каждого: const p of pairCounts.values()
   - involvedAgentIds.add(p.fromId);
