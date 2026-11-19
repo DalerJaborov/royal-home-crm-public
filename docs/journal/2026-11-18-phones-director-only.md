@@ -54,7 +54,7 @@
   ни одного номера, хотя всё своё; директор видит номера целиком. Проверен поломкой:
   вернул «свой объект видит номер» в GET /properties/:id — сторож покраснел (2 теста),
   откатил. Он же нашёл утечку заметки сделки в карточке клиента, закрыта.
-- Обновлены тесты старого правила: `owner-contact-guard`, `property-card-seller-client`,
+- Обновлены тесты старого правила: `owner-contact-guard`, `property-card-seller-client`, `property-history` (номер меняет и видит в истории только директор), `ai-assistant-read-tools`,
   `market-own-match`; веб — `PropertyPeople.test.tsx` (маска + кнопка звонка).
 
 ## Что осталось
