@@ -11,6 +11,8 @@ import {
   weekChartSummary,
 } from "../lib/ownerReportView";
 import "../owner-report.css";
+import { RoyalSection, useRoyalSectionName } from "../components/look/clients/RoyalSection";
+import { RECORDS_SECTION, usePublicLookRoot } from "../components/look/records/publicLook";
 
 type LoadState =
   | { kind: "loading" }
@@ -41,6 +43,17 @@ type PeriodKey = (typeof PERIODS)[number]["key"];
  * заголовок X-Robots-Tag шлёт и сам сервер).
  */
 export function PublicOwnerReport() {
+  // «Новый вид» — только по `?look=royal` или выбору сотрудника на этом устройстве (publicLook.ts):
+  // владелец квартиры признака не имеет, и отчёт прежний до пикселя, без единого нового запроса.
+  const royal = usePublicLookRoot();
+  return (
+    <RoyalSection name={royal ? RECORDS_SECTION : undefined}>
+      <OwnerReportScreen />
+    </RoyalSection>
+  );
+}
+
+function OwnerReportScreen() {
   const { token } = useParams<{ token: string }>();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [period, setPeriod] = useState<PeriodKey>("all");
@@ -146,8 +159,9 @@ export function PublicOwnerReport() {
 
 /** Область эталона `.rh2` и раскладка открываются самой страницей: она вне AppLayout. */
 function Shell({ children }: { children: React.ReactNode }) {
+  const section = useRoyalSectionName() === RECORDS_SECTION ? RECORDS_SECTION : undefined;
   return (
-    <div className="rh2 screens or-page">
+    <div className={section ? "rh2 screens or-page ry-public ry-owner" : "rh2 screens or-page"} data-ry-section={section}>
       <main className="scr">
         <div className="or-wrap">{children}</div>
       </main>

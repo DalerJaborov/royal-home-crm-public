@@ -33,6 +33,9 @@ const DATA: FunctionStatusResponse = {
 
 let role = "DIRECTOR";
 const enabledSeen: boolean[] = [];
+// Признак «Нового вида» читает /ui-shell через react-query; здесь проверяется прежний вид
+// (новый — components/look/admin/AdminScreens.test.tsx).
+vi.mock("../../../hooks/useRoyalLook", () => ({ useRoyalLook: () => false }));
 vi.mock("../../../store/auth", () => ({ useAuthStore: (sel: (s: { agent: { role: string } }) => unknown) => sel({ agent: { role } }) }));
 vi.mock("../../../hooks/useFunctionStatus", () => ({
   useFunctionStatus: (enabled: boolean) => {

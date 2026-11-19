@@ -26,6 +26,7 @@ import { CANDIDATE_QUEUE_STAGES, candidateQueueCount, candidateStageFilters, can
 import { canDeleteCandidates, mergeQueuePages, positionChips, selectedItems, toggleAllLoaded, toggleSelected, VACANCY_PRIORITY_CHIPS, VACANCY_QUEUE_PAGE } from "../lib/vacancyQueue";
 import { dushanbeTime } from "../lib/date";
 import "../theme-2026-vacancies.css";
+import { RecordsSection } from "../components/look/records/RecordsSection";
 
 const STAGE_IDS = new Set<string>(CANDIDATE_QUEUE_STAGES.map(option => option.value));
 const PRIORITY_IDS = new Set<string>(VACANCY_PRIORITY_CHIPS.map(chip => chip.value));
@@ -42,6 +43,10 @@ const ruCount = (n: number, one: string, few: string, many: string) => {
  * `/vacancies/:id`. Фильтры живут в адресе: «← Кандидаты» возвращает тот же срез.
  */
 export function Vacancies() {
+  return <RecordsSection><VacanciesScreen /></RecordsSection>;
+}
+
+function VacanciesScreen() {
   useMarkSectionSeen("vacancies");
   const can = useCan(), canView = can("vacancies.view");
   const readOnly = useIsReadOnly();
