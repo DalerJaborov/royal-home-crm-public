@@ -133794,6 +133794,44 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "const heartbeat = setInterval(()",
+         "a": [
+          "меняет в базе: socialVideoPost"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "prisma.socialVideoPost .updateMany({ where: { id, status: \"PUBLISHING\" }, data: { runClaimedAt: new Date() } …",
+           "a": [
+            "меняет в базе: socialVideoPost"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": []
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "clearInterval(heartbeat);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       },

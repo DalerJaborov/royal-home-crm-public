@@ -37,9 +37,7 @@ import {
   loadOccupiedPublishSlotsDetailed,
 } from "../src/lib/publishSlots.js";
 import { DEFAULT_PUBLISH_SCHEDULE_RULES, nextNarrationSlot, nextPublishSlot } from "../src/lib/publishSchedule.js";
-import { PROCESS_IDENTITY, isClaimAbandoned } from "../src/lib/socialVideoPosts.js";
-import os from "node:os";
-import { spawnSync } from "node:child_process";
+import { CLAIM_HEARTBEAT_MS, CLAIM_LEASE_STALE_MS, isClaimAbandoned } from "../src/lib/socialVideoPosts.js";
 import { PUBLISH_SLOT_LOCK_ID as lockFromHandoff } from "../src/lib/videoHandoff.js";
 
 /**
@@ -328,13 +326,12 @@ describe("один ролик — одна публикация: тик и ис�
     expect(jobs).toBe(1);
   });
 
-  it("исполнитель уже занят (другой процесс держит бронь) — второй не публикует", async () => {
+  it("свежая аренда (30 секунд назад) — исполняет другой, второй не публикует", async () => {
     planInstagramOk();
     const row = await makeRow({
       status: "PUBLISHING",
       startedAt: new Date(),
-      runClaimedAt: new Date(),
-      runClaimedBy: `${os.hostname()}:${process.pid}:1`,
+      runClaimedAt: new Date(Date.now() - 30_000),
       channelResults: { INSTAGRAM: { state: "QUEUED", error: null, note: null, postId: null, url: null, retriable: false, attempts: 0, startedAt: null, finishedAt: null } },
     });
     await runSocialVideoPublish(row.id);
@@ -342,15 +339,13 @@ describe("один ролик — одна публикация: тик и ис�
     expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("PUBLISHING");
   });
 
-  it("бронь умершего процесса (перезапуск посреди публикации) не мешает: повтор задания доделывает адреса", async () => {
+  it("аренда не продлена 4 минуты (падение и автоперезапуск, новый выкат) — повтор задания доделывает адреса", async () => {
     planInstagramOk();
-    const dead = spawnSync(process.execPath, ["-e", "0"]).pid ?? 0;
-    expect(dead).toBeGreaterThan(0);
     const row = await makeRow({
       status: "PUBLISHING",
       startedAt: new Date(),
-      runClaimedAt: new Date(),
-      runClaimedBy: `${os.hostname()}:${dead}:1`,
+      runClaimedAt: new Date(Date.now() - 4 * 60_000),
+      runClaimedBy: "old-container:1",
       channelResults: { INSTAGRAM: { state: "QUEUED", error: null, note: null, postId: null, url: null, retriable: false, attempts: 0, startedAt: null, finishedAt: null } },
     });
     await runSocialVideoPublish(row.id);
@@ -358,13 +353,46 @@ describe("один ролик — одна публикация: тик и ис�
     expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("DONE");
   });
 
-  it("бронь этого же живого процесса и другого живого процесса — пропускают; чужого хоста — только после срока", () => {
+  it("isClaimAbandoned: только возраст аренды, без хоста и pid", () => {
     const now = Date.now();
-    const fresh = new Date(now - 60_000);
-    expect(isClaimAbandoned(PROCESS_IDENTITY, new Date(now - 3 * 60 * 60_000))).toBe(false);
-    expect(isClaimAbandoned(`${os.hostname()}:${process.pid}:1`, fresh)).toBe(false);
-    expect(isClaimAbandoned("other-host:123:1", fresh)).toBe(false);
-    expect(isClaimAbandoned("other-host:123:1", new Date(now - 60 * 60_000))).toBe(true);
+    expect(isClaimAbandoned(new Date(now - 30_000), now)).toBe(false);
+    expect(isClaimAbandoned(new Date(now - 4 * 60_000), now)).toBe(true);
+    expect(CLAIM_LEASE_STALE_MS).toBeGreaterThan(CLAIM_HEARTBEAT_MS * 2);
+  });
+
+  it("долгая публикация (больше 3 минут): аренда продлевается сердцебиением и её не перехватывают", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mockedPublish.mockImplementation(async (params) => {
+      await params.onChannelStarted?.("INSTAGRAM", "INSTAGRAM");
+      await gate;
+      const result: PublishResult = { channel: "INSTAGRAM", ok: true, postId: "ig-long" };
+      await params.onChannelPublished?.(result);
+      return [result];
+    });
+    const row = await makeRow({ status: "PUBLISHING", startedAt: new Date(), channelResults: { INSTAGRAM: { state: "QUEUED", error: null, note: null, postId: null, url: null, retriable: false, attempts: 0, startedAt: null, finishedAt: null } }, });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    try {
+      const running = runSocialVideoPublish(row.id);
+      await vi.advanceTimersByTimeAsync(0);
+      await new Promise((r) => setTimeout(r, 300));
+      // Пять минут «публикации»: каждую минуту сердцебиение продлевает аренду.
+      for (let minute = 0; minute < 5; minute++) {
+        await vi.advanceTimersByTimeAsync(CLAIM_HEARTBEAT_MS);
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      const mid = await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: row.id } });
+      expect(Date.now() - (mid.runClaimedAt?.getTime() ?? 0)).toBeLessThanOrEqual(CLAIM_HEARTBEAT_MS + 1_000);
+      expect(isClaimAbandoned(mid.runClaimedAt as Date)).toBe(false);
+      // Второй исполнитель (другой процесс) аренду не берёт: его claimRun видит свежую.
+      await prisma.socialVideoPost.update({ where: { id: row.id }, data: { runClaimedBy: "other-process:1" } });
+      release();
+      await running;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(mockedPublish).toHaveBeenCalledTimes(1);
+    expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("DONE");
   });
 
   it("свободный исполнитель берёт бронь и публикует ровно один раз, повтор задания после этого ничего не делает", async () => {
@@ -382,7 +410,7 @@ describe("один ролик — одна публикация: тик и ис�
     expect(done.runClaimedAt).not.toBeNull();
   });
 
-  it("брошенная бронь (старше 45 минут — процесс умер) не мешает новому исполнителю", async () => {
+  it("аренда двухчасовой давности не мешает новому исполнителю", async () => {
     planInstagramOk();
     const row = await makeRow({
       status: "PUBLISHING",

@@ -29668,6 +29668,14 @@
     - если !(await claimRun(id))
       - return;
         · дальше не идёт, ничего не меняя
+    - const heartbeat = setInterval(()
+      · меняет в базе: socialVideoPost
+      - prisma.socialVideoPost .updateMany({ where: { id, status: "PUBLISHING" }, data: { runClaimedAt: new Date() } …
+        · меняет в базе: socialVideoPost
+    - пробует
+    - в любом случае
+      - clearInterval(heartbeat);
+        · дословно из кода
   - в любом случае
     - inFlight.delete(id);
       · дословно из кода

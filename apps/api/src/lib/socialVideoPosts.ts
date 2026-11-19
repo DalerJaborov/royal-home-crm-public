@@ -123,8 +123,8 @@ const RETRY_FROM: SocialVideoStatus[] = ["FAILED", "PARTIAL"];
 /** Статусы, из которых можно ДОБАВИТЬ новые адреса к вышедшему ролику. */
 const ADD_FROM: SocialVideoStatus[] = ["DONE", "PARTIAL", "FAILED"];
 /** Публикация, которой не дали закончиться дольше этого срока, считается оборванной. */
-/** Сколько промежутков вперёд читаем занятые слоты при проверке времени (подсказка ищется внутри этого окна). */
-const SLOT_LOOKAHEAD_GAPS = 48;
+/** Сколько вперёд читаем занятые слоты при проверке времени: до следующего открытия окна публикаций и ещё сутки с запасом. */
+const SLOT_LOOKAHEAD_MS = 3 * 86_400_000;
 const STUCK_PUBLISHING_MS = 45 * 60_000;
 const MAX_SCHEDULE_AHEAD_MS = 366 * 24 * 60 * 60_000;
 
@@ -848,7 +848,7 @@ export async function publishSocialVideo(
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PUBLISH_SLOT_LOCK_ID}::bigint)`;
       if (rules.enabled && !input.acceptSlotConflict) {
         const gapMs = rules.minGapMin * 60_000;
-        const occupied = await loadOccupiedPublishSlotsDetailed(tx, new Date(at.getTime() - gapMs), undefined, id, new Date(at.getTime() + gapMs * SLOT_LOOKAHEAD_GAPS));
+        const occupied = await loadOccupiedPublishSlotsDetailed(tx, new Date(at.getTime() - gapMs), undefined, id, new Date(at.getTime() + SLOT_LOOKAHEAD_MS));
         const collision = findSlotCollision(at, occupied, gapMs, { startMin: rules.windowStartMin, endMin: rules.windowEndMin });
         if (collision) {
           throw new SocialVideoError(
@@ -1097,50 +1097,37 @@ async function notifyCreator(
 
 const inFlight = new Set<string>();
 
-/** Кто мы: хост, pid и время старта процесса. Другой процесс с тем же pid после перезапуска получит другое время старта. */
-export const PROCESS_IDENTITY = `${os.hostname()}:${process.pid}:${Math.round(Date.now() / 1000 - process.uptime())}`;
+/** Для диагностики (кто держал бронь): хост и pid. На решение о брошенной брони НЕ влияет — в Docker pid всегда 1, а хост меняется при каждом выкате. */
+export const PROCESS_IDENTITY = `${os.hostname()}:${process.pid}`;
 
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
-  }
+/** Аренда брони исполнителя: живой исполнитель продлевает её раз в минуту; не продлена дольше срока — исполнитель умер. */
+export const CLAIM_HEARTBEAT_MS = 60_000;
+export const CLAIM_LEASE_STALE_MS = 3 * 60_000;
+
+/** Бронь брошена: аренду не продлевали дольше срока (процесс упал, перезапущен, выкачен заново). */
+export function isClaimAbandoned(claimedAt: Date, now: number = Date.now()): boolean {
+  return claimedAt.getTime() < now - CLAIM_LEASE_STALE_MS;
 }
 
 /**
- * Бронь брошена? Свою живую не трогаем никогда (её защищает и inFlight). Чужая брошена, если старше STUCK_PUBLISHING_MS,
- * либо держал процесс с этого же хоста, которого уже нет (после перезапуска сервера). Чужую с другого хоста
- * проверить нечем — ждём срока.
- */
-export function isClaimAbandoned(claimedBy: string | null, claimedAt: Date, now: number = Date.now()): boolean {
-  if (claimedBy === PROCESS_IDENTITY) return false;
-  if (claimedAt.getTime() < now - STUCK_PUBLISHING_MS) return true;
-  const parts = (claimedBy ?? "").split(":");
-  const pid = Number(parts[parts.length - 2]);
-  const host = parts.slice(0, -2).join(":");
-  return host === os.hostname() && Number.isInteger(pid) && pid > 0 && !pidAlive(pid);
-}
-
-/**
- * БРОНЬ ИСПОЛНИТЕЛЯ В БАЗЕ (19.11.2026). Тик расписания уже переводит SCHEDULED → PUBLISHING одним условным
- * обновлением (claimForPublishing), так что два тика не запустят ролик дважды. Но само ИСПОЛНЕНИЕ могли
- * запустить двое: задание очереди приходит повторно (зависшее по таймауту, но живое), второй процесс — а у обоих
- * адреса в QUEUED, и пост ушёл бы в соцсеть дважды. Первый, кто записал бронь (`runClaimedAt` + `runClaimedBy`),
- * исполняет; остальные тихо выходят. Бронь, оставленная умершим процессом (перезапуск посреди публикации), не
- * мешает: runner перезапускает зависшее задание, и оно доделывает адреса, как и до брони. Замена брони — условная
- * (по прочитанным значениям), поэтому двое «наследников» не возьмут её оба.
+ * БРОНЬ ИСПОЛНИТЕЛЯ В БАЗЕ — ПРОДЛЕВАЕМАЯ АРЕНДА (19.11.2026). Тик расписания уже переводит SCHEDULED → PUBLISHING
+ * одним условным обновлением (claimForPublishing), так что два тика не запустят ролик дважды. Но само ИСПОЛНЕНИЕ
+ * могли запустить двое: задание очереди приходит повторно, второй процесс — а у обоих адреса в QUEUED, и пост ушёл бы
+ * в соцсеть дважды. Исполнитель записывает `runClaimedAt` и, пока публикует, обновляет его раз в минуту
+ * (runSocialVideoPublish). Свежая аренда — исполняет другой, выходим. Аренда не продлена дольше 3 минут — исполнитель
+ * умер (падение и автоперезапуск, новый выкат): runner перезапускает зависшее задание, и оно доделывает адреса.
+ * Ни хост, ни pid не используются: в Docker pid всегда 1, а имя хоста меняется при каждом выкате. Замена брони условная
+ * (по прочитанному значению), поэтому двое «наследников» не возьмут её оба.
  */
 async function claimRun(id: string): Promise<boolean> {
   const row = await prisma.socialVideoPost.findFirst({
     where: { id, deletedAt: null, status: "PUBLISHING" },
-    select: { runClaimedAt: true, runClaimedBy: true },
+    select: { runClaimedAt: true },
   });
   if (!row) return false;
-  if (row.runClaimedAt && !isClaimAbandoned(row.runClaimedBy, row.runClaimedAt)) return false;
+  if (row.runClaimedAt && !isClaimAbandoned(row.runClaimedAt)) return false;
   const claimed = await prisma.socialVideoPost.updateMany({
-    where: { id, deletedAt: null, status: "PUBLISHING", runClaimedAt: row.runClaimedAt, runClaimedBy: row.runClaimedBy },
+    where: { id, deletedAt: null, status: "PUBLISHING", runClaimedAt: row.runClaimedAt },
     data: { runClaimedAt: new Date(), runClaimedBy: PROCESS_IDENTITY },
   });
   return claimed.count === 1;
@@ -1160,7 +1147,17 @@ export async function runSocialVideoPublish(id: string): Promise<void> {
     // inFlight — память одного процесса. Второй исполнитель (другой процесс, повторная доставка задания очередью,
     // перезапуск) её не видит — поэтому исполнителя берём ещё и в базе, условным обновлением.
     if (!(await claimRun(id))) return;
-    await doRun(id);
+    // Пока публикуем — продлеваем аренду; не получилось продлить один раз — не страшно, срок 3 минуты.
+    const heartbeat = setInterval(() => {
+      prisma.socialVideoPost
+        .updateMany({ where: { id, status: "PUBLISHING" }, data: { runClaimedAt: new Date() } })
+        .catch(() => undefined);
+    }, CLAIM_HEARTBEAT_MS);
+    try {
+      await doRun(id);
+    } finally {
+      clearInterval(heartbeat);
+    }
   } finally {
     inFlight.delete(id);
   }
@@ -1419,7 +1416,7 @@ async function runPhotoDestinations(row: Pick<Row, "id" | "imagePaths" | "captio
 // ───────────────────────────── расписание ─────────────────────────────
 
 /** Раз в минуту: запускает ролики, чьё время пришло, и снимает оборванные публикации. */
-/** Снимает брони умерших процессов (перезапуск сервера): чужая живая остаётся, своя не трогается. */
+/** Снимает брошенные брони (аренда не продлена дольше срока): исполнитель умер. */
 export async function releaseAbandonedClaims(): Promise<number> {
   const held = await prisma.socialVideoPost.findMany({
     where: { status: "PUBLISHING", runClaimedAt: { not: null } },
@@ -1428,9 +1425,9 @@ export async function releaseAbandonedClaims(): Promise<number> {
   });
   let released = 0;
   for (const row of held) {
-    if (!row.runClaimedAt || !isClaimAbandoned(row.runClaimedBy, row.runClaimedAt)) continue;
+    if (!row.runClaimedAt || !isClaimAbandoned(row.runClaimedAt)) continue;
     const r = await prisma.socialVideoPost.updateMany({
-      where: { id: row.id, status: "PUBLISHING", runClaimedAt: row.runClaimedAt, runClaimedBy: row.runClaimedBy },
+      where: { id: row.id, status: "PUBLISHING", runClaimedAt: row.runClaimedAt },
       data: { runClaimedAt: null, runClaimedBy: null },
     });
     released += r.count;
