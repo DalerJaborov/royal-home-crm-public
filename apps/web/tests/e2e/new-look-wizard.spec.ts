@@ -92,3 +92,66 @@ test("без признака с сервера мастер и форма пр�
   await expect(page.locator("html")).not.toHaveAttribute("data-ui-look", /.+/);
   await expect(page.locator("[data-ry-section]")).toHaveCount(0);
 });
+
+/** Каким был признак вида в момент, когда мастер впервые появился в документе (null — прежний вид). */
+const WATCH_FIRST_FRAME = () => {
+  const w = window as unknown as { __wizFirst?: string | null };
+  w.__wizFirst = undefined;
+  new MutationObserver(() => {
+    if (w.__wizFirst === undefined && document.querySelector(".wiz")) w.__wizFirst = document.documentElement.dataset.uiLook ?? null;
+  }).observe(document, { childList: true, subtree: true });
+};
+const firstFrame = (page: Page) => page.evaluate(() => (window as unknown as { __wizFirst?: string | null }).__wizFirst);
+
+for (const look of [true, false]) {
+  test(`переход внутри приложения список → мастер → список: признак вида ${look ? "не теряется и мастер не мигает" : "не появляется"}`, async ({ page }) => {
+    await shell(page, look);
+    await page.goto("/properties");
+    await expect(page.locator("main#main")).toBeVisible({ timeout: 30_000 });
+    const attr = page.locator("html");
+    const expectLook = async () => look
+      ? expect(attr).toHaveAttribute("data-ui-look", "royal")
+      : expect(attr).not.toHaveAttribute("data-ui-look", /.+/);
+    await expectLook();
+    await page.evaluate(WATCH_FIRST_FRAME);
+    // Переход внутри приложения (как по кнопке), без перезагрузки: ответ /ui-shell уже в кэше.
+    await page.evaluate(() => { history.pushState(null, "", "/properties/new?draft=continue"); dispatchEvent(new PopStateEvent("popstate")); });
+    await expect(page.locator(".wiz .whead")).toBeVisible({ timeout: 30_000 });
+    expect(await firstFrame(page), "первый кадр мастера").toBe(look ? "royal" : null);
+    await expectLook();
+    await expect(page.locator('[data-ry-section="wizard"]')).toHaveCount(look ? 1 : 0);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/properties$/);
+    await expect(page.locator("main#main")).toBeVisible({ timeout: 30_000 });
+    await expectLook();
+    await expect(page.locator('[data-ry-section="wizard"]')).toHaveCount(0);
+  });
+}
+
+test("холодный заход в мастер: пока ответ сервера в пути — запомненный признак, после ответа решает сервер", async ({ page }) => {
+  await shell(page, true);
+  await openWizard(page);
+  await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
+  // Ответ /ui-shell задержан: без запомненного признака мастер нарисовался бы старым и перекрасился.
+  const slowShell = async (body: Record<string, unknown>) => {
+    await page.unroute("**/api/v1/ui-shell");
+    await page.route("**/api/v1/ui-shell", async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await new Promise((r) => setTimeout(r, 2_500));
+      await route.fulfill({ json: body, headers: { "cache-control": "no-store" } });
+    });
+  };
+  await page.addInitScript(WATCH_FIRST_FRAME);
+  await slowShell({ enabled: true, look: "royal" });
+  await page.reload();
+  await expect(page.locator(".wiz .whead")).toBeVisible({ timeout: 30_000 });
+  expect(await firstFrame(page), "первый кадр мастера при холодном заходе").toBe("royal");
+  await page.waitForTimeout(3_000);
+  await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
+  // Вид выключили на сервере: запомненное не залипает — после ответа атрибута нет.
+  await slowShell({ enabled: true });
+  await page.reload();
+  await expect(page.locator(".wiz .whead")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("html")).not.toHaveAttribute("data-ui-look", /.+/, { timeout: 10_000 });
+  await expect(page.locator("[data-ry-section]")).toHaveCount(0);
+});

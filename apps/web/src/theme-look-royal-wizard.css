@@ -251,10 +251,15 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tiles { gap: 8px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile { border: 0; border-radius: 16px; background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile.cover { outline: 3px solid var(--rh-ui-primary); outline-offset: -3px; }
+/* «Обложка» — полосой по низу плитки во всю её ширину (ревью #321): плитка на телефоне
+   ~72–80 px, а сверху справа крестик 44 — плашка в углу пряталась под ним и не влезала.
+   Полоса не пересекается ни с крестиком, ни с кругом загрузки (у обложки он сверху слева). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile .badge {
-  left: 6px; top: 6px; padding: 3px 10px; font-family: var(--ff-head); font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  left: 0; right: 0; top: auto; bottom: 0; padding: 3px 4px; border-radius: 0; text-align: center; line-height: 1.3;
+  font-family: var(--ff-head); font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none;
   background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
 }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile.cover :is(.ring, .tick) { top: 6px; left: 6px; right: auto; bottom: auto; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile .x { width: 44px; height: 44px; background: rgba(14, 15, 18, .62); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile .x svg { width: 18px; height: 18px; stroke-width: 2.25; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile .retry { width: 48px; height: 48px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }

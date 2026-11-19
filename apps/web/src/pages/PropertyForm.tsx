@@ -8,6 +8,7 @@ import { useCan, useCanCreateProperty } from "../lib/permissions";
 import { PropertyWizard } from "../components/property-wizard/PropertyWizard";
 import { useProperty } from "../hooks/useProperties";
 import { useLookAttribute, useRoyalLook } from "../hooks/useRoyalLook";
+import { useWizardRoyalLook } from "../components/look/wizard/useWizardRoyalLook";
 import { RoyalSection, useRoyalSectionName } from "../components/look/clients/RoyalSection";
 
 /**
@@ -91,7 +92,9 @@ export function PropertyNew() {
   // уходе с его маршрутов — без этой строки слой нового вида до мастера не
   // доставал бы вовсе. Решение то же (сервер + чистая оболочка + личный выбор),
   // закрыто по умолчанию: нет признака — атрибута нет, ни одного пикселя.
-  const royal = useRoyalLook();
+  // Пока ответ сервера в пути (холодный заход), — запомненный на устройстве
+  // признак, чтобы мастер не рисовался старым и не перекрашивался.
+  const royal = useWizardRoyalLook();
   useLookAttribute(royal);
   // A12 (владелец 02.10.2026): СБ объекты не заводит. Кнопок у неё нет, а
   // прямая ссылка /properties/new уводит на список, а не в мастер, который
