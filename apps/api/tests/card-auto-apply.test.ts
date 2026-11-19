@@ -40,6 +40,7 @@ vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
 
 const { prisma } = await import("../src/db.js");
 const { buildSuggestionFromCall } = await import("../src/lib/cardSuggestions.js");
+const { runClientAutopilot } = await import("../src/lib/clientAutopilot.js");
 
 const runId = Date.now();
 let agentId = "";
@@ -324,6 +325,32 @@ describe("ИИ сам обновляет карточку по разговор�
     expect(again.created).toBe(true);
     expect(aiCalls.n).toBe(callsBefore + 1);
     await prisma.client.update({ where: { id: clientId }, data: { desiredRooms: before.desiredRooms, budgetMax: before.budgetMax } });
+  });
+
+  it("выключатель «ИИ дописывает карточку по звонку» закрывает и путь автопилота: расшифровки звонков в заполнение не идут", async () => {
+    const fresh = await prisma.client.create({
+      data: { fullName: `Пустая карточка автопилота ${runId}`, phone: `+99266${String(runId).slice(-7)}`, source: "PHONE_CALL", assignedAgentId: agentId, acceptedAt: new Date(), currency: "TJS" },
+    });
+    try {
+      await prisma.interaction.create({ data: { clientId: fresh.id, agentId, type: "CALL", notes: "Звонок автопилота", transcript: "Мехоҳам хонаи панҷхонагӣ" } });
+      aiReply = { rooms: 5, evidence: ["панҷхонагӣ"] };
+
+      switchesOff.add("aiCardFromCallEnabled");
+      try {
+        await runClientAutopilot(fresh.id, "call_result_logged");
+      } finally {
+        switchesOff.delete("aiCardFromCallEnabled");
+      }
+      expect((await prisma.client.findUniqueOrThrow({ where: { id: fresh.id } })).desiredRooms).toBeNull();
+
+      // Включён — тот же звонок заполняет пустое поле.
+      await runClientAutopilot(fresh.id, "call_result_logged");
+      expect((await prisma.client.findUniqueOrThrow({ where: { id: fresh.id } })).desiredRooms).toBe(5);
+    } finally {
+      await prisma.auditLog.deleteMany({ where: { entityId: fresh.id } });
+      await prisma.interaction.deleteMany({ where: { clientId: fresh.id } });
+      await prisma.client.deleteMany({ where: { id: fresh.id } });
+    }
   });
 
   it("does not overwrite a manual edit made while the model was reading the card", async () => {

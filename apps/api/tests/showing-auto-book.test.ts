@@ -39,6 +39,7 @@ const runId = Date.now();
 let agentId: string;
 let districtId: string;
 let otherDistrictId: string;
+let offDistrictId: string;
 const clientIds: string[] = [];
 const propertyIds: string[] = [];
 const interactionIds: string[] = [];
@@ -108,6 +109,8 @@ beforeAll(async () => {
   ).id;
   districtId = (await prisma.district.create({ data: { name: `Тест-район-показ-${runId}` } })).id;
   otherDistrictId = (await prisma.district.create({ data: { name: `Тест-район-показ-другой-${runId}` } })).id;
+  // Свой район для проверки выключателя: объект в общем районе ломал бы тест «дубль не создаётся» (нужен ровно один подходящий).
+  offDistrictId = (await prisma.district.create({ data: { name: `Тест-район-показ-выкл-${runId}` } })).id;
 });
 
 afterAll(async () => {
@@ -117,7 +120,7 @@ afterAll(async () => {
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.agent.deleteMany({ where: { id: agentId } });
-  await prisma.district.deleteMany({ where: { id: { in: [districtId, otherDistrictId] } } });
+  await prisma.district.deleteMany({ where: { id: { in: [districtId, otherDistrictId, offDistrictId] } } });
 });
 
 /** Локальное время Душанбе, гарантированно в пределах окна допустимых дат
@@ -153,8 +156,8 @@ describe("Показ по разговору — автоназначение п
   });
 
   it("выключатель «ИИ сам назначает показ по разговору агента»: выключен — показ по звонку не назначается", async () => {
-    await makeProperty(districtId, "выключатель");
-    const client = await makeBuyer(districtId);
+    await makeProperty(offDistrictId, "выключатель");
+    const client = await makeBuyer(offDistrictId);
     const callAt = new Date();
     const interaction = await makeCallInteraction(client.id, callAt);
     mockShowingExtract(tomorrowLocal(callAt));
@@ -168,6 +171,13 @@ describe("Показ по разговору — автоназначение п
       switchesOff.delete("aiAgentShowingAutoBookEnabled");
     }
     expect(await prisma.interaction.count({ where: { clientId: client.id, type: "SHOWING" } })).toBe(0);
+
+    // Включён (умолчание) — тот же звонок с тем же единственным объектом назначает показ: без этого
+    // проверка выше проходила бы и без выключателя.
+    const second = await makeCallInteraction(client.id, callAt);
+    mockShowingExtract(tomorrowLocal(callAt));
+    expect((await analyzeCall(second.id)).ok).toBe(true);
+    expect(await prisma.interaction.count({ where: { clientId: client.id, type: "SHOWING" } })).toBe(1);
   });
 
   it("два подходящих объекта — решение остаётся агенту, показ сам не создаётся", async () => {

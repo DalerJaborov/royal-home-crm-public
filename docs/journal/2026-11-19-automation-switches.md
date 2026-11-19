@@ -8,12 +8,12 @@
 
 | Поле | Что гасит | Где |
 |---|---|---|
-| `aiCardFromCallEnabled` | ИИ дописывает карточку по звонку. Выкл: нет записи в карточку, нет CardSuggestion, ИИ не зовём (деньги не тратятся) | `lib/cardSuggestions.ts::buildSuggestionFromCall` |
+| `aiCardFromCallEnabled` | ИИ дописывает карточку по звонку. Выкл: нет записи в карточку, нет CardSuggestion, ИИ не зовём; автопилот (`lib/clientAutopilot.ts`) тоже не читает расшифровки звонков (`buildCardFillSuggestion(..., {includeCalls:false})`), заполнение из переписки идёт | `lib/cardSuggestions.ts`, `lib/clientAutopilot.ts`, `ai/cardFill.ts` |
 | `aiAgentShowingAutoBookEnabled` | ИИ сам назначает показ по разговору АГЕНТА: переписка (`lib/operatorShowingDetector.ts`) и звонок (`ai/callAnalysis.ts`, блок «ПОКАЗ НАЗНАЧАЕТСЯ САМ»). Бот в своих ходах, голос робота, помощник и кнопки не затронуты | оба файла |
-| `aiJobSeekerAutoDetachEnabled` | Автоматика не снимает агента и не переводит существующую карточку в кандидаты. Выкл: карточка как «keep» (анкета к ней не привязывается), анкета кандидата и уведомление руководству идут; платный разбор звонка клиента с агентом не запускается. Ручная кнопка «В кандидаты» работает | `lib/jobApplications.ts::candidateCardDecision` (чаты всех каналов и звонок незнакомого), `lib/telephony/autoLeadFromCall.ts::candidateFromAssignedClientCall` |
+| `aiJobSeekerAutoDetachEnabled` | Автоматика не снимает агента и не переводит существующую карточку в кандидаты. Выкл: карточка как «keep» (анкета к ней не привязывается), анкета кандидата и уведомление руководству идут; звонок клиента с агентом ведёт себя как чат: анкета и уведомление есть, платный разбор модели пропускается (хватает слов расшифровки). Ручная кнопка «В кандидаты» работает | `lib/jobApplications.ts::candidateCardDecision` (чаты всех каналов и звонок незнакомого), `lib/telephony/autoLeadFromCall.ts::candidateFromAssignedClientCall` |
 | `dealStaleSellersEnabled` | УЖЕ БЫЛ (14.11, блок «Работа с продавцами»): задача «Продавец без объекта — добавьте объект». Не дублируется: та же колонка, строка показана и в новом блоке | `lib/dealStalePipeline.ts` |
 | `dealStaleBuyersEnabled` | Задача «Закройте сделку» покупателю | `lib/dealStalePipeline.ts` |
-| `notifyClientWaitingEnabled` | «Клиент ждёт ответа»: дверь `alertClientWaiting` (вернёт `already`, эпизод не занимает), сторож молчания и повтор | `lib/clientWaitingAlert.ts` |
+| `notifyClientWaitingEnabled` | ТОЛЬКО напоминание «клиент молчит 30 минут»: тик `silence`, сторож (WhatsApp/Instagram/Telegram) и его повтор. Сигналы поломки бота и передачи сотруднику (`escalate`, `failed`, `handover`) и «агент уточнит» (`follow_up`) идут всегда (ревью architect 19.11) | `lib/clientWaitingAlert.ts` |
 | `notifyRobotTookCallEnabled` | «Робот взял звонок, послушайте» (`live-voice-listen-*`) | `lib/telephony/liveVoiceInboundPush.ts` |
 | `notifyTrashAnomalyEnabled` | «Много удалений у агента» | `lib/clientTrashAnomalyAlarm.ts` |
 | `notifyPropertyReviewOverdueEnabled` | «Объект долго на проверке» (`pending-review-overdue-*`), только уведомление | `lib/propertyPipeline.ts::notifyOverdueMaterials` |

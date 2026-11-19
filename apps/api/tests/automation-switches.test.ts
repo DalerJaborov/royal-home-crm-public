@@ -141,23 +141,25 @@ describe("сохранение через PATCH /settings", () => {
     expect(got.status).toBe(200);
     for (const key of AUTOMATION_SWITCH_KEYS) expect(got.body[key], key).toBe(true);
 
+    // Общую строку настроек держим выключенной только на время одного запроса и возвращаем сразу прямой записью
+    // (не вторым PATCH): окно гонки с соседними файлами — миллисекунды. Ключ выбран тот, что читает один редкий тест.
     const startedAt = new Date();
-    const off = await request(app).patch("/api/v1/settings").set(auth).send({ notifyPropertyReviewOverdueEnabled: false });
-    expect(off.status).toBe(200);
+    let off;
     try {
-      expect(off.body.notifyPropertyReviewOverdueEnabled).toBe(false);
-      const audit = await waitFor(() =>
-        prisma.auditLog.findFirst({
-          where: { action: "SETTINGS_UPDATE", agentId: directorId, createdAt: { gte: startedAt } },
-          orderBy: { createdAt: "desc" },
-        })
-      );
-      expect(audit?.meta).toMatchObject({ notifyPropertyReviewOverdueEnabled: false });
+      off = await request(app).patch("/api/v1/settings").set(auth).send({ notifyRobotTookCallEnabled: false });
     } finally {
-      const back = await request(app).patch("/api/v1/settings").set(auth).send({ notifyPropertyReviewOverdueEnabled: true });
-      expect(back.status).toBe(200);
-      expect(back.body.notifyPropertyReviewOverdueEnabled).toBe(true);
+      await prisma.settings.update({ where: { id: "singleton" }, data: { notifyRobotTookCallEnabled: true } });
     }
+    expect(off.status).toBe(200);
+    expect(off.body.notifyRobotTookCallEnabled).toBe(false);
+    const audit = await waitFor(() =>
+      prisma.auditLog.findFirst({
+        where: { action: "SETTINGS_UPDATE", agentId: directorId, createdAt: { gte: startedAt } },
+        orderBy: { createdAt: "desc" },
+      })
+    );
+    expect(audit?.meta).toMatchObject({ notifyRobotTookCallEnabled: false });
+    expect(await automationSwitchOn("notifyRobotTookCallEnabled")).toBe(true);
   });
 
   it("не boolean — 400", async () => {

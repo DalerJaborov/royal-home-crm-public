@@ -279,10 +279,10 @@ export async function alertClientWaiting(input: {
     if (!called || called.getTime() <= chat.lastAlertAt.getTime()) return "skipped";
   }
 
-  // Выключатель «Клиент ждёт ответа» (19.11.2026): выключено — не шлём и эпизод не занимаем.
-  // Ответ «already» нарочно: вызывающие (бот, дверь канала) читают его как «сигнал уже есть» и
-  // продолжают как обычно, а «skipped» заставил бы их писать тревогу «сигнал не ушёл».
-  if (!(await automationSwitchOn("notifyClientWaitingEnabled"))) return "already";
+  // Выключатель «Клиент молчит 30 минут» (19.11.2026) гасит ТОЛЬКО напоминание сторожа молчания.
+  // Сигналы о поломке бота и передаче сотруднику (escalate, failed, handover) и «агент уточнит»
+  // (follow_up) идут всегда: клиенту уже сказали «передал сотруднику» или ответ не ушёл, это не напоминание.
+  if (input.trigger === "silence" && !(await automationSwitchOn("notifyClientWaitingEnabled"))) return "skipped";
 
   // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба. Проигравший — «уже сказали» (R1-2).
   if (!(await chat.claim(since))) return "already";
