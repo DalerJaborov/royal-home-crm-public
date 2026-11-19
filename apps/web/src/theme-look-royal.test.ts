@@ -125,11 +125,27 @@ describe("theme-look-royal*.css", () => {
   });
 });
 
+/**
+ * `[class~="x"]` в любой записи (кавычки, без кавычек, пробелы вокруг `~=`, флаг `i`/`s`) —
+ * тот же класс `.x` (ревью #303). Прочие формы атрибута класса (`^=`, `$=`, `=`, `|=`, `*=`)
+ * классом не являются и в слоях запрещены (`classAttributeForms`), кроме исключения Tailwind-фона.
+ */
+export function normalizeClassAttr(css: string): string {
+  return css.replace(/\[\s*class\s*~=\s*(["']?)([\w-]+)\1(?:\s+[is])?\s*\]/gi, ".$2");
+}
+/** Исключения: кнопки с Tailwind-фоном (`bg-…`) исключаются из перекраски — это не класс, а семейство. */
+const CLASS_ATTR_ALLOWED = new Set(['[class*="bg-"]']);
+/** Формы атрибута класса, которые сторожа не умеют читать как класс: в слоях их быть не должно. */
+export function classAttributeForms(css: string): string[] {
+  const text = normalizeClassAttr(css.replace(/\/\*[\s\S]*?\*\//g, ""));
+  return [...text.matchAll(/\[\s*class\s*[\^$*|]?=[^\]]*\]/gi)].map((m) => m[0]).filter((form) => !CLASS_ATTR_ALLOWED.has(form));
+}
+
 /** Правила файла как пары «селектор → тело» (самые внутренние блоки, @media прозрачны). */
 function cssRules(css: string): { selector: string; body: string }[] {
   // `[class~="x"]` — тот же класс `.x`, только записанный атрибутом: сторожам он обязан быть
   // виден так же (до 19.11 так обходили смысловые и «выключенные» проверки, calls.css:542).
-  const text = css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\[class~=(["']?)([\w-]+)\1\]/g, ".$2");
+  const text = normalizeClassAttr(css.replace(/\/\*[\s\S]*?\*\//g, ""));
   return [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
     .map((m) => ({ selector: m[1].trim(), body: m[2] }))
     .filter((r) => !/^(from|to|\d+%)/.test(r.selector) && !r.selector.startsWith("@"));
@@ -665,6 +681,20 @@ describe("все слои нового вида: смысловые цвета, 
     // хвост селектора сверяется целиком: похожее имя класса — не то же самое
     expect(truncationOutsideList(`${H} .ry-chat-name-sum { text-overflow: ellipsis; }\n${H} .x-ry-chat-name { text-overflow: ellipsis; }`)).toHaveLength(2);
     expect(LOOK_TRUNCATE_OK).toContain(".ry-chat-name");
+  });
+  it.each(lookFiles)("%s: класс записан классом, а не атрибутом (кроме [class*=\"bg-\"])", (file) => {
+    expect(classAttributeForms(readFileSync(new URL(`./${file}`, import.meta.url), "utf8"))).toEqual([]);
+  });
+  it("все записи `[class~=]` — тот же класс; `^=`, `$=`, `=`, `|=` и чужой `*=` запрещены (проверен поломкой)", () => {
+    const C = ':root[data-ui-look="royal"] .rh2[data-ry-section="clients"]';
+    for (const form of ['[class~="crit"]', "[class~='crit']", "[class~=crit]", '[class ~= "crit"]', '[ class~="crit" i]', '[class~="crit" s]', '[CLASS~="crit"]']) {
+      expect(normalizeClassAttr(`${C} .chip${form}`), form).toBe(`${C} .chip.crit`);
+      expect(semanticColorLeaks(`${C} .chip${form} { background: var(--rh-ui-primary); }`), form).toEqual([`${C} .chip.crit`]);
+    }
+    const bad = ['[class^="ry-"]', '[class$="-btn"]', '[class="pill danger"]', '[class|="ry"]', '[class*="danger"]', '[class *= "crit" i]'];
+    for (const form of bad) expect(classAttributeForms(`${C} .chip${form} { color: red; }`), form).toEqual([form]);
+    expect(classAttributeForms(`${C} .pill:not(:is(.danger, [class*="bg-"])) { color: red; }
+${C} .chip[class~="crit" i] { color: red; }`)).toEqual([]);
   });
   it("`[class~=\"x\"]` видно сторожам как `.x`: модификатор кнопки — не кнопка (проверен поломкой)", () => {
     const calls = readFileSync(new URL("./theme-look-royal-calls.css", import.meta.url), "utf8");
