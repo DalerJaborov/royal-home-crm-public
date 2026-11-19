@@ -28,6 +28,7 @@ import { AdsTrendChart } from "../components/ads/AdsTrendChart";
 import { AdsLeaderboard } from "../components/ads/AdsLeaderboard";
 import { AdsCreatives } from "../components/ads/AdsCreatives";
 import { AdsPacing } from "../components/ads/AdsPacing";
+import { MarketingSection, useMarketingSectionMark } from "../components/look/marketing/MarketingSection";
 import { PropertySpendTable } from "../components/ads/PropertySpendTable";
 import { formatMoneyExact, pluralizeRu } from "../lib/format";
 import { AdsSourcesTable, AiDigest, ForeignList, type Tab } from "../components/ads/AdsShared";
@@ -66,9 +67,14 @@ import { MarketingTabs } from "../components/SectionTabs";
  * `.state`, как в макете.
  */
 export function Ads() {
+  return <MarketingSection><AdsScreen /></MarketingSection>;
+}
+
+function AdsScreen() {
+  const section = useMarketingSectionMark();
   const can = useCan();
   const role = useAuthStore((s) => s.agent?.role);
-  if (role !== "MARKETING" && !can("finance.view") && !can("marketing.access")) return <div className="rh2 screens"><div className="scr">
+  if (role !== "MARKETING" && !can("finance.view") && !can("marketing.access")) return <div className="rh2 screens" data-ry-section={section}><div className="scr">
     <div className="pg-h"><h1>Реклама</h1></div>
     <div className="card tight"><p>Недостаточно прав для просмотра расходов на рекламу.</p></div>
   </div></div>;
@@ -97,6 +103,7 @@ function AdsContent() {
   const can = useCan();
   const role = useAuthStore((s) => s.agent?.role);
   const canSync = canWriteAds(role, can);
+  const section = useMarketingSectionMark();
 
   const totals = board.data?.totals;
   // Свежесть данных читаем с дашборда: он грузится на любой вкладке, а отчёт по
@@ -138,7 +145,7 @@ function AdsContent() {
   ];
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>

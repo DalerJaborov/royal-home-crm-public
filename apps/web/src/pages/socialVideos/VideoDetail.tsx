@@ -1,3 +1,4 @@
+import { useMarketingSectionMark } from "../../components/look/marketing/MarketingSection";
 import { useMemo, useState, type ReactNode } from "react";
 import { ArrowLeft, Copy, ExternalLink, EyeOff, Pencil, Plus, RefreshCw, Rocket, Trash2, Undo2 } from "lucide-react";
 import {
@@ -86,6 +87,7 @@ export function VideoDetail({
   /** Открыть композитор на этом ролике. */
   onEdit: (id: string) => void;
 }) {
+  const section = useMarketingSectionMark();
   const query = useSocialVideo(id);
   const retry = useRetrySocialVideo();
   const unschedule = useUnscheduleSocialVideo();
@@ -124,7 +126,7 @@ export function VideoDetail({
 
   if (query.isLoading) {
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <div className="state">
             <span className="sk av" />
@@ -137,7 +139,7 @@ export function VideoDetail({
   }
   if (!item) {
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <button className="pill ghost sm" type="button" onClick={onBack}>
             <ArrowLeft className="i" aria-hidden />К списку роликов
@@ -248,7 +250,7 @@ export function VideoDetail({
     .join(" · ");
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>
