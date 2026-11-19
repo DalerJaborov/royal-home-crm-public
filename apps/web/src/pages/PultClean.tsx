@@ -1,5 +1,6 @@
 import { formatPropertyCode } from "../lib/clientFormat";
 import { CleanLoadError } from "../components/clean/CleanLoadError";
+import { CleanBlock } from "../components/clean/CleanBlock";
 import { CleanKpi as Kpi } from "../components/clean/CleanKpi";
 import { CleanCommissionChartLazy } from "../components/clean/CleanCommissionChartLazy";
 import { useMemo, useState, type ReactNode } from "react";
@@ -77,7 +78,6 @@ export function PultClean() {
   const agent = useAuthStore((s) => s.agent);
   const firstName = agent?.fullName?.split(" ")[0] ?? "";
   const { data, isLoading, isError, refetch, refetchSection } = useMissionControl(canView);
-  const pultView = useMemo(() => data ? buildPultView(data, dushanbeHour()) : null, [data]);
   const rows = usePultActionRows(canView);
   const actionStatus = usePultActionStatus(canView);
   const pending = usePropertiesPendingReview(canView);
@@ -175,52 +175,54 @@ export function PultClean() {
             {hasRoute("/reports") && <CLink to="/reports" variant="soft" size="md">Отчёты</CLink>}
             {canCreateProperty && <CLink to="/properties/new" variant="primary" size="md"><Plus /> Создать объект</CLink>}
           </div>
-          <div className="clean-kpis grid gap-3.5 sm:grid-cols-3">
-            <Kpi
-              icon={<TriangleAlert />}
-              label="Событий первой линии"
-              value={firstLineData ? String(firstLineData.totalCount) : "—"}
-              to={criticalEventsTarget}
-            >
-              <span className="text-[14px] text-gray-600">Критических {limitedCriticalCount ? "не менее " : ""}{critCount}</span>
-            </Kpi>
-            {hero ? (
+          <CleanBlock name="pult.kpis" title="Показатели дня">{() => (
+            <div className="clean-kpis grid gap-3.5 sm:grid-cols-3">
               <Kpi
-                icon={<UserRound />}
-                label="Новых клиентов"
-                value={String(hero.leadsToday.count)}
-                to={hasRoute("/clients") ? "/clients" : undefined}
+                icon={<TriangleAlert />}
+                label="Событий первой линии"
+                value={firstLineData ? String(firstLineData.totalCount) : "—"}
+                to={criticalEventsTarget}
               >
-                <CChip
-                  tone={hero.leadsToday.deltaVsYesterday >= 0 ? "ok" : "warn"}
-                >
-                  {hero.leadsToday.deltaVsYesterday >= 0 ? "+" : ""}
-                  {hero.leadsToday.deltaVsYesterday} к вчера
-                </CChip>
+                <span className="text-[14px] text-gray-600">Критических {limitedCriticalCount ? "не менее " : ""}{critCount}</span>
               </Kpi>
-            ) : null}
-            {hero?.commission && data?.seesMoney ? (
-              <Kpi
-                icon={<Coins />}
-                label="Валовая комиссия месяца"
-                value={formatMoney(Math.round(hero.commission.fact), "TJS")}
-                to={hasRoute("/finance") ? "/finance" : undefined}
-              >
-                <CChip
-                  tone={!hero.commission.planIsDefault && hero.commission.forecastPercent >= 100 ? "ok" : "gray"}
+              {hero ? (
+                <Kpi
+                  icon={<UserRound />}
+                  label="Новых клиентов"
+                  value={String(hero.leadsToday.count)}
+                  to={hasRoute("/clients") ? "/clients" : undefined}
                 >
-                  {hero.commission.planIsDefault ? "план не задан" : `план ${formatMoney(Math.round(hero.commission.plan), "TJS")}`}
-                </CChip>
-              </Kpi>
-            ) : hero ? (
-              <Kpi
-                icon={<Briefcase />}
-                label="Сделок в работе"
-                value={String(hero.dealsInPipeline.count)}
-                to={hasRoute("/deals") ? "/deals" : undefined}
-              />
-            ) : null}
-          </div>
+                  <CChip
+                    tone={hero.leadsToday.deltaVsYesterday >= 0 ? "ok" : "warn"}
+                  >
+                    {hero.leadsToday.deltaVsYesterday >= 0 ? "+" : ""}
+                    {hero.leadsToday.deltaVsYesterday} к вчера
+                  </CChip>
+                </Kpi>
+              ) : null}
+              {hero?.commission && data?.seesMoney ? (
+                <Kpi
+                  icon={<Coins />}
+                  label="Валовая комиссия месяца"
+                  value={formatMoney(Math.round(hero.commission.fact), "TJS")}
+                  to={hasRoute("/finance") ? "/finance" : undefined}
+                >
+                  <CChip
+                    tone={!hero.commission.planIsDefault && hero.commission.forecastPercent >= 100 ? "ok" : "gray"}
+                  >
+                    {hero.commission.planIsDefault ? "план не задан" : `план ${formatMoney(Math.round(hero.commission.plan), "TJS")}`}
+                  </CChip>
+                </Kpi>
+              ) : hero ? (
+                <Kpi
+                  icon={<Briefcase />}
+                  label="Сделок в работе"
+                  value={String(hero.dealsInPipeline.count)}
+                  to={hasRoute("/deals") ? "/deals" : undefined}
+                />
+              ) : null}
+            </div>
+          )}</CleanBlock>
         </div>
       </section>
 
@@ -229,184 +231,194 @@ export function PultClean() {
         className="clean-workqueue grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]"
       >
         <div className="grid gap-4">
-          <CCard>
-            <CHead
-              title="Нужны ваши решения"
-              count={rows ? rows.length : "…"}
-              right={
-                <>
-                  {urgentDecisions > 0 ? (
-                    <CChip tone="crit">Срочных решений: {urgentDecisions}</CChip>
-                  ) : null}
-                  {hasRoute("/oversight") && <Link
-                    to="/oversight"
-                    className="inline-flex items-center gap-1 text-[13px] text-gray-500 hover:text-ink"
-                  >
-                    Присмотр <ArrowUpRight className="size-4" />
-                  </Link>}
-                </>
-              }
-            />
-            {actionStatus.isError && rows !== null && rows.length > 0 && (
-              <p role="alert">Часть очереди решений недоступна. Ниже показаны только загруженные задачи.</p>
-            )}
-            {rows === null && incomplete ? <p role="alert">Не удалось загрузить очередь. Обновите страницу, чтобы повторить.</p> : rows === null ? (
-              <div className="grid gap-1.5" role="status" aria-label="Загружаем очередь решений">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="h-[72px] animate-pulse rounded-[14px] bg-row-alt"
-                  />
-                ))}
-              </div>
-            ) : rows.length === 0 ? (
-              <p className="m-0 text-gray-600">
-                {incomplete ? "Не удалось получить всю очередь решений." : "Очередь решений пуста."}
-              </p>
-            ) : (
-              <div className="grid gap-1.5">
-                {rows.map((r) => (
-                  <CleanDecisionRow key={r.id} row={r} photos={photoById} />
-                ))}
-              </div>
-            )}
-          </CCard>
-          <CleanPultInbox />
-          {showFirstLine && <PultFirstLine firstLine={firstLineData} isLoading={isLoading} incomplete={incomplete} />}
+          <CleanBlock name="pult.decisions" title="Нужны ваши решения">{() => (
+            <CCard>
+              <CHead
+                title="Нужны ваши решения"
+                count={rows ? rows.length : "…"}
+                right={
+                  <>
+                    {urgentDecisions > 0 ? (
+                      <CChip tone="crit">Срочных решений: {urgentDecisions}</CChip>
+                    ) : null}
+                    {hasRoute("/oversight") && <Link
+                      to="/oversight"
+                      className="inline-flex items-center gap-1 text-[13px] text-gray-500 hover:text-ink"
+                    >
+                      Присмотр <ArrowUpRight className="size-4" />
+                    </Link>}
+                  </>
+                }
+              />
+              {actionStatus.isError && rows !== null && rows.length > 0 && (
+                <p role="alert">Часть очереди решений недоступна. Ниже показаны только загруженные задачи.</p>
+              )}
+              {rows === null && incomplete ? <p role="alert">Не удалось загрузить очередь. Обновите страницу, чтобы повторить.</p> : rows === null ? (
+                <div className="grid gap-1.5" role="status" aria-label="Загружаем очередь решений">
+                  {[0, 1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="h-[72px] animate-pulse rounded-[14px] bg-row-alt"
+                    />
+                  ))}
+                </div>
+              ) : rows.length === 0 ? (
+                <p className="m-0 text-gray-600">
+                  {incomplete ? "Не удалось получить всю очередь решений." : "Очередь решений пуста."}
+                </p>
+              ) : (
+                <div className="grid gap-1.5">
+                  {rows.map((r) => (
+                    <CleanDecisionRow key={r.id} row={r} photos={photoById} />
+                  ))}
+                </div>
+              )}
+            </CCard>
+          )}</CleanBlock>
+          <CleanBlock name="pult.inbox" title="Ещё ждут решения"><CleanPultInbox /></CleanBlock>
+          {showFirstLine && <CleanBlock name="pult.firstLine" title="Что обсудить с командой">{() => <PultFirstLine firstLine={firstLineData} isLoading={isLoading} incomplete={incomplete} />}</CleanBlock>}
         </div>
 
         <div className="grid gap-4">
-          {top && <CleanFeaturedProperty
-            to={`/properties/${top.shortId}`}
-            title={top.title}
-            subtitle={[top.district?.name ?? top.address, formatMoney(top.price, top.currency)].filter(Boolean).join(" · ")}
-            photo={topPhoto}
-            showings={properties?.extra?.topOfWeek?.showings}
-            featured={!!topId}
-          />}
+          <CleanBlock name="pult.featured" title="Объект недели">{() => (<>
+            {top && <CleanFeaturedProperty
+              to={`/properties/${top.shortId}`}
+              title={top.title}
+              subtitle={[top.district?.name ?? top.address, formatMoney(top.price, top.currency)].filter(Boolean).join(" · ")}
+              photo={topPhoto}
+              showings={properties?.extra?.topOfWeek?.showings}
+              featured={!!topId}
+            />}
+          </>)}</CleanBlock>
         </div>
       </section>
 
       {/* ---- Сводка дня: напоминания | денежный пульс | комиссия ---- */}
       <section className="clean-day-summary grid items-start gap-4">
-          <CCard>
-            <CHead
-              title="Напоминания"
-              right={
-                hasRoute("/oversight") && <CLink to="/oversight" variant="soft" size="icon" aria-label="Открыть присмотр">
-                  <ArrowUpRight className="size-4" />
-                </CLink>
-              }
-            />
-            <div className="grid gap-1.5">
-              {hero && <PultContactReminders hero={hero} canCalls={hasRoute("/calls")} canClients={hasRoute("/clients")} />}
-              <CleanCallbackRows enabled={canView && can("messages.view")} />
-              {critCount > 0 ? (
-                <Reminder
-                  to="#clean-first-line"
-                  hl
-                  title="Критические события"
-                  sub="В загруженной первой линии"
-                  ring={<CChip tone="crit">{critCount}</CChip>}
-                />
-              ) : null}
-              {team?.showingsToday && team.showingsToday.count > 0 && hasRoute("/calendar") ? (
-                <Reminder
-                  to="/calendar"
-                  title="Показы"
-                  sub={`${team.showingsToday.count} сегодня · подтверждено ${team.showingsToday.confirmed}`}
-                  ring={
-                    <CRing
-                      value={Math.round(
-                        (team.showingsToday.confirmed /
-                          team.showingsToday.count) *
-                          100,
-                      )}
-                      label={team.showingsToday.count}
-                    />
-                  }
-                />
-              ) : null}
-              {pending.data && pending.data.length > 0 && hasRoute("/properties") ? (
-                <Reminder
-                  to="/properties?status=PENDING_REVIEW"
-                  title="На проверке"
-                  sub={`${pending.data.length} ${pluralizeRu(pending.data.length, ["объект ждёт", "объекта ждут", "объектов ждут"])} вашего слова`}
-                  ring={
-                    <CChip tone="warn">{pending.data.length}</CChip>
-                  }
-                />
-              ) : null}
-              {clientsZone?.deleteRequests && clientsZone.deleteRequests.total > 0 ? (
-                <CleanDeleteRequestRows requests={clientsZone.deleteRequests.items} />
-              ) : null}
-              {clientsZone?.deleteRequests &&
-              clientsZone.deleteRequests.total > 0 && hasRoute("/archive") && (can("clients.delete") || can("properties.delete")) ? (
-                <Reminder
-                  to={clientsZone.deleteRequests.clients > 0 && can("clients.delete") ? "/archive#delete-requests" : "/archive"}
-                  title="Заявки на удаление"
-                  sub={`${clientsZone.deleteRequests.total} от агентов`}
-                  ring={
-                    <CChip tone="warn">{clientsZone.deleteRequests.total}</CChip>
-                  }
-                />
-              ) : null}
-              {system && can("auditLog.view") && hasRoute("/health") ? (
-                <Reminder
-                  to="/health"
-                  title="Ошибки системы"
-                  sub={
-                    system.errorsToday === 0 && !system.unresolvedTotal
-                      ? "за сутки без ошибок"
-                      : `${system.errorsToday} за сегодня${system.unresolvedTotal !== undefined ? ` · всего нерешённых ${system.unresolvedTotal}` : ""}`
-                  }
-                  ring={
-                    <CChip tone={system.errorsToday >= 10 ? "crit" : system.errorsToday > 0 || (system.unresolvedTotal ?? 0) > 0 ? "warn" : "gray"}>{system.errorsToday}</CChip>
-                  }
-                />
-              ) : null}
-            </div>
-            {can("insights.view") && hasRoute("/insights") && <Link
-              to="/insights"
-              className="mt-3 flex items-center gap-3 rounded-[14px] bg-gradient-to-r from-blue/10 to-transparent p-3 text-ink no-underline hover:from-blue/15"
-            >
-              <span className="grid size-9 place-items-center rounded-full bg-blue text-white shadow-[0_8px_20px_-10px_rgb(var(--rgb-accent)/.9)]">
-                <Sparkles className="size-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <b className="block text-[14px] font-semibold">ИИ-помощник</b>
-                <span className="text-[13px] text-gray-500">
-                  Открыть разбор работы команды
-                </span>
-              </span>
-              <ChevronRight className="size-4 text-gray-500" />
-            </Link>}
-          </CCard>
-
-          <div className="clean-financial-summary grid min-w-0 gap-4">
-          <CleanFinancialPulse hero={hero} canSeeMoney={!!data?.seesMoney && can("finance.view")} moneyRoute={hasRoute("/finance")} />
-          {commission && commission.months.length > 0 && data?.seesMoney ? (
+          <CleanBlock name="pult.reminders" title="Напоминания">{() => (
             <CCard>
               <CHead
-                title="Комиссия"
+                title="Напоминания"
                 right={
-                  <span className="inline-flex h-9 items-center rounded-full bg-row-alt px-3.5 text-[13px] text-gray-700">
-                    12 месяцев
-                  </span>
+                  hasRoute("/oversight") && <CLink to="/oversight" variant="soft" size="icon" aria-label="Открыть присмотр">
+                    <ArrowUpRight className="size-4" />
+                  </CLink>
                 }
               />
-              <div className="text-[28px] font-semibold leading-none tracking-[-.03em] tabular-nums">
-                {formatMoney(Math.round(commission.totalTjs), "TJS")}
-                <small className="ml-1.5 text-[13px] font-medium text-gray-500">
-                  за год
-                </small>
+              <div className="grid gap-1.5">
+                {hero && <PultContactReminders hero={hero} canCalls={hasRoute("/calls")} canClients={hasRoute("/clients")} />}
+                <CleanCallbackRows enabled={canView && can("messages.view")} />
+                {critCount > 0 ? (
+                  <Reminder
+                    to="#clean-first-line"
+                    hl
+                    title="Критические события"
+                    sub="В загруженной первой линии"
+                    ring={<CChip tone="crit">{critCount}</CChip>}
+                  />
+                ) : null}
+                {team?.showingsToday && team.showingsToday.count > 0 && hasRoute("/calendar") ? (
+                  <Reminder
+                    to="/calendar"
+                    title="Показы"
+                    sub={`${team.showingsToday.count} сегодня · подтверждено ${team.showingsToday.confirmed}`}
+                    ring={
+                      <CRing
+                        value={Math.round(
+                          (team.showingsToday.confirmed /
+                            team.showingsToday.count) *
+                            100,
+                        )}
+                        label={team.showingsToday.count}
+                      />
+                    }
+                  />
+                ) : null}
+                {pending.data && pending.data.length > 0 && hasRoute("/properties") ? (
+                  <Reminder
+                    to="/properties?status=PENDING_REVIEW"
+                    title="На проверке"
+                    sub={`${pending.data.length} ${pluralizeRu(pending.data.length, ["объект ждёт", "объекта ждут", "объектов ждут"])} вашего слова`}
+                    ring={
+                      <CChip tone="warn">{pending.data.length}</CChip>
+                    }
+                  />
+                ) : null}
+                {clientsZone?.deleteRequests && clientsZone.deleteRequests.total > 0 ? (
+                  <CleanDeleteRequestRows requests={clientsZone.deleteRequests.items} />
+                ) : null}
+                {clientsZone?.deleteRequests &&
+                clientsZone.deleteRequests.total > 0 && hasRoute("/archive") && (can("clients.delete") || can("properties.delete")) ? (
+                  <Reminder
+                    to={clientsZone.deleteRequests.clients > 0 && can("clients.delete") ? "/archive#delete-requests" : "/archive"}
+                    title="Заявки на удаление"
+                    sub={`${clientsZone.deleteRequests.total} от агентов`}
+                    ring={
+                      <CChip tone="warn">{clientsZone.deleteRequests.total}</CChip>
+                    }
+                  />
+                ) : null}
+                {system && can("auditLog.view") && hasRoute("/health") ? (
+                  <Reminder
+                    to="/health"
+                    title="Ошибки системы"
+                    sub={
+                      system.errorsToday === 0 && !system.unresolvedTotal
+                        ? "за сутки без ошибок"
+                        : `${system.errorsToday} за сегодня${system.unresolvedTotal !== undefined ? ` · всего нерешённых ${system.unresolvedTotal}` : ""}`
+                    }
+                    ring={
+                      <CChip tone={system.errorsToday >= 10 ? "crit" : system.errorsToday > 0 || (system.unresolvedTotal ?? 0) > 0 ? "warn" : "gray"}>{system.errorsToday}</CChip>
+                    }
+                  />
+                ) : null}
               </div>
-              <div className="mt-2 h-[130px]">
-                <CleanCommissionChartLazy months={commission.months} />
-              </div>
-              <details className="mt-3"><summary className="cursor-pointer text-[16px]">Комиссия по месяцам · значения</summary><table className="w-full text-[16px]"><caption className="sr-only">Комиссия за 12 месяцев, сомони</caption><thead><tr><th scope="col">Месяц</th><th scope="col">Комиссия</th></tr></thead><tbody>{commission.months.map((item) => <tr key={item.month}><th scope="row">{item.month}</th><td>{formatMoney(item.amountTjs, "TJS")}</td></tr>)}</tbody></table></details>
+              {can("insights.view") && hasRoute("/insights") && <Link
+                to="/insights"
+                className="mt-3 flex items-center gap-3 rounded-[14px] bg-gradient-to-r from-blue/10 to-transparent p-3 text-ink no-underline hover:from-blue/15"
+              >
+                <span className="grid size-9 place-items-center rounded-full bg-blue text-white shadow-[0_8px_20px_-10px_rgb(var(--rgb-accent)/.9)]">
+                  <Sparkles className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <b className="block text-[14px] font-semibold">ИИ-помощник</b>
+                  <span className="text-[13px] text-gray-500">
+                    Открыть разбор работы команды
+                  </span>
+                </span>
+                <ChevronRight className="size-4 text-gray-500" />
+              </Link>}
             </CCard>
-          ) : null}
+          )}</CleanBlock>
+
+          <div className="clean-financial-summary grid min-w-0 gap-4">
+          <CleanBlock name="pult.money" title="Денежный пульс">{() => (
+            <CleanFinancialPulse hero={hero} canSeeMoney={!!data?.seesMoney && can("finance.view")} moneyRoute={hasRoute("/finance")} />
+          )}</CleanBlock>
+          <CleanBlock name="pult.commission" title="Комиссия">{() => (<>
+            {commission && commission.months.length > 0 && data?.seesMoney ? (
+              <CCard>
+                <CHead
+                  title="Комиссия"
+                  right={
+                    <span className="inline-flex h-9 items-center rounded-full bg-row-alt px-3.5 text-[13px] text-gray-700">
+                      12 месяцев
+                    </span>
+                  }
+                />
+                <div className="text-[28px] font-semibold leading-none tracking-[-.03em] tabular-nums">
+                  {formatMoney(Math.round(commission.totalTjs), "TJS")}
+                  <small className="ml-1.5 text-[13px] font-medium text-gray-500">
+                    за год
+                  </small>
+                </div>
+                <div className="mt-2 h-[130px]">
+                  <CleanCommissionChartLazy months={commission.months} />
+                </div>
+                <details className="mt-3"><summary className="cursor-pointer text-[16px]">Комиссия по месяцам · значения</summary><table className="w-full text-[16px]"><caption className="sr-only">Комиссия за 12 месяцев, сомони</caption><thead><tr><th scope="col">Месяц</th><th scope="col">Комиссия</th></tr></thead><tbody>{commission.months.map((item) => <tr key={item.month}><th scope="row">{item.month}</th><td>{formatMoney(item.amountTjs, "TJS")}</td></tr>)}</tbody></table></details>
+              </CCard>
+            ) : null}
+          </>)}</CleanBlock>
           </div>
       </section>
 
@@ -414,120 +426,125 @@ export function PultClean() {
       <section
         className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]"
       >
-        <CCard>
-          <CHead
-            title="Объекты, которым нужно внимание"
-            right={
-              hasRoute("/properties") && <Link
-                to="/properties"
-                className="inline-flex items-center gap-1 text-[13px] text-gray-500 hover:text-ink"
-              >
-                Все {properties ? properties.available : ""}{" "}
-                <ArrowUpRight className="size-4" />
-              </Link>
-            }
-          />
-          {(() => {
-            const cards: {
-              id: string;
-              shortId: number;
-              title: string;
-              photo?: string;
-              chip: { tone: "warn" | "gray"; text: string };
-              sub?: string;
-            }[] = [];
-            for (const p of pending.data ?? [])
-              cards.push({
-                id: p.id,
-                shortId: p.shortId,
-                title: p.title,
-                photo: p.photos?.[0]?.thumbUrl ?? photoById.get(p.id),
-                chip: { tone: "warn", text: "На проверке" },
-              });
-            for (const p of properties?.extra?.idle?.items ?? []) {
-              if (cards.some((c) => c.id === p.id)) continue;
-              cards.push({
-                id: p.id,
-                shortId: p.shortId,
-                title: p.title,
-                photo: photoById.get(p.id),
-                chip: { tone: "gray", text: `без показов ${p.idleDays} дн` },
-              });
-            }
-            const show = cards.slice(0, 2);
-            return show.length === 0 ? (
-              <p className="m-0 text-gray-600">
-                {props.isLoading || pending.isLoading ? "Загружаем объекты…" : props.isError || pending.isError ? <span role="alert">Объекты не загрузились. Обновите страницу, чтобы повторить.</span> : incomplete ? "Очередь объектов недоступна." : "Объектов, требующих внимания, нет."}
-              </p>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {show.map((c) => (
-                  <Link
-                    key={c.id}
-                    to={`/properties/${c.shortId}`}
-                    className="group grid gap-2 text-ink no-underline"
-                  >
-                    <div className="relative h-[180px] overflow-hidden rounded-[14px] bg-row-alt">
-                      <Photo
-                        src={c.photo}
-                        className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                      />
-                      <CChip
-                        tone={c.chip.tone}
-                        className="absolute left-2 top-2"
-                      >
-                        {c.chip.text}
-                      </CChip>
-                    </div>
-                    <b className="truncate text-[14px] font-semibold">
-                      {formatPropertyCode(c.shortId)} · {c.title}
-                    </b>
-                  </Link>
-                ))}
-              </div>
-            );
-          })()}
-        </CCard>
+        <CleanBlock name="pult.properties" title="Объекты, которым нужно внимание">{() => (
+          <CCard>
+            <CHead
+              title="Объекты, которым нужно внимание"
+              right={
+                hasRoute("/properties") && <Link
+                  to="/properties"
+                  className="inline-flex items-center gap-1 text-[13px] text-gray-500 hover:text-ink"
+                >
+                  Все {properties ? properties.available : ""}{" "}
+                  <ArrowUpRight className="size-4" />
+                </Link>
+              }
+            />
+            {(() => {
+              const cards: {
+                id: string;
+                shortId: number;
+                title: string;
+                photo?: string;
+                chip: { tone: "warn" | "gray"; text: string };
+                sub?: string;
+              }[] = [];
+              for (const p of pending.data ?? [])
+                cards.push({
+                  id: p.id,
+                  shortId: p.shortId,
+                  title: p.title,
+                  photo: p.photos?.[0]?.thumbUrl ?? photoById.get(p.id),
+                  chip: { tone: "warn", text: "На проверке" },
+                });
+              for (const p of properties?.extra?.idle?.items ?? []) {
+                if (cards.some((c) => c.id === p.id)) continue;
+                cards.push({
+                  id: p.id,
+                  shortId: p.shortId,
+                  title: p.title,
+                  photo: photoById.get(p.id),
+                  chip: { tone: "gray", text: `без показов ${p.idleDays} дн` },
+                });
+              }
+              const show = cards.slice(0, 2);
+              return show.length === 0 ? (
+                <p className="m-0 text-gray-600">
+                  {props.isLoading || pending.isLoading ? "Загружаем объекты…" : props.isError || pending.isError ? <span role="alert">Объекты не загрузились. Обновите страницу, чтобы повторить.</span> : incomplete ? "Очередь объектов недоступна." : "Объектов, требующих внимания, нет."}
+                </p>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {show.map((c) => (
+                    <Link
+                      key={c.id}
+                      to={`/properties/${c.shortId}`}
+                      className="group grid gap-2 text-ink no-underline"
+                    >
+                      <div className="relative h-[180px] overflow-hidden rounded-[14px] bg-row-alt">
+                        <Photo
+                          src={c.photo}
+                          className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                        />
+                        <CChip
+                          tone={c.chip.tone}
+                          className="absolute left-2 top-2"
+                        >
+                          {c.chip.text}
+                        </CChip>
+                      </div>
+                      <b className="truncate text-[14px] font-semibold">
+                        {formatPropertyCode(c.shortId)} · {c.title}
+                      </b>
+                    </Link>
+                  ))}
+                </div>
+              );
+            })()}
+          </CCard>
+        )}</CleanBlock>
 
         <div className="grid gap-4">
-          {team?.showingsToday && team.showingsToday.items.length > 0 ? (
-            <CCard>
-              <CHead
-                title="Показы сегодня"
-                count={team.showingsToday.count}
-                right={
-                  hasRoute("/calendar") ? <CLink to="/calendar" variant="soft" size="icon" aria-label="Открыть календарь">
-                    <ArrowUpRight className="size-4" />
-                  </CLink> : undefined
-                }
-              />
-              <div className="grid gap-1.5">
-                {team.showingsToday.items.slice(0, 4).map((s) => (
-                  <Link
-                    key={s.id}
-                    to={s.clientHref}
-                    className="grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl bg-row-alt p-2.5 pr-3 text-ink no-underline hover:bg-line-soft"
-                  >
-                    <span className="text-[16px] font-semibold tabular-nums">
-                      {dushanbeTime(s.at)}
-                    </span>
-                    <span className="min-w-0">
-                      <b className="block truncate text-[14px] font-semibold">
-                        {s.clientName}
-                      </b>
-                      <span className="block truncate text-[13px] text-gray-500">
-                        {s.propertyTitle ?? "объект не указан"} · {s.agentName}
+          <CleanBlock name="pult.showings" title="Показы сегодня">{() => (<>
+            {team?.showingsToday && team.showingsToday.items.length > 0 ? (
+              <CCard>
+                <CHead
+                  title="Показы сегодня"
+                  count={team.showingsToday.count}
+                  right={
+                    hasRoute("/calendar") ? <CLink to="/calendar" variant="soft" size="icon" aria-label="Открыть календарь">
+                      <ArrowUpRight className="size-4" />
+                    </CLink> : undefined
+                  }
+                />
+                <div className="grid gap-1.5">
+                  {team.showingsToday.items.slice(0, 4).map((s) => (
+                    <Link
+                      key={s.id}
+                      to={s.clientHref}
+                      className="grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl bg-row-alt p-2.5 pr-3 text-ink no-underline hover:bg-line-soft"
+                    >
+                      <span className="text-[16px] font-semibold tabular-nums">
+                        {dushanbeTime(s.at)}
                       </span>
-                    </span>
-                    <CChip tone={s.confirmed ? "ok" : "warn"}>
-                      {s.confirmed ? "Подтверждён" : "Ждём ответ"}
-                    </CChip>
-                  </Link>
-                ))}
-              </div>
-            </CCard>
-          ) : null}
+                      <span className="min-w-0">
+                        <b className="block truncate text-[14px] font-semibold">
+                          {s.clientName}
+                        </b>
+                        <span className="block truncate text-[13px] text-gray-500">
+                          {s.propertyTitle ?? "объект не указан"} · {s.agentName}
+                        </span>
+                      </span>
+                      <CChip tone={s.confirmed ? "ok" : "warn"}>
+                        {s.confirmed ? "Подтверждён" : "Ждём ответ"}
+                      </CChip>
+                    </Link>
+                  ))}
+                </div>
+              </CCard>
+            ) : null}
+          </>)}</CleanBlock>
 
+          <CleanBlock name="pult.team" title="Команда">{() => (<>
           {team && team.agents.length > 0 && hasRoute("/team") ? (
             <CCard>
               <CHead
@@ -574,68 +591,77 @@ export function PultClean() {
               </div>
             </CCard>
           ) : null}
+          </>)}</CleanBlock>
         </div>
       </section>
 
-      <CleanControlTiles control={system?.control} allowed={hasRoute("/oversight")} />
-      <CleanPultExtras key={agent?.id}
-        canTrainer={can("settings.manage")}
-        canVacancies={can("vacancies.view") && hasRoute("/vacancies")}
-        canSettings={can("settings.manage") && hasRoute("/settings")}
-        newApplications={system?.newApplications}
-      />
-      <CleanSystemBotDetails
-        system={system} bot={bot} canHealth={hasRoute("/health")}
-        canMessages={hasRoute("/messages")} canBotLearning={hasRoute("/ai-learning")}
-        canSeeMoney={!!data?.seesMoney && can("finance.view")}
-      />
+      <CleanBlock name="pult.control" title="Контроль руководителя">{() => <CleanControlTiles control={system?.control} allowed={hasRoute("/oversight")} />}</CleanBlock>
+      <CleanBlock name="pult.extras" title="Инструменты пульта">
+        <CleanPultExtras key={agent?.id}
+          canTrainer={can("settings.manage")}
+          canVacancies={can("vacancies.view") && hasRoute("/vacancies")}
+          canSettings={can("settings.manage") && hasRoute("/settings")}
+          newApplications={system?.newApplications}
+        />
+      </CleanBlock>
+      <CleanBlock name="pult.system" title="Система и ИИ">
+        <CleanSystemBotDetails
+          system={system} bot={bot} canHealth={hasRoute("/health")}
+          canMessages={hasRoute("/messages")} canBotLearning={hasRoute("/ai-learning")}
+          canSeeMoney={!!data?.seesMoney && can("finance.view")}
+        />
+      </CleanBlock>
 
       {/* ---- Ряд D: ИИ-инструменты | воронка 7 дней ---- */}
       <section className="grid gap-4 lg:grid-cols-2">
-        <CCard>
-          <CHead
-            title="ИИ-помощник"
-            count="быстрый доступ"
-          />
-          <CleanDirectorAi enabled={canView} askEnabled={!!data && !data.modulesOff.includes("ask")} areas={pultView?.areas} />
-          <div className="grid gap-2.5 sm:grid-cols-3">
-            {can("insights.view") && hasRoute("/insights") && <Tool
-              to="/insights"
-              icon={<Sparkles />}
-              title="Разбор к собранию"
-              sub="По каждому агенту: что сделано, что просрочено"
-            />}
-            {hasRoute("/clients") && <Tool
-              to="/clients"
-              icon={<UserRound />}
-              title="Подобрать объекты клиентам"
-              sub="Открыть клиентов и подобрать предложения"
-            />}
-            {hasRoute("/notifications") && <Tool
-              to="/notifications"
-              icon={<Bell />}
-              title="Уведомления"
-              sub="События и сообщения, требующие внимания"
-            />}
-          </div>
-        </CCard>
-        {marketing?.pulse30 && marketing.pulse30.days.length > 0 ? (
+        <CleanBlock name="pult.ai" title="ИИ-помощник">{() => (
           <CCard>
             <CHead
-              title="Обращения и показы"
-              count="последние 7 дней"
-              right={
-                hasRoute("/sources") && <CLink to="/sources" variant="soft" size="icon" aria-label="Открыть источники">
-                  <ArrowUpRight className="size-4" />
-                </CLink>
-              }
+              title="ИИ-помощник"
+              count="быстрый доступ"
             />
-            <Funnel days={marketing.pulse30.days.slice(-7)} />
+            <CleanDirectorAi enabled={canView} askEnabled={!!data && !data.modulesOff.includes("ask")} areas={data ? buildPultView(data, dushanbeHour()).areas : undefined} />
+            <div className="grid gap-2.5 sm:grid-cols-3">
+              {can("insights.view") && hasRoute("/insights") && <Tool
+                to="/insights"
+                icon={<Sparkles />}
+                title="Разбор к собранию"
+                sub="По каждому агенту: что сделано, что просрочено"
+              />}
+              {hasRoute("/clients") && <Tool
+                to="/clients"
+                icon={<UserRound />}
+                title="Подобрать объекты клиентам"
+                sub="Открыть клиентов и подобрать предложения"
+              />}
+              {hasRoute("/notifications") && <Tool
+                to="/notifications"
+                icon={<Bell />}
+                title="Уведомления"
+                sub="События и сообщения, требующие внимания"
+              />}
+            </div>
           </CCard>
-        ) : null}
+        )}</CleanBlock>
+        <CleanBlock name="pult.funnel" title="Обращения и показы">{() => (<>
+          {marketing?.pulse30 && marketing.pulse30.days.length > 0 ? (
+            <CCard>
+              <CHead
+                title="Обращения и показы"
+                count="последние 7 дней"
+                right={
+                  hasRoute("/sources") && <CLink to="/sources" variant="soft" size="icon" aria-label="Открыть источники">
+                    <ArrowUpRight className="size-4" />
+                  </CLink>
+                }
+              />
+              <Funnel days={marketing.pulse30.days.slice(-7)} />
+            </CCard>
+          ) : null}
+        </>)}</CleanBlock>
       </section>
 
-      {data && <CleanWorkQueues data={data} allowedRoute={hasRoute} propertyPhotos={photoById} />}
+      {data && <CleanBlock name="pult.queues" title="Рабочие очереди">{() => <CleanWorkQueues data={data} allowedRoute={hasRoute} propertyPhotos={photoById} />}</CleanBlock>}
 
       {/* нижняя строка действий — как в референсах, быстрые кнопки одной линией */}
       <div className="flex flex-wrap items-center gap-2.5 pt-2">
