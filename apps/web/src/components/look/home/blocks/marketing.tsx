@@ -49,7 +49,8 @@ export function MarketingTiles() {
   return (
     <div className="ry-strip ry-strip-tiles" data-tiles="5">
       <RhTile variant="brand" icon="eye" label="Ждут проверки" value={n(s?.awaitingReview)} to="/properties?status=PENDING_REVIEW" alert={isError} />
-      <RhTile variant="ink" icon="hourglass" label="Просрочено" value={n(s?.overdue)} to="#ry-home-focus" />
+      {/* Срочная (чёрная) — только при просрочке, как прежнее crit={overdue > 0}. */}
+      <RhTile variant={(s?.overdue ?? 0) > 0 ? "ink" : "plain"} icon="hourglass" label="Просрочено" value={n(s?.overdue)} to="#ry-home-focus" />
       <RhTile variant="plain" icon="image" label="Ждут фото" value={n(s?.awaitingPhotos)} to="/properties?status=AWAITING_PHOTOS" />
       <RhTile variant="plain" icon="clapperboard" label="Ждут видео" value={n(s?.awaitingVideo)} to="/properties?status=AWAITING_VIDEO" />
       <RhTile variant="plain" icon="building-2" label="Всего объектов" value={n(s?.total)} to="/properties" />
@@ -141,7 +142,7 @@ export function MarketingStale() {
   const list = useExpandable(stale, stale.length);
   if (!stale.length) return null;
   return (
-    <RhSection title="Объекты простаивают" className="ry-col-b">
+    <RhSection title="Объекты простаивают" className="ry-col-a">
       <RhGroup>
         {list.visible.map((p) => (
           <RhRow key={p.id} to={`/properties/${p.shortId}`}

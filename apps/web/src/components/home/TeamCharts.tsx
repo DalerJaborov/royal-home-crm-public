@@ -196,12 +196,13 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
     return (
       <>
         {weakText && (
-          <RhSection title="Как идут дела у команды">
+          <RhSection title="Как идут дела у команды" className="ry-col-b">
             <RhGroup><RhRow lead={<RhCircle icon="circle-alert" tone="warn" />} title={weakText} /></RhGroup>
           </RhSection>
         )}
-        {blocks.map((b) => (
-          <RhSection key={b.key} title={b.title} className="ry-col-b">
+        {/* Графики по очереди в левую и правую колонку ПК (ядро главной закрепляет колонки). */}
+        {blocks.map((b, i) => (
+          <RhSection key={b.key} title={b.title} className={i % 2 === 0 ? "ry-col-a" : "ry-col-b"}>
             <div className="ry-home-chart">
               {b.note && <p className="ry-home-chart-note">{b.note}</p>}
               <Rh2Inline>{b.body}</Rh2Inline>

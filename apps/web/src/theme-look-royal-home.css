@@ -179,6 +179,12 @@
   /* Две колонки: половинные блоки (ry-col-a/b) парами, остальное — во всю ширину
      (основа делает это только для прямых детей ry-blocks, а здесь между ними обёртка). */
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-blk > :not(.ry-col-a):not(.ry-col-b) { grid-column: 1 / -1; }
+  /* Колонки закреплены: «а» всегда слева, «б» справа. Пропавший блок (нет данных, выключен)
+     не перекидывает соседей на чужую сторону — свободную клетку занимает следующий блок той же
+     колонки (плотная укладка), без дыры. */
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-blocks { grid-auto-flow: row dense; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-blk > .ry-col-a { grid-column: 1; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-blk > .ry-col-b { grid-column: 2; }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip > .ry-tile:last-child:nth-child(odd) { grid-column: auto; }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-tiles="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   /* Пять плиток: три сверху, две снизу пошире — без пустой клетки. */

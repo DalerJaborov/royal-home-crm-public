@@ -19,7 +19,8 @@ export function EditorTiles() {
   return (
     <div className="ry-strip ry-strip-tiles" data-tiles="3">
       <RhTile variant="brand" icon="clapperboard" label="На монтаже" value={count(data?.counts.inEditing)} to="/properties?status=EDITING" alert={isError} />
-      <RhTile variant="ink" icon="hourglass" label="Просрочено" value={count(data?.counts.overdue)} to="/properties?status=EDITING&overdue=1" />
+      {/* Срочная (чёрная) — только при просрочке, как прежнее critical={overdue > 0}. */}
+      <RhTile variant={(data?.counts.overdue ?? 0) > 0 ? "ink" : "plain"} icon="hourglass" label="Просрочено" value={count(data?.counts.overdue)} to="/properties?status=EDITING&overdue=1" />
       <RhTile variant="plain" icon="image" label="Скоро придёт" value={count(data?.counts.upcoming)} to="/properties?status=AWAITING_VIDEO" />
     </div>
   );
@@ -57,6 +58,7 @@ export function EditorHint() {
 
 /** Одна из двух очередей с собственной догрузкой страниц. */
 function useEditorList(kind: "editing" | "upcoming") {
+  const mobile = useMobileUx();
   const [page, setPage] = useState(1);
   const pages = kind === "editing" ? { editingPage: page, upcomingPage: 1 } : { editingPage: 1, upcomingPage: page };
   const query = useEditorQueue(true, pages);
@@ -66,7 +68,9 @@ function useEditorList(kind: "editing" | "upcoming") {
   const data = query.data ?? head.data;
   const total = (kind === "editing" ? data?.counts.inEditing : data?.counts.upcoming) ?? rows.length;
   const sorted = kind === "editing" ? [...rows].sort((a, b) => Number(b.pipeline.overdue) - Number(a.pipeline.overdue)) : rows;
-  const list = useExpandable(sorted, total, () => setPage((p) => p + 1));
+  // ПК — как прежний EditorDashboard: весь пришедший список и одно нажатие = следующая страница.
+  // Телефон — как прежняя MobileEditorHome: сначала пять, «Показать ещё» раскрывает, потом догружает.
+  const list = useExpandable(sorted, total, () => setPage((p) => p + 1), mobile ? 5 : Number.POSITIVE_INFINITY);
   return {
     list, rows: sorted, loading: query.isLoading && rows.length === 0, failed: query.isError && !data,
     fetching: query.isFetching, retry: () => void query.refetch(),

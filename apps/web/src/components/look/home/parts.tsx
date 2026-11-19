@@ -5,7 +5,7 @@ import { useAuthStore } from "../../../store/auth";
 import { useUiPrefs } from "../../../store/uiPrefs";
 import { dushanbeDate, dushanbeHour } from "../../../lib/date";
 import { PROPERTY_STATUS_LABELS, STAGE_OWNER_LABELS } from "../../../lib/format";
-import { greetingFor, useMinuteNow } from "../../../pages/TodayRoyal";
+import { greetingFor, useMinuteNow } from "./time";
 import { RoyalSection } from "../clients/RoyalSection";
 import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
@@ -119,7 +119,8 @@ export function useExpandable<T>(rows: T[], total: number, loadNext?: () => void
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? rows : rows.slice(0, step);
   const rest = Math.max(0, total - visible.length);
-  const more = () => (expanded && loadNext ? loadNext() : setExpanded(true));
+  // Нечего раскрывать на месте (всё пришедшее уже видно) — сразу догружаем следующую страницу.
+  const more = () => ((expanded || rows.length <= step) && loadNext ? loadNext() : setExpanded(true));
   return { visible, rest, more };
 }
 

@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 const h = vi.hoisted(() => ({
   role: "EDITOR",
+  mobile: false,
   perms: new Set<string>(["reports.view", "properties.moderate", "calls.ownTranscripts"]),
   editor: { data: undefined as unknown, isLoading: false, isError: false, isFetching: false },
   summary: { data: undefined as unknown, isLoading: false, isError: false },
@@ -46,11 +47,13 @@ vi.mock("../../../hooks/useConversations", async (importOriginal) => ({
 vi.mock("../../../hooks/useDashboard", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../../hooks/useDashboard")>(), useDashboardSummary: () => ({ data: { kpis: { showingsWeek: 7 } }, isError: false }),
 }));
+vi.mock("../../../hooks/useMobileUx", () => ({ useMobileUx: () => h.mobile }));
 vi.mock("../../home/TeamCharts", () => ({ TeamCharts: () => null }));
 vi.mock("../../home/HomeAsk", () => ({ HomeAsk: ({ placeholder }: { placeholder: string }) => <input aria-label="ask" placeholder={placeholder} /> }));
 
 import { homeBlocksFor, RoyalHomeCore, type HomeBlockDef } from "./core";
 import { HOME_BLOCKS, HOME_LAYOUT, RoyalRoleHome } from "./registry";
+import { channelBrand, greetingFor } from "./time";
 
 const wrap = (node: React.ReactNode) => render(
   <QueryClientProvider client={new QueryClient()}><MemoryRouter>{node}</MemoryRouter></QueryClientProvider>,
@@ -63,6 +66,7 @@ const row = (id: string, title: string, overdue = false) => ({
 
 beforeEach(() => {
   h.role = "EDITOR";
+  h.mobile = false;
   h.editor = { data: undefined, isLoading: false, isError: false, isFetching: false };
   h.summary = { data: undefined, isLoading: false, isError: false };
   h.queue = { data: undefined, isLoading: false, isError: false };
@@ -124,6 +128,21 @@ describe("ядро главной: реестр и раскладка", () => {
   });
 });
 
+describe("время и каналы ядра (свой модуль, без TodayRoyal)", () => {
+  it("приветствие по часу и логотип канала", () => {
+    expect([greetingFor(6), greetingFor(13), greetingFor(19), greetingFor(2)]).toEqual(["Доброе утро", "Добрый день", "Добрый вечер", "Доброй ночи"]);
+    expect([channelBrand("WHATSAPP"), channelBrand("telegram"), channelBrand("website"), channelBrand("okru")]).toEqual(["whatsapp", "telegram", "site", null]);
+  });
+  it("ни один файл ядра не импортирует pages/TodayRoyal", async () => {
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const { join, resolve } = await import("node:path");
+    const root = ["src/components/look/home", "apps/web/src/components/look/home"].map((p) => resolve(process.cwd(), p)).find((p) => { try { return statSync(p).isDirectory(); } catch { return false; } })!;
+    const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : [join(dir, f)]);
+    const offenders = files(root).filter((f) => !f.endsWith(".test.tsx") && /from\s+["'][^"']*pages\/TodayRoyal["']/.test(readFileSync(f, "utf8")));
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe("блоки ролей на данных прежних главных", () => {
   it("монтажёр: просроченный объект первым, ссылки и счётчики прежние, отказ — не «пусто»", () => {
     h.editor = { ...h.editor, data: {
@@ -142,6 +161,30 @@ describe("блоки ролей на данных прежних главных"
     wrap(<RoyalRoleHome />);
     expect(screen.getAllByText("Не загрузилось").length).toBeGreaterThan(0);
     expect(screen.queryByText("Ничего не ждёт монтажа")).toBeNull();
+  });
+
+  it("«Просрочено»: срочная (чёрная) плитка только при просрочке; ПК — «Показать ещё» сразу догружает", () => {
+    const tile = (container: HTMLElement) => container.querySelector('a.ry-tile[href="/properties?status=EDITING&overdue=1"]')?.getAttribute("data-variant");
+    const queue = (overdue: number) => ({ ...h.editor, data: {
+      inEditing: [row("p1", "Квартира"), row("p2", "Дом")], upcoming: [],
+      counts: { inEditing: 60, overdue, upcoming: 0 }, editingPage: 1, upcomingPage: 1, pageSize: 50,
+    } });
+    h.editor = queue(0);
+    expect(tile(wrap(<RoyalRoleHome />).container)).toBe("plain");
+    cleanup();
+    h.editor = queue(2);
+    const { container } = wrap(<RoyalRoleHome />);
+    expect(tile(container)).toBe("ink");
+    // ПК (не телефон): видно всё пришедшее, кнопка говорит, сколько ещё на сервере.
+    expect(container.querySelectorAll('[data-block="editorEditing"] .ry-row').length).toBe(2);
+    expect(container.querySelector('[data-block="editorEditing"] .ry-home-more')?.textContent).toContain("(58)");
+    // Блоки ядра не падают (граница ошибок молчит): подсказка на месте.
+    expect(container.querySelector(".ry-home-hint")).toBeTruthy();
+    cleanup();
+    // Телефон: сначала пять строк — здесь пришло две, раскрывать нечего, кнопка сразу про сервер.
+    h.mobile = true;
+    const phone = wrap(<RoyalRoleHome />);
+    expect(phone.container.querySelectorAll('[data-block="editorEditing"] .ry-row').length).toBe(2);
   });
 
   it("маркетинг: фокус — просроченный объект, «Очередь» только при праве", () => {

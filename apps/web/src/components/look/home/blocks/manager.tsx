@@ -3,7 +3,7 @@ import { pluralizeRu, relativeTime } from "../../../../lib/format";
 import { useDashboardSummary } from "../../../../hooks/useDashboard";
 import { useTeamLive, type UnacceptedLead } from "../../../../hooks/useTeamLive";
 import { useConversations } from "../../../../hooks/useConversations";
-import { channelBrand } from "../../../../pages/TodayRoyal";
+import { channelBrand } from "../time";
 import { RhAvatar, RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
 import { HomeChip, HomeMore, HomeQuick, useExpandable, type HomeQuickItem } from "../parts";
 
@@ -27,7 +27,8 @@ export function ManagerTiles() {
   return (
     <div className="ry-strip ry-strip-tiles" data-tiles="4">
       <RhTile variant="brand" icon="user-plus" label="Не приняты" value={value(live?.unacceptedTotal)} to="#ry-home-wait" alert={team.isError} />
-      <RhTile variant="ink" icon="flame" label="Эскалации" value={value(live?.escalatedTotal)} to="#ry-home-wait" />
+      {/* Срочная (чёрная) — только когда есть что эскалировать, как прежний красный знак при > 0. */}
+      <RhTile variant={(live?.escalatedTotal ?? 0) > 0 ? "ink" : "plain"} icon="flame" label="Эскалации" value={value(live?.escalatedTotal)} to="#ry-home-wait" />
       <RhTile variant="plain" icon="inbox" label="Без агента" value={value(live?.queuedTotal)} to="/clients?slice=pending" />
       <RhTile variant="plain" icon="calendar-days" label="Показы, 7 дней" value={summary.data ? summary.data.kpis.showingsWeek : "—"} to="/calendar" alert={summary.isError} />
     </div>
