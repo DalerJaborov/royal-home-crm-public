@@ -637,6 +637,21 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .prof-h .who .sub { margin: 4px 0 0; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .prof-h .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 
+/* Зелёная точка «в сети» у аватара (как в прежнем виде), с кольцом цвета карточки. */
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-av { position: relative; display: inline-grid; flex: none; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-pres {
+  position: absolute; right: -2px; bottom: -2px; width: 16px; height: 16px; border-radius: 999px;
+  background: var(--rh-ui-ok); box-shadow: 0 0 0 3px var(--rh-ui-card);
+}
+
+/* Опасное действие («Да, отключить» двухфакторную защиту) — сплошное красное, как удаление. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill.danger {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; height: auto; padding: 0 16px;
+  border: 0; border-radius: 999px; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg);
+  font: inherit; font-size: 14px; font-weight: 600; line-height: 1.25; white-space: normal; box-shadow: none; cursor: pointer;
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill.danger:focus-visible { outline: 2px solid var(--rh-ui-crit); outline-offset: 2px; }
+
 /* Строка настройки (.mod): название 17, пояснение серым всегда на виду, справа переключатель или кнопка. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mod {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; min-height: var(--rh-ui-row-h); margin: 0; padding: 12px 0;

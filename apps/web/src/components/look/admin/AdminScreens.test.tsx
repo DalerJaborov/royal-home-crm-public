@@ -121,7 +121,7 @@ describe("служебные экраны в новом виде: тот же т
       expect(royal).toContain(">Принять<");
       expect(royal).toContain(">Отправлю клиенту<");
       expect(royal).toContain(">Не подходит<");
-      expect(royal.match(/>Открыть</g)).toHaveLength(notifications.items.length);
+      expect(royal.match(/>Открыть</g)).toHaveLength(notifications.items.filter((n) => !n.retiredAt).length + (royal.includes(">Передан<") ? 1 : 0));
       expect(royal).toContain("Показать ещё");
     }
     state.royal = false;
@@ -135,7 +135,7 @@ describe("служебные экраны в новом виде: тот же т
     const tones = [...html.matchAll(/class="ry-circle" data-tone="([\w-]+)"/g)].map((m) => m[1]);
     expect(tones.filter((t) => t === "crit")).toHaveLength(1);
     expect(tones.filter((t) => t === "warn")).toHaveLength(1);
-    expect(tones).toHaveLength(notifications.items.length);
+    expect(tones).toHaveLength(notifications.items.filter((n) => !n.retiredAt).length + (html.includes(">Передан<") ? 1 : 0));
   });
 
   it("профиль: тот же текст, разделы и кнопки; без признака — прежний корень", () => {

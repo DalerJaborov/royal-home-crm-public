@@ -87,7 +87,7 @@ export function ChannelDetail() {
     return (
       <AdminScreen royal title="Канал интеграции" back="/integrations" onBack={goBack} className="clean-channel-detail">
         <PageHeader title={decodedName || "Канал"} sub="Снимок ночной проверки. Открытие страницы не запускает проверку внешнего сервиса."
-          actions={<RhButton variant="soft" onClick={goBack}><ChevronLeft size={22} strokeWidth={2} aria-hidden />Назад к списку каналов</RhButton>} />
+          actions={<RhButton variant="soft" className="clean-channel-back" onClick={goBack}><ChevronLeft size={22} strokeWidth={2} aria-hidden />Назад к списку каналов</RhButton>} />
         {isLoading && <div className="ry-adm-card" role="status" aria-busy="true"><p className="ry-adm-text">Загружаем снимок канала…</p></div>}
         {isError && <div className="ry-adm-card" role="alert">
           <div className="ry-adm-head"><RhCircle icon="flame" tone="crit" /><h2>Не удалось обновить снимок</h2></div>

@@ -495,7 +495,10 @@ function AvatarSection() {
     <section className="card">
       <div className="prof-h">
         {royal ? (
-          <RhAvatar name={profile?.fullName ?? ""} src={profile?.avatarUrl} size={64} />
+          <span className="ry-adm-av">
+            <RhAvatar name={profile?.fullName ?? ""} src={profile?.avatarUrl} size={64} />
+            <i className="ry-adm-pres" aria-hidden="true" />
+          </span>
         ) : (
           <span className="av xl" style={AVATAR_TONES[2]}>
             {profile?.avatarUrl ? (
