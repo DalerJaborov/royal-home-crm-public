@@ -10,6 +10,9 @@ function scrollTo(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 import { SettingsTabs } from "../components/SectionTabs";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { ControlRoot } from "../components/look/control/ControlRoot";
+import { controlTile } from "../components/look/control/controlTileIcon";
 
 /**
  * Плитки «За сутки / За неделю / Разобрано / Диалоги без ответа» — по эталону
@@ -148,6 +151,7 @@ function GeminiHealthCheckSection() {
  */
 export function Health() {
   const can = useCan();
+  const royal = useRoyalLook();
   const allowed = can("auditLog.view");
   // Хук — ДО условного return (правило хуков): у кого нет права, тот ниже
   // увидит только .empty, а сам запрос сервер всё равно отклонит по праву.
@@ -162,7 +166,7 @@ export function Health() {
 
   if (!allowed) {
     return (
-      <div className="rh2 screens">
+      <ControlRoot royal={royal}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -178,12 +182,12 @@ export function Health() {
             </div>
           </div>
         </div>
-      </div>
+      </ControlRoot>
     );
   }
 
   return (
-    <div className="rh2 screens">
+    <ControlRoot royal={royal}>
       <div className="scr" data-stagger>
         <div className="pg-h">
           <div>
@@ -215,7 +219,7 @@ export function Health() {
 
         <div className="tiles">
           <StatTile
-            icon={OctagonAlert}
+            {...(royal ? controlTile("circle-alert", !!tiles && tiles.count24h > 0) : { icon: OctagonAlert })}
             label="За сутки"
             value={tiles ? tiles.count24h : "…"}
             line="ошибок сервера и браузера"
@@ -224,7 +228,7 @@ export function Health() {
             title="Журнал ошибок ниже на этом экране"
           />
           <StatTile
-            icon={Activity}
+            {...(royal ? controlTile("gauge") : { icon: Activity })}
             label="За неделю"
             value={tiles ? tiles.count7d : "…"}
             line="включая уже разобранные"
@@ -232,7 +236,7 @@ export function Health() {
             title="Журнал ошибок ниже на этом экране"
           />
           <StatTile
-            icon={CheckCircle2}
+            {...(royal ? controlTile("list-checks") : { icon: CheckCircle2 })}
             label="Разобрано"
             value={tiles ? tiles.resolvedCount : "…"}
             line="нажатием «Разобрался»"
@@ -240,7 +244,7 @@ export function Health() {
             title="Журнал ошибок ниже на этом экране"
           />
           <StatTile
-            icon={MessageCircleWarning}
+            {...(royal ? controlTile("messages-square", !!stuck && stuck > 0) : { icon: MessageCircleWarning })}
             label="Диалоги без ответа"
             value={stuck ?? "…"}
             line="бот ещё пробует в фоне"
@@ -251,7 +255,7 @@ export function Health() {
           {/* Очередь фоновых заданий (владелец 21.09.2026, п.4 задания) — сдавшиеся
               и зависшие задания BackgroundJob, экран «Что не доехало». */}
           <StatTile
-            icon={TimerReset}
+            {...(royal ? controlTile("hourglass", !!stuckWork && stuckWork.givenUp + stuckWork.hanging > 0) : { icon: TimerReset })}
             label="Не доехало"
             value={stuckWork ? stuckWork.givenUp + stuckWork.hanging : "…"}
             line={stuckWork ? `сдалось ${stuckWork.givenUp}, висит ${stuckWork.hanging}` : undefined}
@@ -270,6 +274,6 @@ export function Health() {
         </div>
         <AuditLogSection />
       </div>
-    </div>
+    </ControlRoot>
   );
 }

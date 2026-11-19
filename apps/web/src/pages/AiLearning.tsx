@@ -11,6 +11,9 @@ import { useBotLearning } from "../hooks/useBotLearning";
 import { useBotAuditList } from "../hooks/useBotAudit";
 import { useSettings } from "../hooks/useSettings";
 import { StatTile } from "../components/ui/StatTile";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { ControlRoot } from "../components/look/control/ControlRoot";
+import { controlTile } from "../components/look/control/controlTileIcon";
 
 function scrollTo(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -79,6 +82,7 @@ function isLearningTab(value: string | null): value is LearningTab {
 
 export function AiLearning() {
   const can = useCan();
+  const royal = useRoyalLook();
   const canView = can("settings.view");
   // Предупреждение сверху (макет) — счётчик вопросов, на которые бот ждёт
   // подсказку, честный (data.questionsTotal, тот же источник, что и у секции
@@ -122,7 +126,7 @@ export function AiLearning() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <ControlRoot royal={royal}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -138,7 +142,7 @@ export function AiLearning() {
             </div>
           </div>
         </div>
-      </div>
+      </ControlRoot>
     );
   }
 
@@ -146,7 +150,7 @@ export function AiLearning() {
   const canDecideTraining = can("settings.manage");
 
   return (
-    <div className="rh2 screens">
+    <ControlRoot royal={royal}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -181,7 +185,7 @@ export function AiLearning() {
          */}
         <div className="tiles">
           <StatTile
-            icon={HelpCircle}
+            {...(royal ? controlTile("lightbulb", !!data && data.questionsGroupsTotal > 0) : { icon: HelpCircle })}
             label="Ждут подсказки"
             value={data ? data.questionsGroupsTotal : "…"}
             line={data ? `разных вопросов (случаев — ${data.questionsTotal})` : "разговоров бот не понял"}
@@ -190,7 +194,7 @@ export function AiLearning() {
             title="Список вопросов ниже, во вкладке «Правила»"
           />
           <StatTile
-            icon={GraduationCap}
+            {...(royal ? controlTile("bot") : { icon: GraduationCap })}
             label="В промте"
             value={data ? `${data.promptCount} из ${data.rulesGroupsTotal}` : "…"}
             line={data ? `включённых — ${data.activeCount}, потолок промта — ${data.promptLimit}` : undefined}
@@ -198,7 +202,7 @@ export function AiLearning() {
             title="Список правил ниже, во вкладке «Правила»"
           />
           <StatTile
-            icon={ShieldAlert}
+            {...(royal ? controlTile("shield-check", !!audit.data && audit.data.unresolvedTotal > 0) : { icon: ShieldAlert })}
             label="Находки судьи не разобраны"
             value={audit.data ? audit.data.unresolvedTotal : "…"}
             line="за случайные переписки"
@@ -308,6 +312,6 @@ export function AiLearning() {
           </div>
         )}
       </div>
-    </div>
+    </ControlRoot>
   );
 }

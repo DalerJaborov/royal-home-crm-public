@@ -532,6 +532,8 @@ export const HIDING_ALLOWED = new Set<string>([
   // вводе — украшение, подпись и поле рядом (знак ИИ в интерфейсе не подчёркиваем).
   `${R} [data-ry-section="money"] .cef-toolbar .cef-main-tabs::-webkit-scrollbar`,
   `${R} [data-ry-section="money"] .cef-line-input > svg.lucide-sparkles`,
+  // control: тот же значок искр у «Разобрать сейчас» в шапке «Обучения бота» — украшение, подпись рядом.
+  `${R} .ry-control[data-ry-section="control"] .pg-h .acts svg.lucide-sparkles`,
 ]);
 export function hiddenTextSelectors(css: string): string[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -588,6 +590,23 @@ describe("все слои нового вида: смысловые цвета, 
     expect(safeAreaOverrides(`${css}\n:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-f { padding: 0; }`))
       .toEqual([':root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-f']);
     expect(siblingEscapes(`${css}\n${P} ~ .rh2 .pill { color: red; }`, "deals")).toEqual([`${P} ~ .rh2 .pill`]);
+  });
+  it("знает слой экранов контроля и ловит в нём поломки (проверен поломкой)", () => {
+    expect(lookFiles).toContain("theme-look-royal-control.css");
+    expect(lookSectionOf("theme-look-royal-control.css")).toBe("control");
+    const css = readFileSync(new URL("./theme-look-royal-control.css", import.meta.url), "utf8");
+    const K = ':root[data-ui-look="royal"] .ry-control[data-ry-section="control"]';
+    // правило без метки и с чужой меткой
+    expect(unscopedSelectors(`${css}\n:root[data-ui-look="royal"] .rh2 .scr .tile { color: red; }\n:root[data-ui-look="royal"] .rh2[data-ry-section="team"] .quiet { color: red; }`, "control"))
+      .toEqual([':root[data-ui-look="royal"] .rh2 .scr .tile', ':root[data-ui-look="royal"] .rh2[data-ry-section="team"] .quiet']);
+    // смысловая кнопка общим синим, «внимание» срочным красным, срез «Контроля» обрезан многоточием
+    expect(semanticButtonLeaks(`${css}\n${K} .quiet .pill { background: var(--rh-ui-primary); }`)).toEqual([`${K} .quiet .pill`]);
+    expect(semanticColorLeaks(`${css}\n${K} .chip.warn { background: var(--rh-ui-crit); }`)).toEqual([`${K} .chip.warn`]);
+    expect(hiddenTextSelectors(`${css}\n${K} .scr .quiet .txt { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }`)).toEqual([`${K} .scr .quiet .txt`]);
+    // без правила приглушения выключенная «Повторить» горела бы как доступная
+    const undimmed = css.replace(/:root\[data-ui-look="royal"\] \[data-ry-section="control"\] :is\(\.pill[^\n]*\n/, "");
+    expect(undimmed).not.toBe(css);
+    expect(disabledDimGaps(undimmed)).not.toEqual([]);
   });
   // Без списков долга (KNOWN_DEBT / DISABLED_DIM_DEBT закрыты 18.11, пачка debt): каждый
   // слой, основа тоже, обязан быть чистым. Находка чинится в слое, а не вписывается сюда.
