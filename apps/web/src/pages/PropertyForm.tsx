@@ -7,6 +7,8 @@ import { PropertyFormModal } from "../components/PropertyFormModal";
 import { useCan, useCanCreateProperty } from "../lib/permissions";
 import { PropertyWizard } from "../components/property-wizard/PropertyWizard";
 import { useProperty } from "../hooks/useProperties";
+import { useLookAttribute, useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection, useRoyalSectionName } from "../components/look/clients/RoyalSection";
 
 /**
  * Полноэкранная форма объекта (/properties/new и /properties/:id/edit) в облике
@@ -34,8 +36,9 @@ function FormShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const section = useRoyalSectionName();
   return (
-    <div className="rh2 screens">
+    <div className={section ? "rh2 screens ry-wiz-edit" : "rh2 screens"} data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -83,12 +86,20 @@ function FormShell({
 export function PropertyNew() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // «Новый вид» (пачка wizard, 20.11.2026). Мастер живёт СНАРУЖИ AppLayout (см.
+  // App.tsx), а атрибут `data-ui-look` ставит только AppLayout и снимает при
+  // уходе с его маршрутов — без этой строки слой нового вида до мастера не
+  // доставал бы вовсе. Решение то же (сервер + чистая оболочка + личный выбор),
+  // закрыто по умолчанию: нет признака — атрибута нет, ни одного пикселя.
+  const royal = useRoyalLook();
+  useLookAttribute(royal);
   // A12 (владелец 02.10.2026): СБ объекты не заводит. Кнопок у неё нет, а
   // прямая ссылка /properties/new уводит на список, а не в мастер, который
   // сервер всё равно не сохранит.
   const canCreateProperty = useCanCreateProperty();
   if (!canCreateProperty) return <Navigate to="/properties" replace />;
   return (
+    <RoyalSection name={royal ? "wizard" : undefined}>
     <PropertyWizard
       onClose={() => navigate("/properties")}
       initialIntakeAgentId={searchParams.get("intake") ?? undefined}
@@ -103,11 +114,24 @@ export function PropertyNew() {
       // PropertyWizard.tsx::startFromClient.
       fromClientId={searchParams.get("fromClient") ?? undefined}
     />
+    </RoyalSection>
   );
 }
 
 /** Полноэкранное редактирование объекта (/properties/:id/edit) — та же страница-раздел. */
 export function PropertyEdit() {
+  // «Новый вид»: метка раздела wizard на странице и на окнах формы (подтверждение
+  // закрытия, выбор района) — без признака метки нет, разметка прежняя.
+  const royal = useRoyalLook();
+  return (
+    <RoyalSection name={royal ? "wizard" : undefined}>
+      <PropertyEditScreen />
+    </RoyalSection>
+  );
+}
+
+function PropertyEditScreen() {
+  const section = useRoyalSectionName();
   const id = usableRouteId(useParams().id);
   const { data: property, isLoading } = useProperty(id);
   const can = useCan();
@@ -118,7 +142,7 @@ export function PropertyEdit() {
 
   if (isLoading) {
     return (
-      <div className="rh2 screens">
+      <div className={section ? "rh2 screens ry-wiz-edit" : "rh2 screens"} data-ry-section={section}>
         <div className="scr">
           <div className="card">
             <div className="list">
@@ -138,7 +162,7 @@ export function PropertyEdit() {
   }
   if (!property) {
     return (
-      <div className="rh2 screens">
+      <div className={section ? "rh2 screens ry-wiz-edit" : "rh2 screens"} data-ry-section={section}>
         <div className="scr">
           <div className="card">
             <div className="empty">

@@ -1,5 +1,6 @@
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Check, Clock, Film, Image as ImageIcon, Loader2, Plus, RotateCw, Upload, X } from "lucide-react";
+import { WizIcon } from "../look/wizard/WizIcon";
 import { formatUploadSize } from "../UploadTaskRow";
 import {
   addDraftPhotos,
@@ -133,7 +134,7 @@ export function StepMedia({
             onDrop={photoDrop.onDrop}
           >
             <span className="ico">
-              <ImageIcon width={24} height={24} aria-hidden />
+              <WizIcon icon={ImageIcon} width={24} height={24} aria-hidden />
             </span>
             <span className="t">
               <span className="only-touch">Добавить фото из галереи</span>
@@ -202,7 +203,7 @@ export function StepMedia({
             onDrop={videoDrop.onDrop}
           >
             <span className="ico">
-              <Film width={24} height={24} aria-hidden />
+              <WizIcon icon={Film} width={24} height={24} aria-hidden />
             </span>
             <span className="t">
               <span className="only-touch">Добавить видео из галереи</span>
@@ -443,7 +444,7 @@ function PhotoTile({
           <img className="im" src={item.previewUrl ?? item.thumbUrl ?? ""} alt="" style={{ objectFit: "cover", width: "100%", height: "100%" }} />
         ) : (
           <span className="im" style={{ display: "grid", placeItems: "center", color: "var(--muted)" }}>
-            <ImageIcon width={16} height={16} aria-hidden />
+            <WizIcon icon={ImageIcon} width={16} height={16} aria-hidden />
           </span>
         )}
         <span className="badge">Обложка</span>
@@ -562,9 +563,9 @@ function VideoRow({
         ) : item.status === "ready" ? (
           <Check width={16} height={16} aria-hidden />
         ) : item.status === "queued" ? (
-          <Clock width={16} height={16} aria-hidden />
+          <WizIcon icon={Clock} width={16} height={16} aria-hidden />
         ) : (
-          <Film width={16} height={16} aria-hidden />
+          <WizIcon icon={Film} width={16} height={16} aria-hidden />
         )}
       </span>
       <div style={{ minWidth: 0, flex: 1 }}>
