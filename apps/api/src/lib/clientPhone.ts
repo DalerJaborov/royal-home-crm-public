@@ -77,18 +77,22 @@ export function maskClientPhone(phone: string): string {
  *   · ровно девять цифр без плюса или десять с ведущим нулём — местная запись.
  * Хвост после номера: короткий остаётся как есть (это не номер), от семи цифр
  * закрывается целиком (может быть вторым номером). Границы неизвестны — видны
- * только первые четыре цифры, остальное закрыто, как у прежней маски.
+ * только две первые и две последние цифры, остальное закрыто.
  */
 export function maskPhoneRun(digits: string, withPlus: boolean): string {
   const sign = withPlus ? "+" : "";
   let phoneLength = 0;
   if (digits.startsWith("992") && digits.length >= 12) phoneLength = 12;
   else if (withPlus && digits.startsWith("7") && digits.length >= 11) phoneLength = 11;
-  else if (!withPlus && digits.length === 9) phoneLength = 9;
+  // Девять цифр — местная запись, только если начинается как таджикский номер (мобильные
+  // 5, 7, 8, 9; городские 3 и 4): иначе это может быть короткий городской с приписанными цифрами.
+  else if (!withPlus && digits.length === 9 && /^[345789]/.test(digits)) phoneLength = 9;
   else if (!withPlus && digits.length === 10 && digits.startsWith("0")) phoneLength = 10;
   if (phoneLength === 0) {
-    const head = digits.slice(0, 4);
-    return sign + head + CLIENT_PHONE_MASK_CHAR.repeat(Math.max(digits.length - head.length, MASK_HIDDEN_DIGITS));
+    // Две первые и две последние: по ним цепочку ещё можно узнать (журнал помощника,
+    // имя карточки), а закрытые в поле цифры в них не попадают ни у одной записи —
+    // у номера из семи цифр закрыты третья и четвёртая, у длинных — пятая с конца и дальше.
+    return sign + digits.slice(0, 2) + CLIENT_PHONE_MASK_CHAR.repeat(Math.max(digits.length - 4, MASK_HIDDEN_DIGITS)) + digits.slice(-2);
   }
   const masked = maskClientPhone(sign + digits.slice(0, phoneLength));
   const rest = digits.slice(phoneLength);
