@@ -1,10 +1,12 @@
 /**
  * Контакт собственника — самая ценная часть базы, и отдаётся он не всем.
  *
- * Правило одно на всю CRM: телефон владельца видит руководитель (право
- * `properties.viewAll`) и тот, кто ведёт этот объект сам — риелтор по сделке,
- * принявший объект интейкер или создатель карточки. Всем остальным поле приходит
- * пустым.
+ * Правило одно на всю CRM (владелец 18.11.2026: «кроме директора, ни у кого вообще
+ * не будет доступа к номерам телефона вообще»): телефон владельца видит только тот,
+ * у кого право `properties.viewOwners` (по умолчанию — директор). Исключения «свой
+ * объект» больше НЕТ: до 18.11.2026 риелтор по сделке, интейкер и создатель
+ * карточки видели номер целиком, и агент уносил продавца в личный телефон. Связь с
+ * продавцом у агента — кнопки «Позвонить» / «Написать», номер набирает сервер.
  *
  * ОТДЕЛЬНЫМ МОДУЛЕМ, а не функцией внутри routes/properties.ts. Пока правило жило
  * там, любой другой маршрут, отдающий объекты, обходил его молча — и один такой
@@ -17,6 +19,7 @@
 
 import type { Request } from "express";
 import { can } from "../auth/middleware.js";
+import { maskClientPhone } from "./clientPhone.js";
 
 /**
  * Семантический вектор карточки (Property.embedding, 768 float ≈ 15 КБ JSON) —
@@ -39,24 +42,34 @@ export function stripEmbedding<T extends object>(property: T): Omit<T, "embeddin
  * `ownerContact: null` само по себе неоднозначно — то же самое значение
  * означает и «телефон правда не заполнен», и «скрыт правом». Карточка объекта
  * раньше решала это гадая по своему собственному `can("properties.viewOwners")`
- * на клиенте, а он не знает про исключение «свой объект виден и без права»
- * (isOwner ниже) — агент на СВОЁМ объекте видел «скрыто», хотя сервер как раз
- * отдавал ему настоящий контакт. Честный флаг убирает гадание: сервер уже
+ * на клиенте. Честный флаг убирает гадание: сервер уже
  * знает, замаскировал он поле или нет, а не заставляет фронт пересчитывать
  * то же правило второй раз и неизбежно расходиться с ним.
  */
-export function stripOwnerContact<
-  T extends {
-    ownerContact?: string | null;
-    assignedAgentId?: string | null;
-    intakeAgentId?: string | null;
-    createdById?: string | null;
-  }
->(property: T, agentId: string, isSupervisor: boolean): T & { ownerContactHidden: boolean } {
-  const isOwner =
-    property.assignedAgentId === agentId || property.intakeAgentId === agentId || property.createdById === agentId;
-  if (isSupervisor || isOwner) return { ...property, ownerContactHidden: false };
+export function stripOwnerContact<T extends { ownerContact?: string | null }>(
+  property: T,
+  canViewOwners: boolean
+): T & { ownerContactHidden: boolean } {
+  if (canViewOwners) return { ...property, ownerContactHidden: false };
   return { ...property, ownerContact: null, ownerContactHidden: true };
+}
+
+/**
+ * КОНТАКТ ВЛАДЕЛЬЦА МАСКОЙ — тому, кто ведёт объект, но номера не видит (18.11.2026).
+ *
+ * Агенту на своём объекте нужно видеть, что номер у продавца есть и какой из
+ * них (хвост), и звонить кнопкой — набирает станция. Сам номер — нет. Каждый
+ * номер из поля приводим к `+992•••••57`: «как записан» маскировать нельзя —
+ * у номера без плюса маска клиента оставила бы начало («9000•••••57»).
+ */
+export function maskOwnerContact(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  const masked: string[] = [];
+  for (const chunk of raw.split(/(?=\+)|[^\d\s\-().+]+/u)) {
+    const digits = chunk.replace(/\D/g, "");
+    if (digits.length >= 9) masked.push(maskClientPhone(`+992${digits.slice(-9)}`));
+  }
+  return masked.length > 0 ? [...new Set(masked)].join(", ") : "номер записан";
 }
 
 /**
@@ -74,14 +87,9 @@ export function stripOwnerContact<
  * вовсе, а не `false`). Новые точки, отдающие Property целиком, обязаны звать
  * ИМЕННО эту функцию, а не заново собирать пару — тот же урок, что в шапке файла.
  */
-export function presentProperty<
-  T extends {
-    embedding?: unknown;
-    ownerContact?: string | null;
-    assignedAgentId?: string | null;
-    intakeAgentId?: string | null;
-    createdById?: string | null;
-  }
->(property: T, req: Pick<Request, "agent">): Omit<T, "embedding"> & { ownerContactHidden: boolean } {
-  return stripEmbedding(stripOwnerContact(property, req.agent!.id, can(req, "properties.viewOwners")));
+export function presentProperty<T extends { embedding?: unknown; ownerContact?: string | null }>(
+  property: T,
+  req: Pick<Request, "agent">
+): Omit<T, "embedding"> & { ownerContactHidden: boolean } {
+  return stripEmbedding(stripOwnerContact(property, can(req, "properties.viewOwners")));
 }

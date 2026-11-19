@@ -725,7 +725,7 @@ function FirstCallFocusCard({ item, now }: { item: FirstCallDueItem; now: number
               "срок вышел, звоните сейчас"
             ) : (
               <>
-                осталось <span className="timer">{mmss(left)}</span> · иначе минус к Royal Score
+                осталось <span className="timer">{mmss(left)}</span> · {item.afterDue ?? "иначе руководитель увидит, что звонка не было"}
               </>
             )}
           </div>

@@ -117,6 +117,8 @@ export function CallClientButton({
   /** Телефона может не быть вовсе (лид без номера) — тогда это не маска, а пусто. */
   const safePhone = phone ?? "";
   const hasPhone = safePhone.length > 0;
+  /** Станция иностранный номер не наберёт: сразу показываем причину, а не живую кнопку (19.11.2026). */
+  const foreignBlocked = !candidateId && isForeignPhone(callPhone ?? phone);
 
   async function handleCall(e: React.MouseEvent) {
     if (stopPropagation) e.stopPropagation();
@@ -129,7 +131,7 @@ export function CallClientButton({
      * текстом (packages/shared/tajikPhone.ts) — здесь только не гоняем запрос зря.
      * Кандидата (вакансии) не трогаем: там номер проверяет свой маршрут.
      */
-    if (!candidateId && isForeignPhone(callPhone ?? phone)) {
+    if (foreignBlocked) {
       setError(FOREIGN_PHONE_CALL_ERROR);
       return;
     }
@@ -183,8 +185,15 @@ export function CallClientButton({
         data-call-button
         onClick={handleCall}
         disabled={callClient.isPending || callInProgress}
+        // Иностранный номер: кнопка приглушена, но нажимаема — на телефоне подсказки title
+        // нет, и нажатие открывает ту же причину плашкой. Строки под кнопкой нет: в ряду
+        // действий карточки она ломала ряд и на ПК, и на телефоне (кадры 19.11.2026).
+        aria-disabled={foreignBlocked || undefined}
+        data-foreign-phone={foreignBlocked || undefined}
         title={
-          callInProgress
+          foreignBlocked
+            ? FOREIGN_PHONE_CALL_ERROR
+            : callInProgress
             ? isThisClient
               ? "Звонок этому клиенту уже идёт"
               : "Сначала завершите текущий разговор"
@@ -192,7 +201,7 @@ export function CallClientButton({
         }
         aria-label={variant === "icon" ? "Позвонить" : undefined}
         className={`${className ?? (variant === "icon" ? DEFAULT_ICON_CLASS : DEFAULT_FULL_CLASS)} ${
-          callInProgress ? "cursor-not-allowed" : ""
+          callInProgress ? "cursor-not-allowed" : foreignBlocked ? "opacity-60" : ""
         }`}
       >
         <Phone className={variant === "icon" ? "h-3.5 w-3.5" : "w-3.5 h-3.5"} />

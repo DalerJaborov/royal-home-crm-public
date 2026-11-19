@@ -145,10 +145,14 @@ describe("Собственник в карточке объекта", () => {
     });
   });
 
-  it("агент, принявший объект, видит имя, но продавец закреплён за другим — ссылки нет", async () => {
+  it("агент, принявший объект, видит имя и маску номера, но продавец закреплён за другим — ссылки нет", async () => {
     const res = await view(intakeToken);
     expect(res.status).toBe(200);
-    expect(res.body.ownerContactHidden).toBe(false);
+    // Свой объект номер не открывает (владелец 18.11.2026): полный номер — только директору.
+    expect(res.body.ownerContactHidden).toBe(true);
+    expect(res.body.ownerContact).toBeNull();
+    expect(res.body.ownerContactMasked).toBe("+992•••••71");
+    expect(JSON.stringify(res.body)).not.toContain(`98${tail5}71`);
     expect(res.body.sellerClient?.fullName).toBe(`Продавец Ссылкин ${runId}`);
     expect(res.body.sellerClient?.canOpen).toBe(false);
     // Правило то же, что у самой карточки клиента: она ему правда не откроется.

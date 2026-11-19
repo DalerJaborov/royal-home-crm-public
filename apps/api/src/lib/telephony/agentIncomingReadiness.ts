@@ -2,6 +2,7 @@ import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
 import { amiQueueAdd, amiQueueRemove, loadAmiCredentials, type AmiCredentials } from "./amiClient.js";
 import { readQueueMembers, type QueueMemberRow } from "./operatorQueue.js";
+import { incomingPrimaryExtension } from "./agentMobileFallback.js";
 
 /**
  * НОВЫЙ СОТРУДНИК НЕ ПОЛУЧАЕТ ОБЩИЕ ВХОДЯЩИЕ — и об этом никто не узнаёт
@@ -309,6 +310,13 @@ export async function ensureAgentsInIncomingQueue(creds?: AmiCredentials | null)
  * отдельная проверка, и второй голос об одном событии читался бы как две разные
  * поломки.
  */
+const NO_OPERATOR_ALARM_PREFIX = "Оператор приёма не назначен ни одному сотруднику";
+export const NO_OPERATOR_ALARM_KEY = "incoming-no-operators-assigned";
+/** И строки с ключом, и прежние — без ключа, по началу текста (на проде такие висят открытыми). */
+function noOperatorAlarmWhere() {
+  return { source: "telephony", OR: [{ dedupKey: NO_OPERATOR_ALARM_KEY }, { message: { startsWith: NO_OPERATOR_ALARM_PREFIX } }] };
+}
+
 export async function reconcileIncomingQueue(): Promise<void> {
   const result = await ensureAgentsInIncomingQueue();
 
@@ -320,12 +328,28 @@ export async function reconcileIncomingQueue(): Promise<void> {
   // Оператора не назначили ни одного, а незнакомые звонки кому-то всё же идут:
   // правило владельца от 20.09.2026 не действует, пока признак не проставлен, и
   // узнать об этом можно только здесь — молчание выглядело бы как «всё сделано».
-  if (result.noOperatorsAssigned) {
-    void logSystemError(
-      "telephony",
-      "Оператор приёма не назначен ни одному сотруднику: звонки незнакомых номеров идут по-старому. " +
-        "Включите «Принимает незнакомые звонки» тем, кто сидит на приёме (Настройки → Сотрудники)."
-    );
+  //
+  // ПРИЁМ НА АППАРАТ — ОЧЕРЕДЬ НЕ ПРИ ЧЁМ (18.11.2026). Решение владельца: незнакомые
+  // звонки только на офисный аппарат (incomingPrimaryTarget = "extension"). Очередь
+  // операторов для них тогда не используется вовсе, и строка «оператор не назначен»
+  // каждые 15 минут была шумом рядом с настоящими тревогами.
+  const primary = await incomingPrimaryExtension();
+  if (result.noOperatorsAssigned && !primary) {
+    const open = await prisma.errorLog.count({ where: { ...noOperatorAlarmWhere(), resolvedAt: null } });
+    if (open === 0) {
+      void logSystemError(
+        "telephony",
+        `${NO_OPERATOR_ALARM_PREFIX}: звонки незнакомых номеров идут по-старому. ` +
+          "Включите «Принимает незнакомые звонки» тем, кто сидит на приёме (Настройки → Сотрудники).",
+        { dedupKey: NO_OPERATOR_ALARM_KEY }
+      );
+    }
+  } else if (primary || !result.skipped) {
+    // Условие ушло (приём на аппарате или оператор назначен, и станция ответила) —
+    // открытые строки закрываются сами. Молчащая станция ничего не доказывает.
+    await prisma.errorLog
+      .updateMany({ where: { ...noOperatorAlarmWhere(), resolvedAt: null }, data: { resolvedAt: new Date() } })
+      .catch((err) => console.error("[telephony] тревога «оператор не назначен» не закрыта:", err instanceof Error ? err.message : err));
   }
   // «Некого добавлять» и «станция не на связи» тоже приходят сюда со skipped —
   // но говорить стоит только о том, что требует человека: непонятная очередь.

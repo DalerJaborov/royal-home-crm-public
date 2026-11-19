@@ -12,7 +12,7 @@ import { isStationDownLongerThan } from "../../lib/telephony/ariEvents.js";
 import { outageOverlapMs, outagesBetween } from "../../lib/stationOutage.js";
 import { pickAgentForLead } from "./selection.js";
 import { candidateWindow, closedMsBeforeDue, leadHoursOf, widenAfterNight } from "./shared.js";
-import { isDayOff, startOfWorkingDayAtOrAfter } from "@royal-home/shared";
+import { isDayOff, isDialableTajikNumber, startOfWorkingDayAtOrAfter } from "@royal-home/shared";
 import { calendarFor, loadCompanyDaysOff } from "../../lib/daysOffCalendar.js";
 import type { Prisma, Settings } from "../../generated/prisma/client.js";
 import { HANDOVER_ASSIGN_REASON } from "../../lib/leadReason.js";
@@ -108,6 +108,39 @@ const OWN_PROPERTY_SELECT = {
     select: { shortId: true, deletedAt: true, intakeAgentId: true, assignedAgentId: true, createdById: true },
   },
 } satisfies Prisma.ClientSelect;
+
+/**
+ * ЧТО БУДЕТ ПОСЛЕ СРОКА ПЕРВОГО ЗВОНКА — ОДНО ПРАВИЛО И ОДНА ФРАЗА (19.11.2026).
+ * Владелец: «если клиент интересовался явно их объектом — чтобы не передавались,
+ * а если новые и пока ничем конкретно не интересовались — можно дальше
+ * передавать; чтобы было и логика, и легко, и понятно для агентов». Решает
+ * handleMissedFirstCalls, а говорят агенту ровно то же пуш-напоминание
+ * (remindDueFirstCalls) и «Мой фокус» на Главной (routes/dashboard.ts): до этой
+ * правки они обещали «минус к Royal Score», которого с 16.11 нет.
+ *
+ *  - передача выключена (`leadReassignOnMissedCallEnabled`) — клиент остаётся,
+ *    руководитель видит срыв;
+ *  - клиент пришёл по объекту этого агента — остаётся у хозяина (P0-1, 10.10);
+ *  - номер не таджикский — остаётся: транк набирает только +992, звонок через CRM
+ *    физически не состоится (прод 16.11: 53 вызова на иностранные номера, ни
+ *    одного разговора), и забирать клиента за это — наказывать агента за станцию;
+ *  - остальные (новый клиент без конкретного объекта) — уходят следующему.
+ */
+export type FirstCallAfterDueKind = "stays" | "own_property" | "not_dialable" | "moves";
+
+export function firstCallAfterDue(
+  client: Parameters<typeof holdsOwnPropertyLead>[0] & { phone: string | null },
+  reassignOnMissedCall: boolean
+): { kind: FirstCallAfterDueKind; text: string } {
+  if (!reassignOnMissedCall) return { kind: "stays", text: "иначе руководитель увидит, что звонка не было" };
+  if (holdsOwnPropertyLead(client)) {
+    return { kind: "own_property", text: "клиент по вашему объекту, другому агенту не уйдёт" };
+  }
+  if (!isDialableTajikNumber(client.phone ?? "")) {
+    return { kind: "not_dialable", text: "номер не таджикский, CRM его не набирает: напишите клиенту. Другому агенту не уйдёт" };
+  }
+  return { kind: "moves", text: "иначе клиент уйдёт другому агенту" };
+}
 
 export function firstCallCandidateWindow(
   settings:
@@ -209,6 +242,8 @@ export async function handleMissedFirstCalls(now: Date = new Date()): Promise<{ 
       declinedAgentIds: true,
       // kind — лимит активных лидов действует только на покупателей (20.08.2026).
       kind: true,
+      // Номер не набирается (не +992) — клиент не уходит (firstCallAfterDue).
+      phone: true,
       // Лид по своему объекту хозяина не покидает (P0-1, 10.10.2026) — см. ownLeadKept ниже.
       ...OWN_PROPERTY_SELECT,
     },
@@ -283,7 +318,11 @@ export async function handleMissedFirstCalls(now: Date = new Date()): Promise<{ 
      * сигнал руководителю, — плюс пуш самому хозяину. Признак общий с законом
      * (lib/propertyOwner.ts::holdsOwnPropertyLead).
      */
-    const ownLeadKept = reassignOnMissedCall && holdsOwnPropertyLead(client);
+    const afterDue = firstCallAfterDue(client, reassignOnMissedCall);
+    const ownLeadKept = afterDue.kind === "own_property";
+    // Номер не +992: звонок через CRM не состоится, клиента не забираем (19.11.2026).
+    const notDialableKept = afterDue.kind === "not_dialable";
+    const keptByRule = ownLeadKept || notDialableKept;
     /**
      * ШТРАФ СНЯТ (решение владельца 16.11.2026: автоматических штрафов Royal
      * Score больше нет). Раньше строка штрафа в журнале (sourceId
@@ -308,9 +347,9 @@ export async function handleMissedFirstCalls(now: Date = new Date()): Promise<{ 
       },
       select: { id: true },
     });
-    if (alreadyNoted && (!reassignOnMissedCall || ownLeadKept)) continue;
+    if (alreadyNoted && (!reassignOnMissedCall || keptByRule)) continue;
 
-    if (!reassignOnMissedCall || ownLeadKept) {
+    if (!reassignOnMissedCall || keptByRule) {
       const objectNo = client.matchedProperty?.shortId;
       // Крон-событие подписывается SYSTEM, а не агентом, которого оно же и
       // обвиняет (П-10, 17.09.2026, дефект «крон подписан тем, кого обвиняют»).
@@ -320,16 +359,20 @@ export async function handleMissedFirstCalls(now: Date = new Date()): Promise<{ 
         type: "SYSTEM",
         notes: ownLeadKept
           ? `${MISSED_FIRST_CALL_NOTE_PREFIX} ${minutes} мин — клиент пришёл по объекту №${objectNo} этого агента и остаётся у хозяина объекта: автоматически передать его другому агенту нельзя, решает руководитель`
-          : `${MISSED_FIRST_CALL_NOTE_PREFIX} ${minutes} мин — лид остаётся у того же агента, автоматической передачи больше нет`,
+          : notDialableKept
+            ? `${MISSED_FIRST_CALL_NOTE_PREFIX} ${minutes} мин — номер клиента не таджикский, CRM его не набирает: клиент остаётся у того же агента, связаться можно перепиской, решает руководитель`
+            : `${MISSED_FIRST_CALL_NOTE_PREFIX} ${minutes} мин — лид остаётся у того же агента, автоматической передачи больше нет`,
       });
       // Руководству — в колокольчик и на дашборд, без звонка телефона
       // (владелец 20.09.2026, см. lib/notifications.ts::notifyFeedOnly).
       await notifyFeedOnly(supervisors, {
         kind: "lead",
-        title: ownLeadKept ? "Первый звонок по объекту сорван" : "Первый звонок сорван",
+        title: ownLeadKept ? "Первый звонок по объекту сорван" : notDialableKept ? "Первый звонок: номер не набирается" : "Первый звонок сорван",
         body: ownLeadKept
           ? `${client.fullName}: хозяин объекта №${objectNo} не позвонил за ${minutes} мин — переназначить может только руководитель`
-          : `${client.fullName}: агент не позвонил за ${minutes} мин`,
+          : notDialableKept
+            ? `${client.fullName}: номер не таджикский, CRM его не набирает — клиент остаётся у агента, переназначить может только руководитель`
+            : `${client.fullName}: агент не позвонил за ${minutes} мин`,
         url: `/clients/${client.shortId}`,
         tag: `lead-call-missed-${client.id}`,
       });
@@ -340,6 +383,14 @@ export async function handleMissedFirstCalls(now: Date = new Date()): Promise<{ 
           url: `/clients/${client.shortId}`,
           tag: `lead-call-due-${client.id}`,
         }).catch((err) => console.error("[push] срыв первого звонка по своему объекту:", err));
+      }
+      if (notDialableKept) {
+        sendPushToAgents([agentId], {
+          title: "Клиенту не дозвониться через CRM",
+          body: `${client.fullName}: номер не таджикский, CRM его не набирает — напишите клиенту. Другому агенту он не уйдёт`,
+          url: `/clients/${client.shortId}`,
+          tag: `lead-call-due-${client.id}`,
+        }).catch((err) => console.error("[push] срыв первого звонка, номер не набирается:", err));
       }
       handled++;
       continue;
@@ -546,7 +597,7 @@ export async function remindDueFirstCalls(now: Date = new Date()): Promise<{ rem
       escalatedAt: null,
       ...NOT_SELF_CREATED,
     },
-    select: { id: true, shortId: true, fullName: true, assignedAgentId: true, acceptedAt: true, ...OWN_PROPERTY_SELECT },
+    select: { id: true, shortId: true, fullName: true, phone: true, assignedAgentId: true, acceptedAt: true, ...OWN_PROPERTY_SELECT },
     take: 100,
   });
   if (candidates.length === 0) return { reminded: 0 };
@@ -560,12 +611,9 @@ export async function remindDueFirstCalls(now: Date = new Date()): Promise<{ rem
   }, now);
 
   const reminderMarker = "Напоминание о первом звонке отправлено";
-  // Что будет после срока — по настройке, а не «лид уйдёт» всегда (23.09.2026,
-  // проверка раздачи, пункт 15): по умолчанию лид остаётся у агента, пишется
-  // минус и сигнал руководителю; дальше лид уходит только в режиме обучения.
-  const afterDue = settings?.leadReassignOnMissedCallEnabled
-    ? "потом лид уйдёт"
-    : "потом минус к Royal Score";
+  // Что будет после срока — та же фраза, что решает крон и показывает Главная
+  // (firstCallAfterDue, 19.11.2026): уйдёт другому / останется у вас.
+  const reassignOn = !!settings?.leadReassignOnMissedCallEnabled;
   let reminded = 0;
   for (const client of candidates) {
     const s = status.get(client.id);
@@ -587,8 +635,8 @@ export async function remindDueFirstCalls(now: Date = new Date()): Promise<{ rem
     if (already) continue;
 
     const minutesLeft = Math.max(0, Math.round((s.dueAt.getTime() - now.getTime()) / 60_000));
-    // Лид по своему объекту не уходит и в режиме обучения (P0-1) — не пугать хозяина неправдой.
-    const after = holdsOwnPropertyLead(client) ? "потом минус к Royal Score" : afterDue;
+    // Лид по своему объекту и с ненабираемым номером не уходит — не пугать агента неправдой.
+    const after = firstCallAfterDue(client, reassignOn).text;
     await logTimeline({
       clientId: client.id,
       actor: { kind: "system", source: "first-call-reminder", subjectAgentId: agentId },
