@@ -25,7 +25,7 @@ import { EDITOR_HOLDER_WHERE, isHandoffPublishRunning, schedulePublishAfterAccep
 import { mediaExecutionMode } from "./mediaExecution.js";
 import { logAgentAudit } from "./audit.js";
 import { sendBackToMontajer } from "./publishedVideoFix.js";
-import { NarrationDeliveryRefused, narrationDeliveryRefusalIsExpected, prepareNarrationDeliveryPlan, type NarrationDeliveryRefusalCode } from "./narrationDelivery.js";
+import { NarrationDeliveryRefused, narrationDeliveryRefusalIsExpected, narrationDeliveryStalled, prepareNarrationDeliveryPlan, type NarrationDeliveryRefusalCode } from "./narrationDelivery.js";
 import { generateNarrationVersion, loadNarrationConfiguration, narrationProviderReady, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS, speechChars } from "./narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 import { narrationFacts, narrationFactsCurrent, narrationHash, narrationScriptError } from "./propertyNarration.js";
@@ -1084,23 +1084,75 @@ async function deliverApprovedNarrations(): Promise<number> {
       void logSystemError("api", `Озвучка: передача монтажёру не подготовлена: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-auto-delivery" });
     }
   }
+  await watchStuckVoiceDeliveries().catch((err) =>
+    logSystemError("api", `Озвучка: сторож зависших передач не отработал: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-stuck-watch" }));
   return delivered;
 }
 
-/** Итоги обхода, при которых голос ушёл, уходит или уже у монтажёра — сторожу молчать. */
+/** Итоги обхода, при которых голос ушёл, уходит или уже у монтажёра — сторожу молчать (BUSY — только если не зависла). */
 const VOICE_ON_ITS_WAY: readonly NarrationDeliveryStart[] = ["QUEUED", "ALREADY", "BUSY", "PREVIEW"];
 /**
  * СТОРОЖ «ГОЛОС НЕ УШЁЛ» (19.11.2026). Обход берёт только объекты у монтажёра (SENT_TO_EDITOR) с одобренной
  * озвучкой без передачи — значит, если итог не «поставлено / уже / занято / ждёт LIVE», монтажёр монтирует без
  * голоса прямо сейчас. Раньше это было видно только по жалобе. Молчит, когда версию уже сменила более новая
  * (уйдёт она) и когда причина штатная (у объекта «Без озвучки», ручной монтаж мимо очереди).
+ * «Занято» (BUSY) — в пути, только пока мешающая передача живая: UNKNOWN или SENDING дольше бюджета попытки
+ * сама не завершится никогда и держит голос и всех следующих версий (ревью 19.11).
  */
 async function watchUndeliveredVoice(row: { id: string; propertyId: string }, status: NarrationDeliveryStart, refusal?: NarrationDeliveryRefusal) {
-  if (VOICE_ON_ITS_WAY.includes(status) || status === "DISABLED" || (refusal && refusalIsExpected(refusal))) return;
+  if (status === "DISABLED" || (refusal && refusalIsExpected(refusal))) return;
+  let reason = refusal?.message ?? `передача не поставлена (итог ${status})`;
+  let key: string = refusal?.code ?? status;
+  if (VOICE_ON_ITS_WAY.includes(status)) {
+    if (status !== "BUSY") return;
+    const blockers = await prisma.propertyNarrationDelivery.findMany({ where: { propertyId: row.propertyId, status: { in: ["SENDING", "UNKNOWN"] } }, select: { id: true, status: true, claimStartedAt: true, plan: true }, take: 10 });
+    const stalled = blockers.find((d) => narrationDeliveryStalled(d));
+    if (!stalled) return;
+    reason = stalledDeliveryReason(stalled.status);
+    key = `stalled:${stalled.id}`;
+  }
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
   if (latest?.id !== row.id) return;
   const shortId = refusal?.shortId ?? (await prisma.property.findUnique({ where: { id: row.propertyId }, select: { shortId: true } }))?.shortId ?? "?";
-  const reason = refusal?.message ?? `передача не поставлена (итог ${status})`;
+  logVoiceNotSent(row.propertyId, shortId, reason, key);
+}
+
+function logVoiceNotSent(propertyId: string, shortId: number | string, reason: string, key: string) {
   void logSystemError("api", `Озвучка объекта №${shortId} одобрена, объект у монтажёра, а голос ему не ушёл: ${reason}`,
-    { dedupKey: `narration-voice-not-sent:${row.propertyId}:${refusal?.code ?? status}`, dedupWindowMs: NARRATION_DELIVERY_ALARM_WINDOW_MS });
+    { dedupKey: `narration-voice-not-sent:${propertyId}:${key}`, dedupWindowMs: NARRATION_DELIVERY_ALARM_WINDOW_MS });
+}
+
+function stalledDeliveryReason(status: string): string {
+  return status === "UNKNOWN"
+    ? "передача зависла с неизвестным результатом. Сверьте в карточке («Сверка неопределённой доставки»), затем при необходимости передайте вручную"
+    : "передача идёт дольше положенного. Сверьте в карточке («Сверка неопределённой доставки»), затем при необходимости передайте вручную";
+}
+
+/**
+ * СТОРОЖ ЗАВИСШИХ И УПАВШИХ ПЕРЕДАЧ (ревью 19.11.2026). Обход берёт версии только без передач, поэтому версия,
+ * чья передача упала (FAILED) или зависла (UNKNOWN, SENDING дольше бюджета), из него выпадает навсегда, а повторное
+ * одобрение отвечает «уже». Автоповтора нет намеренно (lib/narrationDelivery.ts::reportNarrationDeliveryProblem):
+ * здесь — напоминание раз в шесть часов, пока объект у монтажёра, версия последняя и голос по ней не ушёл.
+ */
+async function watchStuckVoiceDeliveries(now: Date = new Date()): Promise<void> {
+  const rows = await prisma.propertyNarrationDelivery.findMany({
+    where: { status: { in: ["FAILED", "UNKNOWN", "SENDING"] }, version: { status: "READY", approvedAt: { not: null } },
+      property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffManualSince: null } },
+    orderBy: { createdAt: "desc" }, take: 20,
+    select: { id: true, propertyId: true, versionId: true, status: true, claimStartedAt: true, plan: true, lastError: true, property: { select: { shortId: true } } },
+  });
+  const seen = new Set<string>();
+  for (const d of rows) {
+    if (seen.has(d.versionId)) continue; // одна (самая свежая) передача на версию
+    seen.add(d.versionId);
+    if (d.status !== "FAILED" && !narrationDeliveryStalled(d, now)) continue;
+    const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: d.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
+    if (latest?.id !== d.versionId) continue;
+    // По этой версии голос уже ушёл или уходит другой передачей (ручной повтор) — молчим.
+    if (await prisma.propertyNarrationDelivery.count({ where: { versionId: d.versionId, status: { in: ["SENT", "CANCELLED", "QUEUED"] } } })) continue;
+    const reason = d.status === "FAILED"
+      ? `передача не удалась (${d.lastError ?? "причина не записана"}). Автоповтора нет — передайте вручную: карточка объекта → «Передача монтажёру вручную»`
+      : stalledDeliveryReason(d.status);
+    logVoiceNotSent(d.propertyId, d.property.shortId, reason, `stalled:${d.id}`);
+  }
 }

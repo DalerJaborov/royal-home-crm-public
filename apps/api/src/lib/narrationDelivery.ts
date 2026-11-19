@@ -65,9 +65,11 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   ]);
   const editorId = requestedEditorId ?? settings?.videoMontajerAgentId;
   if (!p || p.deletedAt || !sources) throw new NarrationDeliveryRefused("PROPERTY_GONE", "Нужна актуальная озвучка: объект удалён");
-  if (!version || version.propertyId !== p.id || !version.storageKey || version.status !== "READY" || !narrationFactsCurrent(version, p)) throw new NarrationDeliveryRefused("VERSION_STALE", "Нужна актуальная озвучка");
   if (p.narrationOff) throw new NarrationDeliveryRefused("NARRATION_OFF", "Для объекта выбрано «Без озвучки»");
+  // «Не у монтажёра» — РАНЬШЕ «озвучка устарела» (ревью 19.11): одобрение устаревшей версии у сданного объекта —
+  // штатное ожидание, а не тревога директору.
   if (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince) throw new NarrationDeliveryRefused("NOT_WITH_MONTAJER", "Сначала передайте объект в работу монтажёру через существующую очередь монтажа");
+  if (!version || version.propertyId !== p.id || !version.storageKey || version.status !== "READY" || !narrationFactsCurrent(version, p)) throw new NarrationDeliveryRefused("VERSION_STALE", "Нужна актуальная озвучка");
   if (!editorId || editorId !== settings?.videoMontajerAgentId) throw new NarrationDeliveryRefused("MONTAJER_NOT_ASSIGNED", "Сначала назначьте монтажёра в существующих настройках монтажа");
   // Монтажёр — назначенный в Настройках и не отключённый; роль не важна (lib/montajerHandover.ts::usableMontajerWhere).
   const editor = await prisma.agent.findFirst({ where: usableMontajerWhere(editorId), select: { telegramChatId: true } });
@@ -78,7 +80,10 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   const mixByCrm = parsedConfig.success && narrationMixByCrm(parsedConfig.data);
   // С 12.11.2026 по умолчанию голос вклеивает монтажёр (музыка и громкость его), а к готовому
   // ролику присылает тот же без голоса — из него CRM сама меняет голос при смене цены.
-  const soundOnly = p.videoHandoffRemakeReason === "NARRATION_CHANGED";
+  // «Замените только голос» — только когда наш голос в ролике уже есть, то есть голос монтажёру раньше уходил (SENT).
+  // Возврат «вклейте голос» тоже идёт с причиной NARRATION_CHANGED, а голоса в том ролике не было (ревью 19.11).
+  const soundOnly = p.videoHandoffRemakeReason === "NARRATION_CHANGED"
+    && (await prisma.propertyNarrationDelivery.count({ where: { propertyId: p.id, status: "SENT" } })) > 0;
   // Второй файл «без голоса» не просим, когда включена своя музыка (18.11.2026).
   const hint = parsedConfig.success ? voicelessCopyHint(parsedConfig.data) : voicelessCopyHint({});
   const audioCaption = mixByCrm
@@ -120,18 +125,25 @@ export async function executeNarrationDelivery(id: string) {
         await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${row.propertyId} FOR NO KEY UPDATE`;
         await tx.$queryRaw`SELECT id FROM "PropertyNarrationDelivery" WHERE id = ${id} FOR UPDATE`;
         const currentDelivery = await tx.propertyNarrationDelivery.findUnique({ where: { id } });
-        if (currentDelivery?.status !== "SENDING" || currentDelivery.claimStartedAt?.getTime() !== claimStartedAt.getTime()) return null;
+        if (currentDelivery?.status !== "SENDING" || currentDelivery.claimStartedAt?.getTime() !== claimStartedAt.getTime()) return { refused: null };
         const p = await tx.property.findUnique({ where: { id: row.propertyId }, include: { district: true } });
         const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" } });
         const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
         const editor = row.editorId ? await tx.agent.findFirst({ where: usableMontajerWhere(row.editorId) }) : null;
         const videos = row.mode === "WITH_SOURCES" ? await tx.propertyVideo.findMany({ where: { propertyId: row.propertyId }, orderBy: [{ uploadedAt: "asc" }, { id: "asc" }] }) : [];
-        if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || latest?.id !== row.versionId || latest.status !== "READY" || latest.factsHash !== plan.factsHash || !narrationFactsCurrent(latest, p) || settings?.videoMontajerAgentId !== row.editorId || !editor?.telegramChatId || mediaRecipientHash(editor.id, editor.telegramChatId) !== plan.recipientHash || narrationHash(videos.map(v => [v.id, v.storageKey])) !== plan.sourcesHash) return null;
+        // Штатные причины (объект ушёл от монтажёра, «Без озвучки», версию сменила новая) — молча: голос уйдёт со своей
+        // версией. Монтажёра сменили, у него пропал Telegram, поменялись исходники — голос не уйдёт сам, нужен журнал.
+        if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || latest?.id !== row.versionId || latest.status !== "READY" || latest.factsHash !== plan.factsHash || !narrationFactsCurrent(latest, p)) return { refused: null };
+        if (settings?.videoMontajerAgentId !== row.editorId) return { refused: "монтажёра сменили в Настройках после постановки передачи" };
+        if (!editor) return { refused: "монтажёр отключён" };
+        if (!editor.telegramChatId || mediaRecipientHash(editor.id, editor.telegramChatId) !== plan.recipientHash) return { refused: "у монтажёра сменился или пропал Telegram" };
+        if (narrationHash(videos.map(v => [v.id, v.storageKey])) !== plan.sourcesHash) return { refused: "исходники объекта поменялись" };
         return { chatId: editor.telegramChatId, shortId: p.shortId };
       });
-      if (!target) {
+      if ("refused" in target) {
         const status = acknowledged ? "CANCELLED" : "FAILED";
-        await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError: "Назначение, очередь монтажа, факты, файлы или версия изменились. Полученные квитанции сохранены." } });
+        const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError: "Назначение, очередь монтажа, факты, файлы или версия изменились. Полученные квитанции сохранены." } });
+        if (done.count && status === "FAILED" && target.refused) reportNarrationDeliveryProblem(row.propertyId, id, "FAILED", target.refused);
         return { status };
       }
       attempted = true;
@@ -152,11 +164,38 @@ export async function executeNarrationDelivery(id: string) {
     }
     const completed = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status: "SENT", deliveredAt: new Date() } });
     return { status: completed.count ? "SENT" : "UNKNOWN" };
-  } catch {
+  } catch (err) {
     const status = attempted ? "UNKNOWN" : "FAILED";
-    await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError: attempted ? "Проверьте Telegram монтажёра. Автоповтор отключён; квитанции успешных частей сохранены." : "Передача не началась: проверьте локальные файлы и настройки" } });
+    const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError: attempted ? "Проверьте Telegram монтажёра. Автоповтор отключён; квитанции успешных частей сохранены." : "Передача не началась: проверьте локальные файлы и настройки" } });
+    if (done.count) {
+      const row = await prisma.propertyNarrationDelivery.findUnique({ where: { id }, select: { propertyId: true } });
+      if (row) reportNarrationDeliveryProblem(row.propertyId, id, status, err instanceof Error ? err.message : String(err));
+    }
     return { status };
   }
+}
+
+/**
+ * ОТКАЗ САМОЙ ОТПРАВКИ — В ЖУРНАЛ ОШИБОК (ревью 19.11.2026). Автоповтора у передачи нет намеренно: FAILED значит
+ * «до Telegram не дошло», но повтор тех же условий (нет файла, сменили монтажёра) упадёт так же, а UNKNOWN мог
+ * дойти — повтор дал бы монтажёру второй файл. Поэтому — запись с номером объекта и что сделать человеку:
+ * FAILED — передать вручную в карточке; UNKNOWN — сначала сверка («Сверка неопределённой доставки»), потом вручную.
+ * Сторож обхода (narrationAutoFlow.ts::watchStuckVoiceDeliveries) повторяет напоминание, пока голос не ушёл.
+ */
+export function reportNarrationDeliveryProblem(propertyId: string, deliveryId: string, status: "FAILED" | "UNKNOWN", reason: string) {
+  void (async () => {
+    const p = await prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true } });
+    const what = status === "FAILED"
+      ? "голос монтажёру не ушёл. Автоповтора нет — передайте вручную: карточка объекта → «Передача монтажёру вручную»"
+      : "неизвестно, дошёл ли голос до монтажёра. Сверьте в карточке объекта («Сверка неопределённой доставки»), затем при необходимости передайте вручную";
+    await logSystemError("api", `Озвучка объекта №${p?.shortId ?? "?"}: ${what}. Причина: ${reason}`, { dedupKey: `narration-delivery-outcome:${deliveryId}:${status}`, dedupWindowMs: 6 * 60 * 60_000 });
+  })().catch(() => undefined);
+}
+
+/** Передача, которая сама уже не завершится: UNKNOWN (нужна сверка) или SENDING дольше бюджета попытки. */
+export function narrationDeliveryStalled(d: { status: string; claimStartedAt: Date | null; plan: unknown }, now: Date = new Date()): boolean {
+  if (d.status === "UNKNOWN") return true;
+  return d.status === "SENDING" && !!d.claimStartedAt && now.getTime() - d.claimStartedAt.getTime() > narrationDeliveryAttemptBudgetMs(d.plan);
 }
 /**
  * ОЗВУЧКА ПЕРЕХОДИТ К ТЕКУЩЕМУ МОНТАЖЁРУ (решение владельца 11.11.2026: «когда
@@ -233,10 +272,11 @@ export async function executeQueuedNarrationDeliveries(now = new Date()) {
   if (mediaExecutionMode("NARRATION") !== "LIVE") return;
   // A legitimate multi-file batch can exceed three minutes. Each file is one bounded
   // 60s request plus 30s file/preflight/receipt margin; no network under DB locks.
-  const pending = await prisma.propertyNarrationDelivery.findMany({ where: { status: "SENDING", claimStartedAt: { lt: new Date(now.getTime() - 180_000) } }, select: { id: true, claimStartedAt: true, plan: true } });
+  const pending = await prisma.propertyNarrationDelivery.findMany({ where: { status: "SENDING", claimStartedAt: { lt: new Date(now.getTime() - 180_000) } }, select: { id: true, propertyId: true, status: true, claimStartedAt: true, plan: true } });
   for (const row of pending) {
-    const budget = narrationDeliveryAttemptBudgetMs(row.plan);
-    if (row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget) await prisma.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "SENDING", claimStartedAt: row.claimStartedAt }, data: { status: "UNKNOWN", lastError: "Прерванная передача; нужна сверка с Telegram монтажёра" } });
+    if (!narrationDeliveryStalled(row, now)) continue;
+    const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "SENDING", claimStartedAt: row.claimStartedAt }, data: { status: "UNKNOWN", lastError: "Прерванная передача; нужна сверка с Telegram монтажёра" } });
+    if (done.count) reportNarrationDeliveryProblem(row.propertyId, row.id, "UNKNOWN", "отправка прервалась (процесс остановлен или завис)");
   }
   const rows = await prisma.propertyNarrationDelivery.findMany({ where: { status: "QUEUED", executionMode: "LIVE" }, orderBy: { createdAt: "asc" }, take: 20, select: { id: true } });
   for (const row of rows) await executeNarrationDelivery(row.id);

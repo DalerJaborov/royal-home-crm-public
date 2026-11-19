@@ -48,6 +48,8 @@ function apply(row: Row, data: Row) {
 const deliveryModel = {
   findUnique: vi.fn(async ({ where }: Row) => s.deliveries.find((d) => d.requestKey === where.requestKey) ?? null),
   count: vi.fn(async ({ where }: Row) => s.deliveries.filter((d) => matches(d, where)).length),
+  // Сторож зависших передач (19.11.2026): в этой подделке упавших и зависших нет.
+  findMany: vi.fn(async () => []),
   create: vi.fn(async ({ data }: Row) => { s.deliveries.push(data); return data; }),
   // Снятие осиротевших передач (12.11.2026): в этой подделке объект живой, гасить нечего.
   updateMany: vi.fn(async () => ({ count: 0 })),

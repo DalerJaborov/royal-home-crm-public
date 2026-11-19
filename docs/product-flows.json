@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4134,
+  "forks": 4135,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -104450,23 +104450,38 @@
        "a": [],
        "c": [
         {
+         "k": "if",
+         "t": "!narrationDeliveryStalled(row, now)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
-         "t": "const budget = narrationDeliveryAttemptBudgetMs(row.plan);",
+         "t": "const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: \"SENDING\", clai…",
          "a": [
-          "зовёт narrationDeliveryAttemptBudgetMs()"
+          "меняет в базе: propertyNarrationDelivery"
          ],
          "c": []
         },
         {
          "k": "if",
-         "t": "row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget",
+         "t": "done.count",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "await prisma.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: \"SENDING\", claimStartedAt: r…",
+           "t": "reportNarrationDeliveryProblem(row.propertyId, row.id, \"UNKNOWN\", \"отправка прервалась (процесс остановлен ил…",
            "a": [
-            "меняет в базе: propertyNarrationDelivery"
+            "зовёт reportNarrationDeliveryProblem()"
            ],
            "c": []
           }

@@ -16,7 +16,7 @@
   "paths": 776,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4107,
+  "conditions": 4108,
   "untranslatedUnique": 470,
   "untranslatedTotal": 605,
   "partialUnique": 1111,
@@ -113,6 +113,7 @@
   "!message.referralOnly && admission.status === \"admitted\" && admission.fresh && pendingReferral && message.acc…",
   "!messages.some((m) => m.role === \"user\")",
   "!narrationAutoEnabled(config)",
+  "!narrationDeliveryStalled(row, now)",
   "!needsReadReceipt(source)",
   "!options.allowLive || newOwnerProbeMode() !== 'LIVE'",
   "!options.force && !await turnSettled(intake.eventKey)",
@@ -440,7 +441,6 @@
   "row.answeredAt || row.closedAt || row.supersededAt || !slot || slot.status !== \"committed\" || slot.generation…",
   "row.anyComment && !row.postUrl?.trim() && row.postUrls.every((u) => !u.trim())",
   "row.attemptAt && Date.now() - row.attemptAt.getTime() > 120_000",
-  "row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget",
   "row.client.aiInsightAt && startedAt - row.client.aiInsightAt.getTime() < NIGHTLY_SCORING_FRESH_MS",
   "row.doneAt || row.supersededAt || !intent || intent.status !== \"committed\" || intent.generation !== row.gener…",
   "row.groupChatId && row.groupChatId !== settings.discussionGroupId",
@@ -72052,18 +72052,23 @@
        "a": [],
        "c": [
         {
-         "t": "если row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget",
+         "t": "если !narrationDeliveryStalled(row, now)",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "меняет: объект narration доставка",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget"
+         "c": [],
+         "raw": "!narrationDeliveryStalled(row, now)"
+        },
+        {
+         "t": "меняет: объект narration доставка",
+         "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть количество (готово)",
+         "k": "if",
+         "a": [],
+         "c": []
         }
        ]
       },

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4134**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4135**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -23380,11 +23380,14 @@
   - const pending = await prisma.propertyNarrationDelivery.findMany({ where: { status: "SENDING", claimStartedAt:…
     · читает в базе: propertyNarrationDelivery
   - для каждого: const row of pending
-    - const budget = narrationDeliveryAttemptBudgetMs(row.plan);
-      · зовёт narrationDeliveryAttemptBudgetMs()
-    - если row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget
-      - await prisma.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "SENDING", claimStartedAt: r…
-        · меняет в базе: propertyNarrationDelivery
+    - если !narrationDeliveryStalled(row, now)
+      - continue;
+        · переходит к следующему
+    - const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "SENDING", clai…
+      · меняет в базе: propertyNarrationDelivery
+    - если done.count
+      - reportNarrationDeliveryProblem(row.propertyId, row.id, "UNKNOWN", "отправка прервалась (процесс остановлен ил…
+        · зовёт reportNarrationDeliveryProblem()
   - const rows = await prisma.propertyNarrationDelivery.findMany({ where: { status: "QUEUED", executionMode: "LIV…
     · читает в базе: propertyNarrationDelivery
   - для каждого: const row of rows
