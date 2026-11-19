@@ -367,7 +367,8 @@ export async function sendChatAction(
  */
 /** Предел Telegram на подпись к медиа. Длиннее — отправка отвергается целиком,
  *  поэтому хвост честно обрезаем: вложение с укороченной подписью лучше, чем ничего. */
-const CAPTION_MAX_CHARS = 1024;
+export const TELEGRAM_CAPTION_MAX_CHARS = 1024;
+const CAPTION_MAX_CHARS = TELEGRAM_CAPTION_MAX_CHARS;
 const fitCaption = (caption?: string) =>
   caption ? { caption: caption.length > CAPTION_MAX_CHARS ? `${caption.slice(0, CAPTION_MAX_CHARS - 1)}…` : caption } : {};
 

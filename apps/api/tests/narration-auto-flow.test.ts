@@ -319,13 +319,12 @@ describe("spoken price (owner 11.11.2026): new version on price change, sound-on
     expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringContaining("БЕЗ голоса"), null, { removeFromSocial: "on-new-video" });
     expect(s.audit).toHaveBeenCalledWith("agent", "PROPERTY_SENT_BACK_TO_MONTAJER", "Property", propertyId, expect.objectContaining({ reason: "NARRATION_CHANGED" }));
   });
-  it("default (12.11.2026): the editor replaces only the voice himself and is asked for the clip without voice", async () => {
+  it("default (12.11.2026): the editor replaces only the voice himself; no second voiceless file is asked (19.11.2026)", async () => {
     s.mode = "LIVE";
     s.property = { ...s.property, status: "AVAILABLE", publishedChannels: ["FACEBOOK"], videoHandoffStatus: "RECEIVED" };
     const v = await approveNewPrice();
-    // Машинное отделение голоса убрано 18.11.2026: монтажёра снова просят и о ролике без голоса.
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("SOUND_REMAKE");
-    expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringMatching(/только голос.*музыку и монтаж не трогайте.*без голоса/su), null, { removeFromSocial: "on-new-video" });
+    expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", `Новая озвучка, версия ${v.revision}: замените в ролике только голос, музыку и монтаж не трогайте. Новый mp3 придёт следом.`, null, { removeFromSocial: "on-new-video" });
   });
   it("same template and voice after a price change: approves itself, nothing to the agent", async () => {
     s.property = { ...s.property, status: "AVAILABLE", videoHandoffStatus: "NONE" };
