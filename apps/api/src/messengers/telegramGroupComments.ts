@@ -316,6 +316,10 @@ type QueuedComment = {
   updatedAt: Date;
 };
 
+/** Выключенная фича: сколько подошедших комментариев закрывать за раз и сколько пачек за тик (номер каждого — заявкой). */
+const CLOSE_BATCH = 200;
+const CLOSE_MAX_BATCHES = 10;
+
 export async function processDueTelegramComments(now: Date = new Date()): Promise<TelegramCommentRunStats> {
   const stats: TelegramCommentRunStats = { replied: 0, hidden: 0, escalated: 0, skipped: 0 };
   const settings = await loadGroupSettings();
@@ -329,19 +333,27 @@ export async function processDueTelegramComments(now: Date = new Date()): Promis
      * (см. ingestGroupComment) и что делает Instagram у себя в разборе:
      * «отвечать задним числом нельзя», но запись в журнале остаётся.
      */
-    // Номер из закрываемого комментария — заявка, без ответа и без удаления (второе ревью 1b, №1).
-    const closing = await prisma.telegramGroupComment.findMany({ where: { status: "PENDING", replyDueAt: { lte: now } }, take: 200,
-      select: { messageId: true, groupChatId: true, authorId: true, authorName: true, text: true } });
-    for (const c of closing) {
-      if (!extractAllPhones(c.text).length) continue;
-      await createLeadFromCommentPhone({ channel: "TELEGRAM", commentId: `${c.groupChatId ?? "legacy"}:${c.messageId}`, authorId: c.authorId,
-        authorName: c.authorName, text: c.text }, TG_COMMENT_PHONE_OFF_NOTE);
+    // Номер из закрываемого комментария — заявка, без ответа и без удаления (второе ревью 1b, №1). Закрывается ровно то,
+    // что разобрано, пачками (HANDOFF #283, 19.11: прежде заявки шли по первым 200, а закрывалось всё — номер в 201-м
+    // терялся). Больше CLOSE_MAX_BATCHES пачек за тик — остаток дождётся следующего тика, ничего не теряя.
+    for (let batch = 0; batch < CLOSE_MAX_BATCHES; batch++) {
+      const closing = await prisma.telegramGroupComment.findMany({ where: { status: "PENDING", replyDueAt: { lte: now } },
+        orderBy: { replyDueAt: "asc" }, take: CLOSE_BATCH,
+        select: { id: true, messageId: true, groupChatId: true, authorId: true, authorName: true, text: true } });
+      for (const c of closing) {
+        if (!extractAllPhones(c.text).length) continue;
+        await createLeadFromCommentPhone({ channel: "TELEGRAM", commentId: `${c.groupChatId ?? "legacy"}:${c.messageId}`, authorId: c.authorId,
+          authorName: c.authorName, text: c.text }, TG_COMMENT_PHONE_OFF_NOTE);
+      }
+      if (closing.length) {
+        const closed = await prisma.telegramGroupComment.updateMany({
+          where: { id: { in: closing.map((c) => c.id) }, status: "PENDING" },
+          data: { status: "SKIPPED", note: "bot_off" },
+        });
+        stats.skipped += closed.count;
+      }
+      if (closing.length < CLOSE_BATCH) break;
     }
-    const closed = await prisma.telegramGroupComment.updateMany({
-      where: { status: "PENDING", replyDueAt: { lte: now } },
-      data: { status: "SKIPPED", note: "bot_off" },
-    });
-    stats.skipped += closed.count;
     return stats;
   }
 

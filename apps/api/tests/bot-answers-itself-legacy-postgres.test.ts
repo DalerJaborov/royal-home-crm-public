@@ -5,8 +5,8 @@ import { prisma } from "../src/db.js";
 
 /**
  * Старый путь лички (messengers/conversation.ts), ревью 1b: №2 — аварийный рубильник глушит ВСЕ готовые тексты до двери
- * (номер и заявка сохраняются молча); №12 — блокировка личных Meta (#273): модель не зовётся; №7 — офтопик при «бот
- * отвечает сам»: без карточки никого не зовём, с карточкой — как раньше. Модель и пуши подменены, база — стенд.
+ * (номер и заявка сохраняются молча); №12 — блокировка личных Meta (#273): ход идёт как в main (пересмотрено 20.11);
+ * №7 — офтопик при «бот отвечает сам»: без карточки никого не зовём, с карточкой — как раньше. Модель и пуши подменены, база — стенд.
  */
 const m = vi.hoisted(() => ({ ai: vi.fn(), push: vi.fn(async () => 0), blocked: vi.fn(async () => false), privateReply: vi.fn(), graph: vi.fn(),
   review: vi.fn(async () => ({ handled: false })) }));
@@ -66,21 +66,28 @@ describe("№2: аварийный рубильник — готовые тек�
   });
 });
 
-describe("№12: Meta запретила аккаунту личные — модель не зовётся", () => {
-  it("вопрос без номера: ни модели, ни ответа", async () => {
+/**
+ * №12 ПЕРЕСМОТРЕН 20.11.2026 (HANDOFF #283, блокер ревью 19.11): при блокировке личных Meta старый путь больше не молчит
+ * сам — ход идёт как в main (#273): номер становится заявкой, ответ уходит к двери отправки, а та его не выпускает и сразу
+ * передаёт переписку человеку (lib/metaSendBlock.ts). Подмена `isAccountSendBlocked` = true оставлена нарочно: вернёт
+ * кто-то тихий выход в messengers/conversation.ts — эти два теста покраснеют.
+ */
+describe("№12: Meta запретила аккаунту личные — старый путь не глушит ход сам (как в main)", () => {
+  it("вопрос без номера: ход идёт, ответ отдаётся двери отправки", async () => {
     m.blocked.mockResolvedValue(true);
-    const result = await turn({ channel: "INSTAGRAM", subscriberId: `blocked-q-${runId}`, text: "Сколько стоит квартира в Сино?" });
-    expect(result.reply ?? "").toBe("");
-    // Фоновое заполнение карточек прошлых тестов (card-fill, client-current-intents, score-client) — не ход бота.
     const background = new Set(["card-fill", "client-current-intents", "score-client"]);
-    expect(m.ai.mock.calls.filter(([p]) => !background.has((p as { endpoint?: string }).endpoint ?? ""))).toHaveLength(0);
+    m.ai.mockImplementation(async (p: { endpoint?: string }) => background.has(p.endpoint ?? "") ? null
+      : { reply: ["Подскажите, сколько комнат ищете?"], ready: false, confident: true, topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false });
+    const result = await turn({ channel: "INSTAGRAM", subscriberId: `blocked-q-${runId}`, text: "Сколько стоит квартира в Сино?" });
+    expect(result.shouldReply).not.toBe(false);
+    expect(result.reply ?? "").not.toBe("");
   }, 60_000); // окно склейки сообщений старого пути (debounce) — до десятка секунд
-  it("номер при блокировке: заявка сохраняется молча", async () => {
+  it("номер при блокировке: заявка заводится, ответ отдаётся двери отправки", async () => {
     m.blocked.mockResolvedValue(true);
     const phone = digits(); cleanup.push(phone);
     const result = await turn({ channel: "INSTAGRAM", subscriberId: `blocked-phone-${runId}`, text: `Звоните ${phone}` });
-    expect(result.reply ?? "").toBe("");
     expect(await prisma.client.count({ where: { phone: { contains: phone.slice(-9) } } })).toBe(1);
+    expect(result.reply ?? "").not.toBe("");
   });
 });
 
@@ -148,6 +155,11 @@ describe("№7: офтопик третий раз подряд при «бот 
     await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: true } });
     await third(`offtopic-self-${runId}`, null);
     expect(m.push).not.toHaveBeenCalled();
+  });
+  it("ВЫКЛ (как в main), без карточки — человеку пуш (закрепление «оба ВЫКЛ = main» для личных)", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: false, botCommentPhoneConversation: false } });
+    await third(`offtopic-off-${runId}`, null);
+    expect(m.push).toHaveBeenCalledTimes(1);
   });
   it("ВКЛ, карточка есть — как раньше: человеку пуш", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: true } });

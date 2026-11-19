@@ -380,4 +380,31 @@ describe("processDueTelegramComments", () => {
       await prisma.settings.update({ where: { id: "singleton" }, data: { telegramDiscussionGroupId: savedGroupId } });
     }
   });
+
+  /**
+   * HANDOFF #283 (19.11), «чинить до выката»: заявки заводились только по первым 200 закрываемым комментариям, а закрывались
+   * все подошедшие — номер в 201-м комментарии терялся молча. Теперь закрывается ровно то, что разобрано, пачками.
+   */
+  it("выключенная фича: номер в 201-м закрываемом комментарии — тоже заявка, закрыто всё подошедшее", async () => {
+    const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { telegramDiscussionGroupId: true } });
+    const savedGroupId = settings?.telegramDiscussionGroupId ?? null;
+    await prisma.settings.update({ where: { id: "singleton" }, data: { telegramDiscussionGroupId: null } });
+    const digits = `93${String(Math.floor(Math.random() * 9_000_000) + 1_000_000)}`;
+    try {
+      const old = new Date(Date.now() - 60_000);
+      await prisma.telegramGroupComment.createMany({ data: Array.from({ length: 200 }, (_, i) => ({ messageId: `bulk-${runId}-${i}`,
+        postMessageId: `post-${runId}-bulk`, authorId: "a", text: "просто вопрос", replyDueAt: old })) });
+      await prisma.telegramGroupComment.create({ data: { messageId: `bulk-${runId}-phone`, postMessageId: `post-${runId}-bulk`, authorId: "b",
+        text: `Нарх чанд? ${digits}`, replyDueAt: new Date() } });
+      await processDueTelegramComments();
+      expect(await prisma.telegramGroupComment.count({ where: { postMessageId: `post-${runId}-bulk`, status: "PENDING" } })).toBe(0);
+      expect(await prisma.client.count({ where: { phone: { contains: digits.slice(-9) } } })).toBe(1);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { telegramDiscussionGroupId: savedGroupId } });
+      const cards = await prisma.client.findMany({ where: { phone: { contains: digits.slice(-9) } }, select: { id: true } });
+      await prisma.interaction.deleteMany({ where: { clientId: { in: cards.map((c) => c.id) } } });
+      await prisma.client.deleteMany({ where: { id: { in: cards.map((c) => c.id) } } });
+      await prisma.processedMessage.deleteMany({ where: { channel: "comment-phone-lead", messageId: { endsWith: `:bulk-${runId}-phone` } } });
+    }
+  }, 60_000);
 });

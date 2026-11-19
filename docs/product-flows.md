@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4142**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4144**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -25391,16 +25391,21 @@
   - const { replied, hidden, escalated } = await processDueTelegramComments();
     · зовёт processDueTelegramComments()
     - если !(await isTelegramGroupCommentsEnabled(settings)) || !settings.discussionGroupId
-      - const closing = await prisma.telegramGroupComment.findMany({ where: { status: "PENDING", replyDueAt: { lte: n…
-        · читает в базе: telegramGroupComment
-      - для каждого: const c of closing
-        - если !extractAllPhones(c.text).length
-          - continue;
-            · переходит к следующему
-        - await createLeadFromCommentPhone({ channel: "TELEGRAM", commentId: `${c.groupChatId ?? "legacy"}:${c.messageI…
-          · зовёт createLeadFromCommentPhone()
-      - const closed = await prisma.telegramGroupComment.updateMany({ where: { status: "PENDING", replyDueAt: { lte: …
-        · меняет в базе: telegramGroupComment
+      - для каждого: let batch = 0; batch < CLOSE_MAX_BATCHES; batch++
+        - const closing = await prisma.telegramGroupComment.findMany({ where: { status: "PENDING", replyDueAt: { lte: n…
+          · читает в базе: telegramGroupComment
+        - для каждого: const c of closing
+          - если !extractAllPhones(c.text).length
+            - continue;
+              · переходит к следующему
+          - await createLeadFromCommentPhone({ channel: "TELEGRAM", commentId: `${c.groupChatId ?? "legacy"}:${c.messageI…
+            · зовёт createLeadFromCommentPhone()
+        - если closing.length
+          - const closed = await prisma.telegramGroupComment.updateMany({ where: { id: { in: closing.map((c)
+            · меняет в базе: telegramGroupComment
+        - если closing.length < CLOSE_BATCH
+          - break;
+            · прекращает перебор
     - const due = (await prisma.telegramGroupComment.findMany({ where: { OR: [ { status: "PENDING", replyDueAt: { l…
       · читает в базе: telegramGroupComment
     - для каждого: const row of due

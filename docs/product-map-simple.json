@@ -16,7 +16,7 @@
   "paths": 776,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4115,
+  "conditions": 4117,
   "untranslatedUnique": 473,
   "untranslatedTotal": 608,
   "partialUnique": 1111,
@@ -75772,12 +75772,6 @@
            "a": [],
            "c": [],
            "more": true
-          },
-          {
-           "t": "меняет: Telegram группа комментарий",
-           "k": "do",
-           "a": [],
-           "c": []
           }
          ]
         },

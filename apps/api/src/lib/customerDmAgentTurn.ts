@@ -48,7 +48,6 @@ import { logSystemError } from "./systemError.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
 import { loadBotAnswersItself } from "./botAnswersItself.js";
-import { isAccountSendBlocked } from "./metaSendBlock.js";
 import { selfAnswerLine, selfAnswerLines, selfCallbackRequested } from "../ai/botSelfAnswerText.js";
 import { enqueueRecruitmentCandidateAlertTx } from "./customerRecruitmentAlert.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
@@ -110,11 +109,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   if (prepared.status === "already_planned") return { status: "unchanged", reason: "already_planned" };
   if (prepared.status !== "prepared") return { status: "held", reason: prepared.reason };
   const lane = prepared.lane;
-  // Meta запретила этому аккаунту личные (368 и родня; метку ставит дверь отправки, #273): модель не зовём, клиенту ничего
-  // не уходит — отказ продлил бы блок. Входящее уже в чате CRM; одну тревогу шлёт сама дверь отправки, не каждый ход.
-  if (await isAccountSendBlocked({ accountId: lane.principal.scope.accountId ?? null, channel: lane.principal.scope.channel }, "dm")) {
-    return { status: "held", reason: META_SEND_BLOCKED_REASON };
-  }
+  // Блокировка Meta (368 и родня) ход НЕ останавливает — как в main (#273): оператор оформляет заявку по номеру, ответ
+  // планируется, а выпустить его не даёт дверь отправки (lib/metaSendBlock.ts), она же передаёт переписку человеку.
+  // Ранний выход здесь (#283 до 20.11) оставлял клиента без заявки и без человека (HANDOFF #283, блокер ревью 19.11).
   return withBotTurnTrace({ channel: lane.principal.scope.channel, account: lane.principal.scope.endpointScopeId,
     peer: lane.principal.scope.peer, conversation: lane.principal.scope.conversationId,
     event: lane.principal.admission.eventKey, kind: prepared.attachmentInput ? "media" : "text",
@@ -919,8 +916,6 @@ export async function customerReplyRepeatBlocked(principal: CustomerAgentMutatio
   }
 }
 
-/** Причина HELD хода ядра при блоке личных Meta (lib/metaSendBlock.ts, #273): намеренное молчание, одну тревогу шлёт дверь отправки. */
-export const META_SEND_BLOCKED_REASON = "meta_send_blocked";
 /** Причина страховочной строки: ответ модели звал человека («агент подскажет / позвонит»), а бот отвечает сам (ревью #283, Б2). */
 const SELF_ANSWER_CALLS_STAFF = "self_answer_calls_staff";
 

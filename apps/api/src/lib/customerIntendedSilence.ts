@@ -19,9 +19,6 @@ export const CUSTOMER_TURN_INTENDED_SILENCE: readonly string[] = [
   "already_planned", // not a failure: the answer exists
   "staff_sender", "outgoing_mid", // our own staff or our own message coming back: the customer said nothing
   "turn_already_owned", // another worker is running this very turn
-  // Meta temporarily forbids this account to send (368 etc., lib/metaSendBlock.ts, #273; customerDmAgentTurn.ts): a reply
-  // would be refused and every refusal prolongs the block; the text is in the CRM chat and ONE alarm comes from the send door.
-  "meta_send_blocked",
   "lead_only_operator_silent", // the lead-only operator decided not to answer (ок after a lead, a third role question, a repeated attachment)
 ];
 

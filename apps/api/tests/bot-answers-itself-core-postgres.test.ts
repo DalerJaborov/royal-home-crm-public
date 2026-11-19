@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import dns from "node:dns/promises";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Понимание оператора — настоящее (ai/operator/understand.ts), подменена только его модель: тест решает, что она ответит
 // (по умолчанию null — запасные правила). Подмена через importOriginal: остальной модуль живой (audit:mocks).
@@ -31,6 +31,10 @@ import { ensureScopedBotConversation } from "../src/lib/customerConversationScop
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
 import { SELF_ASK_PHONE } from "../src/ai/botSelfAnswerText.js";
 import { leadOnlyEscalateLine } from "../src/ai/leadOnlyMode.js";
+import { resetMetaSendBlockCache } from "../src/lib/metaSendBlock.js";
+import { CUSTOMER_TURN_INTENDED_SILENCE } from "../src/lib/customerIntendedSilence.js";
+import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
+import { waitFor } from "./helpers/waitFor.js";
 
 /**
  * «БОТ ОТВЕЧАЕТ САМ» НА НАСТОЯЩЕМ ПУТИ ЯДРА (PR #283, сведён с оператором #311 19.11.2026). Подписанный вход → билет → ход
@@ -106,7 +110,7 @@ async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP") {
     }
     throw new Error("Unqualified synthetic endpoint");
   }));
-  return { eventKey, peer, endpoint, io, bodies, setReplies(value: unknown[][]) { replies = value; generated = 0; },
+  return { eventKey, peer, endpoint, io, bodies, accountId: id, setReplies(value: unknown[][]) { replies = value; generated = 0; },
     onGenerate(hook: (round: number) => Promise<void>) { beforeGenerate = hook; },
     /** Следующее подписанное сообщение того же собеседника (Instagram или WhatsApp). */
     async receive(nextText: string): Promise<string> {
@@ -297,5 +301,85 @@ describe("«бот отвечает сам»: ответ ядра звал аг�
     const text = await plannedText(f.eventKey);
     expect(text).toMatch(/агенти мо/u);
     expect(await intakeJob(f.eventKey)).toBeNull();
+  });
+});
+
+/**
+ * БЛОКИРОВКА META (код 368, как у Арвана 17.11) — ВЕТКА НЕ ХУЖЕ MAIN (HANDOFF #283 от 19.11, блокер ревью architect).
+ * Прежде ветка выходила из хода ядра ДО модели и оператора с причиной `meta_send_blocked`, записанной в «намеренную
+ * тишину»: оператор «только заявки» не запускался (номер из сообщения заявкой не становился), до двери отправки ход не
+ * доходил (человек не узнавал), оба сторожа «клиент ждёт» молчание пропускали. В main (#273) ход идёт как обычно, а
+ * отправку останавливает дверь Meta (lib/metaSendBlock.ts) и передаёт переписку человеку. Тумблеры на это не влияют.
+ */
+describe("блокировка Meta: ход ядра идёт как в main — заявка по номеру и сигнал человеку", () => {
+  const blocks: string[] = [], handed: string[] = [];
+  async function blockDm(accountId: string): Promise<void> {
+    const now = new Date();
+    const row = await prisma.metaSendBlock.create({ data: { accountKey: `account:${accountId}`, surface: "dm", channel: "INSTAGRAM", accountId,
+      label: "Synthetic (Instagram)", since: now, lastFailureAt: now, nextProbeAt: new Date(now.getTime() + 3_600_000), lastCode: 368 } });
+    blocks.push(row.id);
+    resetMetaSendBlockCache();
+  }
+  afterEach(async () => {
+    const ids = blocks.splice(0);
+    for (const id of handed.splice(0)) await prisma.processedMessage.deleteMany({ where: { channel: "meta-send-block-handoff", messageId: { startsWith: `${id}:` } } });
+    await prisma.metaSendBlock.deleteMany({ where: { id: { in: ids } } });
+    resetMetaSendBlockCache();
+  });
+
+  it("«meta_send_blocked» — не намеренная тишина: сторожа «клиент ждёт» такой ход не пропускают", () => {
+    expect(CUSTOMER_TURN_INTENDED_SILENCE).not.toContain("meta_send_blocked");
+  });
+
+  it.each([false, true])("режим «только заявки», «бот отвечает сам» = %s: номер при блокировке — задание заявки, как в main", async (selfOn) => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: true, botAnswersItself: selfOn } });
+    const f = await coreFixture("Хочу продать квартиру", "INSTAGRAM");
+    await plannedText(f.eventKey);
+    await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date(), acceptedAt: new Date() } });
+    await blockDm(f.accountId);
+    const second = await f.receive("918 22 33 61");
+    const result = await runCustomerDmAgentTurn(second);
+    expect(result, JSON.stringify(result)).toMatchObject({ status: "planned" });
+    expect((await intakeJob(second))?.payload).toMatchObject({ scenario: "seller", conversationId: await conversationOf(f.eventKey) });
+  });
+
+  it.each([false, true])("обычный режим, «бот отвечает сам» = %s: ответ планируется, дверь Meta его не выпускает и зовёт человека", async (selfOn) => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false, botAnswersItself: selfOn } });
+    const f = await coreFixture("Сколько стоит двушка в Сино?", "INSTAGRAM");
+    await blockDm(f.accountId);
+    const result = await runCustomerDmAgentTurn(f.eventKey);
+    expect(result, JSON.stringify(result)).toMatchObject({ status: "planned" });
+    if (result.status !== "planned") return;
+    const before = vi.mocked(globalThis.fetch).mock.calls.length;
+    expect(await dispatchCustomerOutboxPart(result.partIds[0])).toMatchObject({ status: "suppressed" });
+    // В Meta ничего не ушло: ни отправки, ни «печатает…».
+    expect(vi.mocked(globalThis.fetch).mock.calls.slice(before).filter(([url]) => !String(url).includes("gemini"))).toEqual([]);
+    const conversationId = await conversationOf(f.eventKey);
+    handed.push(conversationId);
+    const claim = await prisma.processedMessage.findFirst({ where: { channel: "meta-send-block-handoff", messageId: { startsWith: `${conversationId}:` } } });
+    expect(claim, "дверь Meta передала переписку человеку").not.toBeNull();
+    const chat = await prisma.botConversation.findUniqueOrThrow({ where: { id: conversationId }, select: { silenceAlertFor: true } });
+    expect(chat.silenceAlertFor).not.toBeNull();
+  });
+});
+
+/**
+ * ЗАКРЕПЛЕНИЕ ДЛЯ ЛИЧНЫХ (HANDOFF #283, 19.11: «тест оба ВЫКЛ = main есть только для комментариев»). Оба тумблера ВЫКЛ —
+ * ответ ядра тот же, что в main, заявки «бот отвечает сам» нет, а обещание агента доходит до человека (сигнал «клиент
+ * ждёт», как в main). При ВКЛ тот же ход — просьба номера и без сигнала (тест «ВКЛ, Instagram без номера» выше).
+ */
+describe("ЗАКРЕПЛЕНИЕ: оба тумблера ВЫКЛ — личные (ядро) как в main", () => {
+  beforeEach(async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false, botAnswersItself: false, botCommentPhoneConversation: false } });
+  });
+  it("Instagram без карточки: «это подскажет агент» уходит как в main, человек узнаёт, заявки нет", async () => {
+    const f = await coreFixture("Мошин ҳам қабул мекунед?", "INSTAGRAM");
+    const text = await plannedText(f.eventKey);
+    expect(text).toMatch(/агенти мо/u);
+    expect(text).not.toBe(SELF_ASK_PHONE.tg);
+    expect(await intakeJob(f.eventKey)).toBeNull();
+    const id = await conversationOf(f.eventKey);
+    await waitFor(async () => (await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { silenceAlertFor: true } })).silenceAlertFor,
+      { timeoutMs: 5000, label: "сигнал «клиент ждёт» при ВЫКЛ" });
   });
 });

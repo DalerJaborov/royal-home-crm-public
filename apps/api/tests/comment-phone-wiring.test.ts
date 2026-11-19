@@ -6,7 +6,7 @@ import { captureCommentPhoneWhileBotOff, handleComment, type QueuedComment } fro
 import { handleTelegramComment, ingestGroupComment } from "../src/messengers/telegramGroupComments.js";
 import { enqueueComments } from "../src/messengers/commentsQueue.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
-import { COMMENT_HISTORY_PREFIX } from "../src/messengers/commentPhoneLead.js";
+import { captureCommentPhoneIntoConversation, COMMENT_HISTORY_PREFIX } from "../src/messengers/commentPhoneLead.js";
 import { resetAccountsCache } from "../src/messengers/accounts.js";
 import { COMMENT_PHONE_DM, COMMENT_PHONE_PUBLIC, COMMENT_SELF_REPLY } from "../src/ai/botSelfAnswerText.js";
 import { releaseCommentPhoneHolds } from "../src/lib/commentPhoneHold.js";
@@ -516,6 +516,47 @@ describe("второе ревью 1b: бот выключен при приём�
     const after = await prisma.client.findUniqueOrThrow({ where: { id: card.id }, select: { deletedAt: true, phone: true, extraPhones: true } });
     expect(after.deletedAt).toBeNull();
     expect([after.phone, ...after.extraPhones].some((p) => p.endsWith(tailOf(fresh)))).toBe(true);
+  });
+});
+
+/**
+ * HANDOFF #283 (19.11), «чинить до выката»: у переписки уже есть карточка — комментарий в историю не пишется, и защита от
+ * повтора («уже в переписке») не срабатывала. Повторный вебхук того же комментария давал вторую запись в хронологии, а
+ * карточке в корзине — второй штатный приём с уведомлением агенту. Теперь один комментарий — один приём (тот же захват,
+ * что у createLeadFromCommentPhone).
+ */
+describe("повтор того же комментария при существующей карточке", () => {
+  async function cardChat(deleted: boolean) {
+    const known = freshDigits(); phones.push(known);
+    const card = await prisma.client.create({ data: { fullName: `Повтор ${tag}`, phone: `+992${known}`, source: "INSTAGRAM", kind: "BUYER",
+      ...(deleted ? { deletedAt: new Date() } : {}) } });
+    const peer = `${tag}-rep-${sequence++}`; peers.push(peer);
+    const chat = await prisma.botConversation.create({ data: { channel: "INSTAGRAM", subscriberId: peer, accountId, clientId: card.id, messages: [] } });
+    const fresh = freshDigits(); phones.push(fresh);
+    return { card, chat, fresh, row: { channel: "INSTAGRAM", commentId: `${peer}-c`, authorId: peer, text: `Новый номер ${fresh}` } };
+  }
+  const mentions = async (clientId: string, digits: string) => (await notesOf(clientId)).filter((n) => n.includes(digits.slice(-7))).length;
+
+  it("карточка есть: второй разбор того же комментария не пишет вторую запись в хронологию", async () => {
+    const { card, chat, fresh, row } = await cardChat(false);
+    expect((await captureCommentPhoneIntoConversation(row, chat.id)).outcome).toBe("already");
+    const once = await mentions(card.id, fresh);
+    expect(once).toBe(1);
+    expect((await captureCommentPhoneIntoConversation(row, chat.id)).outcome).toBe("already");
+    expect(await mentions(card.id, fresh)).toBe(once);
+  });
+
+  it("карточка в корзине: повтор того же комментария не запускает второй приём", async () => {
+    const { card, chat, row } = await cardChat(true);
+    await captureCommentPhoneIntoConversation(row, chat.id);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: card.id }, select: { deletedAt: true } })).deletedAt).toBeNull();
+    // Карточку снова убрали в корзину (или приём её не вернул) — повторный вебхук того же комментария её не трогает.
+    await prisma.client.update({ where: { id: card.id }, data: { deletedAt: new Date() } });
+    const notes = (await notesOf(card.id)).length;
+    await captureCommentPhoneIntoConversation(row, chat.id);
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: card.id }, select: { deletedAt: true } });
+    expect(after.deletedAt).not.toBeNull();
+    expect((await notesOf(card.id)).length).toBe(notes);
   });
 });
 

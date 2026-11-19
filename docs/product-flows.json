@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4142,
+  "forks": 4144,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -113859,50 +113859,79 @@
          "a": [],
          "c": [
           {
-           "k": "do",
-           "t": "const closing = await prisma.telegramGroupComment.findMany({ where: { status: \"PENDING\", replyDueAt: { lte: n…",
-           "a": [
-            "читает в базе: telegramGroupComment"
-           ],
-           "c": []
-          },
-          {
            "k": "loop",
-           "t": "для каждого: const c of closing",
+           "t": "для каждого: let batch = 0; batch < CLOSE_MAX_BATCHES; batch++",
            "a": [],
            "c": [
             {
-             "k": "if",
-             "t": "!extractAllPhones(c.text).length",
+             "k": "do",
+             "t": "const closing = await prisma.telegramGroupComment.findMany({ where: { status: \"PENDING\", replyDueAt: { lte: n…",
+             "a": [
+              "читает в базе: telegramGroupComment"
+             ],
+             "c": []
+            },
+            {
+             "k": "loop",
+             "t": "для каждого: const c of closing",
              "a": [],
              "c": [
               {
+               "k": "if",
+               "t": "!extractAllPhones(c.text).length",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
                "k": "do",
-               "t": "continue;",
+               "t": "await createLeadFromCommentPhone({ channel: \"TELEGRAM\", commentId: `${c.groupChatId ?? \"legacy\"}:${c.messageI…",
                "a": [
-                "переходит к следующему"
+                "зовёт createLeadFromCommentPhone()"
                ],
                "c": []
               }
              ]
             },
             {
-             "k": "do",
-             "t": "await createLeadFromCommentPhone({ channel: \"TELEGRAM\", commentId: `${c.groupChatId ?? \"legacy\"}:${c.messageI…",
-             "a": [
-              "зовёт createLeadFromCommentPhone()"
-             ],
-             "c": []
+             "k": "if",
+             "t": "closing.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const closed = await prisma.telegramGroupComment.updateMany({ where: { id: { in: closing.map((c)",
+               "a": [
+                "меняет в базе: telegramGroupComment"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "closing.length < CLOSE_BATCH",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
-          },
-          {
-           "k": "do",
-           "t": "const closed = await prisma.telegramGroupComment.updateMany({ where: { status: \"PENDING\", replyDueAt: { lte: …",
-           "a": [
-            "меняет в базе: telegramGroupComment"
-           ],
-           "c": []
           }
          ]
         },

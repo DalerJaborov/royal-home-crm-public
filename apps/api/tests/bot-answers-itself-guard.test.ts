@@ -17,6 +17,20 @@ const SCOPE: Array<{ dir: string; match: RegExp }> = [
 ];
 const CALLS_PEOPLE = /\b(sendPushToAgents?|enqueueDirectorAlert)\(/;
 
+/**
+ * Файл правда спрашивает дверь: импорт из lib/botAnswersItself.js и вызов её функции в КОДЕ, а не слово в комментарии
+ * (HANDOFF #283, 19.11: прежняя проверка `includes("botAnswersItself")` проходила от одного упоминания в комментарии).
+ */
+const IMPORTS_DOOR = /import\s*\{[^}]*\}\s*from\s*["'](?:\.\.?\/)+(?:lib\/)?botAnswersItself\.js["']/;
+const ASKS_DOOR = /\b(staffSignalAllowed|loadBotAnswersItself|commentNeedsPerson)\s*\(/;
+function withoutComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:\\])\/\/.*$/gm, "$1");
+}
+function asksBotAnswersItselfDoor(src: string): boolean {
+  const code = withoutComments(src);
+  return IMPORTS_DOOR.test(code) && ASKS_DOOR.test(code.replace(IMPORTS_DOOR, ""));
+}
+
 /** Сигнал остаётся всегда — и почему (таблица в шапке lib/botAnswersItself.ts). */
 const ALWAYS: Record<string, string> = {
   "ai/botAudit.ts": "автоаудитор качества бота — сотрудникам о боте, не о клиенте",
@@ -54,9 +68,18 @@ describe("сторож: зовут руководство только чере�
   it("каждый файл бота с пушем людям спрашивает lib/botAnswersItself.ts или объяснён в списке", () => {
     const offenders = scopedFiles().filter((file) => {
       const text = readFileSync(join(SRC, file), "utf8");
-      return CALLS_PEOPLE.test(text) && !text.includes("botAnswersItself") && !(file in ALWAYS);
+      return CALLS_PEOPLE.test(withoutComments(text)) && !asksBotAnswersItselfDoor(text) && !(file in ALWAYS);
     });
     expect(offenders).toEqual([]);
+  });
+
+  it("сторож не обходится словом: упоминание двери в комментарии или один импорт — не вопрос к двери", () => {
+    const push = `await sendPushToAgents(ids, { title: "x" });`;
+    expect(asksBotAnswersItselfDoor(`// botAnswersItself: тут не нужно\n${push}`)).toBe(false);
+    expect(asksBotAnswersItselfDoor(`/* см. lib/botAnswersItself.ts, staffSignalAllowed() */\n${push}`)).toBe(false);
+    expect(asksBotAnswersItselfDoor(`import { loadBotAnswersItself } from "../lib/botAnswersItself.js";\n${push}`)).toBe(false);
+    expect(asksBotAnswersItselfDoor(`import { staffSignalAllowed } from "../lib/botAnswersItself.js";\n` +
+      `if (staffSignalAllowed({ on: true, kind: "technical" })) ${push}`)).toBe(true);
   });
 
   it("список исключений не врёт: каждый файл из него существует и действительно зовёт людей", () => {

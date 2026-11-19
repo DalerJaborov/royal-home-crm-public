@@ -200,11 +200,30 @@ export async function captureCommentPhoneIntoConversation(
 const digits9 = (value: string | null | undefined): string => (value ?? "").replace(/\D/g, "").slice(-9);
 
 /**
+ * ОДИН КОММЕНТАРИЙ — ОДИН ПРИЁМ: атомарный захват по id комментария, общий для обеих дверей (карточка уже есть —
+ * attachCommentPhonesToCard; карточки нет и диалога нет — createLeadFromCommentPhone). Повторный вебхук того же комментария
+ * второй записи в хронологию и второго приёма из корзины не даёт (HANDOFF #283, 19.11). Сбой приёма захват снимает.
+ */
+const COMMENT_PHONE_CLAIM_CHANNEL = "comment-phone-lead";
+async function claimCommentPhone(row: Pick<CommentPhoneRow, "channel" | "commentId">): Promise<boolean> {
+  const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+    VALUES (${randomUUID()},${COMMENT_PHONE_CLAIM_CHANNEL},${`${row.channel}:${row.commentId}`},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
+  return claimed === 1;
+}
+async function releaseCommentPhoneClaim(row: Pick<CommentPhoneRow, "channel" | "commentId">): Promise<void> {
+  await prisma.processedMessage.deleteMany({ where: { channel: COMMENT_PHONE_CLAIM_CHANNEL, messageId: `${row.channel}:${row.commentId}` } })
+    .catch(() => undefined);
+}
+
+/**
  * Номер из комментария клиента, у которого карточка уже есть: новые номера — запасными (не чужие и не сотрудника), запись
  * в хронологию с номером. Не бросает: сбой виден в журнале, разбор комментария идёт дальше.
  */
 export async function attachCommentPhonesToCard(clientId: string, phones: readonly string[], row: Pick<CommentPhoneRow, "commentId" | "channel" | "text">): Promise<string[]> {
+  let claimed = false;
   try {
+    claimed = await claimCommentPhone(row);
+    if (!claimed) return []; // этот комментарий уже разобран (повторный вебхук)
     const card = await prisma.client.findUnique({ where: { id: clientId },
       select: { phone: true, whatsappPhone: true, extraPhones: true, deletedAt: true, assignedAgentId: true, fullName: true, kind: true } });
     if (!card) return [];
@@ -233,6 +252,7 @@ export async function attachCommentPhonesToCard(clientId: string, phones: readon
         `${added.length ? ` (новый номер добавлен в карточку: ${added.join(", ")})` : ""} — «${row.text.slice(0, 300)}»` });
     return added;
   } catch (err) {
+    if (claimed) await releaseCommentPhoneClaim(row);
     void logSystemError("ai", `Номер из комментария ${row.commentId} (${row.channel}) не добавлен в карточку клиента: ` +
       `${err instanceof Error ? err.message : String(err)}`, { silent: true });
     return [];
@@ -264,10 +284,7 @@ export async function createLeadFromCommentPhone(
    * возврат из корзины по правилам раздачи). Повтор разбора того же комментария второй раз приём не зовёт — захват по id
    * комментария атомарный; сбой приёма захват снимает.
    */
-  const claimKey = `${row.channel}:${row.commentId}`;
-  const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
-    VALUES (${randomUUID()},'comment-phone-lead',${claimKey},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
-  if (claimed !== 1) return "already";
+  if (!await claimCommentPhone(row)) return "already";
   try {
     // В ClientSource нет YOUTUBE: как у createLeadFromCompetitorAd — INSTAGRAM, а площадка видна в socialChannel.
     const source: ClientSource = row.channel === "FACEBOOK" ? "FACEBOOK" : row.channel === "TELEGRAM" ? "TELEGRAM" : "INSTAGRAM";
@@ -286,7 +303,7 @@ export async function createLeadFromCommentPhone(
     });
     return lead.created ? "accepted" : "already";
   } catch (err) {
-    await prisma.processedMessage.deleteMany({ where: { channel: "comment-phone-lead", messageId: claimKey } }).catch(() => undefined);
+    await releaseCommentPhoneClaim(row);
     if (err instanceof StaffPhoneLeadError) return "declined";
     void logSystemError(
       "ai",
