@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4134,
+  "forks": 4135,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -111071,6 +111071,14 @@
        "c": [
         {
          "k": "do",
+         "t": "await releaseAbandonedClaims();",
+         "a": [
+          "зовёт releaseAbandonedClaims()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const due = await prisma.socialVideoPost.findMany({ where: { status: \"SCHEDULED\", deletedAt: null, scheduledA…",
          "a": [
           "читает в базе: socialVideoPost"
@@ -134067,7 +134075,61 @@
        "k": "try",
        "t": "пробует",
        "a": [],
-       "c": []
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await claimRun(id))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const heartbeat = setInterval(()",
+         "a": [
+          "меняет в базе: socialVideoPost"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "prisma.socialVideoPost .updateMany({ where: { id, status: \"PUBLISHING\" }, data: { runClaimedAt: new Date() } …",
+           "a": [
+            "меняет в базе: socialVideoPost"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": []
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "clearInterval(heartbeat);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
       },
       {
        "k": "finally",

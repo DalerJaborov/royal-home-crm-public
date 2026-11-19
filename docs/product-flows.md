@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4134**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4135**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -24790,6 +24790,8 @@
 - пробует
   - const { started, recovered } = await runSocialVideoScheduleTick();
     · зовёт runSocialVideoScheduleTick()
+    - await releaseAbandonedClaims();
+      · зовёт releaseAbandonedClaims()
     - const due = await prisma.socialVideoPost.findMany({ where: { status: "SCHEDULED", deletedAt: null, scheduledA…
       · читает в базе: socialVideoPost
     - для каждого: const row of due
@@ -29725,6 +29727,17 @@
     - return;
       · дальше не идёт, ничего не меняя
   - пробует
+    - если !(await claimRun(id))
+      - return;
+        · дальше не идёт, ничего не меняя
+    - const heartbeat = setInterval(()
+      · меняет в базе: socialVideoPost
+      - prisma.socialVideoPost .updateMany({ where: { id, status: "PUBLISHING" }, data: { runClaimedAt: new Date() } …
+        · меняет в базе: socialVideoPost
+    - пробует
+    - в любом случае
+      - clearInterval(heartbeat);
+        · дословно из кода
   - в любом случае
     - inFlight.delete(id);
       · дословно из кода

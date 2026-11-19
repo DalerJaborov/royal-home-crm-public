@@ -10985,6 +10985,11 @@ model SocialVideoPost {
   status        String    @default("DRAFT")
   scheduledAt   DateTime?
   startedAt     DateTime?
+  /// Бронь исполнителя публикации (19.11.2026): кто первым поставил время — тот исполняет, остальные выходят.
+  /// null — исполнителя ещё не было; сбрасывается при каждом новом заходе (lib/socialVideoPosts.ts::claimRun).
+  runClaimedAt  DateTime?
+  /// Кто держит бронь: «хост:pid:время старта процесса» (claimRun) — бронь умершего процесса не мешает повтору задания.
+  runClaimedBy  String?
   finishedAt    DateTime?
 
   /// Исход по каждому каналу: { INSTAGRAM: { state, error, note, postId, url, retriable,
