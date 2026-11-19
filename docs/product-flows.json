@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4144,
+  "forks": 4146,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -87332,6 +87332,14 @@
            "a": [],
            "c": [
             {
+             "k": "do",
+             "t": "const verdict = await inspectTelegramChat(chatId);",
+             "a": [
+              "зовёт inspectTelegramChat()"
+             ],
+             "c": []
+            },
+            {
              "k": "if",
              "t": "verdict.kind === \"migrated\"",
              "a": [],
@@ -87361,7 +87369,7 @@
              "c": [
               {
                "k": "do",
-               "t": "await logSystemError( \"telegram\", `Шабнам не состоит в подключённой группе «${await groupLabel(chatId)}» — ве…",
+               "t": "await logSystemError( \"telegram\", `Шабнам не состоит в подключённой группе «${await telegramChatLabel(chatId)…",
                "a": [
                 "запись в журнал ошибок"
                ],
@@ -87415,6 +87423,21 @@
          "t": "await logSystemError(\"telegram\", `Шабнам: обход подключённых групп не удался: ${describeError(err)}`, { dedup…",
          "a": [
           "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "result.settingsChats = await sweepSettingsTelegramChats();",
+         "a": [
+          "зовёт sweepSettingsTelegramChats()"
          ],
          "c": []
         }
@@ -114008,13 +114031,43 @@
            "c": [
             {
              "k": "do",
-             "t": "await failComment(row, err);",
+             "t": "const movedTo = telegramMigratedChatId(err);",
              "a": [
-              "дословно из кода"
+              "зовёт telegramMigratedChatId()"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "movedTo",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "closedFromOldGroup > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError( \"telegram\", `Комментарии из прежней группы обсуждения Telegram-канала закрыты без ответа…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
           }
          ]
         }

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useAuthStore } from "../../store/auth";
-import { royalLookEnabled, royalLookOverride, useLookAttribute, useRoyalLookChoice } from "../useRoyalLook";
+import { DEVICE_LOOK_KEY, deviceLookRemembered, royalLookEnabled, royalLookOverride, useDeviceLookMemory, useLookAttribute, useRoyalLookChoice } from "../useRoyalLook";
 
 const at = (url: string) => ({ children }: { children: ReactNode }) => <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>;
 
@@ -61,5 +61,34 @@ describe("атрибут data-ui-look на <html>", () => {
     hook.unmount();
     expect(document.documentElement.dataset.uiLook).toBeUndefined();
     expect(document.documentElement.dataset.look).toBe("classic");
+  });
+});
+
+describe("флаг устройства для входа и страниц по ссылке (пачка records)", () => {
+  it("ставится при новом виде, снимается, когда ответ сервера пришёл без вида; загрузка флаг не трогает", () => {
+    const hook = renderHook(({ royal, pending }: { royal: boolean; pending: boolean }) => useDeviceLookMemory(royal, pending), { initialProps: { royal: false, pending: true } });
+    expect(window.localStorage.getItem(DEVICE_LOOK_KEY)).toBeNull();
+    hook.rerender({ royal: true, pending: false });
+    expect(deviceLookRemembered()).toBe(true);
+    // следующий заход: ответ ещё не пришёл — флаг остаётся
+    hook.rerender({ royal: false, pending: true });
+    expect(deviceLookRemembered()).toBe(true);
+    // ответ без вида (выключили, отказ, ошибка) — флаг снят
+    hook.rerender({ royal: false, pending: false });
+    expect(window.localStorage.getItem(DEVICE_LOOK_KEY)).toBeNull();
+    hook.unmount();
+  });
+
+  it("выход из учётки снимает флаг сразу", () => {
+    const hook = renderHook(() => useDeviceLookMemory(true, false));
+    expect(deviceLookRemembered()).toBe(true);
+    useAuthStore.setState({ agent: null });
+    expect(deviceLookRemembered()).toBe(false);
+    hook.unmount();
+  });
+
+  it("закрытое хранилище — флага нет, без ошибки", () => {
+    expect(deviceLookRemembered({ getItem: () => { throw new Error("SecurityError"); } })).toBe(false);
+    expect(deviceLookRemembered(null)).toBe(false);
   });
 });

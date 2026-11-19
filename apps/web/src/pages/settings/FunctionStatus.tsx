@@ -15,6 +15,10 @@ import { SETTINGS_TABS } from "../../lib/settingsTabs";
 import { Rh2ErrorState } from "../../components/rh2/Rh2ErrorState";
 import { Skeleton } from "../../components/rh2/Skeleton";
 import { scrollableRegion } from "../../lib/a11y";
+import { useRoyalLook } from "../../hooks/useRoyalLook";
+import { AdminRoot } from "../../components/look/admin/AdminRoot";
+import { RhCircle } from "../../components/look/ui";
+import type { RoyalIconName } from "../../components/look/royalIconData";
 
 /**
  * «Состояние функций» (14.11.2026): один экран про все скрытые рубильники CRM — что работает, что идёт
@@ -25,6 +29,13 @@ import { scrollableRegion } from "../../lib/a11y";
 
 const STATE_CHIP: Record<FunctionState, string> = { working: "chip ok", preview: "chip warn", off: "chip mute" };
 const STATE_DOT: Record<FunctionState, string> = { working: "dot ok", preview: "dot warn", off: "dot" };
+/** Новый вид: круг 48 по смыслу — норма зелёная, «только проверка» янтарная, выключено спокойное;
+ *  «Обратите внимание» — сплошной красный с пламенем (яркость и значок, не только оттенок). */
+const STATE_CIRCLE: Record<FunctionState, { icon: RoyalIconName; tone: "ok" | "warn" | "a0" }> = {
+  working: { icon: "list-checks", tone: "ok" },
+  preview: { icon: "eye", tone: "warn" },
+  off: { icon: "x-circle", tone: "a0" },
+};
 
 const CRON_HEALTH_TEXT: Record<FunctionCron["health"], { label: string; chip: string }> = {
   ok: { label: "в порядке", chip: "chip ok" },
@@ -82,10 +93,14 @@ function CronLine({ cron }: { cron: FunctionCron }) {
   );
 }
 
-function FunctionRow({ item }: { item: FunctionStatusItem }) {
+function FunctionRow({ item, royal }: { item: FunctionStatusItem; royal: boolean }) {
   return (
     <div className="row fs-item" data-state={item.state}>
-      <span className={STATE_DOT[item.state]} aria-hidden="true" />
+      {royal ? (
+        item.attention ? <RhCircle icon="flame" tone="crit" /> : <RhCircle icon={STATE_CIRCLE[item.state].icon} tone={STATE_CIRCLE[item.state].tone} />
+      ) : (
+        <span className={STATE_DOT[item.state]} aria-hidden="true" />
+      )}
       <div className="t fs-body">
         <b>{item.title}</b>
         <div className="fs-chips">
@@ -135,10 +150,11 @@ export function FunctionStatus() {
   const allowed = canViewFunctionStatus(agent?.role);
   const query = useFunctionStatus(allowed);
   const [filter, setFilter] = useState<Filter>("all");
+  const royal = useRoyalLook();
 
   if (!allowed) {
     return (
-      <div className="rh2 screens">
+      <AdminRoot royal={royal} title="Состояние функций">
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -147,7 +163,7 @@ export function FunctionStatus() {
             </div>
           </div>
         </div>
-      </div>
+      </AdminRoot>
     );
   }
 
@@ -166,7 +182,7 @@ export function FunctionStatus() {
     : [];
 
   return (
-    <div className="rh2 screens">
+    <AdminRoot royal={royal} title="Состояние функций">
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -233,7 +249,7 @@ export function FunctionStatus() {
                     <div className="card tight">
                       <div className="list">
                         {rows.map((i) => (
-                          <FunctionRow key={i.key} item={i} />
+                          <FunctionRow key={i.key} item={i} royal={royal} />
                         ))}
                       </div>
                     </div>
@@ -269,7 +285,7 @@ export function FunctionStatus() {
           </>
         )}
       </div>
-    </div>
+    </AdminRoot>
   );
 }
 

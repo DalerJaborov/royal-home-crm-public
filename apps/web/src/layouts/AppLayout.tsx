@@ -25,7 +25,7 @@ import { CleanShell } from "../components/clean/CleanShell";
 import { useCleanViewport } from "../hooks/useCleanViewport";
 import { ShellAppearanceRecovery } from "../components/clean/ShellAppearanceRecovery";
 import { useRouteViewportKey } from "../hooks/useRouteViewportKey";
-import { useLookAttribute, useRoyalLookChoice } from "../hooks/useRoyalLook";
+import { useDeviceLookMemory, useLookAttribute, useRoyalLookChoice } from "../hooks/useRoyalLook";
 
 /**
  * СПУТНИКИ ОБОЛОЧКИ — СВОИМ КУСКОМ (10.09.2026, разгрузка входного куска).
@@ -94,6 +94,8 @@ export function AppLayout() {
   }, [clean]);
   // Closed by default: any error, OFF switch, opt-out or logout removes the attribute.
   useLookAttribute(royal);
+  // Флаг устройства для входа и страниц по ссылке (пачка records): ставится и снимается только здесь.
+  useDeviceLookMemory(royal, shellPending);
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const viewportKey = useRouteViewportKey(pathname, clean);

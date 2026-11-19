@@ -10,6 +10,8 @@ import {
 } from "@royal-home/shared";
 import { useCan } from "../../lib/permissions";
 import { scrollableRegion } from "../../lib/a11y";
+import { useRoyalLook } from "../../hooks/useRoyalLook";
+import { AdminRoot } from "../../components/look/admin/AdminRoot";
 
 /**
  * «Права по ролям» (макет владельца, `tpl-roles-matrix`): роль на роль, кому что
@@ -49,13 +51,14 @@ const MARK_TEXT: Record<Mark, string> = { y: "есть", n: "нет", p: "сво
 
 export function RolesMatrix() {
   const can = useCan();
+  const royal = useRoyalLook();
   const rows = PERMISSIONS.filter((p) => !("deprecated" in p));
   const ownerOnly = rows.filter((p) => "directorOnly" in p);
   const regular = rows.filter((p) => !("directorOnly" in p));
 
   if (!can("settings.view")) {
     return (
-      <div className="rh2 screens">
+      <AdminRoot royal={royal} title="Права по ролям">
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -64,12 +67,12 @@ export function RolesMatrix() {
             </div>
           </div>
         </div>
-      </div>
+      </AdminRoot>
     );
   }
 
   return (
-    <div className="rh2 screens">
+    <AdminRoot royal={royal} title="Права по ролям">
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -160,7 +163,7 @@ export function RolesMatrix() {
           </p>
         </div>
       </div>
-    </div>
+    </AdminRoot>
   );
 }
 
