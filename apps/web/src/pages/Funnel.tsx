@@ -2,6 +2,8 @@ import { useCan } from "../lib/permissions";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { MobileFunnel } from "../components/mobile/MobileFunnel";
 import { FunnelTab } from "./settings/FunnelTab";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection, useRoyalSectionName } from "../components/look/clients/RoyalSection";
 
 /**
  * Раздел «Воронка» — комментарий под рекламой → чек-лист в директ.
@@ -17,7 +19,15 @@ import { FunnelTab } from "./settings/FunnelTab";
  * имени компании, и это вес настройки, где бы кнопка ни висела.
  */
 export function Funnel() {
+  // «Новый вид» (пачка analytics): метка раздела для слоя theme-look-royal-analytics.css.
+  // Без признака имя пустое — ни атрибута, ни пикселя изменений.
+  const royal = useRoyalLook();
+  return <RoyalSection name={royal ? "analytics" : undefined}><FunnelScreen /></RoyalSection>;
+}
+
+function FunnelScreen() {
   const can = useCan();
+  const section = useRoyalSectionName();
   // Телефон получает свой экран (MobileFunnel), десктоп — как был. Ветвление
   // ДО остального рендера, но ПОСЛЕ проверки права — у обеих версий одно и то
   // же правило доступа (см. паттерн Archive.tsx).
@@ -25,7 +35,7 @@ export function Funnel() {
 
   if (!can("settings.view")) {
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <div className="pg-h">
             <div>
