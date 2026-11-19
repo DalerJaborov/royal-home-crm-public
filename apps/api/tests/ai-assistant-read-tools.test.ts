@@ -323,7 +323,7 @@ describe("get_property_card", () => {
     expect(JSON.stringify(card)).toContain("2030-05-11 03:30");
   });
 
-  it("контакт собственника: чужому агенту скрыт, своему и руководителю виден", async () => {
+  it("контакт собственника: виден только директору — агенту скрыт и на чужом, и на своём (18.11.2026)", async () => {
     const p = await makeProperty({ ownerContact: "+992900000111", intakeAgentId: agentB });
     const foreign = await call("get_property_card", { propertyId: p.id }, actorAgent());
     expect(foreign.owner.contactHidden).toBe(true);
@@ -333,7 +333,8 @@ describe("get_property_card", () => {
     expect(boss.owner.contact).toContain("+992900000111");
     const mine = await makeProperty({ ownerContact: "+992900000222", intakeAgentId: agentA });
     const own = await call("get_property_card", { propertyId: mine.id }, actorAgent());
-    expect(own.owner.contactHidden).toBe(false);
+    expect(own.owner.contactHidden).toBe(true);
+    expect(JSON.stringify(own)).not.toContain("900000222");
   });
 
   it("похожий по адресу объект вместо точного id не подставляется; Корзина — справка, а не карточка", async () => {

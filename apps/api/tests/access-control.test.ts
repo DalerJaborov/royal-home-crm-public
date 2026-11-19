@@ -389,12 +389,13 @@ describe("Сделки — изоляция по агенту", () => {
 });
 
 describe("Объекты — видимость контакта владельца", () => {
-  it("назначенный агент видит ownerContact", async () => {
+  it("назначенный агент НЕ видит ownerContact — только маску (владелец 18.11.2026: номера только директору)", async () => {
     const res = await request(app)
       .get(`/api/v1/properties/${propertyAShortId}`)
       .set("Authorization", `Bearer ${agentAToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.ownerContact).toBeTruthy();
+    expect(res.body.ownerContact).toBeNull();
+    expect(res.body.ownerContactHidden).toBe(true);
   });
 
   it("не назначенный агент НЕ видит ownerContact", async () => {

@@ -125,7 +125,8 @@ describe("правило первого звонка на краях дня", ()
       where: { clientId: lead.id, notes: { startsWith: "Напоминание о первом звонке отправлено" } },
       select: { notes: true },
     });
-    expect(note?.notes).toContain("потом минус к Royal Score");
+    expect(note?.notes).toContain("иначе руководитель увидит, что звонка не было");
+    expect(note?.notes).not.toContain("Royal Score");
     expect(note?.notes).not.toContain("лид уйдёт");
   });
 

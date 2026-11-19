@@ -2,6 +2,8 @@ import { Router } from "express";
 import { can, requireAuth } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { cardWhereFromParam } from "../lib/cardIdParam.js";
+import { phoneTail } from "../lib/clientPhones.js";
+import { canSeeCrmContactPhones, crmContactTails } from "../lib/crmContactPhones.js";
 import { emptyDynamics, findDynamics } from "../lib/market/dynamics.js";
 import { evaluatePropertyAgainstMarket, PROPERTY_MARKET_SELECT } from "../lib/market/propertyMarket.js";
 import { loadMoneyContext } from "../lib/money.js";
@@ -48,7 +50,16 @@ marketRouter.get("/property/:id/dynamics", requireAuth, async (req, res) => {
   if ((p.type !== "APARTMENT" && p.type !== "HOUSE") || !(areaSqm > 0)) {
     return res.json(emptyDynamics("для этого типа объекта динамика рынка не считается", "unsupported"));
   }
-  res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null, rooms: p.rooms, areaSqm }));
+  const dynamics = await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null, rooms: p.rooms, areaSqm });
+  // «Недавно ушли» несут публичный номер объявления. Если этот номер уже записан у нас (продавец,
+  // клиент, контакт владельца), а сотрудник номеров не видит — прячем (lib/crmContactPhones.ts).
+  if (!canSeeCrmContactPhones(req) && dynamics.recentlyGone.length > 0) {
+    const crmTails = await crmContactTails(dynamics.recentlyGone.map((g) => g.sellerPhone));
+    dynamics.recentlyGone = dynamics.recentlyGone.map((g) =>
+      g.sellerPhone && crmTails.has(phoneTail(g.sellerPhone)) ? { ...g, sellerPhone: null } : g
+    );
+  }
+  res.json(dynamics);
 });
 
 /**
