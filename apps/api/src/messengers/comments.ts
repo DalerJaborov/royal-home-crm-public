@@ -54,7 +54,8 @@ import { SALES_FACTS } from "../ai/salesPlaybook.js";
 import { MANDATORY_BOT_RULES, propertyGeographyBlock } from "../ai/dushanbeGeography.js";
 import { folkGeographyBlock } from "../ai/folkPlaces.js";
 import { AGENCY_COMPANY_INFO } from "../ai/agencyVoice.js";
-import { extractAllPhones } from "../lib/shared/phoneText.js";
+import { extractAllPhones, extractVolunteeredPhone } from "../lib/shared/phoneText.js";
+import { captureCommentPhoneIntoConversation, COMMENT_HISTORY_PREFIX, createLeadFromCommentPhone } from "./commentPhoneLead.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 import { findPhoneOwners } from "../lib/clientPhones.js";
 import { commentDecisionProviderSchema, type ClientSource, type CommentDecision } from "@royal-home/shared";
@@ -1302,6 +1303,14 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     }
     if (lane === "managed") {
       const draft = await prepareCustomerPublicAgentDraft({ table: "meta", id: row.id });
+      /**
+       * НОМЕР В КОММЕНТАРИИ И НА ЯДРЕ (17.11.2026, rolloutMode ACTIVE даёт lane "managed"). Ядро диалогов Meta
+       * для автора не заводит намеренно, поэтому — прямой приём без диалога (commentPhoneLead.ts), идемпотентный
+       * по номеру; модерацию (спам/агентство) не трогаем: там номер конкурента.
+       */
+      if (draft.status !== "moderate" && draft.status !== "moderation_proposal") {
+        await createLeadFromCommentPhone({ ...row, channel: row.channel as "INSTAGRAM" | "FACEBOOK" | "YOUTUBE" });
+      }
       if (draft.status === "moderate") {
         const outcome = await executeCustomerPublicModeration(draft.principal);
         return outcome === "held" ? "skipped" : outcome;
@@ -1355,6 +1364,29 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // guessed запись досье/истории, сохраняя прежнюю привязку и карантин legacy.
   // Флаг не даёт permission на запись или перенос переписки в другой аккаунт.
   const accountGuess = "certain" in account && account.certain === false;
+  /**
+   * НОМЕР В КОММЕНТАРИИ НЕ ТЕРЯЕТСЯ, КАКОЕ БЫ РЕШЕНИЕ НИ ПРИНЯЛИ (17.11.2026, см.
+   * messengers/commentPhoneLead.ts). Раньше карточку заводили только ветки «конкурент»
+   * и «собственник», а у обычного человека номер жил лишь в ленте комментариев:
+   * ответ в ветке, комментарий старше 7 суток, предел личных, YouTube, `ignore`,
+   * отсечка «не по теме» и предел ходов ИИ его теряли. Возвращает true, если комментарий
+   * уже лёг в переписку приёмом (тогда recordPrivateReply его второй раз не пишет).
+   * Не бросает: разбор комментария из-за этого не обрывается.
+   */
+  const capturePhone = async (knownConversationId?: string): Promise<boolean> => {
+    if (!extractVolunteeredPhone(row.text)) return false;
+    try {
+      let conversationId = knownConversationId;
+      if (!conversationId) {
+        const scope = await commentAuthorScope(row, account.id);
+        conversationId = await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, scope.accountId, accountGuess, scope.transport);
+      }
+      return (await captureCommentPhoneIntoConversation(row, conversationId)).recordedInHistory;
+    } catch (err) {
+      void logSystemError("meta", `[alarm] Номер в комментарии ${row.commentId}: досье не заведено, заявка не оформлена: ${describeError(err)}`);
+      return false;
+    }
+  };
   // Имя компании этого аккаунта (ai/brandName.ts): в промте и в готовых текстах ниже.
   const brand = await brandForAccount(account.id);
   /** Страховка на выходе: прежнее имя в готовом ответе заменяется и пишется в журнал. */
@@ -1638,10 +1670,8 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
    * число шаблонных ответов: одному человеку под одним постом их будет не больше двух.
    */
   const screen = screenIncomingText(row.text, { checkSpam: false });
-  if (screen.action === "silent") {
-    await finish(row.id, { status: "SKIPPED", note: screen.reason.slice(0, 120) });
-    return "skipped";
-  }
+  // Решение сторожа ПРИМЕНЯЕТСЯ ниже, после проверок «спам / мат / агентство / собственник»
+  // (17.11.2026): отсечка молчала раньше, чем номер из комментария успевал стать заявкой.
 
   /**
    * ОЧЕВИДНЫЙ СПАМ ПОД ПОСТОМ — СКРЫВАЕМ САМИ, БЕЗ ХОДА МОДЕЛИ
@@ -1715,6 +1745,21 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   }
 
   /**
+   * ОТСЕЧКА СТОРОЖА ВХОДЯЩЕГО — ПРИМЕНЯЕТСЯ ЗДЕСЬ, А НЕ РАНЬШЕ (17.11.2026).
+   *
+   * Молчим по-прежнему (правила самого сторожа не менялись), но «молчать» не значит
+   * «потерять номер»: в переписке Meta такой номер берётся тихой заявкой
+   * (captureLeadWhileSilent, messengers/conversation.ts), а здесь отсечка выходила
+   * раньше всего и забирала номер вместе с комментарием. Спам, мат, реклама агентства
+   * и объявление собственника разобраны выше своими ветками, сюда доходит обычный человек.
+   */
+  if (screen.action === "silent") {
+    await capturePhone();
+    await finish(row.id, { status: "SKIPPED", note: screen.reason.slice(0, 120) });
+    return "skipped";
+  }
+
+  /**
    * СУТОЧНЫЙ БЮДЖЕТ ХОДОВ ИИ — ТЕПЕРЬ И ПОД ПУБЛИКАЦИЯМИ (аудит 22.08.2026).
    *
    * Предел из решения владельца 21.08.2026 действовал только в переписке Meta: под
@@ -1752,6 +1797,8 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
         `ходов ИИ — бот больше не отвечает ему сегодня под публикациями. Похоже на автоматический перебор; ` +
         `если это живой человек, ответьте ему сами.`
     );
+    // Ход модели не нужен, а номер человека — нужен (17.11.2026).
+    await capturePhone();
     await finish(row.id, { status: "SKIPPED", note: "ai_budget" });
     return "skipped";
   }
@@ -1853,10 +1900,13 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
    * зависит.
    */
   let authorTransport: CustomerTransportReference | undefined;
+  let commentInHistory = false;
   try {
     const scope = await commentAuthorScope(row, account.id);
     authorTransport = scope.transport;
-    await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, scope.accountId, accountGuess, scope.transport);
+    const authorConversationId = await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, scope.accountId, accountGuess, scope.transport);
+    // Номер в комментарии — заявкой СРАЗУ, не завися от того, ушло ли личное (17.11.2026).
+    commentInHistory = await capturePhone(authorConversationId);
   } catch (err) {
     void logSystemError("meta", `Досье комментатора ${row.commentId} не заведено: ${describeError(err)}`);
   }
@@ -1945,7 +1995,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // «в инстаграме у меня полная переписка есть, как бот отправляет ссылку, а тут
   // в CRM нет». Тот же шаг давно делает воронка лид-магнита (recordInConversation
   // в lib/leadMagnet.ts) — здесь его просто не было.
-  if (dm.sent && dmText) await recordPrivateReply(row, dmText, dm.mid ?? null, account.id, accountGuess);
+  if (dm.sent && dmText) await recordPrivateReply(row, dmText, dm.mid ?? null, account.id, accountGuess, commentInHistory);
 
   if (decision.action === "escalate") {
     await escalate(row, decision.reason);
@@ -2201,7 +2251,9 @@ async function recordPrivateReply(
   text: string,
   mid: string | null,
   accountId?: string | null,
-  accountGuess = false
+  accountGuess = false,
+  /** Комментарий уже лёг в переписку (приём заявки по номеру из него): второй раз не пишем. */
+  commentAlreadyRecorded = false
 ): Promise<void> {
   // YouTube сюда не доходит (личных сообщений там нет вовсе, см. maybeSendPrivateReply),
   // но проверка стоит явно: переписки этого канала в BotConversation не бывает.
@@ -2220,7 +2272,7 @@ async function recordPrivateReply(
     // (02.10.2026): без него бот в директе не знал, о чём человек спросил под
     // постом, и на его «ҳа» снова спрашивал, что он ищет и какой номер.
     await appendConversationMessages(conversationId, [
-      { role: "user", content: `(комментарий под нашим постом) ${row.text}` },
+      ...(commentAlreadyRecorded ? [] : [{ role: "user" as const, content: `${COMMENT_HISTORY_PREFIX}${row.text}` }]),
       { role: "assistant", content: text, by: { kind: "bot" }, ...(mid ? { mid } : {}) },
     ]);
   } catch (err) {
