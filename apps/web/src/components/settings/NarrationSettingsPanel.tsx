@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { NARRATION_PROPERTY_TYPES, NARRATION_PROPERTY_TYPE_LABELS, NARRATION_TAJIK_MODELS, type NarrationConfig, type NarrationEnding, type NarrationPropertyType, type NarrationSettingsView, type NarrationTemplate } from "@royal-home/shared";
+import { NARRATION_PROPERTY_TYPES, NARRATION_PROPERTY_TYPE_LABELS, NARRATION_TAJIK_MODELS, narrationPronunciationRuleHeldBack, type NarrationConfig, type NarrationEnding, type NarrationPropertyType, type NarrationSettingsView, type NarrationTemplate } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { NarrationMusicLibrary } from "./NarrationMusicLibrary";
 
@@ -156,13 +156,14 @@ export function NarrationSettingsPanel() {
 
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Словарь произношения</legend>
-        <p className="text-sm text-[var(--muted)]">Слово и как его читать. Сохраните, и CRM сама обновит словарь в ElevenLabs. Пометка «проверить носителем»: чтение собрано по правилам и на слух ещё не проверено.</p>
+        <p className="text-sm text-[var(--muted)]">Слово и как его читать. Сохраните, и CRM сама обновит словарь в ElevenLabs. Пометка «проверить носителем»: чтение собрано по правилам и на слух ещё не проверено. Такое чтение в озвучку не идёт, пока носитель не проверит и вы не снимете пометку.</p>
         {rules.map((r, i) => <div key={i} className="flex flex-wrap items-center gap-2 rounded border p-2">
           <input aria-label="Слово" className="min-w-0 flex-1 rounded border p-2 text-sm" value={r.word} onChange={(e) => setRulesDraft(rules.map((x, j) => j === i ? { ...x, word: e.target.value } : x))} />
           <input aria-label="Как читать" placeholder="как читать" className="min-w-0 flex-1 rounded border p-2 text-sm" value={r.alias ?? ""} onChange={(e) => setRulesDraft(rules.map((x, j) => j === i ? { ...x, alias: e.target.value || undefined } : x))} />
           <input aria-label="Звуки IPA" placeholder="IPA, по желанию" className="min-w-0 flex-1 rounded border p-2 text-sm" value={r.phoneme ?? ""} onChange={(e) => setRulesDraft(rules.map((x, j) => j === i ? { ...x, phoneme: e.target.value || undefined } : x))} />
           {r.needsNative && <button type="button" className="chip" title="Нажмите, когда носитель проверил" onClick={() => setRulesDraft(rules.map((x, j) => j === i ? { ...x, needsNative: undefined } : x))}>проверить носителем</button>}
           <button type="button" className="pill sm" onClick={() => setRulesDraft(rules.filter((_, j) => j !== i))}>Убрать</button>
+          {narrationPronunciationRuleHeldBack(r) && <p className="basis-full text-sm text-[var(--muted)]">Это чтение пока не применяется: слово озвучивается как обычно. Когда носитель проверит его на слух, нажмите на метку «проверить носителем».</p>}
         </div>)}
         <button type="button" className="pill sm" onClick={() => setRulesDraft([...rules, { word: "", alias: "" }])}>Добавить слово</button>
       </fieldset>

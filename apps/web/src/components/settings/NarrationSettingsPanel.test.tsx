@@ -38,6 +38,19 @@ describe("Настройки CRM: озвучка роликов", () => {
     expect(html).not.toContain("может директор или администратор");
     expect(html).not.toMatch(/<fieldset[^>]*disabled/);
   });
+  it("слово со звуками без проверки носителем: простыми словами, что оно не применяется (20.11.2026)", () => {
+    const note = "Это чтение пока не применяется";
+    const rules = (list: NonNullable<NarrationSettingsView["config"]["pronunciationRules"]>) => render(view({ config: { ...view().config, pronunciationRules: list } }));
+    // Звуки + пометка: подсказка видна, терминов нет; метка для снятия на месте.
+    const held = rules([{ word: "ошёна", phoneme: "/oʃˈɵna/", needsNative: true }]);
+    expect(held).toContain(note);
+    expect(held).toContain("проверить носителем");
+    const text = held.slice(held.indexOf(note), held.indexOf(note) + 200);
+    expect(text).not.toMatch(/IPA|фонем|синхрониз/i);
+    // Замена-алиас с пометкой всё ещё уходит в озвучку, звуки без пометки (носитель проверил) — тоже.
+    expect(rules([{ word: "Сино", alias: "Сино", needsNative: true }])).not.toContain(note);
+    expect(rules([{ word: "ошёна", phoneme: "/oʃˈɵna/" }])).not.toContain(note);
+  });
   it("маркетинг видит, но не меняет: поля заблокированы, сохранения нет", () => {
     const html = render(view({ canConfigure: false }));
     expect(html).toContain("Менять настройки озвучки может директор или администратор");
