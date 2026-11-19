@@ -224,10 +224,11 @@ describe("Рудаки — зона работы (решение владель�
     expect(detectOutsideCoverage("Хона дар Кӯлоб")).not.toBeNull();
   });
 
-  it("общие тексты обоих ботов говорят «Душанбе и район Рудаки», а не «только Душанбе»", () => {
+  it("общие тексты обоих ботов говорят «по Душанбе» (Рудаки не называют вслух), а не «только Душанбе»", () => {
     expect(SALES_FACTS).toContain(SERVICE_AREA_SALES_RULE);
     expect(SALES_FACTS).not.toContain("Только Душанбе");
-    expect(companyInfoBlock()).toContain("район Рудаки");
+    expect(companyInfoBlock()).toContain("района Рудаки");
+    expect(companyInfoBlock()).toContain("вслух район не называй");
     expect(SCENARIO_SELL).toContain(RUDAKI_SELLER_RULE);
   });
 
@@ -337,7 +338,7 @@ describe("Рудаки — зона работы (решение владель�
     expect(detectOutsideCoverage("Ҳавлӣ дар ноҳияи Рӯдакӣ")).toBeNull();
     // Тексты: правило пригородов — в общем справочнике обоих ботов и робота; функция поиска робота не зовёт пригороды.
     expect(SALES_FACTS).toContain("ПРИГОРОДЫ — НЕ НАША ЗОНА");
-    expect(SUBURB_SEARCH_REFUSAL).toContain("только Душанбе и район Рудаки");
+    expect(SUBURB_SEARCH_REFUSAL).toContain("только Душанбе");
     const search = PROPERTY_TOOLS.find((tool) => tool.name === "search_properties");
     const suburbanDescription = (search?.parameters as { properties: Record<string, { description?: string }> }).properties.suburban.description ?? "";
     expect(suburbanDescription).toContain("не наша зона");
