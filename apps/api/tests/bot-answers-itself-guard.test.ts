@@ -90,17 +90,43 @@ describe("сторож: зовут руководство только чере�
     }
   });
 
-  it("настройку читает одна дверь: botAnswersItself из Settings — только lib/botAnswersItself.ts", () => {
+  /**
+   * Одна дверь чтения на ВСЕ три рубильника (ревью #283, 20.11): «бот отвечает сам», «номер под постом: заявка», «...:
+   * разговор». Читать — select `поле: true` или чтение поля строки настроек `.поле` — можно только в lib/botAnswersItself.ts.
+   * Запись (routes/settings.ts, схема Zod `поле: z.boolean()`) — не чтение.
+   */
+  it.each(["botAnswersItself", "botCommentPhoneLead", "botCommentPhoneConversation"])("настройку %s читает одна дверь — lib/botAnswersItself.ts", (field) => {
     const readers: string[] = [];
+    const read = new RegExp(`\\b${field}\\s*:\\s*true|\\.${field}\\b`);
     const walk = (dir: string) => {
       for (const entry of readdirSync(join(SRC, dir), { withFileTypes: true })) {
         const rel = `${dir}/${entry.name}`;
         if (entry.isDirectory()) { if (entry.name !== "generated") walk(rel); continue; }
         if (!entry.name.endsWith(".ts")) continue;
-        if (/botAnswersItself\s*:\s*true/.test(readFileSync(join(SRC, rel), "utf8"))) readers.push(rel);
+        if (read.test(withoutComments(readFileSync(join(SRC, rel), "utf8")))) readers.push(rel);
       }
     };
-    for (const dir of ["lib", "messengers", "ai", "jobs", "routes", "services"]) walk(dir);
+    for (const dir of ["lib", "messengers", "ai", "jobs", "routes", "services", "telegram"]) walk(dir);
     expect(readers).toEqual(["lib/botAnswersItself.ts"]);
+  });
+
+  /**
+   * Рубильник заявки по номеру из комментария (ревью #283, 20.11): каждая из трёх дверей messengers/commentPhoneLead.ts
+   * спрашивает его САМА — новый вызывающий не может завести карточку по комментарию мимо рубильника.
+   */
+  it("каждая дверь номера из комментария спрашивает рубильник заявки", () => {
+    const src = readFileSync(join(SRC, "messengers/commentPhoneLead.ts"), "utf8");
+    for (const door of ["captureCommentPhoneIntoConversation", "attachCommentPhonesToCard", "createLeadFromCommentPhone"]) {
+      const start = src.indexOf(`export async function ${door}(`);
+      expect(start, door).toBeGreaterThan(-1);
+      const next = src.indexOf("\nexport ", start + 10);
+      const body = withoutComments(src.slice(start, next === -1 ? undefined : next));
+      expect(body, door).toMatch(/await loadCommentPhoneLead\(\)/);
+      const gate = body.indexOf("loadCommentPhoneLead(");
+      for (const effect of ["acceptLead(", "createLeadFromChannel(", "claimCommentPhone(", "prisma."]) {
+        const at = body.indexOf(effect);
+        if (at !== -1) expect(gate, `${door}: ${effect} до проверки рубильника`).toBeLessThan(at);
+      }
+    }
   });
 });

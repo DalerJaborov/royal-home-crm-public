@@ -55,7 +55,7 @@ import { MANDATORY_BOT_RULES, propertyGeographyBlock } from "../ai/dushanbeGeogr
 import { folkGeographyBlock } from "../ai/folkPlaces.js";
 import { AGENCY_COMPANY_INFO } from "../ai/agencyVoice.js";
 import { extractAllPhones } from "../lib/shared/phoneText.js";
-import { commentNeedsPerson, loadBotAnswersItself, loadCommentPhoneConversation } from "../lib/botAnswersItself.js";
+import { commentNeedsPerson, loadBotAnswersItself, loadCommentPhoneConversation, loadCommentPhoneLead } from "../lib/botAnswersItself.js";
 import { isCustomerAgentCommentOff } from "../lib/customerAgentChannelOff.js";
 import { COMMENT_PHONE_DM, commentPhonePublicReply, commentSelfReply, selfLanguageOf } from "../ai/botSelfAnswerText.js";
 import { captureCommentPhoneIntoConversation, clientPhonesOf, COMMENT_HISTORY_PREFIX, COMMENT_PHONE_HOLD_MS, commentLeadBlocked,
@@ -1321,6 +1321,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
        * для автора не заводит намеренно, поэтому — прямой приём без диалога (commentPhoneLead.ts), идемпотентный
        * по номеру; модерацию (спам/агентство) не трогаем: там номер конкурента.
        */
+      // Рубильник заявки (Settings.botCommentPhoneLead) проверяет сама дверь createLeadFromCommentPhone: ВЫКЛ — как до #283.
       if (draft.status !== "moderate" && draft.status !== "moderation_proposal") {
         // Личное и скрытие на этой полосе делает только ядро (P12): разговора от этого файла нет — заявка сразу в раздачу.
         await createLeadFromCommentPhone({ ...row, channel: row.channel as "INSTAGRAM" | "FACEBOOK" | "YOUTUBE" },
@@ -2226,8 +2227,10 @@ async function maybeSendPrivateReply(
   });
   if (reserved === "own") return { sent: false, note: "dm_already" };
   if (reserved === "other") return { sent: false, note: "dm_limit" };
+  // Сбой снятия отметки не глотается молча (ревью #283, 20.11): иначе автору сутки не пишем, хотя личное не ушло.
   const release = () => prisma.instagramComment.updateMany({ where: { id: row.id, dmText: text }, data: { dmSentAt: null, dmText: null } })
-    .catch(() => undefined);
+    .catch((err) => void logSystemError("meta", `Комментарий ${row.commentId}: отметка «личное отправлено» не снята, хотя личное не ушло — ` +
+      `автору сутки не напишем: ${describeError(err)}`, { dedupKey: "comment-dm-release-failed", silent: true }));
 
   try {
     // Канал решает, куда уйдёт личное: Instagram Direct или Messenger страницы. recipient_id ответа Meta — адрес, с
@@ -2305,6 +2308,9 @@ async function handleCommentPhone(
   onRecorded?: (card: { recorded: boolean; taken: boolean }) => void
 ): Promise<keyof CommentRunStats | null> {
   if (!clientPhonesOf(row.text).length || commentLeadBlocked(row.text)) return null;
+  // Рубильник «Номер под постом: завести заявку агенту» ВЫКЛ (ревью #283, 20.11): разбор как до #283 — ни досье, ни карточки,
+  // ни личного, ни скрытия. Проверяем здесь, до любых шагов двери, а не только в commentPhoneLead.ts.
+  if (!(await loadCommentPhoneLead())) return null;
   const channel = row.channel as MessengerChannel;
   if (mode === "lead_only") return leadOnlyCommentPhone(row, account, accountGuess, "бот на этом канале выключен");
   /**
@@ -2450,6 +2456,7 @@ async function captureCommentPhoneCardOnly(row: QueuedComment, account: { id: st
  */
 export async function captureCommentPhoneWhileBotOff(row: QueuedComment): Promise<boolean> {
   if (!clientPhonesOf(row.text).length) return false;
+  if (!(await loadCommentPhoneLead())) return false; // рубильник заявки ВЫКЛ — комментарий закрывается bot_off, как до #283
   try {
     const account = row.channel === "YOUTUBE" ? { id: null as string | null, certain: true }
       : await resolveIncomingAccount(row.channel, row.accountExternalId ?? undefined);
@@ -2468,6 +2475,7 @@ export async function captureCommentPhoneWhileBotOff(row: QueuedComment): Promis
  */
 export async function captureBotOffCommentPhones(commentIds: readonly string[]): Promise<number> {
   if (!commentIds.length) return 0;
+  if (!(await loadCommentPhoneLead())) return 0; // рубильник заявки ВЫКЛ — как до #283
   let captured = 0;
   try {
     const rows = await prisma.instagramComment.findMany({ where: { commentId: { in: [...commentIds] }, status: "SKIPPED", note: "bot_off" },

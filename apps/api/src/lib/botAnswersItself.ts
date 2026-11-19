@@ -20,6 +20,7 @@
  *    эпизод разговора (ревью 1b, №1: «клиент 30 минут совсем без ответа — это сбой, админу сигнал»).
  */
 import { prisma } from "../db.js";
+import { logSystemError } from "./systemError.js";
 import { looksLikeNoContactComplaint } from "../ai/complaintGuard.js";
 
 /** Сбой чтения настроек — ВЫКЛ: прежнее поведение (человека зовут) безопаснее тишины. */
@@ -33,15 +34,34 @@ export async function loadBotAnswersItself(): Promise<boolean> {
 }
 
 /**
- * Рубильник «номер из комментария — разговор» (Settings.botCommentPhoneConversation, по умолчанию ВЫКЛ; включается после «да» владельца на тексты): личное с вопросом,
- * публичный ответ, скрытие. Сбой чтения — ВЫКЛ: без «да» владельца клиентам не пишем.
+ * РУБИЛЬНИК «НОМЕР ПОД ПОСТОМ: ЗАВЕСТИ ЗАЯВКУ АГЕНТУ» (Settings.botCommentPhoneLead, по умолчанию ВЫКЛ; ревью #283, 20.11.2026).
+ * ВКЛ — номер из комментария (Instagram, Facebook, YouTube, обсуждение Telegram) становится карточкой и уходит агенту
+ * (messengers/commentPhoneLead.ts). ВЫКЛ — как до #283: карточки нет, придержки нет. Сбой чтения — ВЫКЛ и строка в журнале:
+ * новое поведение без явного включения не работает.
+ */
+export async function loadCommentPhoneLead(): Promise<boolean> {
+  return (await loadCommentPhoneSwitches()).lead;
+}
+
+/**
+ * Рубильник «номер из комментария — разговор» (Settings.botCommentPhoneConversation, по умолчанию ВЫКЛ; включается после
+ * «да» владельца на тексты): личное с вопросом, публичный ответ, скрытие. Действует ТОЛЬКО вместе с заявкой
+ * (botCommentPhoneLead): разговор без карточки бессмыслен — его ответ клиента ложится в карточку. Сбой чтения — ВЫКЛ.
  */
 export async function loadCommentPhoneConversation(): Promise<boolean> {
+  const switches = await loadCommentPhoneSwitches();
+  return switches.lead && switches.conversation;
+}
+
+async function loadCommentPhoneSwitches(): Promise<{ lead: boolean; conversation: boolean }> {
   try {
-    const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { botCommentPhoneConversation: true } });
-    return row?.botCommentPhoneConversation === true;
-  } catch {
-    return false;
+    const row = await prisma.settings.findUnique({ where: { id: "singleton" },
+      select: { botCommentPhoneLead: true, botCommentPhoneConversation: true } });
+    return { lead: row?.botCommentPhoneLead === true, conversation: row?.botCommentPhoneConversation === true };
+  } catch (err) {
+    void logSystemError("ai", `Настройки «номер под постом» не прочитаны — номер из комментария на этом ходе заявкой не становится: ` +
+      `${err instanceof Error ? err.message : String(err)}`, { dedupKey: "comment-phone-switch-read" }).catch(() => {});
+    return { lead: false, conversation: false };
   }
 }
 

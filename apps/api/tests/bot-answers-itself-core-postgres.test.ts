@@ -370,7 +370,7 @@ describe("блокировка Meta: ход ядра идёт как в main —
  */
 describe("ЗАКРЕПЛЕНИЕ: оба тумблера ВЫКЛ — личные (ядро) как в main", () => {
   beforeEach(async () => {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false, botAnswersItself: false, botCommentPhoneConversation: false } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false, botAnswersItself: false, botCommentPhoneConversation: false, botCommentPhoneLead: false } });
   });
   it("Instagram без карточки: «это подскажет агент» уходит как в main, человек узнаёт, заявки нет", async () => {
     const f = await coreFixture("Мошин ҳам қабул мекунед?", "INSTAGRAM");

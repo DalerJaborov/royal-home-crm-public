@@ -12,6 +12,12 @@ const mocks = vi.hoisted(() => ({
   log: vi.fn(),
   claim: vi.fn(),
   release: vi.fn(),
+  leadOn: vi.fn(),
+}));
+// Рубильник «Номер под постом: завести заявку агенту» (ревью #283, 20.11): сценарии ниже — при ВКЛ; ВЫКЛ — отдельный блок.
+vi.mock("../src/lib/botAnswersItself.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/botAnswersItself.js")>()),
+  loadCommentPhoneLead: mocks.leadOn,
 }));
 
 vi.mock("../src/db.js", async (importOriginal) => ({
@@ -42,6 +48,7 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
 
 import { StaffPhoneLeadError } from "../src/lib/staffPhoneGuard.js";
 import {
+  attachCommentPhonesToCard,
   captureCommentPhoneIntoConversation,
   clientPhonesOf,
   COMMENT_HISTORY_PREFIX,
@@ -73,6 +80,25 @@ beforeEach(() => {
   mocks.findConversation.mockResolvedValue(conversation());
   mocks.claim.mockResolvedValue(1);
   mocks.release.mockResolvedValue({ count: 1 });
+  mocks.leadOn.mockResolvedValue(true);
+});
+
+describe("рубильник заявки ВЫКЛ (по умолчанию) — как до #283", () => {
+  it("ни одна дверь не заводит карточку и не берёт захват", async () => {
+    mocks.leadOn.mockResolvedValue(false);
+    expect((await captureCommentPhoneIntoConversation(row(), "conv-1")).outcome).toBe("off");
+    expect(await createLeadFromCommentPhone({ ...row(), channel: "INSTAGRAM" })).toBe("off");
+    expect(await attachCommentPhonesToCard("client-1", ["900000001"], row())).toEqual([]);
+    expect(mocks.acceptLead).not.toHaveBeenCalled();
+    expect(mocks.createLead).not.toHaveBeenCalled();
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.findConversation).not.toHaveBeenCalled();
+  });
+  it("без номера настройку не читаем вовсе (дешёвая проверка текста первой)", async () => {
+    mocks.leadOn.mockResolvedValue(false);
+    expect((await captureCommentPhoneIntoConversation(row("Нарх чанд?"), "conv-1")).outcome).toBe("no_phone");
+    expect(mocks.leadOn).not.toHaveBeenCalled();
+  });
 });
 
 describe("captureCommentPhoneIntoConversation (Instagram/Facebook/YouTube)", () => {

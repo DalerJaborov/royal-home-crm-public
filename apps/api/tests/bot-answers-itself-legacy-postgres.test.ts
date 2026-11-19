@@ -93,7 +93,7 @@ describe("№12: Meta запретила аккаунту личные — ст�
 
 describe("второе ревью 1b, №4: номер под постом → личное → ответ клиента в личке, режим «только заявки» ВКЛ", () => {
   it("ответ засчитан, карточка уходит в раздачу с целью, номер у клиента не просим", async () => {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: true, botAnswersItself: false, botCommentPhoneConversation: true } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: true, botAnswersItself: false, botCommentPhoneConversation: true, botCommentPhoneLead: true } });
     try {
       m.ai.mockImplementation(async (p: { endpoint?: string }) => /-comment$/.test(p.endpoint ?? "") ? { action: "reply", reply: "Салом!" } : null);
       m.privateReply.mockResolvedValue(`dm-${runId}`);
@@ -119,7 +119,7 @@ describe("второе ревью 1b, №4: номер под постом → �
       expect(notes.some((n) => n.includes("Хона мехарам"))).toBe(true);
     } finally {
       await prisma.instagramComment.deleteMany({ where: { commentId: { startsWith: `cphone-lo-${runId}` } } });
-      await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false, botCommentPhoneConversation: false } });
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false, botCommentPhoneConversation: false, botCommentPhoneLead: false } });
     }
   }, 90_000);
 });
@@ -157,7 +157,7 @@ describe("№7: офтопик третий раз подряд при «бот 
     expect(m.push).not.toHaveBeenCalled();
   });
   it("ВЫКЛ (как в main), без карточки — человеку пуш (закрепление «оба ВЫКЛ = main» для личных)", async () => {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: false, botCommentPhoneConversation: false } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botAnswersItself: false, botCommentPhoneConversation: false, botCommentPhoneLead: false } });
     await third(`offtopic-off-${runId}`, null);
     expect(m.push).toHaveBeenCalledTimes(1);
   });

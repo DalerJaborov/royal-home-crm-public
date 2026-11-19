@@ -19,9 +19,15 @@ import { logTimeline } from "../lib/timeline.js";
 import { randomUUID } from "node:crypto";
 import { classifyInbound } from "../services/leads/intakePolicy.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
+import { loadCommentPhoneLead } from "../lib/botAnswersItself.js";
 
 /**
  * НОМЕР ИЗ КОММЕНТАРИЯ: СНАЧАЛА РАЗГОВОР, ПОТОМ РАЗДАЧА (решения владельца и диспетчера 18.11.2026).
+ *
+ * РУБИЛЬНИКИ (ревью #283, 20.11.2026; одна дверь чтения — lib/botAnswersItself.ts). «Номер под постом: завести заявку
+ * агенту» (botCommentPhoneLead) — по умолчанию ВЫКЛ: тогда ничего из описанного ниже не происходит, номер под постом
+ * карточкой не становится (как до #283). Его проверяют все три двери этого файла. «Написать человеку и скрыть»
+ * (botCommentPhoneConversation) — пункты 2–5 ниже, действует только при ВКЛ заявки; без него — только карточка с пометкой.
  *
  * Владелец: «неправильно, ИИ должен поговорить, чтобы узнать, что он хочет»; про комментарий с номером: «скрой, это
  * возможно спам». Порядок (messengers/comments.ts::handleCommentPhone):
@@ -71,6 +77,8 @@ export interface CommentPhoneRow {
 }
 
 export type CommentPhoneOutcome =
+  /** Рубильник «Номер под постом: завести заявку агенту» выключен (Settings.botCommentPhoneLead): как до #283, ничего. */
+  | "off"
   | "no_phone"
   | "already"
   | "spam"
@@ -137,6 +145,8 @@ export async function captureCommentPhoneIntoConversation(
   // Дешёвая проверка текста — до любого запроса в базу: у большинства комментариев номера нет.
   const phone = clientPhonesOf(row.text)[0];
   if (!phone) return NOTHING;
+  // Рубильник заявки (ревью #283, 20.11): ВЫКЛ — как до #283. Проверка после дешёвой проверки текста: без номера — без чтения.
+  if (!(await loadCommentPhoneLead())) return { outcome: "off", recordedInHistory: false };
   if (commentLeadBlocked(row.text)) return { outcome: "declined", recordedInHistory: false };
   try {
     const conversation = await prisma.botConversation.findUnique({
@@ -220,6 +230,7 @@ async function releaseCommentPhoneClaim(row: Pick<CommentPhoneRow, "channel" | "
  * в хронологию с номером. Не бросает: сбой виден в журнале, разбор комментария идёт дальше.
  */
 export async function attachCommentPhonesToCard(clientId: string, phones: readonly string[], row: Pick<CommentPhoneRow, "commentId" | "channel" | "text">): Promise<string[]> {
+  if (!(await loadCommentPhoneLead())) return []; // рубильник заявки ВЫКЛ — как до #283
   let claimed = false;
   try {
     claimed = await claimCommentPhone(row);
@@ -274,6 +285,7 @@ export async function createLeadFromCommentPhone(
   const phones = clientPhonesOf(row.text);
   const phone = phones[0];
   if (!phone) return "no_phone";
+  if (!(await loadCommentPhoneLead())) return "off"; // рубильник заявки ВЫКЛ — как до #283
   if (commentLeadBlocked(row.text)) return "declined";
   if (looksLikeRentRequest(row.text) || mentionsJobSeeking(row.text)) return "declined";
   const decision = classifyInbound({ clientText: row.text, channel: "chat" });

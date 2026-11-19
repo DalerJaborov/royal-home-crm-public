@@ -68,6 +68,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { StateWord, Switch, SwitchRow } from "../../components/Switch";
 import { SHOWING_CONFIRM_ON_TEXT, followUpBlockedBy, showingConfirmBlockedBy } from "../../lib/settingsDependencies";
 import { relativeTime } from "../../lib/format";
+import { CommentPhoneSwitches } from "./CommentPhoneSwitches";
 
 /**
  * Окно «Помощник» — всё про бота на одном экране.
@@ -929,17 +930,9 @@ function BotPowerSection() {
         }
         onToggle={() => toggle("botAnswersItself", !(settings?.botAnswersItself ?? false))}
       />
-      {/* Номер из комментария (18.11.2026): apps/api/src/messengers/commentPhoneLead.ts. */}
-      <SwitchRow
-        title="Номер под постом: написать человеку и скрыть"
-        on={settings?.botCommentPhoneConversation ?? false}
-        hint={
-          settings?.botCommentPhoneConversation ?? false
-            ? "Кто оставил номер под постом, получает от бота одно личное сообщение с вопросом, что ему нужно, а комментарий скрывается. Карточка заводится сразу."
-            : "Номер из комментария всё равно сразу становится заявкой для агента. Под постом бот отвечает как обычно, отдельного письма про номер нет, комментарий не скрывается."
-        }
-        onToggle={() => toggle("botCommentPhoneConversation", !(settings?.botCommentPhoneConversation ?? false))}
-      />
+      {/* Номер под постом: заявка и разговор (CommentPhoneSwitches.tsx, ревью #283, 20.11.2026). */}
+      <CommentPhoneSwitches leadOn={settings?.botCommentPhoneLead ?? false} talkOn={settings?.botCommentPhoneConversation ?? false}
+        onToggle={toggle} />
 
       <div className="grp-lab">Что бот умеет</div>
       <div className="quiet">

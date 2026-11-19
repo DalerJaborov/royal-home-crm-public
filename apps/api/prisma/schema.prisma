@@ -4217,6 +4217,9 @@ model Client {
   /// по workStatus=DEFERRED + deferredUntil<=now — без составного индекса это
   /// полный проход по всей таблице клиентов на каждом тике.
   @@index([workStatus, deferredUntil])
+  /// Снятие придержки номера из комментария (lib/commentPhoneHold.ts) — каждый тик раздачи отбирает
+  /// commentPhoneHoldUntil not null; без индекса это полный проход по клиентам (ревью #283, 20.11.2026).
+  @@index([commentPhoneHoldUntil])
   /// Пуши «новое объявление на площадке подошло покупателю» (14.11.2026).
   marketAlerts BuyerMarketAlert[]
 }
@@ -7471,6 +7474,11 @@ model Settings {
   /// прежним путём (ответ модели под постом). ВЫКЛЮЧЕН по умолчанию: включается после «да» владельца на тексты.
   /// Читает lib/botAnswersItself.ts.
   botCommentPhoneConversation       Boolean   @default(false)
+  /// НОМЕР ИЗ КОММЕНТАРИЯ — ЗАЯВКА (20.11.2026, рубильник ревью #283): ВКЛ — номер под постом (Instagram, Facebook,
+  /// YouTube, обсуждение Telegram) становится карточкой и уходит агенту. ВЫКЛ — как до #283: номер под постом карточкой
+  /// не становится. Разговор по номеру (botCommentPhoneConversation) действует только при ВКЛ этой настройки.
+  /// ВЫКЛЮЧЕН по умолчанию. Читает только lib/botAnswersItself.ts.
+  botCommentPhoneLead               Boolean   @default(false)
   /// Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026). По умолчанию ВЫКЛ.
   marketBuyerAlertsEnabled          Boolean   @default(false)
   /// Когда рубильник пуша «объявление под покупателя» включили (ставит первый прогон; null при выключенном). «Новое» считается от неё.
