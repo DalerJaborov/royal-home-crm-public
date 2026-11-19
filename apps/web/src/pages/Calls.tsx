@@ -133,7 +133,7 @@ function CallRowItem({ call, showAgent, royal = false }: { call: CallRow; showAg
             <CallClientButton clientId={call.client.id} phone="" variant="full" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-act" />
           )
         ) : (
-          <RoyalCallListen open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={duration} />
+          <RoyalCallListen open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={duration} canListen={call.hasRecording && call.canHear !== false} />
         )}
         details={open && !noAnswer && (
           <div className="ry-call-details" id={detailsId}>
@@ -583,7 +583,12 @@ export function Calls() {
         {royal ? (
           // Шапка нового вида: тот же переключатель разделов, что у «Чатов», и
           // тот же наборщик (право прежнее — только администрация).
-          <RoyalCallsTop title={supervisor ? "Звонки" : "Мои звонки"} onDial={supervisor ? () => setDialOpen(true) : undefined} />
+          // Подпись под заголовком — одна короткая строка (экран = заголовок + строка + главная кнопка).
+          <RoyalCallsTop
+            title={supervisor ? "Звонки" : "Мои звонки"}
+            sub={supervisor ? "Записи, расшифровки и разбор разговоров с клиентами" : "Ваши разговоры: запись, расшифровка и совет"}
+            onDial={supervisor ? () => setDialOpen(true) : undefined}
+          />
         ) : <>
         <div className={clean ? "flex items-start justify-between gap-5" : "pg-h"}>
           <div>

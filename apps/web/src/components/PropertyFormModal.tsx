@@ -1301,7 +1301,7 @@ export function PropertyFormModal({
                   {isEdit ? "Контакт владельца" : "Телефон продавца *"}
                 </span>
                 {isEdit && property?.ownerContactHidden ? (
-                  <span className="msg" style={{ marginTop: 0 }}>Номер скрыт. Поменять его может тот, кому он виден.</span>
+                  <span className="msg" style={{ marginTop: 0 }}>Номер видит и меняет только директор. Позвонить продавцу — кнопкой «Позвонить» в карточке объекта.</span>
                 ) : (
                   <PhoneInput
                     value={form.ownerContact}

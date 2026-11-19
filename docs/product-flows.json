@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4121,
+  "forks": 4126,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -26553,7 +26553,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));",
+     "t": "res.json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));",
      "a": [
       "ответ 200"
      ],
@@ -27282,7 +27282,7 @@
     },
     {
      "k": "do",
-     "t": "res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));",
+     "t": "res.status(201).json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outco…",
      "a": [
       "ответ 201"
      ],
@@ -38374,14 +38374,14 @@
      "c": [
       {
        "k": "if",
-       "t": "await phoneBelongsToHiddenOwner(req, stored)",
+       "t": "await isHiddenCrmPhone(req, stored)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(403).json({ error: \"Номер совпадает с контактом владельца объекта, доступ закрыт\" });",
+         "t": "return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: \"CRM_PHONE_HIDDEN\" });",
          "a": [
-          "ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»"
+          "ответ 403"
          ],
          "c": []
         }
@@ -38450,14 +38450,14 @@
       },
       {
        "k": "if",
-       "t": "await phoneBelongsToHiddenOwner(req, phone)",
+       "t": "await isHiddenCrmPhone(req, phone)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(403).json({ error: \"Номер совпадает с контактом владельца объекта, доступ закрыт\" });",
+         "t": "return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: \"CRM_PHONE_HIDDEN\" });",
          "a": [
-          "ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»"
+          "ответ 403"
          ],
          "c": []
         }
@@ -38688,17 +38688,17 @@
     },
     {
      "k": "do",
-     "t": "const ownerHidden = stripOwnerContact( { ownerContact: \"x\", assignedAgentId: p.assignedAgentId, intakeAgentId…",
+     "t": "const phonesHidden = !canSeeCrmContactPhones(req);",
      "a": [
-      "зовёт stripOwnerContact()"
+      "зовёт canSeeCrmContactPhones()"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "const ownerTails = ownerHidden ? new Set(extractPhoneTails(p.ownerContact)) : new Set<string>();",
+     "t": "const crmTails = phonesHidden ? await crmContactTails(rows.map((m)",
      "a": [
-      "зовёт extractPhoneTails()"
+      "зовёт crmContactTails()"
      ],
      "c": []
     },
@@ -38826,7 +38826,38 @@
     },
     {
      "k": "do",
-     "t": "res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null,…",
+     "t": "const dynamics = await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name …",
+     "a": [
+      "зовёт findDynamics()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!canSeeCrmContactPhones(req) && dynamics.recentlyGone.length > 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const crmTails = await crmContactTails(dynamics.recentlyGone.map((g)",
+       "a": [
+        "зовёт crmContactTails()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "dynamics.recentlyGone = dynamics.recentlyGone.map((g)",
+       "a": [
+        "зовёт phoneTail()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(dynamics);",
      "a": [
       "ответ 200"
      ],
@@ -57176,7 +57207,7 @@
     },
     {
      "k": "do",
-     "t": "const presented = stripEmbedding(stripOwnerContact(property, req.agent!.id, can(req, \"properties.viewOwners\")…",
+     "t": "const presented = stripEmbedding(stripOwnerContact(property, can(req, \"properties.viewOwners\")));",
      "a": [
       "зовёт stripEmbedding()"
      ],
@@ -57184,7 +57215,15 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ...presented, sellerClient: presented.ownerContactHidden ? null : await loadSellerClientRef(proper…",
+     "t": "const ownsIt = ownsProperty(req.agent!.id, property);",
+     "a": [
+      "зовёт ownsProperty()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ...presented, ownerContactMasked: presented.ownerContactHidden && ownsIt ? maskOwnerContact(proper…",
      "a": [
       "ответ 200"
      ],
@@ -57445,7 +57484,7 @@
     },
     {
      "k": "if",
-     "t": "data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, \"properties.viewOwners…",
+     "t": "data.ownerContact !== undefined && stripOwnerContact(existing, can(req, \"properties.viewOwners\")).ownerContac…",
      "a": [],
      "c": [
       {
@@ -105599,6 +105638,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "continue;",
              "a": [
@@ -105615,12 +105669,27 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError( \"ai\", `Заявка оформлена сторожем: номер ${maskClientPhone(row.phone!)} был в переписке (…",
+             "t": "void logSystemError( \"ai\", (row.promised ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки…",
              "a": [
               "запись в журнал ошибок"
              ],
              "c": []
             },
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "outcome === \"accepted_other\"",
+           "a": [],
+           "c": [
             {
              "k": "do",
              "t": "continue;",
@@ -105659,6 +105728,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "row.promised",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await markWatchdogAttempted(row.conversationId, now);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "continue;",
              "a": [
@@ -105670,7 +105754,7 @@
           },
           {
            "k": "do",
-           "t": "const what = row.phone ? `Номер ${maskClientPhone(row.phone)} есть в переписке, карточки в базе нет` : `Клиен…",
+           "t": "const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…",
            "a": [
             "зовёт maskClientPhone()"
            ],
@@ -105704,6 +105788,21 @@
               "запись в журнал ошибок"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "row.promised",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await markWatchdogAttempted(row.conversationId, now);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
           },
