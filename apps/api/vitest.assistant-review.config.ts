@@ -20,6 +20,7 @@ export default {
       "tests/assistant-media-telegram.unit.test.ts",
       "tests/assistant-money.unit.test.ts",
       "tests/assistant-property-embedding-budget.unit.test.ts",
+      "tests/assistant-request-shrink.unit.test.ts",
     ],
   },
 };

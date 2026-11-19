@@ -166,6 +166,20 @@ export function groupMembershipEvent(added: unknown, left: unknown, username: st
   if (arrivals.data.some(ourBot)) return "bot-added";
   return arrivals.data.some(member => !member.is_bot) ? "people-joined" : null;
 }
+/**
+ * СЛУЖЕБНОЕ СООБЩЕНИЕ «ГРУППА СТАЛА СУПЕРГРУППОЙ» (20.11.2026). Telegram присылает его дважды: в старую
+ * группу (`migrate_to_chat_id`, chat.id — старый) и в новую супергруппу (`migrate_from_chat_id`, chat.id —
+ * новый). Результат — пара «старый id → новый» либо null, если сообщение не про переезд или значения
+ * непохожи на настоящие (новый обязан быть id супергруппы с префиксом -100, старый — отрицательным).
+ */
+export function groupMigrationEvent(chatId: unknown, migrateTo: unknown, migrateFrom: unknown): { oldChatId: string; newChatId: string } | null {
+  const id = z.number().int().refine(Number.isSafeInteger).refine(value => value < 0);
+  const here = id.safeParse(chatId), to = id.safeParse(migrateTo), from = id.safeParse(migrateFrom);
+  const [oldId, newId] = to.success && here.success ? [here.data, to.data]
+    : from.success && here.success ? [from.data, here.data] : [null, null];
+  if (oldId === null || newId === null || oldId === newId || !String(newId).startsWith("-100")) return null;
+  return { oldChatId: String(oldId), newChatId: String(newId) };
+}
 export const GROUP_WELCOME_INTERVAL_MS = 60_000;
 export const GROUP_QUIET_MS = 30 * 60_000;
 export const PROACTIVE_GROUP_INTERVAL_MS = 12_000;

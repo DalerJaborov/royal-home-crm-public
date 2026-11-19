@@ -283,7 +283,7 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
       return;
     }
     // Меню — telegram/montajerBot.ts; незнакомая (старая) кнопка — меню заново.
-    await runMontajerCommand(chatId, parseMontajerCallback(query.data) ?? { kind: "menu" });
+    await runMontajerCommand(chatId, parseMontajerCallback(query.data) ?? { kind: "menu" }, agent.id);
     return;
   }
   // «📋 Текст поста» (28.09.2026, lib/agentSharePost.ts) — подпись отдельным
@@ -585,7 +585,7 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     return true;
   }
   if (!ownText && msg.text) return true;
-  await runMontajerCommand(chatId, parseMontajerText(ownText ?? ""));
+  await runMontajerCommand(chatId, parseMontajerText(ownText ?? ""), agent.id);
   return true;
 }
 

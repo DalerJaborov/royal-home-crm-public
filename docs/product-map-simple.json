@@ -14,12 +14,12 @@
  "totals": {
   "screens": 49,
   "paths": 776,
-  "cron": 141,
+  "cron": 142,
   "jobs": 34,
-  "conditions": 4110,
+  "conditions": 4115,
   "untranslatedUnique": 473,
   "untranslatedTotal": 608,
-  "partialUnique": 1110,
+  "partialUnique": 1111,
   "translatedShare": 85
  },
  "untranslated": [
@@ -113,6 +113,7 @@
   "!message.referralOnly && admission.status === \"admitted\" && admission.fresh && pendingReferral && message.acc…",
   "!messages.some((m) => m.role === \"user\")",
   "!narrationAutoEnabled(config)",
+  "!narrationDeliveryStalled(row, now)",
   "!needsReadReceipt(source)",
   "!options.allowLive || newOwnerProbeMode() !== 'LIVE'",
   "!options.force && !await turnSettled(intake.eventKey)",
@@ -396,7 +397,7 @@
   "pair.liveVoicePrompt !== undefined && pair.liveVoicePrompt.trim() && pair.liveVoicePrompt.trim() !== DEFAULT_…",
   "pair.workHoursStart !== undefined || pair.workHoursEnd !== undefined || pair.alarmHoursStart !== undefined ||…",
   "parsed.data.draftId && draft?.id !== parsed.data.draftId",
-  "parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…",
+  "parsed.data.editorId && !await prisma.agent.findFirst({ where: usableMontajerWhere(parsed.data.editorId), sel…",
   "parsed.data.ownerContact?.trim()",
   "parsed.data.previewFingerprint && parsed.data.previewFingerprint !== previewFingerprint",
   "parsed.data.status && parsed.data.status !== existing.status",
@@ -443,7 +444,6 @@
   "row.answeredAt || row.closedAt || row.supersededAt || !slot || slot.status !== \"committed\" || slot.generation…",
   "row.anyComment && !row.postUrl?.trim() && row.postUrls.every((u) => !u.trim())",
   "row.attemptAt && Date.now() - row.attemptAt.getTime() > 120_000",
-  "row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget",
   "row.client.aiInsightAt && startedAt - row.client.aiInsightAt.getTime() < NIGHTLY_SCORING_FRESH_MS",
   "row.doneAt || row.supersededAt || !intent || intent.status !== \"committed\" || intent.generation !== row.gener…",
   "row.groupChatId && row.groupChatId !== settings.discussionGroupId",
@@ -39630,7 +39630,7 @@
      "raw": "!row || latest?.id !== row.id || !narrationFactsCurrent(row, p)"
     },
     {
-     "t": "если parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…",
+     "t": "если parsed.data.editorId && !await prisma.agent.findFirst({ where: usableMontajerWhere(parsed.data.editorId), sel…",
      "k": "if",
      "a": [],
      "c": [
@@ -39641,7 +39641,7 @@
        "c": []
       }
      ],
-     "raw": "parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…"
+     "raw": "parsed.data.editorId && !await prisma.agent.findFirst({ where: usableMontajerWhere(parsed.data.editorId), sel…"
     },
     {
      "t": "пробует сделать",
@@ -64826,6 +64826,67 @@
    ]
   },
   {
+   "id": "assistant-group-sweep",
+   "when": "12 * * * *",
+   "label": "assistant-group-sweep",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если выключено: Telegram или есть sweeping",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "assistant-log-retention",
    "when": "25 4 * * *",
    "label": "assistant-log-retention",
@@ -72057,18 +72118,23 @@
        "a": [],
        "c": [
         {
-         "t": "если row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget",
+         "t": "если !narrationDeliveryStalled(row, now)",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "меняет: объект narration доставка",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget"
+         "c": [],
+         "raw": "!narrationDeliveryStalled(row, now)"
+        },
+        {
+         "t": "меняет: объект narration доставка",
+         "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть количество (готово)",
+         "k": "if",
+         "a": [],
+         "c": []
         }
        ]
       },
@@ -76741,6 +76807,12 @@
           }
          ],
          "raw": "!settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))"
+        },
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
         },
         {
          "t": "если await handOverHolderToCurrentMontajer(montajerAgentId, now)",

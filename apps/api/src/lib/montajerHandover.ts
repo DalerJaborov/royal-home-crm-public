@@ -93,11 +93,21 @@ export async function handOverHolderToCurrentMontajer(
 /** То же окно, что HANDOFF_DISPATCH_BUSY_WINDOW_MS в videoHandoff.ts. */
 const LIVE_DISPATCH_WINDOW_MS = 15 * 60 * 1000;
 
+/**
+ * КТО МОНТАЖЁР — ОДНО ПРАВИЛО (19.11.2026). Монтажёр — тот, кто назначен в Настройках
+ * (Settings.videoMontajerAgentId), и он не отключён. Роль сотрудника НЕ важна: на проде
+ * назначенный монтажёр заведён с ролью MARKETING, а передача озвучки искала роль EDITOR —
+ * исходники он получал (очередь роль не смотрит), а голос ни разу. Очередь монтажа,
+ * передача озвучки и её сверка перед отправкой берут это условие отсюда.
+ */
+export function usableMontajerWhere(montajerAgentId: string) {
+  return { id: montajerAgentId, isActive: true } as const;
+}
+
 /** Монтажёр в Настройках есть и работает? Отключённому ролики не уходят никогда (G4). */
 export async function currentMontajerIsUsable(montajerAgentId: string | null | undefined): Promise<boolean> {
   if (!montajerAgentId) return false;
-  const row = await prisma.agent.findUnique({ where: { id: montajerAgentId }, select: { isActive: true } });
-  return row?.isActive === true;
+  return (await prisma.agent.count({ where: usableMontajerWhere(montajerAgentId) })) > 0;
 }
 
 export const NO_MONTAJER_ALARM_TAG = "video-handoff-no-montajer";

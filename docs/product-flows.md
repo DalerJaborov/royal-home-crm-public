@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4137**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4142**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10849,7 +10849,7 @@
 - если !row || latest?.id !== row.id || !narrationFactsCurrent(row, p)
   - return res.status(409).json({ error: "Нужна готовая актуальная озвучка" });
     · ответ 409 — «Нужна готовая актуальная озвучка»
-- если parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: "EDITOR", is…
+- если parsed.data.editorId && !await prisma.agent.findFirst({ where: usableMontajerWhere(parsed.data.editorId), sel…
   - return res.status(400).json({ error: "Монтажёр недоступен" });
     · ответ 400 — «Монтажёр недоступен»
 - const existing = await prisma.propertyNarrationDelivery.findUnique({ where: { requestKey: parsed.data.request…
@@ -19714,6 +19714,39 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### assistant-group-sweep — 12 * * * *
+
+- await sweepAssistantGroups();
+  · зовёт sweepAssistantGroups()
+  - если !isTelegramEnabled() || sweeping
+    - return result;
+      · дословно из кода
+  - пробует
+    - const groups = await prisma.assistantTelegramGroup.findMany({ select: { chatId: true }, orderBy: { createdAt:…
+      · читает в базе: assistantTelegramGroup
+    - для каждого: const { chatId } of groups
+      - пробует
+        - если verdict.kind === "migrated"
+          - const outcome = await migrateAssistantGroupChat(chatId, verdict.newChatId);
+            · зовёт migrateAssistantGroupChat()
+          - console.log(`[assistant-group] группа стала супергруппой, регистрация перенесена (${outcome})`);
+            · пишет строку в журнал сервера
+        - иначе если verdict.kind === "absent"
+          - await logSystemError( "telegram", `Шабнам не состоит в подключённой группе «${await groupLabel(chatId)}» — ве…
+            · запись в журнал ошибок
+        - иначе если verdict.kind === "unknown"
+          - console.warn(`[assistant-group] проверка группы не удалась, повтор в следующий обход: ${verdict.detail}`);
+            · пишет строку в журнал сервера
+      - если сорвалось
+        - await logSystemError("telegram", `Шабнам: проверка подключённой группы не удалась: ${describeError(err)}`, { …
+          · запись в журнал ошибок
+  - если сорвалось
+    - await logSystemError("telegram", `Шабнам: обход подключённых групп не удался: ${describeError(err)}`, { dedup…
+      · запись в журнал ошибок
+  - в любом случае
+    - sweeping = false;
+      · дословно из кода
+
 ### assistant-log-retention — 25 4 * * *
 
 - пробует
@@ -23375,11 +23408,14 @@
   - const pending = await prisma.propertyNarrationDelivery.findMany({ where: { status: "SENDING", claimStartedAt:…
     · читает в базе: propertyNarrationDelivery
   - для каждого: const row of pending
-    - const budget = narrationDeliveryAttemptBudgetMs(row.plan);
-      · зовёт narrationDeliveryAttemptBudgetMs()
-    - если row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget
-      - await prisma.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "SENDING", claimStartedAt: r…
-        · меняет в базе: propertyNarrationDelivery
+    - если !narrationDeliveryStalled(row, now)
+      - continue;
+        · переходит к следующему
+    - const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "SENDING", clai…
+      · меняет в базе: propertyNarrationDelivery
+    - если done.count
+      - reportNarrationDeliveryProblem(row.propertyId, row.id, "UNKNOWN", "отправка прервалась (процесс остановлен ил…
+        · зовёт reportNarrationDeliveryProblem()
   - const rows = await prisma.propertyNarrationDelivery.findMany({ where: { status: "QUEUED", executionMode: "LIV…
     · читает в базе: propertyNarrationDelivery
   - для каждого: const row of rows
@@ -25798,6 +25834,8 @@
         · запись в журнал ошибок
         - void logSystemError("video-handoff", `Тревога «монтажёр не назначен» не ушла: ${describeError(err)}`);
           · запись в журнал ошибок
+    - await expireMontajerSkipMarks(now).catch((err)
+      · запись в журнал ошибок
     - если await handOverHolderToCurrentMontajer(montajerAgentId, now)
       - handedOver++;
         · дословно из кода

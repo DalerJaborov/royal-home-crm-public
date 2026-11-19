@@ -599,6 +599,11 @@ export function startCronJobs() {
     const { checkSomonOwnerLeadsSilence } = await import("./lib/somonLeads/silenceAlarm.js");
     await checkSomonOwnerLeadsSilence();
   });
+  // Сторож групп помощницы (20.11.2026): группа стала супергруппой (новый chat id) или бот вышел → регистрация переезжает / запись в журнал.
+  scheduleTracked("assistant-group-sweep", "12 * * * *", async () => {
+    const { sweepAssistantGroups } = await import("./lib/assistantGroupWatchdog.js");
+    await sweepAssistantGroups();
+  });
   scheduleTracked("owner-exposure-verification-preview", "15 * * * *", async () => {
     const { runExposureOwnerPreviewTick } = await import("./lib/ownerVerificationSources.js");
     await runExposureOwnerPreviewTick();

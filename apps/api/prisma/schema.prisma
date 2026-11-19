@@ -1413,7 +1413,7 @@ model MontajerMessage {
   id         String   @id @default(uuid())
   propertyId String
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  /// "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED" —
+  /// "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED" | "QUEUE_CONTROL" —
   /// см. MontajerMessageKind в lib/videoHandoff.ts.
   kind       String
   text       String
@@ -2435,6 +2435,21 @@ model Property {
   /// null у обычной (не перемонтажной) передачи. См. lib/videoHandoff.ts.
   videoHandoffRemakeReason        String?
   videoHandoffRemakeComment       String?
+  /// Причина перемонтажа ЗАХОДА, который сейчас у монтажёра (19.11.2026). Поля выше
+  /// гаснут при захвате отправки, а «Сделаю позже» должен вернуть объект в очередь
+  /// тем же заходом: перемонтаж — перемонтажом, обычная передача — обычной. Пишутся
+  /// при постановке в очередь и при захвате отправки (lib/videoHandoff.ts).
+  videoHandoffRoundRemakeReason   String?
+  videoHandoffRoundRemakeComment  String?
+  /// Монтажёр сам пропустил объект из бота («Сделаю позже», «Взять другой», «Уже
+  /// сделан», 19.11.2026), а готовый ролик по нему ещё не принят. Пока отметка стоит,
+  /// файл без номера бот не кладёт молча на объект в работе, а спрашивает «чей это
+  /// ролик», и ролик по этому объекту принимается штатно. Гаснет при приёме ролика.
+  videoHandoffMontajerSkippedAt   DateTime?
+  /// Куда вернуть пропущенный монтажёром объект, открытый под приём его ролика
+  /// (openSkippedForMontajerFinal): "QUEUED" или "RECEIVED". Если приём оборвался
+  /// (упал процесс), обход брошенных ручных ожиданий возвращает объект сюда, а не в NONE.
+  videoHandoffManualRestoreStatus String?
   /// Факты карточки (propertyFactsForMontajer), которые ушли монтажёру В ПРОШЛЫЙ
   /// РАЗ — по ним считается блок «что изменилось в карточке» при перемонтаже с
   /// причиной WRONG_CAPTION/CARD_DATA_CHANGED (cardFactsDiff в videoHandoff.ts).
@@ -6594,6 +6609,12 @@ model Settings {
   videoHandoffQueuePausedAt         DateTime?
   videoHandoffQueuePausedById       String?
   videoHandoffQueuePauseReason      String?
+  /// МОНТАЖЁР УПРАВЛЯЕТ ОЧЕРЕДЬЮ ИЗ БОТА (19.11.2026, владелец: «дай монтажёру
+  /// пропускать очередь кнопкой или передвигать её»). true — в боте кнопки
+  /// «⏭ Пропустить», «Взять сейчас», «выше/ниже», «уже сделан»; false — кнопок
+  /// нет, нажатие отвечает «выключено руководителем». Паузу и «Отложить»
+  /// руководства монтажёр не обходит в любом положении. lib/montajerQueueControl.ts.
+  montajerQueueControlEnabled       Boolean   @default(true)
   /// Канал для кросспоста (Bot API уже подключён для личных сообщений —
   /// apps/api/src/telegram/api.ts; здесь просто chat_id канала, где бот админ).
   telegramChannelId                 String?

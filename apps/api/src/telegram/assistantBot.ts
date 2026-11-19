@@ -7,7 +7,7 @@ import { matchGroupPublicShellQuestion, replyGroupPublicShellQuestion, replyPubl
 import { loadAssistantTelegramContext, retainAssistantTelegramTranscript } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
 import { trashedPropertyNoteFor } from "../ai/assistant/tools/propertyPresenter.js";
-import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
+import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMigrationEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { ASSISTANT_DEADLINE_SEC, formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -51,6 +51,7 @@ import { claimCallback } from "../lib/telegramModeration.js";
 import { handlePaymentReminderCallback } from "../lib/paymentReminders.js";
 import { handleNoticePreferenceText, handleStaffNoticeCallback } from "./staffNotice.js";
 import { handleTrashRestoreCallback } from "./trashRestoreNotice.js";
+import { migrateAssistantGroupChat } from "../lib/assistantGroupMigration.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
@@ -810,7 +811,9 @@ async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wa
     standalone ? "assistant-telegram-group-standalone-voice" : "assistant-telegram-voice",
     standalone ? ASSISTANT_TG_STANDALONE_VOICE_DAILY_LIMIT : ASSISTANT_TG_VOICE_DAILY_LIMIT);
   if (!cap.allowed) return { error: "Лимит голосовых на сегодня исчерпан — напишите текстом." };
-  const media = await handleAssistantMedia(msg, agentId, { allowGroup: msg.chat.type !== "private", wallet });
+  const media = await handleAssistantMedia(msg, agentId, {
+    allowGroup: msg.chat.type !== "private", wallet, language: () => stepUpLanguageOf(String(msg.chat.id), agentId),
+  });
   if (media.error) return { error: media.text };
   const text = media.extraction?.transcript;
   if (!text?.trim() || media.extraction?.incomplete) {
@@ -903,7 +906,7 @@ export async function handleAssistantPrivate(
       const access = await loadAgentAccess(agent.id);
       if (!access?.isActive) { await send("Ваша учётка отключена."); return; }
       void sendChatAction(chatId).catch(() => {});
-      const media = await handleAssistantMedia(msg, agent.id, { wallet: moneyWallet });
+      const media = await handleAssistantMedia(msg, agent.id, { wallet: moneyWallet, language: () => stepUpLanguageOf(chatId, agent.id) });
       const extracted = access.permissions.has("clients.viewPhone") ? media.text : maskAssistantContacts(media.text);
       if (forwardedPlain || media.error || !media.extraction) {
         // File text is quoted evidence, never a request that may authorize CRM writes.
@@ -1137,6 +1140,20 @@ async function groupMontageReply(
  */
 export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, updateId?: number): Promise<boolean> {
   if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") return false;
+  // Группа стала супергруппой: регистрация переезжает на новый id. ДО проверки «группа подключена»
+  // (на новом id её ещё нет) и без отправителя-сотрудника: это служебное сообщение Telegram, в чат ничего не пишем.
+  const migration = groupMigrationEvent(msg.chat.id, msg.migrate_to_chat_id, msg.migrate_from_chat_id);
+  if (migration) {
+    try {
+      await migrateAssistantGroupChat(migration.oldChatId, migration.newChatId);
+    } catch (err) {
+      // Событие Telegram второй раз не пришлёт; регистрацию дотянет сторож (lib/assistantGroupWatchdog.ts).
+      await logSystemError("telegram", `Шабнам: не удалось перенести подключённую группу в супергруппу: ${describeError(err)}`, {
+        dedupKey: "assistant-group-migration-failed",
+      });
+    }
+    return true;
+  }
   const botUsername = await getBotUsername();
   if (!botUsername) return false;
   const chatId = String(msg.chat.id);

@@ -83,7 +83,10 @@ describe("buyer matching workflow", () => {
     state.properties = [property(1), property(2, { ...evidence, sentCount: 1, lastSentAt: "2026-10-20T10:00:00Z" })];
     const html = render(createElement(MatchPanel, { mode: "client", client: client(), open: true, onClose: vi.fn(), variant: "inline" }));
     // Подбор 2.0: «Уже отправляли N дней назад» — одна отметка у отправленного объекта.
-    expect(html.match(/Уже отправляли \d+ дн/g)).toHaveLength(1);
+    // Дата отправки в данных закреплена, а «сегодня» настоящее: число дней растёт, и на 21, 31, 41…
+    // подпись становится «N день назад». Прежний образец «\d+ дн» слова «день» не ловил, и тест
+    // краснел на сутки у всех веток разом (20.11.2026: 31 день, выкат стоял бы до вечера).
+    expect(html.match(/Уже отправляли \d+ (?:день|дня|дней) назад/g)).toHaveLength(1);
   });
   it("lets a writer select only linked conversations without exposing recipient addresses", () => {
     const html = render(createElement(MatchPanel, { mode: "client", client: client(), open: true, onClose: vi.fn(), variant: "inline" }));

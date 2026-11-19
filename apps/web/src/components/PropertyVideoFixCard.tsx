@@ -70,7 +70,7 @@ type CaptionResult = { caption: string; updated: string[]; failed: { channel: st
 /** Одна запись из истории «что ушло монтажёру» — GET .../montajer-messages
  *  (первая отправка на монтаж, перемонтаж с причиной, снятие с монтажа,
  *  квитанция после приёма ролика; свежие сверху, сервер сам режет выборку). */
-type MontajerMessageKind = "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED";
+type MontajerMessageKind = "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED" | "QUEUE_CONTROL";
 type MontajerMessage = { id: string; kind: MontajerMessageKind; text: string; sentAt: string };
 
 /** Тот же предел, что режет выборку на сервере (routes/properties/videos.ts,
@@ -89,6 +89,7 @@ const MONTAJER_MESSAGE_KIND: Record<MontajerMessageKind, string> = {
   PROPERTY_DELETED: "Объект удалён",
   RECEIPT: "Ответ после приёма",
   FACTS_CHANGED: "Карточка изменена",
+  QUEUE_CONTROL: "Монтажёр: очередь",
 };
 
 /**

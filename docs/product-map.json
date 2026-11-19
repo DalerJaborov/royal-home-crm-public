@@ -1605,6 +1605,11 @@
       "label": null
     },
     {
+      "id": "assistant-group-sweep",
+      "expr": "12 * * * *",
+      "label": null
+    },
+    {
       "id": "assistant-log-retention",
       "expr": "25 4 * * *",
       "label": null

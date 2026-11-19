@@ -7,6 +7,7 @@ import { probeMediaInfo } from "./ffmpeg.js";
 import { dropNarrationMaster, storeNarrationMaster } from "./narrationMaster.js";
 import { videoHandoffFinalDiskPath } from "./videoHandoff.js";
 import { declaredObjectNumber } from "../telegram/montajerFileNumber.js";
+import { askMontajerForVoicelessCopy } from "./narrationMontajerNote.js";
 
 /**
  * ТОТ ЖЕ РОЛИК БЕЗ ГОЛОСА ОТ МОНТАЖЁРА (12.11.2026, решение владельца). Монтажёр сам вклеивает
@@ -15,7 +16,9 @@ import { declaredObjectNumber } from "../telegram/montajerFileNumber.js";
  * озвучки, которая звучит в вышедшем ролике; поменялась цена — новая озвучка накладывается из
  * мастера сама (lib/narrationAutoFlow.ts::remixFromMaster), музыка не трогается.
  *
- * Второй файл не задерживает выпуск: бот просит его ОДИН раз, в квитанции о готовом ролике,
+ * С 19.11.2026 второй файл НЕ просим (решение владельца, narrationMontajerNote.ts::askMontajerForVoicelessCopy):
+ * монтажёр сдаёт один готовый ролик. Приём файла «без голоса», если монтажёр пришлёт его сам, остался.
+ * Прежде: второй файл не задерживал выпуск, бот просил его ОДИН раз, в квитанции о готовом ролике,
  * кнопками «Пришлю без голоса» / «Не сейчас». Узнаёт файл кнопкой (вопрос живёт час) или по
  * подписи «без голоса 123». Защита от путаницы: длина должна совпасть с готовым роликом, а
  * сам файл — отличаться от него; файл после кнопки, который не подошёл, принимается как обычный
@@ -48,6 +51,8 @@ async function crmMixesFirstVoice(): Promise<boolean> {
 export type VoicelessAsk = { text: string; buttons: Array<Array<{ text: string; callback_data: string }>> };
 /** Просьба в квитанции о готовом ролике — один раз на принятый ролик; null — просить нечего. */
 export async function voicelessCopyAsk(propertyId: string, now = new Date()): Promise<VoicelessAsk | null> {
+  // Второй файл не просим вовсе (решение владельца 16.11 и 19.11.2026, одно место — narrationMontajerNote.ts).
+  if (!askMontajerForVoicelessCopy()) return null;
   if (await crmMixesFirstVoice()) return null;
   const p = await prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true, deletedAt: true, narrationOff: true, videoHandoffStatus: true, videoMasterStorageKey: true } });
   if (!p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "RECEIVED" || p.videoMasterStorageKey) return null;

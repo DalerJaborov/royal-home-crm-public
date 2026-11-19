@@ -9,8 +9,8 @@ import { spawnSync } from "node:child_process";
 /**
  * ОЗВУЧКА: МОНТАЖЁР ВКЛЕИВАЕТ ГОЛОС САМ (12.11.2026, решения владельца). База и ffmpeg —
  * настоящие; Telegram, пуши и ElevenLabs подменены, платных вызовов нет.
- *  A — монтажёру строка «вклейте mp3 и сдайте два файла»; просьба о ролике без голоса после
- *      готового; ролик без голоса становится мастером (длина и содержимое проверяются);
+ *  A — монтажёру строка «вклейте mp3» (второй файл не просим, 19.11.2026); ролик без голоса, если монтажёр
+ *      пришлёт его сам, становится мастером (длина и содержимое проверяются);
  *  B — «Без озвучки»: ни версии, ни денег, ждущее гаснет, монтажёру пометка;
  *  C — разовый проход по очереди монтажа: версия на одобрение владельцу, повтор пуст;
  *  D — ролик от сотрудника: объект по подписи, «Нужен монтаж», дубль, «Не тот объект»;
@@ -141,28 +141,21 @@ describe("B: «Без озвучки»", () => {
 });
 
 describe("A: монтажёр вклеивает голос сам", () => {
-  it("строка задания монтажёру: вклеить mp3 и сдать два файла; при «голос кладёт CRM» — прежняя строка", async () => {
+  it("строка задания монтажёру: вклеить mp3, второй файл не просим; при «голос кладёт CRM» — прежняя строка", async () => {
     const p = await seedProperty();
     await seedVersion(p.id, { approvedAt: new Date(), approvedById: agentId });
-    // Машинное отделение голоса убрано 18.11.2026: снова просим два файла (готовый и без голоса).
-    expect(await narrationLineForMontajer(p.id)).toMatch(/вклейте её сами.*два файла/su);
+    // Монтажёр сдаёт один готовый файл (решение владельца 16.11, подтверждено 19.11.2026).
+    expect(await narrationLineForMontajer(p.id)).toBe("🎙 Озвучка одобрена и придёт (или уже пришла) отдельным mp3 — вклейте её сами.");
     await setConfig({ mixByCrm: true });
     expect(await narrationLineForMontajer(p.id)).toContain("БЕЗ голоса");
     await setConfig();
   });
-  it("просьба о ролике без голоса — только если голос вклеивал монтажёр, и не при «Без озвучки»", async () => {
+  it("просьбы о ролике без голоса после сдачи нет вовсе (19.11.2026), даже когда голос вклеивал монтажёр", async () => {
     const p = await seedProperty({ videoHandoffStatus: "RECEIVED", videoHandoffFinalPath: "/uploads/handoff/none.mp4" });
-    expect(await voicelessCopyAsk(p.id)).toBeNull();
     const v = await seedVersion(p.id, { approvedAt: new Date(), approvedById: agentId });
-    await sentDelivery(p.id, v.id, { mixByCrm: true });
-    expect(await voicelessCopyAsk(p.id)).toBeNull();
     await sentDelivery(p.id, v.id);
-    const ask = await voicelessCopyAsk(p.id);
-    expect(ask?.buttons[0]?.map((b) => b.callback_data)).toEqual([`mj:nv:${p.shortId}`, `mj:nvx:${p.shortId}`]);
-    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).videoMasterRequestedAt).not.toBeNull();
-    await prisma.property.update({ where: { id: p.id }, data: { narrationOff: true } });
     expect(await voicelessCopyAsk(p.id)).toBeNull();
-    await setConfig();
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).videoMasterRequestedAt).toBeNull();
   });
   it("подпись «без голоса 123» узнаётся; номер другого объекта после кнопки — обычный готовый ролик", async () => {
     expect(isVoicelessCopyLabel("123_bez_golosa.mp4", null)).toBe(true);

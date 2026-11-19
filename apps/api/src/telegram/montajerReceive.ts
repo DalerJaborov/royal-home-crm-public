@@ -38,6 +38,10 @@ import {
   undoReopenForResend,
   EDITOR_HOLDER_WHERE,
   recordMontajerMessage,
+  montajerSkippedAwaitingFinal,
+  openSkippedForMontajerFinal,
+  undoOpenSkippedForMontajerFinal,
+  type OpenedSkippedForFinal,
   type ReceiveEditedVideoResult,
 } from "../lib/videoHandoff.js";
 import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
@@ -249,6 +253,29 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
 
   // Файл без номера идёт держателю места монтажёра — вопрос «для какого объекта»
   // убран по требованию владельца (29.09.2026): он не заводил его и он зависал.
+  //
+  // КРОМЕ ОДНОГО СЛУЧАЯ (ревью 19.11.2026, кнопки очереди в боте): монтажёр сам пропустил
+  // объект («Сделаю позже», «Взять другой», «Уже сделан»), и готового ролика по нему ещё нет.
+  // Тогда объект в работе — уже другой, и ролик пропущенного без номера молча лёг бы на
+  // чужой объект и ушёл бы в публикацию. Пока такие объекты есть — спрашиваем кнопками.
+  // Признак — отметка на объекте до приёма его ролика, а не окно по времени: окно в 48 часов
+  // кончается, а ролик по «уже сделан» монтажёр может прислать и через неделю.
+  if (declared == null) {
+    const skipped = await montajerSkippedAwaitingFinal(holder?.id);
+    if (skipped.length > 0) {
+      const candidates = [...(holder ? [holder.shortId] : []), ...skipped.map((s) => s.shortId)];
+      const inWork = holder ? `Сейчас у вас в работе №${holder.shortId}. ` : "";
+      await askWhichObject(
+        input,
+        candidates,
+        `Чей это ролик? В имени файла нет номера объекта. ${inWork}Недавно вы пропускали ${skipped.map((s) => `№${s.shortId}`).join(", ")}. Нажмите номер объекта.`,
+        true
+      );
+      return;
+    }
+  }
+  // Метка открытия пропущенного объекта под приём (ниже) — откат, если приём не удался.
+  let openedSkipped: OpenedSkippedForFinal | null = null;
 
   /**
    * ФАЙЛ ПОДПИСАН НОМЕРОМ ДРУГОГО ОБЪЕКТА (24.09.2026, проверка по классам).
@@ -295,6 +322,10 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
       }
       property = { id: target.id, shortId: target.shortId };
       reopenedForResend = reopenedAt;
+    } else if (target && (openedSkipped = await openSkippedForMontajerFinal(target.id))) {
+      // Монтажёр сам пропустил этот объект из бота, а теперь прислал по нему ролик —
+      // приём штатный, как ручная загрузка готового ролика из CRM (ревью 19.11.2026).
+      property = { id: target.id, shortId: target.shortId };
     } else {
       // Номер есть, но этот объект ролика от вас не ждёт — на чужой объект
       // файл не кладём ни в каком случае. Держатель есть и номер набран не
@@ -351,6 +382,7 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
   if (!material) {
     // Пересылка уже переоткрыла объект — без отката он вечно «на монтаже».
     if (reopenedForResend) await undoReopenForResend(property.id, reopenedForResend);
+    if (openedSkipped) await undoOpenSkippedForMontajerFinal(property.id, openedSkipped);
     await sendToMontajer(chatId, "Не получилось скачать файл — попробуйте ещё раз или загрузите через CRM-панель объекта.", {
       copy: false,
     }).catch(() => {});
@@ -368,6 +400,7 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
       await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
       void logSystemError("video-handoff", `Объект ${property.id}: не скопировал файл монтажёра с диска Bot API: ${describeError(err)}`);
       if (reopenedForResend) await undoReopenForResend(property.id, reopenedForResend);
+    if (openedSkipped) await undoOpenSkippedForMontajerFinal(property.id, openedSkipped);
       await sendToMontajer(
         chatId,
         "Не получилось сохранить файл на сервере — попробуйте ещё раз или загрузите через CRM-панель объекта.",
@@ -391,6 +424,8 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
   }
   // Пересылка не принята — объект не должен остаться держать место монтажёра.
   if (!result.ok && reopenedForResend) await undoReopenForResend(property.id, reopenedForResend);
+  // Пропущенный объект, открытый под приём, — обратно в очередь или в «снят», если ролик не принят.
+  if (!result.ok && openedSkipped) await undoOpenSkippedForMontajerFinal(property.id, openedSkipped);
   const receiptText = handoffReceiptText(result, property.shortId);
   // Голос вклеил монтажёр — один раз просим тот же ролик без голоса (12.11.2026), кнопками.
   const ask = result.ok ? await voicelessCopyAsk(property.id).catch(() => null) : null;
