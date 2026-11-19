@@ -14,14 +14,18 @@ import { royalIconForPath } from "../royalNavIcons";
  * (`inboxTabs` в SectionTabs.tsx, одна дверь). Значками, а не словами, —
  * чтобы шапка помещалась в ширину телефона (ошибка макета: «Чаты/Звонки»
  * словами вылезали за экран на 390 px). Подпись — в aria-label и title.
+ *
+ * Без `title` — только переключатель, без своего h1: там, где заголовок экрана уже
+ * несёт шапка (телефонные «Звонки» — `MhListScreen`), второй h1 был дублем и для
+ * экранного чтеца (хвост ревью #285, 19.11.2026).
  */
-export function RoyalInboxSwitch({ title }: { title: string }) {
+export function RoyalInboxSwitch({ title }: { title?: string }) {
   const can = useCan();
   const { data: counters } = useCounters();
   const tabs = visibleScreenTabs(inboxTabs(can, counters), can);
   return (
     <header className="ry-chats-head">
-      <h1>{title}</h1>
+      {title && <h1>{title}</h1>}
       {tabs.length > 1 && (
         <nav className="ry-chats-switch" aria-label="Разделы обращений">
           {tabs.map((tab) => {

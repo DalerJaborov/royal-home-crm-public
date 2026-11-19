@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 777,
-  "forks": 4119,
+  "endpoints": 776,
+  "forks": 4126,
   "mounts": 87,
   "cron": 141,
   "jobs": 34,
@@ -26553,7 +26553,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));",
+     "t": "res.json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));",
      "a": [
       "ответ 200"
      ],
@@ -27282,7 +27282,7 @@
     },
     {
      "k": "do",
-     "t": "res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));",
+     "t": "res.status(201).json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outco…",
      "a": [
       "ответ 201"
      ],
@@ -38374,14 +38374,14 @@
      "c": [
       {
        "k": "if",
-       "t": "await phoneBelongsToHiddenOwner(req, stored)",
+       "t": "await isHiddenCrmPhone(req, stored)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(403).json({ error: \"Номер совпадает с контактом владельца объекта, доступ закрыт\" });",
+         "t": "return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: \"CRM_PHONE_HIDDEN\" });",
          "a": [
-          "ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»"
+          "ответ 403"
          ],
          "c": []
         }
@@ -38450,14 +38450,14 @@
       },
       {
        "k": "if",
-       "t": "await phoneBelongsToHiddenOwner(req, phone)",
+       "t": "await isHiddenCrmPhone(req, phone)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(403).json({ error: \"Номер совпадает с контактом владельца объекта, доступ закрыт\" });",
+         "t": "return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: \"CRM_PHONE_HIDDEN\" });",
          "a": [
-          "ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»"
+          "ответ 403"
          ],
          "c": []
         }
@@ -38688,17 +38688,17 @@
     },
     {
      "k": "do",
-     "t": "const ownerHidden = stripOwnerContact( { ownerContact: \"x\", assignedAgentId: p.assignedAgentId, intakeAgentId…",
+     "t": "const phonesHidden = !canSeeCrmContactPhones(req);",
      "a": [
-      "зовёт stripOwnerContact()"
+      "зовёт canSeeCrmContactPhones()"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "const ownerTails = ownerHidden ? new Set(extractPhoneTails(p.ownerContact)) : new Set<string>();",
+     "t": "const crmTails = phonesHidden ? await crmContactTails(rows.map((m)",
      "a": [
-      "зовёт extractPhoneTails()"
+      "зовёт crmContactTails()"
      ],
      "c": []
     },
@@ -38826,7 +38826,38 @@
     },
     {
      "k": "do",
-     "t": "res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null,…",
+     "t": "const dynamics = await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name …",
+     "a": [
+      "зовёт findDynamics()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!canSeeCrmContactPhones(req) && dynamics.recentlyGone.length > 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const crmTails = await crmContactTails(dynamics.recentlyGone.map((g)",
+       "a": [
+        "зовёт crmContactTails()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "dynamics.recentlyGone = dynamics.recentlyGone.map((g)",
+       "a": [
+        "зовёт phoneTail()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(dynamics);",
      "a": [
       "ответ 200"
      ],
@@ -47542,21 +47573,6 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "if",
-     "t": "req.agent!.role === \"EDITOR\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Озвучку одобряет агент объекта\" });",
-       "a": [
-        "ответ 403 — «Озвучку одобряет агент объекта»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "do",
      "t": "const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…",
      "a": [
@@ -47574,6 +47590,29 @@
        "t": "return res.status(400).json({ error: \"Подтвердите текст и номер версии\" });",
        "a": [
         "ответ 400 — «Подтвердите текст и номер версии»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const access = await narrationAccessForAgent(req.agent!.id, p.id);",
+     "a": [
+      "зовёт narrationAccessForAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!access",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Озвучку утверждает тот, кто ведёт объект, или руководство\" });",
+       "a": [
+        "ответ 403 — «Озвучку утверждает тот, кто ведёт объект, или руководство»"
        ],
        "c": []
       }
@@ -47619,7 +47658,23 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ok: true, ...(outcome === \"AUDIO_APPROVED\" ? { delivery: await afterNarrationApproved(p.id, versio…",
+     "t": "const delivery = outcome === \"AUDIO_APPROVED\" ? await afterNarrationApproved(p.id, versionId.data) : undefine…",
+     "a": [
+      "зовёт afterNarrationApproved()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const publishAt = delivery === \"CRM_REMIX\" ? await estimateNarrationPublishAt(p.id).catch(()",
+     "a": [
+      "зовёт estimateNarrationPublishAt()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, ...(delivery ? { delivery } : {}), ...(publishAt ? { publishAt: publishAt.toISOString() …",
      "a": [
       "ответ 200"
      ],
@@ -47784,6 +47839,37 @@
        "t": "return res.status(409).json({ error: \"ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.\" }…",
        "a": [
         "ответ 409 — «ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const draft = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id…",
+     "a": [
+      "читает в базе: propertyNarrationVersion"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const length = draft ? await narrationLengthCheckFor(p, draft.script, draft.language) : null;",
+     "a": [
+      "зовёт narrationLengthCheckFor()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "length && !length.fits",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: narrationLengthLine(length) });",
+       "a": [
+        "ответ 400"
        ],
        "c": []
       }
@@ -48959,110 +49045,6 @@
   },
   {
    "method": "POST",
-   "path": "/:id/narration/preview",
-   "mount": "/api/v1/properties",
-   "full": "/api/v1/properties/:id/narration/preview",
-   "file": "apps/api/src/routes/properties/narration.ts",
-   "router": "narrationRouter",
-   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
-    "вход выполнен",
-    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "if",
-     "t": "!canDecidePreview(req.agent!.role)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Решение по ролику принимает тот, кто ведёт объект\" });",
-       "a": [
-        "ответ 403 — «Решение по ролику принимает тот, кто ведёт объект»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const parsed = narrationPreviewDecisionSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой narrationPreviewDecisionSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Некорректное решение\", details: parsed.error.flatten() });",
-       "a": [
-        "ответ 400 — «Некорректное решение»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const result = parsed.data.decision === \"RELEASE\" ? await releaseNarrationPreview(p.id, parsed.data.versionId…",
-     "a": [
-      "зовёт releaseNarrationPreview()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "result === \"STALE\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Этот ролик уже решён или устарел. Обновите карточку.\" });",
-       "a": [
-        "ответ 409 — «Этот ролик уже решён или устарел. Обновите карточку.»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "result === \"BUSY\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару ми…",
-       "a": [
-        "ответ 409 — «Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true, result });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "POST",
    "path": "/:id/narration/publication-preview",
    "mount": "/api/v1/properties",
    "full": "/api/v1/properties/:id/narration/publication-preview",
@@ -49220,6 +49202,22 @@
      "t": "const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…",
      "a": [
       "читает в базе: smsMessage"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const latestAwaitsHuman = versions[0] ? await narrationAwaitsHuman(p.id, p, versions[0]) : false;",
+     "a": [
+      "зовёт narrationAwaitsHuman()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const latestAudioSec = versions[0]?.status === \"READY\" && versions[0].storageKey && versions[0].audioSec == n…",
+     "a": [
+      "зовёт narrationAudioSec()"
      ],
      "c": []
     },
@@ -57209,7 +57207,7 @@
     },
     {
      "k": "do",
-     "t": "const presented = stripEmbedding(stripOwnerContact(property, req.agent!.id, can(req, \"properties.viewOwners\")…",
+     "t": "const presented = stripEmbedding(stripOwnerContact(property, can(req, \"properties.viewOwners\")));",
      "a": [
       "зовёт stripEmbedding()"
      ],
@@ -57217,7 +57215,15 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ...presented, sellerClient: presented.ownerContactHidden ? null : await loadSellerClientRef(proper…",
+     "t": "const ownsIt = ownsProperty(req.agent!.id, property);",
+     "a": [
+      "зовёт ownsProperty()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ...presented, ownerContactMasked: presented.ownerContactHidden && ownsIt ? maskOwnerContact(proper…",
      "a": [
       "ответ 200"
      ],
@@ -57478,7 +57484,7 @@
     },
     {
      "k": "if",
-     "t": "data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, \"properties.viewOwners…",
+     "t": "data.ownerContact !== undefined && stripOwnerContact(existing, can(req, \"properties.viewOwners\")).ownerContac…",
      "a": [],
      "c": [
       {
@@ -86525,6 +86531,14 @@
            ]
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "await warnIfIncomingPrimaryUnreachable(primary);",
+         "a": [
+          "зовёт warnIfIncomingPrimaryUnreachable()"
+         ],
+         "c": []
         }
        ],
        "from": "reconcileAgentMobileFallback() — apps/api/src/lib/telephony/agentMobileFallback.ts"
@@ -86568,15 +86582,53 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const primary = await incomingPrimaryExtension();",
+         "a": [
+          "зовёт incomingPrimaryExtension()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
-         "t": "result.noOperatorsAssigned",
+         "t": "result.noOperatorsAssigned && !primary",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "void logSystemError( \"telephony\", \"Оператор приёма не назначен ни одному сотруднику: звонки незнакомых номеро…",
+           "t": "const open = await prisma.errorLog.count({ where: { ...noOperatorAlarmWhere(), resolvedAt: null } });",
            "a": [
-            "запись в журнал ошибок"
+            "считает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "open === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError( \"telephony\", `${NO_OPERATOR_ALARM_PREFIX}: звонки незнакомых номеров идут по-старому. ` …",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "elseif",
+         "t": "primary || !result.skipped",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.errorLog .updateMany({ where: { ...noOperatorAlarmWhere(), resolvedAt: null }, data: { resolvedA…",
+           "a": [
+            "меняет в базе: errorLog"
            ],
            "c": []
           }
@@ -98579,9 +98631,9 @@
           },
           {
            "k": "do",
-           "t": "const ownLeadKept = reassignOnMissedCall && holdsOwnPropertyLead(client);",
+           "t": "const afterDue = firstCallAfterDue(client, reassignOnMissedCall);",
            "a": [
-            "зовёт holdsOwnPropertyLead()"
+            "зовёт firstCallAfterDue()"
            ],
            "c": []
           },
@@ -98595,7 +98647,7 @@
           },
           {
            "k": "if",
-           "t": "alreadyNoted && (!reassignOnMissedCall || ownLeadKept)",
+           "t": "alreadyNoted && (!reassignOnMissedCall || keptByRule)",
            "a": [],
            "c": [
             {
@@ -98610,7 +98662,7 @@
           },
           {
            "k": "if",
-           "t": "!reassignOnMissedCall || ownLeadKept",
+           "t": "!reassignOnMissedCall || keptByRule",
            "a": [],
            "c": [
             {
@@ -98623,7 +98675,7 @@
             },
             {
              "k": "do",
-             "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: ownLeadKept ? \"Первый звонок по объекту сорван\" : \"П…",
+             "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: ownLeadKept ? \"Первый звонок по объекту сорван\" : no…",
              "a": [
               "зовёт notifyFeedOnly()"
              ],
@@ -98637,6 +98689,21 @@
               {
                "k": "do",
                "t": "sendPushToAgents([agentId], { title: \"⏰ Клиент по вашему объекту ждёт звонка\", body: `${client.fullName}: поз…",
+               "a": [
+                "push-уведомление"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "notDialableKept",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "sendPushToAgents([agentId], { title: \"Клиенту не дозвониться через CRM\", body: `${client.fullName}: номер не …",
                "a": [
                 "push-уведомление"
                ],
@@ -98961,9 +99028,9 @@
           },
           {
            "k": "do",
-           "t": "const after = holdsOwnPropertyLead(client) ? \"потом минус к Royal Score\" : afterDue;",
+           "t": "const after = firstCallAfterDue(client, reassignOn).text;",
            "a": [
-            "зовёт holdsOwnPropertyLead()"
+            "зовёт firstCallAfterDue()"
            ],
            "c": []
           },
@@ -104139,14 +104206,14 @@
    "tree": [
     {
      "k": "do",
-     "t": "await releaseDueNarrationPreviews();",
+     "t": "await clearLeftoverNarrationPreviews();",
      "a": [
-      "зовёт releaseDueNarrationPreviews()"
+      "зовёт clearLeftoverNarrationPreviews()"
      ],
      "c": [
       {
        "k": "do",
-       "t": "const waiting = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null } }, select:…",
+       "t": "const rows = await prisma.property.findMany({ where: { OR: [{ narrationPreviewVersionId: { not: null } }, { n…",
        "a": [
         "читает в базе: property"
        ],
@@ -104154,7 +104221,7 @@
       },
       {
        "k": "loop",
-       "t": "для каждого: const row of waiting",
+       "t": "для каждого: const row of rows",
        "a": [],
        "c": [
         {
@@ -104163,34 +104230,31 @@
          "a": [],
          "c": [
           {
-           "k": "if",
-           "t": "orphan",
-           "a": [],
+           "k": "do",
+           "t": "const done = await withPropertyLock(row.id, async (tx)",
+           "a": [
+            "читает в базе: property",
+            "меняет в базе: property",
+            "читает в базе: propertyNarrationVersion",
+            "меняет в базе: propertyNarrationVersion"
+           ],
            "c": [
             {
              "k": "do",
-             "t": "const res = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationP…",
+             "t": "const cur = await tx.property.findUnique({ where: { id: row.id }, select: { narrationPreviewVersionId: true, …",
              "a": [
-              "меняет в базе: property"
+              "читает в базе: property"
              ],
              "c": []
             },
             {
              "k": "if",
-             "t": "res.count",
+             "t": "!cur || cur.narrationPreviewVersionId !== row.narrationPreviewVersionId || cur.narrationPreviewPath !== row.n…",
              "a": [],
              "c": [
               {
                "k": "do",
-               "t": "cleared++;",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "await removeClipFiles(row.narrationPreviewPath);",
+               "t": "return false;",
                "a": [
                 "дословно из кода"
                ],
@@ -104200,17 +104264,40 @@
             },
             {
              "k": "do",
-             "t": "continue;",
+             "t": "await tx.property.update({ where: { id: row.id }, data: NARRATION_PREVIEW_CLEARED });",
              "a": [
-              "переходит к следующему"
+              "меняет в базе: property"
              ],
              "c": []
+            },
+            {
+             "k": "do",
+             "t": "const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.id }, orderBy: { revisi…",
+             "a": [
+              "читает в базе: propertyNarrationVersion"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "cur.narrationPreviewVersionId && latest?.id === cur.narrationPreviewVersionId && cur.videoMasterNarrationVers…",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: \"READY\" }, data: { approvedAt:…",
+               "a": [
+                "меняет в базе: propertyNarrationVersion"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
           },
           {
            "k": "if",
-           "t": "!row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()",
+           "t": "!done",
            "a": [],
            "c": [
             {
@@ -104225,12 +104312,12 @@
           },
           {
            "k": "if",
-           "t": "await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: \"auto\" }, now)…",
+           "t": "row.narrationPreviewPath",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "released++;",
+             "t": "await removeClipFiles(row.narrationPreviewPath);",
              "a": [
               "дословно из кода"
              ],
@@ -104247,7 +104334,7 @@
          "c": [
           {
            "k": "do",
-           "t": "void logSystemError(\"video-handoff\", `Новый ролик с озвучкой не выпущен по сроку прослушивания: ${err instanc…",
+           "t": "void logSystemError(\"video-handoff\", `Оставшийся кандидат «прослушать перед выпуском» не убран: ${err instanc…",
            "a": [
             "запись в журнал ошибок"
            ],
@@ -104258,28 +104345,69 @@
        ]
       }
      ],
-     "from": "releaseDueNarrationPreviews() — apps/api/src/lib/narrationPreview.ts"
+     "from": "clearLeftoverNarrationPreviews() — apps/api/src/lib/narrationPreview.ts"
     },
     {
      "k": "do",
-     "t": "await notifyPendingNarrationPreviews(notifyNarrationPreview);",
+     "t": "await reopenAutoApprovalsOnPublishedClips();",
      "a": [
-      "зовёт notifyPendingNarrationPreviews()"
+      "зовёт reopenAutoApprovalsOnPublishedClips()"
      ],
      "c": [
       {
        "k": "do",
-       "t": "const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…",
+       "t": "return prisma.$executeRaw` WITH latest AS ( SELECT DISTINCT ON (v.\"propertyId\") v.\"id\", v.\"propertyId\", v.\"st…",
        "a": [
-        "читает в базе: property"
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      }
+     ],
+     "from": "reopenAutoApprovalsOnPublishedClips() — apps/api/src/lib/narrationPreview.ts"
+    },
+    {
+     "k": "do",
+     "t": "await finishOldPostsSweep();",
+     "a": [
+      "зовёт finishOldPostsSweep()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const rows = await prisma.videoRemakeRequest.findMany({ where: { replaceOldPostsOnPublish: true, oldPostsRepl…",
+       "a": [
+        "читает в базе: videoRemakeRequest"
        ],
        "c": []
       },
       {
        "k": "loop",
-       "t": "для каждого: const row of rows.filter((r) => r.narrationPreviewMasterKey === r.videoMasterStorageKey).slice(0, 5)",
+       "t": "для каждого: const { propertyId } of rows",
        "a": [],
        "c": [
+        {
+         "k": "if",
+         "t": "await isHandoffPublishRunning(propertyId)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.videoRemakeRequest.updateMany({ where: { propertyId, oldPostsReplacedAt: null }, data: { oldPost…",
+           "a": [
+            "меняет в базе: videoRemakeRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "try",
          "t": "пробует",
@@ -104287,20 +104415,20 @@
          "c": [
           {
            "k": "do",
-           "t": "const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrati…",
+           "t": "const r = await finishOldPostsAfterRemakePublish(propertyId, null, now);",
            "a": [
-            "меняет в базе: property"
+            "зовёт finishOldPostsAfterRemakePublish()"
            ],
            "c": []
           },
           {
            "k": "if",
-           "t": "marked.count",
+           "t": "r && (r.removed.length || r.manual.length || r.done)",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "notified++;",
+             "t": "touched++;",
              "a": [
               "дословно из кода"
              ],
@@ -104317,7 +104445,7 @@
          "c": [
           {
            "k": "do",
-           "t": "void logSystemError(\"video-handoff\", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор че…",
+           "t": "void logSystemError(\"meta\", `Объект ${propertyId}: снятие старых постов после нового ролика упало: ${err inst…",
            "a": [
             "запись в журнал ошибок"
            ],
@@ -104328,7 +104456,7 @@
        ]
       }
      ],
-     "from": "notifyPendingNarrationPreviews() — apps/api/src/lib/narrationPreview.ts"
+     "from": "finishOldPostsSweep() — apps/api/src/lib/remakeOldPosts.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
@@ -105510,6 +105638,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "continue;",
              "a": [
@@ -105526,12 +105669,27 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError( \"ai\", `Заявка оформлена сторожем: номер ${maskClientPhone(row.phone!)} был в переписке (…",
+             "t": "void logSystemError( \"ai\", (row.promised ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки…",
              "a": [
               "запись в журнал ошибок"
              ],
              "c": []
             },
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "outcome === \"accepted_other\"",
+           "a": [],
+           "c": [
             {
              "k": "do",
              "t": "continue;",
@@ -105570,6 +105728,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "row.promised",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await markWatchdogAttempted(row.conversationId, now);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "continue;",
              "a": [
@@ -105581,7 +105754,7 @@
           },
           {
            "k": "do",
-           "t": "const what = row.phone ? `Номер ${maskClientPhone(row.phone)} есть в переписке, карточки в базе нет` : `Клиен…",
+           "t": "const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…",
            "a": [
             "зовёт maskClientPhone()"
            ],
@@ -105615,6 +105788,21 @@
               "запись в журнал ошибок"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "row.promised",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await markWatchdogAttempted(row.conversationId, now);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
           },
@@ -137449,11 +137637,20 @@
     },
     {
      "k": "do",
-     "t": "await replaceOldPostsBeforeRemakePublish(property.id).catch((err)",
+     "t": "const remake = await prepareOldPostsBeforeRemakePublish(property.id).catch((err)",
      "a": [
       "запись в журнал ошибок"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"meta\", `Объект ${property.id}: снимок старых постов перед публикацией перемонтажа не уда…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
@@ -137462,6 +137659,21 @@
       "зовёт publishHandoffResult()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "remake",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await finishOldPostsAfterRemakePublish(property.id, summary).catch((err)",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",

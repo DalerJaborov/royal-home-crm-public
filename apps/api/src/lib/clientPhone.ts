@@ -159,6 +159,22 @@ export function phoneSafeText<T extends string | null | undefined>(text: T, canS
 }
 
 /**
+ * СВОБОДНЫЙ ТЕКСТ СДЕЛКИ (18.11.2026): заметка, причина отмены, отметка выплаты.
+ * Тот же номер «не в том поле», что в заметках клиента. Одна функция для всех
+ * мест, где Deal уходит наружу целиком: список «Сделки» и сделки в карточке клиента.
+ */
+export function dealTextPhoneSafe<
+  T extends { notes?: string | null; annulReason?: string | null; realtorPayoutNote?: string | null },
+>(deal: T, canSeeFull: CanSeeFullPhone): T {
+  if (canSeeFull) return deal;
+  const out = { ...deal };
+  for (const key of ["notes", "annulReason", "realtorPayoutNote"] as const) {
+    if (typeof out[key] === "string") (out as Record<string, unknown>)[key] = maskPhonesInFreeText(out[key] as string);
+  }
+  return out;
+}
+
+/**
  * То же для разбора звонка (Interaction.callAnalysis) — это Json-колонка, номер
  * может лежать в любой её строке (совет агенту, цитата возражения). Обходим
  * дерево целиком: перечислять поля значило бы завести второе место, где можно

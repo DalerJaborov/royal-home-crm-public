@@ -560,7 +560,7 @@ async function executeFieldsChange(a: {
       : "Данные карточки изменились.";
   // Старый ролик со старой ценой/данными снимается, КОГДА ВЫЙДЕТ НОВЫЙ (владелец 30.10.2026):
   // пока монтажёр работает, объект остаётся виден. Снимает задание публикации нового ролика
-  // (replaceOldPostsBeforeRemakePublish) — иначе публикация пропустила бы занятые каналы.
+  // (lib/remakeOldPosts.ts: сначала новый пост, потом снятие старого в той же сети).
   const failure = await executeRemake({
     propertyId: pre.propertyId,
     actorId: a.actorId,

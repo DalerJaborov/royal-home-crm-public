@@ -48,6 +48,7 @@ import { VoiceNotePlayer } from "../components/VoiceNotePlayer";
 import { PropertyAdBadge } from "../components/ads/PropertyAdBadge";
 import { PropertyPhotoManager } from "../components/PropertyPhotoManager";
 import { PropertyVideoManager } from "../components/PropertyVideoManager";
+import { PropertyNarrationManager } from "../components/PropertyNarrationManager";
 import { PropertyClipVideoCard } from "../components/PropertyClipVideoCard";
 import { PropertyCardSkeleton } from "../components/rh2/Skeleton";
 import { PropertyShareOpensCard } from "../components/PropertyShareOpensCard";
@@ -867,6 +868,9 @@ function PropertyViewCard({
     <PriceHistoryBlock property={property} />
   </>;
   const shareOpensBlock = canEdit && !isTrashed && <PropertyShareOpensCard propertyId={property.id} />;
+  // Один блок озвучки на обе раскладки и телефон (18.11.2026): ниже он стоит наверху карточки.
+  const narrationBlock = canEdit && !property.offSite ? <div id="rh-narration"><PropertyNarrationManager propertyId={property.id} placement="top"
+    factsKey={[property.type, property.rooms, property.areaSqm, property.floor, property.totalFloors, property.districtId, property.price, property.currency].join("|")} /></div> : null;
   const matchDialog = matchOpen && <MatchPanel mode="property" property={property} open={matchOpen} onClose={() => setMatchOpen(false)} />;
   const deleteDialog = !accountReadOnly && deleteOpen && <DeletePropertyDialog propertyId={property.id} onClose={() => setDeleteOpen(false)} />;
   const requestDeleteDialog = !accountReadOnly && requestDeleteOpen && <RequestDeletePropertyModal propertyId={property.id} propertyTitle={property.title} onClose={() => setRequestDeleteOpen(false)} />;
@@ -874,7 +878,7 @@ function PropertyViewCard({
   if (legacyAgentMobile) {
     return <LegacyAgentPropertyView
       {...{ property, can, updateProperty, isTrashed, canEnterEdit, onEditParams, canInlineEdit, editingPhotos, setEditingPhotos, onInlineDone, showSolve, viewSolve, dealSlot, fieldsBlock, role, canMarkGroupShare, changeRequestBlock, sourcesBlock, isResponsibleForProperty, docsBlock, deleteMode, pendingDeleteRequest, setRequestDeleteOpen, setDeleteOpen, setMatchOpen, placeLine, canSchedule }}
-      slots={{ trashedNotice, addressNotice, lockedNotice, reelsBlock, promotionBlock, shareOpensBlock, matchDialog, deleteDialog, requestDeleteDialog }}
+      slots={{ trashedNotice, addressNotice, lockedNotice, narrationBlock, reelsBlock, promotionBlock, shareOpensBlock, matchDialog, deleteDialog, requestDeleteDialog }}
       parts={{ InlineDoneButton, InlineEditLink, DemandLine, DescriptionBlock }}
     />;
   }
@@ -902,6 +906,10 @@ function PropertyViewCard({
 
       {addressNotice}
       {lockedNotice}
+
+      {/* ОЗВУЧКА НАВЕРХУ КАРТОЧКИ (18.11.2026, макет владельца «поменял, послушал, утвердил»): один адаптивный
+          блок для нового облика и прежней раскладки, ПК и телефона. Поменяли цену или этаж — он сразу здесь. */}
+      {narrationBlock}
 
       <CleanPropertyDetailLayout enabled={clean}>
         <div className="rh-pcard-main" style={clean ? { display: "contents" } : undefined}>
@@ -1993,7 +2001,7 @@ function AgentFieldsCard({
               // оставалось со старым значением.
               onSave={(v) => updateProperty.mutate({ ownerContact: v || null })}
             />
-            <span className="msg">Номер видят руководитель и агент этого объекта. Исправите номер — он поправится и в карточке продавца.</span>
+            <span className="msg">Номер видит только директор. Исправите номер — он поправится и в карточке продавца.</span>
           </div>
         )}
 
@@ -2182,6 +2190,7 @@ function EditorPropertyDetail({
         <PropertyVideoManager
           propertyId={property.id}
           readOnly
+          withNarration
           handoffStatus={property.videoHandoffStatus}
           inPipeline={!!property.pipeline?.inPipeline}
         />

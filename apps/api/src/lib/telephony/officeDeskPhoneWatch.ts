@@ -16,6 +16,10 @@
 //    рабочего дня не судим: аппарат утром включают не в первую минуту;
 //  - аппарат снова на связи — запись закрывается сама;
 //  - ночью и в выходной — не судит (аппарат вправе быть выключен), счётчик сброшен;
+//  - у аппарата есть мобильное плечо владельца — не судит: звонок дойдёт до человека;
+//  - ЕДИНСТВЕННЫЙ хозяин тревоги «аппарат приёма выключен» (с 18.11.2026): он же раз в
+//    сутки зовёт директора; agentMobileFallback.ts про выключенный аппарат молчит и
+//    тревожит только про аппарат, которого на станции нет вовсе;
 //  - станция не ответила — не судит: обрыв связи со станцией ловит своя сводная
 //    тревога (stationHealth.ts, «нет связи со станцией»), вторая про то же не нужна.
 import { isDayOff } from "@royal-home/shared";
@@ -23,7 +27,12 @@ import { prisma } from "../../db.js";
 import { isWithinDushanbeWindow, dushanbeTimeString } from "../dushanbeTime.js";
 import { logSystemError } from "../systemError.js";
 import { agentDeviceOnline, listEndpointsRetrying, loadAriCredentials, type AriEndpoint } from "./ariClient.js";
-import { incomingPrimaryExtension } from "./agentMobileFallback.js";
+import {
+  PRIMARY_UNREACHABLE_CALL_PATH,
+  incomingPrimaryExtension,
+  incomingPrimaryHasMobileLeg,
+  notifyDirectorsAboutUnreachablePrimary,
+} from "./agentMobileFallback.js";
 
 export const OFFICE_DESK_OFFLINE_ALARM_KEY = "telephony-office-desk-offline";
 /** Сколько проверок подряд аппарат должен молчать: одно моргание Wi-Fi — не тревога. */
@@ -42,7 +51,7 @@ export interface OfficeDeskWatchDeps {
 }
 
 export interface OfficeDeskWatchResult {
-  skipped: "not_extension" | "no_station" | "station_unreachable" | "off_hours" | "morning_grace" | null;
+  skipped: "not_extension" | "mobile_leg" | "no_station" | "station_unreachable" | "off_hours" | "morning_grace" | null;
   extension: string;
   online: boolean | null;
   alarmed: boolean;
@@ -79,6 +88,13 @@ export async function watchOfficeDeskPhone(now: Date = new Date(), deps: OfficeD
     resetStreak();
     await resolveAlarm();
     return { ...result, skipped: "not_extension" };
+  }
+  // Есть мобильное плечо владельца — звонок дойдёт до человека и при выключенной
+  // трубке: это не та поломка, ради которой сторож (18.11.2026).
+  if (await incomingPrimaryHasMobileLeg(extension)) {
+    resetStreak();
+    await resolveAlarm();
+    return { ...result, skipped: "mobile_leg" };
   }
   const creds = await (deps.loadCreds ?? loadAriCredentials)();
   if (!creds) return { ...result, skipped: "no_station" };
@@ -122,12 +138,13 @@ export async function watchOfficeDeskPhone(now: Date = new Date(), deps: OfficeD
     select: { id: true },
   });
   if (!open) {
-    await logSystemError(
-      "telephony",
+    const message =
       `Офисный аппарат ${extension} не на связи с ${dushanbeTimeString(offlineSince)} — незнакомые звонки и звонки из WhatsApp ` +
-        "сейчас никто не примет. Включите трубку и проверьте Wi-Fi в офисе.",
-      { dedupKey: OFFICE_DESK_OFFLINE_ALARM_KEY }
-    );
+      "сейчас никто не примет. Включите трубку и проверьте Wi-Fi в офисе.";
+    await logSystemError("telephony", message, { dedupKey: OFFICE_DESK_OFFLINE_ALARM_KEY });
+    // Директору — тем же уведомлением и тем же признаком, что у проверки аппарата приёма
+    // (agentMobileFallback.ts): не чаще раза в сутки на аппарат. Хозяин этой тревоги — здесь.
+    await notifyDirectorsAboutUnreachablePrimary(extension, `${message} ${PRIMARY_UNREACHABLE_CALL_PATH}`);
   }
   result.alarmed = true;
   return result;

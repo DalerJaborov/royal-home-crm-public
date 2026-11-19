@@ -32,7 +32,7 @@ import { customerStaffFollowUpLine, customerStaffFollowUpFixedLines, customerTha
   PHONE_ASK_TEXT, CUSTOMER_SELLER_WORDS, type FollowUpMemory } from "./customerAgentStaffFollowUp.js";
 import { detectOutsideCoverage } from "./coverageGuard.js";
 import { customerReplyLink } from "../lib/customerReplyLink.js";
-import { serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
+import { RUDAKI_ERA_SERVICE_AREA_LINES, serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
 import { customerPolicyTermAsked, customerRecentUserTexts } from "./customerAgentPolicyAsked.js";
 import { customerRecruitmentFollowUp, recruitmentFollowUpLine, recruitmentFollowUpFixedLines, RETIRED_TEMPLATE_LINES, AD_OPEN_QUESTION,
@@ -438,9 +438,9 @@ function serviceScopeLines(value: CustomerAgentCompanyPolicyObservation, languag
   const area = tg ? `Барои хариду фурӯши хона ${where} кӯмак мекунем.` : `Помогаем с покупкой и продажей недвижимости ${where}.`;
   const other = k.otherCities ? "" : tg ? " Дар шаҳрҳои дигар кор намекунем." : " Другие города не обслуживаем.";
   if (asked) return { outside: false, lines: [area + other] };
-  // Строка до 16.11.2026 (без района Рудаки) в старых переписках — тоже «уже сказано»: второй раз зону не повторяем.
+  // Строки до 16.11.2026 (без района Рудаки) и до 19.11.2026 (с ним) в старых переписках — тоже «уже сказано»: второй раз зону не повторяем.
   const legacyArea = tg ? `Барои хариду фурӯши амвол дар ${k.city} кӯмак мекунем.` : `Помогаем с покупкой и продажей недвижимости в городе ${k.city}.`;
-  const said = [area, area + other, legacyArea, legacyArea + other].some(saidBefore);
+  const said = [area, area + other, legacyArea, legacyArea + other, ...RUDAKI_ERA_SERVICE_AREA_LINES].some(saidBefore);
   return { outside: false, lines: said ? [] : [area] };
 }
 // Word-bounded so "участок" is not "час" and "суроға" is an address question (not hours).

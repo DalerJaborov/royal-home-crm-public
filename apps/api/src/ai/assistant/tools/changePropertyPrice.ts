@@ -5,6 +5,7 @@ import { formatPrice } from "../../seoGenerator.js";
 import { roundMoney } from "../../../lib/money.js";
 import { makeChangeRequestExecutor } from "./changeRequestTool.js";
 import { plainField } from "./safeField.js";
+import { parseSpokenAmount } from "./spokenAmount.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**
@@ -16,8 +17,8 @@ import type { AssistantWriteToolPlugin } from "./types.js";
  */
 const argsSchema = z.object({
   ref: z.string().trim().min(1).max(200),
-  // Модель иногда присылает число строкой — принимаем, как принял бы форму.
-  newPrice: z.coerce.number().positive().max(1_000_000_000),
+  // Модель иногда присылает число строкой, а голосом говорят «85 тысяч»: parseSpokenAmount даёт 85000.
+  newPrice: z.preprocess(parseSpokenAmount, z.number().positive().max(1_000_000_000)),
   currency: z.enum(CURRENCIES).optional(),
 });
 
@@ -67,7 +68,7 @@ export const changePropertyPricePlugin: AssistantWriteToolPlugin = {
     type: "object",
     properties: {
       ref: { type: "string", description: "Номер объекта: «ОБ-000088», «88» или id" },
-      newPrice: { type: "number", description: "Новая цена числом, без пробелов" },
+      newPrice: { type: "number", description: "Новая цена ЧИСЛОМ в единицах валюты: «85 тысяч» = 85000, «полтора миллиона» = 1500000" },
       currency: { type: "string", enum: ["USD", "TJS"], description: "Валюта новой цены; не указывай, если валюта объекта не меняется" },
     },
     required: ["ref", "newPrice"],

@@ -558,7 +558,8 @@ describe("маршруты /market/matches", () => {
     const hidden = (await get(outsiderToken)).body.matches[0];
     expect(hidden.sellerPhone).toBeNull();
     expect(hidden.sellerPhoneHidden).toBe(true);
-    expect((await get(agentToken)).body.matches[0].sellerPhone).toBe(phoneFor(22));
+    // Свой объект номер не открывает (владелец 18.11.2026): видит только директор.
+    expect((await get(agentToken)).body.matches[0].sellerPhone).toBeNull();
     expect((await get(adminToken)).body.matches[0].sellerPhone).toBe(phoneFor(22));
   });
 
@@ -603,16 +604,18 @@ describe("POST /market/listing-contact", () => {
   });
   afterAll(() => vi.restoreAllMocks());
 
-  it("номер совпал с контактом владельца чужого объекта — 403 постороннему, 200 ответственному и админу", async () => {
+  it("номер совпал с контактом владельца объекта — 403 и постороннему, и ответственному (18.11.2026), 200 директору", async () => {
     await makeProperty(23, `Совпадение-${runId}-контакт`);
     const listing = await makeListing(23);
     const outsider = await click(outsiderToken, listing.sourceUrl);
     expect(outsider.status).toBe(403);
     expect(JSON.stringify(outsider.body)).not.toContain(tailFor(23));
     const own = await click(agentToken, listing.sourceUrl);
-    expect(own.status).toBe(200);
-    expect(own.body.phone).toBe(phoneFor(23));
-    expect((await click(adminToken, listing.sourceUrl)).status).toBe(200);
+    expect(own.status).toBe(403);
+    expect(JSON.stringify(own.body)).not.toContain(tailFor(23));
+    const director = await click(adminToken, listing.sourceUrl);
+    expect(director.status).toBe(200);
+    expect(director.body.phone).toBe(phoneFor(23));
   });
 
   it("отметка «номер брал»: пишется только когда номер отдан, с действием и без номера; закрытый номер — без отметки", async () => {
@@ -657,7 +660,9 @@ describe("POST /market/listing-contact", () => {
     // номер сохранён единым видом, чтобы прогон совпадений его нашёл
     expect((await prisma.marketListing.findUniqueOrThrow({ where: { id: listing.id } })).sellerPhone).toBe(phoneFor(25));
 
-    const ok = await click(agentToken, listing.sourceUrl);
+    // Ответственный за объект номер тоже не получает (18.11.2026) — только директор.
+    expect((await click(agentToken, listing.sourceUrl)).status).toBe(403);
+    const ok = await click(adminToken, listing.sourceUrl);
     expect(ok.status).toBe(200);
     expect(ok.body.phone).toBe(phoneFor(25));
     expect(fetchSomonPhone).toHaveBeenCalledTimes(1); // второй клик — из каталога

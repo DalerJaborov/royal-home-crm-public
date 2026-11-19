@@ -298,24 +298,32 @@ describe("Доступ конвейера (properties.viewAll) к истории
  * и тот, кому сам номер закрыт: монтажёр (properties.editForeign без
  * properties.viewOwners) на карточке видел «скрыто», а строкой ниже — оба
  * номера открытым текстом. Кто видит номер в истории — решает то же правило,
- * что и на карточке (lib/ownerContact.ts): право viewOwners или свой объект.
+ * что и на карточке (lib/ownerContact.ts): только право viewOwners — с 18.11.2026
+ * оно есть лишь у директора, свой объект номер больше не открывает.
  */
 describe("Контакт владельца в истории объекта закрыт тем, кому закрыт сам номер", () => {
   const oldPhone = `+992937${runId.toString().slice(-6)}`;
   const newPhone = `+992938${runId.toString().slice(-6)}`;
   const editorPhone = `+992944${runId.toString().slice(-6)}`;
+  const directorPhone = `+992945${runId.toString().slice(-6)}`;
   let editorToken: string;
   let editorId: string;
+  let directorToken: string;
+  let directorId: string;
 
   beforeAll(async () => {
     const passwordHash = await bcrypt.hash(password, 10);
     await prisma.agent.deleteMany({ where: { phone: editorPhone } });
     editorId = (await prisma.agent.create({ data: { fullName: "Монтажёр без номера", phone: editorPhone, role: "EDITOR", passwordHash } })).id;
     editorToken = (await request(app).post("/api/v1/auth/login").send({ phone: editorPhone, password })).body.accessToken;
+    await prisma.agent.deleteMany({ where: { phone: directorPhone } });
+    directorId = (await prisma.agent.create({ data: { fullName: "Директор истории", phone: directorPhone, role: "DIRECTOR", passwordHash } })).id;
+    directorToken = (await request(app).post("/api/v1/auth/login").send({ phone: directorPhone, password })).body.accessToken;
 
+    // Номер собственника с 18.11.2026 меняет только директор (у админа права нет).
     const res = await request(app)
       .patch(`/api/v1/properties/${propertyId}`)
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${directorToken}`)
       .send({ ownerContact: newPhone });
     expect(res.status).toBe(200);
     // logAudit пишет вне запроса — дожидаемся записи со сменой контакта.
@@ -323,15 +331,17 @@ describe("Контакт владельца в истории объекта з�
       async () => {
         const log = await request(app)
           .get(`/api/v1/audit-log?entityType=Property&entityId=${propertyId}`)
-          .set("Authorization", `Bearer ${adminToken}`);
-        return ownerContactChange(log.body.items);
+          .set("Authorization", `Bearer ${directorToken}`);
+        return ownerContactChange(log.body.items)?.becomes === newPhone;
       },
       { label: "запись PROPERTY_FIELDS_CHANGED с контактом владельца" }
     );
   });
 
   afterAll(async () => {
-    await prisma.agent.deleteMany({ where: { id: editorId } });
+    // Смена номера директором пишет в хронологию карточки продавца от его имени.
+    await prisma.interaction.deleteMany({ where: { agentId: directorId } });
+    await prisma.agent.deleteMany({ where: { id: { in: [editorId, directorId] } } });
   });
 
   function ownerContactChange(items: unknown[]): { was: string; becomes: string } | null {
@@ -355,21 +365,26 @@ describe("Контакт владельца в истории объекта з�
     expect(raw).not.toContain(newPhone);
   });
 
-  it("руководитель (viewOwners) видит настоящие номера «было → стало»", async () => {
+  it("директор (viewOwners) видит настоящие номера «было → стало»", async () => {
     const log = await request(app)
       .get(`/api/v1/audit-log?entityType=Property&entityId=${propertyId}`)
-      .set("Authorization", `Bearer ${adminToken}`);
+      .set("Authorization", `Bearer ${directorToken}`);
     expect(log.status).toBe(200);
     expect(ownerContactChange(log.body.items)).toMatchObject({ was: oldPhone, becomes: newPhone });
   });
 
-  it("ответственный риелтор без viewOwners видит номера своего объекта", async () => {
-    // secondAgentId назначен риелтором объекта выше (PATCH assignedAgentId) — на
-    // карточке номер ему открыт, значит и в истории он открыт.
-    const log = await request(app)
-      .get(`/api/v1/audit-log?entityType=Property&entityId=${propertyId}`)
-      .set("Authorization", `Bearer ${secondAgentToken}`);
-    expect(log.status).toBe(200);
-    expect(ownerContactChange(log.body.items)).toMatchObject({ was: oldPhone, becomes: newPhone });
+  it("администратор и ответственный риелтор без viewOwners номеров не видят — даже своего объекта (18.11.2026)", async () => {
+    // secondAgentId назначен риелтором объекта выше (PATCH assignedAgentId); админ
+    // создал объект. С 18.11.2026 номер видит только директор.
+    for (const token of [adminToken, secondAgentToken]) {
+      const log = await request(app)
+        .get(`/api/v1/audit-log?entityType=Property&entityId=${propertyId}`)
+        .set("Authorization", `Bearer ${token}`);
+      expect(log.status).toBe(200);
+      expect(ownerContactChange(log.body.items)).toMatchObject({ was: "скрыто", becomes: "скрыто" });
+      const raw = JSON.stringify(log.body);
+      expect(raw).not.toContain(oldPhone);
+      expect(raw).not.toContain(newPhone);
+    }
   });
 });

@@ -32,6 +32,8 @@ interface ViewParts {
 }
 interface ViewSlots {
   trashedNotice: ReactNode; addressNotice: ReactNode; lockedNotice: ReactNode;
+  /** Озвучка наверху карточки (18.11.2026): тот же блок, что на ПК, без своей копии. */
+  narrationBlock?: ReactNode;
   reelsBlock: ReactNode; promotionBlock: ReactNode; shareOpensBlock: ReactNode;
   matchDialog: ReactNode; deleteDialog: ReactNode; requestDeleteDialog: ReactNode;
 }
@@ -75,6 +77,7 @@ export function LegacyAgentPropertyView({ property, can, updateProperty, isTrash
           />
           {slots.addressNotice}
           {slots.lockedNotice}
+          {slots.narrationBlock}
           <MobilePropertyHero photos={photos} />
           {/* Фото на телефоне правятся на месте (пункт 17 разбора): сетка-редактор
               появляется только по «Изменить фото» и уходит по «Готово» — в

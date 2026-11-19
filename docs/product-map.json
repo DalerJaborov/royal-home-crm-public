@@ -968,9 +968,9 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 138,
+      "endpoints": 137,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 37
+      "usedBy": 36
     },
     {
       "mount": "/api/v1/transfer-requests",
@@ -2388,7 +2388,7 @@
     {
       "name": "Сайт royalhome.tj",
       "keys": 6,
-      "files": 20
+      "files": 19
     },
     {
       "name": "Телефония FreePBX / Asterisk",

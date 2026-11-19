@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2482**; вместе с задачами по расписанию и фоновыми заданиями — **4119**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4126**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -6063,7 +6063,7 @@
 - если !("deal" in outcome)
   - throw new Error("updateDealFor вернул план без dryRun");
     · ошибка Error — «updateDealFor вернул план без dryRun»
-- res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+- res.json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));
   · ответ 200
 
 ### GET /api/v1/deals/payouts
@@ -6228,7 +6228,7 @@
 - если !("deal" in outcome)
   - throw new Error("createDealFor вернул план без dryRun");
     · ошибка Error — «createDealFor вернул план без dryRun»
-- res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+- res.status(201).json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outco…
   · ответ 201
 
 ## /api/v1/districts
@@ -8573,9 +8573,9 @@
 - const stored = listing.sellerPhone ? normalizeListingPhone(listing.sellerPhone) : null;
   · зовёт normalizeListingPhone()
 - если stored
-  - если await phoneBelongsToHiddenOwner(req, stored)
-    - return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
-      · ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»
+  - если await isHiddenCrmPhone(req, stored)
+    - return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: "CRM_PHONE_HIDDEN" });
+      · ответ 403
   - return res.json({ phone: stored, cached: true });
     · ответ 200
 - если listing.source !== "somon.tj"
@@ -8589,9 +8589,9 @@
       · ответ 200
   - await prisma.marketListing.update({ where: { id: listing.id }, data: { sellerPhone: phone } });
     · меняет в базе: marketListing
-  - если await phoneBelongsToHiddenOwner(req, phone)
-    - return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
-      · ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»
+  - если await isHiddenCrmPhone(req, phone)
+    - return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: "CRM_PHONE_HIDDEN" });
+      · ответ 403
   - return res.json({ phone, cached: false });
     · ответ 200
 - если сорвалось
@@ -8627,7 +8627,14 @@
 - если (p.type !== "APARTMENT" && p.type !== "HOUSE") || !(areaSqm > 0)
   - return res.json(emptyDynamics("для этого типа объекта динамика рынка не считается", "unsupported"));
     · ответ 200
-- res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null,…
+- const dynamics = await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name …
+  · зовёт findDynamics()
+- если !canSeeCrmContactPhones(req) && dynamics.recentlyGone.length > 0
+  - const crmTails = await crmContactTails(dynamics.recentlyGone.map((g)
+    · зовёт crmContactTails()
+  - dynamics.recentlyGone = dynamics.recentlyGone.map((g)
+    · зовёт phoneTail()
+- res.json(dynamics);
   · ответ 200
 
 ### GET /api/v1/market/property/:id/history
@@ -8720,10 +8727,10 @@
   · читает в базе: propertyMarketMatch
 - const money = await loadMoneyContext();
   · зовёт loadMoneyContext()
-- const ownerHidden = stripOwnerContact( { ownerContact: "x", assignedAgentId: p.assignedAgentId, intakeAgentId…
-  · зовёт stripOwnerContact()
-- const ownerTails = ownerHidden ? new Set(extractPhoneTails(p.ownerContact)) : new Set<string>();
-  · зовёт extractPhoneTails()
+- const phonesHidden = !canSeeCrmContactPhones(req);
+  · зовёт canSeeCrmContactPhones()
+- const crmTails = phonesHidden ? await crmContactTails(rows.map((m)
+  · зовёт crmContactTails()
 - res.json({ ourPriceTjs, matches: rows.map((m)
   · ответ 200
   - const sellerTail = l.sellerPhone ? phoneTail(l.sellerPhone) : "";
@@ -10733,14 +10740,16 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если req.agent!.role === "EDITOR"
-  - return res.status(403).json({ error: "Озвучку одобряет агент объекта" });
-    · ответ 403 — «Озвучку одобряет агент объекта»
 - const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…
   · проверяет данные схемой narrationActionSchema
 - если !parsed.success || !versionId.success
   - return res.status(400).json({ error: "Подтвердите текст и номер версии" });
     · ответ 400 — «Подтвердите текст и номер версии»
+- const access = await narrationAccessForAgent(req.agent!.id, p.id);
+  · зовёт narrationAccessForAgent()
+- если !access
+  - return res.status(403).json({ error: "Озвучку утверждает тот, кто ведёт объект, или руководство" });
+    · ответ 403 — «Озвучку утверждает тот, кто ведёт объект, или руководство»
 - const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision…
   · зовёт approveNarrationVersion()
 - если outcome === "FORBIDDEN"
@@ -10749,7 +10758,11 @@
 - если outcome === "CONFLICT"
   - return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
     · ответ 409 — «Факты или версия изменились. Подготовьте и проверьте новый текст.»
-- res.json({ ok: true, ...(outcome === "AUDIO_APPROVED" ? { delivery: await afterNarrationApproved(p.id, versio…
+- const delivery = outcome === "AUDIO_APPROVED" ? await afterNarrationApproved(p.id, versionId.data) : undefine…
+  · зовёт afterNarrationApproved()
+- const publishAt = delivery === "CRM_REMIX" ? await estimateNarrationPublishAt(p.id).catch(()
+  · зовёт estimateNarrationPublishAt()
+- res.json({ ok: true, ...(delivery ? { delivery } : {}), ...(publishAt ? { publishAt: publishAt.toISOString() …
   · ответ 200
 
 ### GET /api/v1/properties/:id/narration/:versionId/audio
@@ -10789,6 +10802,13 @@
 - если !key || !narrationProviderReady(config, key)
   - return res.status(409).json({ error: "ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках." }…
     · ответ 409 — «ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.»
+- const draft = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id…
+  · читает в базе: propertyNarrationVersion
+- const length = draft ? await narrationLengthCheckFor(p, draft.script, draft.language) : null;
+  · зовёт narrationLengthCheckFor()
+- если length && !length.fits
+  - return res.status(400).json({ error: narrationLengthLine(length) });
+    · ответ 400
 - const outcome = await generateNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevisio…
   · зовёт generateNarrationVersion()
 - смотря что в: outcome.status
@@ -11057,29 +11077,6 @@
 - res.json({ active: false });
   · ответ 200
 
-### POST /api/v1/properties/:id/narration/preview
-
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
-
-- если !canDecidePreview(req.agent!.role)
-  - return res.status(403).json({ error: "Решение по ролику принимает тот, кто ведёт объект" });
-    · ответ 403 — «Решение по ролику принимает тот, кто ведёт объект»
-- const parsed = narrationPreviewDecisionSchema.safeParse(req.body);
-  · проверяет данные схемой narrationPreviewDecisionSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректное решение", details: parsed.error.flatten() });
-    · ответ 400 — «Некорректное решение»
-- const result = parsed.data.decision === "RELEASE" ? await releaseNarrationPreview(p.id, parsed.data.versionId…
-  · зовёт releaseNarrationPreview()
-- если result === "STALE"
-  - return res.status(409).json({ error: "Этот ролик уже решён или устарел. Обновите карточку." });
-    · ответ 409 — «Этот ролик уже решён или устарел. Обновите карточку.»
-- если result === "BUSY"
-  - return res.status(409).json({ error: "Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару ми…
-    · ответ 409 — «Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару…»
-- res.json({ ok: true, result });
-  · ответ 200
-
 ### POST /api/v1/properties/:id/narration/publication-preview
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
@@ -11117,6 +11114,10 @@
   · читает в базе: ownerReportDelivery
 - const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…
   · читает в базе: smsMessage
+- const latestAwaitsHuman = versions[0] ? await narrationAwaitsHuman(p.id, p, versions[0]) : false;
+  · зовёт narrationAwaitsHuman()
+- const latestAudioSec = versions[0]?.status === "READY" && versions[0].storageKey && versions[0].audioSec == n…
+  · зовёт narrationAudioSec()
 - res.json({ versions: versions.map((v)
   · ответ 200
 
@@ -12914,9 +12915,11 @@
 - если property.deletedAt && !canOpenTrashedPropertyPage({ agentId: req.agent!.id, can: (permission) => can(req, per…
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
-- const presented = stripEmbedding(stripOwnerContact(property, req.agent!.id, can(req, "properties.viewOwners")…
+- const presented = stripEmbedding(stripOwnerContact(property, can(req, "properties.viewOwners")));
   · зовёт stripEmbedding()
-- res.json({ ...presented, sellerClient: presented.ownerContactHidden ? null : await loadSellerClientRef(proper…
+- const ownsIt = ownsProperty(req.agent!.id, property);
+  · зовёт ownsProperty()
+- res.json({ ...presented, ownerContactMasked: presented.ownerContactHidden && ownsIt ? maskOwnerContact(proper…
   · ответ 200
 
 ### PATCH /api/v1/properties/:id
@@ -12972,7 +12975,7 @@
   - если block
     - return res.status(block.status).json({ error: block.error });
       · ответ (код зависит от условия)
-- если data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, "properties.viewOwners…
+- если data.ownerContact !== undefined && stripOwnerContact(existing, can(req, "properties.viewOwners")).ownerContac…
   - delete data.ownerContact;
     · дословно из кода
 - если data.ownerContact?.trim() && phoneTail(data.ownerContact) !== phoneTail(existing.ownerContact ?? "")
@@ -19547,6 +19550,8 @@
       - если (await syncAgentMobileFallback(agent.id, creds)) === "station_unreachable"
         - return;
           · дальше не идёт, ничего не меняя
+    - await warnIfIncomingPrimaryUnreachable(primary);
+      · зовёт warnIfIncomingPrimaryUnreachable()
   - await reconcileIncomingQueue();
     · зовёт reconcileIncomingQueue()
     - const result = await ensureAgentsInIncomingQueue();
@@ -19556,9 +19561,17 @@
         · запись в журнал ошибок
       - return;
         · дальше не идёт, ничего не меняя
-    - если result.noOperatorsAssigned
-      - void logSystemError( "telephony", "Оператор приёма не назначен ни одному сотруднику: звонки незнакомых номеро…
-        · запись в журнал ошибок
+    - const primary = await incomingPrimaryExtension();
+      · зовёт incomingPrimaryExtension()
+    - если result.noOperatorsAssigned && !primary
+      - const open = await prisma.errorLog.count({ where: { ...noOperatorAlarmWhere(), resolvedAt: null } });
+        · считает в базе: errorLog
+      - если open === 0
+        - void logSystemError( "telephony", `${NO_OPERATOR_ALARM_PREFIX}: звонки незнакомых номеров идут по-старому. ` …
+          · запись в журнал ошибок
+    - иначе если primary || !result.skipped
+      - await prisma.errorLog .updateMany({ where: { ...noOperatorAlarmWhere(), resolvedAt: null }, data: { resolvedA…
+        · меняет в базе: errorLog
     - если result.skipped && result.skipped.startsWith("Не удалось определить очередь")
       - void logSystemError("telephony", result.skipped);
         · запись в журнал ошибок
@@ -22121,20 +22134,23 @@
       - если verdict.keepLead || !verdict.missed
         - continue;
           · переходит к следующему
-      - const ownLeadKept = reassignOnMissedCall && holdsOwnPropertyLead(client);
-        · зовёт holdsOwnPropertyLead()
+      - const afterDue = firstCallAfterDue(client, reassignOnMissedCall);
+        · зовёт firstCallAfterDue()
       - const alreadyNoted = await prisma.interaction.findFirst({ where: { clientId: client.id, actorKind: "SYSTEM", …
         · читает в базе: interaction
-      - если alreadyNoted && (!reassignOnMissedCall || ownLeadKept)
+      - если alreadyNoted && (!reassignOnMissedCall || keptByRule)
         - continue;
           · переходит к следующему
-      - если !reassignOnMissedCall || ownLeadKept
+      - если !reassignOnMissedCall || keptByRule
         - await logTimeline({ clientId: client.id, actor: { kind: "system", source: "first-call-missed", subjectAgentId…
           · зовёт logTimeline()
-        - await notifyFeedOnly(supervisors, { kind: "lead", title: ownLeadKept ? "Первый звонок по объекту сорван" : "П…
+        - await notifyFeedOnly(supervisors, { kind: "lead", title: ownLeadKept ? "Первый звонок по объекту сорван" : no…
           · зовёт notifyFeedOnly()
         - если ownLeadKept
           - sendPushToAgents([agentId], { title: "⏰ Клиент по вашему объекту ждёт звонка", body: `${client.fullName}: поз…
+            · push-уведомление
+        - если notDialableKept
+          - sendPushToAgents([agentId], { title: "Клиенту не дозвониться через CRM", body: `${client.fullName}: номер не …
             · push-уведомление
         - continue;
           · переходит к следующему
@@ -22203,8 +22219,8 @@
       - если already
         - continue;
           · переходит к следующему
-      - const after = holdsOwnPropertyLead(client) ? "потом минус к Royal Score" : afterDue;
-        · зовёт holdsOwnPropertyLead()
+      - const after = firstCallAfterDue(client, reassignOn).text;
+        · зовёт firstCallAfterDue()
       - await logTimeline({ clientId: client.id, actor: { kind: "system", source: "first-call-reminder", subjectAgent…
         · зовёт logTimeline()
       - sendPushToAgents([agentId], { title: "⏱ Позвонить клиенту", body: `${client.fullName}: осталось ${minutesLeft…
@@ -23307,44 +23323,60 @@
 
 ### narration-preview-due — * * * * *
 
-- await releaseDueNarrationPreviews();
-  · зовёт releaseDueNarrationPreviews()
-  - const waiting = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null } }, select:…
+- await clearLeftoverNarrationPreviews();
+  · зовёт clearLeftoverNarrationPreviews()
+  - const rows = await prisma.property.findMany({ where: { OR: [{ narrationPreviewVersionId: { not: null } }, { n…
     · читает в базе: property
-  - для каждого: const row of waiting
+  - для каждого: const row of rows
     - пробует
-      - если orphan
-        - const res = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationP…
-          · меняет в базе: property
-        - если res.count
-          - cleared++;
-            · дословно из кода
-          - await removeClipFiles(row.narrationPreviewPath);
-            · дословно из кода
-        - continue;
-          · переходит к следующему
-      - если !row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()
-        - continue;
-          · переходит к следующему
-      - если await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: "auto" }, now)…
-        - released++;
-          · дословно из кода
-    - если сорвалось
-      - void logSystemError("video-handoff", `Новый ролик с озвучкой не выпущен по сроку прослушивания: ${err instanc…
-        · запись в журнал ошибок
-- await notifyPendingNarrationPreviews(notifyNarrationPreview);
-  · зовёт notifyPendingNarrationPreviews()
-  - const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…
-    · читает в базе: property
-  - для каждого: const row of rows.filter((r) => r.narrationPreviewMasterKey === r.videoMasterStorageKey).slice(0, 5)
-    - пробует
-      - const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrati…
+      - const done = await withPropertyLock(row.id, async (tx)
+        · читает в базе: property
         · меняет в базе: property
-      - если marked.count
-        - notified++;
+        · читает в базе: propertyNarrationVersion
+        · меняет в базе: propertyNarrationVersion
+        - const cur = await tx.property.findUnique({ where: { id: row.id }, select: { narrationPreviewVersionId: true, …
+          · читает в базе: property
+        - если !cur || cur.narrationPreviewVersionId !== row.narrationPreviewVersionId || cur.narrationPreviewPath !== row.n…
+          - return false;
+            · дословно из кода
+        - await tx.property.update({ where: { id: row.id }, data: NARRATION_PREVIEW_CLEARED });
+          · меняет в базе: property
+        - const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.id }, orderBy: { revisi…
+          · читает в базе: propertyNarrationVersion
+        - если cur.narrationPreviewVersionId && latest?.id === cur.narrationPreviewVersionId && cur.videoMasterNarrationVers…
+          - await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY" }, data: { approvedAt:…
+            · меняет в базе: propertyNarrationVersion
+      - если !done
+        - continue;
+          · переходит к следующему
+      - если row.narrationPreviewPath
+        - await removeClipFiles(row.narrationPreviewPath);
           · дословно из кода
     - если сорвалось
-      - void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор че…
+      - void logSystemError("video-handoff", `Оставшийся кандидат «прослушать перед выпуском» не убран: ${err instanc…
+        · запись в журнал ошибок
+- await reopenAutoApprovalsOnPublishedClips();
+  · зовёт reopenAutoApprovalsOnPublishedClips()
+  - return prisma.$executeRaw` WITH latest AS ( SELECT DISTINCT ON (v."propertyId") v."id", v."propertyId", v."st…
+    · обращается к базе своим SQL
+- await finishOldPostsSweep();
+  · зовёт finishOldPostsSweep()
+  - const rows = await prisma.videoRemakeRequest.findMany({ where: { replaceOldPostsOnPublish: true, oldPostsRepl…
+    · читает в базе: videoRemakeRequest
+  - для каждого: const { propertyId } of rows
+    - если await isHandoffPublishRunning(propertyId)
+      - await prisma.videoRemakeRequest.updateMany({ where: { propertyId, oldPostsReplacedAt: null }, data: { oldPost…
+        · меняет в базе: videoRemakeRequest
+      - continue;
+        · переходит к следующему
+    - пробует
+      - const r = await finishOldPostsAfterRemakePublish(propertyId, null, now);
+        · зовёт finishOldPostsAfterRemakePublish()
+      - если r && (r.removed.length || r.manual.length || r.done)
+        - touched++;
+          · дословно из кода
+    - если сорвалось
+      - void logSystemError("meta", `Объект ${propertyId}: снятие старых постов после нового ролика упало: ${err inst…
         · запись в журнал ошибок
 
 ### narration-version-delivery — * * * * *
@@ -23603,11 +23635,17 @@
         · дословно из кода
     - для каждого: const row of candidates
       - если !canTakeItself
+        - если row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard
+          - continue;
+            · переходит к следующему
         - continue;
           · переходит к следующему
       - если outcome === "accepted"
-        - void logSystemError( "ai", `Заявка оформлена сторожем: номер ${maskClientPhone(row.phone!)} был в переписке (…
+        - void logSystemError( "ai", (row.promised ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки…
           · запись в журнал ошибок
+        - continue;
+          · переходит к следующему
+      - если outcome === "accepted_other"
         - continue;
           · переходит к следующему
     - если leftForHuman.length === 0
@@ -23615,9 +23653,12 @@
         · дословно из кода
     - для каждого: const row of leftForHuman
       - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))
+        - если row.promised
+          - await markWatchdogAttempted(row.conversationId, now);
+            · дословно из кода
         - continue;
           · переходит к следующему
-      - const what = row.phone ? `Номер ${maskClientPhone(row.phone)} есть в переписке, карточки в базе нет` : `Клиен…
+      - const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…
         · зовёт maskClientPhone()
       - const payload = { kind: "oversight" as const, title: `📵 Лид без карточки: ${who}`, body: `${dushanbeDateTime…
         · зовёт dushanbeDateTimeString()
@@ -23626,6 +23667,9 @@
           · зовёт enqueueDirectorAlert()
         - void logSystemError( "ai", `[alarm] ${what} (диалог ${row.conversationId}, ${channelLabel(row.channel)}, ${wh…
           · запись в журнал ошибок
+        - если row.promised
+          - await markWatchdogAttempted(row.conversationId, now);
+            · дословно из кода
       - если сорвалось
         - console.error("[alarm] phone-without-lead notification:", err);
           · пишет строку в журнал сервера
@@ -30437,10 +30481,15 @@
     · зовёт releaseQueueIfClear()
   - return;
     · дальше не идёт, ничего не меняя
-- await replaceOldPostsBeforeRemakePublish(property.id).catch((err)
+- const remake = await prepareOldPostsBeforeRemakePublish(property.id).catch((err)
   · запись в журнал ошибок
+  - void logSystemError("meta", `Объект ${property.id}: снимок старых постов перед публикацией перемонтажа не уда…
+    · запись в журнал ошибок
 - const summary = await publishHandoffResult(property.id, property.videoHandoffFinalPath);
   · зовёт publishHandoffResult()
+- если remake
+  - await finishOldPostsAfterRemakePublish(property.id, summary).catch((err)
+    · запись в журнал ошибок
 - await notifyVideoHandoffPublishResult(property.id, summary);
   · зовёт notifyVideoHandoffPublishResult()
 - await releaseQueueIfClear(property.id);

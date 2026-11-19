@@ -750,3 +750,24 @@ test("holdProcessUntilSettled: отказ пробрасывается и инт
   await assert.rejects(holdProcessUntilSettled(Promise.reject(new Error("стоп"))), /стоп/);
   assert.equal(await holdProcessUntilSettled(Promise.resolve(5)), 5);
 });
+
+test("holdProcessUntilSettled: process.exit(0) посреди ожидания даёт код 1 и строку (19.11, #291 на этапе 7)", () => {
+  const shipUrl = new URL("./ship.mjs", import.meta.url).href;
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    const { holdProcessUntilSettled } = await import(${JSON.stringify(shipUrl)});
+    holdProcessUntilSettled(new Promise(() => {}));
+    setTimeout(() => process.exit(0), 50);
+  `], { encoding: "utf8" });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /Выкат оборвался/);
+});
+
+test("holdProcessUntilSettled: после итога exit не трогает код", () => {
+  const shipUrl = new URL("./ship.mjs", import.meta.url).href;
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    const { holdProcessUntilSettled } = await import(${JSON.stringify(shipUrl)});
+    holdProcessUntilSettled(Promise.resolve(0)).then((c) => process.exit(c));
+  `], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /оборвался/);
+});
