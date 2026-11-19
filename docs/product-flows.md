@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4126**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4134**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -28148,8 +28148,22 @@
       · запись в журнал ошибок
     - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
       · зовёт alarmLeadOnlyIntake()
-  - const note = leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? "Вопрос, на который бот не ответил" : SCENA…
+  - const note = sealed.note ?? leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? "Вопрос, на который бот не о…
     · зовёт leadOnlyNoteWithCallbackTime()
+  - если intake.scenario === "note"
+    - если !conversation.clientId && !options.force
+      - return { status: "wait", reason: "card_pending" };
+        · дословно из кода
+    - если !conversation.clientId
+      - void logSystemError("ai", `[alarm] Оператор заявок: пометка агенту без карточки (диалог ${conversation.id}). …
+        · запись в журнал ошибок
+      - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
+        · зовёт alarmLeadOnlyIntake()
+    - если sealed.phone
+      - const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });
+        · зовёт noteLeadOnlyNewPhone()
+    - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : {…
+      · зовёт noteLeadOnlyOnCard()
   - если conversation.clientId
     - если sealed.lead
       - return { status: "accepted", reason: "card_exists" };
@@ -28207,8 +28221,22 @@
           · запись в журнал ошибок
         - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
           · зовёт alarmLeadOnlyIntake()
-      - const note = leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? "Вопрос, на который бот не ответил" : SCENA…
+      - const note = sealed.note ?? leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? "Вопрос, на который бот не о…
         · зовёт leadOnlyNoteWithCallbackTime()
+      - если intake.scenario === "note"
+        - если !conversation.clientId && !options.force
+          - return { status: "wait", reason: "card_pending" };
+            · дословно из кода
+        - если !conversation.clientId
+          - void logSystemError("ai", `[alarm] Оператор заявок: пометка агенту без карточки (диалог ${conversation.id}). …
+            · запись в журнал ошибок
+          - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
+            · зовёт alarmLeadOnlyIntake()
+        - если sealed.phone
+          - const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });
+            · зовёт noteLeadOnlyNewPhone()
+        - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : {…
+          · зовёт noteLeadOnlyOnCard()
       - если conversation.clientId
         - если sealed.lead
           - return { status: "accepted", reason: "card_exists" };
