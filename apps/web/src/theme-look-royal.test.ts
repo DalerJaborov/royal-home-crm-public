@@ -625,6 +625,23 @@ ${M} .sheet.bottom .sheet-f { padding-bottom: 0; }`)).toEqual([`${M} .sheet.bott
     expect(siblingEscapes(`${css}
 ${M} ~ .rh2 .pill { color: red; }`, "marketing")).toEqual([`${M} ~ .rh2 .pill`]);
   });
+  it("«Маркетинг»: бледнеет только сплошная кнопка шапки, после которой есть ещё сплошная (ревью #307)", () => {
+    // Ошибка первой версии: `:not(:last-child)` бледнил ЕДИНСТВЕННУЮ сплошную «Повторить упавшие»,
+    // стоящую первой перед серыми кнопками карточки ролика. Цвет на настоящей странице сверяет e2e
+    // new-look-marketing.spec.ts; здесь — что правило снова не стало «по позиции».
+    const css = readFileSync(new URL("./theme-look-royal-marketing.css", import.meta.url), "utf8");
+    const dimmed = (text: string) => cssRules(text).flatMap((r) => splitTopLevel(r.selector))
+      .filter((sel) => /\.pg-h \.acts > \.pill/.test(sel) && !/:hover/.test(sel));
+    const rules = dimmed(css);
+    expect(rules.length).toBeGreaterThan(0);
+    for (const sel of rules) {
+      expect(sel, "бледнить по соседней сплошной, а не по позиции").toMatch(/:has\(~ \.pill(:not\(\.[\w-]+\))+\)/);
+      expect(sel).not.toMatch(/:(last|first)-child|:nth-/);
+    }
+    const broken = css.replace(/:has\(~ \.pill(:not\(\.[\w-]+\))+\)/g, ":not(:last-child)");
+    expect(broken).not.toBe(css);
+    expect(() => { for (const sel of dimmed(broken)) expect(sel).toMatch(/:has\(~ \.pill/); }).toThrow();
+  });
   // Без списков долга (KNOWN_DEBT / DISABLED_DIM_DEBT закрыты 18.11, пачка debt): каждый
   // слой, основа тоже, обязан быть чистым. Находка чинится в слое, а не вписывается сюда.
   it.each(lookFiles)("%s: смысловые кнопки и плашки не перекрашены, запас iPhone не тронут", (file) => {

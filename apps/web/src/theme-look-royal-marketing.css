@@ -96,9 +96,11 @@
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg-ai > a:hover { background: var(--rh-ui-press); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg-ai > a[aria-current="page"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
+/* Счёт на невыбранной вкладке раздела («Сообщения N», «Комментарии N», «Изменения N») — заметный,
+   как счётчики бокового меню (ревью #307); счёт внутри экрана (.seg .n) остаётся тихим. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg-ai > a .n {
   display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
-  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
 }
 /* Счёт на вкладке выбранной — на тёмной таблетке светлым. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg-ai > a[aria-current="page"] .n { background: color-mix(in srgb, var(--rh-ui-side-pill-fg) 22%, transparent); color: var(--rh-ui-side-pill-fg); }
@@ -148,7 +150,7 @@
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd .ic .i { width: 24px; height: 24px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile b {
   display: block; margin-top: 8px; font-family: var(--rh-ui-font-num); font-size: 30px; font-weight: 700; line-height: 1.1;
-  letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--rh-ui-text); overflow-wrap: anywhere;
+  letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--rh-ui-text); overflow-wrap: normal;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile small { display: block; margin-top: 4px; font-size: 14px; line-height: 1.35; color: var(--rh-ui-hint); }
 
@@ -171,11 +173,13 @@
   background: color-mix(in srgb, var(--rh-ui-hint) 20%, transparent);
 }
 /* Одна главная кнопка в шапке: если сплошных несколько («Фото с текстом» и «Ролик»), синей
-   остаётся последняя, остальные — мягкие синие. */
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pg-h .acts > .pill:not(:last-child):not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab) {
+   остаётся последняя сплошная, предыдущие сплошные — мягкие синие. Бледнеет только та сплошная,
+   ПОСЛЕ которой есть ещё сплошная: единственная сплошная, стоящая первой перед серыми
+   («Повторить упавшие» в карточке ролика, ревью #307), остаётся синей. */
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pg-h .acts > .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab):has(~ .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab)) {
   background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
 }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pg-h .acts > .pill:not(:last-child):not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab):hover:not(:disabled) {
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pg-h .acts > .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab):has(~ .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab)):hover:not(:disabled) {
   background: color-mix(in srgb, var(--rh-ui-primary) 18%, var(--rh-ui-card));
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pill.danger { border: 0; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
@@ -207,6 +211,8 @@
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chip.info { border: 0; background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
 /* «Тихая» плашка (площадка, время, «нет») — нейтральная серая: не справка и не смысл. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chip.mute { border: 0; background: var(--rh-ui-raised); color: var(--rh-ui-text); }
+/* Плашка-ссылка (просмотры площадки ведут на пост) — зона нажатия не меньше 44. */
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] a.chip { min-height: 44px; padding-inline: 14px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 
 /* Знак площадки в родных цветах (MarketingBrandMark): круг цвета бренда, знак белый. */
@@ -418,6 +424,26 @@
    словами, а не уходят за край на узком экране (сама сумма — одним куском, неразрывными пробелами). */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .prow .pr { min-width: 0; max-width: 100%; flex-wrap: wrap; white-space: normal; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .prow .pr small { white-space: normal; }
-/* Точка «ждёт решения» в плитке — рядом с подписью, а не у дальнего края. */
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd > .dot { flex: none; margin-left: 0; width: 12px; height: 12px; }
+/* Точка «ждёт решения» в плитке — в правом верхнем углу плитки (ревью #307), не в потоке текста. */
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile { position: relative; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd:has(> .dot) { padding-right: 22px; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd > .dot { position: absolute; top: 18px; right: 18px; flex: none; margin: 0; width: 12px; height: 12px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd > .dot.warn { background: var(--rh-ui-warn-soft); box-shadow: inset 0 0 0 2px var(--rh-ui-warn); }
+
+/* Плашка «Опубликовать ролик или фото» (MarketingCenter, ветка нового вида): ракета в круге 48,
+   текст по верху, «Открыть →» последней строкой текста. */
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish {
+  display: flex; align-items: flex-start; gap: 14px; margin: 12px 0 16px; padding: 18px 20px; border-radius: var(--rh-ui-r-card);
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); text-decoration: none; min-width: 0;
+}
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish:hover { background: var(--rh-ui-primary-hover); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-ic {
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 999px;
+  background: color-mix(in srgb, var(--rh-ui-primary-fg) 18%, transparent); color: var(--rh-ui-primary-fg);
+}
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-ic .i { width: 24px; height: 24px; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-tx { display: grid; gap: 4px; flex: 1 1 0; min-width: 0; padding-top: 2px; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-tx > b { font-size: 17px; font-weight: 700; line-height: 1.3; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-tx > span { font-size: 15px; line-height: 1.4; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-go { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; min-height: 28px; font-weight: 700; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-go .i { width: 20px; height: 20px; }

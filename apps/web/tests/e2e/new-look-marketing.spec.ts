@@ -111,6 +111,22 @@ test("новый вид: знаки соцсетей в родных цвета�
   }
 });
 
+test("новый вид: одна главная кнопка шапки — единственная сплошная синяя, из двух синяя последняя (ревью #307)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "проверка одна на десктопном проекте");
+  await stub(page, true);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const bg = (name: string) => page.locator('[data-ry-section="marketing"] .pg-h .acts > .pill', { hasText: name }).first()
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+  await page.goto("/social-videos?open=v1", { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-ry-section="marketing"] .pg-h .acts > .pill', { hasText: "Повторить упавшие" })).toBeVisible({ timeout: 20_000 });
+  const primary = await bg("Повторить упавшие");
+  expect(primary).toBe("rgb(44, 102, 242)");
+  await page.goto("/social-videos", { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-ry-section="marketing"] .pg-h .acts > .pill', { hasText: "Ролик" })).toBeVisible({ timeout: 20_000 });
+  expect(await bg("Ролик")).toBe(primary);
+  expect(await bg("Фото с текстом")).not.toBe(primary);
+});
+
 test("без признака нового вида раздел «Маркетинг» прежний: метки и знаков нет", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "проверка одна на десктопном проекте");
   test.setTimeout(120_000);
