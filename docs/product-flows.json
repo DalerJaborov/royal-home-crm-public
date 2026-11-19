@@ -12450,7 +12450,7 @@
     },
     {
      "k": "do",
-     "t": "const selection = resolveClientPhoneSelection(client, parsed.data);",
+     "t": "const selection = resolveClientPhoneSelection(client, parsed.data, can(req, \"clients.viewPhone\"));",
      "a": [
       "зовёт resolveClientPhoneSelection()"
      ],

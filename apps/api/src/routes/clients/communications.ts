@@ -403,7 +403,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
     if (denied) return res.status(403).json({ error: denied });
   }
   if (client.deletedAt && !archiveReview) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
-  const selection = resolveClientPhoneSelection(client, parsed.data);
+  const selection = resolveClientPhoneSelection(client, parsed.data, can(req, "clients.viewPhone"));
   if (selection.conflict) return res.status(409).json({ error: "Список номеров изменился или маска неоднозначна. Обновите карточку и выберите номер снова." });
 
   /**
@@ -452,7 +452,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
   /**
    * ЗАПАСНОЙ НОМЕР ПРИХОДИТ МАСКОЙ — И ЭТО НЕ ПОВОД НЕ ЗВОНИТЬ (владелец 30.08.2026).
    *
-   * Агенту без права `clients.viewPhone` карточка отдаёт `+992•••••57` вместо цифр
+   * Агенту без права `clients.viewPhone` карточка отдаёт `+9929300••456` вместо цифр
    * (presentClient). Кнопка «Позвонить» на ОСНОВНОЙ номер это переживала — сервер
    * берёт `client.phone` по clientId сам, — а вот кнопка на ЗАПАСНОЙ слала цифры
    * обратно, и они приходили сюда маской: проверка принадлежности не проходила,

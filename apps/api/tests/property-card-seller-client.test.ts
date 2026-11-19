@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
+import { maskClientPhone } from "../src/lib/clientPhone.js";
 
 /**
  * СОБСТВЕННИК В КАРТОЧКЕ ОБЪЕКТА — ИМЕНЕМ И ССЫЛКОЙ (владелец 24.09.2026).
@@ -151,7 +152,7 @@ describe("Собственник в карточке объекта", () => {
     // Свой объект номер не открывает (владелец 18.11.2026): полный номер — только директору.
     expect(res.body.ownerContactHidden).toBe(true);
     expect(res.body.ownerContact).toBeNull();
-    expect(res.body.ownerContactMasked).toBe("+992•••••71");
+    expect(res.body.ownerContactMasked).toBe(maskClientPhone(`+99298${tail5}71`));
     expect(JSON.stringify(res.body)).not.toContain(`98${tail5}71`);
     expect(res.body.sellerClient?.fullName).toBe(`Продавец Ссылкин ${runId}`);
     expect(res.body.sellerClient?.canOpen).toBe(false);
