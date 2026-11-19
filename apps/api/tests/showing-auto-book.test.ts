@@ -14,6 +14,13 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText }));
 
+// Выключатель автоматики (19.11.2026): подмена только в этом файле, строку Settings тест не трогает.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
+
 const { prisma } = await import("../src/db.js");
 const { analyzeCall, parseShowingAt } = await import("../src/ai/callAnalysis.js");
 
@@ -32,6 +39,7 @@ const runId = Date.now();
 let agentId: string;
 let districtId: string;
 let otherDistrictId: string;
+let offDistrictId: string;
 const clientIds: string[] = [];
 const propertyIds: string[] = [];
 const interactionIds: string[] = [];
@@ -101,6 +109,8 @@ beforeAll(async () => {
   ).id;
   districtId = (await prisma.district.create({ data: { name: `Тест-район-показ-${runId}` } })).id;
   otherDistrictId = (await prisma.district.create({ data: { name: `Тест-район-показ-другой-${runId}` } })).id;
+  // Свой район для проверки выключателя: объект в общем районе ломал бы тест «дубль не создаётся» (нужен ровно один подходящий).
+  offDistrictId = (await prisma.district.create({ data: { name: `Тест-район-показ-выкл-${runId}` } })).id;
 });
 
 afterAll(async () => {
@@ -110,7 +120,7 @@ afterAll(async () => {
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.agent.deleteMany({ where: { id: agentId } });
-  await prisma.district.deleteMany({ where: { id: { in: [districtId, otherDistrictId] } } });
+  await prisma.district.deleteMany({ where: { id: { in: [districtId, otherDistrictId, offDistrictId] } } });
 });
 
 /** Локальное время Душанбе, гарантированно в пределах окна допустимых дат
@@ -143,6 +153,31 @@ describe("Показ по разговору — автоназначение п
     });
     expect(window).toBeNull();
     expect(sendPushToAgent).toHaveBeenCalled();
+  });
+
+  it("выключатель «ИИ сам назначает показ по разговору агента»: выключен — показ по звонку не назначается", async () => {
+    await makeProperty(offDistrictId, "выключатель");
+    const client = await makeBuyer(offDistrictId);
+    const callAt = new Date();
+    const interaction = await makeCallInteraction(client.id, callAt);
+    mockShowingExtract(tomorrowLocal(callAt));
+
+    switchesOff.add("aiAgentShowingAutoBookEnabled");
+    try {
+      const result = await analyzeCall(interaction.id);
+      // Остальной разбор звонка идёт как обычно.
+      expect(result.ok).toBe(true);
+    } finally {
+      switchesOff.delete("aiAgentShowingAutoBookEnabled");
+    }
+    expect(await prisma.interaction.count({ where: { clientId: client.id, type: "SHOWING" } })).toBe(0);
+
+    // Включён (умолчание) — тот же звонок с тем же единственным объектом назначает показ: без этого
+    // проверка выше проходила бы и без выключателя.
+    const second = await makeCallInteraction(client.id, callAt);
+    mockShowingExtract(tomorrowLocal(callAt));
+    expect((await analyzeCall(second.id)).ok).toBe(true);
+    expect(await prisma.interaction.count({ where: { clientId: client.id, type: "SHOWING" } })).toBe(1);
   });
 
   it("два подходящих объекта — решение остаётся агенту, показ сам не создаётся", async () => {

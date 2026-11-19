@@ -24,6 +24,13 @@ vi.mock("../src/lib/clientToCandidate.js", async (importOriginal) => ({
   notifyCandidateOwners: notify,
 }));
 
+// Выключатель «ИИ снимает агента, если клиент ищет работу» (19.11.2026): подмена только в этом файле.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
+
 const { prisma } = await import("../src/db.js");
 const { autoLeadFromIncomingCall } = await import("../src/lib/telephony/autoLeadFromCall.js");
 const { callSoundsLikeJobSeeker, isJobSeekerCall } = await import("../src/ai/jobSeekerCall.js");
@@ -181,6 +188,35 @@ describe("Звонок соискателя уходит в «Вакансии»
     // В хронологии карточки — почему её сняли.
     const note = await prisma.interaction.findFirst({ where: { clientId, notes: { contains: "насчёт работы" } } });
     expect(note).not.toBeNull();
+  });
+
+  it("выключатель «ИИ снимает агента, если клиент ищет работу»: выключен — как в чате: анкета и уведомление есть, карточка у агента, платный разбор не запускается", async () => {
+    callAi.mockResolvedValue({ kind: "OTHER", confident: true, jobSeeker: true, summary: "Ищет работу агентом" });
+    const phone = freshPhone();
+    const clientId = await seedClient(phone, {
+      fullName: `Покупатель выкл ${runId}`,
+      kind: "BUYER",
+      assignedAgentId: agentId,
+      acceptedAt: new Date(),
+    });
+    const callId = await seedCall(phone, clientId, JOB_CALL, false);
+
+    switchesOff.add("aiJobSeekerAutoDetachEnabled");
+    try {
+      const result = await autoLeadFromIncomingCall(callId);
+      expect(result.status).toBe("candidate");
+    } finally {
+      switchesOff.delete("aiJobSeekerAutoDetachEnabled");
+    }
+    expect(callAi).not.toHaveBeenCalled();
+    const client = await prisma.client.findUnique({ where: { id: clientId } });
+    expect(client?.assignedAgentId).toBe(agentId);
+    expect(client?.kind).toBe("BUYER");
+    const app = await prisma.jobApplication.findFirst({ where: { phone } });
+    expect(app).not.toBeNull();
+    expect(app?.clientId ?? null).toBeNull();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(await prisma.interaction.count({ where: { clientId, notes: { startsWith: "Обращение переведено в кандидаты" } } })).toBe(0);
   });
 
   it("второй звонок того же кандидата дополняет анкету и руководство второй раз не зовёт", async () => {

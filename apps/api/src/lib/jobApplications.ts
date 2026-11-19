@@ -28,6 +28,7 @@ import { detachAgentForCandidate, notifyCandidateOwners } from "./clientToCandid
 import { trashBlocker } from "./trashClient.js";
 import { isPlaceholderName } from "./placeholderName.js";
 import { maskClientPhone } from "./clientPhone.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 
 /**
  * Досье и карточка по разговору. `JobApplication.conversationId` — это id из ОДНОЙ
@@ -556,6 +557,10 @@ async function candidateCardDecision(card: { id: string; byTypedPhone: boolean }
   if (!row.assignedAgentId && row.kind === "OTHER") return "already";
   if (await trashBlocker(card.id)) return "keep";
   if (card.byTypedPhone && row.assignedAgentId) return "keep";
+  // Выключатель «ИИ снимает агента, если клиент ищет работу» (19.11.2026): выключено —
+  // существующую карточку автоматика не трогает и анкету к ней не привязывает (как «keep»).
+  // Анкета кандидата и уведомление руководству идут как обычно.
+  if (!(await automationSwitchOn("aiJobSeekerAutoDetachEnabled"))) return "keep";
   return "detach";
 }
 

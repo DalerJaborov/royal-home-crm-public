@@ -505,6 +505,8 @@ export const socialVideoPublishSchema = z
     channels: channelsSchema.optional(),
     /** Адреса «канал + аккаунт»; если заданы, главнее `channels`. */
     destinations: destinationsSchema.optional(),
+    /** Время занято другой публикацией (ответ 409 `SLOT_TAKEN`), а человек настаивает на своём — ставим как есть. */
+    acceptSlotConflict: z.boolean().optional(),
   })
   .refine((v) => v.mode !== "SCHEDULE" || Boolean(v.scheduledAt), { message: "Для публикации по расписанию укажите время", path: ["scheduledAt"] });
 

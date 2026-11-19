@@ -1,6 +1,6 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, SELLER_AUTOMATION_FIELDS, SECURITY_AUTOMATION_KEY, canViewInvestigations, securityAutomationSwitchUpdateSchema, sellerAutomationSwitchesUpdateSchema } from "@royal-home/shared";
+import { AUTOMATION_SWITCH_KEYS, automationSwitchesUpdateSchema, ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, SELLER_AUTOMATION_FIELDS, SECURITY_AUTOMATION_KEY, canViewInvestigations, securityAutomationSwitchUpdateSchema, sellerAutomationSwitchesUpdateSchema } from "@royal-home/shared";
 import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
@@ -1370,6 +1370,8 @@ const settingsUpdateSchema = z.object({
   ...sellerAutomationSwitchesUpdateSchema.shape,
   /** Рубильник «Служба безопасности: автоматика» (18.11.2026) — packages/shared/src/securityAutomationSwitch.ts. */
   ...securityAutomationSwitchUpdateSchema.shape,
+  /** Выключатели «Автоматика ИИ и напоминания» (19.11.2026) — packages/shared/src/automationSwitches.ts. */
+  ...automationSwitchesUpdateSchema.shape,
 });
 
 settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), requireElevation, async (req, res) => {
@@ -2000,6 +2002,8 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...Object.fromEntries(SELLER_AUTOMATION_FIELDS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
     // Автоматика СБ (18.11.2026): кто и когда включил/выключил — в журнале.
     ...(rest[SECURITY_AUTOMATION_KEY] !== undefined ? { [SECURITY_AUTOMATION_KEY]: rest[SECURITY_AUTOMATION_KEY] } : {}),
+    // Автоматика ИИ и напоминания (19.11.2026): выключенная функция выглядит как поломка — в журнале видно, кто и когда.
+    ...Object.fromEntries(AUTOMATION_SWITCH_KEYS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
   });
 
   // Маркер рекламного кабинета из Graph API Explorer живёт час-два — меняем его на

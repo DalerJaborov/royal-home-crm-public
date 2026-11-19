@@ -270,6 +270,7 @@ export function usePublishSocialVideo() {
       scheduledAt?: string;
       channels?: SocialVideoChannel[];
       destinations?: SocialVideoDestination[];
+      acceptSlotConflict?: boolean;
     }) => api<SocialVideoItem>(`/social-videos/${id}/publish`, { method: "POST", body }),
     onSuccess: (item) => settleItem(qc, item),
   });

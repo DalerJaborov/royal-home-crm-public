@@ -7285,6 +7285,18 @@ model Settings {
   /// уведомлением директору и РОП (apps/api/src/lib/securityAutomation.ts).
   /// @default(false) нарочно: после выката выключено, включает человек.
   securityAutomationEnabled             Boolean @default(false)
+  /// ВЫКЛЮЧАТЕЛИ «АВТОМАТИКА ИИ И НАПОМИНАНИЯ» (владелец 19.11.2026: «оставить все эти
+  /// функции, просто сделать переключатели»). Список, подписи и группы —
+  /// packages/shared/src/automationSwitches.ts, проверка — apps/api/src/lib/automationSwitches.ts.
+  /// Все @default(true): выкат миграции поведение не меняет, выключает человек.
+  aiCardFromCallEnabled                 Boolean @default(true)
+  aiAgentShowingAutoBookEnabled         Boolean @default(true)
+  aiJobSeekerAutoDetachEnabled          Boolean @default(true)
+  dealStaleBuyersEnabled                Boolean @default(true)
+  notifyClientWaitingEnabled            Boolean @default(true)
+  notifyRobotTookCallEnabled            Boolean @default(true)
+  notifyTrashAnomalyEnabled             Boolean @default(true)
+  notifyPropertyReviewOverdueEnabled    Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из
@@ -10985,6 +10997,11 @@ model SocialVideoPost {
   status        String    @default("DRAFT")
   scheduledAt   DateTime?
   startedAt     DateTime?
+  /// Бронь исполнителя публикации (19.11.2026): кто первым поставил время — тот исполняет, остальные выходят.
+  /// null — исполнителя ещё не было; сбрасывается при каждом новом заходе (lib/socialVideoPosts.ts::claimRun).
+  runClaimedAt  DateTime?
+  /// Кто держит бронь: «хост:pid:время старта процесса» (claimRun) — бронь умершего процесса не мешает повтору задания.
+  runClaimedBy  String?
   finishedAt    DateTime?
 
   /// Исход по каждому каналу: { INSTAGRAM: { state, error, note, postId, url, retriable,

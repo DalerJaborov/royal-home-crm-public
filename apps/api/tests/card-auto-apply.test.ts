@@ -26,13 +26,21 @@ import { waitFor } from "./helpers/waitFor.js";
 
 let aiReply: Record<string, unknown> | null = null;
 let duringAiReply: (() => Promise<void>) | null = null;
+const aiCalls = vi.hoisted(() => ({ n: 0 }));
 vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
-  callAiText: async () => { await duringAiReply?.(); return aiReply; },
+  callAiText: async () => { aiCalls.n++; await duringAiReply?.(); return aiReply; },
 }));
+// Выключатель «ИИ дописывает карточку клиента по звонку» (19.11.2026): подмена только в этом файле.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
 
 const { prisma } = await import("../src/db.js");
 const { buildSuggestionFromCall } = await import("../src/lib/cardSuggestions.js");
+const { runClientAutopilot } = await import("../src/lib/clientAutopilot.js");
 
 const runId = Date.now();
 let agentId = "";
@@ -293,6 +301,56 @@ describe("ИИ сам обновляет карточку по разговор�
     expect(card.desiredRooms).toBe(3); // осталось прежним, не перезаписалось на 4
 
     await prisma.client.update({ where: { id: clientId }, data: { deletedAt: null } });
+  });
+
+  it("выключатель «ИИ дописывает карточку по звонку»: выключен — ни записи, ни предложения, ИИ не зовём", async () => {
+    const before = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+    aiReply = { budgetMax: 999000, rooms: 9, evidence: ["девять комнат"] };
+    const call = await prisma.interaction.create({ data: { clientId, agentId, type: "CALL", notes: "Звонок при выключенном выключателе", transcript: "Хочу девять комнат" } });
+    const callsBefore = aiCalls.n;
+    switchesOff.add("aiCardFromCallEnabled");
+    try {
+      const result = await buildSuggestionFromCall({ clientId, agentId, interactionId: call.id, talkSeconds: 120 });
+      expect(result.created).toBe(false);
+      expect(aiCalls.n).toBe(callsBefore);
+      expect(await prisma.cardSuggestion.count({ where: { interactionId: call.id } })).toBe(0);
+      const card = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+      expect(card.desiredRooms).toBe(before.desiredRooms);
+      expect(Number(card.budgetMax)).toBe(Number(before.budgetMax));
+    } finally {
+      switchesOff.delete("aiCardFromCallEnabled");
+    }
+    // Включён (умолчание) — тот же звонок разбирается как раньше.
+    const again = await buildSuggestionFromCall({ clientId, agentId, interactionId: call.id, talkSeconds: 120 });
+    expect(again.created).toBe(true);
+    expect(aiCalls.n).toBe(callsBefore + 1);
+    await prisma.client.update({ where: { id: clientId }, data: { desiredRooms: before.desiredRooms, budgetMax: before.budgetMax } });
+  });
+
+  it("выключатель «ИИ дописывает карточку по звонку» закрывает и путь автопилота: расшифровки звонков в заполнение не идут", async () => {
+    const fresh = await prisma.client.create({
+      data: { fullName: `Пустая карточка автопилота ${runId}`, phone: `+99266${String(runId).slice(-7)}`, source: "PHONE_CALL", assignedAgentId: agentId, acceptedAt: new Date(), currency: "TJS" },
+    });
+    try {
+      await prisma.interaction.create({ data: { clientId: fresh.id, agentId, type: "CALL", notes: "Звонок автопилота", transcript: "Мехоҳам хонаи панҷхонагӣ" } });
+      aiReply = { rooms: 5, evidence: ["панҷхонагӣ"] };
+
+      switchesOff.add("aiCardFromCallEnabled");
+      try {
+        await runClientAutopilot(fresh.id, "call_result_logged");
+      } finally {
+        switchesOff.delete("aiCardFromCallEnabled");
+      }
+      expect((await prisma.client.findUniqueOrThrow({ where: { id: fresh.id } })).desiredRooms).toBeNull();
+
+      // Включён — тот же звонок заполняет пустое поле.
+      await runClientAutopilot(fresh.id, "call_result_logged");
+      expect((await prisma.client.findUniqueOrThrow({ where: { id: fresh.id } })).desiredRooms).toBe(5);
+    } finally {
+      await prisma.auditLog.deleteMany({ where: { entityId: fresh.id } });
+      await prisma.interaction.deleteMany({ where: { clientId: fresh.id } });
+      await prisma.client.deleteMany({ where: { id: fresh.id } });
+    }
   });
 
   it("does not overwrite a manual edit made while the model was reading the card", async () => {

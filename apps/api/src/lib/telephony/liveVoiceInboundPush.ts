@@ -1,4 +1,5 @@
 import { prisma } from "../../db.js";
+import { automationSwitchOn } from "../automationSwitches.js";
 import { sendPushToAgents } from "../../push.js";
 import { partitionByPermission } from "../recipients.js";
 import { logSystemError } from "../systemError.js";
@@ -30,6 +31,8 @@ export async function notifyRobotTookInboundCall(params: {
   callerNumber: string | null;
 }): Promise<void> {
   try {
+    // Выключатель «Робот взял звонок, послушайте» (19.11.2026): выключено — молчим; звонок и запись не затронуты.
+    if (!(await automationSwitchOn("notifyRobotTookCallEnabled"))) return;
     if (notified.has(params.key)) return;
     notified.add(params.key);
     if (notified.size > REMEMBER_LAST) {

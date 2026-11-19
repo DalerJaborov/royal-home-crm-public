@@ -16,9 +16,9 @@
   "paths": 776,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4107,
-  "untranslatedUnique": 470,
-  "untranslatedTotal": 605,
+  "conditions": 4110,
+  "untranslatedUnique": 472,
+  "untranslatedTotal": 607,
   "partialUnique": 1109,
   "translatedShare": 85
  },
@@ -26,6 +26,8 @@
   "!(\"deal\" in outcome)",
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "!(SOCIAL_VIDEO_COVER_MIME_TYPES as readonly string[]).includes(req.file.mimetype)",
+  "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+  "!(await claimRun(id))",
   "!(await deleteNarrationMusicTrack(id.data))",
   "!(await discardDraft(d.id, { expiredAt: now }))",
   "!(await filterInvestigationRecipients([agentId], payload)).length",
@@ -66423,6 +66425,13 @@
          "k": "if",
          "a": [],
          "c": []
+        },
+        {
+         "t": "если !(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))"
         }
        ]
       },
@@ -84463,7 +84472,34 @@
        "t": "пробует сделать",
        "k": "try",
        "a": [],
-       "c": []
+       "c": [
+        {
+         "t": "если !(await claimRun(id))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await claimRun(id))"
+        },
+        {
+         "t": "меняет: social видео публикация",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: social видео публикация",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": []
+        }
+       ]
       }
      ]
     }

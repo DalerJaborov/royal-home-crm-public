@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { waitFor } from "./helpers/waitFor.js";
 
 /**
  * Агент договаривается о показе ВРУЧНУЮ (диалог передан ему целиком, бот на
@@ -23,6 +24,13 @@ const callAiText = vi.fn();
 vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText }));
+
+// Выключатель автоматики (19.11.2026): подмена только в этом файле, строку Settings тест не трогает.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
 
 const { prisma } = await import("../src/db.js");
 const { detectOperatorShowingAgreement } = await import("../src/lib/operatorShowingDetector.js");
@@ -204,6 +212,32 @@ describe("Разбор договорённости о показе в ручн�
     await detectOperatorShowingAgreement(target, "Договорились, завтра в 18:00 жду вас на объекте.", agentSender());
     await flush();
     expect(await prisma.interaction.count({ where: { clientId, type: "SHOWING" } })).toBe(firstCount);
+  });
+
+  it("выключатель «ИИ сам назначает показ по разговору агента»: выключен — ИИ не зовём, показ не создаётся", async () => {
+    await makeConversation([
+      { role: "user", content: `Хочу посмотреть объект [код ${propertyShortId}]` },
+      { role: "assistant", content: "Давайте завтра в 17:00 у вас на объекте?", by: agentSender() },
+      { role: "user", content: "Да, буду завтра в 17:00" },
+    ]);
+    callAiText.mockResolvedValue({ found: true, day: "tomorrow", time: "17:00", propertyCode: propertyShortId });
+    const target = { kind: "bot" as const, id: conversationId, channel: "WHATSAPP", subscriberId: "x", accountId: null };
+
+    switchesOff.add("aiAgentShowingAutoBookEnabled");
+    try {
+      await detectOperatorShowingAgreement(target, "Давайте завтра в 17:00 у вас на объекте?", agentSender());
+      await flush();
+      expect(callAiText).not.toHaveBeenCalled();
+      expect(await prisma.interaction.count({ where: { clientId, type: "SHOWING" } })).toBe(0);
+    } finally {
+      switchesOff.delete("aiAgentShowingAutoBookEnabled");
+    }
+
+    // Включён (умолчание) — та же переписка назначает показ, как раньше.
+    await detectOperatorShowingAgreement(target, "Давайте завтра в 17:00 у вас на объекте?", agentSender());
+    expect(callAiText).toHaveBeenCalledTimes(1);
+    // Запись показа идёт в фоне — ждём её, а не гоняемся с ней наперегонки.
+    await waitFor(() => prisma.interaction.findFirst({ where: { clientId, type: "SHOWING" } }), { label: "показ по переписке агента" });
   });
 
   it("ответ не от агента (сам бот/служебная рассылка) — классификатор не запускается", async () => {
