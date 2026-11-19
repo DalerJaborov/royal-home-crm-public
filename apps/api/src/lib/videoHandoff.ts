@@ -331,7 +331,7 @@ export async function buildMontajerMessageText(
       lines.push("", "Что изменилось в карточке:", ...diff.map((d) => `• ${d}`));
     }
   }
-  // Что делать с голосом (12.11.2026): «без озвучки», вклеить mp3 и сдать два файла, или голос кладёт CRM.
+  // Что делать с голосом (12.11.2026): «без озвучки», вклеить mp3 (сдаётся один готовый файл, 19.11.2026) или голос кладёт CRM.
   if (narrationLine) lines.push("", narrationLine);
   lines.push("", facts);
   if (silentNote) lines.push("", silentNote);

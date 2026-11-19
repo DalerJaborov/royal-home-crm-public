@@ -8,14 +8,51 @@ import { usableMontajerWhere } from "./montajerHandover.js";
 import { narrationFactsCurrent, narrationHash } from "./propertyNarration.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
-import { sendDocumentFile, TELEGRAM_BOT_SEND_LIMIT_BYTES } from "../telegram/api.js";
-import { voicelessCopyHint } from "./narrationMontajerNote.js";
+import { sendDocumentFile, sendMessage, TELEGRAM_BOT_SEND_LIMIT_BYTES, TELEGRAM_CAPTION_MAX_CHARS } from "../telegram/api.js";
+import { VOICELESS_COPY_HINT, voicelessCopyHint } from "./narrationMontajerNote.js";
 import { logSystemError } from "./systemError.js";
 
 const fileSchema = z.object({ id: z.string(), storageKey: z.string(), filename: z.string(), caption: z.string() });
 /** mixByCrm — монтажёру сказано «пришлите ролик без голоса»: принятый ролик станет мастером (lib/narrationMaster.ts). */
 const planSchema = z.object({ factsHash: z.string(), recipientHash: z.string(), files: z.array(fileSchema).min(1), sourcesHash: z.string(), mixByCrm: z.boolean().optional() });
 type Plan = z.infer<typeof planSchema>;
+/**
+ * ТЕКСТ ОЗВУЧКИ — ОБЫЧНЫМ ТЕКСТОМ, БЕЗ ФАЙЛА .txt (19.11.2026, владелец: «текст зачем отдельным файлом? Можно
+ * было просто прилепить и всё как обычный текст а аудио»). Влезает в подпись к mp3 (лимит Telegram 1024) —
+ * «<подпись>\n\nТекст:\n<текст>»; не влезает — подпись без текста, а текст следом обычным сообщением
+ * «Текст озвучки №N:\n<текст>» (длиннее 4096 sendMessage режет сам). Сообщение-текст в плане — запись с
+ * storageKey TEXT_MESSAGE и самим текстом в caption; номер объекта подставляется при отправке.
+ */
+export const NARRATION_TEXT_MESSAGE = "TEXT";
+/** Запись плана до 19.11.2026: текст отдельным файлом .txt. Такие передачи уходят по-новому (upgradeLegacyScript). */
+const LEGACY_SCRIPT_FILE = "SCRIPT";
+type PlanFile = z.infer<typeof fileSchema>;
+function voiceFilesWithText(audio: PlanFile, script: string, textId: string): PlanFile[] {
+  const withText = `${audio.caption}\n\nТекст:\n${script}`;
+  if (withText.length <= TELEGRAM_CAPTION_MAX_CHARS) return [{ ...audio, caption: withText }];
+  return [audio, { id: textId, storageKey: NARRATION_TEXT_MESSAGE, filename: "", caption: script }];
+}
+/**
+ * ПЕРЕДАЧИ, ПОСТАВЛЕННЫЕ ДО 19.11.2026 (план с файлом .txt) — уходят уже по-новому. Ждущая (QUEUED) передача
+ * отправляется только здесь, поэтому достаточно переложить её план перед отправкой: подпись mp3 без прежней
+ * просьбы о втором файле и с текстом, .txt не шлём. Хранимый план не меняется (с ним сверяется planHash ручной
+ * передачи); квитанции пишутся по тем же id (mp3 — id версии, текст — прежний id «-script»). SENT/UNKNOWN
+ * повторно не отправляются никогда — их этот путь не касается.
+ */
+function upgradeLegacyScript(files: readonly PlanFile[]): PlanFile[] {
+  const script = files.find((f) => f.storageKey === LEGACY_SCRIPT_FILE);
+  if (!script) return [...files];
+  const audioId = script.id.replace(/-script$/, "");
+  const audio = files.find((f) => f.id === audioId);
+  if (!audio) return files.map((f) => (f === script ? { ...f, storageKey: NARRATION_TEXT_MESSAGE, filename: "" } : f));
+  const voice = voiceFilesWithText({ ...audio, caption: audio.caption.replace(` ${VOICELESS_COPY_HINT}`, "") }, script.caption, script.id);
+  return files.flatMap((f) => (f === audio ? voice : f === script ? [] : [f]));
+}
+function telegramMessageId(sent: unknown): number | null {
+  if (!sent || typeof sent !== "object" || !("message_id" in sent)) return null;
+  return typeof sent.message_id === "number" ? sent.message_id : null;
+}
+
 /** Shared by watchdog and manual reconciliation; a whole batch may exceed 3 minutes. */
 export function narrationDeliveryAttemptBudgetMs(plan: unknown): number {
   const parsed = planSchema.safeParse(plan);
@@ -78,21 +115,20 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   // Новый порядок (11.11.2026): голос накладывает CRM, монтажёру озвучка — для длины и темпа.
   const parsedConfig = narrationConfigSchema.safeParse(settings?.propertyNarrationConfig ?? {});
   const mixByCrm = parsedConfig.success && narrationMixByCrm(parsedConfig.data);
-  // С 12.11.2026 по умолчанию голос вклеивает монтажёр (музыка и громкость его), а к готовому
-  // ролику присылает тот же без голоса — из него CRM сама меняет голос при смене цены.
+  // С 12.11.2026 по умолчанию голос вклеивает монтажёр (музыка и громкость его); сдаёт он один готовый ролик (19.11.2026).
   // «Замените только голос» — только когда наш голос в ролике уже есть, то есть голос монтажёру раньше уходил (SENT).
   // Возврат «вклейте голос» тоже идёт с причиной NARRATION_CHANGED, а голоса в том ролике не было (ревью 19.11).
   const soundOnly = p.videoHandoffRemakeReason === "NARRATION_CHANGED"
     && (await prisma.propertyNarrationDelivery.count({ where: { propertyId: p.id, status: "SENT" } })) > 0;
-  // Второй файл «без голоса» не просим, когда включена своя музыка (18.11.2026).
-  const hint = parsedConfig.success ? voicelessCopyHint(parsedConfig.data) : voicelessCopyHint({});
+  // Второй файл «без голоса» не просим (одно решение — narrationMontajerNote.ts::askMontajerForVoicelessCopy).
+  const hint = voicelessCopyHint();
   const audioCaption = mixByCrm
     ? `Объект №${p.shortId}. Озвучка, версия ${version.revision}: под неё длина и темп. Пришлите ролик БЕЗ голоса (музыка и звуки можно), голос CRM наложит сама. Ролик не короче озвучки.`
     : soundOnly
       ? `Озвучка к ролику №${p.shortId}, версия ${version.revision}: замените в ролике только голос, музыку и монтаж не трогайте.${hint}`
       : `Озвучка к ролику №${p.shortId}, версия ${version.revision}, одобрена. Вклейте этот голос сами: музыка, громкость и монтаж ваши.${hint}`;
-  const files: Plan["files"] = [{ id: version.id, storageKey: version.storageKey, filename: `property-${p.shortId}-voice-v${version.revision}.mp3`, caption: audioCaption },
-    { id: `${version.id}-script`, storageKey: "SCRIPT", filename: `property-${p.shortId}-voice-v${version.revision}.txt`, caption: version.script }];
+  // Текст озвучки — обычным текстом в подписи к mp3, без файла .txt (владелец 19.11.2026: «текст зачем отдельным файлом?»).
+  const files: Plan["files"] = voiceFilesWithText({ id: version.id, storageKey: version.storageKey, filename: `property-${p.shortId}-voice-v${version.revision}.mp3`, caption: audioCaption }, version.script, `${version.id}-text`);
   if (mode === "WITH_SOURCES") {
     if (!sources.videos.length) throw new NarrationDeliveryRefused("NO_SOURCES", "У объекта нет исходников");
     for (const video of sources.videos) files.push({ id: video.id, storageKey: video.storageKey, filename: video.filename, caption: `Объект №${p.shortId}. Исходник. Озвучка v${version.revision}.\n${sources.factsText}` });
@@ -110,11 +146,10 @@ export async function executeNarrationDelivery(id: string) {
   try {
     const row = await prisma.propertyNarrationDelivery.findUniqueOrThrow({ where: { id } });
     const plan = planSchema.parse(row.plan);
-    for (const file of plan.files) {
+    for (const file of upgradeLegacyScript(plan.files)) {
       // Resolve a bounded local handle before the short DB preflight. No network under locks.
-      let blob: Blob;
-      if (file.storageKey === "SCRIPT") blob = new Blob([file.caption], { type: "text/plain;charset=utf-8" });
-      else {
+      let blob: Blob | null = null;
+      if (file.storageKey !== NARRATION_TEXT_MESSAGE) {
         const path = localVideoFilePath(file.storageKey);
         if (!path) throw new Error("Invalid storage key");
         const size = (await stat(path)).size;
@@ -148,8 +183,17 @@ export async function executeNarrationDelivery(id: string) {
       }
       attempted = true;
       // An in-flight request may finish after revocation; it cannot authorize a next file.
-      const sent = await sendDocumentFile(target.chatId, blob, file.filename, file.storageKey === "SCRIPT" ? `Объект №${target.shortId}. Текст озвучки` : file.caption, 60_000, true);
-      if (!sent.message_id) throw new Error("Missing Telegram receipt");
+      let sent: { message_id: number; document?: { file_id?: string } };
+      if (blob) {
+        const doc = await sendDocumentFile(target.chatId, blob, file.filename, file.caption, 60_000, true);
+        if (!doc.message_id) throw new Error("Missing Telegram receipt");
+        sent = { message_id: doc.message_id, document: doc.document };
+      } else {
+        // Текст озвучки, не влезший в подпись, — обычным сообщением; длиннее 4096 sendMessage делит сам.
+        const messageId = telegramMessageId(await sendMessage(target.chatId, `Текст озвучки №${target.shortId}:\n${file.caption}`, undefined, undefined, { singleAttempt: true, requireReply: true }));
+        if (!messageId) throw new Error("Missing Telegram receipt");
+        sent = { message_id: messageId };
+      }
       const stillClaimed = await prisma.$transaction(async tx => {
         await tx.$queryRaw`SELECT id FROM "PropertyNarrationDelivery" WHERE id = ${id} FOR UPDATE`;
         const current = await tx.propertyNarrationDelivery.findUnique({ where: { id } });
