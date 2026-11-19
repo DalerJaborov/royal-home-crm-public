@@ -72,7 +72,13 @@ const OFFER_STILL_OPEN = (agentId: string, offeredAt?: Date) => ({
  * тут же вернуть карточку тому же агенту, у которого её сняли.
  */
 export async function releaseReactivationOffer(
-  client: { id: string; shortId: number; fullName: string; kind: string },
+  /**
+   * `reactivationOfferedAt` — снимок, по которому решено снимать (19.11.2026):
+   * снимается ровно это предложение. Если за это время его приняли и сделали
+   * новое (клиент снова ушёл и вернулся), запись не пройдёт — крон не снимет
+   * свежее предложение по сроку старого. Не передан — любое открытое этому агенту.
+   */
+  client: { id: string; shortId: number; fullName: string; kind: string; reactivationOfferedAt?: Date | null },
   excludeAgentId: string,
   reason: ReactivationReleaseReason,
   /**
@@ -134,7 +140,7 @@ export async function releaseReactivationOffer(
           assignedAt: now,
           acceptedAt: now,
         },
-        guardWhere: OFFER_STILL_OPEN(excludeAgentId),
+        guardWhere: OFFER_STILL_OPEN(excludeAgentId, client.reactivationOfferedAt ?? undefined),
       });
       // Предложение уже решено другим путём (принято, снято) — ни пушей, ни аудита.
       if (!stayed.ok) return { nextAgentId: null, raced: true };
@@ -202,7 +208,7 @@ export async function releaseReactivationOffer(
       assignedAt: now,
       acceptedAt: null,
     },
-    guardWhere: OFFER_STILL_OPEN(excludeAgentId),
+    guardWhere: OFFER_STILL_OPEN(excludeAgentId, client.reactivationOfferedAt ?? undefined),
   });
   if (!released.ok) return { nextAgentId: null, raced: true };
 
@@ -439,7 +445,7 @@ export async function expireStaleReactivationOffers(
 
   const stale = await prisma.client.findMany({
     where: { reactivationOfferedToAgentId: { not: null }, reactivationOfferedAt: { lte: cutoff }, deletedAt: null },
-    select: { id: true, shortId: true, fullName: true, kind: true, reactivationOfferedToAgentId: true },
+    select: { id: true, shortId: true, fullName: true, kind: true, reactivationOfferedToAgentId: true, reactivationOfferedAt: true },
     take: 50,
   });
 
@@ -471,7 +477,7 @@ export async function releaseReactivationOffersOfAgent(
 ): Promise<number> {
   const offered = await prisma.client.findMany({
     where: { reactivationOfferedToAgentId: agentId, deletedAt: null },
-    select: { id: true, shortId: true, fullName: true, kind: true },
+    select: { id: true, shortId: true, fullName: true, kind: true, reactivationOfferedAt: true },
   });
   let released = 0;
   for (const client of offered) {

@@ -98,6 +98,26 @@ function plannedValue(data: Record<string, unknown>, field: string): string | un
   return typeof raw === "string" ? raw : undefined;
 }
 
+/**
+ * Дела «после фиксации» (TxScope.afterCommit) — по порядку постановки, в фоне:
+ * транзакция уже зафиксирована, и вызывающий не должен ждать спутников (так же
+ * fire-and-forget, как журнал переходов ниже). Каждое дело само отвечает за
+ * свои ошибки; здесь — последняя страховка, чтобы одно упавшее не отменило
+ * следующие.
+ */
+function runAfterCommit(jobs: Array<() => void | Promise<void>>): void {
+  if (!jobs.length) return;
+  void (async () => {
+    for (const job of jobs) {
+      try {
+        await job();
+      } catch (err) {
+        console.error("[after-commit] дело после фиксации:", err instanceof Error ? err.message : err);
+      }
+    }
+  })();
+}
+
 function writeEvents(events: StageEventRow[]): void {
   if (!events.length) return;
   // fire-and-forget: журнал не имеет права уронить или замедлить сам переход.
@@ -330,7 +350,7 @@ function scopedTransaction(arg: unknown, options?: unknown): Promise<unknown> {
   const fn = arg as (tx: unknown) => unknown;
   let scope: TxScope | undefined;
   return rawTransaction((tx: unknown) => {
-    const own: TxScope = { tx, open: true, pending: [] };
+    const own: TxScope = { tx, open: true, pending: [], afterCommit: [] };
     scope = own;
     return txScope.run(own, () =>
       Promise.resolve()
@@ -341,11 +361,17 @@ function scopedTransaction(arg: unknown, options?: unknown): Promise<unknown> {
     );
   }, options).then(
     (result) => {
-      if (scope) writeEvents(scope.pending);
+      if (scope) {
+        writeEvents(scope.pending);
+        runAfterCommit(scope.afterCommit.splice(0));
+      }
       return result;
     },
     (err: unknown) => {
-      if (scope) scope.pending.length = 0;
+      if (scope) {
+        scope.pending.length = 0;
+        scope.afterCommit.length = 0;
+      }
       throw err;
     }
   );

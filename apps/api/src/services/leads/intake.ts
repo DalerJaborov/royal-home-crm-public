@@ -403,6 +403,61 @@ async function resumeExistingChannelLead(
   return result;
 }
 
+/**
+ * ПОЛЯ, КОТОРЫЕ НЕ ПРОПАДАЮТ ВМЕСТЕ С НЕСОСТОЯВШЕЙСЯ СМЕНОЙ ВЛАДЕЛЬЦА
+ * (19.11.2026, ревью починки аудита переназначения). Повторное обращение
+ * дозаписывает способы связи и отметку «вернулся»; если смену владельца
+ * отклонила дверь (гонка с ручным назначением, закон П-3), сами способы связи
+ * от этого не перестают быть фактом — пишем их отдельно.
+ */
+const CONTACT_ENRICH_KEYS = [
+  "telegramChatId",
+  "telegramUsername",
+  "whatsappPhone",
+  "socialUsername",
+  "socialChannel",
+  "extraPhones",
+  "returnedAt",
+] as const;
+
+const BUDGET_KEYS = ["budgetMin", "budgetMax"] as const;
+
+function pickKeys(data: Prisma.ClientUncheckedUpdateInput, keys: readonly string[]): Prisma.ClientUncheckedUpdateInput {
+  const out: Record<string, unknown> = {};
+  for (const k of keys) if (k in data) out[k] = (data as Record<string, unknown>)[k];
+  return out as Prisma.ClientUncheckedUpdateInput;
+}
+
+/**
+ * Смена владельца + остальные поля обращения: владелец и всё прочее — через
+ * дверь `changeClientAgent`, бюджет — отдельным `client.update` после неё.
+ * Дверь пишет `updateMany`, а сторож перевёрнутого бюджета (`db.ts::budgetGuard`)
+ * ловит только `update`/`create`; так смена типа на покупателя с новым бюджетом
+ * проходит под сторожем, как до перевода на дверь. Отказ двери — способы связи
+ * всё равно записываются (см. CONTACT_ENRICH_KEYS), назначение — нет.
+ */
+async function writeEnrichThroughDoor(
+  clientId: string,
+  enrich: Prisma.ClientUncheckedUpdateInput,
+  door: Omit<Parameters<typeof changeClientAgent>[0], "data" | "clientId">
+): Promise<boolean> {
+  const budget = pickKeys(enrich, BUDGET_KEYS);
+  const doorData: Record<string, unknown> = { ...enrich };
+  for (const k of BUDGET_KEYS) delete doorData[k];
+  const changed = await changeClientAgent({ ...door, clientId, data: doorData });
+  if (!changed.ok) {
+    const contact = pickKeys(enrich, CONTACT_ENRICH_KEYS);
+    if (Object.keys(contact).length > 0) {
+      await prisma.client.update({ where: { id: clientId }, data: contact });
+    }
+    return false;
+  }
+  if (Object.keys(budget).length > 0) {
+    await prisma.client.update({ where: { id: clientId }, data: budget });
+  }
+  return true;
+}
+
 async function resumeExistingChannelLeadInner(
   existing: Client,
   input: ChannelLeadInput
@@ -974,18 +1029,15 @@ async function resumeExistingChannelLeadInner(
   const holderGone = existing.assignedAgentId === null || returningHolderId !== existing.assignedAgentId;
   if (Object.keys(enrich).length > 0 || ownerChanges) {
     if (lostHistoricalOwnerId) {
-      const changed = await changeClientAgent({
-        clientId: existing.id,
+      const ok = await writeEnrichThroughDoor(existing.id, enrich, {
         toAgentId: lostHistoricalOwnerId,
         source: "intake.lost-historical-owner",
         reason: "Клиент снова обратился — возвращён прежнему активному агенту",
-        data: enrich,
         guardWhere: { assignedAgentId: existing.assignedAgentId, assignedAt: existing.assignedAt, status: "LOST" },
       });
-      if (!changed.ok) return { clientId: existing.id, created: false };
+      if (!ok) return { clientId: existing.id, created: false };
     } else if (ownerChanges) {
-      const changed = await changeClientAgent({
-        clientId: existing.id,
+      const ok = await writeEnrichThroughDoor(existing.id, enrich, {
         toAgentId: nextAgentId ?? null,
         source: kindOtherDropped
           ? "intake.kind-other"
@@ -999,13 +1051,12 @@ async function resumeExistingChannelLeadInner(
             : "Возврат из Неактивных — прежнего агента предложить не вышло, назначен по очереди",
         // Хронологию повторного обращения этот код пишет сам ниже — без дубля.
         skipInteraction: true,
-        data: enrich,
         // Владелец из снимка: за время разбора его мог сменить руководитель.
         guardWhere: { assignedAgentId: existing.assignedAgentId },
         ...(!kindOtherDropped && holderGone ? { policyVerdict: { allowed: true as const } } : {}),
         auditMeta: { from: existing.assignedAgentId, to: nextAgentId ?? null },
       });
-      if (!changed.ok) return { clientId: existing.id, created: false };
+      if (!ok) return { clientId: existing.id, created: false };
     } else {
       await prisma.client.update({ where: { id: existing.id }, data: enrich });
     }

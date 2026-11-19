@@ -141,6 +141,23 @@ describe("№2 предложение реактивации: принятие �
     expect(releases).toBe(0);
   });
 
+  it("крон не снимает по сроку старого предложения новое, сделанное после", async () => {
+    const c = await offered();
+    const stale = { id: c.id, shortId: c.shortId, fullName: c.fullName, kind: c.kind, reactivationOfferedAt: c.reactivationOfferedAt };
+    expect((await acceptReactivationOffer(c.id, agentAId)).ok).toBe(true);
+    const freshAt = new Date();
+    await prisma.client.update({
+      where: { id: c.id },
+      data: { workStatus: "INACTIVE", reactivationOfferedToAgentId: agentAId, reactivationOfferedAt: freshAt },
+    });
+
+    const released = await releaseReactivationOffer(stale, agentAId, "expired");
+    expect(released.raced).toBe(true);
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.reactivationOfferedToAgentId).toBe(agentAId);
+    expect(after.reactivationOfferedAt?.getTime()).toBe(freshAt.getTime());
+  });
+
   it("одновременно: успешен ровно один из двух", async () => {
     for (let i = 0; i < 4; i++) {
       const c = await offered();
@@ -183,6 +200,22 @@ describe("№3 intake меняет владельца только через ch
     expect(noteAfter.read).toBe(true);
   });
 
+  it("смена типа на покупателя вместе со сменой владельца — бюджет под сторожем перевёрнутых границ", async () => {
+    const firedId = await makeAgent("Уволенный агент бюджета", "AGENT");
+    const c = await makeClient({ kind: "SELLER", assignedAgentId: firedId, lastAgentId: firedId, acceptedAt: null, workStatus: "INACTIVE" });
+    await prisma.agent.update({ where: { id: firedId }, data: { isActive: false } });
+
+    await createLeadFromChannel({
+      fullName: c.fullName, phone: c.phone, source: "WHATSAPP", kind: "BUYER", budgetMin: 900_000, budgetMax: 100_000,
+    });
+
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.kind).toBe("BUYER");
+    expect(after.assignedAgentId).not.toBe(firedId);
+    expect(Number(after.budgetMin)).toBe(100_000);
+    expect(Number(after.budgetMax)).toBe(900_000);
+  });
+
   it("возврат из Корзины к другому агенту: уведомление прежнего гаснет после коммита", async () => {
     const formerId = await makeAgent("Прежний агент Корзины", "AGENT");
     const c = await makeClient({ assignedAgentId: formerId, lastAgentId: null, deletedAt: new Date() });
@@ -209,8 +242,7 @@ describe("№3 intake меняет владельца только через ch
 
 describe("№4 спутники смены владельца — только после коммита чужой транзакции", () => {
   it("транзакция откатилась — уведомление прежнего агента не тронуто", async () => {
-    process.env.CHANGE_CLIENT_AGENT_COMMIT_WAIT_MS = "800";
-    try {
+    {
       const c = await makeClient({ assignedAgentId: agentAId, acceptedAt: null });
       const note = await leadNotification(agentAId, c);
       await expect(
@@ -235,9 +267,27 @@ describe("№4 спутники смены владельца — только �
       expect(after.assignedAgentId).toBe(agentAId);
       const noteAfter = await prisma.notification.findUniqueOrThrow({ where: { id: note.id } });
       expect(noteAfter.read).toBe(false);
-    } finally {
-      delete process.env.CHANGE_CLIENT_AGENT_COMMIT_WAIT_MS;
     }
+  });
+
+  it("спутник устарел (карточку передали ещё раз) — задачи едут к текущему владельцу, а не к устаревшему", async () => {
+    const agentCId = await makeAgent("Агент В переназначения", "AGENT");
+    const c = await makeClient({ assignedAgentId: agentAId, acceptedAt: null });
+    const task = await prisma.interaction.create({
+      data: { clientId: c.id, agentId: agentAId, type: "MESSAGE", notes: "Перезвонить", nextAction: "Позвонить", nextActionDate: new Date(Date.now() + 3600_000) },
+    });
+    await prisma.$transaction(async (tx) => {
+      await changeClientAgent({ clientId: c.id, toAgentId: agentBId, reason: "первая", actorId: directorId, source: "test.stale-1", tx });
+      // Вторая смена без своих спутников — имитирует «её спутники ещё не дошли».
+      await changeClientAgent({
+        clientId: c.id, toAgentId: agentCId, reason: "вторая", actorId: directorId, source: "test.stale-2", skipSatellites: true, tx,
+      });
+    });
+    const moved = await waitFor(async () => {
+      const t = await prisma.interaction.findUniqueOrThrow({ where: { id: task.id } });
+      return t.agentId !== agentAId ? t : null;
+    });
+    expect(moved?.agentId).toBe(agentCId);
   });
 
   it("транзакция закоммичена — спутники срабатывают", async () => {
