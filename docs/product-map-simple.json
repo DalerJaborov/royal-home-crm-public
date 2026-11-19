@@ -370,8 +370,8 @@
   "meta.count + telegram.count === 0",
   "metaIgToken !== undefined && metaIgToken.trim()",
   "narration.some(version => version.status === \"GENERATING\")",
-  "narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode(\"NARRATION\")…",
   "narrationHash(current.plan) !== parsed.data.planHash",
+  "narrationPlannerOpen(config, key)",
   "needsReadReceipt(bot)",
   "needsReadReceipt(tg)",
   "next.address && next.address !== base.address",
@@ -410,6 +410,7 @@
   "primaryId === duplicateId",
   "privateJob && input.payload && typeof input.payload === \"object\" && !Array.isArray(input.payload)",
   "profileCache && Date.now() - profileCache.at < PROFILE_CACHE_MS",
+  "pronunciationDictionaryStale(saved)",
   "properties.length === MAX_PROPERTIES_PER_SWEEP",
   "properties.some((p) => !p.district)",
   "properties.some((p) => p.currency === \"USD\")",
@@ -459,7 +460,6 @@
   "skipped[0]?.reason === \"calling\"",
   "skipped[0]?.reason === \"not_found\"",
   "spokeAt && Date.now() - spokeAt.getTime() < BOT_JUST_SPOKE_MS",
-  "spoken(existing) !== spoken(saved) || neverSynced",
   "stageState(p.status, p.stageEnteredAt, deadlines).overdue",
   "state?.contactKeyFingerprint && state.contactKeyFingerprint !== fingerprint",
   "state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000",
@@ -48662,7 +48662,7 @@
      ]
     },
     {
-     "t": "если spoken(existing) !== spoken(saved) || neverSynced",
+     "t": "если pronunciationDictionaryStale(saved)",
      "k": "if",
      "a": [],
      "c": [
@@ -48679,7 +48679,7 @@
        "c": []
       }
      ],
-     "raw": "spoken(existing) !== spoken(saved) || neverSynced"
+     "raw": "pronunciationDictionaryStale(saved)"
     },
     {
      "t": "заводит или обновляет: настройки",
@@ -71929,7 +71929,7 @@
      "a": [],
      "c": [
       {
-       "t": "если narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode(\"NARRATION\")…",
+       "t": "если narrationPlannerOpen(config, key)",
        "k": "if",
        "a": [],
        "c": [
@@ -71940,7 +71940,7 @@
          "c": []
         }
        ],
-       "raw": "narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode(\"NARRATION\")…"
+       "raw": "narrationPlannerOpen(config, key)"
       },
       {
        "t": "если есть notify сотрудник",
