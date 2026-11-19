@@ -44,10 +44,19 @@ beforeAll(async () => {
 beforeEach(async () => {
   resetOfficeDeskWatch();
   endpointState = "offline";
+  await prisma.notification.deleteMany({ where: { tag: TAG } });
+  await prisma.pendingDirectorAlert.deleteMany({ where: { tag: TAG } });
   await prisma.errorLog.deleteMany({ where: { dedupKey: OFFICE_DESK_OFFLINE_ALARM_KEY } });
 });
 
+const TAG = "incoming-primary-unreachable-2020";
+const runId = Math.floor(Math.random() * 900000) + 100000;
+const agentIds: string[] = [];
+
 afterAll(async () => {
+  await prisma.notification.deleteMany({ where: { tag: TAG } });
+  await prisma.pendingDirectorAlert.deleteMany({ where: { tag: TAG } });
+  await prisma.agent.deleteMany({ where: { id: { in: agentIds } } });
   await prisma.errorLog.deleteMany({ where: { dedupKey: OFFICE_DESK_OFFLINE_ALARM_KEY } });
   if (saved) await prisma.settings.update({ where: { id: "singleton" }, data: saved });
   await prisma.$disconnect();
@@ -124,6 +133,42 @@ describe("офисный аппарат", () => {
       expect(await openAlarms()).toHaveLength(0);
     } finally {
       await prisma.settings.update({ where: { id: "singleton" }, data: { incomingPrimaryTarget: "extension" } });
+    }
+  });
+});
+
+describe("офисный аппарат — единственный хозяин тревоги «аппарат приёма выключен» (18.11.2026)", () => {
+  it("выключен и мобильного плеча нет — журнал и уведомление директору, не чаще раза в сутки", async () => {
+    const director = await prisma.agent.create({
+      data: { fullName: `Директор аппарата-${runId}`, phone: `+992940${runId}`, role: "DIRECTOR", passwordHash: "x", isActive: true },
+    });
+    agentIds.push(director.id);
+    await watchOfficeDeskPhone(at("11:00"), deps);
+    await watchOfficeDeskPhone(at("11:15"), deps);
+    const note = await prisma.notification.findFirst({ where: { tag: TAG, agentId: director.id } });
+    expect(note?.body).toContain("Офисный аппарат 2020 не на связи");
+    expect(note?.body).toContain("если не ответили");
+    // Закрылась и открылась снова в тот же день — второго уведомления нет.
+    endpointState = "online";
+    await watchOfficeDeskPhone(at("11:30"), deps);
+    endpointState = "offline";
+    await watchOfficeDeskPhone(at("11:45"), deps);
+    await watchOfficeDeskPhone(at("12:00"), deps);
+    expect(await prisma.notification.count({ where: { tag: TAG, agentId: director.id } })).toBe(1);
+  });
+
+  it("у аппарата есть владелец с наборным мобильным — выключенная трубка не тревога", async () => {
+    const owner = await prisma.agent.create({
+      data: { fullName: `Владелец 2020-${runId}`, phone: `+992950${runId}`, role: "AGENT", sipExtension: "2020", passwordHash: "x", isActive: true },
+    });
+    agentIds.push(owner.id);
+    try {
+      expect((await watchOfficeDeskPhone(at("11:00"), deps)).skipped).toBe("mobile_leg");
+      expect((await watchOfficeDeskPhone(at("11:15"), deps)).skipped).toBe("mobile_leg");
+      expect(await openAlarms()).toHaveLength(0);
+    } finally {
+      await prisma.agent.delete({ where: { id: owner.id } });
+      agentIds.splice(agentIds.indexOf(owner.id), 1);
     }
   });
 });

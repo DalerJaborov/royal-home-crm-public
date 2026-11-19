@@ -16,10 +16,10 @@
   "paths": 776,
   "cron": 141,
   "jobs": 34,
-  "conditions": 4099,
+  "conditions": 4106,
   "untranslatedUnique": 472,
   "untranslatedTotal": 607,
-  "partialUnique": 1104,
+  "partialUnique": 1106,
   "translatedShare": 85
  },
  "untranslated": [
@@ -64475,12 +64475,26 @@
          ]
         },
         {
-         "t": "если есть no operators назначен",
+         "t": "если есть no operators назначен и нет: primary",
          "k": "if",
          "a": [],
          "c": [
           {
-           "t": "запись в журнал ошибок",
+           "t": "если open — «0»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "иначе если есть primary или нет: skipped",
+         "k": "elseif",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: запись в журнале ошибок",
            "k": "do",
            "a": [],
            "c": []
@@ -69801,14 +69815,14 @@
            "more": true
           },
           {
-           "t": "если есть already noted и (нет: reassign on missed звонок или есть свой заявка kept)",
+           "t": "если есть already noted и (нет: reassign on missed звонок или есть kept по rule)",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если нет: reassign on missed звонок или есть свой заявка kept",
+           "t": "если нет: reassign on missed звонок или есть kept по rule",
            "k": "if",
            "a": [],
            "c": [],
@@ -72514,6 +72528,13 @@
           },
           {
            "t": "если ответ — «accepted»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если ответ — «accepted_other»",
            "k": "if",
            "a": [],
            "c": [],

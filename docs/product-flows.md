@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4126**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4133**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19541,6 +19541,8 @@
       - если (await syncAgentMobileFallback(agent.id, creds)) === "station_unreachable"
         - return;
           · дальше не идёт, ничего не меняя
+    - await warnIfIncomingPrimaryUnreachable(primary);
+      · зовёт warnIfIncomingPrimaryUnreachable()
   - await reconcileIncomingQueue();
     · зовёт reconcileIncomingQueue()
     - const result = await ensureAgentsInIncomingQueue();
@@ -19550,9 +19552,17 @@
         · запись в журнал ошибок
       - return;
         · дальше не идёт, ничего не меняя
-    - если result.noOperatorsAssigned
-      - void logSystemError( "telephony", "Оператор приёма не назначен ни одному сотруднику: звонки незнакомых номеро…
-        · запись в журнал ошибок
+    - const primary = await incomingPrimaryExtension();
+      · зовёт incomingPrimaryExtension()
+    - если result.noOperatorsAssigned && !primary
+      - const open = await prisma.errorLog.count({ where: { ...noOperatorAlarmWhere(), resolvedAt: null } });
+        · считает в базе: errorLog
+      - если open === 0
+        - void logSystemError( "telephony", `${NO_OPERATOR_ALARM_PREFIX}: звонки незнакомых номеров идут по-старому. ` …
+          · запись в журнал ошибок
+    - иначе если primary || !result.skipped
+      - await prisma.errorLog .updateMany({ where: { ...noOperatorAlarmWhere(), resolvedAt: null }, data: { resolvedA…
+        · меняет в базе: errorLog
     - если result.skipped && result.skipped.startsWith("Не удалось определить очередь")
       - void logSystemError("telephony", result.skipped);
         · запись в журнал ошибок
@@ -22115,20 +22125,23 @@
       - если verdict.keepLead || !verdict.missed
         - continue;
           · переходит к следующему
-      - const ownLeadKept = reassignOnMissedCall && holdsOwnPropertyLead(client);
-        · зовёт holdsOwnPropertyLead()
+      - const afterDue = firstCallAfterDue(client, reassignOnMissedCall);
+        · зовёт firstCallAfterDue()
       - const alreadyNoted = await prisma.interaction.findFirst({ where: { clientId: client.id, actorKind: "SYSTEM", …
         · читает в базе: interaction
-      - если alreadyNoted && (!reassignOnMissedCall || ownLeadKept)
+      - если alreadyNoted && (!reassignOnMissedCall || keptByRule)
         - continue;
           · переходит к следующему
-      - если !reassignOnMissedCall || ownLeadKept
+      - если !reassignOnMissedCall || keptByRule
         - await logTimeline({ clientId: client.id, actor: { kind: "system", source: "first-call-missed", subjectAgentId…
           · зовёт logTimeline()
-        - await notifyFeedOnly(supervisors, { kind: "lead", title: ownLeadKept ? "Первый звонок по объекту сорван" : "П…
+        - await notifyFeedOnly(supervisors, { kind: "lead", title: ownLeadKept ? "Первый звонок по объекту сорван" : no…
           · зовёт notifyFeedOnly()
         - если ownLeadKept
           - sendPushToAgents([agentId], { title: "⏰ Клиент по вашему объекту ждёт звонка", body: `${client.fullName}: поз…
+            · push-уведомление
+        - если notDialableKept
+          - sendPushToAgents([agentId], { title: "Клиенту не дозвониться через CRM", body: `${client.fullName}: номер не …
             · push-уведомление
         - continue;
           · переходит к следующему
@@ -22197,8 +22210,8 @@
       - если already
         - continue;
           · переходит к следующему
-      - const after = holdsOwnPropertyLead(client) ? "потом минус к Royal Score" : afterDue;
-        · зовёт holdsOwnPropertyLead()
+      - const after = firstCallAfterDue(client, reassignOn).text;
+        · зовёт firstCallAfterDue()
       - await logTimeline({ clientId: client.id, actor: { kind: "system", source: "first-call-reminder", subjectAgent…
         · зовёт logTimeline()
       - sendPushToAgents([agentId], { title: "⏱ Позвонить клиенту", body: `${client.fullName}: осталось ${minutesLeft…
@@ -23613,11 +23626,17 @@
         · дословно из кода
     - для каждого: const row of candidates
       - если !canTakeItself
+        - если row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard
+          - continue;
+            · переходит к следующему
         - continue;
           · переходит к следующему
       - если outcome === "accepted"
-        - void logSystemError( "ai", `Заявка оформлена сторожем: номер ${maskClientPhone(row.phone!)} был в переписке (…
+        - void logSystemError( "ai", (row.promised ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки…
           · запись в журнал ошибок
+        - continue;
+          · переходит к следующему
+      - если outcome === "accepted_other"
         - continue;
           · переходит к следующему
     - если leftForHuman.length === 0
@@ -23625,9 +23644,12 @@
         · дословно из кода
     - для каждого: const row of leftForHuman
       - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))
+        - если row.promised
+          - await markWatchdogAttempted(row.conversationId, now);
+            · дословно из кода
         - continue;
           · переходит к следующему
-      - const what = row.phone ? `Номер ${maskClientPhone(row.phone)} есть в переписке, карточки в базе нет` : `Клиен…
+      - const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…
         · зовёт maskClientPhone()
       - const payload = { kind: "oversight" as const, title: `📵 Лид без карточки: ${who}`, body: `${dushanbeDateTime…
         · зовёт dushanbeDateTimeString()
@@ -23636,6 +23658,9 @@
           · зовёт enqueueDirectorAlert()
         - void logSystemError( "ai", `[alarm] ${what} (диалог ${row.conversationId}, ${channelLabel(row.channel)}, ${wh…
           · запись в журнал ошибок
+        - если row.promised
+          - await markWatchdogAttempted(row.conversationId, now);
+            · дословно из кода
       - если сорвалось
         - console.error("[alarm] phone-without-lead notification:", err);
           · пишет строку в журнал сервера
