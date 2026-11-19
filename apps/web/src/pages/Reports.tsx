@@ -31,6 +31,8 @@ import { scrollableRegion } from "../lib/a11y";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { StatTile } from "../components/ui/StatTile";
 import { ReportPdfActions } from "../components/ReportPdfActions";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 
 /**
  * ОТЧЁТЫ — экран /reports темы «Royal Home 2026», перенесённый из прототипа
@@ -97,6 +99,12 @@ function scrollToSection(id: string) {
 export const PAGE = 5;
 
 export function Reports() {
+  // «Новый вид» (пачка analytics): метка раздела; без признака — прежнее дерево и разметка.
+  const royal = useRoyalLook();
+  return <RoyalSection name={royal ? "analytics" : undefined}><ReportsGate royal={royal} /></RoyalSection>;
+}
+
+function ReportsGate({ royal }: { royal: boolean }) {
   const can = useCan();
 
   if (!can("reports.view")) {
@@ -112,7 +120,7 @@ export function Reports() {
     );
   }
 
-  return <ReportsScreen />;
+  return <ReportsScreen royal={royal} />;
 }
 
 /** Область во всю ширину — те же значения, что MH_HOST в MhScreen.tsx/MhList.tsx. */
@@ -124,11 +132,14 @@ const MH_HOST: import("react").CSSProperties = {
   flexDirection: "column",
 };
 
-function ReportsFrame({ clean, children }: { clean: boolean; children: ReactNode }) {
+function ReportsFrame({ clean, royal, children }: { clean: boolean; royal: boolean; children: ReactNode }) {
+  // В новом виде размеры задаёт слой theme-look-royal-analytics.css: утилиты с `!`
+  // ниже перебили бы его (важное правило слоя utilities сильнее бесслойного).
+  if (royal) return <div className="clean-reports">{children}</div>;
   return clean ? <div className="clean-reports [&_.pg-h_h1]:!text-[32px] [&_.sec-h_h2]:!text-xl [&_.note]:!text-sm [&_.sub]:!text-base [&_.tbl]:!text-sm [&_.bars]:!text-base [&_.tiles]:!gap-4 [&_.tiles]:!grid-cols-2 min-[1180px]:[&_.tiles]:!grid-cols-4 [&_.tiles_.money]:!text-[28px]">{children}</div> : <>{children}</>;
 }
 
-function ReportsScreen() {
+function ReportsScreen({ royal }: { royal: boolean }) {
   const can = useCan();
   // 14.09.2026: на телефоне сверху — дословная сводка макета c99db05f
   // (`renderReports`): плитки и «По агентам» списком в обёртке `.rh2 .mh`.
@@ -208,7 +219,7 @@ function ReportsScreen() {
   const mhHeaderShown = !rangeError && mobile && !clean && !funnelLoading && !funnelError && funnel.length > 0;
 
   return (
-    <ReportsFrame clean={clean}>
+    <ReportsFrame clean={clean} royal={royal}>
       {mhHeaderShown && (
         <div className="rh2" style={MH_HOST}>
           <div className="mh">

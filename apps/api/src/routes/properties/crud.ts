@@ -1043,7 +1043,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   // Скрытый номер владельца форма получает пустым и шлёт обратно `null` — правка
   // этажа стирала номер собственника у того, кому он не показан (аудит 23.09.2026,
   // №31). Кому номер скрыт, тот его и не меняет: поле отбрасывается целиком.
-  if (data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, "properties.viewOwners")).ownerContactHidden) {
+  if (data.ownerContact !== undefined && stripOwnerContact(existing, can(req, "properties.viewOwners")).ownerContactHidden) {
     delete data.ownerContact;
   }
 

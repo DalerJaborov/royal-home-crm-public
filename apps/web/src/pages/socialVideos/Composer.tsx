@@ -1,3 +1,4 @@
+import { useMarketingSectionMark } from "../../components/look/marketing/MarketingSection";
 import { toast } from "../../store/toast";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, CalendarClock, Image as ImageIcon, Share2, Film, PenLine, RefreshCw } from "lucide-react";
@@ -130,6 +131,7 @@ function Step({
 }
 
 export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKind = "VIDEO" }: ComposerProps) {
+  const section = useMarketingSectionMark();
   const [draftId, setDraftId] = useState<string | null>(editId);
   // Ролик или фото-пост (16.11.2026). У существующего черновика вид берётся с сервера и не меняется.
   const [kindChoice, setKindChoice] = useState<SocialPostMediaKind>(initialKind);
@@ -517,7 +519,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
   const uploading = progress !== null;
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>

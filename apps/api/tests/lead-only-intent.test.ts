@@ -4,8 +4,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { classifyLeadOnlyIntent, leadOnlyIntentFallback, leadOnlyIntentFromModel, leadOnlyIntentOnce, LEAD_ONLY_INTENT_SYSTEM,
   type LeadOnlyIntentModel } from "../src/ai/leadOnlyIntent.js";
-import { leadOnlyScenario, LEAD_ONLY_DEFAULTS } from "../src/ai/leadOnlyMode.js";
-import { planLegacyLeadOnlyTurn } from "../src/messengers/leadOnlyLegacy.js";
+import { leadOnlyAgencyFeeQuestion } from "../src/ai/leadOnlyMode.js";
+import { looksLikeRentRequest } from "../src/ai/rentGuard.js";
+import { customerRecruitmentRequested } from "../src/ai/customerAgentRecruitmentProtocol.js";
+import { customerRoleSignals } from "../src/ai/customerAgentRole.js";
 
 /**
  * РОЛЬ И ГОРЯЧЕСТЬ КЛИЕНТА В РЕЖИМЕ «ТОЛЬКО ЗАЯВКИ» РЕШАЕТ МОДЕЛЬ (аудит 14.11.2026, класс «регулярка решает вместо ИИ»).
@@ -56,13 +58,25 @@ const PHRASES: Row[] = [
   ["tg", "Ташаккур", [], ans("other"), null, null],
 ];
 
-const config = { hotIntentHandover: true };
 const answering = (answer: unknown): LeadOnlyIntentModel => async () => answer;
 const silent: LeadOnlyIntentModel = async () => null;
 
+/**
+ * Что получает дальше режим: продавец, горячий, покупатель или «не ход заявки» (аренда и вакансия — запрет владельца кодом,
+ * вопрос о цене услуг без слов о продаже своего — не продавец). С 19.11.2026 сценарии режима удалены (ход ведёт оператор,
+ * ai/operator), а таблица фраз этой двери осталась: здесь та же раскладка намерения, по которой её строки были написаны.
+ */
+function kindOf(intent: Awaited<ReturnType<typeof classifyLeadOnlyIntent>>, text: string, earlier: readonly string[]): string | null {
+  if (customerRecruitmentRequested(text) || looksLikeRentRequest(text)) return null;
+  if (intent.role === "job" || intent.role === "renter" || intent.role === "landlord") return null;
+  if (intent.role === "seller" && leadOnlyAgencyFeeQuestion(text) && ![...earlier, text].some(t => customerRoleSignals(t).sell)) return null;
+  if (intent.role === "seller") return "seller";
+  if (intent.hot) return "hot";
+  return intent.role === "buyer" ? "buyer" : null;
+}
 async function scenarioOf(text: string, earlier: string[], model: LeadOnlyIntentModel) {
   const intent = await classifyLeadOnlyIntent({ current: text, earlier }, model);
-  return { intent, scenario: leadOnlyScenario({ text, propertyKnown: false, config, intent }) };
+  return { intent, scenario: kindOf(intent, text, earlier) };
 }
 
 describe("таблица фраз: роль и горячесть по модели", () => {
@@ -126,10 +140,6 @@ describe("код проверяет ответ модели", () => {
     expect((await scenarioOf("Хона ба иҷора лозим", [], answering(ans("buyer", "Хона ба иҷора лозим")))).scenario).toBeNull();
     expect((await scenarioOf("Есть вакансия? Ищу работу", [], answering(ans("buyer", "Ищу работу")))).scenario).toBeNull();
   });
-  it("горячие слова выключены рубильником — горячесть модели ничего не меняет", async () => {
-    const intent = await classifyLeadOnlyIntent({ current: "Хотим посмотреть" }, answering(ans("buyer", "Хотим посмотреть", true, "Хотим посмотреть")));
-    expect(leadOnlyScenario({ text: "Хотим посмотреть", propertyKnown: false, config: { hotIntentHandover: false }, intent })).toBe("buyer");
-  });
 });
 
 describe("нет ответа модели — запасная регулярка, клиент без ответа не остаётся", () => {
@@ -161,24 +171,6 @@ describe("нет ответа модели — запасная регулярк
     const once = leadOnlyIntentOnce(calls);
     await once("Хочу купить", []); await once("Хочу купить", []); await once("Хочу продать", []);
     expect(calls).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("старый путь берёт роль из той же двери", () => {
-  const base = { config: { ...LEAD_ONLY_DEFAULTS, enabled: true, workHoursStart: "00:00", workHoursEnd: "24:00" }, channel: "INSTAGRAM",
-    subscriberId: "intent-test-peer", linked: false, draft: { stage: "chatting" as const }, propertyId: null, propertyInMessage: false, language: "ru" as const };
-  const door = (model: LeadOnlyIntentModel) => (text: string, earlier: readonly string[]) => classifyLeadOnlyIntent({ current: text, earlier }, model);
-  const history = [{ role: "user" as const, content: "Хочу продать свою квартиру" }, { role: "assistant" as const, content: "Понял вас." }];
-  it("«подскажите, сколько стоит» после «хочу продать» — ответ продавцу, а не подборка покупателю", async () => {
-    const model = vi.fn(answering(ans("seller", "Хочу продать свою квартиру")));
-    const plan = await planLegacyLeadOnlyTurn({ ...base, text: "Подскажите, сколько стоит", history, classifyIntent: door(model) });
-    expect(plan?.scenario).toBe("seller");
-    expect(plan?.reply).toMatch(/поможем продать/u);
-    expect(JSON.parse(model.mock.calls[0][0].user).earlierClientMessages).toEqual(["Хочу продать свою квартиру"]);
-  });
-  it("модель не ответила — прежнее решение регулярок", async () => {
-    const plan = await planLegacyLeadOnlyTurn({ ...base, text: "Хочу продать дом", history: [], classifyIntent: door(silent) });
-    expect(plan?.scenario).toBe("seller");
   });
 });
 

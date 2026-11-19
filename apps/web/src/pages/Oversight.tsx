@@ -26,6 +26,9 @@ import {
 import { TeamTabs } from "../components/SectionTabs";
 import { Pagination } from "../components/Pagination";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { ControlRoot } from "../components/look/control/ControlRoot";
+import { controlTile } from "../components/look/control/controlTileIcon";
 
 /** Плитка над сводкой прокручивает к своему срезу ниже на этом же экране —
  * маршрута с фильтром нет ни у одного из этих счётчиков, все они уже здесь. */
@@ -940,6 +943,7 @@ function TransferPairs() {
 
 export function Oversight() {
   const can = useCan();
+  const royal = useRoyalLook();
   const investigations = useCanViewInvestigations();
   const canView = can("dashboard.analytics");
   const { data: summary, isError: summaryError, refetch: refetchSummary } = useOversightSummary(canView);
@@ -958,7 +962,7 @@ export function Oversight() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <ControlRoot royal={royal}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -968,14 +972,17 @@ export function Oversight() {
           </div>
           <TeamTabs />
         </div>
-      </div>
+      </ControlRoot>
     );
   }
 
   const sellerMissing = summary ? summary.sellerPropertyMissingWarn + summary.sellerPropertyMissingCritical : undefined;
+  // Срочность плиток — одна переменная на подпись и на круг нового вида.
+  const overdueCritical = !!summary?.overdueTasks;
+  const noContactCritical = !!summary?.noContactClients;
 
   return (
-    <div className="rh2 screens">
+    <ControlRoot royal={royal}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -1000,22 +1007,25 @@ export function Oversight() {
             прокручивает к нему, а не уходит на выдуманный маршрут с фильтром. */}
         <div className="tiles">
           <StatTile
+            {...(royal ? controlTile("clock", overdueCritical) : {})}
             label="Просроченных задач"
             value={summary?.overdueTasks ?? "—"}
             line="сроки обещаны клиентам"
-            critical={!!summary?.overdueTasks}
+            critical={overdueCritical}
             onClick={() => scrollToSlice("slice-overdue-tasks")}
             title="Список просроченных задач ниже на этом экране"
           />
           <StatTile
+            {...(royal ? controlTile("phone-missed", noContactCritical) : {})}
             label={NO_CONTACT_TEXT.title}
             value={summary?.noContactClients ?? "—"}
             line={summary && summary.noContactClients === 0 ? NO_CONTACT_TEXT.zero : "ни звонка, ни сообщения сотрудника"}
-            critical={!!summary?.noContactClients}
+            critical={noContactCritical}
             onClick={() => scrollToSlice("slice-no-contact-clients")}
             title="Клиенты, с кем ни разу не связывались — список ниже на этом экране"
           />
           <StatTile
+            {...(royal ? controlTile("eye") : {})}
             label="Тишина после показа"
             value={summary?.silentAfterShowing ?? "—"}
             line={summary ? `показ был больше ${summary.silentAfterShowingDays} дней назад` : ""}
@@ -1023,6 +1033,7 @@ export function Oversight() {
             title="Список клиентов без контакта после показа ниже на этом экране"
           />
           {investigations && <StatTile
+            {...(royal ? controlTile("x-circle") : {})}
             label="Отказ при скоринге"
             value={summary?.refusedHighScore ?? "—"}
             line={summary ? `за ${summary.recentWindowDays} дней, мимо службы безопасности` : ""}
@@ -1030,6 +1041,7 @@ export function Oversight() {
             title="Список отказов при хорошем скоринге ниже на этом экране"
           />}
           {investigations && <StatTile
+            {...(royal ? controlTile("building-2") : {})}
             label="Продавец без объекта"
             value={sellerMissing ?? "—"}
             line={
@@ -1041,6 +1053,7 @@ export function Oversight() {
             title="Список продавцов без карточки объекта ниже на этом экране"
           />}
           <StatTile
+            {...(royal ? controlTile("handshake") : {})}
             label="Вечные переговоры"
             value={summary?.endlessNegotiations ?? "—"}
             line={summary ? `${summary.sellerNegotiationMaxRounds} кругов подряд и больше` : ""}
@@ -1048,6 +1061,7 @@ export function Oversight() {
             title="Список карточек с зацикленными переговорами ниже на этом экране"
           />
           {investigations && <StatTile
+            {...(royal ? controlTile("trend-up") : {})}
             label="Серия у агента"
             value={summary?.agentLossSeries ?? "—"}
             line={summary ? `${summary.agentLossSeriesThreshold} и больше за ${summary.agentLossSeriesWindowDays} дней` : ""}
@@ -1055,6 +1069,7 @@ export function Oversight() {
             title="Список агентов с серией потерь ниже на этом экране"
           />}
           <StatTile
+            {...(royal ? controlTile("users") : {})}
             label="Передач"
             value={summary?.recentTransfers ?? "—"}
             line={summary ? `за ${summary.recentWindowDays} дней` : ""}
@@ -1090,6 +1105,6 @@ export function Oversight() {
         <TransfersLog />
         {investigations && <TransferPairs />}
       </div>
-    </div>
+    </ControlRoot>
   );
 }

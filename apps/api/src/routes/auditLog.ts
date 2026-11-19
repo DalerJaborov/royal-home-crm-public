@@ -4,7 +4,6 @@ import { Router, type Request } from "express";
 import { pageQuerySchema, DEAL_STAGES } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { can, requireAuth } from "../auth/middleware.js";
-import { stripOwnerContact } from "../lib/ownerContact.js";
 import { hideOwnerContactInChanges } from "../lib/propertyChanges.js";
 import { maskPhonesDeep } from "../lib/clientPhone.js";
 
@@ -120,7 +119,7 @@ function hideClientPhones<T extends { entityType: string; meta: unknown }>(req: 
  * properties.editForeign без properties.viewOwners в том числе. На карточке у
  * него номер «скрыто», а строкой ниже, в истории, — открытым текстом. Кто видит
  * номер — решает ТО ЖЕ правило, что и на карточке (stripOwnerContact из
- * lib/ownerContact.ts: право viewOwners или свой объект), второй копии правила
+ * lib/ownerContact.ts: только право viewOwners), второй копии правила
  * здесь нет. Прячем при отдаче, а не при записи: старые записи номера уже
  * содержат, а руководителю история нужна с настоящими значениями.
  */
@@ -128,22 +127,11 @@ async function hideOwnerContacts<T extends { entityType: string; entityId: strin
   req: Request,
   items: T[]
 ): Promise<T[]> {
+  // Свой объект номер не открывает (владелец 18.11.2026): решает только право.
   if (can(req, "properties.viewOwners")) return items;
-  const propertyIds = [...new Set(items.filter((i) => i.entityType === "Property" && i.entityId).map((i) => i.entityId!))];
-  if (propertyIds.length === 0) return items;
-  const properties = new Map(
-    (
-      await prisma.property.findMany({
-        where: { id: { in: propertyIds } },
-        select: { id: true, assignedAgentId: true, intakeAgentId: true, createdById: true },
-      })
-    ).map((p) => [p.id, p])
+  // Только «Контакт владельца: было → стало»: сплошная маска всего meta портила бы
+  // id агентов, координаты и цены в истории (ревью 18.11.2026).
+  return items.map((item) =>
+    item.entityType === "Property" && item.entityId ? { ...item, meta: hideOwnerContactInChanges(item.meta) } : item
   );
-  return items.map((item) => {
-    if (item.entityType !== "Property" || !item.entityId) return item;
-    // Объекта уже нет в базе — ответственных не узнать, номер закрыт.
-    const property = properties.get(item.entityId) ?? {};
-    if (!stripOwnerContact(property, req.agent!.id, false).ownerContactHidden) return item;
-    return { ...item, meta: hideOwnerContactInChanges(item.meta) };
-  });
 }

@@ -257,7 +257,7 @@ export function presentInteraction<T extends InteractionWithRecording>(
    */
   if (!access.phone) {
     const record = presented as unknown as Record<string, unknown>;
-    for (const key of ["notes", "summary", "summaryTj", "nextAction", "liveNote", "voiceNoteTranscript"]) {
+    for (const key of ["notes", "summary", "summaryTj", "nextAction", "liveNote", "voiceNoteTranscript", "showingOffCrmDetails"]) {
       const value = record[key];
       if (typeof value === "string") record[key] = phoneSafeText(value, false);
     }

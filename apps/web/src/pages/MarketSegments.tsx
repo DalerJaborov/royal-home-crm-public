@@ -13,6 +13,7 @@ import { PageHeader } from "../components/rh2/PageHeader";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
+import { MarketingSection } from "../components/look/marketing/MarketingSection";
 
 /**
  * «Рынок — цены по сегментам» (10.11.2026): типичная и средняя цена за м² и за объект по сегментам
@@ -124,6 +125,10 @@ export function MarketSegmentsView({ data, shown, onMore, buildingFilter = false
 }
 
 export function MarketSegments() {
+  return <MarketingSection><MarketSegmentsScreen /></MarketingSection>;
+}
+
+function MarketSegmentsScreen() {
   const [district, setDistrict] = useState("");
   const [rooms, setRooms] = useState<(typeof ROOM_FILTERS)[number]["id"]>("all");
   const [repair, setRepair] = useState("");

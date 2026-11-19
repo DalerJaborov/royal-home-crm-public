@@ -3,6 +3,9 @@ import { useCan } from "../lib/permissions";
 import { useBackups } from "../hooks/useBackups";
 import { exactDateTime } from "../lib/format";
 import { SettingsTabs } from "../components/SectionTabs";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { ControlRoot } from "../components/look/control/ControlRoot";
+import { RhCircle } from "../components/look/ui";
 
 const KIND_LABELS: Record<string, string> = {
   DB: "База данных",
@@ -25,12 +28,13 @@ const KIND_LABELS: Record<string, string> = {
  */
 export function Backups() {
   const can = useCan();
+  const royal = useRoyalLook();
   const allowed = can("auditLog.view");
   const { data, isLoading, isError } = useBackups();
 
   if (!allowed) {
     return (
-      <div className="rh2 screens">
+      <ControlRoot royal={royal}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -46,7 +50,7 @@ export function Backups() {
             </div>
           </div>
         </div>
-      </div>
+      </ControlRoot>
     );
   }
 
@@ -61,7 +65,7 @@ export function Backups() {
   ];
 
   return (
-    <div className="rh2 screens">
+    <ControlRoot royal={royal}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -106,7 +110,11 @@ export function Backups() {
               <div className="list">
                 {latestByKind.map((r) => (
                   <div className="row wrapt" key={r.kind}>
-                    <span className={`dot ${r.success ? "ok" : "crit"}`} aria-hidden="true" />
+                    {royal ? (
+                      <RhCircle icon={r.success ? "shield-check" : "flame"} tone={r.success ? "ok" : "crit"} />
+                    ) : (
+                      <span className={`dot ${r.success ? "ok" : "crit"}`} aria-hidden="true" />
+                    )}
                     <div className="t">
                       <b>{KIND_LABELS[r.kind] ?? r.kind}</b>
                       <span>
@@ -129,7 +137,9 @@ export function Backups() {
               <div className="list">
                 {recent.map((r) => (
                   <div className="row wrapt" key={r.id}>
-                    {r.success ? (
+                    {royal ? (
+                      <RhCircle icon={r.success ? "list-checks" : "flame"} tone={r.success ? "ok" : "crit"} />
+                    ) : r.success ? (
                       <CheckCircle2 className="i" style={{ color: "var(--ok)" }} aria-hidden="true" />
                     ) : (
                       <OctagonAlert className="i" style={{ color: "var(--crit)" }} aria-hidden="true" />
@@ -149,6 +159,6 @@ export function Backups() {
           </>
         )}
       </div>
-    </div>
+    </ControlRoot>
   );
 }

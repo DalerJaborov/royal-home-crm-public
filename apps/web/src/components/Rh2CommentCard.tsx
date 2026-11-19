@@ -1,3 +1,4 @@
+import { MarketingBrandMark } from "./look/marketing/MarketingSection";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Image } from "lucide-react";
@@ -70,7 +71,10 @@ export function Rh2CommentCard({
           {/* Площадка: в ленте лежат Instagram, страница Facebook и YouTube
               вперемешку, и до 23.09.2026 отличить их было нельзя ничем — а
               «скрыть» на каждой площадке работает по-своему. */}
-          <span className="chip mute">{commentNetworkName(item.channel)}</span>
+          <span className="chip mute">
+            <MarketingBrandMark channel={item.channel} />
+            {commentNetworkName(item.channel)}
+          </span>
           <span className="chip mute">{relativeTime(item.createdAt)}</span>
         </div>
 
