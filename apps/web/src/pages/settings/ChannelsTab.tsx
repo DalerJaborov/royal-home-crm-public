@@ -1372,6 +1372,7 @@ function VideoHandoffFields() {
   const clipOwnerOn = settings?.clipOwnerApproveEnabled ?? false;
   const clipOwnerHours = settings?.clipOwnerAutoPublishHours ?? 3;
   const staffClipOn = settings?.staffClipIntakeEnabled !== false;
+  const queueControlOn = settings?.montajerQueueControlEnabled !== false;
 
   return (
     <>
@@ -1412,6 +1413,19 @@ function VideoHandoffFields() {
             : "CRM не передаёт сырое видео монтажёру — объект просто ждёт в очереди монтажа, ролик забирают вручную."
         }
         warning={handoffOn && !montajerId ? "Монтажёр не выбран — объекты будут копиться в очереди без единой отправки." : null}
+      />
+
+      {/* 19.11.2026, владелец: «дай монтажёру пропускать очередь кнопкой или передвигать её».
+          Сервер: lib/montajerQueueControl.ts. */}
+      <SwitchRow
+        title="Монтажёр управляет очередью из бота"
+        on={queueControlOn}
+        onToggle={() => updateSettings.mutate({ montajerQueueControlEnabled: !queueControlOn })}
+        hint={
+          queueControlOn
+            ? "В Telegram у монтажёра кнопки: пропустить объект (сделает позже или уже сделан), взять другой из очереди, передвинуть. Паузу очереди и отложенные объекты он не обходит. Снятие «уже сделан» приходит вам уведомлением."
+            : "Выключено — монтажёр только смотрит очередь, порядок меняет руководитель."
+        }
       />
 
       {/* 12.11.2026, владелец: ролик снял СММщик или другой сотрудник — он присылает его Шабнам. */}

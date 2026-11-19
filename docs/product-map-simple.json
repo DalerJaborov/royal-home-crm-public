@@ -76736,6 +76736,12 @@
          "raw": "!settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))"
         },
         {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
          "t": "если await handOverHolderToCurrentMontajer(montajerAgentId, now)",
          "k": "if",
          "a": [],

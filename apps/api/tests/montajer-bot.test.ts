@@ -394,7 +394,10 @@ describe("меню монтажёра (раздел C)", () => {
     expect(queueText).toContain(`В работе у вас: №${f.shortId}`);
     expect(queueText).toContain(`№${queued.shortId}`);
     expect(JSON.stringify(queueButtons)).toContain(`mj:obj:${f.shortId}`);
-    expect(JSON.stringify(queueButtons)).toContain(`mj:obj:${queued.shortId}`);
+    // Управление очередью включено по умолчанию (19.11.2026): номер ждущего открывает
+    // его подменю (там же «📋 Данные»), у держателя — «⏭ Пропустить».
+    expect(JSON.stringify(queueButtons)).toContain(`mj:qi:${queued.shortId}`);
+    expect(JSON.stringify(queueButtons)).toContain(`mj:sk:${f.shortId}`);
 
     await text(MONTAJER_CHAT, `исходники ${f.shortId}`);
     expect(JSON.stringify(sendMessageWithButtons.mock.calls.at(-1)![2])).toContain(`mj:sf:${f.shortId}`);

@@ -31,7 +31,7 @@ export async function setPropertyNarrationOff(propertyId: string, off: boolean, 
     await tx.property.update({ where: { id: propertyId }, data: { narrationOff: off, narrationOffAt: off ? new Date() : null, ...(off ? NARRATION_PREVIEW_CLEARED : {}) } });
     if (off) {
       await tx.propertyNarrationVersion.updateMany({ where: { propertyId, status: "DRAFT", generateAfter: { not: null } }, data: { generateAfter: null } });
-      await tx.propertyNarrationDelivery.updateMany({ where: { propertyId, status: { in: ["QUEUED", "PREVIEW"] } }, data: { status: "CANCELLED", lastError: "Выбрано «Без озвучки»" } });
+      await tx.propertyNarrationDelivery.updateMany({ where: { propertyId, status: { in: ["QUEUED", "PREVIEW", "WAITING"] } }, data: { status: "CANCELLED", lastError: "Выбрано «Без озвучки»" } });
     }
     return { changed: true, off, heldByMontajer, shortId: p.shortId };
   });
@@ -48,6 +48,6 @@ export async function retireNarrationsOfClosedProperties(propertyId?: string): P
   const closed = { OR: [{ deletedAt: { not: null } }, { status: { in: [...CLOSED_STATUSES] } }, { narrationOff: true }] };
   const where = propertyId ? { id: propertyId, ...closed } : closed;
   const drafts = await prisma.propertyNarrationVersion.updateMany({ where: { status: "DRAFT", generateAfter: { not: null }, property: where }, data: { generateAfter: null } });
-  const deliveries = await prisma.propertyNarrationDelivery.updateMany({ where: { status: "QUEUED", property: where }, data: { status: "CANCELLED", lastError: "Объект продан, снят, удалён или без озвучки — передача не нужна" } });
+  const deliveries = await prisma.propertyNarrationDelivery.updateMany({ where: { status: { in: ["QUEUED", "WAITING"] }, property: where }, data: { status: "CANCELLED", lastError: "Объект продан, снят, удалён или без озвучки — передача не нужна" } });
   return drafts.count + deliveries.count;
 }

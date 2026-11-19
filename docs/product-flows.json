@@ -115802,6 +115802,14 @@
          ]
         },
         {
+         "k": "do",
+         "t": "await expireMontajerSkipMarks(now).catch((err)",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "await handOverHolderToCurrentMontajer(montajerAgentId, now)",
          "a": [],

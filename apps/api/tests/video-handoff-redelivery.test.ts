@@ -28,6 +28,9 @@ const { sendMessage, sendDocumentFile, sendDocument, sendPushToAgent, logSystemE
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
   sendMessage,
+  // Контрольное «отправлено N из N» с 19.11.2026 идёт с кнопками «Очередь» и
+  // «Пропустить» (montajer-queue-controls.test.ts) — текст считаем тем же sendMessage.
+  sendMessageWithButtons: (chatId: string, text: string) => (sendMessage as unknown as (c: string, t: string) => Promise<unknown>)(chatId, text),
   sendDocumentFile,
   sendDocument,
 }));
