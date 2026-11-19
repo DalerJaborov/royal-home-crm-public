@@ -104,6 +104,22 @@ describe("«клиент ждёт» (clientWaitingAlert) — таблица си
   });
 });
 
+/**
+ * Сведение #283 с оператором #311 (19.11): решение «звать человека», которое приняли не «на всякий случай», а по делу —
+ * оператор приёма заявок (грубость, жалоба: docs/bot-operator/SPEC.md, случаи 22 и 26) или ответ, обещавший агента и не
+ * заменённый (в нём факты), — настройка «Бот отвечает сам» не глушит (`staffRequired`).
+ */
+describe("«клиент ждёт»: обязательный сигнал (staffRequired) при «бот отвечает сам»", () => {
+  it("ВКЛ, чат без карточки: обычный follow_up — никого; staffRequired — руководству, как при ВЫКЛ", async () => {
+    await setOn(true);
+    const quiet = await chat();
+    expect(await alertClientWaiting({ conversationId: quiet, trigger: "follow_up" })).toBe("self");
+    const required = await chat();
+    expect(await alertClientWaiting({ conversationId: required, trigger: "follow_up", staffRequired: true })).toBe("director");
+    expect(await directorAlerts(required)).toBe(1);
+  });
+});
+
 describe("«бот передал разговор человеку» (ядро Meta, notifyEscalatedCustomerTurn)", () => {
   it("ВКЛ, без карточки: клиенту ушла строка — пуша нет; клиент без ответа — сбой, пуш как раньше", async () => {
     await setOn(true);

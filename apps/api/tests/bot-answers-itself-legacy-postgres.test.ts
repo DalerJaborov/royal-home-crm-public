@@ -71,8 +71,8 @@ describe("№12: Meta запретила аккаунту личные — мо�
     m.blocked.mockResolvedValue(true);
     const result = await turn({ channel: "INSTAGRAM", subscriberId: `blocked-q-${runId}`, text: "Сколько стоит квартира в Сино?" });
     expect(result.reply ?? "").toBe("");
-    // Фоновое заполнение карточек прошлых тестов (card-fill, client-current-intents) — не ход бота.
-    const background = new Set(["card-fill", "client-current-intents"]);
+    // Фоновое заполнение карточек прошлых тестов (card-fill, client-current-intents, score-client) — не ход бота.
+    const background = new Set(["card-fill", "client-current-intents", "score-client"]);
     expect(m.ai.mock.calls.filter(([p]) => !background.has((p as { endpoint?: string }).endpoint ?? ""))).toHaveLength(0);
   }, 60_000); // окно склейки сообщений старого пути (debounce) — до десятка секунд
   it("номер при блокировке: заявка сохраняется молча", async () => {

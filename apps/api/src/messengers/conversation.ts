@@ -3183,8 +3183,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         await Promise.resolve(noted).catch((err) => console.error("[messenger] оператор заявок → карточка:", err));
       } else {
         // Грубость, жалоба или пометка в карточку без живого агента: одна дверь «клиент ждёт» (кому — решает она сама).
+        // «Бот отвечает сам» решение оператора не отменяет (SPEC, случаи 22 и 26; сведение #283 с #311).
         void import("../lib/clientWaitingAlert.js").then(({ alertClientWaiting }) =>
-          alertClientWaiting({ conversationId: conversation.id, trigger: "follow_up", since: new Date() }))
+          alertClientWaiting({ conversationId: conversation.id, trigger: "follow_up", since: new Date(), staffRequired: true }))
           .catch((err) => console.error("[messenger] оператор заявок → сигнал:", err instanceof Error ? err.message : err));
       }
     }
