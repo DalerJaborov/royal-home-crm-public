@@ -72,6 +72,16 @@ export interface CloseOwnershipSatellitesInput {
    * задача у А (аудит 04.10.2026, CRM-02). Переезжают только задачи этого бывшего агента.
    */
   queueReturnFromAgentId?: string | null;
+  /**
+   * УСТАРЕВШИЙ СПУТНИК (19.11.2026, ревью починки аудита переназначения).
+   * Спутники идут после фиксации и в фоне; за это время карточку могли передать
+   * ещё раз. Передан и отличается от `toAgentId` — задачи едут не к устаревшему
+   * получателю, а туда, где карточка сейчас (или гасятся, если она в очереди).
+   * Не «пропустить»: в цепочке А→Б→В спутник второй смены переносит только
+   * задачи Б, и задачи А, пропущенные первым, так и остались бы у А.
+   * Совпадает с агентом, от которого переносим, — переносить некуда.
+   */
+  currentOwnerAgentId?: string | null;
 }
 
 export async function closeOwnershipSatellites(input: CloseOwnershipSatellitesInput): Promise<void> {
@@ -115,10 +125,12 @@ export async function closeOwnershipSatellites(input: CloseOwnershipSatellitesIn
     }
   }
 
+  const stale = input.currentOwnerAgentId !== undefined && input.currentOwnerAgentId !== toAgentId;
+  const taskTarget = stale ? input.currentOwnerAgentId! : toAgentId;
   if (agentChanged) {
-    await transferOpenTasks(clientId, fromAgentId!, toAgentId);
-  } else if (!fromAgentId && toAgentId && input.queueReturnFromAgentId && input.queueReturnFromAgentId !== toAgentId) {
-    await transferOpenTasks(clientId, input.queueReturnFromAgentId, toAgentId);
+    if (taskTarget !== fromAgentId) await transferOpenTasks(clientId, fromAgentId!, taskTarget);
+  } else if (!fromAgentId && toAgentId && input.queueReturnFromAgentId && input.queueReturnFromAgentId !== taskTarget) {
+    await transferOpenTasks(clientId, input.queueReturnFromAgentId, taskTarget);
   }
 
   /**
