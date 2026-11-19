@@ -21,6 +21,9 @@ export function phoneDigits(phone: string): string {
  *   XX XXX XX XX     — девять цифр без всего.
  */
 export function isDialableTajikNumber(phone: string): boolean {
+  // Закрытый маской номер не набирается никогда. Без этой строки `+791612••567`
+  // (иностранный, скрыты две цифры) давал ровно девять цифр и сходил за местный.
+  if (phone.includes("•")) return false;
   const digits = phoneDigits(phone);
   if (digits.length === 12 && digits.startsWith("992")) return true;
   if (digits.length === 10 && digits.startsWith("0")) return true;
@@ -33,6 +36,7 @@ export function isDialableTajikNumber(phone: string): boolean {
  * провайдер СМС (`apps/api/src/lib/sms/phone.ts`) собирает из него 992XXXXXXXXX.
  */
 export function tajikNationalNumber(phone: string | null | undefined): string | null {
+  if ((phone ?? "").includes("•")) return null;
   const digits = phoneDigits(phone ?? "");
   if (digits.length === 12 && digits.startsWith("992")) return digits.slice(3);
   if (digits.length === 10 && digits.startsWith("0")) return digits.slice(1);

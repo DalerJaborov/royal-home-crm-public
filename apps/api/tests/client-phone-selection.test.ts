@@ -3,12 +3,12 @@ import { clientPhoneSelectionTokens, resolveClientPhoneSelection } from "../src/
 import { maskClientPhone } from "../src/lib/clientPhone.js";
 describe("opaque phone selection", () => {
   beforeEach(() => vi.stubEnv("JWT_ACCESS_SECRET", "isolated-phone-selection-test-secret"));
-  const client = { id: "client-one", phone: "+992900000001", extraPhones: ["+992911111157", "+992911222157"] };
+  const client = { id: "client-one", phone: "+992900000001", extraPhones: ["+992911111157", "+992911122157"] };
   it("selects the intended number despite identical masks without exposing digits", () => {
     expect(maskClientPhone(client.extraPhones[0])).toBe(maskClientPhone(client.extraPhones[1]));
     const keys = clientPhoneSelectionTokens(client);
     expect(resolveClientPhoneSelection(client, { phoneKey: keys["extra-1"] })).toEqual({ phone: client.extraPhones[1] });
-    expect(JSON.stringify(keys)).not.toContain("911222157");
+    expect(JSON.stringify(keys)).not.toContain("911122157");
     expect(resolveClientPhoneSelection(client, { phone: maskClientPhone(client.extraPhones[0]) })).toEqual({ conflict: true });
   });
   it("rejects reorder with the same mask and cross-client replay", () => {

@@ -1,31 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { CLIENT_PHONE_MASK_CHAR, isForeignPhone, isMaskedClientPhone } from "@royal-home/shared";
+import { CLIENT_PHONE_MASK_CHAR, isDialableTajikNumber, isForeignPhone, isMaskedClientPhone, tajikNationalNumber } from "@royal-home/shared";
 import { maskClientPhone, maskPhonesInText } from "../src/lib/clientPhone.js";
 import { maskOwnerContact } from "../src/lib/ownerContact.js";
 
 /**
  * ФОРМА МАСКИ НОМЕРА: «видно всё, кроме середины» (владелец 19.11.2026).
- * Скрыто четыре знака в середине, три последних видны. Номера в тестах выдуманные.
+ * Скрыто два знака в середине («Сделать 2», владелец 19.11.2026), три последних видны. Номера в тестах выдуманные.
  */
-const DOTS = CLIENT_PHONE_MASK_CHAR.repeat(4);
+const DOTS = CLIENT_PHONE_MASK_CHAR.repeat(2);
 
 describe("maskClientPhone — форма", () => {
   it("таджикский номер с плюсом: начало и хвост видны, середина закрыта", () => {
-    expect(maskClientPhone("+992931234456")).toBe(`+99293${DOTS}456`);
+    expect(maskClientPhone("+992931234456")).toBe(`+9929312${DOTS}456`);
   });
   it("иностранный номер: голова остаётся, код страны читается", () => {
-    expect(maskClientPhone("+79161234567")).toBe(`+7916${DOTS}567`);
+    expect(maskClientPhone("+79161234567")).toBe(`+791612${DOTS}567`);
     expect(isForeignPhone(maskClientPhone("+79161234567"))).toBe(true);
     expect(isForeignPhone(maskClientPhone("+992931234456"))).toBe(false);
   });
   it("номер без плюса и местные девять цифр", () => {
-    expect(maskClientPhone("992931234456")).toBe(`99293${DOTS}456`);
-    expect(maskClientPhone("931234456")).toBe(`93${DOTS}456`);
+    expect(maskClientPhone("992931234456")).toBe(`9929312${DOTS}456`);
+    expect(maskClientPhone("931234456")).toBe(`9312${DOTS}456`);
   });
   it("короткие номера 7–9 знаков", () => {
-    expect(maskClientPhone("1234567")).toBe(`${DOTS}567`);
-    expect(maskClientPhone("12345678")).toBe(`1${DOTS}678`);
-    expect(maskClientPhone("123456789")).toBe(`12${DOTS}789`);
+    expect(maskClientPhone("1234567")).toBe(`12${DOTS}567`);
+    expect(maskClientPhone("12345678")).toBe(`123${DOTS}678`);
+    expect(maskClientPhone("123456789")).toBe(`1234${DOTS}789`);
   });
   it("граница: до шести знаков включительно номер возвращается как есть", () => {
     // Внутренние номера (1006) и служебные коды — не личные данные клиента.
@@ -33,12 +33,12 @@ describe("maskClientPhone — форма", () => {
     expect(maskClientPhone("1006")).toBe("1006");
     expect(maskClientPhone("1234567")).not.toBe("1234567");
   });
-  it("инвариант: открыто не больше, чем длина минус четыре знака", () => {
+  it("инвариант: открыто не больше, чем длина минус два знака", () => {
     for (const phone of ["+992931234456", "+79161234567", "992931234456", "931234456", "0931234456", "1234567", "12345678", "+12025550123", "+4915112345678"]) {
       const masked = maskClientPhone(phone);
       expect(masked.length).toBe(phone.length);
       const visible = [...masked].filter((c) => c !== CLIENT_PHONE_MASK_CHAR).length;
-      expect(visible).toBeLessThanOrEqual(phone.length - 4);
+      expect(visible).toBeLessThanOrEqual(phone.length - 2);
       // ни один показанный знак не стоит не на своём месте
       [...masked].forEach((c, i) => { if (c !== CLIENT_PHONE_MASK_CHAR) expect(c).toBe(phone[i]); });
     }
@@ -47,6 +47,16 @@ describe("maskClientPhone — форма", () => {
     const masked = maskClientPhone("+992931234456");
     expect(isMaskedClientPhone(masked)).toBe(true);
     expect(isMaskedClientPhone("+992931234456")).toBe(false);
+  });
+  it("закрытый номер не сходит за набираемый местный, сколько бы цифр ни осталось", () => {
+    // `+791612••567` — девять видимых цифр: без запрета маски это «местный номер».
+    for (const phone of ["+79161234567", "+992931234456", "992931234456", "931234456", "0931234456", "+12025550123", "+4915112345678", "12345678901"]) {
+      const masked = maskClientPhone(phone);
+      expect(isDialableTajikNumber(masked)).toBe(false);
+      expect(tajikNationalNumber(masked)).toBeNull();
+    }
+    expect(isDialableTajikNumber("+992931234456")).toBe(true);
+    expect(tajikNationalNumber("+992931234456")).toBe("931234456");
   });
 });
 
