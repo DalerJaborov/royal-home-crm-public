@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 import { TG_PREFIX, TG_DIRECT_PREFIX } from "./conversationId.js";
 import { silentTurnReason } from "../messengers/silentTurn.js";
 import type { ChatMessage } from "../ai/client.js";
@@ -308,6 +309,11 @@ export async function alertClientWaiting(input: {
     if (!called || called.getTime() <= chat.lastAlertAt.getTime()) return "skipped";
   }
 
+  // Выключатель «Клиент молчит 30 минут» (19.11.2026) гасит ТОЛЬКО напоминание сторожа молчания.
+  // Сигналы о поломке бота и передаче сотруднику (escalate, failed, handover) и «агент уточнит»
+  // (follow_up) идут всегда: клиенту уже сказали «передал сотруднику» или ответ не ушёл, это не напоминание.
+  if (input.trigger === "silence" && !(await automationSwitchOn("notifyClientWaitingEnabled"))) return "skipped";
+
   // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба. Проигравший — «уже сказали» (R1-2).
   if (!(await chat.claim(since))) return "already";
 
@@ -378,6 +384,8 @@ export interface ClientSilenceSweepResult {
  */
 export async function runClientSilenceSweep(now: Date = new Date()): Promise<ClientSilenceSweepResult> {
   if (!(await isWithinWorkingHours(now))) return { checked: 0, alerted: 0, skippedOffHours: true };
+  // Выключатель «Клиент ждёт ответа» (19.11.2026): выключено — сторож молчания (и повтор) не ходит.
+  if (!(await automationSwitchOn("notifyClientWaitingEnabled"))) return { checked: 0, alerted: 0, skippedOffHours: false };
   const bot = await sweepBotConversations(now);
   // Telegram-бот и Telegram Direct — тот же сторож и та же дверь (15.11.2026, В4); свой рубильник.
   const telegram = await sweepTelegramConversations(now);
@@ -584,6 +592,7 @@ const REPEAT_SENT = "client-waiting-repeat";
 
 export async function repeatClientWaiting(input: { conversationId: string; since: Date; now?: Date }): Promise<"sent" | "armed" | "skipped"> {
   const now = input.now ?? new Date();
+  if (!(await automationSwitchOn("notifyClientWaitingEnabled"))) return "skipped";
   const key = `${input.conversationId}:${input.since.toISOString()}`;
   // Armed once: the timer starts when the sweep first sees the signalled episode, so a night message signalled at the
   // first morning tick is not repeated ten minutes later.

@@ -192,6 +192,27 @@ describe("publishPropertyInstagramStories", () => {
     // Останавливается на первой неудаче — вторая часть не пытается публиковаться.
     expect(publishInstagramStory).toHaveBeenCalledTimes(1);
     expect(logSystemError).toHaveBeenCalledWith("meta", expect.stringContaining(`объект ${propertyId}`));
+    // Настоящий отказ (ролик не тот) — повторять нечего.
+    expect(summary.retriable).toBeFalsy();
+  });
+
+  // Объект №208, 17.11.2026: часть 1/3 упала, пока nginx перезапускался при выкате.
+  it("Meta не смогла скачать часть — итог серии несёт «повторить позже» (повтор ставит lib/videoHandoff.ts)", async () => {
+    probeVideoDimensions.mockResolvedValue({ width: 1078, height: 1920, durationSec: 67.5 });
+    // Соседний тест выше оставляет неизрасходованный mockResolvedValueOnce — mockClear его не снимает.
+    publishInstagramStory.mockReset();
+    publishInstagramStory.mockResolvedValueOnce({
+      channel: "INSTAGRAM",
+      ok: false,
+      retriable: true,
+      error: "Meta не смогла обработать видео (status_code: ERROR, status: 2207052)",
+    });
+
+    const summary = await publishPropertyInstagramStories(propertyId, "/uploads/handoff/test-story-video.mp4", { force: true });
+
+    expect(summary.publishedParts).toBe(0);
+    expect(summary.retriable).toBe(true);
+    expect(publishInstagramStory).toHaveBeenCalledTimes(1);
   });
 
   it("лимит публикаций исчерпан — не долбим Graph API, честный отказ в журнал", async () => {

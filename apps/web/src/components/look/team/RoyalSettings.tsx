@@ -3,7 +3,7 @@ import { ChevronLeft, Search, UserCircle, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { SETTINGS_TABS, type SettingsTabId } from "../../../lib/settingsTabs";
 import {
-  CLEAN_SETTINGS_LABELS, cleanSettingsHref, cleanSettingsSearchHref, cleanSettingsTasks, findCleanSettingsTasks,
+  CLEAN_SETTINGS_LABELS, cleanSettingsGroupSub, cleanSettingsHref, cleanSettingsSearchHref, cleanSettingsTasks, findCleanSettingsTasks,
   resolveCleanSettingsTask, type CleanSettingsTask,
 } from "../../../lib/cleanSettingsTasks";
 import { SettingsTabs } from "../../SectionTabs";
@@ -69,7 +69,7 @@ export function RoyalSettings({ active, role, search, params }: {
             <TeamCircle icon={GROUP_ICON[tab.id]} tone={GROUP_TONE[index % GROUP_TONE.length]} />
             <span className="ry-row-text">
               <span className="ry-row-title">{CLEAN_SETTINGS_LABELS[tab.id]}</span>
-              <span className="ry-row-sub">{cleanSettingsTasks(tab.id, role).map((entry) => entry.title).join(" · ")}</span>
+              <span className="ry-row-sub">{cleanSettingsGroupSub(tab.id, role)}</span>
             </span>
             <span className="ry-row-right"><RyChevron /></span>
           </Link>

@@ -44,7 +44,9 @@ describe("признак «Нового вида» в выборе оболоч�
     expect(hook.result.current.look).toBe("royal");
     answers.queue.push({ enabled: true });
     await recheck();
-    expect(hook.result.current.look).toBeUndefined();
+    // Признак гаснет через сохранённый снимок (useSyncExternalStore) — на занятой
+    // машине облака это на тик позже refetch; ждём, а не проверяем мгновенно (флак 18.11).
+    await waitFor(() => expect(hook.result.current.look).toBeUndefined());
   });
 
   it("без удачного ответа признака нет", async () => {

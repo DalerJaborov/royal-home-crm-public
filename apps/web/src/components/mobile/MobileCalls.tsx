@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Search, SlidersHorizontal } from "lucide-react";
-import { MIN_ANALYZED_TRANSCRIPT_CHARS } from "@royal-home/shared";
+import { MIN_ANALYZED_TRANSCRIPT_CHARS, isWhatsappCallSource } from "@royal-home/shared";
 import { MhLane, MhListScreen, type MhLaneChip } from "./mh/MhList";
 import { MhNoData, MhQuiet } from "../home/mh/MhScreen";
 import { useSyncFiltersToUrl } from "../../hooks/useUrlFilters";
@@ -35,6 +35,10 @@ import { exactDateTime } from "../../lib/format";
 import { mergeCallFeed } from "../../lib/callFeedMerge";
 import { LiveVoiceSessionsMh, useCanSeeLiveVoiceSessions } from "../LiveVoiceSessions";
 import { LiveVoiceListenMh } from "../LiveVoiceListen";
+import { useRoyalLook } from "../../hooks/useRoyalLook";
+import { RoyalCallFlag, RoyalCallListen, RoyalCallRow, scoreFlagTone } from "../look/calls/RoyalCallRow";
+import { CallSourceMark } from "../look/calls/CallSourceMark";
+import { RoyalInboxSwitch } from "../look/chats/RoyalInboxSwitch";
 
 /**
  * Мобильные «Звонки»: `MobileCallsSupervisor` (руководство) и `MobileCallsAgent`
@@ -103,7 +107,7 @@ function DirPlate({ dir, label }: { dir: CallDir; label: string }) {
  * «Позвонить». Нажатие по строке раскрывает запись и разбор — та же разметка,
  * что у ленты агента ниже (`FeedRow`), а не пультовая `.call-row`.
  */
-function MhJournalRow({ call, showAgent }: { call: CallRow; showAgent: boolean }) {
+function MhJournalRow({ call, showAgent, royal = false }: { call: CallRow; showAgent: boolean; royal?: boolean }) {
   const [open, setOpen] = useState(false);
   const analysis = call.analysis;
   const detailsId = `mcall-${call.id}`;
@@ -114,6 +118,58 @@ function MhJournalRow({ call, showAgent }: { call: CallRow; showAgent: boolean }
   const attemptLabel = noAnswer ? (CALL_ATTEMPT_LABELS[call.callAttempt!] ?? "Не дозвонились") : null;
   const expandable = !noAnswer && (call.hasRecording || !!call.transcript || !!analysis);
   const name = call.client?.fullName ?? "Клиент удалён";
+
+  // «Новый вид» (пачка calls): та же строка, что на ПК. Звонок — ВСЕГДА в строке
+  // (как было): у строки с записью два круга 44 — зелёный «позвонить» и
+  // «слушать»; без записи — один зелёный круг с белой трубкой, без слова (решение
+  // владельца 19.11: «зеленый значок с белой трубкой»; слово — имя кнопки для
+  // экранного чтеца). Ошибка звонка показывается у кнопки, раскрыт блок или нет.
+  if (royal) {
+    const callButton = call.client && (expandable
+      ? <CallClientButton clientId={call.client.id} phone="" variant="icon" title="Позвонить через CRM" className="ry-call-round" />
+      : <CallClientButton clientId={call.client.id} phone="" variant="icon" label={noAnswer ? "Перезвонить" : "Позвонить"} title={noAnswer ? "Перезвонить через CRM" : "Позвонить через CRM"} className="ry-call-round" />);
+    return (
+      <RoyalCallRow
+        dir={noAnswer ? "missed" : "out"}
+        dirLabel={noAnswer ? attemptLabel! : "Исходящий"}
+        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{name}</Link> : name}
+        meta={[
+          noAnswer ? attemptLabel : "Исходящий",
+          dushanbeTime(call.createdAt),
+          noAnswer ? null : formatCallDuration(call.durationSec),
+          showAgent && call.agent ? call.agent.fullName : null,
+        ]}
+        note={!noAnswer && analysis ? analysis.summary : undefined}
+        flags={!noAnswer && (analysis ? <>
+          <RoyalCallFlag tone={scoreFlagTone(scoreTone(analysis.score))}>балл {analysis.score}</RoyalCallFlag>
+          {!analysis.agreedNextStep && <RoyalCallFlag tone="crit">без договорённости</RoyalCallFlag>}
+        </> : <RoyalCallFlag tone="mute">{call.transcriptionStage ? "расшифровываем" : missingAnalysisReason(call.transcript)}</RoyalCallFlag>)}
+        action={expandable
+          ? <>{callButton}<RoyalCallListen compact open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={formatCallDuration(call.durationSec)} canListen={call.hasRecording && call.canHear !== false} /></>
+          : callButton}
+        details={open && (
+          <div className="ry-call-details" id={detailsId}>
+            {!analysis && call.transcriptionStage && (
+              <TranscriptionStatus stage={call.transcriptionStage} progress={call.transcriptionProgress} />
+            )}
+            <CallDetails
+              interactionId={call.id}
+              createdAt={call.createdAt}
+              hasRecording={call.hasRecording}
+              canHear={call.canHear}
+              transcript={call.transcript}
+              transcriptRu={call.transcriptRu}
+              analysis={analysis}
+              notes={call.notes}
+              recordingDurationSec={call.durationSec}
+              agentName={call.agent?.fullName ?? null}
+              royal
+            />
+          </div>
+        )}
+      />
+    );
+  }
   const parts = noAnswer
     ? [`${attemptLabel} · ${dushanbeTime(call.createdAt)}`, showAgent && call.agent ? call.agent.fullName : null].filter(
         Boolean
@@ -205,9 +261,40 @@ function MhJournalRow({ call, showAgent }: { call: CallRow; showAgent: boolean }
 
 /** Строка входящего: то же тело, но без автора и разбора — у входящего своей
  *  записи в CRM нет. Действия («Перезвонить», «больше не звонить») остаются те же. */
-function MhIncomingRow({ call }: { call: IncomingCallRow }) {
+function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?: boolean }) {
   const needsQualifying = call.answered && !!call.client && !call.qualifiedAt;
   const name = call.client?.fullName ?? call.phone;
+  // «Новый вид»: те же пометки и действия, что у прежней строки ниже.
+  if (royal) {
+    return (
+      <RoyalCallRow
+        dir={call.answered ? "in" : "missed"}
+        dirLabel={call.answered ? "Входящий" : "Пропущенный входящий"}
+        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{name}</Link> : name}
+        meta={[
+          call.answered ? "Входящий" : "Пропущенный",
+          dushanbeTime(call.startedAt),
+          call.answered ? formatCallDuration(call.talkSeconds) : "до оператора не дозвонился",
+          call.answered ? (call.answeredByName ?? (call.answeredBy ? `оператор ${call.answeredBy}` : null)) : null,
+          call.client ? null : "в базе нет",
+          call.qualifiedBy ? `разобрал ${call.qualifiedBy.fullName}` : null,
+        ]}
+        flags={<>
+          <CallSourceMark source={call.source} look="royal" />
+          {call.irrelevant && <RoyalCallFlag tone="mute">не по делу</RoyalCallFlag>}
+          {needsQualifying && <RoyalCallFlag tone="warn">без разбора</RoyalCallFlag>}
+          {!call.answered && (call.callbackAgent
+            ? <RoyalCallFlag tone="warn">перезвонит {call.callbackAgent.fullName}</RoyalCallFlag>
+            : <RoyalCallFlag tone="crit">никто не перезвонил</RoyalCallFlag>)}
+          {call.missingCallback && <RoyalCallFlag tone="crit">без перезвона {call.missedCallbackHours}ч+</RoyalCallFlag>}
+          <BlockCallerButton callId={call.id} known={!!call.client} />
+        </>}
+        action={!call.answered && (
+          <CallClientButton clientId={call.client?.id} phone={call.phone} variant="icon" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-round" />
+        )}
+      />
+    );
+  }
   const parts = [
     call.answered
       ? `Входящий · ${dushanbeTime(call.startedAt)} · ${formatCallDuration(call.talkSeconds)}`
@@ -234,6 +321,7 @@ function MhIncomingRow({ call }: { call: IncomingCallRow }) {
               name
             )}
           </span>
+          <CallSourceMark source={call.source} look="chip-xs" />
           {call.irrelevant && <span className="chip lav xs">не по делу</span>}
           {needsQualifying && <span className="chip warn xs">без разбора</span>}
           {!call.answered &&
@@ -270,7 +358,7 @@ function MhIncomingRow({ call }: { call: IncomingCallRow }) {
 }
 
 /** Разговоры по дням: подзаголовок `.sec-t` и карточка-список макета. */
-function MhJournalGroups({ items, showAgent }: { items: CallRow[]; showAgent: boolean }) {
+function MhJournalGroups({ items, showAgent, royal = false }: { items: CallRow[]; showAgent: boolean; royal?: boolean }) {
   const groups = useMemo(() => groupByDay(items, (c) => c.createdAt), [items]);
   return (
     <>
@@ -282,7 +370,7 @@ function MhJournalGroups({ items, showAgent }: { items: CallRow[]; showAgent: bo
           </div>
           <div className="list">
             {g.rows.map((call) => (
-              <MhJournalRow key={call.id} call={call} showAgent={showAgent} />
+              <MhJournalRow key={call.id} call={call} showAgent={showAgent} royal={royal} />
             ))}
           </div>
         </div>
@@ -292,7 +380,7 @@ function MhJournalGroups({ items, showAgent }: { items: CallRow[]; showAgent: bo
 }
 
 /** Входящие по дням — те же группы, строка своя. */
-function MhIncomingGroups({ items }: { items: IncomingCallRow[] }) {
+function MhIncomingGroups({ items, royal = false }: { items: IncomingCallRow[]; royal?: boolean }) {
   const groups = useMemo(() => groupByDay(items, (c) => c.startedAt), [items]);
   return (
     <>
@@ -304,7 +392,7 @@ function MhIncomingGroups({ items }: { items: IncomingCallRow[] }) {
           </div>
           <div className="list">
             {g.rows.map((call) => (
-              <MhIncomingRow key={call.id} call={call} />
+              <MhIncomingRow key={call.id} call={call} royal={royal} />
             ))}
           </div>
         </div>
@@ -354,6 +442,9 @@ const tabFromUrl = (value: string | null): SupervisorTab =>
  */
 export function MobileCallsSupervisor() {
   const clean = useCleanShell();
+  // «Новый вид» (пачка calls): только поверх чистой оболочки; запросы те же.
+  const royalLook = useRoyalLook();
+  const royal = clean && royalLook;
   const [searchParams, setSearchParams] = useSearchParams();
   // Срез читается из адреса (`?slice=missed`) — те же плитки «Телефонии» и
   // главной директора ведут сюда с телефона тоже (задание 15.09.2026).
@@ -512,8 +603,10 @@ export function MobileCallsSupervisor() {
       }
     >
       {/* Полоса «Обращения» — тот же набор, что на компьютере (pages/Calls.tsx) и на
-          остальных трёх экранах группы (docs/archive/menu-wave2-brief-15-09.md). */}
-      <InboxTabs />
+          остальных трёх экранах группы (docs/archive/menu-wave2-brief-15-09.md).
+          В новом виде — переключатель значками, как у «Чатов», без своего
+          заголовка: h1 экрана один, его несёт шапка MhListScreen. */}
+      {royal ? <RoyalInboxSwitch /> : <InboxTabs />}
 
       {/* Идущие сейчас разговоры робота: слушать вживую (блока нет, пока на линии пусто). */}
       <LiveVoiceListenMh />
@@ -708,8 +801,8 @@ export function MobileCallsSupervisor() {
         </div>
       )}
 
-      {callsTab && callsFeed.length > 0 && <MhJournalGroups items={callsFeed} showAgent />}
-      {!callsTab && incomingFeed.length > 0 && <MhIncomingGroups items={incomingFeed} />}
+      {callsTab && callsFeed.length > 0 && <MhJournalGroups items={callsFeed} showAgent royal={royal} />}
+      {!callsTab && incomingFeed.length > 0 && <MhIncomingGroups items={incomingFeed} royal={royal} />}
 
       {callsTab
         ? data && (
@@ -904,6 +997,10 @@ export function MobileCallsAgent() {
   const { data, isLoading, isError, refetch } = active;
   // Полоса «Обращения» — тот же набор, что и у руководителя выше и на остальных
   // трёх экранах группы (docs/archive/menu-wave2-brief-15-09.md).
+  // «Новый вид» (пачка calls): только поверх чистой оболочки; запросы те же.
+  const cleanShell = useCleanShell();
+  const royalLook = useRoyalLook();
+  const royal = cleanShell && royalLook;
 
   /**
    * СЛИЯНИЕ ПО id С ЗАМЕНОЙ И СОРТИРОВКОЙ (аудит №4, 27.08).
@@ -956,7 +1053,7 @@ export function MobileCallsAgent() {
       {/* Лента вкладок разделов — перенос пунктов из меню (вторая сессия,
           15.09.2026). При слиянии с переодеванием экрана встала первой
           строкой тела, как на «Клиентах» и «Объектах». */}
-      <InboxTabs />
+      {royal ? <RoyalInboxSwitch /> : <InboxTabs />}
 
       <div className="sec" style={{ marginTop: 6 }}>
         <div className="srch">
@@ -1003,7 +1100,7 @@ export function MobileCallsAgent() {
           <div className="card-s">
             <div className="list">
               {items.map((call) => (
-                <FeedRow key={call.id} call={call} />
+                <FeedRow key={call.id} call={call} royal={royal} />
               ))}
             </div>
           </div>
@@ -1044,7 +1141,7 @@ export function MobileCallsAgent() {
  * станция связывает её с хронологией клиента, и вести туда честнее, чем открывать
  * пустоту. У звонка без карточки строка не ведёт никуда.
  */
-function FeedRow({ call }: { call: CallFeedRow }) {
+function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }) {
   const [open, setOpen] = useState(false);
   const kind = FEED_KIND[call.kind];
   // Недозвон через CRM — тот же признак, что в журнале руководства выше: kind
@@ -1056,6 +1153,52 @@ function FeedRow({ call }: { call: CallFeedRow }) {
   const name = call.client?.fullName ?? call.phone ?? "Номера нет";
   const analysis = call.analysis ?? null;
   const detailsId = `mfeed-${call.id}`;
+
+  // «Новый вид» (пачка calls): звонок — ВСЕГДА в строке, как было. С записью —
+  // два круга 44 (зелёный «позвонить» и «слушать»), без записи — один зелёный круг
+  // с белой трубкой без слова (владелец 19.11). Ошибка звонка — у кнопки при любом раскрытии.
+  if (royal) {
+    const callButton = expandable
+      ? <CallClientButton clientId={call.client?.id} phone={call.phone ?? ""} variant="icon" title="Позвонить через CRM" className="ry-call-round" />
+      : <CallClientButton clientId={call.client?.id} phone={call.phone ?? ""} variant="icon" label={missedLook ? "Перезвонить" : "Позвонить"} title={missedLook ? "Перезвонить через CRM" : "Позвонить через CRM"} className="ry-call-round" />;
+    return (
+      <RoyalCallRow
+        dir={missedLook ? "missed" : kind.dir}
+        dirLabel={attemptLabel ?? kind.label}
+        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{name}</Link> : name}
+        meta={[
+          attemptLabel ?? kind.label,
+          exactDateTime(call.at),
+          !outNoAnswer && call.durationSec ? formatCallDuration(call.durationSec) : null,
+          call.agentName,
+          !call.client && call.kind !== "OUT" ? "в базе нет" : null,
+        ]}
+        flags={(analysis || isWhatsappCallSource(call.source)) && <>
+          <CallSourceMark source={call.source} look="royal" />
+          {analysis && <RoyalCallFlag tone={scoreFlagTone(scoreTone(analysis.score))}>балл {analysis.score}</RoyalCallFlag>}
+        </>}
+        action={expandable
+          ? <>{callButton}<RoyalCallListen compact open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={formatCallDuration(call.durationSec)} canListen={call.hasRecording && call.canHear !== false} /></>
+          : callButton}
+        details={open && (
+          <div className="ry-call-details" id={detailsId}>
+            <CallDetails
+              interactionId={call.id}
+              createdAt={call.at}
+              hasRecording={call.hasRecording}
+              canHear={call.canHear}
+              transcript={call.transcript ?? null}
+              transcriptRu={call.transcriptRu ?? null}
+              analysis={analysis}
+              recordingDurationSec={call.durationSec}
+              agentName={call.agentName}
+              royal
+            />
+          </div>
+        )}
+      />
+    );
+  }
 
   return (
     <>
@@ -1084,6 +1227,7 @@ function FeedRow({ call }: { call: CallFeedRow }) {
             {!outNoAnswer && call.durationSec ? ` · ${formatCallDuration(call.durationSec)}` : ""}
             {call.agentName ? ` · ${call.agentName}` : ""}
             {!call.client && call.kind !== "OUT" ? " · в базе нет" : ""}
+            {isWhatsappCallSource(call.source) ? " · WhatsApp" : ""}
             {analysis ? ` · балл ${analysis.score}` : ""}
           </span>
         </button>

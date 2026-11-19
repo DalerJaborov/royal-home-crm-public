@@ -28,6 +28,7 @@ import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
+import { handleNarrationPreviewCallback } from "./narrationPreviewBot.js";
 import { handleFreeNarrationCallback, handleFreeNarrationMessage } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
@@ -182,6 +183,9 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "complete_property_editing",
   // Смена статуса объекта (17.11.2026): теперь меняется сразу (снять с продажи, продано) и закрывает показы и посты — только в личке.
   "change_property_status",
+  // Озвучка объекта словами (18.11.2026, tools/narrationTools.ts): текст озвучки, файлы и одобрение (ролик уходит в соцсети) — только в личке.
+  // Список буквами (не импортом): сверку с реестром держит tests/assistant-narration-tools.test.ts.
+  "narration_status", "send_narration_audio", "request_narration", "approve_narration",
   // Удаление клиента (15.11.2026): карточка клиента и подтверждение — только в личке.
   "delete_client",
   // Возврат клиента из Корзины (17.11.2026): та же карточка клиента — только личка.
@@ -229,17 +233,20 @@ function actionActorOf(agentId: string, access: AgentAccess, telegramPrivate: bo
 // ───────────────────────────── рендер ─────────────────────────────
 
 const FIELD_MAX = 120;
-function field(value: unknown): string {
+function field(value: unknown, max = FIELD_MAX): string {
   const text = typeof value === "string" ? value : value === null || value === undefined ? "—" : String(value);
   const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > FIELD_MAX ? `${flat.slice(0, FIELD_MAX - 1)}…` : flat;
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-function lines(record: Record<string, unknown>): string {
+function lines(record: Record<string, unknown>, max = FIELD_MAX): string {
   return Object.entries(record)
-    .map(([k, v]) => `${k}: ${field(v)}`)
+    .map(([k, v]) => `${k}: ${field(v, max)}`)
     .join("; ");
 }
+
+/** Текст озвучки в карточке читается целиком (было → станет): 120 знаков хватает на цену, но не на текст ролика. */
+const NARRATION_FIELD_MAX = 1300;
 
 /** Одна карточка на все ожидающие действия ответа: «было → станет» по каждому. */
 /**
@@ -280,10 +287,11 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
         ...(p.becomes.Заявка ? [tajik ? "Роҳбар розӣ шавад, нарх иваз мешавад." : "Цена изменится после одобрения руководителем."] : []),
       ].join("\n");
     }
+    const max = (a.tool === "request_narration" || a.tool === "approve_narration") ? NARRATION_FIELD_MAX : FIELD_MAX;
     return [
       head,
-      `   ${frame.was}: ${lines(p.was)}`,
-      `   ${frame.becomes}: ${lines(p.becomes)}`,
+      `   ${frame.was}: ${lines(p.was, max)}`,
+      `   ${frame.becomes}: ${lines(p.becomes, max)}`,
       p.risk ? `   ${p.irreversible ? "⚠️ " : ""}${field(p.risk)}` : p.irreversible ? `   ⚠️ ${frame.irreversible}` : null,
     ]
       .filter(Boolean)
@@ -865,7 +873,8 @@ export async function handleAssistantPrivate(
     const moneyWallet = createAssistantMoneyWallet();
     if (msg.document && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
     // «Править текст» озвучки (15 минут после кнопки) — раньше мастера объекта и общего ответа.
-    if (!isForwarded && await handleNarrationTextReply(msg, agent)) return;
+    // Голосовое в эти 15 минут — тоже новый текст озвучки: расшифровка той же дверью, что у обычного голосового.
+    if (!isForwarded && await handleNarrationTextReply(msg, agent, (m) => transcribeVoice(m, agent.id, moneyWallet))) return;
     // «Озвучь текст» (16.11.2026): дословная озвучка текста сотрудника выбранным голосом — telegram/assistantFreeNarration.ts.
     if (await handleFreeNarrationMessage(msg, agent, isForwarded)) return;
     // Ответ «к какому объекту ролик» (30 минут после вопроса) — telegram/staffClip.ts.
@@ -1761,6 +1770,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
   if (await handleTelegramPropertyDraftCallback(query)) return true;
   if (await handlePropertyOfferCallback(query)) return true;
   if (await handleNarrationCallback(query)) return true;
+  if (await handleNarrationPreviewCallback(query)) return true;
   if (await handleFreeNarrationCallback(query)) return true;
   if (await handleStaffClipCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;

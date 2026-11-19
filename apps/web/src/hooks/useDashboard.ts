@@ -26,7 +26,8 @@ export interface DashboardSummary {
   /** Принятые карточки этого агента, по которым срок первого звонка ещё не
    *  закрыт (задание 17.09.2026) — сортировано по dueAt, самая срочная первой.
    *  Пусто у руководства и когда непрозвоненных карточек нет. */
-  firstCallDue: { id: string; shortId: number; fullName: string; phone: string; dueAt: string }[];
+  /** afterDue — что будет после срока, фразой с сервера (firstCallAfterDue, 19.11.2026). */
+  firstCallDue: { id: string; shortId: number; fullName: string; phone: string; dueAt: string; afterDue?: string }[];
   /** Клиенты, которых руководитель сам назначил этому агенту (принятые сразу) и
    *  с которыми он ещё не связался — не дольше трёх суток (владелец 23.09.2026).
    *  Необязательное: старый сервер поля не присылает. */

@@ -72,17 +72,24 @@ import {
   TIKTOK_PUBLISH_RETRY_FIRST_DELAY_MS,
   tiktokPublishRetryDedupeKey,
 } from "../jobs/tiktokPublishRetryPolicy.js";
-import { nextPublishSlot } from "./publishSchedule.js";
-import { loadOccupiedPublishSlots } from "./publishSlots.js";
+import {
+  enqueueSocialPublishRetry,
+  isSocialPublishRetryTarget,
+  socialPublishRetryDedupeKeys,
+} from "../jobs/socialPublishRetryPolicy.js";
+import { nextNarrationSlot, nextPublishSlot } from "./publishSchedule.js";
+import { loadOccupiedPublishSlots, PUBLISH_SLOT_LOCK_ID } from "./publishSlots.js";
 import { updatePublishedMarks, type PublishedMarks } from "./publishedMarks.js";
 import { stageLatePublishedPriceCaption } from "./priceCaptionDelivery.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
-import { PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
+import { narrationPublishGapMin, PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
+import { loadNarrationConfiguration } from "./narrationGeneration.js";
 import { sendAgentSharePost } from "./agentSharePost.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { dropNarrationMaster, mixFromStoredMaster, planCrmMixOnReceive, storeNarrationMaster } from "./narrationMaster.js";
 import { narrationLineForMontajer } from "./narrationMontajerNote.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
+import { NARRATION_PREVIEW_CLEARED } from "./narrationPreviewFields.js";
 
 /**
  * ЗАДАНИЕ «ПУБЛИКАЦИЯ ПРИНЯТОГО РОЛИКА» (21.09.2026, случай №114) — тип,
@@ -447,7 +454,7 @@ const HANDOFF_QUEUE_LOCK_ID = 1909_2026;
  * lib/publishSlots.ts::loadOccupiedPublishSlots (объединяет Property.scheduledPublishAt
  * и PropertyPhotoPost.scheduledAt), а не второй независимый счётчик.
  */
-export const PUBLISH_SLOT_LOCK_ID = 2209_2026;
+export { PUBLISH_SLOT_LOCK_ID };
 
 /**
  * КТО ДЕРЖИТ МЕСТО МОНТАЖЁРА — ОДНО ОПРЕДЕЛЕНИЕ НА ВЕСЬ КОД (23.09.2026).
@@ -1997,10 +2004,20 @@ export function handoffSkippedByStatusReason(status: string): string {
  * его, а вышедший канал записывает только в конце своего шага — любое действие
  * посреди этого либо теряется молча, либо старый ролик выходит после «удалили».
  */
+/**
+ * ВСЕ задания, которые публикуют принятый ролик объекта: основная публикация,
+ * повтор TikTok и повторы Meta-каналов (18.11.2026). Одна точка: «идёт ли
+ * публикация» и «снять ждущие при отзыве ролика» не должны разъехаться, когда
+ * появится ещё один вид повтора (lib/publishedVideoFix.ts зовёт её же).
+ */
+export function handoffPublishJobDedupeKeys(propertyId: string): string[] {
+  return [videoHandoffPublishDedupeKey(propertyId), tiktokPublishRetryDedupeKey(propertyId), ...socialPublishRetryDedupeKeys(propertyId)];
+}
+
 export async function isHandoffPublishRunning(propertyId: string, db: TxClient = prisma): Promise<boolean> {
   const running = await db.backgroundJob.findFirst({
     where: {
-      dedupeKey: { in: [videoHandoffPublishDedupeKey(propertyId), tiktokPublishRetryDedupeKey(propertyId)] },
+      dedupeKey: { in: handoffPublishJobDedupeKeys(propertyId) },
       status: "RUNNING",
     },
     select: { id: true },
@@ -2212,9 +2229,11 @@ async function finishReceivingVideo(
           // Ролик с голосом монтажёра отменяет прежний мастер: перемикс из него затёр бы новый монтаж.
           videoMasterStorageKey: master?.key ?? null,
           videoMasterSource: master ? "EDITOR" : null,
-          // Новый готовый ролик — новая попытка убрать голос машиной (16.11.2026).
-          videoMasterAutoError: null, videoMasterAutoErrorFinalPath: null, videoMasterAutoAttempts: 0, videoMasterAutoRetryAt: null,
           videoMasterNarrationVersionId: master?.versionId ?? null,
+          // Новый ролик от монтажёра — кандидат «прослушать перед выпуском» к старому больше не годится (17.11.2026).
+          ...NARRATION_PREVIEW_CLEARED,
+          // и отказ хозяина от наложения версии на прежний ролик к новому ролику не относится.
+          narrationPreviewDeclinedVersionId: null,
           videoMasterMixError: null,
           videoMasterMixErrorVersionId: null,
           // Ожидание (ручное или пересылка рядом с держателем места) закрыто приёмом.
@@ -2250,6 +2269,10 @@ async function finishReceivingVideo(
     return { ok: false, error: "Эта передача уже закрыта — объект её не ждёт." };
   }
   if (previousMasterKey && previousMasterKey !== master?.key) await dropNarrationMaster(previousMasterKey);
+  // Кандидат «прослушать перед выпуском» к прежнему ролику (поля обнулены записью выше) — файл тоже.
+  if (property.narrationPreviewPath && property.narrationPreviewPath !== finalPublicPath) {
+    await fs.promises.unlink(path.join(videoHandoffDir, path.basename(property.narrationPreviewPath))).catch(() => {});
+  }
   const oldVideoLeftIn = accepted.oldVideoLeftIn.length > 0 ? accepted.oldVideoLeftIn : undefined;
   requestPultSnapshot(); // пульт: ролик принят, ждёт проверки
 
@@ -2369,6 +2392,14 @@ export interface SchedulePublishResult {
  * принят, сторож недоехавших публикаций (videoHandoffUnfinishedPublishWatchdog)
  * поставит задание позже.
  */
+/** Промежуток очереди новой озвучки, если этот выпуск — перевыпуск после утверждённой озвучки; иначе null. */
+async function narrationRemakeGapMin(propertyId: string): Promise<number | null> {
+  const remake = await prisma.videoRemakeRequest.findFirst({ where: { propertyId, reason: "NARRATION_CHANGED", replaceOldPostsOnPublish: true, oldPostsReplacedAt: null }, select: { id: true } });
+  if (!remake) return null;
+  const { config } = await loadNarrationConfiguration();
+  return narrationPublishGapMin(config);
+}
+
 export async function schedulePublishAfterAccept(propertyId: string): Promise<SchedulePublishResult> {
   const closedReason = "Передачу закрыли, пока ролик принимался, — в сети он сам не уйдёт.";
   try {
@@ -2388,6 +2419,10 @@ export async function schedulePublishAfterAccept(propertyId: string): Promise<Sc
       return { scheduledPublishAt: null, notPublishingReason };
     }
     const scheduleRules = (await loadPublishScheduleRules()).rules;
+    // НОВАЯ ОЗВУЧКА ВЫХОДИТ СРАЗУ (18.11.2026): перевыпуск после утверждённой озвучки (заявка NARRATION_CHANGED с
+    // заменой старых постов) — своей короткой очередью (lib/publishSchedule.ts::nextNarrationSlot), на той же шкале
+    // и под тем же замком, что все публикации. Ночью — утром. Промежуток — из настроек озвучки (по умолчанию 15 мин).
+    const narrationGapMin = await narrationRemakeGapMin(propertyId);
     const scheduledPublishAt = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PUBLISH_SLOT_LOCK_ID}::bigint)`;
       // ВСЕ занятые слоты от «сейчас минус промежуток» и дальше, а не только
@@ -2399,8 +2434,9 @@ export async function schedulePublishAfterAccept(propertyId: string): Promise<Sc
       // Занятые слоты — объединяя ролики и фото-посты (28.09.2026,
       // lib/publishSlots.ts): иначе оба вида публикаций считали бы свои часы
       // отдельно и могли бы встать на одну и ту же минуту.
-      const occupied = await loadOccupiedPublishSlots(tx, new Date(now.getTime() - scheduleRules.minGapMin * 60_000), propertyId);
-      const computed = nextPublishSlot(now, occupied, scheduleRules);
+      const lookBackMin = narrationGapMin ?? scheduleRules.minGapMin;
+      const occupied = await loadOccupiedPublishSlots(tx, new Date(now.getTime() - lookBackMin * 60_000), propertyId);
+      const computed = narrationGapMin !== null ? nextNarrationSlot(now, occupied, scheduleRules, narrationGapMin) : nextPublishSlot(now, occupied, scheduleRules);
       // Слот пишется внутри той же транзакции, под замком: запись после снятия
       // замка вернула бы гонку за слот. Причина едет рядом со временем.
       const written = await tx.property.updateMany({
@@ -2878,7 +2914,7 @@ export type DiscardFinalVideoResult =
 export async function discardReceivedFinalVideo(propertyId: string): Promise<DiscardFinalVideoResult> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
-    select: { deletedAt: true, videoHandoffFinalPath: true, publishedChannels: true, videoMasterStorageKey: true },
+    select: { deletedAt: true, videoHandoffFinalPath: true, publishedChannels: true, videoMasterStorageKey: true, narrationPreviewPath: true },
   });
   if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект не найден или удалён" };
   if (!property.videoHandoffFinalPath) {
@@ -2891,7 +2927,7 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
   const now = new Date();
   await prisma.$transaction(async (tx) => {
     await tx.backgroundJob.deleteMany({
-      where: { dedupeKey: { in: [videoHandoffPublishDedupeKey(propertyId), tiktokPublishRetryDedupeKey(propertyId)] }, status: "PENDING" },
+      where: { dedupeKey: { in: handoffPublishJobDedupeKeys(propertyId) }, status: "PENDING" },
     });
     await tx.property.update({
       where: { id: propertyId },
@@ -2901,8 +2937,8 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
         // Удалили принятый ролик — его мастер тоже не годится для перемикса (11.11.2026).
         videoMasterStorageKey: null,
         videoMasterSource: null,
-        videoMasterAutoError: null, videoMasterAutoErrorFinalPath: null, videoMasterAutoAttempts: 0, videoMasterAutoRetryAt: null,
         videoMasterNarrationVersionId: null,
+        ...NARRATION_PREVIEW_CLEARED,
         scheduledPublishAt: null,
         scheduledPublishReason: null,
         clipReviewStatus: "NONE",
@@ -2917,6 +2953,7 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
   });
   await fs.promises.unlink(path.join(videoHandoffDir, path.basename(finalPath))).catch(() => {});
   await fs.promises.unlink(legacyHandoffCoverPath(finalPath)).catch(() => {});
+  if (property.narrationPreviewPath) await fs.promises.unlink(path.join(videoHandoffDir, path.basename(property.narrationPreviewPath))).catch(() => {});
   await dropNarrationMaster(property.videoMasterStorageKey);
   return { ok: true, publishedChannels: property.publishedChannels };
 }
@@ -3363,8 +3400,15 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
     }
     for (const result of retriable) {
       if (result.channel !== "TIKTOK") {
-        // Признак пока ставит только TikTok. Появится второй канал — ему нужно
-        // своё задание повтора, а не тихое попадание в «ожидает» без того, кто
+        // Meta не смогла скачать наш файл (18.11.2026, объект №208: публикация
+        // совпала с перезапуском nginx при выкате) — повтор через несколько
+        // минут, своё задание на каждый канал (jobs/socialPublishRetry.ts).
+        if (isSocialPublishRetryTarget(result.channel)) {
+          await enqueueSocialPublishRetry(property.id, result.channel);
+          continue;
+        }
+        // YouTube и Telegram признак не ставят (читают файл с диска). Если
+        // появится — ему нужно своё задание, а не тихое «ожидает» без того, кто
         // это ожидание доведёт до конца.
         void logSystemError(
           "video-handoff",
@@ -3417,7 +3461,10 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
       // Отказ не должен ронять уже случившуюся публикацию Reels — поэтому свой try.
       if (igResult?.ok) {
         try {
-          await publishPropertyInstagramStories(property.id, localVideoPath);
+          const stories = await publishPropertyInstagramStories(property.id, localVideoPath);
+          // Часть не вышла, потому что Meta не смогла скачать файл (№208, часть 1/3) —
+          // повтор через несколько минут доделает серию с упавшей части.
+          if (stories.retriable) await enqueueSocialPublishRetry(property.id, "INSTAGRAM_STORIES");
         } catch (err) {
           void logSystemError("meta", `Истории Instagram (объект ${property.id}) упали неожиданно: ${describeError(err)}`);
         }
@@ -3435,7 +3482,8 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
     // одного, а доделать серию всё равно надо.
     if (!igResult?.ok) {
       try {
-        await publishPropertyInstagramStories(property.id, localVideoPath, { resumeOnly: true });
+        const stories = await publishPropertyInstagramStories(property.id, localVideoPath, { resumeOnly: true });
+        if (stories.retriable) await enqueueSocialPublishRetry(property.id, "INSTAGRAM_STORIES");
       } catch (err) {
         void logSystemError("meta", `Истории Instagram (объект ${property.id}) упали неожиданно: ${describeError(err)}`);
       }
@@ -4291,4 +4339,17 @@ export function dispatchInBackground(
 /** Дождаться всех фоновых отправок — для тестов и аккуратной остановки процесса. */
 export async function settleBackgroundHandoffDispatches(): Promise<void> {
   while (backgroundDispatches.size > 0) await Promise.allSettled([...backgroundDispatches]);
+}
+
+/**
+ * ПРИМЕРНОЕ ВРЕМЯ ВЫХОДА после «Утвердить» (18.11.2026): ответ кнопки CRM и Шабнам говорит «выйдет примерно в 14:15».
+ * Без записи и без замка — настоящий слот ставит schedulePublishAfterAccept, когда голос уже наложен (обычно через
+ * пару минут); карточка потом показывает точное время.
+ */
+export async function estimateNarrationPublishAt(propertyId: string, now: Date = new Date()): Promise<Date> {
+  const rules = (await loadPublishScheduleRules()).rules;
+  const gap = narrationPublishGapMin((await loadNarrationConfiguration()).config);
+  const from = new Date(now.getTime() + 2 * 60_000);
+  const occupied = await loadOccupiedPublishSlots(prisma, new Date(from.getTime() - gap * 60_000), propertyId);
+  return nextNarrationSlot(from, occupied, rules, gap).at;
 }

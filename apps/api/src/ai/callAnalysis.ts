@@ -18,7 +18,7 @@ import { logTimeline } from "../lib/timeline.js";
 import { describeError } from "../lib/describeError.js";
 import { checkAgentPhoneAsk } from "../lib/agentPhoneAskDetector.js";
 import { resolveCallPropertyId } from "../lib/propertyVoice/callProperty.js";
-import { raiseBuyerDesiredPropertyCount, raiseSellerDeclaredPropertyCount } from "../lib/declaredPropertyCount.js";
+import { automationSwitchOn } from "../lib/automationSwitches.js";
 
 /**
  * Разбор телефонного разговора: что получилось, что нет, о чём договорились.
@@ -92,13 +92,6 @@ interface AnalysisExtract {
   /** Клиент упомянул, что уже обращался к нам раньше (звонил/писал) — сигнал
    *  проверить дубликаты карточек (владелец 19.08.2026). */
   mentionsPriorContact?: boolean;
-  /** Сколько объектов на продажу упомянул продавец — владелец 06.09.2026, разбор
-   *  слепых зон п.3: «не агент решает сколько у клиента объектов — ИИ сам
-   *  понимает и вносит». Пусто/null — числа не называл. */
-  sellerPropertyCount?: number | null;
-  /** Симметрично выше, но покупатель — сколько объектов он хочет купить
-   *  (владелец 06.09.2026: «а если хочет купить несколько»). */
-  buyerPropertyCount?: number | null;
 }
 
 const analysisSchema = {
@@ -235,31 +228,6 @@ const analysisSchema = {
     coaching: {
       type: "string",
       description: "Один конкретный совет агенту на будущее, обращаясь к нему на «вы». Пусто, если разговор хороший",
-    },
-    /**
-     * СКОЛЬКО ОБЪЕКТОВ У ПРОДАВЦА (владелец 06.09.2026, разбор слепых зон п.3):
-     * «не агент решает сколько у клиента объектов на продажу — ИИ сам понимает
-     * это из разговора и вносит». Число заменяет прежнее целиком, а не
-     * складывается с ним — тот же приём, что у бюджета: если продавец
-     * поправился «на самом деле три», записывается три, а не два плюс три.
-     */
-    sellerPropertyCount: {
-      type: "number",
-      description:
-        "Если ПРОДАВЕЦ (не покупатель) назвал или перечислил, сколько у него объектов недвижимости на " +
-        "продажу — впиши число: «у меня однушка и двушка» → 2, «пара квартир» → 2, «три объекта, но один " +
-        "пока не готов» → 3. Читай СМЫСЛ, а не только цифры. Явного числа или перечисления нет — оставь пусто, " +
-        "не гадай. Разговор с покупателем — всегда пусто.",
-    },
-    /** Симметрично sellerPropertyCount выше, но для покупателя (владелец
-     *  06.09.2026: «а если хочет купить несколько»). */
-    buyerPropertyCount: {
-      type: "number",
-      description:
-        "Если ПОКУПАТЕЛЬ (не продавец) явно сказал, что хочет купить НЕСКОЛЬКО объектов — впиши число: " +
-        "«хочу квартиру себе и ещё одну сдавать» → 2, «ищу две квартиры под инвестицию» → 2. Обычный " +
-        "покупатель одной квартиры — всегда пусто, не пиши 1. Явного намерения купить несколько нет — оставь " +
-        "пусто, не гадай.",
     },
   },
 };
@@ -503,29 +471,6 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
       }
     }
 
-    /**
-     * ЧИСЛО ОБЪЕКТОВ ПРОДАВЦА → НА КАРТОЧКУ (владелец 06.09.2026, разбор слепых
-     * зон п.3). Пишет только ИИ — агент может оспорить через отдельную заявку
-     * (routes/clients/propertyCountDisputes.ts), но не исправить поле напрямую.
-     *
-     * НЕ ЗАМЕНЯЕМ ЦЕЛИКОМ — БЕРЁМ БОЛЬШЕЕ (владелец 18.09.2026, живой случай
-     * Ахтам/Ноза): разбор звонка видит только ЭТОТ разговор, а он почти всегда
-     * про один объект; звонок про снижение цены одной квартиры тихо переписывал
-     * известные 4 объекта на 1. Почему и как — lib/declaredPropertyCount.ts.
-     */
-    if (typeof extract.sellerPropertyCount === "number" && Number.isFinite(extract.sellerPropertyCount)) {
-      const count = Math.max(0, Math.trunc(extract.sellerPropertyCount));
-      if (count > 0) await raiseSellerDeclaredPropertyCount(interaction.clientId, count);
-    }
-    /** Симметрично выше, но для покупателя (владелец 06.09.2026: «а если хочет
-     *  купить несколько»). Ещё без своего аларма/заявки на пересмотр — это
-     *  только сбор числа, сравнение с реально закрытыми сделками — пункт 4.
-     *  Та же правка «берём большее», по той же причине. */
-    if (typeof extract.buyerPropertyCount === "number" && Number.isFinite(extract.buyerPropertyCount)) {
-      const count = Math.max(0, Math.trunc(extract.buyerPropertyCount));
-      if (count > 0) await raiseBuyerDesiredPropertyCount(interaction.clientId, count);
-    }
-
     const showingAt = parseShowingAt(extract.showingAt, interaction.createdAt);
     // Тем же разбором, что и время показа: проверки («это вообще дата», «не
     // прошлое», «не через год») у договорённости о звонке ровно те же, а вторая
@@ -643,7 +588,9 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
       // Newly eligible dual-intent sellers are collected privately above. Do not
       // broaden the legacy live autobooking/push path without activation approval.
       if (client?.kind === "SELLER") return { ok: true };
-      if (client) {
+      // Выключатель «ИИ сам назначает показ по разговору агента» (19.11.2026): выключено —
+      // показ по звонку не назначается, остальной разбор звонка идёт как обычно.
+      if (client && (await automationSwitchOn("aiAgentShowingAutoBookEnabled"))) {
         /**
          * ПОКАЗ НАЗНАЧАЕТСЯ САМ — НО ТОЛЬКО КОГДА ОДНОЗНАЧНО (владелец 18.08.2026,
          * после того как это же самое уже пробовали и дважды отменяли: 05.08 —

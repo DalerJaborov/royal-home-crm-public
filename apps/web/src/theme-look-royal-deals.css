@@ -141,7 +141,7 @@
   border: 0; background: transparent; font: inherit; font-size: 17px; font-weight: 600; text-align: left; cursor: pointer;
 }
 :root[data-ui-look="royal"] [data-ry-section="deals"] button.ry-deal-name::after { content: ""; position: absolute; inset: -12px -6px; }
-:root[data-ui-look="royal"] [data-ry-section="deals"] button.ry-deal-name:hover { color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] button.ry-deal-name:hover:not(:disabled) { color: var(--rh-ui-primary-ink); }
 :root[data-ui-look="royal"] [data-ry-section="deals"] :is(button.ry-deal-name, .ry-deal-link, .ry-deal-step, .ry-deals-stage):focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: 12px; }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-obj { font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-money { font-size: 15px; line-height: 1.45; color: var(--rh-ui-text); overflow-wrap: anywhere; }
@@ -339,3 +339,8 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.lk, .lnk) {
   display: inline-flex; align-items: center; min-height: 44px; color: var(--rh-ui-primary-ink); font-size: 15px; font-weight: 600; text-decoration: none; text-align: left; overflow-wrap: anywhere;
 }
+
+/* Выключенная кнопка раздела приглушена всегда (пачка debt, ревью PR 286: сторож
+   disabledDimGaps сверяет покрытие каждой перекраски кнопок). :not(#ry-dim) — вес id
+   (такого id нет): правило тяжелее любой классовой перекраски выше и в шторках. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }

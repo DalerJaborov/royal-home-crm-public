@@ -134,6 +134,15 @@
 @import './theme-look-royal-deals.css';
 /* «Новый вид», раздел «Деньги» (пачка money): тоже только под :root[data-ui-look="royal"]. */
 @import './theme-look-royal-money.css';
+/* «Новый вид», разделы «Звонки»/«Телефония» и «Календарь» (пачки calls, calendar): только под :root[data-ui-look="royal"]. */
+@import './theme-look-royal-calls.css';
+@import './theme-look-royal-calendar.css';
+/* «Новый вид», раздел «Маркетинг» (пачка marketing: реклама, обзор, публикации, изменения на сайте, цены рынка, комментарии) — только под :root[data-ui-look="royal"] и меткой раздела. */
+@import './theme-look-royal-marketing.css';
+/* «Новый вид», экраны контроля (пачка control): Контроль руководителя, Здоровье, Что не доехало, СБ, Обучение бота, Резервные копии. */
+@import './theme-look-royal-control.css';
+/* «Новый вид», раздел «Аналитика» (пачка analytics: отчёты, источники, инсайты, воронка, подготовка объектов). */
+@import './theme-look-royal-analytics.css';
 
 /* ВАЖНО: тематические файлы выше подключены БЕЗ layer(...).
  * Кодмод @tailwindcss/upgrade завернул их в layer(base) — и ночная тема

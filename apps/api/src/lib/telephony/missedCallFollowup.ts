@@ -1,4 +1,4 @@
-import { isTajikMobileNumber } from "@royal-home/shared";
+import { isTajikMobileNumber, isWhatsappCallSource } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
 import { sendSms, smsConfigured, toSmsPhone } from "../sms/index.js";
@@ -60,6 +60,7 @@ export type MissedCallSmsStatus =
   | "staff"
   | "service_number"
   | "wrote_whatsapp"
+  | "whatsapp_call"
   | "cooldown"
   | "daily_cap"
   | "no_text"
@@ -103,6 +104,18 @@ function companyTails(text: string, forwardPhone: string | null): Set<string> {
 }
 
 /** Рубильник Б: пропущенный с незнакомого номера заводит карточку и общую задачу «Перезвонить». */
+/**
+ * ПРОПУЩЕННЫЙ ЗВОНОК ИЗ WHATSAPP — БЕЗ СМС (решение владельца 18.11.2026).
+ *
+ * СМС после пропущенного зовёт человека написать нам в WhatsApp. Если сам звонок
+ * пришёл через шлюз WhatsApp (канал `PJSIP/whatsapp-gw-…`, `IncomingCall.source =
+ * "whatsapp"`), клиент уже в WhatsApp — СМС лишняя, а для иностранного номера ещё и
+ * платная впустую. Единственное место этого решения; обычная линия — без изменений.
+ */
+export function missedCallSmsSkipForSource(callSource: string | null | undefined): "whatsapp_call" | null {
+  return isWhatsappCallSource(callSource) ? "whatsapp_call" : null;
+}
+
 export async function isMissedCallTaskEnabled(): Promise<boolean> {
   const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { missedCallCallbackTaskEnabled: true } });
   return s?.missedCallCallbackTaskEnabled === true;
@@ -112,9 +125,19 @@ export async function isMissedCallTaskEnabled(): Promise<boolean> {
  * Решить и отправить СМС звонившему. Не бросает: звонок и его итог важнее СМС.
  * `clientId` — карточка звонившего, если она есть: в её хронологию ляжет строка об отправке.
  */
-export async function sendMissedCallSms(input: { phone: string | null | undefined; clientId?: string | null; now?: Date }): Promise<MissedCallSmsResult> {
+export async function sendMissedCallSms(input: {
+  phone: string | null | undefined;
+  clientId?: string | null;
+  now?: Date;
+  /** `IncomingCall.source`: "phone" | "whatsapp" (lib/telephony/callSource.ts). Нет — обычная линия. */
+  callSource?: string | null;
+}): Promise<MissedCallSmsResult> {
   const now = input.now ?? new Date();
   let claimed: string | null = null;
+  // Звонок пришёл ИЗ WhatsApp: человек уже там, и СМС «напишите нам в WhatsApp»
+  // ему не нужна (владелец 18.11.2026). Первой проверкой — до настроек и базы.
+  const sourceSkip = missedCallSmsSkipForSource(input.callSource);
+  if (sourceSkip) return { status: sourceSkip };
   try {
     const settings = await prisma.settings.findUnique({
       where: { id: "singleton" },

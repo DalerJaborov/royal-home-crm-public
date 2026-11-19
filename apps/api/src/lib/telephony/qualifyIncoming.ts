@@ -1,4 +1,5 @@
 import { maskClientPhone } from "../clientPhone.js";
+import { clientSourceForCall } from "./callSource.js";
 import { formatPropertyCode, type QualifyIncomingCallInput, type QualifyIncomingCallResult } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { recordIncomingNamedDeclaration } from "../clientWorkflowObservations.js";
@@ -101,7 +102,7 @@ export async function qualifyIncomingCall(input: {
 }): Promise<QualifyIncomingCallResult | { error: "not_found" | "no_client" }> {
   const call = await prisma.incomingCall.findUnique({
     where: { id: input.callId },
-    select: { id: true, phone: true, clientId: true, qualifiedAt: true, autoCreatedClient: true, interactionId: true },
+    select: { id: true, phone: true, source: true, clientId: true, qualifiedAt: true, autoCreatedClient: true, interactionId: true },
   });
   if (!call) return { error: "not_found" };
 
@@ -131,7 +132,7 @@ export async function qualifyIncomingCall(input: {
   let clientId = call.clientId;
   let createdNow = false;
   if (!clientId) {
-    const created = await createClientForCall(call.phone);
+    const created = await createClientForCall(call.phone, call.source);
     if (!created) return { error: "no_client" };
     clientId = created;
     createdNow = true;
@@ -738,7 +739,8 @@ async function markIrrelevant(input: {
  * существующей карточки, если она всё-таки нашлась (номер могли завести руками,
  * пока оператор печатал).
  */
-export async function createClientForCall(phone: string): Promise<string | null> {
+/** `callSource` — `IncomingCall.source`: звонок из WhatsApp заводит клиента «из WhatsApp». */
+export async function createClientForCall(phone: string, callSource?: string | null): Promise<string | null> {
   const existing = await prisma.client.findUnique({ where: { phone }, select: { id: true, deletedAt: true } });
   // Карточка в Корзине: оживлять её разбором звонка не наше решение — её удалил
   // человек. Отдаём отказ, оператор увидит понятное сообщение.
@@ -761,7 +763,7 @@ export async function createClientForCall(phone: string): Promise<string | null>
         // voicemailIngest.ts; сам номер живёт в `phone` и открывается правом.
         fullName: `Входящий ${maskClientPhone(phone)}`,
         phone,
-        source: "PHONE_CALL",
+        source: clientSourceForCall(callSource),
         kind: "OTHER",
         status: "NEW",
         currency: "TJS",

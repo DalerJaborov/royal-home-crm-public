@@ -4,6 +4,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { buildCardFillSuggestion } from "../ai/cardFill.js";
 import { scoreClient, SCORABLE_CLIENT_STATUSES } from "../ai/scoring.js";
 import { describeError } from "./describeError.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 import { fromTjs, loadMoneyContext } from "./money.js";
 import { isPlaceholderName } from "./placeholderName.js";
 import { logSystemAudit } from "./audit.js";
@@ -182,7 +183,9 @@ export async function runClientAutopilot(clientId: string, reason: AutopilotReas
       nameIsPlaceholder;
 
     if (hasGaps) {
-      const suggestion = await buildCardFillSuggestion(clientId);
+      // Выключатель «ИИ дописывает карточку по звонку» (19.11.2026): выключен — расшифровки звонков
+      // в заполнение не идут, карточку пополняет только переписка.
+      const suggestion = await buildCardFillSuggestion(clientId, { includeCalls: await automationSwitchOn("aiCardFromCallEnabled") });
       /**
        * СНИМОК ВЫШЕ УСТАРЕЛ (аудит Codex 04.10.2026, №5). Ответ модели ждали секунды,
        * и за это время агент мог вписать бюджет, переименовать клиента или сменить

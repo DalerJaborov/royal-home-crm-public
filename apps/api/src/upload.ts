@@ -372,6 +372,25 @@ export const audioUpload = guardedUpload({
 });
 
 /**
+ * Трек библиотеки «своя музыка» (18.11.2026, routes/properties/narrationMusic.ts). Отдельная дверь:
+ * предел 15 МБ — тот же, что в общем договоре (NARRATION_MUSIC_LIMITS), mp3/m4a. Фильтр здесь — только первая
+ * отсечка по типу из браузера; настоящая проверка — по содержимому и ffprobe (lib/narrationMusic.ts).
+ */
+export const narrationMusicUpload = guardedUpload({
+  name: "narrationMusicUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
+  storage: multer.memoryStorage(),
+  // Числом, а не именем: сторож audit-limits читает предел из текста. Равенство NARRATION_MUSIC_LIMITS.maxBytes
+  // держит тест narration-music-routes.test.ts.
+  limits: { fileSize: 15 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const ok = file.mimetype.startsWith("audio/") || file.mimetype === "application/octet-stream" || /\.(mp3|m4a)$/i.test(file.originalname);
+    if (!ok) return cb(new UploadRejectedError("Допустимы только треки mp3 или m4a"));
+    cb(null, true);
+  },
+});
+
+/**
  * Голосовое СОТРУДНИКА клиенту в переписке (16.08.2026). Отдельный загрузчик от
  * audioUpload выше: тот — для музыки ожидания и приветствия (mp3/wav, до 15 МБ,
  * загружает директор в Настройках), этот — для короткой записи из браузера

@@ -1380,8 +1380,22 @@ model VideoRemakeRequest {
   /// (владелец 30.10.2026: «когда выйдет новый»). Ставит возврат по смене цены или
   /// данных карточки; выполняет задание публикации (replaceOldPostsBeforeRemakePublish).
   replaceOldPostsOnPublish Boolean   @default(false)
-  /// Когда задание публикации нового ролика сняло старые посты; null — ещё не снимало.
+  /// Когда замена старых постов закончена (все сети решены); null — ещё не закончена.
   oldPostsReplacedAt       DateTime?
+  /// СНАЧАЛА НОВЫЙ, ПОТОМ СТАРЫЙ (18.11.2026, lib/remakeOldPosts.ts): снимок старых постов (каналы, id, ссылка
+  /// Instagram), взятый один раз перед публикацией нового ролика. Старый пост в сети снимается только после того,
+  /// как там вышел новый; не вышел — старый возвращается в карточку и остаётся висеть.
+  oldPosts                 Json?
+  /// Итог по каждой сети: { [канал]: { state, url?, error? } } — карточка показывает «новый пост, старый снят».
+  oldPostsOutcome          Json?
+  /// Когда обход последний раз проверял эту замену (18.11.2026): обход идёт от давно не проверенных, повторы
+  /// TikTok не задерживают остальных.
+  oldPostsCheckedAt        DateTime?
+  /// Старые посты, перенесённые из закрытой прежней замены (18.11.2026, lib/remakeRequests.ts): вторая замена,
+  /// пока первая не закрыта. Их снимет эта заявка, когда в той же сети выйдет новый ролик.
+  carriedOldPosts          Json?
+  /// Версия озвучки, ради которой эта замена (18.11.2026): карточка показывает ход выпуска именно её.
+  narrationVersionId       String?
   createdAt     DateTime @default(now())
 
   @@index([propertyId])
@@ -2462,17 +2476,35 @@ model Property {
   /// CRM прямо сейчас накладывает новую озвучку на этот ролик (ffmpeg до 9 минут): второй тик
   /// не запускает вторую копию; метка старше 15 минут считается брошенной (12.11.2026).
   videoMasterMixingAt            DateTime?
-  /// Откуда мастер (16.11.2026): EDITOR — монтажёр прислал ролик без голоса; MACHINE — CRM сама
-  /// отделила старый голос от музыки вышедшего ролика (lib/narrationAutoMaster.ts). null — старые записи (монтажёр).
+  /// Откуда мастер (16.11.2026): EDITOR — монтажёр прислал ролик без голоса; null — старые записи (монтажёр).
+  /// MACHINE (CRM сама отделяла старый голос) больше не пишется: машинное отделение убрано 18.11.2026.
   videoMasterSource              String?
-  /// Отделить голос от этого готового ролика не получилось (текст для руководства) — для этого же
-  /// файла повтора нет, объект ушёл монтажёру. Новый готовый ролик — новая попытка.
+  // не используется с 18.11, удалить следующим выкатом (машинное отделение голоса убрано; черновик SQL —
+  // docs/journal/2026-11-18-narration-drop-voice-separator.md). Код эти колонки не читает и не пишет.
   videoMasterAutoError           String?
   videoMasterAutoErrorFinalPath  String?
-  /// Временные сбои сервиса (не ответил, перезапускался при выкате) на этом готовом ролике: после
-  /// трёх подряд — отказ и монтажёру; до того — повтор не раньше videoMasterAutoRetryAt.
   videoMasterAutoAttempts        Int       @default(0)
   videoMasterAutoRetryAt         DateTime?
+  /// ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026, lib/narrationPreview.ts). CRM наложила новую озвучку на
+  /// ВЫШЕДШИЙ ролик — новый файл не подменяет вышедший, а ждёт решения хозяина объекта:
+  /// «Выпустить» / «Другой голос или текст» / «Оставить старый». Молчит — выходит сам в
+  /// narrationPreviewDueAt (часы clipOwnerAutoPublishHours, ночью — в 07:00; 0 часов — сам не выходит).
+  narrationPreviewPath           String?
+  narrationPreviewVersionId      String?
+  /// Ролик без голоса, на который наложен кандидат: сменился — кандидат устарел.
+  narrationPreviewMasterKey      String?
+  narrationPreviewAt             DateTime?
+  narrationPreviewDueAt          DateTime?
+  narrationPreviewVoiceSec       Float?
+  narrationPreviewClipSec        Float?
+  /// Хозяину отправлено (задача narration-preview-due): пусто — отправит следующий тик (повтор после падения).
+  narrationPreviewNotifiedAt     DateTime?
+  /// Хозяин отказался от наложения этой версии («Оставить старый» / «Другой голос или текст») —
+  /// эту версию CRM больше не накладывает; новая версия озвучки — новый кандидат.
+  narrationPreviewDeclinedVersionId String?
+  /// СВОЯ МУЗЫКА (18.11.2026, lib/narrationMusic.ts): трек библиотеки, положенный в последний перемонтаж
+  /// (ролик или кандидат «прослушать»). Следующий перемонтаж берёт другой. Без связи: трек могут удалить.
+  narrationMusicTrackId          String?
   /// МОМЕНТ, КОГДА ГОТОВЫЙ РОЛИК РЕАЛЬНО ПОЛУЧЕН (21.09.2026, случай №114 — ролик
   /// принят, файл лёг на диск, но рестарт контейнеров посреди публикации оборвал
   /// её молча, publishedChannels остался пуст, объект завис в EDITING навсегда).
@@ -3039,6 +3071,8 @@ model PropertyNarrationVersion {
   /// Голос длиннее ролика (16.11.2026): эта версия — тот же объект короче, другим шаблоном, вместо
   /// версии shortenedFromId. Одна перегенерация на версию: укороченную ещё раз не укорачивают.
   shortenedFromId String?
+  /// Длина готового голоса, секунды (18.11.2026): замер для оценки длины текста до оплаты (lib/narrationLength.ts).
+  audioSec Float?
   /// Что CRM сделала с длиной при наложении (агенту одной строкой): «голос ускорен на 8%» и т.п.
   mixNote String?
   deliveries PropertyNarrationDelivery[]
@@ -3079,6 +3113,21 @@ model StaffClipIntake {
   updatedAt      DateTime  @updatedAt
   @@index([chatId, status, createdAt])
   @@index([fileUniqueId])
+}
+
+/// СВОЯ МУЗЫКА ДЛЯ ПЕРЕМОНТАЖА (18.11.2026, lib/narrationMusic.ts): треки без авторских прав, которые
+/// подбирает владелец (Настройки → Озвучка). Файл — в закрытом хранилище роликов (storageKey,
+/// lib/localVideoStorage.ts); тип проверен по содержимому, длина — ffprobe.
+model NarrationMusicTrack {
+  id          String   @id @default(uuid())
+  title       String
+  storageKey  String   @unique
+  /// mp3 | m4a
+  format      String
+  durationSec Float
+  sizeBytes   Int
+  createdById String?
+  createdAt   DateTime @default(now())
 }
 
 model NarrationVoiceSample {
@@ -3668,6 +3717,10 @@ model Client {
   /// может быть правдой, а может быть способом увести сделку. Отличить по тексту
   /// в CRM нельзя, поэтому карточка уходит не следующему агенту, а в СБ.
   securityReview            String?
+  /// Когда карточку поставили «на проверку СБ» (18.11.2026). Точка отсчёта для
+  /// «агент работал после постановки» — вердикт не закрывает карточку в работе
+  /// (apps/api/src/lib/securityAutomation.ts, securityReviewCloseBlocker).
+  securityReviewRequestedAt DateTime?
   securityReviewedAt        DateTime?
   securityReviewedById      String?
   securityReviewer          Agent?               @relation("SecurityReviewer", fields: [securityReviewedById], references: [id], onDelete: SetNull)
@@ -4034,6 +4087,10 @@ model Client {
   /// сколько у клиента объектов — ИИ сам понимает и вносит»). Каждое новое
   /// упоминание ЗАМЕНЯЕТ значение, а не складывается — та же логика, что у
   /// budgetMin/Max при уточнении бюджета.
+  /// 18.11.2026: подсчёт объектов ИИ УДАЛЁН (владелец: «Надо удалить логику такую… что то она
+  /// мешает всем»). Колонки ниже никто больше не пишет и экран не показывает; сами колонки
+  /// оставлены — удаление необратимо. Читает старое значение только «Контроль работы с
+  /// продавцом» (lib/sellerControlEpisodes.ts), он на проде не запускался ни разу.
   sellerDeclaredPropertyCount   Int?
   /// Когда именно ИИ впервые услышал текущее число — от этого момента, а не от
   /// встречи, считается срок до аларма «заявлено N, добавлено M»
@@ -7213,6 +7270,37 @@ model Settings {
   /// стирается: включили обратно — история на месте. @default(true), чтобы
   /// поведение на проде не изменилось само в момент выката миграции.
   royalScoreEnabled                 Boolean   @default(true)
+  /// ВЫКЛЮЧАТЕЛИ АВТОМАТИКИ «РАБОТА С ПРОДАВЦАМИ» (владелец 14.11.2026). Список,
+  /// правило «главный И свой» и подписи — packages/shared/src/sellerAutomationSwitches.ts,
+  /// проверка — apps/api/src/lib/sellerSwitches.ts в начале каждого тика/задания.
+  /// Все @default(true): выкат миграции поведение не меняет, выключает человек.
+  sellerAutomationMasterEnabled         Boolean @default(true)
+  sellerNoPropertyAlarmEnabled          Boolean @default(true)
+  sellerPropertyMissingAntifraudEnabled Boolean @default(true)
+  agentUnansweredAlarmEnabled           Boolean @default(true)
+  dealStaleSellersEnabled               Boolean @default(true)
+  sellerProbeCallEnabled                Boolean @default(true)
+  dealAfterCloseMessagesEnabled         Boolean @default(true)
+  sellerAiAnalysisEnabled               Boolean @default(true)
+  morningSellerLinesEnabled             Boolean @default(true)
+  /// РУБИЛЬНИК «СЛУЖБА БЕЗОПАСНОСТИ: АВТОМАТИКА» (владелец 18.11.2026: «временно
+  /// выключить всю логику сб… чтобы уведомление было руководителю»). Выключен —
+  /// автоматика СБ/антифрода сама не меняет карточку и агента, сигнал уходит
+  /// уведомлением директору и РОП (apps/api/src/lib/securityAutomation.ts).
+  /// @default(false) нарочно: после выката выключено, включает человек.
+  securityAutomationEnabled             Boolean @default(false)
+  /// ВЫКЛЮЧАТЕЛИ «АВТОМАТИКА ИИ И НАПОМИНАНИЯ» (владелец 19.11.2026: «оставить все эти
+  /// функции, просто сделать переключатели»). Список, подписи и группы —
+  /// packages/shared/src/automationSwitches.ts, проверка — apps/api/src/lib/automationSwitches.ts.
+  /// Все @default(true): выкат миграции поведение не меняет, выключает человек.
+  aiCardFromCallEnabled                 Boolean @default(true)
+  aiAgentShowingAutoBookEnabled         Boolean @default(true)
+  aiJobSeekerAutoDetachEnabled          Boolean @default(true)
+  dealStaleBuyersEnabled                Boolean @default(true)
+  notifyClientWaitingEnabled            Boolean @default(true)
+  notifyRobotTookCallEnabled            Boolean @default(true)
+  notifyTrashAnomalyEnabled             Boolean @default(true)
+  notifyPropertyReviewOverdueEnabled    Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из
@@ -9292,6 +9380,12 @@ model IncomingCall {
   /// Номер звонящего в том виде, в каком его хранит CRM (+992…). Станция сообщает
   /// девять цифр без кода страны — приводится при записи (см. lib/telephony/incomingCalls.ts).
   phone             String
+  /// Откуда пришёл звонок: "phone" — обычная линия, "whatsapp" — голосовой звонок
+  /// WhatsApp через шлюз SIP (канал станции `PJSIP/whatsapp-gw-…`, 18.11.2026).
+  /// Строка, а не enum — по той же причине, что routeDecision: новый канал не
+  /// требует миграции типа. Значения — INCOMING_CALL_SOURCES в packages/shared,
+  /// решает lib/telephony/callSource.ts.
+  source            String    @default("phone")
   startedAt         DateTime  @default(now())
   endedAt           DateTime?
   /// Разговор состоялся: кто-то из операторов снял трубку. Ответ самой очереди
@@ -10918,6 +11012,11 @@ model SocialVideoPost {
   status        String    @default("DRAFT")
   scheduledAt   DateTime?
   startedAt     DateTime?
+  /// Бронь исполнителя публикации (19.11.2026): кто первым поставил время — тот исполняет, остальные выходят.
+  /// null — исполнителя ещё не было; сбрасывается при каждом новом заходе (lib/socialVideoPosts.ts::claimRun).
+  runClaimedAt  DateTime?
+  /// Кто держит бронь: «хост:pid:время старта процесса» (claimRun) — бронь умершего процесса не мешает повтору задания.
+  runClaimedBy  String?
   finishedAt    DateTime?
 
   /// Исход по каждому каналу: { INSTAGRAM: { state, error, note, postId, url, retriable,

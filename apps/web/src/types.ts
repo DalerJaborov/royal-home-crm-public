@@ -123,8 +123,12 @@ export interface Property {
    *  случая на клиенте нечем: оба дают `ownerContact: null` — честный флаг решает
    *  это на сервере, том же месте, где решается и сама маскировка. */
   ownerContactHidden?: boolean;
+  /** Номер собственника маской (`+992•••••57`) — тому, кто ведёт объект, но полного номера
+   *  не видит (с 18.11.2026 полный видит только директор). Звонок — кнопкой через станцию. */
+  ownerContactMasked?: string | null;
   /** Карточка продавца, к которой привязан объект (sellerClientId) — только в
-   *  ответе GET /properties/:id и только тем, кому виден номер собственника.
+   *  ответе GET /properties/:id и только тем, кому виден номер собственника или
+   *  кто ведёт объект сам (с 18.11.2026 — без номера, маской).
    *  `canOpen` — откроется ли у этого сотрудника карточка клиента. */
   sellerClient?: { id: string; shortId: number; fullName: string; canOpen: boolean } | null;
   assignedAgentId: string | null;
@@ -336,14 +340,6 @@ export interface Client {
   dualIntentNeedsConfirmation?: boolean;
   dualIntentDecisionSource?: "AUTO" | "MANUAL" | null;
   dualIntentNeedsReview?: boolean;
-  /** Сколько объектов на продажу услышал ИИ из разговоров — пишет только ИИ,
-   *  агент может подать заявку на пересмотр (владелец 06.09.2026, разбор слепых
-   *  зон п.3). null — ИИ ещё ничего не услышал. */
-  sellerDeclaredPropertyCount?: number | null;
-  /** Симметрично выше, но для покупателя: сколько объектов хочет купить —
-   *  услышал ИИ, не агент (владелец 07.09.2026, «пусть у покупателя будет то
-   *  же самое»). null — обычный случай, купить одну квартиру, ИИ не отмечал. */
-  buyerDesiredPropertyCount?: number | null;
   /** Фото профиля из мессенджера, уже скачанное к нам (`/uploads/avatars/...`).
    *  Нет — components/ClientAvatar.tsx рисует кружок с инициалами. */
   avatarUrl?: string | null;

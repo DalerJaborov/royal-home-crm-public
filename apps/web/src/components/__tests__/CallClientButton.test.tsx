@@ -5,7 +5,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CallClientButton } from "../CallClientButton";
 const actor = vi.hoisted(() => ({ role: "AGENT", readOnly: false }));
 vi.mock("../../store/auth", () => ({ useAuthStore: (select: (state: { agent: typeof actor }) => unknown) => select({ agent: actor }) }));
-beforeEach(() => { actor.role = "AGENT"; actor.readOnly = false; });
+const live = vi.hoisted(() => ({ call: null as null | { clientId: string; state: string } }));
+vi.mock("../../hooks/useActiveCall", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../hooks/useActiveCall")>()),
+  useActiveCallValue: () => ({ data: live.call }),
+}));
+beforeEach(() => { actor.role = "AGENT"; actor.readOnly = false; live.call = null; });
 
 /**
  * Прод 11.09.2026, iPhone iOS 18.7 Safari, главная: "undefined is not an object
@@ -78,5 +83,36 @@ describe("CallClientButton — не падает без телефона", () =>
         <CallClientButton clientId="11111111-1111-1111-1111-111111111111" phone="+992501234567" variant="full" />
       )
     ).not.toThrow();
+  });
+});
+
+// «Новый вид», телефонные «Звонки» (решение владельца 19.11: «зеленый значок с белой трубкой»):
+// кнопка — круг без слова, а слово остаётся именем кнопки для экранного чтеца.
+describe("CallClientButton icon: имя для экранного чтеца", () => {
+  it("label у значка — aria-label («Перезвонить»), подписи на экране нет", () => {
+    const html = renderWithQueryClient(<CallClientButton clientId="client" phone="" variant="icon" label="Перезвонить" className="ry-call-round" />);
+    expect(html).toContain('aria-label="Перезвонить"');
+    expect(html.replace(/<[^>]+>/g, "")).not.toContain("Перезвонить");
+  });
+  it("без label — прежнее имя «Позвонить» (старый вид не меняется)", () => {
+    expect(renderWithQueryClient(<CallClientButton clientId="client" phone="" variant="icon" />)).toContain('aria-label="Позвонить"');
+  });
+  // Ревью #303: значок озвучивается тем же состоянием, что подпись варианта full.
+  it("занятая линия и идущий звонок — то же имя у значка, что подпись у full", () => {
+    live.call = { clientId: "other", state: "talking" };
+    const icon = renderWithQueryClient(<CallClientButton clientId="client" phone="" variant="icon" label="Перезвонить" />);
+    const full = renderWithQueryClient(<CallClientButton clientId="client" phone="" variant="full" label="Перезвонить" />);
+    expect(icon).toContain('aria-label="Линия занята"');
+    expect(full.replace(/<[^>]+>/g, "")).toContain("Линия занята");
+    live.call = { clientId: "client", state: "ringing_client" };
+    expect(renderWithQueryClient(<CallClientButton clientId="client" phone="" variant="icon" />)).toContain('aria-label="Идёт звонок…"');
+  });
+  it("неактивный кружок без карточки — картинка с причиной словами", () => {
+    const noCard = renderWithQueryClient(<CallClientButton clientId={null} phone="+992•••••57" variant="icon" />);
+    expect(noCard).toContain('role="img"');
+    expect(noCard).toContain('aria-label="Позвонить нельзя: нет карточки клиента"');
+    expect(renderWithQueryClient(<CallClientButton clientId={null} phone="" variant="icon" />)).toContain('aria-label="Позвонить нельзя: нет телефона"');
+    // у варианта со словом подпись видна — роль картинки не нужна
+    expect(renderWithQueryClient(<CallClientButton clientId={null} phone="+992•••••57" variant="full" />)).not.toContain('role="img"');
   });
 });

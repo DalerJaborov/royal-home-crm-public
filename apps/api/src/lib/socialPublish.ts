@@ -154,6 +154,79 @@ export function graphErrorMessage(body: Record<string, unknown>, fallback: strin
   return error?.message ?? fallback;
 }
 
+/** Код, подкод и текст ошибки Graph API — то, по чему решается «повторить ли». */
+export interface MetaErrorInfo {
+  code?: number;
+  subcode?: number;
+  /** Сообщение площадки: `error.message`, `error_user_msg`, статус контейнера Instagram или `error_message` Threads. */
+  message?: string;
+}
+
+export function graphErrorInfo(body: Record<string, unknown>): MetaErrorInfo {
+  const error = body.error as { code?: unknown; error_subcode?: unknown; message?: unknown; error_user_msg?: unknown } | undefined;
+  if (!error || typeof error !== "object") return {};
+  const text = [error.message, error.error_user_msg].filter((v): v is string => typeof v === "string").join(" ");
+  return {
+    ...(typeof error.code === "number" ? { code: error.code } : {}),
+    ...(typeof error.error_subcode === "number" ? { subcode: error.error_subcode } : {}),
+    ...(text ? { message: text } : {}),
+  };
+}
+
+/**
+ * ПЛОЩАДКА НЕ СМОГЛА СКАЧАТЬ НАШ ФАЙЛ — ЭТО «ПОЗЖЕ», А НЕ «НИКОГДА» (18.11.2026,
+ * объект №208). Meta забирает ролик сама по нашей ссылке `/uploads/…`; 17.11 в
+ * 18:47–18:49 UTC автовыкат перезапускал контейнер web (nginx), и как раз в эти
+ * полторы минуты Facebook ответил «Unable to fetch video file from URL.», а
+ * часть 1/3 истории Instagram ушла в `status_code: ERROR`. Через минуту файл
+ * снова отдавался, но отказ считался окончательным, и канал не выходил больше
+ * никогда.
+ *
+ * ПРАВИЛО УЗКОЕ, ПО ПЕРВОИСТОЧНИКАМ Meta (сверено 18.11.2026):
+ *  - Page Videos (`POST /{page-id}/videos`): код 389 «Unable to fetch video file
+ *    from URL», код 6000 «There was a problem uploading your video file. Please
+ *    try again» (developers.facebook.com/docs/graph-api/reference/page/videos);
+ *  - Instagram (developers.facebook.com/documentation/instagram-platform/
+ *    instagram-graph-api/reference/error-codes): подкоды, у которых Meta сама
+ *    пишет «Try again» — 2207001 (сбой сервера Instagram), 2207003 (слишком долго
+ *    качали медиа), 2207032 (не создался контейнер), 2207053 (неизвестная ошибка
+ *    загрузки), и 2207052 «media could not be fetched from this uri» — ровно
+ *    наш случай, когда ссылка на минуту перестала отвечать;
+ *  - Threads (developers.facebook.com/documentation/threads/troubleshooting):
+ *    `error_message: FAILED_DOWNLOADING_VIDEO` у контейнера в статусе ERROR.
+ * Плюс те же фразы текстом — на случай, когда код потерялся по дороге (статус
+ * контейнера Instagram приходит строкой).
+ *
+ * НЕ ПОВТОРЯЕМ НИКОГДА, даже если текст совпал: токен недействителен (190, 102),
+ * нет прав (10, 200–299). Сами они не пройдут — нужен человек; повтор только
+ * отложил бы красную строку в карточке на полтора часа.
+ *
+ * Повтор безопасен от дубля: во всех этих случаях площадка поста НЕ создала
+ * (отказ до публикации либо контейнер в ERROR, который опубликовать нельзя).
+ */
+const META_FETCH_FAILED_CODES = new Set([389, 6000]);
+const INSTAGRAM_TRY_AGAIN_SUBCODES = new Set([2207001, 2207003, 2207032, 2207052, 2207053]);
+const META_FETCH_FAILED_TEXT =
+  /unable to fetch video file|could not be fetched from this ur[il]|takes too long to download the media|failed_downloading_video|media download has failed/i;
+
+function isMetaAuthOrPermissionCode(code: number | undefined): boolean {
+  if (code === undefined) return false;
+  return code === 190 || code === 102 || code === 10 || (code >= 200 && code <= 299);
+}
+
+export function isMetaMediaFetchRetriable(info: MetaErrorInfo): boolean {
+  if (isMetaAuthOrPermissionCode(info.code)) return false;
+  if (info.code !== undefined && META_FETCH_FAILED_CODES.has(info.code)) return true;
+  if (info.subcode !== undefined && INSTAGRAM_TRY_AGAIN_SUBCODES.has(info.subcode)) return true;
+  return META_FETCH_FAILED_TEXT.test(info.message ?? "");
+}
+
+/** Подкод из статуса контейнера Instagram: при `status_code: ERROR` поле `status` несёт подкод ошибки (часто внутри фразы). */
+export function instagramContainerStatusSubcode(status: string | undefined): number | undefined {
+  const match = /\b(220\d{4})\b/.exec(status ?? "");
+  return match ? Number(match[1]) : undefined;
+}
+
 /**
  * СОАВТОРЫ INSTAGRAM (26.09.2026) — отличить отказ ИЗ-ЗА `collaborators` (ник не
  * существует, аккаунт приватный, лимит 3 и т.п.) от любого другого отказа
@@ -202,15 +275,25 @@ export function truncateCaptionSafely(caption: string, max: number): string {
 export async function waitForInstagramContainerReady(
   containerId: string,
   token: string
-): Promise<{ ok: true } | { ok: false; pending: boolean; error: string }> {
+): Promise<{ ok: true } | { ok: false; pending: boolean; error: string; retriable?: boolean }> {
   for (let attempt = 0; attempt < CONTAINER_POLL_INTERVALS_MS.length; attempt++) {
-    const statusReq = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/${containerId}?fields=status_code`), token);
+    // `status` рядом со `status_code` (18.11.2026, объект №208): при ERROR в нём
+    // подкод причины (документация IG Container) — без него «не смогли скачать
+    // ролик» не отличить от «формат не подходит», и первый не повторялся бы.
+    const statusReq = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/${containerId}?fields=status_code,status`), token);
     const statusRes = await fetchWithRetry(statusReq.url, { headers: statusReq.headers }, PUBLISH_TIMEOUT_MS);
     const statusBody = await readJson(statusRes);
     const statusCode = statusBody.status_code as string | undefined;
     if (statusCode === "FINISHED") return { ok: true };
     if (statusCode === "ERROR") {
-      return { ok: false, pending: false, error: "Meta не смогла обработать видео (status_code: ERROR)" };
+      const status = typeof statusBody.status === "string" ? statusBody.status : undefined;
+      const subcode = instagramContainerStatusSubcode(status);
+      return {
+        ok: false,
+        pending: false,
+        error: `Meta не смогла обработать видео (status_code: ERROR${status ? `, status: ${status}` : ""})`,
+        retriable: isMetaMediaFetchRetriable({ ...(subcode !== undefined ? { subcode } : {}), ...(status ? { message: status } : {}) }),
+      };
     }
     // ПУЛЬС ЖИВОГО ХОЗЯИНА (22.09.2026) — контейнер теперь запоминается ДО этого
     // цикла, а значит его видит и фоновый проход. Отметка «я ещё жив и жду сам»
@@ -421,7 +504,12 @@ export async function publishInstagramReel(
     }
     const containerId = createBody.id as string | undefined;
     if (!createRes.ok || !containerId) {
-      return { channel: "INSTAGRAM", ok: false, error: graphErrorMessage(createBody, `HTTP ${createRes.status}`) };
+      return {
+        channel: "INSTAGRAM",
+        ok: false,
+        error: graphErrorMessage(createBody, `HTTP ${createRes.status}`),
+        ...(isMetaMediaFetchRetriable(graphErrorInfo(createBody)) ? { retriable: true } : {}),
+      };
     }
 
     // Запоминаем контейнер ДО окна ожидания — см. rememberInstagramContainer.
@@ -449,8 +537,9 @@ export async function publishInstagramReel(
       }
       // Meta честно отказалась обрабатывать — доводить нечего, закрываем запись,
       // чтобы фоновый проход не ходил к отклонённому контейнеру до истечения суток.
+      // Не смогла СКАЧАТЬ файл (retriable) — повтор заведёт новый контейнер.
       await resolveInstagramContainer(containerId, "REJECTED", ready.error);
-      return { channel: "INSTAGRAM", ok: false, error: ready.error };
+      return { channel: "INSTAGRAM", ok: false, error: ready.error, ...(ready.retriable ? { retriable: true } : {}) };
     }
 
     const publishReq = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/${igUserId}/media_publish`), token);
@@ -517,7 +606,12 @@ async function publishInstagramStoryMedia(
     const createBody = await readJson(createRes);
     const containerId = createBody.id as string | undefined;
     if (!createRes.ok || !containerId) {
-      return { channel: "INSTAGRAM", ok: false, error: graphErrorMessage(createBody, `HTTP ${createRes.status}`) };
+      return {
+        channel: "INSTAGRAM",
+        ok: false,
+        error: graphErrorMessage(createBody, `HTTP ${createRes.status}`),
+        ...(isMetaMediaFetchRetriable(graphErrorInfo(createBody)) ? { retriable: true } : {}),
+      };
     }
 
     // Запоминаем контейнер ДО окна ожидания — см. rememberInstagramContainer.
@@ -533,7 +627,7 @@ async function publishInstagramStoryMedia(
       // Meta честно отказалась обрабатывать — доводить нечего, закрываем запись,
       // чтобы фоновый проход не ходил к отклонённому контейнеру до истечения суток.
       await resolveInstagramContainer(containerId, "REJECTED", ready.error);
-      return { channel: "INSTAGRAM", ok: false, error: ready.error };
+      return { channel: "INSTAGRAM", ok: false, error: ready.error, ...(ready.retriable ? { retriable: true } : {}) };
     }
 
     const publishReq = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/${igUserId}/media_publish`), token);
@@ -677,7 +771,15 @@ export async function publishFacebookVideo(
     // ни в успехе, ни в отказе (неизвестность оставляет только обрыв).
     await hooks?.onAnswered?.();
     if (!res.ok || !postId) {
-      return { channel: "FACEBOOK", ok: false, error: graphErrorMessage(body, `HTTP ${res.status}`) };
+      // «Unable to fetch video file from URL» (объект №208) — наш файл на минуту
+      // не отдавался; повторит jobs/socialPublishRetry.ts. Только при отказе
+      // с ответом: обрыв без ответа сюда не доходит и остаётся под pending-меткой.
+      return {
+        channel: "FACEBOOK",
+        ok: false,
+        error: graphErrorMessage(body, `HTTP ${res.status}`),
+        ...(!res.ok && isMetaMediaFetchRetriable(graphErrorInfo(body)) ? { retriable: true } : {}),
+      };
     }
     // post_id — ВТОРОЙ идентификатор того же поста (см. PublishResult.secondaryPostId
     // выше), нужен как запасной адрес для удаления (случай №112, publishedVideoFix.ts).
@@ -978,10 +1080,12 @@ export async function publishFacebookReel(
     if (!uploadRes.ok) {
       await hooks?.onAnswered?.();
       const uploadBody = await readJson(uploadRes);
+      // Шаг 3 (finish) ещё не звали — Reels не опубликован, повтор дубля не даст.
       return {
         channel: "FACEBOOK",
         ok: false,
         error: graphErrorMessage(uploadBody, `HTTP ${uploadRes.status}: не удалось загрузить ролик Reels`),
+        ...(isMetaMediaFetchRetriable(graphErrorInfo(uploadBody)) ? { retriable: true } : {}),
       };
     }
 
@@ -2851,7 +2955,12 @@ export async function publishThreadsVideo(creds: ThreadsCredentials, videoUrl: s
     const createBody = await readJson(createRes);
     const containerId = createBody.id as string | undefined;
     if (!createRes.ok || !containerId) {
-      return { channel: "THREADS", ok: false, error: graphErrorMessage(createBody, `HTTP ${createRes.status}`) };
+      return {
+        channel: "THREADS",
+        ok: false,
+        error: graphErrorMessage(createBody, `HTTP ${createRes.status}`),
+        ...(!createRes.ok && isMetaMediaFetchRetriable(graphErrorInfo(createBody)) ? { retriable: true } : {}),
+      };
     }
 
     let finished = false;
@@ -2869,7 +2978,14 @@ export async function publishThreadsVideo(creds: ThreadsCredentials, videoUrl: s
       }
       if (status === "ERROR" || status === "EXPIRED") {
         const message = (statusBody.error_message as string | undefined) ?? `Threads вернул статус ${status}`;
-        return { channel: "THREADS", ok: false, error: message };
+        // FAILED_DOWNLOADING_VIDEO — тот же «не смогли скачать наш файл», что у
+        // Instagram и Facebook; контейнер в ERROR опубликовать нельзя, дубля нет.
+        return {
+          channel: "THREADS",
+          ok: false,
+          error: message,
+          ...(status === "ERROR" && isMetaMediaFetchRetriable({ message }) ? { retriable: true } : {}),
+        };
       }
       await sleep(CONTAINER_POLL_INTERVALS_MS[attempt]);
     }
@@ -3040,6 +3156,20 @@ export async function publishApprovedPost(params: {
   const skip = new Set(params.skipChannels ?? []);
 
   const skipKeys = new Set(params.skipKeys ?? []);
+
+  /**
+   * Строка журнала об отказе Meta-канала. Начало «Публикация в <канал> (<хозяин>)»
+   * НЕ менять — по нему карточка объекта находит ошибку канала
+   * (routes/properties/list.ts::loadPublishErrorsByChannel). «Отложена» вместо
+   * «не удалась» — когда площадка не смогла скачать файл (PublishResult.retriable):
+   * для объекта это повторит jobs/socialPublishRetry.ts сам, свободный ролик
+   * человек повторяет кнопкой.
+   */
+  function metaFailureText(label: string, result: PublishResult): string {
+    if (!result.retriable) return `Публикация в ${label} (${ownerText}) не удалась: ${result.error}`;
+    const then = owner.kind === "property" ? "повторим сами через несколько минут" : "повторите чуть позже";
+    return `Публикация в ${label} (${ownerText}) отложена — площадка не смогла скачать ролик, ${then}: ${result.error}`;
+  }
 
   async function noteStarted(channel: PublishChannel, destinationKey: string = channel): Promise<void> {
     if (!params.onChannelStarted) return;
@@ -3230,7 +3360,7 @@ export async function publishApprovedPost(params: {
       // текст (см. докстринг там же). Вторая запись здесь превратила бы
       // «обрабатывается» обратно в «не удалась».
       if (!result.ok && !result.pending) {
-        void logSystemError("meta", `Публикация в Instagram (${ownerText}) не удалась: ${result.error}`);
+        void logSystemError("meta", metaFailureText("Instagram", result));
       }
     } else {
       // ОБ-000113 (21.09.2026): эта ветка клала результат в `results`, но не звала
@@ -3302,7 +3432,7 @@ export async function publishApprovedPost(params: {
       results.push(result);
       await notePublished(result);
       if (!result.ok) {
-        void logSystemError("meta", `Публикация в Facebook (${ownerText}) не удалась: ${result.error}`);
+        void logSystemError("meta", metaFailureText("Facebook", result));
       }
     }
   }
@@ -3489,7 +3619,7 @@ export async function publishApprovedPost(params: {
     // publishThreadsVideo) — тот же не-отказ, что у Instagram, вторая запись
     // в журнал была бы враньём «сломано» о том, что просто не успело.
     if (!result.ok && !result.pending) {
-      void logSystemError("threads", `Публикация в Threads (${ownerText}) не удалась: ${result.error}`);
+      void logSystemError("threads", metaFailureText("Threads", result));
     }
   }
 

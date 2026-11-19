@@ -1,6 +1,6 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, canViewInvestigations } from "@royal-home/shared";
+import { AUTOMATION_SWITCH_KEYS, automationSwitchesUpdateSchema, ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, SELLER_AUTOMATION_FIELDS, SECURITY_AUTOMATION_KEY, canViewInvestigations, securityAutomationSwitchUpdateSchema, sellerAutomationSwitchesUpdateSchema } from "@royal-home/shared";
 import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
@@ -556,6 +556,7 @@ settingsRouter.get("/", requireAuth, async (req, res) => {
   const response = isAdmin ? await publicSettingsResponse(settings) : toStaffSettings(settings);
   if (!canReadInvestigations(req)) {
     delete (response as Record<string, unknown>).postShowingCallEnabled;
+    delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];
     delete (response as Record<string, unknown>).investigationCaseConfig;
     delete (response as Record<string, unknown>).sellerControlConfig;
     delete (response as Record<string, unknown>).postShowingCohortConfig;
@@ -1368,10 +1369,20 @@ const settingsUpdateSchema = z.object({
    *  Ключ сюда не входит — он не правится вручную, только ротируется отдельной
    *  кнопкой (POST /settings/meta-catalog-feed/rotate). */
   metaCatalogFeedEnabled: z.boolean().optional(),
+  /** Выключатели автоматики «работа с продавцами» (владелец 14.11.2026). Схема и
+   *  список — в packages/shared/src/sellerAutomationSwitches.ts, здесь не повторяются. */
+  ...sellerAutomationSwitchesUpdateSchema.shape,
+  /** Рубильник «Служба безопасности: автоматика» (18.11.2026) — packages/shared/src/securityAutomationSwitch.ts. */
+  ...securityAutomationSwitchUpdateSchema.shape,
+  /** Выключатели «Автоматика ИИ и напоминания» (19.11.2026) — packages/shared/src/automationSwitches.ts. */
+  ...automationSwitchesUpdateSchema.shape,
 });
 
 settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), requireElevation, async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
+  // Рубильник автоматики СБ (18.11.2026) — тот же круг, что у дел СБ: сотрудник с правом
+  // на настройки не должен уметь выключить контроль над собой.
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
   const parsed = settingsUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     /**
@@ -1990,6 +2001,13 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     // Общие выходные меняют тревоги, штрафы и обещания ботов всей компании — в журнале
     // должно быть видно, кто и какие дни поставил (11.10.2026).
     ...(rest.companyDaysOff !== undefined ? { companyDaysOff: rest.companyDaysOff } : {}),
+    // Выключатели автоматики по продавцам (14.11.2026): выключенная тревога или звонок
+    // робота выглядит как поломка — в журнале видно, кто и когда выключил.
+    ...Object.fromEntries(SELLER_AUTOMATION_FIELDS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
+    // Автоматика СБ (18.11.2026): кто и когда включил/выключил — в журнале.
+    ...(rest[SECURITY_AUTOMATION_KEY] !== undefined ? { [SECURITY_AUTOMATION_KEY]: rest[SECURITY_AUTOMATION_KEY] } : {}),
+    // Автоматика ИИ и напоминания (19.11.2026): выключенная функция выглядит как поломка — в журнале видно, кто и когда.
+    ...Object.fromEntries(AUTOMATION_SWITCH_KEYS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
   });
 
   // Маркер рекламного кабинета из Graph API Explorer живёт час-два — меняем его на
@@ -3007,6 +3025,7 @@ settingsRouter.post("/site-admin-reset", requireAuth, requirePermission("siteAdm
 function privateSettingsResponse<T extends object>(response: T, role: string | undefined): T {
   if (!canViewInvestigations(role)) {
     delete (response as Record<string, unknown>).postShowingCallEnabled;
+    delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];
     delete (response as Record<string, unknown>).investigationCaseConfig;
     delete (response as Record<string, unknown>).sellerControlConfig;
     delete (response as Record<string, unknown>).postShowingCohortConfig;

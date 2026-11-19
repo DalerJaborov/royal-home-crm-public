@@ -22,6 +22,7 @@ export const CUSTOMER_TURN_INTENDED_SILENCE: readonly string[] = [
   // Meta temporarily forbids this account to send (368 etc., lib/metaSendBlock.ts, #273; customerDmAgentTurn.ts): a reply
   // would be refused and every refusal prolongs the block; the text is in the CRM chat and ONE alarm comes from the send door.
   "meta_send_blocked",
+  "lead_only_operator_silent", // the lead-only operator decided not to answer (ок after a lead, a third role question, a repeated attachment)
 ];
 
 export function customerTurnSilenceIsIntended(reason: string): boolean {

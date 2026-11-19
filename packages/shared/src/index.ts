@@ -111,6 +111,8 @@ export * from "./instagramAppBinding.js";
 export * from "./recruitmentCommunications.js";
 export * from "./reelsAutoBoost.js";
 export * from "./propertyNarration.js";
+export * from "./narrationLength.js";
+export * from "./narrationMusic.js";
 export * from "./freeNarration.js";
 export * from "./tajikSpeechNumbers.js";
 export * from "./russianSpeechNumbers.js";
@@ -133,6 +135,9 @@ export * from "./formerStaff.js";
 export * from "./robotCallPolicy.js";
 export * from "./liveVoiceSpend.js";
 export * from "./metaEternal.js";
+export * from "./sellerAutomationSwitches.js";
+export * from "./securityAutomationSwitch.js";
+export * from "./automationSwitches.js";
 export * from "./functionStatus.js";
 
 export * from "./reportPdf.js";

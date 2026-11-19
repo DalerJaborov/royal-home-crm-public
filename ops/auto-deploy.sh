@@ -426,8 +426,6 @@ while IFS= read -r f; do
   [ -z "$f" ] && continue
   case "$f" in
     apps/api/*) NEED_API=1 ;;
-    # Образ сервиса голоса выкат не собирает (ops/deploy.sh, шаг 3.1) — собирают руками.
-    apps/voice-separator/*) ;;
     apps/web/*) NEED_WEB=1 ;;
     packages/shared/*|package.json|package-lock.json|docker-compose.prod.yml) NEED_API=1; NEED_WEB=1 ;;
     docs/*|*.md|ops/*|.github/*|scripts/*) ;;

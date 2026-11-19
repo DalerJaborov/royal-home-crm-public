@@ -5,6 +5,8 @@ import { dushanbeNextOccurrence } from "./dushanbeTime.js";
 import { logTimeline } from "./timeline.js";
 import { reportCronRowError } from "./cronHeartbeat.js";
 import { hasOpenMessagingChannel } from "./messagingWindow.js";
+import { sellerSwitchOn } from "./sellerSwitches.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 
 /**
  * «ЗАСТОЙ СДЕЛКИ» — пункт 4 списка владельца от 30.08.2026, дословно: «если агент
@@ -245,9 +247,14 @@ export async function runDealStalePipeline(now: Date = new Date()): Promise<Deal
   const sellerCutoff = new Date(now.getTime() - rules.sellerDays * 86_400_000);
   const buyerCutoff = new Date(now.getTime() - rules.buyerDays * 86_400_000);
 
+  // Выключатель владельца (14.11.2026, lib/sellerSwitches.ts) гасит только ветку
+  // продавцов: выключено — продавцов даже не ищем. Покупатели — свой выключатель ниже.
+  const sellersOn = await sellerSwitchOn("dealStaleSellersEnabled");
+  // Выключатель «Застой: покупатель без сделки» (19.11.2026) — то же для ветки покупателей.
+  const buyersOn = await automationSwitchOn("dealStaleBuyersEnabled");
   const [sellersAll, buyersAll, absent] = await Promise.all([
-    findStaleSellers(sellerCutoff),
-    findStaleBuyers(buyerCutoff),
+    sellersOn ? findStaleSellers(sellerCutoff) : Promise.resolve([] as Awaited<ReturnType<typeof findStaleSellers>>),
+    buyersOn ? findStaleBuyers(buyerCutoff) : Promise.resolve([] as Awaited<ReturnType<typeof findStaleBuyers>>),
     absentAgentIds(),
   ]);
 

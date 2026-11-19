@@ -20,6 +20,17 @@ vi.mock("../src/lib/workingHours.js", async (importOriginal) => {
   return { ...actual, isWithinAlarmHours: async () => true };
 });
 
+/**
+ * Выключатели «работа с продавцами» (14.11.2026) — подменяются ТОЛЬКО в этом файле:
+ * по умолчанию всё включено, как в базе, а выключение не трогает общую строку
+ * Settings, которую в тот же момент читают тесты других файлов.
+ */
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/sellerSwitches.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/sellerSwitches.js")>()),
+  sellerSwitchOn: async (key: string) => !switchesOff.has(key),
+}));
+
 const DAY = 24 * 3600_000;
 /**
  * Четверг — тот же безопасный день недели, что уже используется в блоке
@@ -395,6 +406,25 @@ describe("Тик крона", () => {
       where: { clientId: c.id, subjectAgentId: agentId, type: "SYSTEM", notes: { startsWith: "[agentUnansweredAlarm]" } },
     });
     expect(tasks).toBe(1);
+  });
+
+  it("выключатель «агент не отвечает продавцу» гасит продавца, покупатель — как раньше", async () => {
+    const seller = await makeSeller({ clientWroteDaysAgo: 3 });
+    const buyer = await makeSeller({ clientWroteDaysAgo: 3, kind: "BUYER" });
+    const tasksFor = (clientId: string) =>
+      prisma.interaction.count({ where: { clientId, type: "SYSTEM", notes: { startsWith: "[agentUnansweredAlarm]" } } });
+    switchesOff.add("agentUnansweredAlarmEnabled");
+    try {
+      await runAgentUnansweredAlarmTick(FIXED_NOW);
+      expect(await tasksFor(seller.id)).toBe(0);
+      expect(await tasksFor(buyer.id)).toBe(1);
+    } finally {
+      switchesOff.delete("agentUnansweredAlarmEnabled");
+    }
+    // Список для дашборда выключатель не прячет.
+    expect((await findUnansweredClients(FIXED_NOW)).some((f) => f.clientId === seller.id)).toBe(true);
+    await runAgentUnansweredAlarmTick(FIXED_NOW);
+    expect(await tasksFor(seller.id)).toBe(1);
   });
 
   it("агент ответил — ни записи руководству, ни задачи", async () => {

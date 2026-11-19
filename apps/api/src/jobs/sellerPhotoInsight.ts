@@ -10,6 +10,7 @@ import {
 } from "../lib/sellerMedia.js";
 import { logSystemError } from "../lib/systemError.js";
 import { callAiText, type ImageInput } from "../ai/client.js";
+import { sellerSwitchOn } from "../lib/sellerSwitches.js";
 import type { JobHandler } from "./registry.js";
 
 /**
@@ -197,6 +198,10 @@ export const sellerPhotoInsightJob: JobHandler<Payload> = {
   // под один: умолчание лёгких заданий — минута.
   timeoutMs: MAX_BATCHES_PER_RUN * 90_000,
   async run(payload) {
+    // Выключатель владельца «ИИ разбирает фото и переписку продавца» (14.11.2026,
+    // lib/sellerSwitches.ts): выключено — модель не зовём. Сами фото уже приняты и
+    // лежат в переписке; оценки нет только у тех, что пришли, пока было выключено.
+    if (!(await sellerSwitchOn("sellerAiAnalysisEnabled"))) return;
     const attachments = await listSellerAttachments(payload.clientId);
     const photos = attachments.filter((a) => a.kind === "image");
     if (photos.length === 0) return;

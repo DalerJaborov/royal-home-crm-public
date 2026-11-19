@@ -1,11 +1,11 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 777,
-  "forks": 4072,
+  "endpoints": 776,
+  "forks": 4137,
   "mounts": 87,
   "cron": 141,
-  "jobs": 33,
+  "jobs": 34,
   "hidden": 0
  },
  "hidden": [],
@@ -15566,235 +15566,6 @@
    ]
   },
   {
-   "method": "GET",
-   "path": "/:id/property-count-dispute",
-   "mount": "/api/v1/clients",
-   "full": "/api/v1/clients/:id/property-count-dispute",
-   "file": "apps/api/src/routes/clients/propertyCountDisputes.ts",
-   "router": "propertyCountDisputesRouter",
-   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const client = await prisma.client.findUnique({ where: { id: req.params.id }, select: { id: true, assignedAge…",
-     "a": [
-      "читает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!client",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
-       "a": [
-        "ответ 404 — «Клиент не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "client.assignedAgentId !== req.agent!.id && !can(req, \"clients.viewAll\")",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Это чужая карточка\" });",
-       "a": [
-        "ответ 403 — «Это чужая карточка»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const pending = await prisma.propertyCountDispute.findMany({ where: { clientId: client.id, status: \"PENDING\" …",
-     "a": [
-      "читает в базе: propertyCountDispute"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ requests: pending.map((p)",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "POST",
-   "path": "/:id/property-count-dispute",
-   "mount": "/api/v1/clients",
-   "full": "/api/v1/clients/:id/property-count-dispute",
-   "file": "apps/api/src/routes/clients/propertyCountDisputes.ts",
-   "router": "propertyCountDisputesRouter",
-   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const parsed = propertyCountDisputeSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой propertyCountDisputeSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: parsed.error.issues[0]?.message ?? \"Неверные данные\" });",
-       "a": [
-        "ответ 400"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const client = await prisma.client.findUnique({ where: { id: req.params.id }, select: { id: true, shortId: tr…",
-     "a": [
-      "читает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!client || client.deletedAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
-       "a": [
-        "ответ 404 — «Клиент не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "client.assignedAgentId !== req.agent!.id && !can(req, \"clients.viewAll\")",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Заявку заводит агент, который ведёт карточку\" });",
-       "a": [
-        "ответ 403 — «Заявку заводит агент, который ведёт карточку»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "aiCount === null",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: `У этой карточки ещё нет числа от ИИ на ${field.label} — оспаривать нече…",
-       "a": [
-        "ответ 409 — «У этой карточки ещё нет числа от ИИ на ${field.label} — оспаривать…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const existing = await prisma.propertyCountDispute.findFirst({ where: { clientId: client.id, role, status: \"P…",
-     "a": [
-      "читает в базе: propertyCountDispute"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "existing",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой стороне уже есть заявка — она ждёт решения руководства\" });",
-       "a": [
-        "ответ 409 — «По этой стороне уже есть заявка — она ждёт решения руководства»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const dispute = await prisma.propertyCountDispute.create({ data: { clientId: client.id, requestedById: req.ag…",
-     "a": [
-      "создаёт в базе: propertyCountDispute"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"PROPERTY_COUNT_DISPUTE\", \"Client\", client.id, { disputeId: dispute.id, role, aiCount: dispute.…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void enqueueDirectorAlert({ title: \"🔢 Заявка на пересмотр числа объектов\", body: `${client.fullName} (${fiel…",
-     "a": [
-      "зовёт enqueueDirectorAlert()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishRequestUpdated({ requestId: dispute.id, clientId: dispute.clientId, agentIds: [req.agent!.id], stage: …",
-     "a": [
-      "зовёт publishRequestUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(201).json({ ok: true, id: dispute.id, message: \"Заявка отправлена — решает руководитель, число ИИ …",
-     "a": [
-      "ответ 201"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
    "method": "POST",
    "path": "/:id/reactivation-offer/accept",
    "mount": "/api/v1/clients",
@@ -16650,7 +16421,6 @@
       "всё внутри — одной транзакцией",
       "обращается к базе своим SQL",
       "читает в базе: client",
-      "читает в базе: deal",
       "меняет в базе: client"
      ],
      "c": [
@@ -16687,15 +16457,23 @@
       },
       {
        "k": "do",
-       "t": "const openDeal = await tx.deal.findFirst({ where: { clientId: client.id, stage: { notIn: [\"COMPLETED\", \"CANCE…",
+       "t": "const automationOn = await securityAutomationOn(tx);",
        "a": [
-        "читает в базе: deal"
+        "зовёт securityAutomationOn()"
        ],
        "c": []
       },
       {
        "k": "do",
-       "t": "await tx.client.update({ where: { id: client.id }, data: { securityReview: verdict, securityReviewedAt: new D…",
+       "t": "const blocker = await securityReviewCloseBlocker(tx, current);",
+       "a": [
+        "зовёт securityReviewCloseBlocker()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await tx.client.update({ where: { id: client.id }, data: { ...(reopen ? { assignmentRefusedAt: null, assignme…",
        "a": [
         "меняет в базе: client"
        ],
@@ -16744,7 +16522,7 @@
     },
     {
      "k": "if",
-     "t": "reviewed.close",
+     "t": "reviewed.outcome === \"trash\"",
      "a": [],
      "c": [
       {
@@ -16757,18 +16535,48 @@
       },
       {
        "k": "if",
-       "t": "!trashed.ok",
+       "t": "trashed.ok",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "console.error(\"[security-review] карточка не убрана в Корзину:\", trashed.error);",
+         "t": "message = `${label}. Карточка ушла в Корзину`;",
          "a": [
-          "пишет строку в журнал сервера"
+          "дословно из кода"
          ],
          "c": []
         }
        ]
+      },
+      {
+       "k": "else",
+       "t": "иначе",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logTimeline({ clientId: client.id, actor: { kind: \"agent\", agentId: req.agent!.id }, type: \"SYSTEM\", in…",
+         "a": [
+          "зовёт logTimeline()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "elseif",
+     "t": "reviewed.outcome === \"delete-request\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await fileEndOfWorkDeleteRequest(client, client.assignedAgentId ?? req.agent!.id, \"Работа по карточке заверше…",
+       "a": [
+        "зовёт fileEndOfWorkDeleteRequest()"
+       ],
+       "c": []
       }
      ]
     },
@@ -16797,7 +16605,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ok: true, verdict, message: label });",
+     "t": "res.json({ ok: true, verdict, message });",
      "a": [
       "ответ 200"
      ],
@@ -19708,430 +19516,6 @@
     {
      "k": "do",
      "t": "res.json(presentClient(merged, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investigationVi…",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "POST",
-   "path": "/property-count-disputes/:id/approve",
-   "mount": "/api/v1/clients",
-   "full": "/api/v1/clients/property-count-disputes/:id/approve",
-   "file": "apps/api/src/routes/clients/propertyCountDisputes.ts",
-   "router": "propertyCountDisputesRouter",
-   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: clients.merge"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const parsed = propertyCountDisputeApproveSchema.safeParse(req.body ?? {});",
-     "a": [
-      "проверяет данные схемой propertyCountDisputeApproveSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные данные\" });",
-       "a": [
-        "ответ 400 — «Неверные данные»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!dispute",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Заявка не найдена\" });",
-       "a": [
-        "ответ 404 — «Заявка не найдена»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "dispute.client.deletedAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент удалён в Корзину — заявка больше не актуальна\" });",
-       "a": [
-        "ответ 404 — «Клиент удалён в Корзину — заявка больше не актуальна»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "dispute.status !== \"PENDING\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
-       "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const applied = await prisma.$transaction(async tx",
-     "a": [
-      "всё внутри — одной транзакцией",
-      "обращается к базе своим SQL",
-      "читает в базе: client",
-      "меняет в базе: propertyCountDispute",
-      "меняет в базе: client"
-     ],
-     "c": [
-      {
-       "k": "do",
-       "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${dispute.clientId} FOR UPDATE`;",
-       "a": [
-        "обращается к базе своим SQL"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const current = await tx.client.findUnique({ where: { id: dispute.clientId }, select: { deletedAt: true, sell…",
-       "a": [
-        "читает в базе: client"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!current || current.deletedAt",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return \"deleted\" as const;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "current[field.count] !== dispute.aiCount",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return \"stale\" as const;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const claimed = await tx.propertyCountDispute.updateMany({ where: { id: dispute.id, status: \"PENDING\" }, data…",
-       "a": [
-        "меняет в базе: propertyCountDispute"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "claimed.count !== 1",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return \"decided\" as const;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "await tx.client.update({ where: { id: dispute.clientId }, data: { [field.count]: dispute.proposedCount, [fiel…",
-       "a": [
-        "меняет в базе: client"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "applied !== \"applied\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(applied === \"deleted\" ? 404 : 409).json({ error: applied === \"stale\" ? \"Число объектов изме…",
-       "a": [
-        "ответ (код зависит от условия)"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"PROPERTY_COUNT_DISPUTE_APPROVE\", \"Client\", dispute.clientId, { disputeId: dispute.id, role, pr…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void sendPushToAgent(dispute.requestedById, { title: \"🔢 Число объектов исправлено\", body: `${dispute.client.…",
-     "a": [
-      "push-уведомление"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishRequestUpdated({ requestId: dispute.id, clientId: dispute.clientId, agentIds: [dispute.requestedById],…",
-     "a": [
-      "зовёт publishRequestUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true, message: \"Число исправлено, агенту отправлено уведомление\" });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "POST",
-   "path": "/property-count-disputes/:id/reject",
-   "mount": "/api/v1/clients",
-   "full": "/api/v1/clients/property-count-disputes/:id/reject",
-   "file": "apps/api/src/routes/clients/propertyCountDisputes.ts",
-   "router": "propertyCountDisputesRouter",
-   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: clients.merge"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const parsed = propertyCountDisputeRejectSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой propertyCountDisputeRejectSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: parsed.error.issues[0]?.message ?? \"Напишите, почему заявка отклонена\" }…",
-       "a": [
-        "ответ 400"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!dispute",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Заявка не найдена\" });",
-       "a": [
-        "ответ 404 — «Заявка не найдена»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "dispute.client.deletedAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент удалён в Корзину — заявка больше не актуальна\" });",
-       "a": [
-        "ответ 404 — «Клиент удалён в Корзину — заявка больше не актуальна»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "dispute.status !== \"PENDING\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
-       "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const rejected = await prisma.propertyCountDispute.updateMany({ where: { id: dispute.id, status: \"PENDING\", c…",
-     "a": [
-      "меняет в базе: propertyCountDispute"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "rejected.count !== 1",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Состояние заявки или клиента изменилось\" });",
-       "a": [
-        "ответ 409 — «Состояние заявки или клиента изменилось»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"PROPERTY_COUNT_DISPUTE_REJECT\", \"Client\", dispute.clientId, { disputeId: dispute.id, role: dis…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void sendPushToAgent(dispute.requestedById, { title: \"🔢 Заявка на пересмотр числа отклонена\", body: `${dispu…",
-     "a": [
-      "push-уведомление"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishRequestUpdated({ requestId: dispute.id, clientId: dispute.clientId, agentIds: [dispute.requestedById],…",
-     "a": [
-      "зовёт publishRequestUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true, message: \"Заявка отклонена, агенту отправлено уведомление\" });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/property-count-disputes",
-   "mount": "/api/v1/clients",
-   "full": "/api/v1/clients/property-count-disputes",
-   "file": "apps/api/src/routes/clients/propertyCountDisputes.ts",
-   "router": "propertyCountDisputesRouter",
-   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: clients.merge"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const parsedQuery = disputeListQuerySchema.safeParse(req.query);",
-     "a": [
-      "проверяет данные схемой disputeListQuerySchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsedQuery.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsedQuery.error.flatten() });",
-       "a": [
-        "ответ 400 — «Неверные данные»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const items = await prisma.propertyCountDispute.findMany({ where: { status, client: { deletedAt: null } }, or…",
-     "a": [
-      "читает в базе: propertyCountDispute"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ items: items.map((r)",
      "a": [
       "ответ 200"
      ],
@@ -27169,7 +26553,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));",
+     "t": "res.json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outcome.deal)));",
      "a": [
       "ответ 200"
      ],
@@ -27898,7 +27282,7 @@
     },
     {
      "k": "do",
-     "t": "res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));",
+     "t": "res.status(201).json(serializeDealMoney(dealTextPhoneSafe(outcome.deal, seesPhones), seesDealMoney(req, outco…",
      "a": [
       "ответ 201"
      ],
@@ -38990,14 +38374,14 @@
      "c": [
       {
        "k": "if",
-       "t": "await phoneBelongsToHiddenOwner(req, stored)",
+       "t": "await isHiddenCrmPhone(req, stored)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(403).json({ error: \"Номер совпадает с контактом владельца объекта, доступ закрыт\" });",
+         "t": "return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: \"CRM_PHONE_HIDDEN\" });",
          "a": [
-          "ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»"
+          "ответ 403"
          ],
          "c": []
         }
@@ -39066,14 +38450,14 @@
       },
       {
        "k": "if",
-       "t": "await phoneBelongsToHiddenOwner(req, phone)",
+       "t": "await isHiddenCrmPhone(req, phone)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(403).json({ error: \"Номер совпадает с контактом владельца объекта, доступ закрыт\" });",
+         "t": "return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: \"CRM_PHONE_HIDDEN\" });",
          "a": [
-          "ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»"
+          "ответ 403"
          ],
          "c": []
         }
@@ -39304,17 +38688,17 @@
     },
     {
      "k": "do",
-     "t": "const ownerHidden = stripOwnerContact( { ownerContact: \"x\", assignedAgentId: p.assignedAgentId, intakeAgentId…",
+     "t": "const phonesHidden = !canSeeCrmContactPhones(req);",
      "a": [
-      "зовёт stripOwnerContact()"
+      "зовёт canSeeCrmContactPhones()"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "const ownerTails = ownerHidden ? new Set(extractPhoneTails(p.ownerContact)) : new Set<string>();",
+     "t": "const crmTails = phonesHidden ? await crmContactTails(rows.map((m)",
      "a": [
-      "зовёт extractPhoneTails()"
+      "зовёт crmContactTails()"
      ],
      "c": []
     },
@@ -39442,7 +38826,38 @@
     },
     {
      "k": "do",
-     "t": "res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null,…",
+     "t": "const dynamics = await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name …",
+     "a": [
+      "зовёт findDynamics()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!canSeeCrmContactPhones(req) && dynamics.recentlyGone.length > 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const crmTails = await crmContactTails(dynamics.recentlyGone.map((g)",
+       "a": [
+        "зовёт crmContactTails()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "dynamics.recentlyGone = dynamics.recentlyGone.map((g)",
+       "a": [
+        "зовёт phoneTail()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(dynamics);",
      "a": [
       "ответ 200"
      ],
@@ -48158,21 +47573,6 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "if",
-     "t": "req.agent!.role === \"EDITOR\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Озвучку одобряет агент объекта\" });",
-       "a": [
-        "ответ 403 — «Озвучку одобряет агент объекта»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "do",
      "t": "const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…",
      "a": [
@@ -48190,6 +47590,29 @@
        "t": "return res.status(400).json({ error: \"Подтвердите текст и номер версии\" });",
        "a": [
         "ответ 400 — «Подтвердите текст и номер версии»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const access = await narrationAccessForAgent(req.agent!.id, p.id);",
+     "a": [
+      "зовёт narrationAccessForAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!access",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Озвучку утверждает тот, кто ведёт объект, или руководство\" });",
+       "a": [
+        "ответ 403 — «Озвучку утверждает тот, кто ведёт объект, или руководство»"
        ],
        "c": []
       }
@@ -48235,7 +47658,23 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ok: true, ...(outcome === \"AUDIO_APPROVED\" ? { delivery: await afterNarrationApproved(p.id, versio…",
+     "t": "const delivery = outcome === \"AUDIO_APPROVED\" ? await afterNarrationApproved(p.id, versionId.data) : undefine…",
+     "a": [
+      "зовёт afterNarrationApproved()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const publishAt = delivery === \"CRM_REMIX\" ? await estimateNarrationPublishAt(p.id).catch(()",
+     "a": [
+      "зовёт estimateNarrationPublishAt()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, ...(delivery ? { delivery } : {}), ...(publishAt ? { publishAt: publishAt.toISOString() …",
      "a": [
       "ответ 200"
      ],
@@ -48400,6 +47839,37 @@
        "t": "return res.status(409).json({ error: \"ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.\" }…",
        "a": [
         "ответ 409 — «ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const draft = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id…",
+     "a": [
+      "читает в базе: propertyNarrationVersion"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const length = draft ? await narrationLengthCheckFor(p, draft.script, draft.language) : null;",
+     "a": [
+      "зовёт narrationLengthCheckFor()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "length && !length.fits",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: narrationLengthLine(length) });",
+       "a": [
+        "ответ 400"
        ],
        "c": []
       }
@@ -49732,6 +49202,22 @@
      "t": "const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…",
      "a": [
       "читает в базе: smsMessage"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const latestAwaitsHuman = versions[0] ? await narrationAwaitsHuman(p.id, p, versions[0]) : false;",
+     "a": [
+      "зовёт narrationAwaitsHuman()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const latestAudioSec = versions[0]?.status === \"READY\" && versions[0].storageKey && versions[0].audioSec == n…",
+     "a": [
+      "зовёт narrationAudioSec()"
      ],
      "c": []
     },
@@ -57721,7 +57207,7 @@
     },
     {
      "k": "do",
-     "t": "const presented = stripEmbedding(stripOwnerContact(property, req.agent!.id, can(req, \"properties.viewOwners\")…",
+     "t": "const presented = stripEmbedding(stripOwnerContact(property, can(req, \"properties.viewOwners\")));",
      "a": [
       "зовёт stripEmbedding()"
      ],
@@ -57729,7 +57215,15 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ...presented, sellerClient: presented.ownerContactHidden ? null : await loadSellerClientRef(proper…",
+     "t": "const ownsIt = ownsProperty(req.agent!.id, property);",
+     "a": [
+      "зовёт ownsProperty()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ...presented, ownerContactMasked: presented.ownerContactHidden && ownsIt ? maskOwnerContact(proper…",
      "a": [
       "ответ 200"
      ],
@@ -57990,7 +57484,7 @@
     },
     {
      "k": "if",
-     "t": "data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, \"properties.viewOwners…",
+     "t": "data.ownerContact !== undefined && stripOwnerContact(existing, can(req, \"properties.viewOwners\")).ownerContac…",
      "a": [],
      "c": [
       {
@@ -61610,6 +61104,388 @@
   },
   {
    "method": "GET",
+   "path": "/narration-music/:id/file",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-music/:id/file",
+   "file": "apps/api/src/routes/properties/narrationMusic.ts",
+   "router": "narrationMusicRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!hasMarketingRole(req.agent)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Музыка доступна маркетингу и руководству\" });",
+       "a": [
+        "ответ 403 — «Музыка доступна маркетингу и руководству»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const id = narrationMusicIdSchema.safeParse(req.params.id);",
+     "a": [
+      "проверяет данные схемой narrationMusicIdSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный трек\" });",
+       "a": [
+        "ответ 400 — «Некорректный трек»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const row = await prisma.narrationMusicTrack.findUnique({ where: { id: id.data }, select: { storageKey: true,…",
+     "a": [
+      "читает в базе: narrationMusicTrack"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const file = row ? localVideoFilePath(row.storageKey) : null;",
+     "a": [
+      "зовёт localVideoFilePath()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!row || !file",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Трек не найден\" });",
+       "a": [
+        "ответ 404 — «Трек не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.setHeader(\"Cache-Control\", \"private, max-age=3600\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.type(row.format === \"m4a\" ? \"audio/mp4\" : \"audio/mpeg\").sendFile(file, (err)",
+     "a": [
+      "ответ 404 — «Файл трека не найден на сервере»",
+      "ставит заголовок ответа"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "err && !res.headersSent",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(404).json({ error: \"Файл трека не найден на сервере\" });",
+         "a": [
+          "ответ 404 — «Файл трека не найден на сервере»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "DELETE",
+   "path": "/narration-music/:id",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-music/:id",
+   "file": "apps/api/src/routes/properties/narrationMusic.ts",
+   "router": "narrationMusicRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!canConfigure(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Музыку удаляет руководство\" });",
+       "a": [
+        "ответ 403 — «Музыку удаляет руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const id = narrationMusicIdSchema.safeParse(req.params.id);",
+     "a": [
+      "проверяет данные схемой narrationMusicIdSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный трек\" });",
+       "a": [
+        "ответ 400 — «Некорректный трек»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!(await deleteNarrationMusicTrack(id.data))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Трек не найден\" });",
+       "a": [
+        "ответ 404 — «Трек не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAgentAudit(req.agent!.id, \"NARRATION_MUSIC_DELETED\", \"NarrationMusicTrack\", id.data, {});",
+     "a": [
+      "зовёт logAgentAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/narration-music",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-music",
+   "file": "apps/api/src/routes/properties/narrationMusic.ts",
+   "router": "narrationMusicRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!hasMarketingRole(req.agent)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Музыка доступна маркетингу и руководству\" });",
+       "a": [
+        "ответ 403 — «Музыка доступна маркетингу и руководству»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const tracks = await narrationMusicTracks();",
+     "a": [
+      "зовёт narrationMusicTracks()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(view);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/narration-music",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-music",
+   "file": "apps/api/src/routes/properties/narrationMusic.ts",
+   "router": "narrationMusicRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "narrationMusicUpload.single(\"file\")"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!canConfigure(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Музыку загружает руководство\" });",
+       "a": [
+        "ответ 403 — «Музыку загружает руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const fields = narrationMusicUploadSchema.safeParse({ ...(typeof req.body?.title === \"string\" ? { title: req.…",
+     "a": [
+      "проверяет данные схемой narrationMusicUploadSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!fields.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Название трека — до 80 знаков\" });",
+       "a": [
+        "ответ 400 — «Название трека — до 80 знаков»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!req.file",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Выберите файл mp3 или m4a\" });",
+       "a": [
+        "ответ 400 — «Выберите файл mp3 или m4a»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await prisma.narrationMusicTrack.count() >= NARRATION_MUSIC_LIMITS.maxTracks",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: `В библиотеке уже ${NARRATION_MUSIC_LIMITS.maxTracks} треков: удалите ли…",
+       "a": [
+        "ответ 409 — «В библиотеке уже ${NARRATION_MUSIC_LIMITS.maxTracks} треков: удалите…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const added = await addNarrationMusicTrack({ buffer: req.file.buffer, title, createdById: req.agent!.id });",
+     "a": [
+      "зовёт addNarrationMusicTrack()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!added.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(added.status).json({ error: added.error });",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAgentAudit(req.agent!.id, \"NARRATION_MUSIC_ADDED\", \"NarrationMusicTrack\", added.id, { title });",
+     "a": [
+      "зовёт logAgentAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.status(201).json({ id: added.id });",
+     "a": [
+      "ответ 201"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/narration-options",
    "mount": "/api/v1/properties",
    "full": "/api/v1/properties/narration-options",
@@ -61760,7 +61636,7 @@
     },
     {
      "k": "do",
-     "t": "const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…",
+     "t": "const parsed = narrationConfigSchema.safeParse(since ? { ...withoutSince, ownMusicRemixSince: since } : witho…",
      "a": [
       "проверяет данные схемой narrationConfigSchema"
      ],
@@ -66374,6 +66250,14 @@
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "do",
+     "t": "const ownerProbeOn = await sellerSwitchOn(\"sellerProbeCallEnabled\");",
+     "a": [
+      "зовёт sellerSwitchOn()"
+     ],
+     "c": []
+    },
     {
      "k": "do",
      "t": "const [buyers, sellers] = await Promise.all([ prisma.postShowingCall.findMany({ where: { previewOnly: true },…",
@@ -73789,7 +73673,7 @@
       },
       {
        "k": "do",
-       "t": "delete (response as Record<string, unknown>).investigationCaseConfig;",
+       "t": "delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];",
        "a": [
         "дословно из кода"
        ],
@@ -73828,6 +73712,21 @@
     {
      "k": "if",
      "t": "Object.prototype.hasOwnProperty.call(req.body ?? {}, \"postShowingCallEnabled\") && !canReadInvestigations(req)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -82551,6 +82450,14 @@
     },
     {
      "k": "do",
+     "t": "handleWhatsappCallEvents(req.body);",
+     "a": [
+      "зовёт handleWhatsappCallEvents()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const durableIngress = await persistVerifiedCustomerIngressBatch(req);",
      "a": [
       "зовёт persistVerifiedCustomerIngressBatch()"
@@ -83653,7 +83560,7 @@
                 },
                 {
                  "k": "if",
-                 "t": "bot.channels[msg.channel] && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silentForeignShare &&…",
+                 "t": "bot.channels[msg.channel] && !recordOnly && !reactionOnly && !moneyRequestOnly && !guardSilentOnly && !silent…",
                  "a": [],
                  "c": [
                   {
@@ -86624,6 +86531,14 @@
            ]
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "await warnIfIncomingPrimaryUnreachable(primary);",
+         "a": [
+          "зовёт warnIfIncomingPrimaryUnreachable()"
+         ],
+         "c": []
         }
        ],
        "from": "reconcileAgentMobileFallback() — apps/api/src/lib/telephony/agentMobileFallback.ts"
@@ -86667,15 +86582,53 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const primary = await incomingPrimaryExtension();",
+         "a": [
+          "зовёт incomingPrimaryExtension()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
-         "t": "result.noOperatorsAssigned",
+         "t": "result.noOperatorsAssigned && !primary",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "void logSystemError( \"telephony\", \"Оператор приёма не назначен ни одному сотруднику: звонки незнакомых номеро…",
+           "t": "const open = await prisma.errorLog.count({ where: { ...noOperatorAlarmWhere(), resolvedAt: null } });",
            "a": [
-            "запись в журнал ошибок"
+            "считает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "open === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError( \"telephony\", `${NO_OPERATOR_ALARM_PREFIX}: звонки незнакомых номеров идут по-старому. ` …",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "elseif",
+         "t": "primary || !result.skipped",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.errorLog .updateMany({ where: { ...noOperatorAlarmWhere(), resolvedAt: null }, data: { resolvedA…",
+           "a": [
+            "меняет в базе: errorLog"
            ],
            "c": []
           }
@@ -87048,7 +87001,15 @@
         },
         {
          "k": "do",
-         "t": "const items = await findUnansweredClients(now);",
+         "t": "const sellersOn = await sellerSwitchOn(\"agentUnansweredAlarmEnabled\");",
+         "a": [
+          "зовёт sellerSwitchOn()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const items = (await findUnansweredClients(now)).filter((i)",
          "a": [
           "зовёт findUnansweredClients()"
          ],
@@ -87190,6 +87151,21 @@
       {
        "k": "if",
        "t": "!settings?.liveVoiceEnabled || !settings.postShowingCallEnabled",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
        "a": [],
        "c": [
         {
@@ -88278,7 +88254,7 @@
              "c": [
               {
                "k": "do",
-               "t": "await flagAgentBypassSuspicion(conv.clientId);",
+               "t": "await flagAgentBypassSuspicion(conv.clientId, conv.id);",
                "a": [
                 "дословно из кода"
                ],
@@ -90710,77 +90686,6 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "client-property-count-alarm",
-   "when": "0 * * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const { alerted } = await runClientPropertyCountAlarmTick();",
-       "a": [
-        "зовёт runClientPropertyCountAlarmTick()"
-       ],
-       "c": [],
-       "from": "runClientPropertyCountAlarmTick() — apps/api/src/lib/clientPropertyCountAlarm.ts"
-      },
-      {
-       "k": "if",
-       "t": "alerted > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Аларм «заявлено/сделано объектов»: ${alerted}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка аларма «заявлено/сделано объектов»\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
    "id": "client-scoring",
    "when": "0 2 * * *",
    "tree": [
@@ -90952,6 +90857,21 @@
           {
            "k": "do",
            "t": "return { checked: 0, alerted: 0, skippedOffHours: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: 0, alerted: 0, skippedOffHours: false };",
            "a": [
             "дословно из кода"
            ],
@@ -91478,14 +91398,6 @@
          "c": []
         },
         {
-         "k": "do",
-         "t": "const selfAnswer = await loadBotAnswersItself();",
-         "a": [
-          "зовёт loadBotAnswersItself()"
-         ],
-         "c": []
-        },
-        {
          "k": "loop",
          "t": "для каждого: const row of rows",
          "a": [],
@@ -91515,7 +91427,7 @@
           },
           {
            "k": "if",
-           "t": "need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: \"bot_choice\" }))",
+           "t": "need === \"no\"",
            "a": [],
            "c": [
             {
@@ -92822,6 +92734,22 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "const sellersOn = await sellerSwitchOn(\"dealStaleSellersEnabled\");",
+         "a": [
+          "зовёт sellerSwitchOn()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const buyersOn = await automationSwitchOn(\"dealStaleBuyersEnabled\");",
+         "a": [
+          "зовёт automationSwitchOn()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
          "t": "для каждого: const client of sellers",
          "a": [],
@@ -93216,7 +93144,7 @@
            "c": [
             {
              "k": "do",
-             "t": "properties.set(row.id, { trashed: row.deletedAt !== null, finalPath: row.videoHandoffFinalPath, coverSquareUr…",
+             "t": "properties.set(row.id, { trashed: row.deletedAt !== null, finalPath: row.videoHandoffFinalPath, previewPath: …",
              "a": [
               "дословно из кода"
              ],
@@ -93433,6 +93361,21 @@
              "c": []
             }
            ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of await prisma.narrationMusicTrack.findMany({ select: { storageKey: true } })",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "rawRefs.add(row.storageKey);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
           }
          ]
         },
@@ -98334,146 +98277,6 @@
      "c": [
       {
        "k": "do",
-       "t": "const held = await releaseCommentPhoneHolds();",
-       "a": [
-        "зовёт releaseCommentPhoneHolds()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const held = await prisma.client.findMany({ where: { commentPhoneHoldUntil: { not: null }, deletedAt: null },…",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const card of held",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const conversations = await prisma.botConversation.findMany({ where: { clientId: card.id }, select: { message…",
-           "a": [
-            "читает в базе: botConversation"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "const reply = conversations.map((c)",
-           "a": [
-            "зовёт commentPhoneReplyOf()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "reply",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "await releaseCommentPhoneHold(card.id, `Номер из комментария: клиент ответил боту в личных — «${reply}»`, car…",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "answered++;",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "elseif",
-           "t": "card.commentPhoneHoldUntil && card.commentPhoneHoldUntil.getTime() <= now.getTime()",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "await releaseCommentPhoneHold(card.id, \"Номер из комментария, боту не ответил: позвоните и узнайте, что нужно…",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "expired++;",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "releaseCommentPhoneHolds() — apps/api/src/lib/commentPhoneHold.ts"
-      },
-      {
-       "k": "if",
-       "t": "held.answered + held.expired > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Номер из комментария → в раздачу: ответили ${held.answered}, молчат ${held.expired}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка снятия придержки номера из комментария\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
        "t": "const assigned = await assignPendingLeads();",
        "a": [
         "зовёт assignPendingLeads()"
@@ -98851,9 +98654,9 @@
           },
           {
            "k": "do",
-           "t": "const ownLeadKept = reassignOnMissedCall && holdsOwnPropertyLead(client);",
+           "t": "const afterDue = firstCallAfterDue(client, reassignOnMissedCall);",
            "a": [
-            "зовёт holdsOwnPropertyLead()"
+            "зовёт firstCallAfterDue()"
            ],
            "c": []
           },
@@ -98867,7 +98670,7 @@
           },
           {
            "k": "if",
-           "t": "alreadyNoted && (!reassignOnMissedCall || ownLeadKept)",
+           "t": "alreadyNoted && (!reassignOnMissedCall || keptByRule)",
            "a": [],
            "c": [
             {
@@ -98882,7 +98685,7 @@
           },
           {
            "k": "if",
-           "t": "!reassignOnMissedCall || ownLeadKept",
+           "t": "!reassignOnMissedCall || keptByRule",
            "a": [],
            "c": [
             {
@@ -98895,7 +98698,7 @@
             },
             {
              "k": "do",
-             "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: ownLeadKept ? \"Первый звонок по объекту сорван\" : \"П…",
+             "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: ownLeadKept ? \"Первый звонок по объекту сорван\" : no…",
              "a": [
               "зовёт notifyFeedOnly()"
              ],
@@ -98909,6 +98712,21 @@
               {
                "k": "do",
                "t": "sendPushToAgents([agentId], { title: \"⏰ Клиент по вашему объекту ждёт звонка\", body: `${client.fullName}: поз…",
+               "a": [
+                "push-уведомление"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "notDialableKept",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "sendPushToAgents([agentId], { title: \"Клиенту не дозвониться через CRM\", body: `${client.fullName}: номер не …",
                "a": [
                 "push-уведомление"
                ],
@@ -99117,7 +98935,148 @@
        "a": [
         "зовёт remindDueFirstCalls()"
        ],
-       "c": []
+       "c": [
+        {
+         "k": "do",
+         "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" } });",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const recentOutageMs = telephonyOn ? outageOverlapMs(lookback, now, await outagesBetween(lookback, now)) : 0;",
+         "a": [
+          "зовёт outageOverlapMs()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const windowStart = widenAfterNight( new Date(now.getTime() - minutes * 60_000 - recentOutageMs), leadHoursOf…",
+         "a": [
+          "зовёт widenAfterNight()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const candidates = await prisma.client.findMany({ where: { acceptedAt: { gte: windowStart, lte: windowEnd }, …",
+         "a": [
+          "читает в базе: client"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "candidates.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { reminded: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const status = await firstCallStatus(candidates, { leadCallMinutes: settings?.leadCallMinutes ?? null, leadCa…",
+         "a": [
+          "зовёт firstCallStatus()"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const client of candidates",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!s || s.done",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "leftMs > 5 * 60_000 || leftMs < 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const already = await prisma.interaction.findFirst({ where: { clientId: client.id, type: \"SYSTEM\", notes: { s…",
+           "a": [
+            "читает в базе: interaction"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "already",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const after = firstCallAfterDue(client, reassignOn).text;",
+           "a": [
+            "зовёт firstCallAfterDue()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await logTimeline({ clientId: client.id, actor: { kind: \"system\", source: \"first-call-reminder\", subjectAgent…",
+           "a": [
+            "зовёт logTimeline()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "sendPushToAgents([agentId], { title: \"⏱ Позвонить клиенту\", body: `${client.fullName}: осталось ${minutesLeft…",
+           "a": [
+            "push-уведомление"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "remindDueFirstCalls() — apps/api/src/services/leads/firstCall.ts"
       },
       {
        "k": "if",
@@ -99147,7 +99106,25 @@
        "a": [
         "зовёт reportCronTickError()"
        ],
-       "c": []
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
     },
@@ -104231,6 +104208,14 @@
          ]
         }
        ]
+      },
+      {
+       "k": "do",
+       "t": "report.remixed = await remixFromMasters();",
+       "a": [
+        "зовёт remixFromMasters()"
+       ],
+       "c": []
       }
      ],
      "from": "runNarrationAutoFlow() — apps/api/src/lib/narrationAutoFlow.ts"
@@ -104239,26 +104224,262 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "narration-auto-master",
+   "id": "narration-preview-due",
    "when": "* * * * *",
    "tree": [
     {
      "k": "do",
-     "t": "await runMachineMastersTick();",
+     "t": "await clearLeftoverNarrationPreviews();",
      "a": [
-      "зовёт runMachineMastersTick()"
+      "зовёт clearLeftoverNarrationPreviews()"
      ],
      "c": [
       {
        "k": "do",
-       "t": "return runMachineMasters(machineMasterDeps, now);",
+       "t": "const rows = await prisma.property.findMany({ where: { OR: [{ narrationPreviewVersionId: { not: null } }, { n…",
        "a": [
-        "зовёт runMachineMasters()"
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of rows",
+       "a": [],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const done = await withPropertyLock(row.id, async (tx)",
+           "a": [
+            "читает в базе: property",
+            "меняет в базе: property",
+            "читает в базе: propertyNarrationVersion",
+            "меняет в базе: propertyNarrationVersion"
+           ],
+           "c": [
+            {
+             "k": "do",
+             "t": "const cur = await tx.property.findUnique({ where: { id: row.id }, select: { narrationPreviewVersionId: true, …",
+             "a": [
+              "читает в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!cur || cur.narrationPreviewVersionId !== row.narrationPreviewVersionId || cur.narrationPreviewPath !== row.n…",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return false;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "await tx.property.update({ where: { id: row.id }, data: NARRATION_PREVIEW_CLEARED });",
+             "a": [
+              "меняет в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: row.id }, orderBy: { revisi…",
+             "a": [
+              "читает в базе: propertyNarrationVersion"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "cur.narrationPreviewVersionId && latest?.id === cur.narrationPreviewVersionId && cur.videoMasterNarrationVers…",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: \"READY\" }, data: { approvedAt:…",
+               "a": [
+                "меняет в базе: propertyNarrationVersion"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!done",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "row.narrationPreviewPath",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await removeClipFiles(row.narrationPreviewPath);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"video-handoff\", `Оставшийся кандидат «прослушать перед выпуском» не убран: ${err instanc…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": "clearLeftoverNarrationPreviews() — apps/api/src/lib/narrationPreview.ts"
+    },
+    {
+     "k": "do",
+     "t": "await reopenAutoApprovalsOnPublishedClips();",
+     "a": [
+      "зовёт reopenAutoApprovalsOnPublishedClips()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "return prisma.$executeRaw` WITH latest AS ( SELECT DISTINCT ON (v.\"propertyId\") v.\"id\", v.\"propertyId\", v.\"st…",
+       "a": [
+        "обращается к базе своим SQL"
        ],
        "c": []
       }
      ],
-     "from": "runMachineMastersTick() — apps/api/src/lib/narrationAutoFlow.ts"
+     "from": "reopenAutoApprovalsOnPublishedClips() — apps/api/src/lib/narrationPreview.ts"
+    },
+    {
+     "k": "do",
+     "t": "await finishOldPostsSweep();",
+     "a": [
+      "зовёт finishOldPostsSweep()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const rows = await prisma.videoRemakeRequest.findMany({ where: { replaceOldPostsOnPublish: true, oldPostsRepl…",
+       "a": [
+        "читает в базе: videoRemakeRequest"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const { propertyId } of rows",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "await isHandoffPublishRunning(propertyId)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.videoRemakeRequest.updateMany({ where: { propertyId, oldPostsReplacedAt: null }, data: { oldPost…",
+           "a": [
+            "меняет в базе: videoRemakeRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const r = await finishOldPostsAfterRemakePublish(propertyId, null, now);",
+           "a": [
+            "зовёт finishOldPostsAfterRemakePublish()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "r && (r.removed.length || r.manual.length || r.done)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "touched++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Объект ${propertyId}: снятие старых постов после нового ролика упало: ${err inst…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": "finishOldPostsSweep() — apps/api/src/lib/remakeOldPosts.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
@@ -105440,6 +105661,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "continue;",
              "a": [
@@ -105456,12 +105692,27 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError( \"ai\", `Заявка оформлена сторожем: номер ${maskClientPhone(row.phone!)} был в переписке (…",
+             "t": "void logSystemError( \"ai\", (row.promised ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки…",
              "a": [
               "запись в журнал ошибок"
              ],
              "c": []
             },
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "outcome === \"accepted_other\"",
+           "a": [],
+           "c": [
             {
              "k": "do",
              "t": "continue;",
@@ -105500,6 +105751,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "row.promised",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await markWatchdogAttempted(row.conversationId, now);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "continue;",
              "a": [
@@ -105511,7 +105777,7 @@
           },
           {
            "k": "do",
-           "t": "const what = row.phone ? `Номер ${maskClientPhone(row.phone)} есть в переписке, карточки в базе нет` : `Клиен…",
+           "t": "const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…",
            "a": [
             "зовёт maskClientPhone()"
            ],
@@ -105545,6 +105811,21 @@
               "запись в журнал ошибок"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "row.promised",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await markWatchdogAttempted(row.conversationId, now);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
           },
@@ -106669,6 +106950,14 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const reviewAlertOn = await automationSwitchOn(\"notifyPropertyReviewOverdueEnabled\");",
+         "a": [
+          "зовёт automationSwitchOn()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
          "t": "для каждого: const property of properties",
          "a": [],
@@ -106698,6 +106987,21 @@
              "t": "property.status === \"PENDING_REVIEW\"",
              "a": [],
              "c": [
+              {
+               "k": "if",
+               "t": "!reviewAlertOn",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
               {
                "k": "if",
                "t": "await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now)",
@@ -108096,6 +108400,21 @@
        "c": [
         {
          "k": "if",
+         "t": "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { alerted: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "!(await isWithinAlarmHours(now))",
          "a": [],
          "c": [
@@ -108492,6 +108811,21 @@
          ]
         },
         {
+         "k": "if",
+         "t": "!(await sellerSwitchOn(\"sellerProbeCallEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return 0;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
          "t": "await loadCompanyDaysOff();",
          "a": [
@@ -108641,6 +108975,21 @@
        "c": [
         {
          "k": "if",
+         "t": "!(await sellerSwitchOn(\"sellerPropertyMissingAntifraudEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { escalated: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "!(await isWithinAlarmHours(now))",
          "a": [],
          "c": [
@@ -108674,6 +109023,28 @@
             "дословно из кода"
            ],
            "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!(await securityAutomationOn())",
+         "a": [],
+         "c": [
+          {
+           "k": "loop",
+           "t": "для каждого: const c of critical",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await reportSecuritySignal({ clientId: c.id, subjectAgentId: c.assignedAgent?.id ?? null, source: \"sellerProp…",
+             "a": [
+              "зовёт reportSecuritySignal()"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         },
@@ -110744,6 +111115,14 @@
         "зовёт runSocialVideoScheduleTick()"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "await releaseAbandonedClaims();",
+         "a": [
+          "зовёт releaseAbandonedClaims()"
+         ],
+         "c": []
+        },
         {
          "k": "do",
          "t": "const due = await prisma.socialVideoPost.findMany({ where: { status: \"SCHEDULED\", deletedAt: null, scheduledA…",
@@ -112846,21 +113225,6 @@
            "c": []
           },
           {
-           "k": "if",
-           "t": "row.clientId",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void analyzeMessageForPropertyCounts(row.clientId, content);",
-             "a": [
-              "зовёт analyzeMessageForPropertyCounts()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
            "k": "do",
            "t": "void logSystemError( \"meta\", `Сообщение клиента (диалог ${row.id}) зависло в буфере дебаунса минут на ${Math.…",
            "a": [
@@ -113407,44 +113771,6 @@
          "c": [
           {
            "k": "do",
-           "t": "const closing = await prisma.telegramGroupComment.findMany({ where: { status: \"PENDING\", replyDueAt: { lte: n…",
-           "a": [
-            "читает в базе: telegramGroupComment"
-           ],
-           "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const c of closing",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "!extractAllPhones(c.text).length",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "await createLeadFromCommentPhone({ channel: \"TELEGRAM\", commentId: `${c.groupChatId ?? \"legacy\"}:${c.messageI…",
-             "a": [
-              "зовёт createLeadFromCommentPhone()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
            "t": "const closed = await prisma.telegramGroupComment.updateMany({ where: { status: \"PENDING\", replyDueAt: { lte: …",
            "a": [
             "меняет в базе: telegramGroupComment"
@@ -113742,6 +114068,36 @@
              "t": "checks.push(await probeLiveVoiceApp(ariCreds));",
              "a": [
               "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await watchOfficeDeskPhone(now);",
+             "a": [
+              "зовёт watchOfficeDeskPhone()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"telephony\", `Проверка офисного аппарата не выполнена: ${describeError(err)}`, { dedupKey…",
+             "a": [
+              "запись в журнал ошибок"
              ],
              "c": []
             }
@@ -117573,6 +117929,214 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка недельной сводки СБ\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "whatsapp-calling-health",
+   "when": "23 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();",
+       "a": [
+        "зовёт runWhatsappCallingHealthCheck()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await isMetaChannelEnabled(\"WHATSAPP\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"channel_off\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const creds = await loadCredentials();",
+         "a": [
+          "зовёт loadCredentials()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const token = creds.waPhoneId ? (await resolveIncomingAccount(\"WHATSAPP\", creds.waPhoneId)).token || creds.wa…",
+         "a": [
+          "зовёт resolveIncomingAccount()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!creds.waPhoneId || !token",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"not_configured\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!callingOn",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await resolveAlarm(WA_CALLING_CHECK_ALARM_KEY);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return { ...result, skipped: \"calling_off\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "availability === \"AVAILABLE\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await resolveAlarm(WA_CALLING_SIP_ALARM_KEY);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return result;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "availability !== \"BLOCKED\" && availability !== \"LIMITED\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.log(`[whatsapp-звонки] Meta не сообщила can_receive_call_sip (значение: ${availability ?? \"нет поля\"}…",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!(err instanceof GraphCheckError)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw err;",
+             "a": [
+              "пробрасывает ошибку дальше"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runWhatsappCallingHealthCheck() — apps/api/src/lib/whatsappCallingHealth.ts"
+      },
+      {
+       "k": "if",
+       "t": "alarmed",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Звонки WhatsApp через SIP: ${sipAvailability ?? \"состояние неизвестно\"} — тревога руковод…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «звонки WhatsApp»\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -126226,11 +126790,79 @@
       },
       {
        "k": "do",
-       "t": "const note = leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? \"Вопрос, на который бот не ответил\" : SCENA…",
+       "t": "const note = sealed.note ?? leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? \"Вопрос, на который бот не о…",
        "a": [
         "зовёт leadOnlyNoteWithCallbackTime()"
        ],
        "c": []
+      },
+      {
+       "k": "if",
+       "t": "intake.scenario === \"note\"",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "!conversation.clientId && !options.force",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"wait\", reason: \"card_pending\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!conversation.clientId",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"ai\", `[alarm] Оператор заявок: пометка агенту без карточки (диалог ${conversation.id}). …",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intake_f…",
+           "a": [
+            "зовёт alarmLeadOnlyIntake()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "sealed.phone",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });",
+           "a": [
+            "зовёт noteLeadOnlyNewPhone()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: \"noted\" } : {…",
+         "a": [
+          "зовёт noteLeadOnlyOnCard()"
+         ],
+         "c": []
+        }
+       ]
       },
       {
        "k": "if",
@@ -126505,11 +127137,79 @@
           },
           {
            "k": "do",
-           "t": "const note = leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? \"Вопрос, на который бот не ответил\" : SCENA…",
+           "t": "const note = sealed.note ?? leadOnlyNoteWithCallbackTime(`${intake.modelFailed ? \"Вопрос, на который бот не о…",
            "a": [
             "зовёт leadOnlyNoteWithCallbackTime()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "intake.scenario === \"note\"",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "!conversation.clientId && !options.force",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return { status: \"wait\", reason: \"card_pending\" };",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!conversation.clientId",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"ai\", `[alarm] Оператор заявок: пометка агенту без карточки (диалог ${conversation.id}). …",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intake_f…",
+               "a": [
+                "зовёт alarmLeadOnlyIntake()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "sealed.phone",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });",
+               "a": [
+                "зовёт noteLeadOnlyNewPhone()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: \"noted\" } : {…",
+             "a": [
+              "зовёт noteLeadOnlyOnCard()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -127960,7 +128660,7 @@
     },
     {
      "k": "if",
-     "t": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId",
+     "t": "deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId && (await sellerSwitchOn(\"deal…",
      "a": [],
      "c": [
       {
@@ -130864,6 +131564,21 @@
    "file": "apps/api/src/jobs/sellerFacts.ts",
    "tree": [
     {
+     "k": "if",
+     "t": "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "await refreshSellerFacts(payload.clientId);",
      "a": [
@@ -131232,6 +131947,21 @@
    "kind": "sellerPhotoInsightJob",
    "file": "apps/api/src/jobs/sellerPhotoInsight.ts",
    "tree": [
+    {
+     "k": "if",
+     "t": "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const attachments = await listSellerAttachments(payload.clientId);",
@@ -131902,6 +132632,848 @@
    ]
   },
   {
+   "kind": "socialPublishRetryJob",
+   "file": "apps/api/src/jobs/socialPublishRetry.ts",
+   "tree": [
+    {
+     "k": "do",
+     "t": "const property = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { id: true, sh…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "property?.clipReviewStatus === \"PENDING\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!property || property.deletedAt || !property.videoHandoffFinalPath",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const blocked = handoffStatusBlockReason(property.status);",
+     "a": [
+      "зовёт handoffStatusBlockReason()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "HANDOFF_PUBLISHABLE_STATUSES.includes(status)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "handoffStatusBlockReason() — apps/api/src/lib/videoHandoff.ts"
+    },
+    {
+     "k": "if",
+     "t": "blocked",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"meta\", `Объект №${property.shortId}: отложенный повтор (${label}) отменён — ${blocked}`);",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { autoPublishEnabled:…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!settings?.autoPublishEnabled",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"meta\", `Объект №${property.shortId}: отложенный повтор (${label}) отменён — автопубликац…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const diskPath = videoHandoffFinalDiskPath(property.videoHandoffFinalPath);",
+     "a": [
+      "зовёт videoHandoffFinalDiskPath()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!publicPath.startsWith(\"/uploads/handoff/\")",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "videoHandoffFinalDiskPath() — apps/api/src/lib/videoHandoff.ts"
+    },
+    {
+     "k": "if",
+     "t": "!diskPath || !(await fileExists(diskPath))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"meta\", `Объект №${property.shortId}: отложенный повтор (${label}) отменён — файла ролика…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const mainRunning = await prisma.backgroundJob.findFirst({ where: { dedupeKey: videoHandoffPublishDedupeKey(p…",
+     "a": [
+      "читает в базе: backgroundJob"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "mainRunning",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new RetryLater(`Идёт основная публикация объекта №${property.shortId} — повторим ${label} позже`);",
+       "a": [
+        "ошибка RetryLater — «Идёт основная публикация объекта №${property.shortId} — повторим ${lab»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "payload.channel === \"INSTAGRAM_STORIES\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "(property.publishedChannels ?? []).includes(channel)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const [result] = await publishApprovedPost({ propertyId: property.id, localVideoPath: property.videoHandoffFi…",
+     "a": [
+      "зовёт publishApprovedPost()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!result",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "result.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await applySucceededPublishResults( property.id, [{ channel, postId: result.postId, secondaryPostId: result.s…",
+       "a": [
+        "зовёт applySucceededPublishResults()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "channel === \"INSTAGRAM\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await enqueueSocialPublishRetry(property.id, \"INSTAGRAM_STORIES\", { now: true });",
+         "a": [
+          "зовёт enqueueSocialPublishRetry()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "result.pending",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "result.outcomeUnknown",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "result.retriable",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new RetryLater(`${label} снова не смог скачать ролик объекта №${property.shortId}: ${result.error ?? \"б…",
+       "a": [
+        "ошибка RetryLater — «${label} снова не смог скачать ролик объекта №${property.shortId}: ${r»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "void logSystemError( \"meta\", `Публикация в ${label} (объект ${property.id}) не удалась при отложенном повторе…",
+     "a": [
+      "запись в журнал ошибок"
+     ],
+     "c": []
+    },
+    {
+     "k": "catch",
+     "t": "когда попытки кончились",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!parsed.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "void logSystemError(\"meta\", text);",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      }
+     ]
+    }
+   ]
+  },
+  {
    "kind": "socialRepostPublishJob",
    "file": "apps/api/src/jobs/socialRepostPublish.ts",
    "tree": [
@@ -132549,7 +134121,61 @@
        "k": "try",
        "t": "пробует",
        "a": [],
-       "c": []
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await claimRun(id))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const heartbeat = setInterval(()",
+         "a": [
+          "меняет в базе: socialVideoPost"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "prisma.socialVideoPost .updateMany({ where: { id, status: \"PUBLISHING\" }, data: { runClaimedAt: new Date() } …",
+           "a": [
+            "меняет в базе: socialVideoPost"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": []
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "clearInterval(heartbeat);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
       },
       {
        "k": "finally",
@@ -132692,29 +134318,6 @@
             {
              "k": "do",
              "t": "return \"excluded\";",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId, phoneK…",
-           "a": [
-            "зовёт channelStaffSignalKind()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...si…",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return \"self\";",
              "a": [
               "дословно из кода"
              ],
@@ -134305,7 +135908,7 @@
       },
       {
        "k": "do",
-       "t": "async function noteStarted(channel: PublishChannel, destinationKey: string = channel): Promise<void> { if (!p…",
+       "t": "function metaFailureText(label: string, result: PublishResult): string { if (!result.retriable) return `Публи…",
        "a": [
         "запись в журнал ошибок"
        ],
@@ -134514,7 +136117,7 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError(\"meta\", `Публикация в Instagram (${ownerText}) не удалась: ${result.error}`);",
+             "t": "void logSystemError(\"meta\", metaFailureText(\"Instagram\", result));",
              "a": [
               "запись в журнал ошибок"
              ],
@@ -134650,7 +136253,7 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError(\"meta\", `Публикация в Facebook (${ownerText}) не удалась: ${result.error}`);",
+             "t": "void logSystemError(\"meta\", metaFailureText(\"Facebook\", result));",
              "a": [
               "запись в журнал ошибок"
              ],
@@ -134996,7 +136599,7 @@
          "c": [
           {
            "k": "do",
-           "t": "void logSystemError(\"threads\", `Публикация в Threads (${ownerText}) не удалась: ${result.error}`);",
+           "t": "void logSystemError(\"threads\", metaFailureText(\"Threads\", result));",
            "a": [
             "запись в журнал ошибок"
            ],
@@ -136278,11 +137881,20 @@
     },
     {
      "k": "do",
-     "t": "await replaceOldPostsBeforeRemakePublish(property.id).catch((err)",
+     "t": "const remake = await prepareOldPostsBeforeRemakePublish(property.id).catch((err)",
      "a": [
       "запись в журнал ошибок"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"meta\", `Объект ${property.id}: снимок старых постов перед публикацией перемонтажа не уда…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
@@ -136291,6 +137903,21 @@
       "зовёт publishHandoffResult()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "remake",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await finishOldPostsAfterRemakePublish(property.id, summary).catch((err)",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",

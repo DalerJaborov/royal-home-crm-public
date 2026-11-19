@@ -148,6 +148,23 @@ async function trackClientByPhone(phone: string): Promise<void> {
 }
 
 describe("Автоответчик: сообщение клиента становится лидом", () => {
+  it("сообщение после звонка из WhatsApp — карточка с источником WHATSAPP, как у живого звонка (18.11.2026)", async () => {
+    extractIncomingCallLead.mockResolvedValue(GOOD_EXTRACT);
+    const digits = `9398${tail.slice(-5)}`;
+    const phone = `+992${digits}`;
+    const file = voicemailName(digits);
+    createdFiles.push(file);
+    await prisma.incomingCall.create({
+      data: { channelId: `vm-test-wa-${runId}-${digits}`, phone, source: "whatsapp", startedAt: new Date(Date.now() - 60_000), endedAt: new Date(), answered: false },
+    });
+    mockStation([file]);
+
+    expect(await ingestVoicemails()).toBe(1);
+    await trackClientByPhone(phone);
+    const client = await prisma.client.findFirst({ where: { phone } });
+    expect(client?.source).toBe("WHATSAPP");
+  });
+
   it("незнакомый человек наговорил сообщение — карточка заведена и лид ушёл в раздачу по KPI", async () => {
     extractIncomingCallLead.mockResolvedValue(GOOD_EXTRACT);
     const digits = `9391${tail.slice(-5)}`;

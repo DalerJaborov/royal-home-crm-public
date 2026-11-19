@@ -30,7 +30,7 @@ import { customerAgentLegacyChannelKey } from "./customerAgentChannelSwitch.js";
  *  - messengers/commentIngest.ts::isCommentsBotEnabled — комментарии Instagram/Facebook/YouTube (бот не отвечает,
  *    комментарии сохраняются, как при выключенном канале в Настройках);
  *  - messengers/telegramGroupComments.ts::isTelegramGroupCommentsEnabled — комментарии под постами Telegram-канала;
- *  - messengers/leadOnlyLegacy.ts::planLegacyLeadOnlyTurn — режим «только заявки» старого пути (разбор намерения моделью);
+ *  - messengers/conversation.ts::runLeadOnlyOperator — режим «только заявки» старого пути (оператор приёма заявок);
  *  - ai/shortAgentReply.ts — короткие реплики модели вне хода: «заявка принята», напоминание молчащему (cron),
  *    просьба номера у кандидата, «ещё уточняю у собственника». Вызывающие при null берут готовую фразу или молчат.
  */

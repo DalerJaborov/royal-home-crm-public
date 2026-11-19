@@ -49,6 +49,8 @@ export interface FoundFile {
 export interface PropertyFileFacts {
   trashed: boolean;
   finalPath: string | null;
+  /** Новый ролик «прослушать перед выпуском» (lib/narrationPreview.ts): ждёт хозяина — не «заменённый финал». */
+  previewPath?: string | null;
   coverSquareUrl: string | null;
   coverStoryUrl: string | null;
 }
@@ -199,7 +201,8 @@ export function planDiskCleanup(files: FoundFile[], facts: CleanupFacts, nowMs: 
       // 5 — живой объект
       if (kind === "final") {
         const expectedName = propFacts.finalPath ? path.basename(propFacts.finalPath) : null;
-        if (expectedName !== name) candidates.push({ ...file, reason: "заменённый финал" });
+        const previewName = propFacts.previewPath ? path.basename(propFacts.previewPath) : null;
+        if (expectedName !== name && previewName !== name) candidates.push({ ...file, reason: "заменённый финал" });
         continue;
       }
       if (kind === "legacyCover") {
@@ -338,12 +341,13 @@ export async function runDiskCleanup(
     const batch = propertyIds.slice(i, i + 1000);
     const rows = await prisma.property.findMany({
       where: { id: { in: batch } },
-      select: { id: true, deletedAt: true, videoHandoffFinalPath: true, socialCoverSquareUrl: true, socialCoverStoryUrl: true },
+      select: { id: true, deletedAt: true, videoHandoffFinalPath: true, narrationPreviewPath: true, socialCoverSquareUrl: true, socialCoverStoryUrl: true },
     });
     for (const row of rows) {
       properties.set(row.id, {
         trashed: row.deletedAt !== null,
         finalPath: row.videoHandoffFinalPath,
+        previewPath: row.narrationPreviewPath,
         coverSquareUrl: row.socialCoverSquareUrl,
         coverStoryUrl: row.socialCoverStoryUrl,
       });
@@ -389,6 +393,8 @@ export async function runDiskCleanup(
   for (const row of await prisma.property.findMany({ where: { videoMasterStorageKey: { not: null } }, select: { videoMasterStorageKey: true } })) {
     if (row.videoMasterStorageKey) rawRefs.add(row.videoMasterStorageKey);
   }
+  // Треки «своя музыка» (18.11.2026) — там же: без этого уборка стёрла бы библиотеку как «исходник без записи».
+  for (const row of await prisma.narrationMusicTrack.findMany({ select: { storageKey: true } })) rawRefs.add(row.storageKey);
 
   const facts: CleanupFacts = { properties, clipRefs, rawRefs };
   const candidates = planDiskCleanup(files, facts, nowMs);

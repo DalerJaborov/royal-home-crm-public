@@ -8,6 +8,7 @@ import {
 } from "@royal-home/shared";
 import { buildCardFillSuggestion } from "../ai/cardFill.js";
 import { prisma } from "../db.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 import { logSystemError } from "./systemError.js";
 import { logTimeline } from "./timeline.js";
 import { describeError } from "./describeError.js";
@@ -73,6 +74,9 @@ export async function buildSuggestionFromCall(params: {
   const { clientId, agentId, interactionId, talkSeconds } = params;
   try {
     if (talkSeconds < MIN_TALK_SECONDS) return { created: false, reason: "разговор слишком короткий" };
+    // Выключатель «ИИ дописывает карточку клиента по звонку» (19.11.2026): выключено —
+    // ни записи в карточку, ни предложения, и ИИ ниже даже не зовём (не тратим деньги).
+    if (!(await automationSwitchOn("aiCardFromCallEnabled"))) return { created: false, reason: "выключено в настройках" };
 
     // Одно предложение на разговор: повторный разбор завалил бы агента одинаковыми
     // карточками (interactionId уникален и на уровне БД, но проверка дешевле ошибки).

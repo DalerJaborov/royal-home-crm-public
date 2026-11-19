@@ -115,7 +115,7 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
     // кому открыт контакт собственника; удалённую карточку продавца — только с правом «Архив».
     const viewOwners = actor.permissions?.has("properties.viewOwners") ?? false;
     const mayShowSeller = (p: (typeof result.hits)[number]["property"]) =>
-      !stripOwnerContact(p, actor.id, viewOwners).ownerContactHidden;
+      !stripOwnerContact(p, viewOwners).ownerContactHidden;
     const sellerIds = [
       ...new Set(
         result.hits

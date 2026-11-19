@@ -18,6 +18,7 @@ import { runIncomingCallsSilenceTick } from "./incomingCallsSilenceAlarm.js";
 import { loadFailoverConfig, readFailoverFromStation, failoverDiffers, type FailoverConfig } from "./failoverSync.js";
 import { EXTENSION_RECORDING_KEYS, EXTENSION_RECORDING_VALUE } from "./extensionPool.js";
 import { collectBaselineDrift, describeDrift } from "./telephonyBaseline.js";
+import { watchOfficeDeskPhone } from "./officeDeskPhoneWatch.js";
 import { LIVE_VOICE_ARI_APP, liveVoicePauseState, liveVoiceSubscriptionState } from "./liveVoiceBridge.js";
 
 /**
@@ -856,6 +857,18 @@ export async function runStationHealthTick(now: Date = new Date()): Promise<Stat
     // Робот: приложение на станции и пауза (09.10.2026, аудит линии робота).
     if (ariCreds) checks.push(await probeLiveVoiceApp(ariCreds));
     checks.push(liveVoicePauseCheck(now.getTime()));
+
+    /**
+     * ОФИСНЫЙ АППАРАТ В РАБОЧЕЕ ВРЕМЯ (18.11.2026, officeDeskPhoneWatch.ts). Приём
+     * незнакомых звонков заведён на один аппарат — выключенный аппарат значит, что
+     * эти звонки никто не примет, при живой станции и зелёных проверках выше.
+     * Своя тревога с автозакрытием; сбой этой проверки не роняет остальные.
+     */
+    try {
+      await watchOfficeDeskPhone(now);
+    } catch (err) {
+      void logSystemError("telephony", `Проверка офисного аппарата не выполнена: ${describeError(err)}`, { dedupKey: "office-desk-watch-failed" });
+    }
 
     const silence = await probeIncomingCallsFlowing(now);
     if (silence) checks.push(silence);

@@ -27,12 +27,12 @@ import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
 import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
 import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
+import { runWhatsappCallingHealthCheck } from "./lib/whatsappCallingHealth.js";
 import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
 import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
 import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
 import { releaseCommentPhoneHolds } from "./lib/commentPhoneHold.js";
 import { runTransferRequestTick } from "./lib/ownershipTransferRequest.js";
-import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
 import { runBuyerThinkingSlowTrackTick } from "./lib/buyerThinkingSlowTrack.js";
@@ -140,6 +140,7 @@ import { checkAdAccountAlerts, checkAdAlerts, checkAdDisapprovedAlerts } from ".
 import { autoResolveDuplicateErrors } from "./lib/autoResolveDuplicateErrors.js";
 import { autoRefreshCustomerAgentRevision } from "./lib/customerAgentAutoRefresh.js";
 import { backfillInstagramUrls } from "./lib/backfillInstagramUrls.js";
+import { sellerSwitchOn } from "./lib/sellerSwitches.js";
 const MAX_REMINDER_HISTORY = 12;
 
 /**
@@ -417,9 +418,14 @@ export async function sendDirectorDigest(): Promise<number> {
       adsYesterday,
     },
     directors,
+    // Выключатель владельца «продавцы в утренней сводке» (14.11.2026,
+    // lib/sellerSwitches.ts): выключено — две строки о продавцах ниже не пишутся,
+    // остальная сводка уходит как обычно.
+    sellerLinesOn,
   ] = await Promise.all([
     loadMorningNumbers({ ads: true }),
     prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } }),
+    sellerSwitchOn("morningSellerLinesEnabled"),
   ]);
 
   const body = [
@@ -461,7 +467,7 @@ export async function sendDirectorDigest(): Promise<number> {
     // Пачка 9 (11.09.2026): грубый градусник, не замена runSellerNoPropertyAlarmTick
     // (тот алармит директору лично по одному клиенту, от даты встречи) — см.
     // doc-comment у MorningNumbers.sellersWithoutPropertyOver7Days.
-    ...(sellersWithoutPropertyOver7Days > 0
+    ...(sellerLinesOn && sellersWithoutPropertyOver7Days > 0
       ? [
           `🏚️ ${sellersWithoutPropertyOver7Days} ${pluralizeRu(sellersWithoutPropertyOver7Days, ["продавец", "продавца", "продавцов"])} без объекта дольше недели`,
         ]
@@ -524,7 +530,7 @@ export async function sendDirectorDigest(): Promise<number> {
     // назад не поднимает никогда (см. doc-comment у
     // MorningNumbers.propertiesWithdrawnSellerRecovered), строка нужна, чтобы
     // разъезд не лежал незамеченным до случайной находки.
-    ...(propertiesWithdrawnSellerRecovered > 0
+    ...(sellerLinesOn && propertiesWithdrawnSellerRecovered > 0
       ? [
           `🏠↩️ ${propertiesWithdrawnSellerRecovered} ${pluralizeRu(propertiesWithdrawnSellerRecovered, ["объект снят", "объекта снято", "объектов снято"])} из-за «потерянного» продавца, хотя продавец уже не «Потерянный» — проверить возврат в продажу`,
         ]
@@ -623,14 +629,16 @@ export function startCronJobs() {
     const { notifyNarrationApproval, remindPendingNarrationApprovals } = await import("./telegram/assistantNarration.js");
     await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval, remindApprovals: remindPendingNarrationApprovals });
   }, undefined, undefined, { timeoutMs: 170_000 });
-  // Новая озвучка на вышедший ролик без монтажёра (16.11.2026): CRM сама убирает старый голос
-  // (сервис voice-separator) и накладывает новый. Один объект за тик — это минуты процессора;
-  // отдельной задачей, чтобы не держать черновики и одобрения озвучки (narration-auto-flow).
-  scheduleTracked("narration-auto-master", "* * * * *", async () => {
-    const { runMachineMastersTick } = await import("./lib/narrationAutoFlow.js");
-    await runMachineMastersTick();
-    // Звук + отделение (до 15 мин) + мастер + перемикс: с запасом; замок объекта живёт 40 мин.
-  }, undefined, undefined, { timeoutMs: 30 * 60_000 });
+  // Новая озвучка вышла (18.11.2026): старые посты снимаются в каждой сети после нового там же — дозревший
+  // Instagram и повторы TikTok и Meta доводит этот обход (lib/remakeOldPosts.ts). Имя задачи прежнее («прослушать
+  // перед выпуском» убран тем же числом): заодно убирает кандидатов, оставшихся от него на момент выката.
+  scheduleTracked("narration-preview-due", "* * * * *", async () => {
+    const { clearLeftoverNarrationPreviews, reopenAutoApprovalsOnPublishedClips } = await import("./lib/narrationPreview.js");
+    const { finishOldPostsSweep } = await import("./lib/remakeOldPosts.js");
+    await clearLeftoverNarrationPreviews();
+    await reopenAutoApprovalsOnPublishedClips();
+    await finishOldPostsSweep();
+  }, undefined, undefined, { timeoutMs: 170_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {
     const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");
     await runSellerControlTick();
@@ -2811,6 +2819,22 @@ export function startCronJobs() {
   });
 
   /**
+   * ЗВОНКИ WHATSAPP НЕ ДОХОДЯТ ДО СТАНЦИИ (18.11.2026, lib/whatsappCallingHealth.ts).
+   * Раз в час, только чтение Graph: звонки и SIP у номера включены, а Meta говорит,
+   * что номер не может принимать звонки через SIP (`can_receive_call_sip`), —
+   * тревога в «Здоровье системы» с причиной от Meta; снова AVAILABLE — гаснет сама.
+   * Звонки у номера выключены — сторож молчит.
+   */
+  scheduleTracked("whatsapp-calling-health", "23 * * * *", async () => {
+    try {
+      const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();
+      if (alarmed) console.log(`[cron] Звонки WhatsApp через SIP: ${sipAvailability ?? "состояние неизвестно"} — тревога руководству`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «звонки WhatsApp»", err);
+    }
+  });
+
+  /**
    * TELEGRAM НЕ ДОСТАВЛЯЕТ В CRM (15.11.2026, lib/telegramDeliveryWatch.ts): getWebhookInfo
    * раз в 10 минут, только чтение — нет вебхука, свежая ошибка доставки, очередь копится —
    * тревога руководству. Рубильник Settings.telegramDeliveryWatchEnabled.
@@ -2861,25 +2885,6 @@ export function startCronJobs() {
       if (stuck + reminded > 0) console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);
     } catch (err) {
       reportCronTickError("Ошибка тика запросов передачи", err);
-    }
-  });
-
-  /**
-   * АЛАРМ «ЗАЯВЛЕНО N, СДЕЛАНО M» — ПРОДАВЕЦ И ПОКУПАТЕЛЬ, ОДНО УВЕДОМЛЕНИЕ НА
-   * КЛИЕНТА (владелец 06.09.2026 п.3, объединено 07.09.2026, срок растянут по
-   * числу объектов 07.09.2026). Число ИИ услышал из разговора или переписки
-   * (sellerDeclaredPropertyCount / buyerDesiredPropertyCount) — если срок
-   * (2 дня на объект продавцу, 5 дней на объект покупателю) истёк, а в CRM
-   * меньше добавленных объектов/закрытых сделок, чем заявлено, директору
-   * уходит ОДНО уведомление на клиента с перечислением всех активных
-   * расхождений. См. lib/clientPropertyCountAlarm.ts.
-   */
-  scheduleTracked("client-property-count-alarm", "0 * * * *", async () => {
-    try {
-      const { alerted } = await runClientPropertyCountAlarmTick();
-      if (alerted > 0) console.log(`[cron] Аларм «заявлено/сделано объектов»: ${alerted}`);
-    } catch (err) {
-      reportCronTickError("Ошибка аларма «заявлено/сделано объектов»", err);
     }
   });
 

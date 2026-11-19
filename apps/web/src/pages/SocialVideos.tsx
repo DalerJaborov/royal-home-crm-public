@@ -20,6 +20,7 @@ import { destinationLabel, destinationsOfItem, resultOfDestination } from "../li
 import { Composer } from "./socialVideos/Composer";
 import { VideoDetail } from "./socialVideos/VideoDetail";
 import { SOCIAL_VIDEO_STATUS_CHIP, mediaSrc } from "./socialVideos/helpers";
+import { MarketingSection, useMarketingSectionMark } from "../components/look/marketing/MarketingSection";
 
 /**
  * «РОЛИКИ В СОЦСЕТИ» (12.10.2026, владелец: «как мне самому добавить ролик из
@@ -128,6 +129,11 @@ function VideoRow({ item, infos, onOpen }: { item: SocialVideoItem; infos: Socia
 }
 
 export function SocialVideos() {
+  return <MarketingSection><SocialVideosScreen /></MarketingSection>;
+}
+
+function SocialVideosScreen() {
+  const section = useMarketingSectionMark();
   const canView = useCan()("marketing.access");
   const [params] = useSearchParams();
   // `?new=1` — сразу композитор; `?open=<id>` — сразу карточка ролика (ссылки из «Маркетинга»).
@@ -143,7 +149,7 @@ export function SocialVideos() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -195,7 +201,7 @@ export function SocialVideos() {
   };
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>

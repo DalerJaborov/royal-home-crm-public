@@ -203,6 +203,13 @@
       "nav": null
     },
     {
+      "path": "/dev/narration-preview",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
       "path": "/dev/pult-actions",
       "component": "",
       "file": "",
@@ -961,9 +968,9 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 133,
+      "endpoints": 137,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 35
+      "usedBy": 36
     },
     {
       "mount": "/api/v1/transfer-requests",
@@ -977,7 +984,7 @@
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 61,
+      "endpoints": 56,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
       "usedBy": 13
     },
@@ -1673,11 +1680,6 @@
       "label": "Напоминания клиентам, переставшим отвечать в переписке"
     },
     {
-      "id": "client-property-count-alarm",
-      "expr": "0 * * * *",
-      "label": "Сравнивает заявленное клиентом число объектов со сделанным в CRM"
-    },
-    {
       "id": "client-scoring",
       "expr": "0 2 * * *",
       "label": "Ночная оценка ИИ всех активных клиентов"
@@ -1953,7 +1955,7 @@
       "label": null
     },
     {
-      "id": "narration-auto-master",
+      "id": "narration-preview-due",
       "expr": "* * * * *",
       "label": null
     },
@@ -2216,6 +2218,11 @@
       "id": "weekly-security-review-digest",
       "expr": "20 9 * * 1",
       "label": "Недельная сводка безопасности: отказы, похожие на сделку на стороне"
+    },
+    {
+      "id": "whatsapp-calling-health",
+      "expr": "23 * * * *",
+      "label": null
     },
     {
       "id": "whatsapp-webhook-watch",

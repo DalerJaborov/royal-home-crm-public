@@ -1,4 +1,4 @@
-import { narrationAutoSeparate, narrationMixByCrm, type NarrationConfig } from "@royal-home/shared";
+import { narrationMixByCrm, narrationOwnMusicRemix, type NarrationConfig } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadNarrationConfiguration, narrationQuotaExceededSince } from "./narrationGeneration.js";
 
@@ -14,10 +14,10 @@ import { loadNarrationConfiguration, narrationQuotaExceededSince } from "./narra
  */
 export const VOICELESS_COPY_HINT = "При сдаче пришлите два файла: готовый ролик и тот же ролик без голоса (музыка и звуки остаются) — тогда смену цены CRM сделает сама.";
 
-/** Просить ли у монтажёра второй файл «без голоса». С 16.11.2026 (владелец: «монтажёр присылает один
- *  файл, дальше мы сами») — нет, пока включено «CRM сама убирает старый голос» (autoSeparateVoice). */
-export function voicelessCopyHint(config: Pick<NarrationConfig, "autoSeparateVoice">): string {
-  return narrationAutoSeparate(config) ? "" : ` ${VOICELESS_COPY_HINT}`;
+/** Просьба к монтажёру о втором файле «без голоса»: из него CRM меняет голос при смене цены.
+ *  Не нужна, когда включена своя музыка (18.11.2026): CRM снимает со старого ролика весь звук сама. */
+export function voicelessCopyHint(config: Pick<NarrationConfig, "ownMusicRemix">): string {
+  return narrationOwnMusicRemix(config) ? "" : ` ${VOICELESS_COPY_HINT}`;
 }
 
 export async function narrationLineForMontajer(propertyId: string): Promise<string | null> {

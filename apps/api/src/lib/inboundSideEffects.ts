@@ -39,7 +39,6 @@
  */
 import { prisma } from "../db.js";
 import { detectClientLanguage } from "../ai/clientLanguage.js";
-import { analyzeMessageForPropertyCounts } from "../ai/chatPropertyCount.js";
 import { notifyAgentOfClientMessage } from "./clientMessageAlert.js";
 import { notifyPropertyChatMessage } from "./propertyChatMessageAlert.js";
 import { checkExplicitRefusal } from "./explicitRefusalDetector.js";
@@ -171,7 +170,6 @@ export async function applyInboundSideEffects(input: InboundSideEffectsInput): P
       conversation.propertyChatAgentId ? input.conversationId : undefined);
   }
   void notifyPropertyChatMessage(input.conversationId);
-  void analyzeMessageForPropertyCounts(clientId, text);
   if (clientId) {
     void checkExplicitRefusal({ clientId, text }).catch((err) =>
       console.error("[отказ] проверка явного отказа в переписке:", err instanceof Error ? err.message : err)

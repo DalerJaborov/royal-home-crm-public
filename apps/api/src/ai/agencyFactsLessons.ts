@@ -1,5 +1,6 @@
 import { AGENCY_FACTS } from "./agencyFacts.js";
 import { BW, EW } from "./wordBoundary.js";
+import { SERVICE_AREA_WORK_RU } from "../lib/serviceArea.js";
 
 /**
  * ВЫУЧЕННЫЕ ПРАВИЛА НЕ МОГУТ СПОРИТЬ С ФАКТАМИ КОМПАНИИ (аудит 10.10.2026, P0-2).
@@ -44,7 +45,7 @@ export const LESSON_CONFLICT_LABELS: Record<LessonConflictReason, string> = {
   owner_bargaining: "торг через встречу с собственником (торг ведёт агент)",
   discount_size: "размер скидки (называть нельзя)",
   commission: "комиссия не совпадает с фактами",
-  other_city: "другой город (работаем по Душанбе и району Рудаки)",
+  other_city: `другой город (${SERVICE_AREA_WORK_RU})`,
   unbacked_promise: "срок, которого нет в фактах",
   garbage: "мусорная строка",
 };
