@@ -54,7 +54,7 @@
  * прогон пропускается с объяснением в выводе. `--full` включает его всегда.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -424,6 +424,8 @@ const IS_WIN = process.platform === "win32";
 const needsShell = (cmd) => IS_WIN && (cmd === "npm" || cmd === "npx");
 
 class Stop extends Error {}
+/** Предел на git push этапа 7: обычный пуш идёт секунды, повисший вход — вечно. */
+const PUSH_TIMEOUT_MS = 5 * 60_000;
 /** Влито ли уже: после вливания «на сайт ничего не ушло» было бы неправдой. */
 const state = { mergedSha: null, cleanup: null };
 
@@ -440,8 +442,10 @@ function makeRunner(root) {
       stdio: "inherit",
       shell: needsShell(cmd),
       env: { ...process.env, ...(opts.env || {}) },
+      ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
     });
-    return { code: r.status === null ? 1 : r.status, ms: Date.now() - started };
+    const timedOut = r.error?.code === "ETIMEDOUT";
+    return { code: r.status === null ? 1 : r.status, ms: Date.now() - started, timedOut };
   };
   return { git, run };
 }
@@ -763,12 +767,23 @@ export async function main(argv = process.argv.slice(2)) {
   // ── 7. отправить ──
   stage(7, `отправить ветку ${branch}`);
   // Пушим записанную вершину, а не «HEAD сейчас».
-  r = run("git", ["push", "origin", `${headSha}:refs/heads/${branch}`]);
+  // Предел и запрет вопросов в терминале: 19.11 выкат #291 оборвался молча ровно
+  // на этом шаге, а повисший вход в GitHub без предела держит ship бесконечно.
+  r = run("git", ["push", "origin", `${headSha}:refs/heads/${branch}`], {
+    env: { GIT_TERMINAL_PROMPT: "0" },
+    timeoutMs: PUSH_TIMEOUT_MS,
+  });
+  if (r.timedOut) {
+    throw new Stop(
+      `git push не ответил за ${Math.round(PUSH_TIMEOUT_MS / 60000)} мин — скорее всего, повис вход в GitHub (менеджер учётных данных). Проверь git ls-remote origin и запусти ship заново`,
+    );
+  }
   if (r.code !== 0) {
     throw new Stop(
       "GitHub не принял ветку: там есть коммиты, которых нет здесь. `git pull origin " + branch + "` и ship заново",
     );
   }
+  console.log(`  ветка отправлена (${fmt(r.ms)})`);
   // GitHub обновляет голову правки не мгновенно — ждём, пока увидит наш sha.
   for (let i = 0; i < 15; i++) {
     pr = await gh.call("GET", `/{repo}/pulls/${pr.number}`);
@@ -926,6 +941,14 @@ export async function main(argv = process.argv.slice(2)) {
  * чтений срабатывают, и зависание кончается громкой остановкой «связь оборвалась»,
  * а не молчанием. Если процесс всё же уходит, не дождавшись итога (beforeExit),
  * пишем об этом и ставим код 1.
+ *
+ * 19.11 выкат #291 оборвался так ещё раз, уже с этой защитой, на этапе 7:
+ * вывод кончился заголовком этапа, код 0, строки «оборвался» нет. Значит, выход
+ * шёл не через пустой цикл событий (beforeExit), а через process.exit(0) или
+ * снаружи. Поэтому второй слой — обработчик exit: он срабатывает и на
+ * process.exit из любого места, пишет строку напрямую в stderr (writeSync, без
+ * буфера) и подменяет код на 1. Против убийства процесса снаружи не поможет
+ * ничего; там признак успеха один — последняя строка «✔ Правка #N на main».
  */
 export function holdProcessUntilSettled(promise, { proc = process, intervalMs = 30_000 } = {}) {
   let settled = false;
@@ -935,11 +958,22 @@ export function holdProcessUntilSettled(promise, { proc = process, intervalMs = 
     console.error("\n\x1b[31m✘ Выкат оборвался: процесс завершился, не дождавшись итога.\x1b[0m\n  • Что влито — смотри main на GitHub; повтори npm run ship.");
     proc.exitCode = 1;
   };
+  const onExit = () => {
+    if (settled) return;
+    try {
+      writeSync(2, "\n\x1b[31m✘ Выкат оборвался: процесс вышел посреди работы, итога нет.\x1b[0m\n  • Что влито — смотри main на GitHub; повтори npm run ship.\n");
+    } catch {
+      /* stderr недоступен — код выхода всё равно станет 1 */
+    }
+    proc.exitCode = 1;
+  };
   proc.on("beforeExit", onBeforeExit);
+  proc.on("exit", onExit);
   const done = () => {
     settled = true;
     clearInterval(keepAlive);
     proc.off("beforeExit", onBeforeExit);
+    proc.off("exit", onExit);
   };
   return Promise.resolve(promise).then(
     (value) => { done(); return value; },

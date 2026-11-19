@@ -3,10 +3,9 @@ import { z } from "zod";
 import { can, requireAuth } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { cardWhereFromParam } from "../lib/cardIdParam.js";
-import { extractPhoneTails } from "../lib/market/ownMatch.js";
+import { canSeeCrmContactPhones, crmContactTails } from "../lib/crmContactPhones.js";
 import { phoneTail } from "../lib/clientPhones.js";
 import { canManagePropertyAs } from "../lib/propertyAccess.js";
-import { stripOwnerContact } from "../lib/ownerContact.js";
 import { loadMoneyContext, toTjs } from "../lib/money.js";
 
 /**
@@ -21,8 +20,8 @@ import { loadMoneyContext, toTjs } from "../lib/money.js";
  * «наш / не наш» — тот, кто вправе управлять объектом (canManagePropertyAs:
  * руководитель или свой объект), иначе любой вошедший гасил бы чужие находки.
  * Телефон продавца площадки НЕ скрывается (решение владельца) — кроме одного
- * случая: он совпал с телефоном владельца объекта, а этот сотрудник телефон
- * владельца видеть не вправе (lib/ownerContact.ts). Сверка идёт по хвосту
+ * случая: он уже записан у нас — контакт владельца любого объекта или любой номер
+ * карточки клиента, — а сотрудник номеров не видит (lib/crmContactPhones.ts). Сверка идёт по хвосту
  * номера ПРИ КАЖДОЙ выдаче, а не по сохранённым причинам: номер у объявления мог
  * появиться позже, чем посчитался счёт. Иначе объявление стало бы обходным путём
  * к закрытому контакту.
@@ -41,8 +40,7 @@ marketMatchesRouter.get("/property/:id", requireAuth, async (req, res) => {
   const p = await prisma.property.findUnique({
     where,
     select: {
-      id: true, price: true, currency: true, areaSqm: true, deletedAt: true, ownerContact: true,
-      assignedAgentId: true, intakeAgentId: true, createdById: true,
+      id: true, price: true, currency: true, areaSqm: true, deletedAt: true,
     },
   });
   if (!p || (p.deletedAt && !can(req, "archive.view"))) return res.status(404).json({ error: "Объект не найден" });
@@ -64,12 +62,10 @@ marketMatchesRouter.get("/property/:id", requireAuth, async (req, res) => {
   const money = await loadMoneyContext();
   const ourPriceTjs = p.price != null ? Math.round(toTjs(p.price, p.currency, money)) : null;
   const ourArea = p.areaSqm != null ? Number(p.areaSqm) : null;
-  const ownerHidden = stripOwnerContact(
-    { ownerContact: "x", assignedAgentId: p.assignedAgentId, intakeAgentId: p.intakeAgentId, createdById: p.createdById },
-    req.agent!.id,
-    can(req, "properties.viewOwners")
-  ).ownerContactHidden;
-  const ownerTails = ownerHidden ? new Set(extractPhoneTails(p.ownerContact)) : new Set<string>();
+  // Номер с площадки прячем, если он уже есть у нас (любой объект, любой номер карточки клиента —
+  // основной, WhatsApp, запасной), а сотрудник номеров не видит (lib/crmContactPhones.ts).
+  const phonesHidden = !canSeeCrmContactPhones(req);
+  const crmTails = phonesHidden ? await crmContactTails(rows.map((m) => m.listing.sellerPhone)) : new Set<string>();
 
   res.json({
     ourPriceTjs,
@@ -78,7 +74,7 @@ marketMatchesRouter.get("/property/:id", requireAuth, async (req, res) => {
       const price = l.priceTjs != null ? Number(l.priceTjs) : null;
       const area = l.areaSqm != null ? Number(l.areaSqm) : null;
       const sellerTail = l.sellerPhone ? phoneTail(l.sellerPhone) : "";
-      const hidePhone = ownerHidden && (hasPhoneReason(m.reasons) || (sellerTail !== "" && ownerTails.has(sellerTail)));
+      const hidePhone = phonesHidden && (hasPhoneReason(m.reasons) || (sellerTail !== "" && crmTails.has(sellerTail)));
       return {
         id: m.id,
         status: m.status,
