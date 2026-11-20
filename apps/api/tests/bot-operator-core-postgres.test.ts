@@ -29,6 +29,7 @@ import { serializeOperatorState } from "../src/ai/operator/state.js";
 import { decryptSecret } from "../src/crypto.js";
 import { ensureScopedBotConversation } from "../src/lib/customerConversationScope.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
+import { waitFor } from "./helpers/waitFor.js";
 
 /**
  * ОПЕРАТОР ПРИЁМА ЗАЯВОК НА НАСТОЯЩЕМ ПУТИ ЯДРА (этап 1.2): подписанный вход → билет → ход ядра (lib/customerDmAgentTurn.ts)
@@ -400,6 +401,19 @@ describe("ревью 19.11: недостающие тесты подключен
     expect(plan?.text).toMatch(/^Записали, с вами свяжутся /u);
     expect(plan?.signal).toEqual({ kind: "follow_up" });
     expect(plan?.intakes[0]).toMatchObject({ scenario: "note" });
+  });
+
+  it("расхождение №2 (20.11): жалоба до заявки — «Ваше сообщение увидит руководитель.» и сигнал руководству через ход ядра", async () => {
+    const f = await coreFixture("По этим номерам никто не отвечает", "INSTAGRAM");
+    expect(await plannedText(f.eventKey)).toBe("Ваше сообщение увидит руководитель.");
+    const conversationId = await conversationOf(f.eventKey);
+    // Сигнал идёт фоном из самого хода (lib/customerDmAgentTurn.ts, plan.signal): ждём строку очереди руководства.
+    const alerts = await waitFor(async () => {
+      const rows = await prisma.pendingDirectorAlert.findMany({ where: { tag: `client-waiting-${conversationId}` }, select: { title: true, urgent: true } });
+      return rows.length ? rows : null;
+    }, { label: "сигнал руководству по жалобе (ядро)", timeoutMs: 5000 });
+    expect(alerts).toEqual([{ title: "💬 Жалоба клиента", urgent: false }]);
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag: `client-waiting-${conversationId}` } });
   });
 
   it("Т6: приём заявки (acceptLead) стирает память версии 1, а память оператора (версия 2) сохраняет с «заявка принята»", async () => {

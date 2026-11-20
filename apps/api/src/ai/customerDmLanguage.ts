@@ -203,6 +203,28 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
 }
 
 /**
+ * ЯЗЫК, ЗА КОТОРЫЙ КОД РУЧАЕТСЯ (20.11.2026, оператор приёма заявок). Детектор выше по умолчанию считает таджикским любой
+ * латинский текст без английских слов («Skolko stoit kvartira?» — русский транслит), поэтому перекрывать им ответ модели
+ * можно не всегда. Код ручается, только когда у него есть настоящее основание: явная просьба о языке или текст кириллицей
+ * с найденными признаками языка — таджикские буквы (ғ ӣ қ ӯ ҳ ҷ) или слова-маркеры для таджикского, слова-маркеры для
+ * русского. Латиница, кнопка рекламы, короткое «ок/салом», текст без маркеров — null: решает модель (живой случай 19.11:
+ * «телефон номера нависед» модель назвала русским, а у кода тут маркер «нависед»).
+ */
+export function groundedCustomerDmLanguage(input: string): "ru" | "tg" | null {
+  const text = customerHistoryOwnWords(input);
+  const preference = customerDmLanguagePreference(text);
+  if (preference) return preference;
+  if (!text || isAdTemplateOpener(text) || isNeutralShortReply(text)) return null;
+  const own = stripNonLanguage(clientOwnWords(text));
+  if (!/[а-яёҳҷӣӯқғ]/iu.test(own)) return null;
+  const decided = decisiveLanguage(text);
+  if (!decided) return null;
+  const { tajik, russian } = clientLanguageScores(own);
+  if (decided === "tg") return /[ҳҷӣӯқғ]/iu.test(own) || tajik > 0 || customerColloquialTajikLanguage(text) ? "tg" : null;
+  return russian > 0 ? "ru" : null;
+}
+
+/**
  * Language of the whole dialogue so far (audit 16.11.2026, chats 5a5de705 and 5e961b62): the six-turn memory holds ~3 customer
  * turns, so a dot, a phone number or a pack of photos pushed the Tajik words out and the reply fell back to Russian. This reads
  * the customer's own words of the wider history (the loader passes up to 50 inputs, oldest first) and returns the language of

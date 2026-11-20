@@ -194,6 +194,9 @@ export interface OperatorContext {
 
 export interface OperatorStepOut { key: PhraseKey; vars: PhraseVars; variant: number }
 
+/** Почему оператор зовёт человека: грубость или жалоба (SPEC, случаи 22 и 26). Одно объявление на весь путь до сигнала. */
+export type OperatorStaffReason = "rude" | "complaint";
+
 export type OperatorAction =
   | {
     type: "accept_lead";
@@ -216,7 +219,7 @@ export type OperatorAction =
    * Человека зовём только при грубости и жалобе: до заявки людей не беспокоим (решение владельца 13.11.2026). Дверь
    * «клиент ждёт» адресует сама (агент карточки или директор); «жалоба — руководителю» — этап 3 плана.
    */
-  | { type: "call_staff"; reason: "rude" | "complaint" }
+  | { type: "call_staff"; reason: OperatorStaffReason }
   /** Пометка в карточку без живого агента: руководство узнаёт дверью «клиент ждёт» (follow_up), как до оператора. */
   | { type: "follow_up" };
 

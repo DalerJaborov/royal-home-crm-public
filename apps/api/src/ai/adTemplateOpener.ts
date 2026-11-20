@@ -137,6 +137,20 @@ export async function adTopicByExternalId(externalId: string | null | undefined)
 }
 
 /**
+ * РЕКЛАМА САМОГО АГЕНТСТВА (`Ad.brand`, «доверьте продажу нам», «Позвоните нам») — не реклама объекта (20.11.2026).
+ * Объекта у неё нет и не будет, и по ней пишут кто угодно: покупатели, продавцы, соискатели. Тему «объект» ей давать
+ * нельзя: оператор приёма заявок делает по теме «объект» покупателя объекта и заводит заявку с первой кнопки (живой
+ * диалог 19.11: соискатель получил заявку покупателя и обещание звонка). Строки нет — false (прежнее поведение).
+ */
+export async function isAgencyBrandAd(externalId: string | null | undefined): Promise<boolean> {
+  if (!externalId) return false;
+  const ad = await prisma.ad
+    .findUnique({ where: { platform_externalId: { platform: "META", externalId } }, select: { brand: true } })
+    .catch(() => null);
+  return ad?.brand === true;
+}
+
+/**
  * ВОРОТА АНКЕТЫ: писать её или нет (25.09.2026, аудит «кто вообще кандидат»).
  *
  * До этой правки анкета JobApplication копилась на ЛЮБОМ ходе, где модель

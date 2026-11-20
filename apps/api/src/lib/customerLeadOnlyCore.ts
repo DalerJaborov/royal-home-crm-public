@@ -18,7 +18,7 @@ import { encryptSecret, decryptSecret } from "../crypto.js";
 import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyNoteWithCallbackTime, leadOnlyOutgoing, leadOnlyAppliesTo, type LeadOnlyConfig } from "../ai/leadOnlyMode.js";
 import type { LeadOnlyIntentModel } from "../ai/leadOnlyIntent.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
-import { runOperatorTurn, type OperatorAction, type OperatorTurnResult, type OperatorVoice } from "../ai/operator/index.js";
+import { runOperatorTurn, type OperatorAction, type OperatorStaffReason, type OperatorTurnResult, type OperatorVoice } from "../ai/operator/index.js";
 import { resolveWhatsAppLeadIdentity } from "./whatsappPhone.js";
 import { decodeCustomerOutboxPayload } from "./customerOutboxCodec.js";
 import { alarmLeadOnlyIntake, noteLeadOnlyNewPhone, noteLeadOnlyOnCard } from "./leadOnlyHandover.js";
@@ -100,7 +100,7 @@ export interface CustomerLeadOnlyTurnPlan {
    * Дверь «клиент ждёт» (follow_up): грубость и жалоба (до заявки людей не беспокоим, решение владельца 13.11.2026) и пометка
    * в карточку без живого агента (ревью 19.11, Р4). Кому именно — решает сама дверь (агент карточки или директор).
    */
-  signal?: { kind: "follow_up" };
+  signal?: { kind: "follow_up"; reason?: OperatorStaffReason };
   /** Ход отдан прежнему пути рекрутёра (вакансия, ревью 19.11, Р6): ответа нет, ядро идёт своим обычным путём. */
   handoff?: "recruiter";
   /** Отметка времени памяти, от которой оператор решал (Р14): запись сверяет её, устаревшее решение не пишется. */
@@ -184,9 +184,12 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput)
       intakes.push(sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId, scenario: "note", propertyId: null,
         ...(action.outOfArea ? { outOfArea: true as const } : {}) },
       { phone: action.phone, whatsappPhone: null, clientText: own.slice(0, 1500), promised: "call", lead: false, note: action.note.slice(0, 800) }));
+    } else if (action.type === "call_staff") {
+      // Грубость, жалоба: одна дверь «клиент ждёт», с причиной — её не глушит тишина режима до заявки (20.11.2026).
+      signal = { kind: "follow_up", reason: action.reason };
     } else {
-      // call_staff (грубость, жалоба) и follow_up (пометка без живого агента): одна дверь «клиент ждёт».
-      signal = { kind: "follow_up" };
+      // follow_up (пометка в карточку без живого агента): та же дверь.
+      signal ??= { kind: "follow_up" };
     }
   }
   // Последняя дверь текста режима (ai/leadOnlyMode.ts::leadOnlyOutgoing): начало-согласие не уходит никогда.
