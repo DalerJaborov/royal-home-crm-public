@@ -218,6 +218,15 @@
 /* Подпись плитки на 320 px («Пропущенные звонки» в половине ширины) переносится внутри слова
    с дефисом, а не вылезает за край плитки. */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-tile-label { min-width: 0; overflow-wrap: anywhere; hyphens: auto; }
+/* Чтобы до переноса внутри слова не доходило: на телефоне подпись на ступень мельче, а уже
+   390 px значок встаёт над подписью — «Пропущенные» помещается целиком и на 320 (20.11,
+   сторож lookGeometry «wordBreak»; на 390 слово рвалось и без дефиса). */
+@media (max-width: 430px) {
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-tile-label { font-size: 15px; }
+}
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-tile-label { flex-direction: column; align-items: flex-start; gap: 6px; }
+}
 
 /* Пустой блок — одна спокойная строка: имя блока и «пока нет данных», без карточки с нулями. */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quiet {

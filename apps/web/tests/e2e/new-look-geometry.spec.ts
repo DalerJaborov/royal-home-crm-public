@@ -156,10 +156,12 @@ test("новый вид, сторож геометрии ловит каждую
     // пилюля «Ждут вашей проверки» сжата в круг, «Найдено: 117» рвётся
     { url: "/properties", ready: ".ry-objects-pending", kind: "squeeze", css: `${R} .ry-objects-pending { flex: 0 1 28px !important; width: 28px !important; overflow: hidden !important; }` },
     { url: "/properties", ready: ".ry-objects-found .ry-num", kind: "split", css: `${R} .ry-objects-found { display: inline-block !important; width: 40px !important; white-space: normal !important; }` },
-    // пустой верх у «Этап просрочен»
-    { url: "/properties", ready: ".clean-catalog-overdue", kind: "lopsided", css: `${R} .clean-catalog-overdue .quiet { margin-top: 40px !important; }` },
+    // пустой верх у тихой строки в карточке («Этап просрочен» из каталога нового вида
+    // убран #331 — тот же механизм на «Не связывались» клиентов)
+    { url: "/clients", ready: ".clean-client-notices > .quiet", kind: "lopsided", css: `${R} .clean-client-notices > .quiet { margin-top: 40px !important; }` },
     // ряд вкладок обрезан без затухания
-    { url: "/properties", ready: ".seg-ai", kind: "stripHint", css: `${R} .seg-ai { animation: none !important; -webkit-mask-image: none !important; mask-image: none !important; }` },
+    // (вкладки каталога #331 убрал в шторку фильтров — тот же механизм у вкладок «Денег»)
+    { url: "/finance", ready: ".cef-main-tabs", kind: "stripHint", css: `${R} .cef-main-tabs { animation: none !important; -webkit-mask-image: none !important; mask-image: none !important; }` },
     // размытый заголовок шапки
     { url: "/properties", ready: "[data-topbar-title]", kind: "blur", css: `${R} [data-topbar-title] { opacity: .6 !important; }` },
     // низ страницы под нижним меню
