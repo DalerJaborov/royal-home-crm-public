@@ -11,7 +11,7 @@ export function FullScreenToggle({ label, children }: { label: string; children:
   const [open, setOpen] = useState(false);
   return (
     <section className="ry-full" aria-label={label}>
-      <RhButton variant="gray" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+      <RhButton variant="secondary" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <RoyalIcon name="layout-dashboard" size={22} />{open ? "Свернуть" : label}
       </RhButton>
       {open && <div className="ry-full-body"><Suspense fallback={<RhBlockState kind="loading" />}>{children}</Suspense></div>}

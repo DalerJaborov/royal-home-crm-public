@@ -145,7 +145,9 @@ describe("RoyalInboxFilters — один фильтр «Ждут / Мои / Вс
       segment: "mine", counts: null, onSegmentChange: () => {}, moreActive: false, children: null,
     }));
     expect(html.match(/tabindex="0"/g)?.length).toBe(1);
-    expect(html).toMatch(/data-segment="mine" aria-checked="true" tabindex="0"/);
+    // Порядок атрибутов не важен: важно, что выбранный срез один и он же в Tab-порядке.
+    expect(html).toMatch(/<button[^>]*data-segment="mine"[^>]*aria-checked="true"[^>]*tabindex="0"/);
+    expect(html).toContain('class="ry-seg ry-chats-seg"');
   });
   it("«Ещё» closes on a click outside and after a choice", () => {
     let segment = "all";

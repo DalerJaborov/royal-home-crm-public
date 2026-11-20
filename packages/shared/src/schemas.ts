@@ -22,6 +22,7 @@ import {
   DEAL_STAGES,
   DEAL_DOCUMENT_KINDS,
   LOOK_IDS,
+  TEXT_SIZE_IDS,
   ABSENCE_KINDS,
   type AbsenceKind,
 } from "./enums.js";
@@ -162,6 +163,8 @@ export const uiPreferencesSchema = z
       .transform((v) => (v === undefined ? undefined : migrateLegacyTheme(v))),
     /** Облик интерфейса (компоновка), независим от темы (цвета). См. LOOK_IDS. */
     look: z.enum(LOOK_IDS).optional(),
+    /** Личный размер текста нового вида (TEXT_SIZE_IDS): только оформление, на права не влияет. */
+    textSize: z.enum(TEXT_SIZE_IDS).optional(),
     effects: z
       .object({
         /** Декоративный анимированный фон-«аврора». */

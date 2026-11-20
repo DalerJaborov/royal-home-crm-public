@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4192,
+  "forks": 4195,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -43679,7 +43679,7 @@
      "c": [
       {
        "k": "if",
-       "t": "data.home === undefined",
+       "t": "data.home === undefined || data.textSize === undefined",
        "a": [],
        "c": [
         {
@@ -43691,25 +43691,54 @@
          "c": []
         },
         {
-         "k": "do",
-         "t": "const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);",
-         "a": [
-          "проверяет данные схемой homePreferencesSchema"
-         ],
-         "c": []
-        },
-        {
          "k": "if",
-         "t": "kept.success && kept.data",
+         "t": "data.home === undefined",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "data = { ...data, home: kept.data };",
+           "t": "const kept = homePreferencesSchema.safeParse(saved?.home);",
            "a": [
-            "дословно из кода"
+            "проверяет данные схемой homePreferencesSchema"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "kept.success && kept.data",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "data = { ...data, home: kept.data };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "data.textSize === undefined",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "keptSize.success && keptSize.data",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "data = { ...data, textSize: keptSize.data };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         }

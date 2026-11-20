@@ -16,10 +16,10 @@
   "paths": 788,
   "cron": 143,
   "jobs": 34,
-  "conditions": 4165,
+  "conditions": 4168,
   "untranslatedUnique": 476,
   "untranslatedTotal": 612,
-  "partialUnique": 1124,
+  "partialUnique": 1127,
   "translatedShare": 85
  },
  "untranslated": [
@@ -36825,15 +36825,37 @@
      ],
      "c": [
       {
-       "t": "если home не задан",
+       "t": "если home не задан или text size не задан",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "если есть success и есть kept",
+         "t": "если home не задан",
          "k": "if",
          "a": [],
-         "c": []
+         "c": [
+          {
+           "t": "если есть success и есть kept",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если text size не задан",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть success и есть kept size",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
         }
        ]
       },

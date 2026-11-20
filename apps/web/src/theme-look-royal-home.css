@@ -38,7 +38,7 @@
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q {
   display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 8px 4px;
-  border-radius: 20px; color: var(--rh-ui-text); text-decoration: none;
+  border-radius: var(--rh-r-lg); color: var(--rh-ui-text); text-decoration: none;
   transition: background-color 160ms cubic-bezier(.23, 1, .32, 1), transform 90ms cubic-bezier(.23, 1, .32, 1);
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q:hover { background: var(--rh-ui-hover); }
@@ -47,25 +47,25 @@
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-icon { position: relative; display: inline-flex; flex: none; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-count {
   position: absolute; top: -6px; right: -12px; display: grid; place-items: center; min-width: 26px; height: 26px; padding: 0 7px;
-  border-radius: 999px; background: var(--rh-ui-text); color: var(--rh-ui-bg); font-size: 13px; letter-spacing: 0;
+  border-radius: var(--rh-r-full); background: var(--rh-ui-text); color: var(--rh-ui-bg); font-size: var(--rh-fs-xs); letter-spacing: 0;
   box-shadow: 0 0 0 2px var(--rh-ui-bg);
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-label {
-  font-size: 14px; font-weight: 600; line-height: 1.2; text-align: center; overflow-wrap: break-word; hyphens: auto;
+  font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.2; text-align: center; overflow-wrap: break-word; hyphens: auto;
 }
 
 /* ============================ подсказка ============================ */
 
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-hint {
   grid-column: 1 / -1; display: flex; align-items: flex-start; gap: 12px; min-width: 0; padding: 12px 8px 12px 12px;
-  border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-hint > p {
-  flex: 1 1 auto; min-width: 0; margin: 0; padding-top: 10px; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint);
+  flex: 1 1 auto; min-width: 0; margin: 0; padding-top: 10px; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint);
   overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-hint-close {
-  display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px;
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--rh-r-full);
   background: transparent; color: var(--rh-ui-hint); cursor: pointer;
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-hint-close:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
@@ -75,18 +75,18 @@
 
 /* Фото объекта на месте круга: 48, скругление как у плитки фото в «Объектах». */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-thumb {
-  display: block; flex: none; width: 48px; height: 48px; border-radius: 14px; object-fit: cover; background: var(--rh-ui-raised);
+  display: block; flex: none; width: 48px; height: 48px; border-radius: var(--rh-r-md); object-fit: cover; background: var(--rh-ui-raised);
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-row-sub > span:first-child:not(.ry-home-state) { display: block; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-state { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-state-note { font-size: 14px; font-weight: 500; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-state-note { font-size: var(--rh-fs-sm); font-weight: 500; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-state[data-tone="crit"] .ry-home-state-note { color: var(--rh-ui-crit-text); font-weight: 700; }
 
 /* Плашка смысла: срочное — сплошной красный (самая тёмная), внимание и норма — светлые
    с цветным текстом, нейтральное — серое. Различаются яркостью, а не одним оттенком. */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chip {
-  display: inline-flex; align-items: center; min-height: 28px; padding: 3px 10px; border-radius: 999px;
-  font-size: 13px; font-weight: 700; line-height: 1.2; white-space: normal; overflow-wrap: anywhere;
+  display: inline-flex; align-items: center; min-height: 28px; padding: 3px 10px; border-radius: var(--rh-r-full);
+  font-size: var(--rh-fs-xs); font-weight: 700; line-height: 1.2; white-space: normal; overflow-wrap: anywhere;
   background: var(--rh-ui-raised); color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chip[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
@@ -97,7 +97,7 @@
 
 /* Деньги справа в строке: табличные цифры по правому краю, перенос перед валютой. */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-value {
-  font-size: 18px; font-weight: 700; text-align: right; white-space: normal; overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
+  font-size: var(--rh-fs-lg); font-weight: 700; text-align: right; white-space: normal; overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
 }
 
 /* «Показать ещё» под списком — во всю ширину группы. */
@@ -107,34 +107,34 @@
 /* ============================ вопрос помощнику ============================ */
 
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask {
-  padding: 16px; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  padding: 16px; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask { display: grid; gap: 12px; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask > :is(form, div):first-child { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .inp {
-  flex: 1 1 100%; min-width: 0; min-height: 52px; padding: 0 18px; border: 0; border-radius: 999px;
-  background: var(--rh-ui-raised); color: var(--rh-ui-text); font: inherit; font-size: 16px;
-  box-shadow: none; outline: none;
+  flex: 1 1 100%; min-width: 0; min-height: 52px; padding: 0 18px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font: inherit; font-size: var(--rh-fs-md);
+  box-shadow: inset 0 0 0 1px var(--rh-ui-field-line); outline: none;
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .inp::placeholder { color: var(--rh-ui-hint); opacity: 1; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .inp:focus-visible { box-shadow: 0 0 0 3px var(--rh-ui-primary); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .inp:disabled { opacity: .5; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .inp:disabled::placeholder { opacity: .5; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)) {
-  flex: none; min-height: 52px; padding: 0 22px; border: 0; border-radius: 999px;
-  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font-size: 16px; font-weight: 700; cursor: pointer;
+  flex: none; min-height: 52px; padding: 0 22px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font-size: var(--rh-fs-md); font-weight: 700; cursor: pointer;
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)):hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ask .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)):disabled { opacity: .5; cursor: not-allowed; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-sugg { display: flex; flex-wrap: wrap; gap: 8px; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-sugg button {
-  min-height: 44px; padding: 8px 16px; border: 0; border-radius: 999px; text-align: left; white-space: normal; overflow-wrap: anywhere;
-  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); font-size: 15px; font-weight: 600; line-height: 1.3; cursor: pointer;
+  min-height: 44px; padding: 8px 16px; border: 0; border-radius: var(--rh-r-full); text-align: left; white-space: normal; overflow-wrap: anywhere;
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.3; cursor: pointer;
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-sugg button:disabled { opacity: .5; cursor: not-allowed; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ans {
-  padding: 14px 16px; border-radius: 18px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
-  font-size: 16px; line-height: 1.5; overflow-wrap: anywhere;
+  padding: 14px 16px; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); line-height: 1.5; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-ask .aib-ans .lk {
   min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--rh-ui-primary-ink);
@@ -144,7 +144,7 @@
 /* ============================ графики команды ============================ */
 
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart {
-  display: grid; gap: 12px; min-width: 0; padding: 16px; border-radius: var(--rh-ui-r-card);
+  display: grid; gap: 12px; min-width: 0; padding: 16px; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
 /* Сетка карточки не растягивается по ширине графика: широкий год листается ВНУТРИ карточки
@@ -158,25 +158,25 @@
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .rh2-bar-chart > .chart { direction: ltr; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .rh2-bar-chart > .chart.wide { min-width: 640px; overflow: visible; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .rh2-bar-chart > .chart.wide > svg { min-width: 640px; width: 640px; overflow: visible; }
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart-note { margin: 0; font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .scr p.state { margin: 0; font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart-note { margin: 0; font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .scr p.state { margin: 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 /* Полосы (источники, нагрузка): название переносится, а не режется. */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars { display: grid; gap: 4px; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b { min-height: 48px; gap: 12px; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .nm3 {
-  width: min(42%, 220px); font-size: 15px; font-weight: 500; line-height: 1.3; color: var(--rh-ui-text);
+  width: min(42%, 220px); font-size: var(--rh-fs-md); font-weight: 500; line-height: 1.3; color: var(--rh-ui-text);
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
 }
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .tr { height: 12px; border-radius: 999px; background: var(--rh-ui-raised); }
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .tr i { border-radius: 999px; background: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .tr { height: 12px; border-radius: var(--rh-r-full); background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .tr i { border-radius: var(--rh-r-full); background: var(--rh-ui-primary); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .vl {
-  font-family: var(--rh-ui-font-num); font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--rh-ui-text);
+  font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-md); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--rh-ui-text);
 }
 /* Столбики по месяцам. */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .gl { stroke: var(--rh-ui-sep); stroke-dasharray: 2 4; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .ax { stroke: var(--rh-ui-sep); }
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .axl { font-size: 13px; fill: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .val { font-size: 14px; font-weight: 700; fill: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .axl { font-size: var(--rh-fs-xs); fill: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .val { font-size: var(--rh-fs-sm); font-weight: 700; fill: var(--rh-ui-text); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br { fill: var(--rh-ui-primary); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br.alt { fill: color-mix(in srgb, var(--rh-ui-primary) 42%, var(--rh-ui-card)); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br[data-negative] { fill: var(--rh-ui-crit); }
@@ -188,20 +188,20 @@
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-link,
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-mini-link {
-  display: inline-flex; align-items: center; flex: none; min-height: 44px; padding: 6px 14px; border-radius: 999px;
-  background: var(--rh-ui-hero-mini); color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: underline;
+  display: inline-flex; align-items: center; flex: none; min-height: 44px; padding: 6px 14px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-hero-mini); color: var(--rh-ui-on-color); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: underline;
   text-underline-offset: 3px; transition: transform 90ms cubic-bezier(.23, 1, .32, 1);
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-link:active,
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-mini-link:active { transform: scale(.97); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-link:focus-visible,
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-mini-link:focus-visible { outline: 3px solid #ffffff; outline-offset: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-mini-link:focus-visible { outline: 3px solid var(--rh-ui-on-color); outline-offset: 2px; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-trend {
-  display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 16px; font-weight: 600; line-height: 1.35; color: #ffffff;
+  display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.35; color: var(--rh-ui-on-color);
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-trend > span { min-width: 0; overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-trend-icon { flex: none; margin-top: 1px; color: var(--rh-ui-tile); }
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-trend[data-dir="down"] .ry-hero-trend-icon { transform: scaleY(-1); color: #ffd3cf; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-trend[data-dir="down"] .ry-hero-trend-icon { transform: scaleY(-1); color: var(--rh-ui-hero-down); }
 
 /* Мини-строки плиты: текст с числом — одним абзацем, перенос по словам (не колонками флекса). */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-mini-text { display: inline; min-width: 0; overflow-wrap: anywhere; }
@@ -213,7 +213,7 @@
 
 /* «Распределение заявок» РОП: имя агента и под ним мелкая строка «сегодня принял N». */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-bar-name { display: grid; gap: 2px; min-width: 0; }
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-bar-name > small { font-size: 13px; font-weight: 500; line-height: 1.3; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-bar-name > small { font-size: var(--rh-fs-sm); font-weight: 500; line-height: 1.3; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
 
 /* Подпись плитки на 320 px («Пропущенные звонки» в половине ширины) переносится внутри слова
    с дефисом, а не вылезает за край плитки. */
@@ -221,8 +221,8 @@
 /* Чтобы до переноса внутри слова не доходило: на телефоне подпись на ступень мельче, а уже
    390 px значок встаёт над подписью — «Пропущенные» помещается целиком и на 320 (20.11,
    сторож lookGeometry «wordBreak»; на 390 слово рвалось и без дефиса). */
-@media (max-width: 430px) {
-  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-tile-label { font-size: 15px; }
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-tile-label { font-size: var(--rh-fs-sm); }
 }
 @media (max-width: 389.98px) {
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-tile-label { flex-direction: column; align-items: flex-start; gap: 6px; }
@@ -231,11 +231,11 @@
 /* Пустой блок — одна спокойная строка: имя блока и «пока нет данных», без карточки с нулями. */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quiet {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; min-height: 48px; margin: 0;
-  padding: 12px 18px; border-radius: var(--rh-ui-r-card); box-shadow: inset 0 0 0 1px var(--rh-ui-sep);
-  font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint);
+  padding: 12px 18px; border-radius: var(--rh-r-lg); box-shadow: inset 0 0 0 1px var(--rh-ui-sep);
+  font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quiet > b { font-weight: 600; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quiet-note { margin: 8px 4px 0; font-size: 14px; line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quiet-note { margin: 8px 4px 0; font-size: var(--rh-fs-sm); line-height: 1.35; color: var(--rh-ui-hint); }
 
 /* ============================ анимация графиков ============================ */
 
@@ -287,13 +287,13 @@
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-row:last-child { box-shadow: none; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-name {
-  flex: 1 1 120px; min-width: 0; font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere;
+  flex: 1 1 120px; min-width: 0; font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere;
 }
 /* Выключенный блок — имя серым, но читаемым: это подпись, а не скрытые данные. */
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-row[data-on="false"] .ry-home-set-name { color: var(--rh-ui-hint); font-weight: 500; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-acts { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-move {
-  display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px;
+  display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--rh-r-full);
   background: transparent; color: var(--rh-ui-text); cursor: pointer;
   transition: background-color 160ms cubic-bezier(.23, 1, .32, 1), transform 90ms cubic-bezier(.23, 1, .32, 1);
 }
@@ -328,11 +328,11 @@
   /* Быстрые переходы на широком — капсулы в строку: значок и подпись рядом. */
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quick { display: flex; flex-wrap: wrap; gap: 12px; }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q {
-    flex-direction: row; gap: 16px; padding: 6px 22px 6px 6px; border-radius: 999px;
+    flex-direction: row; gap: 16px; padding: 6px 22px 6px 6px; border-radius: var(--rh-r-full);
     background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
   }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q:hover { background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 2px var(--rh-ui-sep); }
-  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-label { font-size: 16px; text-align: left; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-label { font-size: var(--rh-fs-md); text-align: left; }
   /* Счётчик в капсуле — на верхнем краю круга, не на подписи. */
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-count { top: -8px; right: -4px; }
 }
@@ -343,8 +343,16 @@
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-group > .ry-agent-call-row + .ry-agent-call-row { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row > .ry-row { flex: 1 1 auto; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn {
-  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border: 0; border-radius: 999px;
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border: 0; border-radius: var(--rh-r-full);
   background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); cursor: pointer;
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn svg { width: 22px; height: 22px; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn:disabled { opacity: .6; cursor: default; }
+
+/* Крупный текст на телефоне (Профиль → Оформление): плитки в одну колонку — подпись
+   «Пропущенные звонки» не рвётся по буквам, а цифра остаётся крупной (повторное ревью #337: на
+   390–430 рвалась тоже). */
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"]:is([data-text-size="large"], [data-text-size="xlarge"]) [data-ry-section="home"] .ry-strip { grid-template-columns: minmax(0, 1fr); }
+  :root[data-ui-look="royal"]:is([data-text-size="large"], [data-text-size="xlarge"]) [data-ry-section="home"] .ry-strip > .ry-tile { grid-column: auto; }
+}
