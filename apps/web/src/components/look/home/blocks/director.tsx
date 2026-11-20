@@ -285,7 +285,7 @@ export function DirectorCommission() {
       <HomeColumns
         note={`за 12 месяцев ${formatMoney(Math.round(c.totalTjs), "TJS")} · столбик — комиссия месяца`}
         ariaLabel={`Комиссия по месяцам: ${c.months.map((m) => `${monthTitle(m.month)} ${num(Math.round(m.amountTjs))}`).join(", ")} сомони`}
-        lastValueLabel={`${num(Math.round(last.amountTjs))} с.`}
+        lastValueLabel={`${num(Math.round(last.amountTjs))}\u00a0с.`}
         items={c.months.map((m) => ({
           key: m.month,
           label: monthShort(m.month),
