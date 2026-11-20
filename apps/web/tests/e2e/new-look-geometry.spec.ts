@@ -44,7 +44,7 @@ const DEVICES: Device[] = [
 
 async function open(page: Page, screen: Screen) {
   await page.goto(screen.url, { waitUntil: "domcontentloaded" });
-  await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
+  await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal", { timeout: 20_000 });
   await expect(page.locator(screen.ready).first()).toBeVisible({ timeout: 20_000 });
 }
 

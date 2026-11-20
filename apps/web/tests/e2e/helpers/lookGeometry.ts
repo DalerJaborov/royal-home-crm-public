@@ -232,6 +232,8 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         if (el.children.length === 0 || el.children.length > 3 || text.length < 3 || text.length > 28 || !/\d/.test(text)) continue;
         if (!(MONTH.test(text) || /^[^\d]{0,16}:\s*[\d\s.,]+$/.test(text))) continue;
         if (!visible(el) || skipped(el) || el.querySelector("button, a, input, select, svg")) continue;
+        // Только подпись в одну строку текста: блоки внутри (заголовок над строкой) переносят законно.
+        if ([...el.children].some((k) => !/^inline/.test(getComputedStyle(k).display))) continue;
         if (lineCount(el) > 1) out.push(`split: ${name(el)} — подпись на ${lineCount(el)} строках`);
       }
     }
