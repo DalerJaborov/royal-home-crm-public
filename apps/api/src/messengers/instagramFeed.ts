@@ -66,6 +66,8 @@ export async function getInstagramMedia(maxAgeMs = CACHE_MS): Promise<InstagramM
     // «текущую», и поведение меняется молча при её смене на стороне Meta.
     // 21.11.2026: аккаунт на постоянном ключе читает ленту через Страницу (metaEternalTokens.ts).
     const req = await instagramMediaRequest(igToken, `fields=${fields}&limit=${MEDIA_LIMIT}`);
+    // Без ссылки следующей страницы адрес есть всегда; проверка — для типа.
+    if (!req) throw new Error("лента Instagram: нет адреса первой страницы");
     const res = await fetchWithRetry(req.url, { headers: req.headers });
     if (!res.ok) {
       throw new Error(`Graph API HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
@@ -192,6 +194,8 @@ export async function getAllOwnMedia(
       // Через Страницу или личным маркером — решает metaEternalTokens.ts (21.11.2026).
       const req = await instagramMediaRequest(token, `fields=${fields}&limit=${PAGE_SIZE}`, first ? undefined : next);
       first = false;
+      // Путь сменился между страницами, ссылку дочитать нечем — лента неполная, повторим в следующий раз.
+      if (!req) { complete = false; break; }
       try {
         const res = await fetchWithRetry(req.url, { headers: req.headers });
         if (!res.ok) {

@@ -94,7 +94,7 @@ import { handleWhatsappCallEvents } from "../messengers/whatsappCalls.js";
 import { emojiThanksReply, ingestInstagramComments, reactionHeart, RUDE_EMOJI } from "../messengers/comments.js";
 import { resolveIncomingAccount } from "../messengers/accounts.js";
 import { brandForAccount } from "../ai/brandName.js";
-import { wasSentByUs } from "../messengers/outgoingMids.js";
+import { outgoingContentKey, wasRecentlySentText, wasSentByUs } from "../messengers/outgoingMids.js";
 import { isOwnInFlightEcho, type EchoHistoryEntry } from "../messengers/inFlightEcho.js";
 import { isOwnCustomerOutboxEcho } from "../lib/customerOutboxEcho.js";
 import { isOwnAccountSender, ownAccountPauseUntil } from "../lib/ownAccountGuard.js";
@@ -1486,6 +1486,11 @@ export function echoIsAutomatic(input: { appId?: string; at: number; lastClientA
   // `app_id` каждого ручного эха пишется в журнал — по замеру список пополняется.
   return !!input.appId && KNOWN_AUTOMATION_APP_IDS.has(input.appId) && !META_PAGE_INBOX_APP_IDS.has(input.appId);
 }
+/**
+ * Наши приложения Meta: Royal Home Reels (ключ компании, путь через Страницу) и приложение входа
+ * через Instagram. Их эхо отправила CRM, а не сотрудник руками (21.11.2026).
+ */
+export const OWN_META_APP_IDS: ReadonlySet<string> = new Set(["1684679092586215", "1353986909508972"]);
 /** Приложения-автоматы Meta (мгновенный ответ, «нет на месте»), чьё эхо — не человек. Пополнять только по замеру. */
 export const KNOWN_AUTOMATION_APP_IDS: ReadonlySet<string> = new Set<string>();
 
@@ -1509,6 +1514,24 @@ export async function handleOutgoingEcho(msg: {
    * Отметка ставится в момент отправки, поэтому здесь она уже есть всегда.
    */
   if (await wasSentByUs(msg.messageId)) { traceEchoReason("known_mid"); return; }
+  /**
+   * СТРАХОВКА ОТ ДВУХ ПУТЕЙ (21.11.2026). Instagram отвечает через Страницу (ключ компании),
+   * а эхо приходит по подписке входа через Instagram. Эхо, отправленное НАШИМ приложением, —
+   * своё, даже если mid не узнан; без app_id — совпадение «тот же текст тому же человеку
+   * за 2 минуты» с нашей отправкой. Ручной ответ сотрудника из Instagram идёт другим приложением
+   * и текстом, который CRM не отправляла, — его пауза не теряется.
+   */
+  if (msg.echoAppId && OWN_META_APP_IDS.has(msg.echoAppId)) {
+    traceEchoReason("known_mid");
+    console.log(`[вебхук] ${msg.channel}: эхо нашего приложения (app ${msg.echoAppId}) с незнакомым mid — не ручной ответ`);
+    return;
+  }
+  if (await wasRecentlySentText({ channel: msg.channel, peer: msg.senderId,
+    content: outgoingContentKey({ text: msg.text, attachmentType: msg.attachmentType }) })) {
+    traceEchoReason("known_mid");
+    console.log(`[вебхук] ${msg.channel}: эхо совпало с нашей отправкой по тексту и времени — не ручной ответ`);
+    return;
+  }
 
   const scoped = await findScopedBotConversation({ channel: msg.channel, subscriberId: msg.senderId, accountExternalId: msg.accountExternalId });
   const conv = scoped ? await prisma.botConversation.findUnique({ where: { id: scoped.id }, select: { id: true, messages: true } }) : null;

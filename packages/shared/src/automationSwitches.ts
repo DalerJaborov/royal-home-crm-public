@@ -123,13 +123,13 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
   // Владелец 21.11.2026: «Да, переводи» — Instagram на постоянный ключ компании (смена пароля не глушит бота).
   instagramCompanyKeyEnabled: {
     title: "Instagram через постоянный ключ Meta",
-    on: "Аккаунт Instagram, у которого проверка прошла (Страница Facebook с этим Instagram выдана ключу компании), отвечает через Страницу. Смена пароля Instagram бота не глушит. Если Meta откажет, ответ уйдёт личным маркером аккаунта.",
-    off: "Все аккаунты Instagram отвечают личными маркерами, как раньше. После смены пароля Instagram аккаунт нужно подключить заново.",
+    on: "Аккаунт Instagram, у которого проверка прошла (Страница Facebook с этим Instagram выдана ключу компании), отвечает через Страницу. Смена пароля Instagram бота не глушит. Если Meta откажет, ответ уйдёт личным ключом аккаунта.",
+    off: "Все аккаунты Instagram отвечают личными ключами, как раньше. После смены пароля Instagram аккаунт нужно подключить заново.",
   },
 };
 
 export interface AutomationSwitchGroup {
-  id: "ai" | "tasks" | "notifications" | "bot" | "channels";
+  id: "ai" | "tasks" | "notifications" | "bot";
   title: string;
   /** Ключи группы: свои и уже существовавшие (`dealStaleSellersEnabled`). */
   keys: ReadonlyArray<AutomationSwitchKey | "dealStaleSellersEnabled">;
@@ -144,8 +144,8 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     title: "Уведомления",
     keys: ["notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
-  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled"] },
-  { id: "channels", title: "Каналы связи", keys: ["instagramCompanyKeyEnabled"] },
+  // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "instagramCompanyKeyEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

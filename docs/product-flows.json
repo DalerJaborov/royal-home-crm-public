@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4194,
+  "forks": 4195,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -104960,6 +104960,37 @@
              "t": "!missed.length",
              "a": [],
              "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "channel === \"INSTAGRAM\" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length &…",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"meta\", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.l…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "await raiseCriticalAlarm({ tag: `meta-inbox-mass-missed:${page.pageId}`, title: \"Сверка Instagram: проверьте …",
+               "a": [
+                "зовёт raiseCriticalAlarm()"
+               ],
+               "c": []
+              },
               {
                "k": "do",
                "t": "continue;",

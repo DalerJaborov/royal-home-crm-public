@@ -5,7 +5,7 @@ import { isMessagingWindowClosedError } from "../lib/messagingWindow.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { describeError } from "../lib/describeError.js";
 import { GEMINI_RETRY_DELAYS_MS, sleep } from "../ai/geminiTransport.js";
-import { rememberOutgoingMid } from "./outgoingMids.js";
+import { outgoingContentKey, rememberOutgoingMid, rememberOutgoingText } from "./outgoingMids.js";
 import { admitOutbound, noteOutboundUndelivered, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import type { AttachmentSource } from "./attachments.js";
 import type { BotIngressShape } from "@royal-home/shared";
@@ -49,12 +49,13 @@ import {
   forgetPageToken,
   instagramReadRequest,
   pageRouteFailed,
+  pageRoutePolicyRefused,
   recordEternalSendSuccess,
   routeMetaMessagingCall,
   type RoutedCall,
 } from "../lib/metaEternalTokens.js";
 import { isMetaAuthFailure, raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
-import { isInstagramAccountLockedText, noteInstagramAccountLocked } from "../lib/instagramAccountAccess.js";
+import { instagramAccountPageRouted, isInstagramAccountLockedText, noteInstagramAccountLocked, noteInstagramBackupKeyDead } from "../lib/instagramAccountAccess.js";
 export type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 export { verifyAndRegisterMetaCustomerIssuer as verifyCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
 export { verifyAndRegisterPublicMetaCustomerIssuer as verifyPublicCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
@@ -2056,6 +2057,22 @@ export async function callGraph<T = unknown>(
   const personal: RoutedCall = { url, token, body, route: "unchanged" };
   let routed: RoutedCall = method === "POST" ? await routeMetaMessagingCall(url, token, body) : personal;
   traceKnownSecrets([routed.token]);
+  /**
+   * ЭХО С ДРУГОГО ПУТИ (21.11.2026). Отправка через Страницу, эхо — по подписке входа через
+   * Instagram. Помним «кому + что» ДО отправки (эхо обгоняет ответ Meta), чтобы эхо узнавалось
+   * своим даже при незнакомом mid (routes/webhooks.ts::handleOutgoingEcho, окно 2 минуты).
+   */
+  if (routed.route === "instagram_page" && sendSurface === "dm") {
+    const message = (routed.body as { message?: { text?: unknown; attachment?: { type?: unknown } } } | null)?.message;
+    await rememberOutgoingText({
+      channel: "INSTAGRAM",
+      peer: recipientId,
+      content: outgoingContentKey({
+        text: typeof message?.text === "string" ? message.text : null,
+        attachmentType: typeof message?.attachment?.type === "string" ? message.attachment.type : null,
+      }),
+    });
+  }
   let req = instagramRequest(routed.url, routed.token);
   for (let attempt = 0; ; attempt++) {
     const res = await fetchWithRetry(req.url, {
@@ -2067,6 +2084,18 @@ export async function callGraph<T = unknown>(
     if (!res.ok) {
       const graphError = parseMetaGraphError(res.status, text);
       const policy = sendSurface && sendSurface !== "action" ? metaPolicyBlockOf(graphError) : null;
+      /**
+       * ЗАПРЕТ НА ПУТИ СТРАНИЦЫ — ЕЩЁ НЕ ЗАПРЕТ АККАУНТА (21.11.2026). Meta отказала по правилам
+       * запросу ключом компании (например 100/2534029) — личный путь аккаунта может работать:
+       * один повтор личным ключом, Страница на скамейке. Метка «Meta не пропускает отправку»
+       * ставится ниже, только если откажет и личный путь. Предупреждение (не запрет) идёт как было.
+       */
+      if (policy && !policy.warning && pageRoutePolicyRefused(routed, res.status, graphError)) {
+        routed = personal;
+        traceKnownSecrets([routed.token]);
+        req = instagramRequest(routed.url, routed.token);
+        continue;
+      }
       /**
        * ОТКАЗ ПО ПРАВИЛАМ — НЕ ПОВТОРЯТЬ НИКАКИМ ПУТЁМ (18.11.2026). Ни личным
        * ключом после пути Страницы, ни «Upload failed»-повтором: каждый лишний
@@ -2108,6 +2137,12 @@ export async function callGraph<T = unknown>(
             return;
           }
           if (who.accessLost) return;
+          // Аккаунт отвечает через Страницу — умер только запасной личный ключ (ревью #344):
+          // не «ключ канала перестал работать», а «переподключите аккаунт», раз в сутки.
+          if (who.instagramAccountId && (await instagramAccountPageRouted(who.instagramAccountId))) {
+            await noteInstagramBackupKeyDead(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 160)}`);
+            return;
+          }
           await raiseChannelKeyAlarm({
             key: who.key,
             label: who.label,

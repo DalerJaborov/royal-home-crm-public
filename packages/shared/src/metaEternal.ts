@@ -80,7 +80,7 @@ export const META_ETERNAL_STATE_LABEL: Record<MetaEternalState, string> = {
 /** Instagram: путь ответа простыми словами — одно место для экрана. */
 export const META_ETERNAL_ROUTE_LABEL: Record<"page" | "personal", string> = {
   page: "Отвечает через Страницу (постоянный ключ)",
-  personal: "Отвечает личным маркером",
+  personal: "Отвечает личным ключом",
 };
 
 /** Страница Facebook, выданная ключу компании, — для кнопки «Подключить Messenger». */

@@ -12,6 +12,15 @@ vi.mock("../src/messengers/meta.js", async (importOriginal) => ({
   isMetaEnabled: metaEnabled,
   isMetaChannelEnabled: igChannelEnabled,
 }));
+/** Instagram «через Страницу» для тестового аккаунта (предохранитель сверки, ревью #344). */
+const routeOverride = { page: false };
+vi.mock("../src/lib/metaEternalTokens.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/metaEternalTokens.js")>();
+  return { ...actual, instagramRouteForToken: async (token: string) =>
+    routeOverride.page && token === "ig-token-test"
+      ? { kind: "page" as const, token: "page-token-test-ig", pageId: "page-of-ig", accountId: null }
+      : actual.instagramRouteForToken(token) };
+});
 const recipientsOverride: { list: string[] | null } = { list: null };
 vi.mock("../src/lib/recipients.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/recipients.js")>();
@@ -78,7 +87,7 @@ beforeAll(async () => {
   ).id;
 });
 
-beforeEach(() => { sendPushToAgents.mockClear(); metaEnabled.mockResolvedValue(true); recipientsOverride.list = null; });
+beforeEach(() => { sendPushToAgents.mockClear(); metaEnabled.mockResolvedValue(true); recipientsOverride.list = null; routeOverride.page = false; });
 
 afterAll(async () => {
   await prisma.processedMessage.deleteMany({ where: { messageId: { startsWith: `m_${runId}` } } });
@@ -255,6 +264,43 @@ describe("В4: Instagram и автоответы (15.11.2026)", () => {
     expect(push.body).toContain("Нархи хона?");
     expect(push.body).toContain("Direct");
     // Свои реплики аккаунта не стали «входящими»: missed ровно 1.
+  });
+
+  describe("предохранитель: Instagram через Страницу, «потеряно» больше половины (ревью #344)", () => {
+    const valveTag = `meta-inbox-mass-missed:${igUserId}`;
+    const igOf = (tag: string, n: number) => ({ data: [{ messages: { data: Array.from({ length: n }, (_, i) => (
+      { id: `m_${runId}_${tag}_${i}`, created_time: ago(30 + i), message: `вопрос ${i}`, from: { id: `igsid-${runId}-${tag}-${i}` } })) } }] });
+    const igPushes = () => sendPushToAgents.mock.calls.filter((c) => String(((c as unknown[])[1] as { title?: string }).title).includes("Instagram «arvan.estate»"));
+    afterAll(async () => { await prisma.pendingDirectorAlert.deleteMany({ where: { tag: valveTag } }); });
+
+    it("путь Страницы и все 4 входящих «не дошли» — без пушей сотрудникам, одна несрочная тревога руководству", async () => {
+      routeOverride.page = true;
+      await prisma.pendingDirectorAlert.deleteMany({ where: { tag: valveTag } });
+      const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, igOf("valve", 4)).impl, STARTED_LONG_AGO);
+      expect(result.massMissedPages).toBeGreaterThanOrEqual(1);
+      expect(igPushes()).toHaveLength(0);
+      const alert = await prisma.pendingDirectorAlert.findFirst({ where: { tag: valveTag } });
+      expect(alert?.recipientRoles.slice().sort()).toEqual(["ADMIN", "DIRECTOR", "HEAD_OF_SALES"]);
+      // Отметок «уже сказали» нет: если это не поломка сверки, люди узнают, когда путь починят.
+      expect(await prisma.processedMessage.count({ where: { channel: "meta-inbox-missed", messageId: { startsWith: `m_${runId}_valve_` } } })).toBe(0);
+    });
+
+    it("путь Страницы, «не дошло» 1 из 4 — обычный срочный пуш", async () => {
+      routeOverride.page = true;
+      const body = igOf("one", 4);
+      for (const m of body.data[0]!.messages.data.slice(1)) {
+        await prisma.processedMessage.create({ data: { channel: "INSTAGRAM", messageId: m.id, completedAt: new Date() } });
+      }
+      const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, body).impl, STARTED_LONG_AGO);
+      expect(result.massMissedPages).toBe(0);
+      expect(igPushes().length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("личный путь (не Страница) — предохранитель не срабатывает, пуши как раньше", async () => {
+      const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, igOf("personal", 4)).impl, STARTED_LONG_AGO);
+      expect(result.massMissedPages).toBe(0);
+      expect(igPushes().length).toBeGreaterThanOrEqual(1);
+    });
   });
 
   it("Instagram: дошедшее вебхуком (ProcessedMessage INSTAGRAM) тревоги не даёт", async () => {

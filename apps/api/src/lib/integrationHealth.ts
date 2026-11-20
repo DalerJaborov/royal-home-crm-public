@@ -9,8 +9,8 @@ import { inspectTelegramChat, isBasicGroupChatId } from "./telegramChatInspect.j
 import { migrateSettingsTelegramChat } from "./settingsTelegramChatMigration.js";
 import { loadCredentials, GRAPH_VERSION, instagramApiUrl, instagramRequest, fetchWithRetry, isFacebookLoginToken } from "../messengers/meta.js";
 import { facebookPageTokenFor, instagramRouteForToken } from "./metaEternalTokens.js";
-import { isMetaAuthFailure, isMetaAuthFailureText, MANAGEMENT_ALARM_ROLES, raiseChannelKeyAlarm, raiseCriticalAlarm } from "./channelKeyAlarm.js";
-import { clearInstagramAccountLocked, isInstagramAccountLockedText, noteInstagramAccountLocked } from "./instagramAccountAccess.js";
+import { isMetaAuthFailure, isMetaAuthFailureText, raiseChannelKeyAlarm, raiseCriticalAlarm } from "./channelKeyAlarm.js";
+import { clearInstagramAccountLocked, isInstagramAccountLockedText, noteInstagramAccountLocked, noteInstagramBackupKeyDead } from "./instagramAccountAccess.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { listAccounts, accountTokenById } from "../messengers/accounts.js";
 import { r2HealthCheck } from "./r2Client.js";
@@ -432,33 +432,16 @@ export async function checkInstagramAccountsHealth(
       continue;
     }
     if (route.kind === "page") {
+      // Путь Страницы отвечает (выдача и проверка Instagram прошли) — отметка «Meta закрыла
+      // доступ» неправда, снимаем её (ревью #344): закрытым считается только аккаунт без пути.
+      if (row.accessLostAt) await clearInstagramAccountLocked(row.id, "page_route_ok");
       const backup = await instagramPersonalKeyAlive(token);
       if (backup.ok) {
         out.push({ name, ok: true, detail: `вечный ключ через Страницу ${route.pageId}; запасной личный жив` });
       } else {
-        await logSystemError(
-          "meta",
-          `Предупреждение: запасной личный маркер Instagram «${row.title}» не работает (${backup.detail}). ` +
-            `Переписка идёт ключом компании через Страницу; если она откажет, отвечать будет нечем.`,
-          { dedupKey: `ig-backup-key-dead:${row.id}`, dedupWindowMs: DAY_MS, silent: true }
-        );
-        /**
-         * Руководству «к сведению», раз в сутки (21.11.2026): ответы идут, но входящие этого
-         * аккаунта приходят по подписке входа через Instagram, а она держится на личном
-         * маркере — без переподключения их можно потерять. Не «ключ канала умер»: бот отвечает.
-         * Закрытый Meta аккаунт сюда не доходит (accessLostAt, отдельная тревога).
-         */
-        if (!row.accessLostAt) {
-          await raiseCriticalAlarm({
-            tag: `ig-backup-key-dead:${row.id}`,
-            title: "Instagram: переподключите аккаунт",
-            body: `«${row.title}»: бот отвечает через Страницу, но личный маркер не работает (${backup.detail.slice(0, 80)}). Переподключите аккаунт в Настройках → Каналы, чтобы не пропали входящие.`,
-            url: "/settings?tab=channels",
-            quiet: true,
-            recipientRoles: MANAGEMENT_ALARM_ROLES,
-            everyMs: DAY_MS,
-          });
-        }
+        // Ответы идут, но входящие держатся на подписке личного ключа — руководству «к сведению»,
+        // раз в сутки (lib/instagramAccountAccess.ts, одна дверь с отказом личного ключа при отправке).
+        await noteInstagramBackupKeyDead(row.id, backup.detail);
         out.push({ name, ok: true, detail: `вечный ключ через Страницу ${route.pageId}; предупреждение: запасной личный не работает` });
       }
       continue;

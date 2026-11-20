@@ -52,9 +52,12 @@ import { findAgentsWithPermission } from "./recipients.js";
 import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { logSystemError } from "./systemError.js";
 import { instagramRouteForToken } from "./metaEternalTokens.js";
+import { MANAGEMENT_ALARM_ROLES, raiseCriticalAlarm } from "./channelKeyAlarm.js";
 
 /** Пока вебхук мог ещё не дойти, Meta повторяет доставку после сбоя или бот ждёт склейки — не тревожим. */
 export const GRACE_MS = 15 * 60_000;
+/** Предохранитель срабатывает, когда сверено хотя бы столько входящих (меньше — обычный путь). */
+export const MASS_MISSED_MIN_SAMPLE = 3;
 /**
  * Сообщение пришло, пока этот процесс не работал (выкатка, падение): Meta может дослать его
  * после подъёма, и тогда ответит бот. Даём боту полчаса после старта процесса, потом зовём
@@ -384,6 +387,8 @@ export interface MetaInboxReconcileResult {
   missed: number;
   people: number;
   failedPages: number;
+  /** Instagram через Страницу: «потеряно» больше половины — пуши не отправлены (предохранитель). */
+  massMissedPages: number;
   /** Почему тик ничего не сверял: канал Meta выключен в Настройках. */
   skipped: "meta_disabled" | "switched_off" | null;
 }
@@ -391,7 +396,7 @@ export interface MetaInboxReconcileResult {
 /** Тик крона. Никогда не бросает: сбой одной Страницы — строка в журнале, остальные сверяются. */
 export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: GraphFetch = defaultFetch,
   options: { processStartedAt?: number } = {}): Promise<MetaInboxReconcileResult> {
-  const result: MetaInboxReconcileResult = { pages: 0, missed: 0, people: 0, failedPages: 0, skipped: null };
+  const result: MetaInboxReconcileResult = { pages: 0, missed: 0, people: 0, failedPages: 0, massMissedPages: 0, skipped: null };
   let pages: PageInbox[];
   try {
     // Канал Meta выключен в Настройках — вебхук отвечает 503 намеренно, звать людей не о чем (ревью 192-9).
@@ -427,6 +432,33 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
       const known = await knownMessageIds(incoming, channel);
       const missed = incoming.filter((m) => !known.has(m.mid));
       if (!missed.length) continue;
+      /**
+       * ПРЕДОХРАНИТЕЛЬ ПУТИ СТРАНИЦЫ (ревью #344). Instagram, читаемый через Страницу (ключ компании),
+       * сверяется с mid, пришедшими вебхуком входа через Instagram. ФАКТ (прод 21.11, чтение): id на
+       * путях совпадают (32 из 34 входящих). Но если Meta когда-нибудь разведёт id, «не дошло» станет
+       * КАЖДОЕ входящее и всем с правом «Сообщения» уйдут срочные пуши. Поэтому: потеряно больше
+       * половины сверенного (из трёх и больше) — это поломка сверки, а не клиенты; только журнал и одна
+       * несрочная тревога руководству в сутки, без пушей сотрудникам.
+       * Только путь Страницы: у Facebook массовая «потеря» — настоящий сигнал (Arvan 13–14.11:
+       * дошёл 1 из 8, нет расширенного доступа), и глушить его нельзя.
+       */
+      if (channel === "INSTAGRAM" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length
+        && (await instagramRouteForToken(page.token)).kind === "page") {
+        result.massMissedPages++;
+        void logSystemError("meta", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.length} входящих не найдены в CRM. ` +
+          `Похоже на поломку сверки (разные id сообщений на путях), а не на потерю — пуши сотрудникам не отправлены. Проверьте переписки аккаунта вручную.`,
+          { dedupKey: `meta-inbox-mass-missed:${page.pageId}`, dedupWindowMs: 6 * 60 * 60_000, silent: true });
+        await raiseCriticalAlarm({
+          tag: `meta-inbox-mass-missed:${page.pageId}`,
+          title: "Сверка Instagram: проверьте переписки вручную",
+          body: `«${page.title}»: ${missed.length} из ${incoming.length} входящих не найдены в CRM. Срочные пуши сотрудникам не отправлены — похоже на поломку сверки. Откройте Direct аккаунта и сверьте с CRM.`,
+          url: "/messages",
+          quiet: true,
+          recipientRoles: MANAGEMENT_ALARM_ROLES,
+          everyMs: 24 * 60 * 60_000,
+        });
+        continue;
+      }
       // Один пуш на человека за тик, даже если он написал пять сообщений подряд.
       const byPerson = new Map<string, InboxMessage[]>();
       for (const m of missed) byPerson.set(m.fromId, [...(byPerson.get(m.fromId) ?? []), m]);

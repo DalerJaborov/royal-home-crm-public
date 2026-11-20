@@ -129,7 +129,13 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", fetchMock);
 });
 
-afterEach(() => vi.unstubAllGlobals());
+// Общий ключ компании и рубильники — только на время теста (ревью #344): соседние файлы,
+// идущие параллельно на той же базе, не должны получать чужой путь через Страницу.
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  if (before) await prisma.settings.update({ where: { id: "singleton" }, data: before });
+  eternal.resetMetaEternalCache();
+});
 
 describe("путь Instagram через Страницу и его запреты", () => {
   it("всё готово — /me/messages уходит на graph.facebook.com/{page}/messages маркером Страницы", async () => {
@@ -317,12 +323,20 @@ describe("самопроверка «Вечные ключи»", () => {
     expect(ourRow(await eternal.metaEternalStatus())).toMatchObject({ state: "off", route: "personal" });
   });
 
-  it("Meta закрыла доступ к аккаунту — «закрыт», путь личный, Страницу и права не спрашиваем", async () => {
+  it("Meta закрыла доступ к аккаунту без пути через Страницу — «закрыт», путь личный", async () => {
     await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: new Date(), accessLostReason: "HTTP 401: проверка" } });
-    eternal.resetMetaEternalCache();
+    await settings({ instagramCompanyKeyEnabled: false });
     const row = ourRow(await eternal.metaEternalStatus());
     expect(row).toMatchObject({ state: "locked", route: "personal" });
     expect(row.accessLostAt).toBeTruthy();
+  });
+
+  it("отметка «закрыт» у аккаунта, который отвечает через Страницу, — не «закрыт» (ревью #344)", async () => {
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: new Date(), accessLostReason: "HTTP 401: проверка" } });
+    eternal.resetMetaEternalCache();
+    const row = ourRow(await eternal.metaEternalStatus());
+    expect(row.state).not.toBe("locked");
+    expect(row).toMatchObject({ route: "page", accessLostAt: null });
   });
 
   it("не хватает прав — называет какие", async () => {

@@ -18,7 +18,9 @@ const eternal = await import("../src/lib/metaEternalTokens.js");
 const { callGraph, instagramApiUrl, GRAPH_VERSION } = await import("../src/messengers/meta.js");
 const { checkInstagramAccountsHealth } = await import("../src/lib/integrationHealth.js");
 const { saveAccount, resetAccountsCache } = await import("../src/messengers/accounts.js");
-const { isInstagramAccountLockedText } = await import("../src/lib/instagramAccountAccess.js");
+const access = await import("../src/lib/instagramAccountAccess.js");
+const { isInstagramAccountLockedText } = access;
+const { wasRecentlySentText, resetOutgoingMids } = await import("../src/messengers/outgoingMids.js");
 const { CHANNEL_KEY_ALERT_TAG_PREFIX } = await import("../src/lib/channelKeyAlarm.js");
 
 const run = randomUUID().slice(0, 8);
@@ -37,7 +39,9 @@ let accountId = "";
 let lockedId = "";
 let before: Record<string, unknown> | null = null;
 
-const meta = { linkedIg: IG_ID, personalMeOk: false, lockedMeOk: false };
+const meta = { linkedIg: IG_ID, personalMeOk: false, lockedMeOk: false, pageSendError: null as null | { status: number; code: number; subcode?: number }, personalSendError: null as null | { status: number; code: number; subcode?: number } };
+const pageSends: string[] = [];
+const personalSends: string[] = [];
 const fetchMock = vi.fn();
 const authOf = (init?: RequestInit) => (init?.headers as Record<string, string> | undefined)?.Authorization ?? "";
 
@@ -50,7 +54,13 @@ async function settings(patch: Record<string, unknown>) {
   eternal.resetMetaEternalCache();
 }
 
-const lockTags = () => [`ig-account-locked:${lockedId}`, `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${lockedId}`];
+/** Тревоги этого файла: эпизод «закрыт» ключуется временем отметки, поэтому по началу метки. */
+const alertWhere = () => ({ OR: [
+  { tag: { startsWith: `ig-account-locked:${lockedId}` } }, { tag: { startsWith: `ig-account-locked:${accountId}` } },
+  { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${lockedId}` }, { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}` },
+  { tag: `ig-backup-key-dead:${accountId}` }, { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}page-route:${PAGE_ID}` },
+] });
+const lockAlerts = () => ({ OR: [{ tag: { startsWith: `ig-account-locked:${lockedId}` } }, { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${lockedId}` }] });
 
 beforeAll(async () => {
   await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton" }, update: {} });
@@ -69,16 +79,21 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.messengerAccount.deleteMany({ where: { id: { in: [accountId, lockedId] } } });
   if (before) await prisma.settings.update({ where: { id: "singleton" }, data: before });
-  await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { in: lockTags() } } });
+  await prisma.pendingDirectorAlert.deleteMany({ where: alertWhere() });
+  await prisma.metaSendBlock.deleteMany({ where: { accountId: { in: [accountId, lockedId] } } });
   eternal.resetMetaEternalCache();
   resetAccountsCache();
 });
 
 beforeEach(async () => {
-  Object.assign(meta, { linkedIg: IG_ID, personalMeOk: false, lockedMeOk: false });
+  Object.assign(meta, { linkedIg: IG_ID, personalMeOk: false, lockedMeOk: false, pageSendError: null, personalSendError: null });
+  pageSends.length = 0;
+  personalSends.length = 0;
+  resetOutgoingMids();
   await prisma.messengerAccount.update({ where: { id: accountId }, data: { pageId: null, accessLostAt: null, accessLostReason: null } });
   await prisma.messengerAccount.update({ where: { id: lockedId }, data: { pageId: null, accessLostAt: null, accessLostReason: null } });
-  await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { in: lockTags() } } });
+  await prisma.pendingDirectorAlert.deleteMany({ where: alertWhere() });
+  await prisma.metaSendBlock.deleteMany({ where: { accountId: { in: [accountId, lockedId] } } });
   await settings({ metaIgManageToken: encryptSecret(SYSTEM), instagramCompanyKeyEnabled: true });
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (input: string | URL, init?: RequestInit) => {
@@ -94,6 +109,11 @@ beforeEach(async () => {
     if (url.startsWith(`${GRAPH}/${PAGE_ID}?fields=access_token`)) {
       return json({ id: PAGE_ID, access_token: PAGE_TOKEN, name: "Royal.home.tj", instagram_business_account: { id: meta.linkedIg } });
     }
+    if (url === `${GRAPH}/${PAGE_ID}/messages`) {
+      pageSends.push(String(init?.body ?? ""));
+      const e = meta.pageSendError;
+      return e ? json({ error: { code: e.code, error_subcode: e.subcode, message: "page route refused" } }, e.status) : json({ recipient_id: "x", message_id: `mid-page-${randomUUID()}` });
+    }
     if (url.startsWith(`${GRAPH}/${IG_ID}/media`)) return json({ data: [{ id: "m1", permalink: "https://instagram.com/p/x", timestamp: "2026-11-21T00:00:00+0000" }] });
     // graph.instagram.com (личные маркеры). Через прокси маркер — в адресе, без прокси — в заголовке.
     const carries = (token: string) => auth === `Bearer ${token}` || url.includes(`access_token=${token}`);
@@ -103,6 +123,9 @@ beforeEach(async () => {
     }
     if (url.includes("/me/messages")) {
       if (carries(LOCKED_TOKEN)) return json({ error: { code: 190, message: LOCKED_TEXT } }, 401);
+      personalSends.push(String(init?.body ?? ""));
+      const e = meta.personalSendError;
+      if (e) return json({ error: { code: e.code, error_subcode: e.subcode, message: "personal refused" } }, e.status);
       return json({ recipient_id: "x", message_id: `mid-${randomUUID()}` });
     }
     return json({ error: { message: `unexpected ${url}` } }, 404);
@@ -110,7 +133,13 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", fetchMock);
 });
 
-afterEach(() => vi.unstubAllGlobals());
+// Общий ключ компании и рубильник — только на время теста (ревью #344): соседние файлы,
+// идущие параллельно на той же базе, не должны получать чужой путь через Страницу.
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  if (before) await prisma.settings.update({ where: { id: "singleton" }, data: before });
+  eternal.resetMetaEternalCache();
+});
 
 describe("Страницу CRM находит сама", () => {
   it("Страница ключа компании с этим Instagram — pageId записан, ответ дальше идёт через Страницу", async () => {
@@ -149,8 +178,8 @@ describe("лента тем же путём", () => {
     await prisma.messengerAccount.update({ where: { id: accountId }, data: { pageId: PAGE_ID } });
     await settings({ instagramCompanyKeyEnabled: false });
     const req = await eternal.instagramMediaRequest(PERSONAL, "fields=id&limit=5");
-    expect(req.url).toContain("/me/media");
-    expect(req.url).not.toContain("graph.facebook.com");
+    expect(req?.url).toContain("/me/media");
+    expect(req?.url).not.toContain("graph.facebook.com");
   });
 });
 
@@ -165,12 +194,12 @@ describe("Meta закрыла доступ к аккаунту — одна от
     await expect(callGraph(url, LOCKED_TOKEN, { recipient: { id: "x" }, sender_action: "typing_on" })).rejects.toThrow(/401/);
     const row = await waitFor(() => prisma.messengerAccount.findFirst({ where: { id: lockedId, accessLostAt: { not: null } } }));
     expect(row?.accessLostReason).toContain("cannot access the app");
-    const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: `ig-account-locked:${lockedId}` } }));
+    const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: { startsWith: `ig-account-locked:${lockedId}:` } } }));
     expect(alert?.recipientRoles.slice().sort()).toEqual(["ADMIN", "DIRECTOR", "HEAD_OF_SALES"]);
     expect(alert?.body).not.toContain(LOCKED_TOKEN);
     eternal.resetMetaEternalCache();
     await expect(callGraph(url, LOCKED_TOKEN, { recipient: { id: "x" }, sender_action: "typing_on" })).rejects.toThrow(/401/);
-    const count = await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: { in: lockTags() } } }));
+    const count = await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: lockAlerts() }));
     expect(count).toBe(1);
   });
 
@@ -179,7 +208,7 @@ describe("Meta закрыла доступ к аккаунту — одна от
     expect(first.ok).toBeNull();
     expect((await prisma.messengerAccount.findUnique({ where: { id: lockedId }, select: { accessLostAt: true } }))?.accessLostAt).not.toBeNull();
     await checkInstagramAccountsHealth([lockedId]);
-    expect(await prisma.pendingDirectorAlert.count({ where: { tag: { in: lockTags() } } })).toBe(1);
+    expect(await prisma.pendingDirectorAlert.count({ where: lockAlerts() })).toBe(1);
     meta.lockedMeOk = true;
     const [back] = await checkInstagramAccountsHealth([lockedId]);
     expect(back.ok).toBe(true);
@@ -204,5 +233,110 @@ describe("Meta закрыла доступ к аккаунту — одна от
     const row = await prisma.messengerAccount.findUnique({ where: { id: lockedId }, select: { accessLostAt: true, accessLostReason: true } });
     expect(row).toEqual({ accessLostAt: null, accessLostReason: null });
     await prisma.messengerAccount.update({ where: { id: lockedId }, data: { token: encryptSecret(LOCKED_TOKEN) } });
+  });
+});
+
+describe("ревью #344: путь Страницы и запасной личный ключ", () => {
+  const send = (text = "Салом, нархаш 450 000") =>
+    callGraph(instagramApiUrl(`/${GRAPH_VERSION}/me/messages`), PERSONAL, { recipient: { id: `igsid-${run}` }, message: { text } });
+  const routed = async () => {
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { pageId: PAGE_ID } });
+    eternal.resetMetaEternalCache();
+  };
+
+  it("отправка через Страницу помнит «кому + что» — эхо без знакомого mid узнается своим", async () => {
+    await routed();
+    await send("Хона дар Сино");
+    expect(pageSends).toHaveLength(1);
+    expect(await wasRecentlySentText({ channel: "INSTAGRAM", peer: `igsid-${run}`, content: "Хона дар Сино" })).toBe(true);
+  });
+
+  it.each([
+    { code: 551, subcode: 1545041, what: "человек недоступен" },
+    { code: 10, subcode: 2018278, what: "вне окна 24 часов" },
+    { code: 10, subcode: 2534022, what: "вне окна (Instagram)" },
+  ])("отказ про одного собеседника ($what) — не отказ пути: без повтора, скамейки и тревоги", async ({ code, subcode }) => {
+    await routed();
+    meta.pageSendError = { status: 400, code, subcode };
+    await expect(send()).rejects.toThrow();
+    expect(personalSends).toHaveLength(0);
+    expect((await eternal.instagramRouteForToken(PERSONAL)).kind).toBe("page");
+    const alarm = await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}page-route:${PAGE_ID}` } }));
+    expect(alarm).toBe(0);
+  });
+
+  it("«нет такого собеседника» на пути Страницы — один повтор личным ключом, без тревоги", async () => {
+    await routed();
+    meta.pageSendError = { status: 400, code: 100, subcode: 2534014 };
+    await send();
+    expect(personalSends).toHaveLength(1);
+    expect((await eternal.instagramRouteForToken(PERSONAL)).kind).toBe("page");
+  });
+
+  it("200 без подкода (нет App Review) — отказ пути: повтор личным, Страница на скамейке, тревога", async () => {
+    await routed();
+    meta.pageSendError = { status: 400, code: 200 };
+    await send();
+    expect(personalSends).toHaveLength(1);
+    expect((await eternal.instagramRouteForToken(PERSONAL)).kind).toBe("instagram_login");
+    await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}page-route:${PAGE_ID}` } }));
+  });
+
+  it("запрет Meta (100/2534029) на пути Страницы — откат на личный ключ, аккаунт не метится", async () => {
+    await routed();
+    meta.pageSendError = { status: 400, code: 100, subcode: 2534029 };
+    await send();
+    expect(personalSends).toHaveLength(1);
+    expect(await waitForSettled(() => prisma.metaSendBlock.count({ where: { accountId, liftedAt: null } }))).toBe(0);
+  });
+
+  it("запрет на обоих путях — метка «Meta не пропускает отправку» ставится", async () => {
+    await routed();
+    meta.pageSendError = { status: 400, code: 100, subcode: 2534029 };
+    meta.personalSendError = { status: 400, code: 100, subcode: 2534029 };
+    await expect(send()).rejects.toThrow();
+    expect(personalSends).toHaveLength(1);
+    await waitFor(() => prisma.metaSendBlock.findFirst({ where: { accountId, liftedAt: null } }));
+  });
+
+  it("личный ключ «закрыт Meta», а путь Страницы работает — не «закрыт», а «запасной ключ не работает»", async () => {
+    await routed();
+    const res = await access.noteInstagramAccountLocked(accountId, `HTTP 401: ${LOCKED_TEXT}`);
+    expect(res).toEqual({ marked: false, backupOnly: true });
+    expect((await prisma.messengerAccount.findUnique({ where: { id: accountId }, select: { accessLostAt: true } }))?.accessLostAt).toBeNull();
+    const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: `ig-backup-key-dead:${accountId}` } }));
+    expect(alert?.title).toBe("Instagram: переподключите аккаунт");
+  });
+
+  it("старая отметка «закрыт» у аккаунта с рабочим путём Страницы: экран её не показывает, суточная проверка снимает", async () => {
+    await routed();
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: new Date(), accessLostReason: "HTTP 401" } });
+    eternal.resetMetaEternalCache();
+    const status = await eternal.metaEternalStatus();
+    const row = status.rows.find((r) => r.accountId === accountId);
+    expect(row?.state).not.toBe("locked");
+    expect(row?.route).toBe("page");
+    const [health] = await checkInstagramAccountsHealth([accountId]);
+    expect(health.ok).toBe(true);
+    expect((await prisma.messengerAccount.findUnique({ where: { id: accountId }, select: { accessLostAt: true } }))?.accessLostAt).toBeNull();
+  });
+
+  it("новый эпизод «закрыт» после снятия отметки — снова запись и тревога", async () => {
+    expect((await access.noteInstagramAccountLocked(lockedId, "HTTP 401 первый")).marked).toBe(true);
+    await access.clearInstagramAccountLocked(lockedId, "probe_ok");
+    await new Promise((r) => setTimeout(r, 5));
+    expect((await access.noteInstagramAccountLocked(lockedId, "HTTP 401 второй")).marked).toBe(true);
+    const alerts = await prisma.pendingDirectorAlert.count({ where: { tag: { startsWith: `ig-account-locked:${lockedId}:` } } });
+    expect(alerts).toBe(2);
+  });
+
+  it("ссылка следующей страницы ленты: ключ по хосту ссылки, а не по нынешнему пути", async () => {
+    await routed();
+    const fb = `${GRAPH}/${IG_ID}/media?after=x`;
+    const ig = `https://graph.instagram.com/${GRAPH_VERSION}/me/media?after=y`;
+    expect(await eternal.instagramMediaRequest(PERSONAL, "q", fb)).toEqual({ url: fb, headers: { Authorization: `Bearer ${PAGE_TOKEN}` } });
+    expect((await eternal.instagramMediaRequest(PERSONAL, "q", ig))?.url).not.toContain("graph.facebook.com");
+    await settings({ instagramCompanyKeyEnabled: false });
+    expect(await eternal.instagramMediaRequest(PERSONAL, "q", fb)).toBeNull();
   });
 });
