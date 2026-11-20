@@ -155,12 +155,14 @@ function RoyalTeamBody(p: RoyalTeamProps) {
             ))}
           </div>
           {p.showStages && p.stagesNode}
+          {/* Что такое «Баллы» и «Место» — одной строкой рядом с таблицей, а не сноской под ней (главные руководителей, 20.11.2026). */}
+          {list.length > 0 && <p className="ry-meta">Баллы — оценка работы агента в рейтинге: растут за дела вовремя, сделки и показы, падают за пропуски. Место — среди агентов по баллам.</p>}
           {p.team.loading ? <RhBlockState kind="loading" /> : p.team.error ? <RhBlockState kind="error" onRetry={p.team.retry} />
             : list.length === 0 ? <div className="ry-state">В команде пока никого нет</div> : (
               <div className="ry-group ry-members" role="list" aria-label="Сотрудники">
                 <div className="ry-mhead" aria-hidden="true">
                   <span>Сотрудник</span><span>В работе</span><span>Лиды</span><span>Показы</span><span>Сделки</span>
-                  {p.seesMoney && <span>Комиссия</span>}<span>Счёт</span><span>Место</span><span />
+                  {p.seesMoney && <span>Комиссия</span>}<span>Баллы</span><span>Место</span><span />
                 </div>
                 {p.visible.map((m) => {
                   const rank = p.rank(m.id);
@@ -179,7 +181,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
                         <Stat label="Показы" value={m.month.showings} />
                         <Stat label="Сделки" value={m.month.dealsCompleted} />
                         {p.seesMoney && <Stat label="Комиссия" value={formatMoney(m.month.commission ?? 0, "TJS")} wide />}
-                        <Stat label="Счёт" value={rank?.score ?? "нет"} />
+                        <Stat label="Баллы" value={rank?.score ?? "нет"} />
                         <Stat label="Место" value={rank ? `${rank.place} из ${p.rankTotal}` : "нет"} />
                         </span>
                       </button>
@@ -191,7 +193,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
                 })}
               </div>
             )}
-          {list.length > 0 && <p className="ry-meta">Показаны {p.visible.length} из {p.counts.all}. Счёт и место берутся из рейтинга Royal Score.</p>}
+          {list.length > 0 && <p className="ry-meta">Показаны {p.visible.length} из {p.counts.all}.</p>}
         </RhSection>
       </div>
 

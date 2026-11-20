@@ -1,6 +1,6 @@
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import { NavLink } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Grip, Plus } from "lucide-react";
 import { Suspense, useRef, useState } from "react";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { hapticSuccess, hapticTap } from "../lib/haptics";
@@ -214,6 +214,14 @@ export function BottomNavSurface({ variant, royal = false }: { variant: BottomNa
         {right.map((item) => (
           <Tab key={item.to + item.label} {...item} variant={variant} royal={royal} />
         ))}
+        {/* «Ещё» — только в рейке планшета «Нового вида» (768–1023, theme-look-royal.css):
+            на телефоне все разделы открывает аватар в шапке, а в рейке аватара нет
+            под рукой. У агента «Ещё» уже есть справа — второй раз не рисуем. */}
+        {royal && !right.some((item) => item.to === "/more") && (
+          <div className="ry-rail-only">
+            <Tab to="/more" icon={Grip} label="Ещё" group="system" variant={variant} royal />
+          </div>
+        )}
       </div>
       {/* Условный рендер вокруг FabMenu, а не только проп `open`: пока меню не
           открывали, файл не нужно скачивать вовсе. Само меню проп `open`

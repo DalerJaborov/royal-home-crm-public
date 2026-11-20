@@ -15,6 +15,12 @@ const ASK: Record<string, { ariaLabel: string; placeholder: string; suggestions:
     placeholder: "Спросить: какие объекты застряли в подготовке?",
     suggestions: ["Какие объекты просрочены в подготовке?", "Что ждёт моей проверки?"],
   },
+  // Акционер (20.11.2026): деньги и тренды, а не раздача заявок — он ничего не меняет.
+  SHAREHOLDER: {
+    ariaLabel: "Вопрос про деньги и итоги",
+    placeholder: "Спросить: как идёт комиссия в этом месяце?",
+    suggestions: ["Как идёт комиссия по сравнению с прошлым месяцем?", "Откуда приходит больше всего заявок?"],
+  },
   default: {
     ariaLabel: "Вопрос про работу команды",
     placeholder: "Спросить: кто сейчас свободен для заявки?",
@@ -33,8 +39,9 @@ export function AskBlock({ role }: HomeBlockProps) {
 }
 
 /** Графики по команде — тот же TeamCharts (право dashboard.analytics проверяет он сам). */
-export function ChartsBlock() {
-  return <TeamCharts host="royal" />;
+export function ChartsBlock({ role }: HomeBlockProps) {
+  // У РОП нагрузка агентов — в «Распределении заявок» выше: без второго такого же графика.
+  return <TeamCharts host="royal" showWorkload={role !== "HEAD_OF_SALES"} />;
 }
 
 /**
