@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { test, expect, request, type Browser, type Page } from "@playwright/test";
 import { LOOK_WIDTHS, expectNoOverflowAt } from "./helpers/noOverflow";
 
@@ -18,7 +20,7 @@ type Role = keyof typeof PHONES;
 const sessions = new Map<Role, { storageState: Awaited<ReturnType<Awaited<ReturnType<typeof request.newContext>>["storageState"]>>; agent: unknown }>();
 
 async function roleContext(browser: Browser, role: Role, baseURL: string | undefined) {
-  const cached = sessions.get(role) ?? await login(role);
+  const cached = sessions.get(role) ?? await savedOrLogin(role);
   sessions.set(role, cached);
   const context = await browser.newContext({ baseURL, storageState: cached.storageState, serviceWorkers: "block" });
   // Тот же признак сессии, что кладёт само приложение после входа (store/auth.ts).
@@ -28,6 +30,34 @@ async function roleContext(browser: Browser, role: Role, baseURL: string | undef
     localStorage.setItem("rh:passkey-offer-dismissed", "1");
   }, cached.agent);
   return context;
+}
+
+/**
+ * Вход роли переживает прогон (20.11.2026). Кэш в памяти живёт один процесс, а сервер
+ * выдаёт не больше пяти кодов на сотрудника в час (LOGIN_SMS_PER_HOUR): второй-третий
+ * прогон @smoke подряд на том же стенде падал на «Слишком много кодов за час» при
+ * исправной главной. Сохранённую сессию проверяем обменом refresh-cookie (она
+ * одноразовая — новую сразу пишем обратно); не годится — входим кодом заново.
+ */
+async function savedOrLogin(role: Role) {
+  const file = path.join("playwright/.auth", `home-${role.toLowerCase()}.json`);
+  const headers = { "X-Device-Id": `e2e-home-${role.toLowerCase()}` };
+  if (fs.existsSync(file)) {
+    const saved = JSON.parse(fs.readFileSync(file, "utf8")) as Awaited<ReturnType<typeof login>>;
+    const api = await request.newContext({ baseURL: API, storageState: saved.storageState });
+    const refreshed = await api.post("/api/v1/auth/refresh", { headers }).catch(() => null);
+    if (refreshed?.ok()) {
+      const fresh = { storageState: await api.storageState(), agent: saved.agent };
+      fs.writeFileSync(file, JSON.stringify(fresh));
+      await api.dispose();
+      return fresh;
+    }
+    await api.dispose();
+  }
+  const fresh = await login(role);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(fresh));
+  return fresh;
 }
 
 async function login(role: Role) {

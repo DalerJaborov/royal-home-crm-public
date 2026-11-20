@@ -191,6 +191,13 @@
   background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg);
 }
 :root[data-ui-look="royal"] .clean-shell .ry-nav-glyph { display: grid; place-items: center; width: 26px; height: 26px; flex: none; }
+/* Заголовок раздела в шапке телефона переносится, а не режется: на 320 px справа
+   две кнопки и аватар, и «Контроль руковод…», «Публикации в соцс…» обрезались
+   многоточием (сторож @smoke, 20.11). Две строки помещаются в 60 px шапки. */
+:root[data-ui-look="royal"] [data-topbar] [data-topbar-title] {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+  font-size: clamp(17px, 5.4vw, 22px); line-height: 1.15;
+}
 /* Подпись пункта меню переносится, а не режется («Активность коман…», 18.11). */
 :root[data-ui-look="royal"] .clean-shell .ry-nav-label { flex: 1 1 auto; min-width: 0; white-space: normal; line-height: 1.2; padding-block: 4px; }
 :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab .clean-nav-count {

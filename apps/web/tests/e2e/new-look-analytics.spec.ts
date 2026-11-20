@@ -48,7 +48,9 @@ const CHECK = ".card, .tile, .sec-h, .pg-h, .bars .b, .donut, .tbl-wrap, .mag-ca
 const SCREENS = [
   { url: "/reports", ready: "#funnel-section .card" },
   { url: "/sources", ready: ".pg-h h1" },
-  { url: "/insights", ready: ".sec-h h2" },
+  // `.pg-h h1`, а не `.sec-h h2`: на телефоне (до 820 px) список выпусков — MobileInsights без
+  // секций, `.sec-h` появляется только в открытом выпуске; проверка ждала его на 320 px (20.11).
+  { url: "/insights", ready: ".pg-h h1" },
   { url: "/funnel", ready: ".mag-card" },
   { url: "/pipeline", ready: ".seg button" },
 ];

@@ -529,3 +529,10 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
 /* «Удалить объект» в шторке «Ещё» — разрушительное действие красным словом, не только местом в списке. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is([data-testid="sheet-item-delete"], [data-testid="sheet-item-request-delete"]) .t b { color: var(--rh-ui-crit-text); }
+
+/* Строки списков карточки объекта («Ответственный за объект. Приёмка объекта» в истории
+   и задачах) переносятся, а не режутся зажимом строк на 320 px (сторож @smoke, 20.11). */
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .list > .row > .t :is(b, span, small) {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+  -webkit-line-clamp: none; line-clamp: none; max-height: none;
+}
