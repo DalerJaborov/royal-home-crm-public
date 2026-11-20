@@ -40,19 +40,24 @@ type RuFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "value"
 
 type Mode = "overlay" | "text";
 
-const HIDDEN_NATIVE_TEXT: CSSProperties = {
-  color: "transparent", WebkitTextFillColor: "transparent", WebkitAppearance: "none", appearance: "none",
-};
+const HIDDEN_NATIVE_TEXT: CSSProperties = { color: "transparent", WebkitTextFillColor: "transparent" };
+/** Всегда: на фокусе меняется только цвет текста, а не вид поля, поэтому высота не прыгает. */
+const PLAIN_APPEARANCE: CSSProperties = { WebkitAppearance: "none", appearance: "none" };
 
 /** Вид текста поля, снятый один раз: подпись должна выглядеть как родной текст. */
 interface Look {
   paddingLeft: string; paddingRight: string; fontFamily: string; fontSize: string; fontWeight: string;
   lineHeight: string; letterSpacing: string; textAlign: string;
+  /** Поле занимает всю ячейку (подпись тянется за ним) или уже её (подпись той же ширины, прижата влево). */
+  fullWidth: boolean; width: number;
 }
 
 function readLook(input: HTMLInputElement): Look {
   const cs = getComputedStyle(input);
+  const cell = input.parentElement?.getBoundingClientRect().width ?? 0;
+  const width = input.getBoundingClientRect().width;
   return {
+    fullWidth: cell > 0 && Math.abs(cell - width) < 2, width,
     paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, fontFamily: cs.fontFamily, fontSize: cs.fontSize,
     fontWeight: cs.fontWeight, lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing, textAlign: cs.textAlign,
   };
@@ -131,16 +136,18 @@ function makeField(kind: RuFieldKind) {
           onFocus={(event) => { setFocused(true); onFocus?.(event); }}
           onBlur={(event) => { setFocused(false); onBlur?.(event); }}
           style={{
-            ...inputStyle, gridArea: "1 / 1", justifySelf: "start", ...(revealed ? null : HIDDEN_NATIVE_TEXT),
+            ...inputStyle, gridArea: "1 / 1", justifySelf: "start", ...PLAIN_APPEARANCE, ...(revealed ? null : HIDDEN_NATIVE_TEXT),
             ...(styleWidth !== undefined ? { width: "100%" } : null),
           }}
         />
         <span
           aria-hidden="true"
           data-ru-field-text={kind}
+          className="ru-field-text"
           data-empty={empty || undefined}
           style={{
-            gridArea: "1 / 1", alignSelf: "stretch", display: "flex", alignItems: "center",
+            gridArea: "1 / 1", alignSelf: "stretch", justifySelf: look && !look.fullWidth ? "start" : "stretch", width: look && !look.fullWidth ? look.width : undefined,
+            maxWidth: "100%", display: "flex", alignItems: "center",
             justifyContent: centered ? "center" : "flex-start", boxSizing: "border-box",
             visibility: revealed ? "hidden" : "visible", opacity: rest.disabled ? 0.55 : undefined,
             paddingLeft: look?.paddingLeft, paddingRight: look?.paddingRight, fontFamily: look?.fontFamily, fontSize: look?.fontSize,

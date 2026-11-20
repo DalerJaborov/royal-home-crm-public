@@ -19,6 +19,8 @@ const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const IMPLEMENTATION = ["components/look/fields/RuFields.tsx", "components/look/RhAudioPlayer.tsx"];
 
 /** Исключения: файл → причина. Список только убывает. */
+/** Исключения: файл → причина и ровно сколько вхождений разрешено (лишнее новое вхождение в том же файле не проскочит). */
+const AUDIO_EXCEPTION_COUNT: Record<string, number> = { "components/PropertyNarrationManager.tsx": 1 };
 const AUDIO_EXCEPTIONS: Record<string, string> = {
   // Запасной вариант озвучки объекта, когда её собственный плеер не справился (формат не поддержан плеером):
   // штатный <audio controls> играет blob на iPhone, а ссылка на blob в новой вкладке не открывается (решение ревью #340).
@@ -96,9 +98,10 @@ describe("родные контролы Safari (К01)", () => {
   it("запись и голосовое — только через RhAudioPlayer, без <audio controls>", () => {
     const offenders: string[] = [];
     for (const { full, rel } of files) {
-      if (IMPLEMENTATION.includes(rel) || rel in AUDIO_EXCEPTIONS) continue;
+      if (IMPLEMENTATION.includes(rel)) continue;
       const found = nativeAudioOffences(fs.readFileSync(full, "utf8"));
-      if (found.length) offenders.push(`${rel}: ${found.join(" | ")}`);
+      const allowed = rel in AUDIO_EXCEPTIONS ? (AUDIO_EXCEPTION_COUNT[rel] ?? 0) : 0;
+      if (found.length !== allowed && (found.length || allowed)) offenders.push(`${rel}: ${found.length} вместо ${allowed}: ${found.join(" | ")}`);
     }
     expect(offenders).toEqual([]);
   });

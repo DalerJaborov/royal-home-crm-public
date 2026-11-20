@@ -112,14 +112,15 @@ export interface FunctionStatusInput {
 type Verdict = { state: FunctionState; reason: string; detail?: string | null; attention?: boolean };
 type Evaluator = (input: FunctionStatusInput, def: FunctionDef) => Verdict;
 
-const ENV_NOT_SET = (name: string) => `переменная ${name} на сервере не задана`;
+/** Имя переменной в текст не попадает: оно уходит директору в «Для разработчика» через envNames. */
+const ENV_NOT_SET = (_name: string) => "эта настройка на сервере не включена";
 
 /** Режим из трёх значений OFF/PREVIEW/LIVE → состояние (бот: фото, медиа). */
 function threeWay(mode: "OFF" | "PREVIEW" | "LIVE", name: string, toggleOn: boolean, toggleLabel: string): Verdict {
   if (!toggleOn) return { state: "off", reason: `Выключено тумблером «${toggleLabel}» в Настройках.` };
   if (mode === "LIVE") return { state: "working", reason: `Тумблер «${toggleLabel}» включён, сервер разрешает отправку.` };
   if (mode === "PREVIEW") {
-    return { state: "preview", reason: `Тумблер включён, но сервер в режиме «только проверка» (${name}=PREVIEW): клиенту ничего не уходит.`, attention: true };
+    return { state: "preview", reason: `Тумблер включён, но сервер в режиме «только проверка»: клиенту ничего не уходит.`, attention: true };
   }
   return {
     state: "off",
@@ -157,10 +158,10 @@ const EVALUATORS: Record<string, Evaluator> = {
 
   "bot-say-mode": ({ env }) =>
     customerAgentSayMode(env) === "live"
-      ? { state: "working", reason: "Свободные фразы уходят клиентам (CUSTOMER_AGENT_SAY_MODE=live)." }
+      ? { state: "working", reason: "Свободные фразы уходят клиентам." }
       : {
           state: "preview",
-          reason: "Бот проверяет свои свободные фразы, но клиенту их не отправляет: отвечает готовыми шаблонами. Чтобы включить, на сервере нужно CUSTOMER_AGENT_SAY_MODE=live.",
+          reason: "Бот проверяет свои свободные фразы, но клиенту их не отправляет: отвечает готовыми шаблонами. Чтобы включить, разработчик должен включить это на сервере.",
         },
 
   // «Один мозг», шаг 1 (#211): весь ответ своими словами вокруг проверенных фактов. Пусто — «тень».
@@ -169,13 +170,13 @@ const EVALUATORS: Record<string, Evaluator> = {
     // Live is per channel (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS): the mode alone (no channel) is never "live" any more.
     if (env.CUSTOMER_AGENT_ANSWER_MODE === "live") {
       const channels = customerAgentAnswerLiveChannels(env);
-      if (channels.length) return { state: "working", reason: `Бот отвечает клиентам своими словами вокруг проверенных фактов в каналах: ${channels.join(", ")} (CUSTOMER_AGENT_ANSWER_MODE=live). Остальные каналы — только проверка.` };
-      return { state: "preview", reason: "CUSTOMER_AGENT_ANSWER_MODE=live, но список каналов CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS пуст или без известных имён: своими словами бот не отвечает нигде, клиенту уходит готовый шаблон. Запись об этом — в журнале ошибок." };
+      if (channels.length) return { state: "working", reason: `Бот отвечает клиентам своими словами вокруг проверенных фактов в каналах: ${channels.join(", ")}. Остальные каналы — только проверка.` };
+      return { state: "preview", reason: "Ответы своими словами включены, но список каналов на сервере пуст или без известных имён: своими словами бот не отвечает нигде, клиенту уходит готовый шаблон. Запись об этом — в журнале ошибок." };
     }
-    if (mode === "off") return { state: "off", reason: "Выключено на сервере (CUSTOMER_AGENT_ANSWER_MODE=off): бот не пишет ответ своими словами, работают прежние короткие фразы." };
+    if (mode === "off") return { state: "off", reason: "Выключено на сервере: бот не пишет ответ своими словами, работают прежние короткие фразы." };
     return {
       state: "preview",
-      reason: "Бот пишет ответ своими словами только для проверки, клиенту уходит готовый шаблон. Чтобы включить, на сервере нужно CUSTOMER_AGENT_ANSWER_MODE=live.",
+      reason: "Бот пишет ответ своими словами только для проверки, клиенту уходит готовый шаблон. Чтобы включить, разработчик должен включить это на сервере.",
     };
   },
 
@@ -185,9 +186,9 @@ const EVALUATORS: Record<string, Evaluator> = {
     const label = (set: ReadonlySet<string>) => [...set].map(key => names[key] ?? key).join(", ");
     const core = customerAgentCoreChannels(env.CUSTOMER_AGENT_CHANNEL_CORE);
     const shadow = [...customerAgentShadowChannels(env.CUSTOMER_AGENT_CHANNEL_SHADOW)].filter(key => !core.has(key));
-    if (core.size) return { state: "working", reason: `Новое ядро отвечает клиентам: ${label(core)} (CUSTOMER_AGENT_CHANNEL_CORE).${shadow.length ? ` Только проверка рядом со старым ботом: ${label(new Set(shadow))}.` : ""}` };
-    if (shadow.length) return { state: "preview", reason: `Отвечает старый бот; новое ядро только проверяется рядом с ним: ${label(new Set(shadow))} (CUSTOMER_AGENT_CHANNEL_SHADOW). Клиенту его ответы не уходят.` };
-    return { state: "off", reason: "На сайте, в Telegram и YouTube отвечает старый бот. Новое ядро там выключено (CUSTOMER_AGENT_CHANNEL_CORE и CUSTOMER_AGENT_CHANNEL_SHADOW пусты)." };
+    if (core.size) return { state: "working", reason: `Новое ядро отвечает клиентам: ${label(core)}.${shadow.length ? ` Только проверка рядом со старым ботом: ${label(new Set(shadow))}.` : ""}` };
+    if (shadow.length) return { state: "preview", reason: `Отвечает старый бот; новое ядро только проверяется рядом с ним: ${label(new Set(shadow))}. Клиенту его ответы не уходят.` };
+    return { state: "off", reason: "На сайте, в Telegram и YouTube отвечает старый бот. Новое ядро там выключено на сервере." };
   },
 
   // Аварийный рубильник CUSTOMER_AGENT_CHANNEL_OFF (18.11.2026, lib/customerAgentChannelOff.ts). Пусто — бот отвечает как обычно.
@@ -197,7 +198,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     if (!off.size) return { state: "working", reason: `Аварийный рубильник не включён: бот отвечает клиентам на всех каналах как обычно.${skipped}`,
       ...(unknown.length ? { attention: true } : {}) };
     const label = [...off].map(key => CUSTOMER_AGENT_OFF_LABELS[key]).join(", ");
-    return { state: "off", reason: `Бот выключен на каналах: ${label} (CUSTOMER_AGENT_CHANNEL_OFF). Клиенту там уходит одна строка ` +
+    return { state: "off", reason: `Бот выключен на каналах: ${label}. Клиенту там уходит одна строка ` +
       `«передал сотруднику», отвечают сотрудники.${skipped}`, attention: true };
   },
 
@@ -286,7 +287,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     const search = env.ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED === "true";
     const index = env.ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED === "true";
     if (search && index) return { state: "working", reason: "Умный поиск включён, индекс пополняется." };
-    if (search) return { state: "working", reason: "Умный поиск включён, но новые материалы в индекс не попадают (ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED не включена).", attention: true };
+    if (search) return { state: "working", reason: "Умный поиск включён, но новые материалы в индекс не попадают: запись в индекс не включена на сервере.", attention: true };
     return { state: "off", reason: `Выключено: ${ENV_NOT_SET("ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED")}. Шабнам ищет по базе знаний только по словам.` };
   },
 
@@ -315,7 +316,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     if (mode !== "LIVE") {
       return {
         state: "preview",
-        reason: `CRM готовит озвучку, но монтажёру не отправляет: ${ENV_NOT_SET("CRM_NARRATION_EXECUTION_MODE")} (нужно LIVE).`,
+        reason: `CRM готовит озвучку, но монтажёру не отправляет: ${ENV_NOT_SET("CRM_NARRATION_EXECUTION_MODE")} (нужен боевой режим).`,
         attention: true,
       };
     }
@@ -327,20 +328,20 @@ const EVALUATORS: Record<string, Evaluator> = {
   "owner-reports": () =>
     mediaExecutionMode("OWNER_REPORT") === "LIVE"
       ? { state: "working", reason: "Отчёты собственникам отправляются." }
-      : { state: "preview", reason: `Отчёты готовятся, но собственникам не уходят: ${ENV_NOT_SET("CRM_OWNER_REPORT_EXECUTION_MODE")} (нужно LIVE).` },
+      : { state: "preview", reason: `Отчёты готовятся, но собственникам не уходят: ${ENV_NOT_SET("CRM_OWNER_REPORT_EXECUTION_MODE")} (нужен боевой режим).` },
 
   // Условие из publicationMetadataSync.ts / publicationMetadataAdapter.ts: без LIVE — EXECUTION_DISABLED.
   "publication-metadata": ({ env }) =>
     env.PUBLICATION_METADATA_EXECUTION === "LIVE"
       ? { state: "working", reason: "Синхронизация разрешена сервером. Запускается только вручную из кода, расписания нет." }
-      : { state: "off", reason: `Выключено: ${ENV_NOT_SET("PUBLICATION_METADATA_EXECUTION")} (нужно LIVE). Выложенные публикации не обновляются после правки объекта.` },
+      : { state: "off", reason: `Выключено: ${ENV_NOT_SET("PUBLICATION_METADATA_EXECUTION")} (нужен боевой режим). Выложенные публикации не обновляются после правки объекта.` },
 
   // Условия из sellerControlEpisodes.ts (runSellerControlTick, enrollDueSellerIntakes).
   "seller-control": ({ env }) => {
     if (env.SELLER_CONTROL_INTERNAL_LIVE !== "explicitly-approved") {
       return {
         state: "preview",
-        reason: "Только проверка: боевой режим не разрешён сервером (SELLER_CONTROL_INTERNAL_LIVE), задача раз в минуту ничего не делает.",
+        reason: "Только проверка: боевой режим не разрешён сервером, задача раз в минуту ничего не делает.",
         attention: true,
       };
     }
@@ -353,7 +354,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     if (!buyerCandidateLiveEnabled()) {
       return {
         state: "preview",
-        reason: "Только проверка: нужно, чтобы сервер разрешил и BUYER_CANDIDATE_INTERNAL_LIVE, и SELLER_CONTROL_INTERNAL_LIVE.",
+        reason: "Только проверка: нужно, чтобы сервер разрешил боевой режим и для кандидатов-покупателей, и для продавцов.",
         attention: true,
       };
     }
@@ -365,7 +366,7 @@ const EVALUATORS: Record<string, Evaluator> = {
   "owner-verification": () =>
     newOwnerProbeMode() === "LIVE"
       ? { state: "working", reason: "Проверка собственников выполняется по-настоящему." }
-      : { state: "preview", reason: `Проверки только планируются, звонков и сообщений собственникам нет: ${ENV_NOT_SET("CRM_OWNER_VERIFICATION_EXECUTION_MODE")} (нужно LIVE).` },
+      : { state: "preview", reason: `Проверки только планируются, звонков и сообщений собственникам нет: ${ENV_NOT_SET("CRM_OWNER_VERIFICATION_EXECUTION_MODE")} (нужен боевой режим).` },
 
   // Условие из routes/manualDataCorrections.ts.
   "manual-corrections": ({ env }) =>
@@ -395,7 +396,7 @@ const EVALUATORS: Record<string, Evaluator> = {
   "market-crawl": ({ env }) =>
     env.MARKET_CRAWL_ENABLED === "1"
       ? { state: "working", reason: `Сбор включён: полный обход Somon ${somonCrawlSchedule(env).mode === "nightly" ? "каждую ночь" : "раз в неделю"} и по минутам, Paydo ночью и частями.` }
-      : { state: "off", reason: `Выключено: ${ENV_NOT_SET("MARKET_CRAWL_ENABLED")} (нужно 1). Свежих объявлений рынка нет.`, attention: true },
+      : { state: "off", reason: `Выключено: ${ENV_NOT_SET("MARKET_CRAWL_ENABLED")} . Свежих объявлений рынка нет.`, attention: true },
 
   "gemini-spare-key": ({ env, settings }) =>
     settings.geminiSpareKeyInSettings || !!env.GEMINI_API_KEY_2

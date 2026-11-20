@@ -159,3 +159,20 @@ test("Чат: голосовое — свой плеер с кнопкой, вр
   expect(overflow).toBeLessThanOrEqual(0);
   await shot(page, `${testInfo.project.name}-chat-voice`);
 });
+
+for (const width of [320, 1440]) {
+  test(`Поля даты и времени в «Отчётах»: без горизонтальной прокрутки на ${width}px`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === "webkit-iphone", "ширины проверяются в Chromium-проектах");
+    await page.setViewportSize({ width, height: 900 });
+    await login(page);
+    await royalShell(page);
+    const noOverflow = async () => expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+
+    // Отчёты: «Свой период» — два поля дат подряд (мастер расхода и Настройки руками не открыты: там те же поля).
+    await page.goto("/reports");
+    await page.getByRole("tab", { name: "Свой период" }).first().click({ timeout: 40_000 });
+    await expect(page.locator(".ru-field").first()).toBeVisible();
+    await noOverflow();
+    await shot(page, `${testInfo.project.name}-${width}-reports`);
+  });
+}
