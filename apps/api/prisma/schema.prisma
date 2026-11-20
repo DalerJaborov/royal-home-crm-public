@@ -3115,7 +3115,7 @@ model StaffClipIntake {
   caption        String?
   sizeBytes      Int?
   /// ASKING — ждём объект; CHOSEN — объект найден, ждём кнопку; READY / MONTAGE — сделано;
-  /// UNDONE — «Не тот объект»; CANCELLED; FAILED.
+  /// UNDONE — «Не тот объект»; CANCELLED; FAILED; FREE — ушёл в пост без объекта (StaffSocialPost).
   status         String    @default("ASKING")
   propertyId     String?
   /// Объекты, предложенные кнопками (shortId), и исключённые после «Не тот объект».
@@ -3124,11 +3124,49 @@ model StaffClipIntake {
   decidedAt      DateTime?
   /// Что сделал «Готов» / «Монтаж», чтобы «Не тот объект» откатил ровно это.
   result         Json?
+  /// Расшифровка звука ролика для распознавания объекта (21.11.2026, телефоны замаскированы):
+  /// второй раз за неё не платим — она же основа подписи поста без объекта.
+  transcript     String?
   expiresAt      DateTime
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   @@index([chatId, status, createdAt])
   @@index([fileUniqueId])
+}
+
+/// ПОСТ БЕЗ ОБЪЕКТА ОТ ШАБНАМ (21.11.2026, владелец: «да, а также научи…»). Сотрудник с правом
+/// маркетинга присылает Шабнам ролик или альбом фото — она готовит пост тем же кодом, что экран
+/// «Ролики» CRM (черновик SocialVideoPost, подпись lib/socialVideoAi.ts), показывает превью и
+/// публикует ТОЛЬКО по кнопке «Опубликовать» того же сотрудника. Строка держит выбор сетей,
+/// подпись и захват кнопки (двойное нажатие и повтор апдейта не публикуют дважды).
+/// telegram/staffSocialPost.ts.
+model StaffSocialPost {
+  id                String    @id @default(uuid())
+  chatId            String
+  agentId           String
+  /// VIDEO | PHOTO
+  kind              String
+  /// Ролик пришёл через «к какому объекту» (StaffClipIntake) — одна строка на ролик.
+  staffClipIntakeId String?   @unique
+  /// Альбом Telegram: один пост на альбом (повтор доставки не заводит второй).
+  mediaGroupKey     String?   @unique
+  /// Слова сотрудника к файлу (подпись к видео или альбому) — основа подписи поста.
+  request           String?
+  /// RU | TG | RU_TG — язык подписи.
+  language          String    @default("RU")
+  /// Выбранные сети (SocialVideoChannel[]).
+  channels          Json?
+  /// Черновик в «Роликах» CRM — то, что уходит в публикацию.
+  socialVideoPostId String?   @unique
+  /// PREVIEW — ждём кнопку; EDIT_CAPTION — ждём новый текст; PUBLISHING — нажато «Опубликовать»;
+  /// PUBLISHED — ушло в публикацию; CANCELLED. Подготовка не удалась — строка и черновик удаляются (повтор возможен).
+  status            String    @default("PREVIEW")
+  previewMessageId  Int?
+  publishedAt       DateTime?
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  @@index([chatId, status, updatedAt])
 }
 
 /// СВОЯ МУЗЫКА ДЛЯ ПЕРЕМОНТАЖА (18.11.2026, lib/narrationMusic.ts): треки без авторских прав, которые
@@ -7331,6 +7369,9 @@ model Settings {
   botRepliesAfterLeadEnabled            Boolean @default(true)
   /// «Спам — без ответа и без модели» (владелец 20.11.2026: «таким спамерам как то не отвечать… сэкономить токены»). ВКЛ.
   botSpamFilterEnabled                  Boolean @default(true)
+  /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
+  /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
+  shabnamSocialPublishEnabled           Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из

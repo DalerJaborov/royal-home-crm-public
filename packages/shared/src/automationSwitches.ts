@@ -32,6 +32,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "notifyPropertyReviewOverdueEnabled",
   "botRepliesAfterLeadEnabled",
   "botSpamFilterEnabled",
+  "shabnamSocialPublishEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -119,10 +120,16 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Клиент пишет после заявки: бот коротко отвечает, новое передаёт агенту заметкой. Молчит, пока сотрудник сам ведёт переписку.",
     off: "После заявки бот отвечает только на новую деталь и простые вопросы (условия, где работаем, часы), на остальное молчит и ждёт агента.",
   },
+  // Владелец 21.11.2026: «Учить Шабнам публиковать ролики без объекта и карусели?» — «да».
+  shabnamSocialPublishEnabled: {
+    title: "Шабнам публикует ролики и фото без объекта",
+    on: "Сотрудник с правом маркетинга присылает Шабнам ролик или до 10 фото, она готовит подпись и показывает пост. В соцсети он уходит только после кнопки «Опубликовать».",
+    off: "Шабнам не готовит такие посты. Ролики к объектам она принимает как раньше, пост без объекта можно сделать в разделе «Ролики».",
+  },
 };
 
 export interface AutomationSwitchGroup {
-  id: "ai" | "tasks" | "notifications" | "bot";
+  id: "ai" | "tasks" | "notifications" | "bot" | "assistant";
   title: string;
   /** Ключи группы: свои и уже существовавшие (`dealStaleSellersEnabled`). */
   keys: ReadonlyArray<AutomationSwitchKey | "dealStaleSellersEnabled">;
@@ -138,6 +145,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled"] },
+  { id: "assistant", title: "Шабнам", keys: ["shabnamSocialPublishEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

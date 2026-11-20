@@ -59,6 +59,7 @@ import { findSlotCollision, loadOccupiedPublishSlotsDetailed, OCCUPIED_SLOT_KIND
 import { dushanbeDateString, dushanbeTimeString } from "./dushanbeTime.js";
 import { describeError } from "./describeError.js";
 import { sendPushToAgent } from "../push.js";
+import { tellStaffSocialPostResult } from "../telegram/staffSocialPostResult.js";
 import { sharpFromUpload } from "./heicInput.js";
 import { publicUploadUrl } from "./crmPublicUrl.js";
 import { publishInstagramCarousel, publishFacebookPhotoPost, publishTelegramPhotoPost, type PhotoPostPublishResult } from "./photoPosts.js";
@@ -1092,6 +1093,13 @@ async function notifyCreator(
     await sendPushToAgent(agentId, { kind: "task", ...payload, url: "/social-videos", tag: `social-video:${id}` });
   } catch (err) {
     void logSystemError("api", `Свободный ролик ${id}: не удалось уведомить автора об итоге — ${describeError(err)}`, { dedupKey: "social-video-notify" });
+  }
+  // Пост от Шабнам (21.11.2026): итог ещё и в личку Telegram того, кто нажал «Опубликовать», со ссылками.
+  try {
+    const links = keys.map((k) => results[k]?.url).filter((u): u is string => !!u);
+    await tellStaffSocialPostResult(id, [`${status === "DONE" ? "✅" : "⚠️"} ${payload.title}. ${payload.body}`, ...links].join("\n"));
+  } catch (err) {
+    void logSystemError("telegram", `Свободный ролик ${id}: итог в Telegram не ушёл — ${describeError(err)}`, { dedupKey: "social-video-notify-telegram" });
   }
 }
 
