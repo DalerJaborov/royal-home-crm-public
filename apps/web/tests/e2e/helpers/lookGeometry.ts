@@ -19,13 +19,15 @@ import type { Page } from "@playwright/test";
  *  - hole      — в сетке плиток дыра посреди: строка с одной узкой плиткой, а ниже ещё
  *                плитки («Ждут ответа» одна, «Горит» растянута под ней — главная, 390 px);
  *  - navCrowd  — подписи нижнего меню вплотную (зазор меньше 6 px: «ГлавнаяКлиенты» на 320);
- *  - wordBreak — слово в кнопке/вкладке разорвано по буквам («Продавц/ы» на 320).
+ *  - wordBreak — слово в кнопке/вкладке разорвано по буквам («Продавц/ы» на 320);
+ *  - emptyArea — в сетке с именованными областями область никем не занята (строка «agent»
+ *                строки клиента на 391–430 px стояла пустой, ревью #328).
  *
  * Каждая находка — строка «вид: что и где», чтобы сообщение теста называло место.
  * Без импортов в браузерной части: функция уходит в page.evaluate целиком.
  */
-export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak";
-export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak"];
+export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea";
+export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea"];
 
 /** Пропустить заведомо задуманное: селекторы, внутри которых проверка не идёт. */
 export type GeometryOptions = { skip?: string; kinds?: readonly GeometryKind[] };
@@ -307,6 +309,33 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
             if (tops.size > 1) out.push(`wordBreak: ${name(el)} — «${m[0]}» разорвано на ${tops.size} строки`);
           }
         }
+      }
+    }
+
+    // ---- emptyArea: именованная область сетки никем не занята ----
+    if (want.has("emptyArea")) {
+      for (const grid of root.querySelectorAll<HTMLElement>("*")) {
+        const s = getComputedStyle(grid);
+        if (s.display !== "grid" || !s.gridTemplateAreas || s.gridTemplateAreas === "none" || !visible(grid) || skipped(grid)) continue;
+        const areas = new Set(s.gridTemplateAreas.replace(/"/g, " ").split(/\s+/).filter((a) => a && a !== "."));
+        // Ячейки сетки — дети, а у ребёнка с display: contents — его дети (рекурсивно).
+        const items: Element[] = [];
+        const collect = (parent: Element) => {
+          for (const kid of parent.children) {
+            const d = getComputedStyle(kid).display;
+            if (d === "contents") collect(kid);
+            else if (d !== "none") items.push(kid);
+          }
+        };
+        collect(grid);
+        const before = areas.size;
+        for (const kid of items) {
+          areas.delete(getComputedStyle(kid).gridRowStart);
+          areas.delete(getComputedStyle(kid).gridColumnStart);
+        }
+        // Сетка, где области задают только ширины колонок (шапка таблицы), — не про пустые строки.
+        if (areas.size === before) continue;
+        if (areas.size) out.push(`emptyArea: ${name(grid)} — пустые области: ${[...areas].join(", ")}`);
       }
     }
 

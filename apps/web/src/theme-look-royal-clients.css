@@ -590,6 +590,10 @@
     grid-template-areas: "av top" "av when" "av req" "av foot" "av agent" ". acts";
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-main { max-width: 100%; }
+  /* Строка «agent» есть в сетке на всём ≤430 — ответственный встаёт в неё и на 391–430
+     (до ревью #328 он получал её только ≤390, и на 414/430 строка стояла пустой). */
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-step { max-width: 100%; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-agent { grid-area: agent; justify-self: start; max-width: 100%; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-when,
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-deadline] .ry-crow-when {
     grid-area: when; justify-self: start; max-width: 100%; text-align: left;

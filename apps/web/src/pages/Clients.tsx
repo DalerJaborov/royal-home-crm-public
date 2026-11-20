@@ -113,7 +113,7 @@ function budgetShort(c: Pick<Client, "budgetMin" | "budgetMax" | "currency">): s
   const div = ref >= 1_000_000 ? 1_000_000 : ref >= 1_000 ? 1_000 : 1;
   const unit = div === 1_000_000 ? " млн" : div === 1_000 ? " тыс." : "";
   const sym = c.currency === "USD" ? "$" : "";
-  const tail = c.currency === "USD" ? "" : " с.";
+  const tail = c.currency === "USD" ? "" : "\u00a0с.";
   // glueNumbers: «1,1–1,3 млн с.» не рвётся на «1,3 / млн с.» на узком телефоне (20.11).
   if (min && max) return glueNumbers(`${sym}${oneDecimal(min / div)}–${oneDecimal(max / div)}${unit}${tail}`);
   if (max) return glueNumbers(`до ${sym}${oneDecimal(max / div)}${unit}${tail}`);

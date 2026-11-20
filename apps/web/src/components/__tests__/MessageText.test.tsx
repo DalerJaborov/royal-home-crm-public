@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import { renderToString } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MESSAGE_PHONE_MASK } from "@royal-home/shared";
-import { MessageText } from "../MessageText";
+import { MESSAGE_PHONE_MASK, maskPhonesForReader } from "@royal-home/shared";
+import { MessageText, NO_CARD_TITLE } from "../MessageText";
 
 vi.mock("../../store/auth", () => ({ useAuthStore: (select: (state: { agent: { role: string; readOnly: boolean } }) => unknown) => select({ agent: { role: "AGENT", readOnly: false } }) }));
 vi.mock("../../hooks/useActiveCall", async (importOriginal) => ({
@@ -34,16 +34,25 @@ describe("MessageText — кнопка звонка на месте скрыто
     expect(html).not.toContain(MESSAGE_PHONE_MASK);
   });
 
-  it("без карточки клиента — «Номер скрыт», а не мёртвая «Позвонить»", () => {
+  it("без карточки клиента — «Номер скрыт» с причиной подсказкой, а не мёртвая «Позвонить»", () => {
     const html = render(<MessageText content={content} clientId={null} rh2 />);
     expect(html).toContain("Номер скрыт");
-    expect(html).not.toContain("Позвонить");
+    expect(html).toContain(`title="${NO_CARD_TITLE}"`);
+    expect(NO_CARD_TITLE).toMatch(/примите лид, чтобы позвонить/);
+    expect(html).not.toContain("Позвонить<");
     expect(html).not.toContain(MESSAGE_PHONE_MASK);
   });
 
-  it("цифр номера нет ни в одном варианте — кнопка набирает карточку, номер не печатается", () => {
+  it("настоящий номер из реплики (закрытый сервером тем же правилом) не печатается ни в одном варианте", () => {
+    // Вход — живая реплика с номером; закрывает его то же общее правило, что сервер
+    // (packages/shared maskPhonesForReader → lib/messageAttachments.ts).
+    const raw = "5этаж 86кв район 112 мк после ремонта, звоните 93 555 12 34";
+    const masked = maskPhonesForReader(raw);
+    expect(masked.masked).toBe(true);
     for (const clientId of ["client", null]) {
-      expect(render(<MessageText content={content} clientId={clientId} />)).not.toMatch(/\d{9}/);
+      const html = render(<MessageText content={masked.text} clientId={clientId} />);
+      expect(html.replace(/\D/g, " ")).not.toMatch(/93\s*555\s*12\s*34|935551234/);
+      expect(html).not.toMatch(/\d{9}/);
     }
   });
 });

@@ -3,6 +3,9 @@ import { MESSAGE_PHONE_MASK } from "@royal-home/shared";
 import { CallClientButton } from "./CallClientButton";
 import { humanizeAttachmentTags } from "../lib/botMessages";
 
+/** Почему позвонить нельзя: звонок идёт только через CRM из карточки клиента. */
+export const NO_CARD_TITLE = "Звонок идёт только через CRM из карточки клиента, а карточки здесь нет или она вам недоступна: примите лид, чтобы позвонить";
+
 /**
  * ТЕКСТ РЕПЛИКИ В ЛЕНТЕ — с кнопкой звонка на месте скрытого номера.
  *
@@ -57,8 +60,10 @@ export function MessageText({
         <Fragment key={i}>
           {part}
           {/* Без карточки клиента звонить некуда (станция набирает номер карточки): вместо
-              мёртвой серой «Позвонить» — честные слова, как у читателя без права звонить. */}
-          {i < parts.length - 1 && (readOnly || !clientId ? <span data-msg-call>Номер скрыт</span> : (
+              мёртвой серой «Позвонить» — честные слова, а причина — подсказкой, как была у кнопки. */}
+          {i < parts.length - 1 && (readOnly ? <span data-msg-call>Номер скрыт</span> : !clientId ? (
+            <span data-msg-call title={NO_CARD_TITLE}>Номер скрыт</span>
+          ) : (
             <CallClientButton
               clientId={clientId}
               /* Маска-«точка» — тот же признак «номер закрыт», что у CallClientButton

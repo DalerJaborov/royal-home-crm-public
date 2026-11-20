@@ -7,10 +7,11 @@
  * единицей (и между двумя единицами — «млн с.») становится неразрывным, а тире между
  * двумя числами склеивается с ними. Сторож — вид «split» в tests/e2e/helpers/lookGeometry.ts.
  */
-const NBSP = " ";
+const NBSP = "\u00a0";
 /** Невидимая склейка (word joiner): «330–440» не рвётся на «330– / 440» у тире. */
-const JOIN = "⁠";
-const NUMBER_RANGE = /(\d) ?([–—-]) ?(?=\d)/g;
+const JOIN = "\u2060";
+/** Тире между числами (дефис не трогаем: «2-3», «1-комн» — не промежуток). */
+const NUMBER_RANGE = /(\d)( ?)([–—])( ?)(?=\d)/g;
 /** Единицы, валюта, месяцы и счётные слова, которые читаются только вместе с числом. */
 const UNIT = String.raw`(?:млрд|млн|тыс\.?|с\.|сом\.?|сомони|TJS|USD|м²|м2|кв\.?|сот\.?|дн\.?|ч\.?|мин\.?|кл\.|комн\.?|эт\.?|%|янв\.?|февр?\.?|марта?|апр\.?|мая|июн[яь]?\.?|июл[яь]?\.?|авг\.?|сент?\.?|окт\.?|нояб?\.?|дек\.?)`;
 const NUMBER_UNIT = new RegExp(String.raw`(\d) (?=${UNIT}(?![\p{L}\d]))`, "gu");
@@ -18,7 +19,8 @@ const UNIT_UNIT = new RegExp(String.raw`((?:^|\s)${UNIT}) (?=${UNIT}(?![\p{L}\d]
 
 export function glueNumbers(text: string): string {
   return text
-    .replace(NUMBER_RANGE, `$1${JOIN}$2${JOIN}`)
+    // Пробелы вокруг тире сохраняются — неразрывными; без пробелов — невидимая склейка.
+    .replace(NUMBER_RANGE, (_m, a: string, before: string, dash: string, after: string) => `${a}${before ? NBSP : JOIN}${dash}${after ? NBSP : JOIN}`)
     .replace(NUMBER_UNIT, `$1${NBSP}`)
     .replace(UNIT_UNIT, `$1${NBSP}`);
 }

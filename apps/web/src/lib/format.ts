@@ -13,6 +13,9 @@ export function formatArea(value: number | string | null | undefined): string {
     : "—";
 }
 
+/** Неразрывный пробел перед «с.»: сумма не рвётся на строки (ревью #328). */
+const NBSP = "\u00a0";
+
 /**
  * Деньги «по-человечески»: копейки показываются, только когда они есть.
  *
@@ -26,7 +29,6 @@ export function formatArea(value: number | string | null | undefined): string {
  * Там, где деньги стоят колонкой и обязаны сходиться в итог (Финансы, Реклама,
  * отчёты), используется formatMoneyExact — он всегда печатает две цифры.
  */
-const NBSP = " ";
 export function formatMoney(value: number | string, currency: Currency | string) {
   const n = Number(value);
   const safe = Number.isFinite(n) ? n : 0;

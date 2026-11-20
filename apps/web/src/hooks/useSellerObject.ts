@@ -42,7 +42,7 @@ export function sellerFactsSummary(s: SellerObjectSummary): string {
   else if (f.landAreaSotka) bits.push(`${f.landAreaSotka} сот.`);
   if (f.price) {
     const money = f.price.toLocaleString("ru-RU");
-    bits.push(f.currency === "USD" ? `${money} $` : `${money} с.`);
+    bits.push(f.currency === "USD" ? `${money} $` : `${money}\u00a0с.`);
   }
   return bits.join(", ");
 }

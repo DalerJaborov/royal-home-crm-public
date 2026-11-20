@@ -228,16 +228,16 @@ function FinanceScreen({ royal }: { royal: boolean }) {
     {error ? <CleanLoadError title="Финансовая сводка" retry={refetch} /> : isLoading ? <p className="cef-muted" role="status">Загружаем финансовую сводку…</p> : <>
       <div className="cef-overview-period"><label>Графики за<select value={rangeMonths} onChange={(event) => setRangeMonths(Number(event.target.value))}>{RANGE_OPTIONS.map((option) => <option key={option.months} value={option.months}>{option.label}</option>)}</select></label></div>
       {current ? royal ? <RoyalMoneyTiles
-        commission={`${nums(current.revenue)} с.`}
-        companyRevenue={`${nums(current.companyRevenue)} с.`}
-        operatingExpenses={`${nums(current.operatingExpenses)} с.`}
-        profit={`${nums(current.profit)} с.`}
+        commission={`${nums(current.revenue)}\u00a0с.`}
+        companyRevenue={`${nums(current.companyRevenue)}\u00a0с.`}
+        operatingExpenses={`${nums(current.operatingExpenses)}\u00a0с.`}
+        profit={`${nums(current.profit)}\u00a0с.`}
         loss={current.profit < 0}
       /> : <div className="cef-summary-grid">
-        <div className="cef-card"><span className="cef-muted">Валовая комиссия</span><strong className="cef-kpi">{nums(current.revenue)} с.</strong></div>
-        <div className="cef-card"><span className="cef-muted">Доход компании</span><strong className="cef-kpi">{nums(current.companyRevenue)} с.</strong></div>
-        <div className="cef-card"><span className="cef-muted">Операционные расходы</span><strong className="cef-kpi">{nums(current.operatingExpenses)} с.</strong></div>
-        <div className="cef-card"><span className="cef-muted">Прибыль</span><strong className="cef-kpi">{nums(current.profit)} с.</strong></div>
+        <div className="cef-card"><span className="cef-muted">Валовая комиссия</span><strong className="cef-kpi">{nums(current.revenue)}{"\u00a0"}с.</strong></div>
+        <div className="cef-card"><span className="cef-muted">Доход компании</span><strong className="cef-kpi">{nums(current.companyRevenue)}{"\u00a0"}с.</strong></div>
+        <div className="cef-card"><span className="cef-muted">Операционные расходы</span><strong className="cef-kpi">{nums(current.operatingExpenses)}{"\u00a0"}с.</strong></div>
+        <div className="cef-card"><span className="cef-muted">Прибыль</span><strong className="cef-kpi">{nums(current.profit)}{"\u00a0"}с.</strong></div>
       </div> : <div className="cef-card"><h2>Нет сводки за выбранный месяц</h2><p className="cef-muted">Это отсутствие данных, а не подтверждённый нулевой результат.</p></div>}
       <PulseTiles onOpen={(section) => section === "expenses"
         ? openSection("finance-panel-expenses", "expenses")
@@ -264,10 +264,10 @@ function FinanceScreen({ royal }: { royal: boolean }) {
             <div className="body">
               <div className="sec" style={{ marginTop: 6 }}>
                 <MhMoney
-                  amount={`${nums(current.profit)} с.`}
+                  amount={`${nums(current.profit)}\u00a0с.`}
                   sub={
                     canForecast && commissionForecast
-                      ? `прибыль за ${MONTHS_ACC[monthIndex(current.month)]} · прогноз валовой комиссии: ${commissionForecast.percentOfPlan} % плана ${nums(commissionForecast.planTjs)} с.`
+                      ? `прибыль за ${MONTHS_ACC[monthIndex(current.month)]} · прогноз валовой комиссии: ${commissionForecast.percentOfPlan} % плана ${nums(commissionForecast.planTjs)}\u00a0с.`
                       : `прибыль за ${MONTHS_ACC[monthIndex(current.month)]}`
                   }
                   percent={null}
@@ -282,7 +282,7 @@ function FinanceScreen({ royal }: { royal: boolean }) {
                         <span className="t">
                           <span className="n">{EXPENSE_CATEGORY_LABELS[cat]}</span>
                         </span>
-                        <span className="s">{nums(v ?? 0)} с.</span>
+                        <span className="s">{nums(v ?? 0)}{"\u00a0"}с.</span>
                       </div>
                     ))}
                   {current.totalExpenses === 0 && <p className="state">Расходов за этот месяц ещё нет.</p>}

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { glueNumbers, glueRange } from "./glueNumbers";
 
-const N = " ";
-const J = "⁠";
+const N = "\u00a0";
+const J = "\u2060";
 describe("glueNumbers — число не отрывается от единицы", () => {
   it("бюджет клиента: «1,1–1,3 млн с.» и «330–440 тыс. с.»", () => {
     expect(glueNumbers("1,1–1,3 млн с.")).toBe(`1,1${J}–${J}1,3${N}млн${N}с.`);
@@ -15,6 +15,11 @@ describe("glueNumbers — число не отрывается от единиц
   });
   it("промежуток дат — одним куском", () => {
     expect(glueRange("10 нояб.", "19 нояб.")).toBe(`10${N}нояб.${N}—${N}19${N}нояб.`);
+  });
+  it("пробелы вокруг тире сохраняются неразрывными, дефис не трогается", () => {
+    expect(glueNumbers("330 – 440 тыс.")).toBe(`330${N}–${N}440${N}тыс.`);
+    expect(glueNumbers("этаж 2-3")).toBe("этаж 2-3");
+    expect(glueNumbers("1-комн")).toBe("1-комн");
   });
   it("обычные слова не трогает", () => {
     expect(glueNumbers("3 сотрудника")).toBe("3 сотрудника");

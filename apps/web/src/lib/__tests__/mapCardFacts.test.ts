@@ -37,7 +37,7 @@ describe("nearbySummary — что рядом с нажатой точкой", (
 
   it("считает только объекты в радиусе и берёт самую низкую цену", () => {
     const text = nearbySummary(here.lat, here.lng, [at(100, 500_000), at(250, 420_000), at(900, 100_000)]);
-    expect(text).toBe("Рядом в продаже: 2 объекта, от 420 т. с.");
+    expect(text).toBe("Рядом в продаже: 2 объекта, от 420 т.\u00a0с.");
   });
 
   it("без точки и вдали — ничего", () => {
@@ -49,12 +49,12 @@ describe("nearbySummary — что рядом с нажатой точкой", (
   });
 
   it("один объект — «объект», пять — «объектов»", () => {
-    expect(nearbySummary(here.lat, here.lng, [at(10, 5000)])).toBe("Рядом в продаже: 1 объект, от 5 т. с.");
+    expect(nearbySummary(here.lat, here.lng, [at(10, 5000)])).toBe("Рядом в продаже: 1 объект, от 5 т.\u00a0с.");
     expect(nearbySummary(here.lat, here.lng, [1, 2, 3, 4, 5].map((i) => at(i * 10, 5000)))).toMatch(/^Рядом в продаже: 5 объектов/);
   });
 });
 
 function formatted(n: number, suffix: string): string {
   // Перед «с.» — неразрывный пробел (lib/format.ts, 20.11): сумма не рвётся на строки.
-  return `${new Intl.NumberFormat("ru-RU").format(n)} ${suffix}`;
+  return `${new Intl.NumberFormat("ru-RU").format(n)}\u00a0${suffix}`;
 }
