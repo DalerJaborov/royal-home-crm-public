@@ -53,14 +53,14 @@ describe("1. кнопка рекламы — не слова клиента: н�
     expect(result.state.role).toBe("unknown");
   });
 
-  it("реклама с темой «объект», но объект не известен (реклама самого агентства): тоже вопрос о роли, заявки нет", async () => {
-    const result = await runOperatorTurn({ storedState: null, input: { current: AD_BUTTON }, ctx: ctx({ ad: { topic: "property", propertyId: null } }),
+  it("реклама самого агентства (тема не «объект», lib/adAttribution.ts): тоже вопрос о роли; ход о работе — пути рекрутёра", async () => {
+    // У рекламы агентства (Ad.brand) темы нет: оператор видит её как рекламу без темы (resolveAdTopic → undefined).
+    const result = await runOperatorTurn({ storedState: null, input: { current: AD_BUTTON }, ctx: ctx({ ad: { topic: null, propertyId: null } }),
       model: buyerFromButton });
     expect(result.text).toBe("Здравствуйте! Вы хотите купить или продать недвижимость?");
     expect(result.actions).toEqual([]);
-    // Второй ход того же человека (он о работе) ведёт путь рекрутёра, а не заявка покупателя.
     const next = await runOperatorTurn({ storedState: JSON.parse(JSON.stringify(result.stored)), input: { current: "Я по вакансии менеджера по продажам" },
-      ctx: ctx({ ad: { topic: "property", propertyId: null } }), model: async () => null });
+      ctx: ctx(), model: async () => null });
     expect(next.handoff).toBe("recruiter");
     expect(next.actions).toEqual([]);
   });
@@ -73,11 +73,15 @@ describe("1. кнопка рекламы — не слова клиента: н�
     expect(d.actions).toMatchObject([{ type: "accept_lead", role: "buyer", propertyId: focus.propertyId }]);
   });
 
-  it("класс: тема рекламы «объект» без объекта в Instagram — тоже вопрос о роли, а не просьба номера", () => {
-    const d = decide(initialOperatorState(), { ...emptyUnderstanding(), adOpener: true, languageHint: "ru" },
+  it("настоящая реклама объекта, объект не распознался (Meta не ответила, карусель): по SPEC — покупатель объекта, заявка с пометкой", () => {
+    const d = decide(initialOperatorState(), { ...emptyUnderstanding(), adOpener: true, languageHint: "ru" }, ctx({ ad: { topic: "property", propertyId: null } }));
+    expect(d.state.role).toBe("buyer_property");
+    expect(d.actions).toMatchObject([{ type: "accept_lead", role: "buyer", propertyId: null }]);
+    expect((d.actions[0] as { note: string }).note).toContain("Спрашивал объект с рекламы, объект не определён");
+    // Instagram: номера нет — просьба номера, а не вопрос о роли.
+    const ig = decide(initialOperatorState(), { ...emptyUnderstanding(), adOpener: true, languageHint: "ru" },
       ctx({ channel: "INSTAGRAM", phoneKnown: false, ad: { topic: "property", propertyId: null } }));
-    expect(d.steps.map(step => step.key)).toEqual(["ask_role"]);
-    expect(d.actions).toEqual([]);
+    expect(ig.steps.map(step => step.key)).toEqual(["ask_phone"]);
   });
 });
 
@@ -94,11 +98,34 @@ describe("4. язык решает код, модель — только ког�
     expect(result.text).toBe("Шумо хона мехаред ё мефурӯшед?");
   });
 
-  it("класс: русская фраза с таджикскими словами — по коду; модель не перекрашивает и в обратную сторону", () => {
+  it("класс: кириллица с признаками языка — по коду, модель не перекрашивает ни в одну сторону", () => {
     const tajik = ["Мебиёен имруз барои видео снимать кадан?", "Ман квартира мехарам", "Привет хона дорам"];
     for (const text of tajik) expect(understandingFromModel(answer({ language: "ru" }), { current: text }, initialOperatorState(), ctx())!.understanding.language, text).toBe("tg");
     for (const text of ["Квартира в Сино, 3 комнаты", "Салом, хочу купить квартиру"]) {
       expect(understandingFromModel(answer({ language: "tg" }), { current: text }, initialOperatorState(), ctx())!.understanding.language, text).toBe("ru");
+    }
+  });
+
+  it("латиница — решает модель: русский транслит остаётся русским, таджикский латиницей — как скажет модель (ревью #327)", () => {
+    for (const text of ["Skolko stoit kvartira?", "Kvartira nujna 2 komnatnaya"]) {
+      expect(understandingFromModel(answer({ language: "ru" }), { current: text }, initialOperatorState(), ctx())!.understanding.language, text).toBe("ru");
+    }
+    // Таджикский латиницей: у кода тут нет основания (детектор называет таджикским любую латиницу) — слово за моделью.
+    expect(understandingFromModel(answer({ language: "tg" }), { current: "Mo 3 xonai furuwi dorem. Narxi reklama?" }, initialOperatorState(), ctx())!
+      .understanding.language).toBe("tg");
+    expect(understandingFromModel(answer({ language: "ru" }), { current: "Mo 3 xonai furuwi dorem. Narxi reklama?" }, initialOperatorState(), ctx())!
+      .understanding.language).toBe("ru");
+  });
+
+  it("модель промолчала о языке — прежнее слово кода", () => {
+    expect(understandingFromModel(answer({ language: "none" }), { current: "Skolko stoit kvartira?" }, initialOperatorState(), ctx())!.understanding.language).toBe("tg");
+  });
+
+  it("реальные кнопки Meta с прода, которых не было в списке, — тоже кнопки (без модели, без роли)", async () => {
+    for (const text of ["Hello! Can I get more info on this?", "Здравствуйте! Можно ли узнать об этом больше?"]) {
+      const model = vi.fn(buyerFromButton);
+      await expect(understandTurn({ current: text }, initialOperatorState(), ctx(), model)).resolves.toMatchObject({ role: null, adOpener: true });
+      expect(model, text).not.toHaveBeenCalled();
     }
   });
 

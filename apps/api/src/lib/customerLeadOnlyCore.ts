@@ -18,7 +18,7 @@ import { encryptSecret, decryptSecret } from "../crypto.js";
 import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyNoteWithCallbackTime, leadOnlyOutgoing, leadOnlyAppliesTo, type LeadOnlyConfig } from "../ai/leadOnlyMode.js";
 import type { LeadOnlyIntentModel } from "../ai/leadOnlyIntent.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
-import { runOperatorTurn, type OperatorAction, type OperatorTurnResult, type OperatorVoice } from "../ai/operator/index.js";
+import { runOperatorTurn, type OperatorAction, type OperatorStaffReason, type OperatorTurnResult, type OperatorVoice } from "../ai/operator/index.js";
 import { resolveWhatsAppLeadIdentity } from "./whatsappPhone.js";
 import { decodeCustomerOutboxPayload } from "./customerOutboxCodec.js";
 import { alarmLeadOnlyIntake, noteLeadOnlyNewPhone, noteLeadOnlyOnCard } from "./leadOnlyHandover.js";
@@ -100,7 +100,7 @@ export interface CustomerLeadOnlyTurnPlan {
    * Дверь «клиент ждёт» (follow_up): грубость и жалоба (до заявки людей не беспокоим, решение владельца 13.11.2026) и пометка
    * в карточку без живого агента (ревью 19.11, Р4). Кому именно — решает сама дверь (агент карточки или директор).
    */
-  signal?: { kind: "follow_up"; reason?: "complaint" | "rude" };
+  signal?: { kind: "follow_up"; reason?: OperatorStaffReason };
   /** Ход отдан прежнему пути рекрутёра (вакансия, ревью 19.11, Р6): ответа нет, ядро идёт своим обычным путём. */
   handoff?: "recruiter";
   /** Отметка времени памяти, от которой оператор решал (Р14): запись сверяет её, устаревшее решение не пишется. */

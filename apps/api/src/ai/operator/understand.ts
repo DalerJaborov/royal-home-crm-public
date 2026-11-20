@@ -21,7 +21,7 @@ import { askLeadOnlyModel, leadOnlyIntentFallback, leadOnlyQuoteFound, leadOnlyS
 import { leadOnlyAgencyFeeQuestion, leadOnlyPhoneRefused } from "../leadOnlyMode.js";
 import { clientOwnWords } from "../untrustedContent.js";
 import { foldCustomerText } from "../customerAgentRole.js";
-import { customerDmDialogueLanguage, isNeutralShortReply, resolveCustomerDmLanguage } from "../customerDmLanguage.js";
+import { customerDmDialogueLanguage, groundedCustomerDmLanguage, isNeutralShortReply, resolveCustomerDmLanguage } from "../customerDmLanguage.js";
 import { detectOutsideCoverage } from "../coverageGuard.js";
 import { isAckOnlyMessage, isThanksOnlyMessage } from "../ackOnly.js";
 import { customerRecruitmentRequested, selectedRecruitmentPosition } from "../customerAgentRecruitmentProtocol.js";
@@ -335,9 +335,12 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       phone: code.phone,
       // Модель ответила (пусто — значит времени нет): запасные правила её не перебивают; только если ответ отброшен кодом.
       callback: { when: when || (rejected.includes("callbackWhen") ? fallback.callback.when : null), ...preference },
-      // Язык решает КОД (та же дверь, что у ядра: ai/customerDmLanguage.ts), модель — только когда код не решил. 19.11 модель
-      // назвала русским таджикское «телефон номера нависед» (русские заимствования), и ответ ушёл по-русски (SPEC «Язык»).
-      language: code.language ?? (code.letters >= 2 && !isNeutralShortReply(code.own) && answer.language !== "none" ? answer.language : null),
+      // Язык: код побеждает модель, только когда ручается (ai/customerDmLanguage.ts::groundedCustomerDmLanguage — кириллица
+      // с признаками языка или явная просьба). 19.11 модель назвала русским таджикское «телефон номера нависед» (маркер
+      // «нависед»), и ответ ушёл по-русски. Латиница («Skolko stoit kvartira?») и текст без признаков — решает модель, как
+      // раньше; модель промолчала — прежнее слово кода.
+      language: groundedCustomerDmLanguage(code.own)
+        ?? (code.letters >= 2 && !isNeutralShortReply(code.own) && answer.language !== "none" ? answer.language : code.language),
       languageHint: code.languageHint, greeting: code.greeting, greetingOnly: code.greetingOnly,
       ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
       bargain: answer.bargain || fallback.bargain,

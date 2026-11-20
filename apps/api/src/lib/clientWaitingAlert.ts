@@ -14,6 +14,8 @@ import { logSystemError } from "./systemError.js";
 import { reportCronRowError } from "./cronHeartbeat.js";
 import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
 import { loadBotAnswersItself, staffSignalAllowed, type StaffSignalKind } from "./botAnswersItself.js";
+import type { OperatorStaffReason } from "../ai/operator/types.js";
+import { OPERATOR_PHRASES } from "../ai/operator/phrases.js";
 
 /**
  * «КЛИЕНТ НАПИСАЛ — ЕМУ НИКТО НЕ ОТВЕТИЛ» (14.11.2026, аудит скрытых механизмов №4).
@@ -204,11 +206,9 @@ const OPT_OUT_SILENCES: ReadonlySet<ClientWaitingTrigger> = new Set(["silence", 
  */
 const LEAD_ONLY_QUIET: ReadonlySet<ClientWaitingTrigger> = new Set(["follow_up", "escalate"]);
 
-/** Почему оператор приёма заявок зовёт человека (ai/operator, действие `call_staff`). */
-export type ClientWaitingStaffReason = "complaint" | "rude";
 
 async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger, jobTopic = false,
-  staffReason: ClientWaitingStaffReason | null = null): Promise<WaitingChat | null> {
+  staffReason: OperatorStaffReason | null = null): Promise<WaitingChat | null> {
   const client = { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } as const;
   if (source === "bot") {
     const chat = await prisma.botConversation.findUnique({
@@ -294,9 +294,10 @@ export async function alertClientWaiting(input: {
   /**
    * Оператор приёма заявок зовёт человека по делу (SPEC, случаи 22 и 26). Сигнал идёт и до заявки в режиме «только заявки»,
    * и повторно по тому же чату; текст называет причину. Жалобу видит руководство (клиенту обещано «увидит руководитель»):
-   * она не уходит агенту карточки, на которого клиент, возможно, и жалуется. Подразумевает `staffRequired`.
+   * агенту карточки (если он есть) и копией руководству; без агента — руководству. Срочность обычная (ночью не будит).
+   * Подразумевает `staffRequired`.
    */
-  staffReason?: ClientWaitingStaffReason;
+  staffReason?: OperatorStaffReason;
   /** Номер клиента известен, а заявки нет: при «бот отвечает сам» человек всё равно узнаёт (lib/botAnswersItself.ts). */
   phoneKnown?: boolean;
   now?: Date;
@@ -343,10 +344,12 @@ export async function alertClientWaiting(input: {
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
   const answerHint = chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint;
   const body =
+    // Фраза клиенту — из того же набора, откуда её берёт оператор (ai/operator/phrases.ts): разговор закрыт после неё,
+    // поэтому звучал первый вариант.
     staffReason === "complaint"
-      ? `${name}: клиент жалуется. Бот ответил «Ваше сообщение увидит руководитель» и дальше молчит. ${answerHint}`
+      ? `${name}: клиент жалуется. Бот ответил «${OPERATOR_PHRASES.complaint_ack.ru[0]}» и дальше молчит. ${answerHint}`
       : staffReason === "rude"
-      ? `${name}: клиент написал грубо. Бот ответил, что дальше продолжит сотрудник, и молчит. ${answerHint}`
+      ? `${name}: клиент написал грубо. Бот ответил «${OPERATOR_PHRASES.rude_calm.ru[0]}» и дальше молчит. ${answerHint}`
       : input.trigger === "follow_up"
       // Подсказка, где отвечать (Telegram Direct: из CRM нельзя), потерялась при своде #201 с #198 — возвращена 16.11.
       ? `${name}: бот ответил клиенту, что это уточнит агент. ${chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint}`
@@ -363,16 +366,43 @@ export async function alertClientWaiting(input: {
           (chat.replyHint === "Ответьте клиенту." ? "" : ` ${chat.replyHint}`);
   const url = `/messages?open=${chat.openId}`;
   const tag = `client-waiting-${chat.openId}`;
-  // Жалобу видит руководство, а не агент карточки (клиенту обещано «увидит руководитель»; жаловаться могут на самого агента).
-  const agent = staffReason === "complaint" ? null : chat.agentId;
+  const agent = chat.agentId;
 
   try {
+    if (staffReason) {
+      // Решение оператора (жалоба, грубость, 20.11.2026). Агент карточки — штатным пушем: исправлять «никто не звонит» ему.
+      // Жалобу видит ещё и руководство (клиенту обещан руководитель): копия в очередь руководства. Без агента — только
+      // руководству. Срочность обычная (`info`): колокольчик сразу, пуш — в часы тревог из Настроек, ночью не будит
+      // (правило владельца «редко беспокоить»; lib/directorAlertQueue.ts).
+      const toLeadership = !agent || staffReason === "complaint";
+      const queued = toLeadership ? await enqueueDirectorAlert({ title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа, агента нет",
+        body, url, kind: "message", level: "CRITICAL", severity: "info", tag, recipientRoles: ["DIRECTOR", "ADMIN"],
+        ...(agent ? { excludeAgentId: agent } : {}) }) : false;
+      let agentTold = false;
+      if (agent) {
+        try {
+          await sendPushToAgent(agent, { kind: "message", level: "CRITICAL", title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа",
+            body, url, tag });
+          agentTold = true;
+        } catch (err) {
+          // Руководство уже в очереди — эпизод не снимаем (повтор продублировал бы копию); без копии — общий путь сбоя ниже.
+          if (!queued) throw err;
+        }
+      }
+      if (!queued && !agentTold) throw new Error("очередь тревог руководству недоступна");
+      if (staffReason === "complaint" && !queued) {
+        // Агент узнал, а копия руководству не встала: обещание «увидит руководитель» под угрозой — запись в журнал.
+        void logSystemError("api", `Жалоба клиента: копия руководству не встала в очередь (переписка ${chat.openId}).`,
+          { dedupKey: `client-complaint-copy-failed:${chat.openId}`, url });
+      }
+      return agentTold ? "agent" : "director";
+    }
     if (agent) {
       await sendPushToAgent(agent, { kind: "message", level: "CRITICAL", title: "💬 Клиент ждёт ответа", body, url, tag });
       return "agent";
     }
     const queued = await enqueueDirectorAlert({
-      title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа, агента нет",
+      title: "💬 Клиент ждёт ответа, агента нет",
       body,
       url,
       kind: "message",

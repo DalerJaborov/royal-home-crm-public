@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCustomerMessengerFixture, type CustomerMessengerFixture } from "./helpers/customerMessengerFixture.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
+import { waitFor } from "./helpers/waitFor.js";
 
 /**
  * ОПЕРАТОР ПРИЁМА ЗАЯВОК НА СТАРОМ ПУТИ БОТА (messengers/conversation.ts::runLeadOnlyOperator, этап 1.2): та же дверь, что
@@ -120,6 +121,23 @@ describe("ревью 19.11: старый путь", () => {
       expect((await conversationOf(peer)).leadOnlyPending).toMatchObject({ version: 2, role: "job" });
       expect((await conversationOf(peer)).clientId).toBeNull();
     } finally { await prisma.settings.update({ where: { id: "singleton" }, data: before }); }
+  });
+
+  it("расхождение №2 (20.11): жалоба до заявки — тот же ответ, руководство получает сигнал; ключ эпизода — время реплики", async () => {
+    const peer = digits();
+    const result = await turn(peer, "По этим номерам никто не отвечает");
+    expect(result.reply).toBe("Ваше сообщение увидит руководитель.");
+    const conv = await prisma.botConversation.findFirstOrThrow({ where: { subscriberId: peer }, select: { id: true, clientId: true, messages: true } });
+    expect(conv.clientId).toBeNull();
+    const alerts = await waitFor(async () => {
+      const rows = await prisma.pendingDirectorAlert.findMany({ where: { tag: `client-waiting-${conv.id}` }, select: { title: true, urgent: true } });
+      return rows.length ? rows : null;
+    }, { label: "сигнал руководству по жалобе (старый путь)", timeoutMs: 5000 });
+    expect(alerts).toEqual([{ title: "💬 Жалоба клиента", urgent: false }]);
+    const userAt = (conv.messages as Array<{ role: string; at?: string }>).find((m) => m.role === "user")?.at;
+    const row = await prisma.botConversation.findUniqueOrThrow({ where: { id: conv.id }, select: { silenceAlertFor: true } });
+    expect(row.silenceAlertFor?.toISOString()).toBe(new Date(userAt!).toISOString());
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag: `client-waiting-${conv.id}` } });
   });
 
   it("Р4: карточка без живого агента — «Записали, с вами свяжутся …» вместо «Передал агенту» (старый путь)", async () => {

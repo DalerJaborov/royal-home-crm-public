@@ -75,6 +75,7 @@ import { customerHeldForChangedContext, customerSafetyCandidateLines, customerSa
   customerSafetyLineAllowed, customerSafetyLineFits, customerSafetyMemory } from "./customerNoSilence.js";
 import { clientTalksBusiness } from "../messengers/sharedMedia.js";
 import { saveOperatorStateIsolatedTx, saveOperatorStateTx } from "../ai/operator/state.js";
+import type { OperatorStaffReason } from "../ai/operator/types.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -937,7 +938,7 @@ export async function signalStaffFollowUp(conversationId: string, customerMessag
   /** Человека звать при любом положении «бот отвечает сам» (оператор: грубость, жалоба; обещание агента, оставшееся в ответе). */
   staffRequired = false,
   /** Оператор приёма заявок зовёт человека по жалобе или грубости: сигнал идёт и до заявки (lib/clientWaitingAlert.ts). */
-  staffReason?: "complaint" | "rude"): Promise<"agent" | "director" | "already" | "skipped"> {
+  staffReason?: OperatorStaffReason): Promise<"agent" | "director" | "already" | "skipped"> {
   try {
     const { alertClientWaiting } = await import("./clientWaitingAlert.js");
     const outcome = await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs), jobTopic,

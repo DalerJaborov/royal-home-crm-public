@@ -3182,11 +3182,12 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       } else {
         // Грубость, жалоба или пометка в карточку без живого агента: одна дверь «клиент ждёт» (кому — решает она сама).
         // «Бот отвечает сам» решение оператора не отменяет (SPEC, случаи 22 и 26; сведение #283 с #311).
-        // Жалоба и грубость несут причину: её не глушит тишина режима до заявки (20.11.2026, живой диалог 19.11).
+        // Жалоба и грубость несут причину: её не глушит тишина режима до заявки (20.11.2026, живой диалог 19.11). Ключ эпизода —
+        // время реплики клиента, как в ядре (claim.pin.receivedAt), а не «сейчас»: два одновременных хода — один сигнал.
         const staffReason = action.type === "call_staff" ? action.reason : undefined;
         void import("../lib/clientWaitingAlert.js").then(({ alertClientWaiting }) =>
-          alertClientWaiting({ conversationId: conversation.id, trigger: "follow_up", since: new Date(), staffRequired: true,
-            ...(staffReason ? { staffReason } : {}) }))
+          alertClientWaiting({ conversationId: conversation.id, trigger: "follow_up", since: contactReceivedAt,
+            staffRequired: true, ...(staffReason ? { staffReason } : {}) }))
           .catch((err) => console.error("[messenger] оператор заявок → сигнал:", err instanceof Error ? err.message : err));
       }
     }
