@@ -229,7 +229,8 @@ test("новый вид, сторож геометрии ловит каждую
     { url: "/clients", ready: ".clean-client-notices > .quiet", kind: "lopsided", css: `${R} .clean-client-notices > .quiet { margin-top: 40px !important; }` },
     // ряд вкладок обрезан без затухания
     // (вкладки каталога #331 убрал в шторку фильтров — тот же механизм у вкладок «Денег»)
-    { url: "/finance", ready: ".cef-main-tabs", kind: "stripHint", css: `${R} .cef-main-tabs { animation: none !important; -webkit-mask-image: none !important; mask-image: none !important; }` },
+    // (с #336 вкладки «Денег» переносятся строкой и за край не уходят — ряд обрезается нарочно)
+    { url: "/finance", ready: ".cef-main-tabs", kind: "stripHint", css: `${R} .cef-main-tabs { flex-wrap: nowrap !important; overflow-x: auto !important; max-width: 220px !important; animation: none !important; -webkit-mask-image: none !important; mask-image: none !important; } ${R} .cef-main-tabs > * { flex: none !important; }` },
     // размытый заголовок шапки
     { url: "/properties", ready: "[data-topbar-title]", kind: "blur", css: `${R} [data-topbar-title] { opacity: .6 !important; }` },
     // низ страницы под нижним меню
