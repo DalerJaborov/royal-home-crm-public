@@ -301,7 +301,7 @@
     · ответ 400 — «Неверный месяц»
 - const month = parsed.data ?? currentMonth();
   · зовёт currentMonth()
-- const result = await buildAdInsights(month, req.query.force === "1");
+- const result = await buildAdInsights(month, req.query.force === "1", { seesCompanyMoney: req.agent!.permissio…
   · зовёт buildAdInsights()
 - res.json(result ?? { text: null, reason: "empty" });
   · ответ 200
@@ -5306,7 +5306,7 @@
 
 `apps/api/src/routes/briefing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
-- const briefing = await loadBriefing().catch(()
+- const briefing = await loadBriefing(new Date(), { seesCompanyMoney: can(req, "finance.view") }).catch(()
   · зовёт loadBriefing()
 - const filePath = briefing ? existingBriefingAudioPath(briefing.text) : null;
   · зовёт existingBriefingAudioPath()
@@ -5330,7 +5330,7 @@
 `apps/api/src/routes/briefing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - пробует
-  - res.json(await buildBriefingResponse());
+  - res.json(await buildBriefingResponse(new Date(), { seesCompanyMoney: can(req, "finance.view") }));
     · ответ 200
 - если сорвалось
   - res.status(503).json({ error: "Брифинг сейчас недоступен" });
