@@ -1,6 +1,6 @@
 import { View } from "@react-pdf/renderer";
 import { CLIENT_SOURCE_LABELS, type ClientSource } from "@royal-home/shared";
-import type { AgentReportRow, FunnelStep, SourcesReport } from "../teamReports.js";
+import type { AgentReportRow, FunnelCohortStep, FunnelStep, SourcesReport } from "../teamReports.js";
 import { BarList, DataTable, FunnelBars, KpiGrid, Note, ReportDocument, Section } from "./kit.js";
 import { C, money, num, percent } from "./theme.js";
 
@@ -13,29 +13,25 @@ import { C, money, num, percent } from "./theme.js";
 export const AGENT_ROWS_LIMIT = 300;
 
 /** Простые слова вместо внутренних (лид → заявка). */
-const STEP_LABELS: Record<string, string> = {
-  leads: "Новые заявки",
-  contacted: "На контакте",
-  showings: "Показы",
-  negotiations: "Переговоры",
-  deals: "Сделки",
-};
-
 export interface TeamReportInput {
   periodLabel: string;
   preparedBy: string;
   generatedAtLabel: string;
   seesMoney: boolean;
   funnel: FunnelStep[];
+  /** Путь заявок периода: шаг не больше предыдущего (teamReports.buildFunnelCohort). */
+  cohort: FunnelCohortStep[];
   agents: AgentReportRow[];
   sources: SourcesReport;
 }
 
-export function TeamReport({ periodLabel, preparedBy, generatedAtLabel, seesMoney, funnel, agents, sources }: TeamReportInput) {
+export function TeamReport({ periodLabel, preparedBy, generatedAtLabel, seesMoney, funnel, cohort, agents, sources }: TeamReportInput) {
   const step = (key: string) => funnel.find((x) => x.key === key);
   const leads = step("leads")?.count ?? 0;
   const deals = step("deals");
   const commission = deals?.commission ?? null;
+  const cohortLeads = cohort.find((x) => x.key === "leads")?.count ?? 0;
+  const cohortDeals = cohort.find((x) => x.key === "deals")?.count ?? 0;
   const ranked = [...agents].sort((a, b) => b.dealsClosed - a.dealsClosed || b.showings - a.showings || a.agentName.localeCompare(b.agentName));
   const shown = ranked.slice(0, AGENT_ROWS_LIMIT);
   const withResult = ranked.filter((a) => a.dealsClosed > 0 || a.showings > 0);
@@ -50,15 +46,15 @@ export function TeamReport({ periodLabel, preparedBy, generatedAtLabel, seesMone
               : { label: "Закрыто сделок", value: num(deals?.count ?? 0), main: true },
             { label: "Новые заявки", value: num(leads) },
             { label: "Показы", value: num(step("showings")?.count ?? 0) },
-            { label: "Сделки / новые заявки", value: percent(leads > 0 ? ((deals?.count ?? 0) / leads) * 100 : null), hint: sources.avgDaysNewToClosed !== null ? `В среднем от заявки до сделки: ${num(sources.avgDaysNewToClosed)} дн.` : undefined },
+            { label: "Заявки периода дошли до сделки", value: percent(cohortLeads > 0 ? (cohortDeals / cohortLeads) * 100 : null), hint: sources.avgDaysNewToClosed !== null ? `В среднем от заявки до сделки: ${num(sources.avgDaysNewToClosed)} дн.` : undefined },
           ]}
         />
       </Section>
 
       <Section
         title="Воронка"
-        hint="Сколько событий каждого шага было за период. Это не конверсия одних и тех же клиентов: события считаются по своим датам, поэтому соотношения могут быть больше 100 %."
-        lead={<FunnelBars steps={funnel.map((x) => ({ label: STEP_LABELS[x.key] ?? x.label, count: x.count }))} />}
+        hint="Заявки, пришедшие за период, и сколько из них дошло до каждого шага к сегодняшнему дню. Шаг засчитан, если клиент дошёл до него или дальше, поэтому каждый шаг не больше предыдущего."
+        lead={<FunnelBars steps={cohort.map((x) => ({ label: x.label, count: x.count }))} />}
       />
 
       <Section title="Команда" hint="Показы и закрытые сделки каждого агента за период. Ушедшие сотрудники со сделками в периоде остаются в списке.">

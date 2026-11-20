@@ -64080,7 +64080,15 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ...range, funnel: await buildFunnelReport(range, reportViewer(req)) });",
+     "t": "const [funnel, cohort] = await Promise.all([buildFunnelReport(range, viewer), buildFunnelCohort(range, viewer…",
+     "a": [
+      "зовёт buildFunnelReport()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ...range, funnel, cohort });",
      "a": [
       "ответ 200"
      ],

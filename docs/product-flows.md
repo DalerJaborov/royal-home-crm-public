@@ -14492,7 +14492,9 @@
 
 - const range = parseReportRange(req.query);
   · зовёт parseReportRange()
-- res.json({ ...range, funnel: await buildFunnelReport(range, reportViewer(req)) });
+- const [funnel, cohort] = await Promise.all([buildFunnelReport(range, viewer), buildFunnelCohort(range, viewer…
+  · зовёт buildFunnelReport()
+- res.json({ ...range, funnel, cohort });
   · ответ 200
 
 ### GET /api/v1/reports/hot-properties

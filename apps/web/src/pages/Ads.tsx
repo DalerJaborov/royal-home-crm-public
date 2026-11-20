@@ -8,6 +8,7 @@ import {
   useAdSpendReport,
   useAdTrend,
   useAdsBoard,
+  useAdsBoardRange,
   useForeignAds,
   useSyncAds,
   useUnmatchedAds,
@@ -33,6 +34,10 @@ import { PropertySpendTable } from "../components/ads/PropertySpendTable";
 import { formatMoneyExact, pluralizeRu } from "../lib/format";
 import { AdsSourcesTable, AiDigest, ForeignList, type Tab } from "../components/ads/AdsShared";
 import { MarketingTabs } from "../components/SectionTabs";
+import { Link } from "react-router-dom";
+import { AdsDirectorTiles } from "../components/ads/AdsDirectorTiles";
+import { previousAdPeriod, previousAdPeriodLabel } from "../lib/adsCompare";
+import { dushanbeTodayKey } from "../lib/date";
 
 /**
  * РЕКЛАМА — куда уходят деньги и что они приносят.
@@ -104,6 +109,12 @@ function AdsContent() {
   const role = useAuthStore((s) => s.agent?.role);
   const canSync = canWriteAds(role, can);
   const section = useMarketingSectionMark();
+  // Новый вид (метка раздела есть только при признаке): главные цифры директора
+  // и одна строка «не подключено» вместо пяти нулевых плиток.
+  const royal = !!section;
+  const notConnected = !!board.data && !board.data.enabled;
+  const prevRange = royal ? previousAdPeriod(period, dushanbeTodayKey()) : null;
+  const previousBoard = useAdsBoardRange(prevRange, royal && !notConnected && !!board.data);
 
   const totals = board.data?.totals;
   // Свежесть данных читаем с дашборда: он грузится на любой вкладке, а отчёт по
@@ -140,7 +151,7 @@ function AdsContent() {
     ["properties", "По объектам", null],
     // Именно «ждут привязки», без рекламы самого агентства: у неё объекта нет и
     // не будет, и в очереди работы ей не место.
-    ["unmatched", "Привязать", totals?.pending ?? null],
+    ["unmatched", royal ? "Без объекта" : "Привязать", totals?.pending ?? null],
     ["foreign", "Чужая реклама", totals?.foreign ?? null],
   ];
 
@@ -155,7 +166,8 @@ function AdsContent() {
               рекламного кабинета.
             </p>
           </div>
-          <div className="acts">
+          {/* Не подключено — период и сверка не к чему: в новом виде их нет. */}
+          {!(royal && notConnected) && <div className="acts">
             <label className="field">
               <span className="vh">Период</span>
               <select
@@ -177,7 +189,7 @@ function AdsContent() {
                 Сверить с кабинетом
               </button>
             )}
-          </div>
+          </div>}
         </div>
 
         <MarketingTabs />
@@ -186,7 +198,18 @@ function AdsContent() {
             обращений пришло, столько стоило одно. Всё остальное — в списке. */}
         {/* Ошибка запроса — не нули (F10, 02.10.2026): «потрачено 0,00 TJS ·
             0 обращений» при упавшем сервере читалось как «реклама стоит». */}
-        {board.isError && !board.data ? (
+        {royal && notConnected ? (
+          /* Реклама не подключена — одна строка вместо пяти нулевых плиток и пустых списков. */
+          <div className="card tight">
+            <div className="quiet">
+              <span className="dot" />
+              <span className="txt">Реклама не подключена, поэтому цифр по ней нет.</span>
+              <Link className="pill ghost sm" to="/settings?tab=channels">
+                Подключить
+              </Link>
+            </div>
+          </div>
+        ) : board.isError && !board.data ? (
           <div className="card tight">
             <div className="quiet crit" role="alert">
               <span className="dot crit" />
@@ -196,6 +219,16 @@ function AdsContent() {
               </button>
             </div>
           </div>
+        ) : (
+        royal ? (
+          <AdsDirectorTiles
+            totals={totals}
+            previous={previousBoard.data?.enabled ? previousBoard.data.totals : undefined}
+            previousLabel={previousAdPeriodLabel(period)}
+            pacing={pacing.data}
+            syncedAt={syncedAt}
+            periodLabel={board.data?.label ?? "период"}
+          />
         ) : (
         /* ПЯТЬ ПЛИТОК (компактная версия по макету владельца, 13.10.2026): деньги за период,
            обращения Meta, клиенты CRM, сегодня против обычного дня и прогноз месяца — всё, что
@@ -235,7 +268,7 @@ function AdsContent() {
             sub={pacing.data ? (describeForecast(pacing.data.forecastState, pacing.data.forecast).range ?? "") : ""}
           />
         </div>
-        )}
+        ))}
 
         {/* Сверка денег CRM с кабинетом Meta — на виду над всем остальным: если
             цифры разошлись, остальной экран читать бессмысленно. */}
@@ -243,7 +276,7 @@ function AdsContent() {
           <AdsReconcileBanner preset={period} onFixAd={fixAd} onGoUnmatched={() => setTab("unmatched")} />
         )}
 
-        {board.data && !board.data.enabled && (
+        {board.data && !board.data.enabled && !royal && (
           <div className="card tight">
             <div className="empty">
               <span className="ic">
@@ -355,6 +388,7 @@ function AdsContent() {
           </>
         )}
 
+        {!(royal && notConnected) && <>
         <AiDigest month={digestMonth} />
 
         <div className="sec-h">
@@ -477,6 +511,7 @@ function AdsContent() {
             )}
           </div>
         </div>
+        </>}
       </div>
 
       {/* Окно привязки: key по объявлению — у каждого объявления своё состояние
