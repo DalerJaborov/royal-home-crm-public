@@ -20,7 +20,7 @@ import { askLeadOnlyModel, leadOnlyIntentFallback, leadOnlyQuoteFound, leadOnlyS
   type LeadOnlyIntentModel } from "../leadOnlyIntent.js";
 import { leadOnlyAgencyFeeQuestion, leadOnlyPhoneRefused } from "../leadOnlyMode.js";
 import { clientOwnWords } from "../untrustedContent.js";
-import { foldCustomerText } from "../customerAgentRole.js";
+import { customerRoleSignals, foldCustomerText } from "../customerAgentRole.js";
 import { customerDmDialogueLanguage, groundedCustomerDmLanguage, isNeutralShortReply, resolveCustomerDmLanguage } from "../customerDmLanguage.js";
 import { detectOutsideCoverage } from "../coverageGuard.js";
 import { isAckOnlyMessage, isThanksOnlyMessage } from "../ackOnly.js";
@@ -62,13 +62,28 @@ const recentClientWords = (input: OperatorTurnInput) =>
 const THIS_PROPERTY = new RegExp(`${BW}(?:эт(?:а|у|от|ой|ого|ом|и)|ин|хамин)${EW}\\s+(?:квартир${TAIL}|дом${TAIL}|хона${TAIL}|хавли${TAIL}|` +
   `объект${TAIL}|вариант${TAIL}|участ${TAIL})`, "u");
 const PRICE_WORD = new RegExp(`${BW}(?:сколько|скока|цена|цену|стои${TAIL}|почем|нарх${TAIL}|чанд)${EW}`, "u");
+/**
+ * «Где находится», «кадом тараф», «дар куҷо», «адрес», «какой район» — вопрос о месте (сложенный алфавит; 21.11.2026, прод:
+ * «хони заминитон нохияй фирдавси кадом тараф» получил голую просьбу номера). Сам по себе «где» не годится («где агент?»).
+ */
+const PLACE_WORD = new RegExp(`${BW}(?:кадом|кодом|кадум|чи|кай)\\s+(?:тараф${TAIL}|чо${TAIL}|чой${TAIL}|нохи${TAIL}|район${TAIL}|махал${TAIL}|кисм${TAIL})` +
+  `|${BW}(?:дар\\s+)?кучо(?:ст|й|ай|и)?${EW}|${BW}(?:адрес${TAIL}|сурога${TAIL}|локаци${TAIL}|ориентир${TAIL}|расположен${TAIL})` +
+  `|${BW}где\\s+(?:находит${TAIL}|это|он|она|расположен${TAIL}|дом${TAIL}|квартир${TAIL}|участ${TAIL}|объект${TAIL})|${BW}(?:в\\s+)?как(?:ой|ом)\\s+район${TAIL}`, "u");
+/** Хочет посмотреть объект: «показ», «посмотреть», «дидан», «бинам», «нишон диҳед» (сложенный алфавит; 21.11.2026). */
+const SHOWING_WORD = new RegExp(`${BW}(?:показ${TAIL}|покаж${TAIL}|посмотр${TAIL}|смотрет${TAIL}|увидет${TAIL}|просмотр${TAIL}|дидан${TAIL}|` +
+  `бинам|бинем|бинем|тамошо${TAIL}|нишон\\s+(?:дихед|медихед|дихетон|дод${TAIL}))${EW}`, "u");
+/** Согласие: «да», «хорошо», «ҳа», «майлаш», «позвоните», «занг занед» (сложенный алфавит; 21.11.2026). */
+const AGREE_WORD = new RegExp(`^(?:да|ха|хо|бале|хоп|майли|майлаш|хорошо|давайте|конечно|ладно|ок|окей|хуб|розиям|мехохам|можно)(?:\\s|$)` +
+  `|${BW}(?:(?:по|пере)звон${TAIL}|занг\\s+зан${TAIL})`, "u");
+/** Слово о жилье рядом с вопросом о месте: «хони заминитон», «эта квартира», «дом». */
+const HOUSE_WORD = new RegExp(`${BW}(?:хон(?:а|и|е)${TAIL}|хавли${TAIL}|замин${TAIL}|квартир${TAIL}|дом${TAIL}|участ${TAIL}|объект${TAIL}|обект${TAIL})`, "u");
 /** «Вы бот?», «это робот?», «шумо бот?» — вопрос о том, с кем говорит клиент (сложенный алфавит). */
 const BOT_WORD = new RegExp(`${BW}(?:бот|робот|bot|нейросет${TAIL}|chatgpt)${EW}`, "u");
 const PERSON_WORD = new RegExp(`${BW}(?:живо${TAIL}\\s+человек${TAIL}|одами\\s+зинда)`, "u");
 /** «Пишите / напишите / нависед» рядом с местом переписки: клиент просит писать, а не звонить. */
 const WRITE_REQUEST = new RegExp(`${BW}(?:пишите|напишите|нависед|нависен|нависетон|нависин)${EW}`, "u");
 const TEXT_PLACE = new RegExp(`(?:ватсап|вотсап|вацап|воцап|whats\\s*app|вотсап|${BW}(?:здесь|тут|сюда|хамин\\s+чо|инчо|инджо)${EW})`, "u");
-const GREETING_ASSALOM = /^(?:ас+ал[ао]м\p{L}*|ас+ал[ао]му|ас+ал[ао]мал\p{L}*|салам\s+алейкум|салому\s+алейкум)(?![\p{L}])/u;
+const GREETING_ASSALOM = /^(?:ас+ал[ао]м\p{L}*|ас+ал[ао]му|ас+ал[ао]мал\p{L}*|сал[ао]м\s+ал[еа]й?кум|салому\s+ал[еа]йкум)(?![\p{L}])/u;
 const GREETING_SALOM = /^(?:салом|салам|salom)(?![\p{L}])/u;
 const GREETING_RU = /^(?:здравствуй\p{L}*|привет\p{L}*|добр(?:ый|ое|ого)\s+\p{L}+)/u;
 const RUDAKI = new RegExp(RUDAKI_ANY_SOURCE, "iu");
@@ -159,6 +174,8 @@ function codeFacts(input: OperatorTurnInput) {
     rent: looksLikeRentRequest(own), job: customerRecruitmentRequested(own),
     rude: abuse === "threat" || abuse === "insult", spam: abuse === "spam",
     fee: leadOnlyAgencyFeeQuestion(own),
+    placeQuestion: !isAdTemplateOpener(own) && PLACE_WORD.test(folded),
+    showing: !isAdTemplateOpener(own) && SHOWING_WORD.test(folded), agrees: AGREE_WORD.test(folded),
     quote: own.replace(/\s+/gu, " ").slice(0, 200),
   };
 }
@@ -194,7 +211,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     : intent.role === "renter" || intent.role === "landlord" ? "rent" : intent.role === "job" ? "job" : null;
   const role = roleWithOwnerRules(baseRole, code);
   const facts = classifyCustomerPropertyFactIntent(code.own, { hasPropertyContext: true });
-  const aboutThisProperty = !code.adOpener && (THIS_PROPERTY.test(code.folded) || (!!facts && !code.fee));
+  const aboutThisProperty = !code.adOpener && (THIS_PROPERTY.test(code.folded) || (!!facts && !code.fee) || placeAboutProperty(code, ctx));
   const staff = looksLikeWantsHumanAgent(code.own);
   const botQuestion = BOT_WORD.test(code.folded) && (/[?]/u.test(code.own) || PERSON_WORD.test(code.folded)) || PERSON_WORD.test(code.folded);
   const question: OperatorQuestion = code.fee ? "fee"
@@ -217,7 +234,14 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     offTopic: code.spam, complaint: looksLikeNoContactComplaint(code.own),
     job: { asked: null, openKey: position?.key ?? null },
     attachments: code.attachments, hasText: code.hasText, outsidePlace: outsidePlaceOf(code.own), quote: code.quote,
+    placeQuestion: code.placeQuestion, bothRoles: role === "seller" && customerRoleSignals(code.own).both,
+    showing: code.showing, agrees: code.agrees,
   };
+}
+
+/** Вопрос о месте — это вопрос об объекте, когда рядом слово о жилье или клиент пришёл с рекламы объекта / объект в фокусе. */
+function placeAboutProperty(code: ReturnType<typeof codeFacts>, ctx: OperatorContext): boolean {
+  return code.placeQuestion && (HOUSE_WORD.test(code.folded) || !!ctx.focus || ctx.ad.topic === "property" || !!ctx.ad.propertyId);
 }
 
 // ── модель ──────────────────────────────────────────────────────────────────
@@ -328,8 +352,12 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
   const clientTexts = [code.own, ...recentClientWords(input)];
   const rejected: string[] = [];
 
+  // РОЛЬ: явные слова решает КОД (словарь ai/customerAgentRole.ts: «продаю / мефурӯшам / furusham», «куплю / мехарам /
+  // харидан», «ищу / меҷӯям», «сдаю / иҷора», «сниму»), модель — только когда код не решил (владелец 20.11.2026: «чтобы
+  // покупатели не путались с продавцами»). Тема рекламы роль не даёт вовсе (ai/operator/decide.ts).
   let role: Understanding["role"] = answer.role === "none" ? null : answer.role;
   if (role && !leadOnlyQuoteFound(answer.roleQuote.slice(0, 200), clientTexts)) { rejected.push("role"); role = fallback.role; }
+  if (fallback.role && role !== fallback.role) { if (role) rejected.push("role"); role = fallback.role; }
   role = roleWithOwnerRules(role, code);
 
   const details: Partial<OperatorDetails> = {};
@@ -363,6 +391,8 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
     understanding: {
       source: "model", role, question,
       aboutThisProperty: !code.adOpener && (answer.aboutThisProperty || fallback.aboutThisProperty),
+      placeQuestion: code.placeQuestion, bothRoles: role === "seller" && fallback.bothRoles === true,
+      showing: code.showing, agrees: code.agrees,
       details, hasDetails: Object.keys(details).length > 0 || fallback.hasDetails,
       phone: code.phone,
       // Модель ответила (пусто — значит времени нет): запасные правила её не перебивают; только если ответ отброшен кодом.

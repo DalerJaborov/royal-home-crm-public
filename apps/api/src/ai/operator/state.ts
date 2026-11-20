@@ -46,6 +46,8 @@ const storedSchema = z.object({
   flags: z.object({ bargainAsked: z.boolean().default(false), adPriceAsked: z.boolean().default(false),
     propertyLineFor: z.string().uuid().nullable().default(null), lastAck: z.boolean().default(false),
     sellerByWords: z.boolean().default(false),
+    bothRoles: z.boolean().default(false), roleChangedFrom: z.enum(["buyer", "seller"]).nullable().default(null),
+    clientTurns: z.number().int().min(0).max(10_000).default(0), phoneAskTurn: z.number().int().min(0).max(10_000).default(0),
     signaled: z.array(z.string()).default([]).transform(list => list.filter((item): item is "unclear" | "attachments" | "no_phone" | "staff_thread" =>
       item === "unclear" || item === "attachments" || item === "no_phone" || item === "staff_thread")),
     closedBy: z.enum(["rude", "complaint", "staff_thread", "unclear", "attachments", "no_phone", "closed_followup", "repeat_question"]).nullable().default(null) }),

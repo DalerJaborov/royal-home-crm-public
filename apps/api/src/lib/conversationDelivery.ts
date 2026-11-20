@@ -187,6 +187,27 @@ export async function staffRelayPauseMs(target: Pick<DeliveryTarget, "kind" | "i
   }
 }
 
+/**
+ * СРОК ПАУЗЫ ПРИ ОТПРАВКЕ — ОДНА ДВЕРЬ для текста, голосового и файла (21.11.2026). После выката #333 на проде встали две
+ * новые вечные паузы: интерфейс шлёт с КАЖДЫМ ответом сотрудника явный срок «Бессрочно» (Messages.tsx, MobileChatView.tsx,
+ * решение 18.08), и явный срок обходил эстафету. В режиме «только заявки» срок сотрудника не длиннее эстафеты: короче —
+ * ставится как выбран (сознательно короткая пауза), длиннее или «Бессрочно» — это эстафета, действующую паузу не
+ * укорачиваем. Долгая пауза — только отдельной кнопкой «Пауза» (POST /conversations/:id/pause, с записью в журнал).
+ * Вне режима — как было: явный срок ставится как есть, без срока — defaultPauseForSender.
+ */
+export async function deliveryPauseFor(target: DeliveryTarget, override: Date | undefined, sender?: MessageSender):
+  Promise<{ until: Date; keepLonger: boolean }> {
+  if (override && sender?.kind !== "bot" && sender?.kind !== "system") {
+    const relay = await staffRelayPauseMs(target);
+    if (relay !== null) {
+      const relayUntil = new Date(Date.now() + relay);
+      return override.getTime() < relayUntil.getTime() ? { until: override, keepLonger: false } : { until: relayUntil, keepLonger: true };
+    }
+  }
+  if (override) return { until: override, keepLonger: sender?.kind === "bot" };
+  return { until: new Date(Date.now() + (await defaultPauseForSender(target, sender))), keepLonger: true };
+}
+
 async function basePauseForSender(target: DeliveryTarget, sender?: MessageSender): Promise<number> {
   if (!sender || sender.kind !== "agent") return OPERATOR_REPLY_PAUSE_MS_SHORT;
   try {
@@ -238,15 +259,16 @@ export async function applyDeliveryPause(
 ): Promise<Date> {
   const now = new Date();
   const isTelegram = target.kind === "telegram";
+  // Новая пауза — новый отсчёт тревоги «бот на паузе» (pauseAlertSentAt, lib/botPauseWatch.ts; 21.11.2026).
   if (!keepLonger) {
-    if (isTelegram) await database.telegramConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now } });
-    else await database.botConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now } });
+    if (isTelegram) await database.telegramConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now, pauseAlertSentAt: null } });
+    else await database.botConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now, pauseAlertSentAt: null } });
     return pausedUntil;
   }
   // botPausedAt двигается только вместе со сроком: действующую паузу начал не этот
   // вызов, и «пауза протухла» (conversationState.isStalePause) считается от её начала.
   const where = { id: target.id, OR: [{ pausedUntil: null }, { pausedUntil: { lt: pausedUntil } }] };
-  const data = { pausedUntil, botPausedAt: now };
+  const data = { pausedUntil, botPausedAt: now, pauseAlertSentAt: null };
   const { count } = isTelegram
     ? await database.telegramConversation.updateMany({ where, data })
     : await database.botConversation.updateMany({ where, data });
@@ -470,12 +492,8 @@ export async function deliverToConversation(
   } else {
     // Откат при ТОЧНО неудавшейся отправке (закрытое окно, щит) — ниже в catch;
     // при неизвестном исходе пауза остаётся (CHANNEL-NEW-08, решение 04.10.2026).
-    const placed = await applyDeliveryPauseUndoable(
-      target,
-      pausedUntilOverride ?? new Date(Date.now() + (await defaultPauseForSender(target, options?.sender))),
-      !pausedUntilOverride || options?.sender?.kind === "bot",
-      options?.sender
-    );
+    const pause = await deliveryPauseFor(target, pausedUntilOverride, options?.sender);
+    const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, options?.sender);
     if (!placed.ok) return placed;
     pausedUntil = placed.pausedUntil;
     pauseUndo = placed.undo;
@@ -814,12 +832,8 @@ export async function deliverVoiceToConversation(
 
   // Срок по умолчанию и отправка от имени бота действующую паузу не укорачивают
   // (applyDeliveryPause); явный срок оператора ставится как есть.
-  const placed = await applyDeliveryPauseUndoable(
-    target,
-    options.pausedUntilOverride ?? new Date(Date.now() + (await defaultPauseForSender(target, options.sender))),
-    !options.pausedUntilOverride || options.sender.kind === "bot",
-    options.sender
-  );
+  const pause = await deliveryPauseFor(target, options.pausedUntilOverride, options.sender);
+  const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, options.sender);
   if (!placed.ok) return placed;
   const { pausedUntil, undo: pauseUndo } = placed;
   // Пауза оператора успела встать между проверкой и записью: applyDeliveryPause её
@@ -1141,12 +1155,8 @@ export async function deliverMediaToConversation(
 
   // Срок по умолчанию и отправка от имени бота действующую паузу не укорачивают
   // (applyDeliveryPause); явный срок оператора ставится как есть.
-  const placed = await applyDeliveryPauseUndoable(
-    target,
-    options.pausedUntilOverride ?? new Date(Date.now() + (await defaultPauseForSender(target, options.sender))),
-    !options.pausedUntilOverride || options.sender.kind === "bot",
-    options.sender
-  );
+  const pause = await deliveryPauseFor(target, options.pausedUntilOverride, options.sender);
+  const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, options.sender);
   if (!placed.ok) return placed;
   const { pausedUntil, undo: pauseUndo } = placed;
 
@@ -1517,12 +1527,22 @@ export async function findClientDeliveryTargets(clientIds: string[]): Promise<Ma
 export async function pauseConversationsAfterRealContact(clientId: string): Promise<void> {
   const pausedUntil = new Date(Date.now() + OPERATOR_REPLY_PAUSE_MS);
   const botPausedAt = new Date();
+  // Режим «только заявки» (21.11.2026, вечная пауза на проде после выката #333 — диалог после звонка): бот после заявки
+  // отвечает коротко и не продаёт «вторым голосом», поэтому после разговора он уступает человеку на срок эстафеты, а не на
+  // 10 лет. Действующую более длинную паузу не укорачиваем. Остальные каналы — прежняя пауза «навсегда» (18.09.2026).
+  const relayIds: string[] = [];
+  for (const row of await prisma.botConversation.findMany({ where: { clientId }, select: { id: true } })) {
+    const relay = await staffRelayPauseMs({ kind: "bot", id: row.id });
+    if (relay === null) continue;
+    relayIds.push(row.id);
+    await applyDeliveryPause({ kind: "bot", id: row.id }, new Date(Date.now() + relay), true);
+  }
   // $transaction, а не Promise.all (22.09.2026): три записи задают ОДНО состояние
   // «агент уже поговорил с человеком». Порознь перезапуск процесса посередине
   // оставлял бота писать клиенту в том канале, до которого запись не дошла,
   // поверх живого разговора — это видно клиенту напрямую.
   await prisma.$transaction([
-    prisma.botConversation.updateMany({ where: { clientId }, data: { pausedUntil, botPausedAt } }),
+    prisma.botConversation.updateMany({ where: { clientId, id: { notIn: relayIds } }, data: { pausedUntil, botPausedAt } }),
     prisma.telegramConversation.updateMany({ where: { clientId }, data: { pausedUntil, botPausedAt } }),
     // Реальный контакт — тот самый ответ на просьбу «дайте живого агента»
     // (см. Client.agentAttentionRequestedAt, messengers/conversation.ts):

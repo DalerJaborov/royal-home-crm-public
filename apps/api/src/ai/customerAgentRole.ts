@@ -56,11 +56,15 @@ const re = (source: string) => new RegExp(source, "gu");
 
 // Опечатки продавца из живых чатов (18.11.2026: «Я хочу продоват свою квартиру» читалось покупателем): продоват/продовать,
 // прадать/прадаю/прадам.
-const SELL_ACTIVE = re(`${BW}(?:продам|продаю|продаем|продать|продат|продавать|прод[ао]ват\\p{L}*|прадат\\p{L}*|прадаю|прадам|(?:ме)?фур[уо]ш(?:ам|ем)?|фурухт\\p{L}*)${EW}`);
+const SELL_ACTIVE = re(`${BW}(?:продам|продаю|продаем|продать|продат|продавать|прод[ао]ват\\p{L}*|прадат\\p{L}*|прадаю|прадам|(?:ме)?фур[уо]ш(?:ам|ем)?|фурухт\\p{L}*|мефру?ш(?:ам|ем|м|им)|фурушм)${EW}`);
 const SELL_PASSIVE = re(`${BW}(?:продается|продаются)${EW}`);
 const OWN_HOUSING = [re(`${BW}${HOUSING}${EW}.{0,25}?${BW}${HAVE}${EW}`), re(`${BW}${HAVE}${EW}.{0,25}?${BW}${HOUSING}${EW}`)];
 const HOUSING_WORD = new RegExp(`${BW}${HOUSING}${EW}`, "u");
-const SELL_OWN =re(`${BW}хонаи худам${EW}`);
+const SELL_OWN = [re(`${BW}хонаи худам${EW}`),
+  // «Хонаи фурӯши мо…», «хавлии фурӯши дорум» — своё жильё на продажу (экзамен 21.11.2026).
+  re(`${BW}(?:хонаи|хавлии|квартираи|хона|хавли) фуруш\\p{L}* (?:мо|ман|дорам|дорем|дорум|дорим)${EW}`),
+  // «…71 кв, 12 этаж, <сумма> бо савдо» — цена «с торгом» без вопроса: так пишет продавец о своём (экзамен 21.11.2026).
+  re(`${BW}бо савдо${EW}(?![^?]*[?])`)];
 // Tajik "for sale" without a housing noun (folded alphabet: фурӯши/фурушӣ -> фуруши): "фуруши дорам", "барои фуруш", "фурушӣ ҳаст".
 const SELL_TG = re(`${BW}фуруши?${EW} ${HAVE}${EW}`);
 const FOR_SALE_TG = re(`${BW}барои фуруши?${EW}`);
@@ -73,6 +77,13 @@ const BUY_STRONG = [
   re(`${BW}(?:куплю|покупаю|покупаем|приобрету|мехарам|мехарем|харидорам)${EW}`),
   re(`${BW}харидан мехох\\p{L}*${EW}`),
   re(`${BW}пул(?:и)?(?: накд)? (?:дорам|дорем)${EW}`),
+  // «Хавли харидори кардан мехоҳем», «помещение харидани ҳастам» (экзамен 21.11.2026).
+  re(`${BW}харид(?:ори|ан|ани)? (?:кардан |карда )?(?:мехох\\p{L}*|хаст\\p{L}*|мекунем|мекунам)${EW}`),
+  // «<сумма> те, ман мегирам, накд» — беру за наличные.
+  re(`${BW}(?:ман |мо )?мегир(?:ам|ем)${EW}.{0,20}?${BW}(?:накд|накт|пул\\p{L}*|нахт)${EW}`),
+  re(`${BW}(?:накд|накт|нахт)${EW}.{0,20}?${BW}мегир(?:ам|ем)${EW}`),
+  // «Ма 2-хонага даркор» — нужна квартира (между жильём и «даркор» не больше одного слова: «хона реклама кардан даркор» — продавец).
+  re(`(?<![\\p{L}])\\d*${HOUSING}${EW}(?: \\p{L}+)? даркор${EW}`),
 ];
 const ASK_OPTIONS = `(?:пешниход (?:кунед|кун|кунетон)|равон (?:кунед|кун)|фиристед|фирист|скинь|скиньте|покажи|покажите|предложите)`;
 const BUY_WEAK = [
@@ -80,7 +91,9 @@ const BUY_WEAK = [
   re(`${BW}${HOUSING}${EW}.{0,30}?${BW}(?:мечу|мекоб)\\p{L}*${EW}`), re(`${BW}(?:мечу|мекоб)\\p{L}*${EW}.{0,30}?${BW}${HOUSING}${EW}`),
   // «Хами хонара видеоша дорен» — «у вас есть видео этого дома?»: «дорен/доред»
   // (у вас есть) спрашивает покупатель, продавец так агентству не пишет (журнал 17.11.2026).
-  re(`${BW}(?:${HOUSING}|видео\\p{L}*|фото\\p{L}*|сурат\\p{L}*|вариант\\p{L}*)${EW}.{0,25}?${BW}(?:дорен|доред|доретон)${EW}`),
+  re(`${BW}(?:${HOUSING}|видео\\p{L}*|фото\\p{L}*|сурат\\p{L}*|вариант\\p{L}*)${EW}.{0,25}?${BW}(?:дорен|доред|доретон|надорен|надоред)${EW}`),
+  // «Ягон хона шартномавӣ ҳаст?» — есть ли у вас какой-нибудь дом (экзамен 21.11.2026).
+  re(`${BW}я?а?гон\\p{L}* (?:\\p{L}+ )?${HOUSING}${EW}`),
   // «…вариант пешниход кунед», «скиньте варианты», «вариантхо фиристед» — ПРОСЬБА
   // (повелительное наклонение) подобрать, значит покупатель. «Пешниход мекунам» /
   // «предлагаю вариант» — это предложение продавца, оно сюда не попадает.
@@ -89,7 +102,16 @@ const BUY_WEAK = [
 ];
 const RENT_TENANT = re(`${BW}(?:аренд\\p{L}*|снять|снимать|сниму|ичора)${EW}`);
 // "is it for sale / do you sell" is a buyer's question, not an offer to sell.
-const BUYER_ASK = re(`${BW}(?:продается|продаются|продаете) ли${EW}|${BW}что (?:у вас )?продает\\p{L}*${EW}`);
+const BUYER_ASK = re(`${BW}(?:продается|продаются|продаете) ли${EW}|${BW}что (?:у вас )?продает\\p{L}*${EW}` +
+  // «Ин хонаро алакай фурӯхтед?» — «вы уже продали этот дом?»: второе лицо — вопрос агентству, это покупатель (экзамен 21.11.2026).
+  `|${BW}(?:фурухтед|фурухтен|фурухтетон|фурухтин|фурухтеди)${EW}` +
+  // Цена или место ВАШЕГО объекта вопросом: «як хонаготон чансумай», «хона ахири нархш чанд», «хавли кучоба», «нархаш чанд»,
+  // «хонаи заминӣ ёфта мешавад?», «2 хонага бдай» (экзамен 21.11.2026). Своё жильё («хонаам», «хонаи ман») сюда не попадает.
+  `|${BW}${HOUSING}${EW}.{0,30}?${BW}(?:чан(?:д|г)?сум\\p{L}*|чан(?:д|г) (?:сум\\p{L}*|пул|мешав\\p{L}*|аст)|нарх\\p{L}* чан\\p{L}*|кучо\\p{L}*|кичо\\p{L}*|ефта мешав\\p{L}*|пайдо мешав\\p{L}*|бдай|бдиен|бдиетон|бидихед|дихед)${EW}` +
+  `|${BW}нарх(?:аш|ш|и он|и ин)${EW} (?:чан(?:д|г)\\p{L}*|чагд|чансум\\p{L}*)`);
+/** «Хона реклама кардан даркор», «разместить объявление о продаже»: продавец хочет рекламу своего жилья (экзамен 21.11.2026). */
+const SELL_LISTING = re(`${BW}${HOUSING}${EW}.{0,20}?${BW}реклам\\p{L}* (?:кардан|кунед|кунем|кунам|мекн\\p{L}*|мекун\\p{L}*|додан)${EW}` +
+  `|${BW}(?:разместить|выставить|подать) (?:объявлени\\p{L}*|на продажу|квартир\\p{L}*|дом\\p{L}*)${EW}`);
 const ON_SALE = re(`${BW}на продажу${EW}`);
 const FOR_SALE = re(`${BW}в продаже${EW}`);
 const ASKING = new RegExp(`${BW}ли${EW}|${BW}у вас${EW}`, "u");
@@ -122,7 +144,8 @@ function housingWish(norm: string): boolean {
   return false;
 }
 
-export type CustomerRoleSignals = { buyStrong: boolean; buyWeak: boolean; sell: boolean; landlord: boolean; rent: boolean };
+export type CustomerRoleSignals = { buyStrong: boolean; buyWeak: boolean; sell: boolean; landlord: boolean; rent: boolean;
+  /** И продать своё, и купить другое — в одном сообщении. */ both: boolean };
 export function customerRoleSignals(text: string): CustomerRoleSignals {
   const norm = foldCustomerTextForRole(text);
   const question = /[?؟]/u.test(text) || ASKING.test(norm);
@@ -130,9 +153,14 @@ export function customerRoleSignals(text: string): CustomerRoleSignals {
   const buyerAsk = plain(norm, BUYER_ASK) || (passive && question) || (question && plain(norm, FOR_SALE));
   const landlord = plain(norm, LANDLORD_TG) ||
     (plain(norm, LANDLORD_ACTIVE) || (plain(norm, LANDLORD_PASSIVE) && !question)) && (RENT_HINT.test(norm) || HOUSING_WORD.test(norm));
-  const sell = plain(norm, SELL_ACTIVE) || (passive && !question && !buyerAsk) || plain(norm, SELL_OWN) || plain(norm, SELL_TG) || (!question && !buyerAsk && plain(norm, FOR_SALE_TG)) || (!question && !buyerAsk && plain(norm, ON_SALE)) || plain(norm, OWN_HOUSING);
-  return { buyStrong: buyerAsk || plain(norm, BUY_STRONG) || housingWish(norm), buyWeak: plain(norm, BUY_WEAK), sell, landlord,
-    rent: plain(norm, RENT_TENANT) };
+  const sell = plain(norm, SELL_LISTING) || plain(norm, SELL_ACTIVE) || (passive && !question && !buyerAsk) || plain(norm, SELL_OWN) || plain(norm, SELL_TG) || (!question && !buyerAsk && plain(norm, FOR_SALE_TG)) || (!question && !buyerAsk && plain(norm, ON_SALE)) || plain(norm, OWN_HOUSING);
+  const buyWords = plain(norm, BUY_STRONG);
+  // «Продать и купить», «Хонаамро фурӯхта, хонаи калонтар харидан мехоҳам» — две роли сразу (экзамен 21.11.2026): отдельный исход.
+  // Только явные слова продажи: «хона… дорам» рядом с «пул дорам» — это «хочу дом, деньги есть», покупатель (аудит 14.11).
+  const sellWords = plain(norm, SELL_LISTING) || plain(norm, SELL_ACTIVE) || plain(norm, SELL_TG);
+  const both = sellWords && !buyerAsk && (buyWords || /(?:^|\s)купить(?:\s|$)/u.test(norm));
+  return { buyStrong: buyerAsk || buyWords || housingWish(norm), buyWeak: plain(norm, BUY_WEAK), sell, landlord,
+    rent: plain(norm, RENT_TENANT), both };
 }
 
 /** Topic-level reading (job wins over buy/sell; a landlord offers property, so it is a seller). */
