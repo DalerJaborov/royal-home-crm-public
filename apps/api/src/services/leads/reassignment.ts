@@ -852,7 +852,7 @@ export async function assignPendingLeads(): Promise<number> {
        * `ok`, а дальше безусловно шли причина назначения, счётчик и пуш. Запись
        * отказывает штатно: карточка ушла в Корзину, кто-то успел первым (гонка
        * guardWhere), закон П-3 заменил передачу эскалацией — и во всех трёх
-       * случаях агент получал пуш «🔔 Новый лид с ночи» о лиде, которого у него
+       * случаях агент получал пуш «🔔 Новая заявка с ночи» о лиде, которого у него
        * нет, а `assignReason`/`ownPropertyLead` ложились на карточку без
        * назначения. Рядом, в reassignStaleLeads, тот же вызов давно обёрнут в
        * claimLead с `if (!claimed) continue` — здесь этой половины не хватало.
@@ -862,7 +862,7 @@ export async function assignPendingLeads(): Promise<number> {
       assigned++;
 
       sendLeadPush(agentId, lead.id, {
-        title: "🔔 Новый лид с ночи",
+        title: "🔔 Новая заявка с ночи",
         body: `${lead.fullName} — примите заявку`,
         url: `/clients/${lead.shortId}`,
         tag: `lead-${lead.id}`,

@@ -12,7 +12,7 @@ import { resolveClientIntentsAutomatically } from "../../lib/clientIntentResolut
 import { logSystemError } from "../../lib/systemError.js";
 import { describeError } from "../../lib/describeError.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
-import { suggestRequirements } from "../../lib/requirementsFromSummary.js";
+import { suggestionFingerprint, suggestRequirements } from "../../lib/requirementsFromSummary.js";
 
 export const intentsRouter = Router();
 
@@ -125,7 +125,7 @@ intentsRouter.get("/:id/requirements-suggestion", requireAuth, async (req, res) 
   const suggestion = await currentSuggestion(client);
   if (!suggestion) return res.json({ available: false, labels: [] as string[] });
   // Подписи могут нести слова из сводки (район вне справочника): без права на номера — с маской, как сама сводка.
-  res.json({ available: true, labels: suggestion.labels.map((label) => phoneSafeText(label, can(req, "clients.viewPhone"))) });
+  res.json({ available: true, fingerprint: suggestionFingerprint(suggestion), labels: suggestion.labels.map((label) => phoneSafeText(label, can(req, "clients.viewPhone"))) });
 });
 
 intentsRouter.post("/:id/requirements-suggestion/apply", requireAuth, async (req, res) => {
@@ -134,6 +134,9 @@ intentsRouter.post("/:id/requirements-suggestion/apply", requireAuth, async (req
   if (!confirmedClientIntents(client).buys) return res.status(409).json({ error: "Сначала подтвердите, что клиент покупает недвижимость" });
   const suggestion = await currentSuggestion(client);
   if (!suggestion) return res.status(409).json({ error: "Из разговора больше нечего взять: поля уже заполнены или сводка изменилась" });
+  // Человек нажал кнопку с теми подписями, что видел: если предложение с тех пор изменилось, пишем не его, а просим посмотреть заново.
+  const seen = typeof req.body?.fingerprint === "string" ? req.body.fingerprint : "";
+  if (seen !== suggestionFingerprint(suggestion)) return res.status(409).json({ error: "Предложение обновилось, посмотрите ещё раз" });
   const notes = client.requirementsNotes?.trim() ?? "";
   const merged = suggestion.notesLine ? (notes ? `${notes}\n${suggestion.notesLine}` : suggestion.notesLine) : null;
   const input = clientBuyerRequirementsSchema.safeParse({ ...suggestion.fields, ...(merged !== null ? { requirementsNotes: merged } : {}) });

@@ -263,9 +263,10 @@
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats .pstat small { font-size: 14px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-subline { font-size: 14px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-overdue {
-  display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--rh-ui-crit-text);
+  display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; font-size: 14px; font-weight: 600; line-height: 1.35; color: var(--rh-ui-text);
 }
-:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-overdue svg { flex: none; margin-top: 1px; }
+/* Огня нет: просрочка названа словами, красный только при тройном превышении срока (тон тот же, что у плашки этапа — propertyStagePill). */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-overdue[data-tone="crit"] { font-weight: 700; color: var(--rh-ui-crit-text); }
 
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-foot {
   position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;

@@ -1,4 +1,5 @@
 import type { PropertyType } from "@royal-home/shared";
+import { createHash } from "node:crypto";
 import { BW, EW, TAIL } from "../ai/wordBoundary.js";
 
 /**
@@ -140,18 +141,21 @@ export function suggestRequirements(
   const names = districts.map((d) => d.name);
 
   // Район: по позиции в тексте (названный раньше побеждает); отрицание и «рядом с …» пожеланием не считаются.
+  // Два района через «или», «и», «/» или запятую («Сино или Фирдавси») — клиент не выбрал, выбор за него не делаем (как с типами).
   if (!current.desiredDistrictId && !current.hasDesiredPlaces) {
-    let hit: { at: number; id: string; name: string } | null = null;
+    const hits: Array<{ at: number; end: number; id: string; name: string }> = [];
     for (const d of districts) {
       const name = d.name.trim();
       if (!name) continue;
       for (const m of line.matchAll(new RegExp(`${BW}${escapeRe(name)}${TAIL}`, "giu"))) {
         if (NEGATION.test(line.slice(Math.max(0, m.index - 16), m.index)) || nearBefore(line, m.index)) continue;
-        if (!hit || m.index < hit.at) hit = { at: m.index, id: d.id, name };
+        hits.push({ at: m.index, end: m.index + m[0].length, id: d.id, name });
         break;
       }
     }
-    if (hit) { fields.desiredDistrictId = hit.id; labels.push(hit.name); }
+    hits.sort((x, y) => x.at - y.at);
+    const either = hits.length >= 2 && /^\s*(?:,|\/|или|либо|и)\s*$/iu.test(line.slice(hits[0].end, hits[1].at));
+    if (hits.length && !either) { fields.desiredDistrictId = hits[0].id; labels.push(hits[0].name); }
   }
 
   if (!current.desiredType) {
@@ -196,4 +200,14 @@ export function suggestRequirements(
   if (notesLine && named) labels.push(named[1].trim());
   if (!labels.length) labels.push("пожелания словами");
   return { fields, notesLine, labels };
+}
+
+/**
+ * Отпечаток предложения (ревью #338): экран получает его вместе с подписями кнопки, а `apply` обязан прислать его обратно.
+ * Пока человек смотрел на кнопку, сводка могла пересчитаться, а карточку — поправить: тогда предложение другое, и сервер
+ * отвечает 409 «посмотрите ещё раз», а не записывает то, чего человек не видел. Отпечаток — хеш; сами значения и слова
+ * клиента через него не передаются.
+ */
+export function suggestionFingerprint(suggestion: RequirementsSuggestion): string {
+  return createHash("sha256").update(JSON.stringify({ f: suggestion.fields, n: suggestion.notesLine, l: suggestion.labels })).digest("hex").slice(0, 16);
 }

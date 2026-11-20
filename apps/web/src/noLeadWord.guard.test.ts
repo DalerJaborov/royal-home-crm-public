@@ -13,8 +13,11 @@ import baseline from "./noLeadWord.baseline.json";
  *     текст. Файлы, где оно ещё осталось (настройки, финансы, отчёты, источники — разделы других веток), перечислены в
  *     `noLeadWord.baseline.json` с числом строк. Список только убывает: новый файл или лишняя строка краснят; исправили —
  *     уменьшите число или уберите запись (устаревшая запись тоже краснит).
- *  2. Сервер: в ответах-сообщениях маршрутов (`apps/api/src/routes/**`: `error:` и `message:`) слова «лид» нет совсем.
+ *  2. Сервер: поля `title:` / `body:` / `message:` / `error:` / `label:` в `apps/api/src` — те же правила и тот же список (ключи
+ *     `api/…`); маршруты, приём заявок и уведомления первого звонка в списке быть не могут.
  */
+/** Поля, в которых сервер кладёт текст для людей: заголовок и тело уведомления, сообщение и ошибка ответа, подпись. */
+const SERVER_TEXT_FIELD = /(?<![.\w])(title|body|message|error|label)\s*:/;
 const WORD = /(?<![а-яёa-z])[Лл]ид(?:а|у|ом|е|ы|ов|ам|ами|ах)?(?![а-яёa-z])/u;
 
 function walk(dir: string, accept: (file: string) => boolean, out: string[] = []): string[] {
@@ -56,26 +59,30 @@ function codeLines(source: string): Array<{ n: number; text: string }> {
 
 describe("слово «лид» в текстах для сотрудников", () => {
   const srcDir = path.dirname(fileURLToPath(import.meta.url));
-  it("фронт: новых файлов и новых строк со словом нет, список исключений только убывает", () => {
-    const found: Record<string, number> = {};
-    for (const file of walk(srcDir, (f) => f.endsWith(".tsx") && !f.endsWith(".test.tsx"))) {
+  /** Подсчёт строк со словом: фронт (.tsx и .ts — тексты, подписи, уведомления) и поля уведомлений/ответов сервера. */
+  function found(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const file of walk(srcDir, (f) => /\.tsx?$/.test(f) && !/\.(test|spec)\.tsx?$/.test(f) && !f.endsWith(".d.ts"))) {
       const hits = codeLines(readFileSync(file, "utf8")).filter((l) => WORD.test(l.text)).length;
-      if (hits) found[path.relative(srcDir, file).split(path.sep).join("/")] = hits;
+      if (hits) out[path.relative(srcDir, file).split(path.sep).join("/")] = hits;
     }
+    const apiSrc = path.resolve(srcDir, "../../api/src");
+    for (const file of walk(apiSrc, (f) => f.endsWith(".ts") && !f.endsWith(".d.ts"))) {
+      const hits = codeLines(readFileSync(file, "utf8")).filter((l) => WORD.test(l.text) && SERVER_TEXT_FIELD.test(l.text)).length;
+      if (hits) out[`api/${path.relative(apiSrc, file).split(path.sep).join("/")}`] = hits;
+    }
+    return out;
+  }
+  it("новых файлов и новых строк со словом нет, список исключений только убывает", () => {
+    const now = found();
     const allowed = baseline as Record<string, number>;
-    const grew = Object.entries(found).filter(([file, count]) => count > (allowed[file] ?? 0)).map(([file, count]) => `${file}: ${count} (разрешено ${allowed[file] ?? 0})`);
-    const shrank = Object.entries(allowed).filter(([file, count]) => (found[file] ?? 0) < count).map(([file, count]) => `${file}: в списке ${count}, в коде ${found[file] ?? 0} — обновите noLeadWord.baseline.json`);
+    const grew = Object.entries(now).filter(([file, count]) => count > (allowed[file] ?? 0)).map(([file, count]) => `${file}: ${count} (разрешено ${allowed[file] ?? 0})`);
+    const shrank = Object.entries(allowed).filter(([file, count]) => (now[file] ?? 0) < count).map(([file, count]) => `${file}: в списке ${count}, в коде ${now[file] ?? 0} — обновите noLeadWord.baseline.json`);
     expect({ grew, shrank }).toEqual({ grew: [], shrank: [] });
   });
-  it("сервер: в ответах-сообщениях маршрутов слова «лид» нет", () => {
-    const routes = path.resolve(srcDir, "../../api/src/routes");
-    const leaks: string[] = [];
-    for (const file of walk(routes, (f) => f.endsWith(".ts"))) {
-      for (const line of codeLines(readFileSync(file, "utf8"))) {
-        if (WORD.test(line.text) && /\b(error|message)\s*:/.test(line.text)) leaks.push(`${path.relative(routes, file)}:${line.n}`);
-      }
-    }
-    expect(leaks).toEqual([]);
+  it("сервер: в маршрутах (apps/api/src/routes) и в уведомлениях агентам слова «лид» нет совсем", () => {
+    const allowed = Object.keys(baseline as Record<string, number>);
+    expect(allowed.filter((file) => file.startsWith("api/routes/") || /^api\/(services\/leads|jobs)\/.*(intake|firstCall|Notify)/.test(file))).toEqual([]);
   });
   it("сторож проверен поломкой: слово ловится во всех формах и не ловится в «клиент», «солидный»", () => {
     for (const bad of ["Не удалось принять лид", "Новые лиды", "стоимость лида", "Лидов за месяц", "лиде"]) expect(WORD.test(bad), bad).toBe(true);

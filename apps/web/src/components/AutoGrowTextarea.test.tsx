@@ -13,6 +13,30 @@ function Harness() {
 }
 
 describe("поле текста озвучки растёт по тексту", () => {
+  it("изменилась ширина (поворот телефона) — высота пересчитывается; без изменения ширины — нет", () => {
+    let content = 100;
+    let width = 300;
+    let notify: () => void = () => {};
+    const OriginalObserver = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class { constructor(cb: () => void) { notify = cb; } observe() {} disconnect() {} };
+    const heightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    const widthDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth");
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => content });
+    Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get: () => width });
+    try {
+      const { getByLabelText } = render(<Harness />);
+      const area = getByLabelText("Текст озвучки") as HTMLTextAreaElement;
+      expect(area.style.height).toBe("102px");
+      content = 260; notify();
+      expect(area.style.height).toBe("102px"); // ширина та же — пересчёта нет
+      width = 180; notify();
+      expect(area.style.height).toBe("262px"); // ширина сузилась — текст переносится иначе, поле выросло
+    } finally {
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = OriginalObserver;
+      if (heightDescriptor) Object.defineProperty(HTMLElement.prototype, "scrollHeight", heightDescriptor); else delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+      if (widthDescriptor) Object.defineProperty(Element.prototype, "clientWidth", widthDescriptor); else delete (Element.prototype as { clientWidth?: number }).clientWidth;
+    }
+  });
   it("высота равна содержимому, внутренней прокрутки нет, ручной растяжки нет", () => {
     let content = 140;
     const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
@@ -21,7 +45,7 @@ describe("поле текста озвучки растёт по тексту", 
       const { getByLabelText } = render(<Harness />);
       const area = getByLabelText("Текст озвучки") as HTMLTextAreaElement;
       expect(area.style.height).toBe("142px");
-      expect(area.className).toContain("overflow-hidden");
+      expect(area.className).toContain("overflow-y-auto");
       expect(area.className).toContain("resize-none");
       expect(area.rows).toBe(6);
       // Дописали длинный текст — поле выросло, а не получило прокрутку.

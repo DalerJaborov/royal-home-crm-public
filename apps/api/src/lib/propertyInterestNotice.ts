@@ -419,7 +419,7 @@ async function pullQueueLeadToOwner(
   }
   if (!await ownerNoticeCurrent(property.id, ownerId, true, committed.witness)) return true; // local transfer succeeded; do not undo/replay it for a notification race
   sendLeadPush(ownerId, client.id, {
-    title: "🔔 Новый лид по вашему объекту",
+    title: "🔔 Новая заявка по вашему объекту",
     body: `Клиент пишет по объекту №${property.shortId}, примите заявку`,
     url: `/clients/${client.shortId}`,
     tag: `lead-${client.id}`,

@@ -48,10 +48,17 @@ describe("разбор строки «Ищет:» из сводки", () => {
   it("отрицание и «рядом с …» пожеланием не считаются; район — по позиции в тексте, не по порядку справочника", () => {
     expect(ask("квартиру не в Шохмансуре")!.fields.desiredDistrictId).toBeUndefined();
     expect(ask("квартиру не в Шохмансуре, лучше Исмоили Сомони")!.fields.desiredDistrictId).toBe("d1");
-    expect(ask("квартиру в Фирдавси или Исмоили Сомони")!.fields.desiredDistrictId).toBe("d3");
+    expect(ask("квартиру в Фирдавси, затем Исмоили Сомони")?.fields.desiredDistrictId).toBe("d3");
     expect(ask("квартиру рядом с Шохмансур")!.fields.desiredDistrictId).toBeUndefined();
     expect(ask("квартиру рядом с офисом")!.fields.desiredType).toBe("APARTMENT");
     expect(ask("рядом с магазином, дом")!.fields.desiredType).toBe("HOUSE");
+  });
+  it("два района через «или», «и», «/» или запятую — район не предлагаем (выбор за клиента не делаем)", () => {
+    for (const line of ["квартиру в Шохмансур или Фирдавси", "квартиру в Шохмансуре либо Фирдавси", "квартиру Шохмансур / Фирдавси", "квартиру Шохмансур, Фирдавси", "квартиру Шохмансур и Фирдавси"]) {
+      const s = ask(line);
+      expect(s?.fields.desiredDistrictId, line).toBeUndefined();
+    }
+    expect(ask("квартиру в Шохмансуре, 3 комнаты")!.fields.desiredDistrictId).toBe("d2");
   });
   it("комнаты: «3-4 комнаты» — от 3, «3к» и «3 к» — три, «до 3 км» — не комнаты", () => {
     expect(ask("квартиру 3-4 комнаты")!.fields.desiredRooms).toBe(3);
@@ -105,7 +112,7 @@ afterAll(async () => {
 });
 const url = () => `/api/v1/clients/${clientId}/requirements-suggestion`;
 const get = (role: string) => request(app).get(url()).set("Authorization", `Bearer ${token[role]}`);
-const apply = (role: string) => request(app).post(`${url()}/apply`).set("Authorization", `Bearer ${token[role]}`).send({});
+const apply = (role: string, fingerprint?: string) => request(app).post(`${url()}/apply`).set("Authorization", `Bearer ${token[role]}`).send(fingerprint === undefined ? {} : { fingerprint });
 
 describe("маршруты предложения и записи", () => {
   let districtId = "";
@@ -117,7 +124,8 @@ describe("маршруты предложения и записи", () => {
     const r = await get("AGENT");
     expect(r.status).toBe(200);
     expect(r.body.available).toBe(true);
-    expect(Object.keys(r.body).sort()).toEqual(["available", "labels"]);
+    expect(Object.keys(r.body).sort()).toEqual(["available", "fingerprint", "labels"]);
+    expect(r.body.fingerprint).toMatch(/^[0-9a-f]{16}$/);
     expect(r.body.labels.join(" ")).toContain("квартира");
     expect(JSON.stringify(r.body)).not.toContain(PHONE_DIGITS);
     const row = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
@@ -128,14 +136,26 @@ describe("маршруты предложения и записи", () => {
     expect((await get("OTHER")).status).toBe(403);
     expect((await get("SHAREHOLDER")).status).toBe(403);
     expect((await request(app).get(url())).status).toBe(401);
-    expect((await apply("OTHER")).status).toBe(403);
-    expect((await apply("SHAREHOLDER")).status).toBe(403);
+    expect((await apply("OTHER", "x")).status).toBe(403);
+    expect((await apply("SHAREHOLDER", "x")).status).toBe(403);
     expect((await request(app).post(`${url()}/apply`).send({})).status).toBe(401);
+  });
+  it("POST apply: без отпечатка или с чужим — 409 «Предложение обновилось», ничего не пишется", async () => {
+    const before = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+    for (const bad of [undefined, "", "0000000000000000"]) {
+      const r = await apply("AGENT", bad);
+      expect(r.status).toBe(409);
+      expect(r.body.error).toBe("Предложение обновилось, посмотрите ещё раз");
+    }
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+    expect(after.desiredType).toBeNull();
+    expect(after.requirementsNotes).toBe(before.requirementsNotes);
   });
   it("POST apply: пишет по нажатию, заметки дописываются к ТЕКУЩИМ из базы, в ответе номер замаскирован", async () => {
     // Пока экран думал, кто-то записал свежую заметку: она не должна пропасть.
     await prisma.client.update({ where: { id: clientId }, data: { requirementsNotes: `Свежая заметка: нужен лифт, номер +992${PHONE_DIGITS}` } });
-    const r = await apply("AGENT");
+    const shown = (await get("AGENT")).body.fingerprint as string;
+    const r = await apply("AGENT", shown);
     expect(r.status).toBe(200);
     expect(JSON.stringify(r.body)).not.toContain(PHONE_DIGITS);
     const row = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });

@@ -93,7 +93,7 @@ for (const [label, width, height] of [["m390", 390, 844], ["d1440", 1440, 900]] 
       await route.fulfill({ response: res, json: body });
     });
     // GET отдаёт только подписи; запись — POST …/apply без тела (сервер сам считает предложение по текущей карточке).
-    await page.route(/\/requirements-suggestion$/, (r) => r.fulfill({ json: { available: true, labels: ["дом", "Назди Сомон"] } }));
+    await page.route(/\/requirements-suggestion$/, (r) => r.fulfill({ json: { available: true, fingerprint: "abc123abc123abc1", labels: ["дом", "Назди Сомон"] } }));
     await page.route(/\/requirements-suggestion\/apply$/, async (r) => { written.push(r.request().postDataJSON()); await r.fulfill({ json: {} }); });
     await page.setViewportSize({ width, height });
     await page.goto("/clients");
@@ -114,7 +114,7 @@ for (const [label, width, height] of [["m390", 390, 844], ["d1440", 1440, 900]] 
     await shot(page, `client-${label}`);
     await take.click();
     await expect.poll(() => written.length).toBe(1);
-    expect(written[0]).toEqual({});
+    expect(written[0]).toEqual({ fingerprint: "abc123abc123abc1" });
   });
 }
 

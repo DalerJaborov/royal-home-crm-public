@@ -59,11 +59,13 @@ describe("royal property catalog item", () => {
     const html = row();
     expect(html).toMatch(/class="ry-obj-pill" data-tone="warn"><svg/);
     expect(html).toContain("срок прошёл на 3 дн.");
-    expect(html).toContain("ry-obj-overdue");
+    expect(html).toContain('class="ry-obj-overdue" data-tone="warn">');
+    expect(html).not.toMatch(/class="ry-obj-overdue"[^>]*><svg/);
     const worse = renderToStaticMarkup(<MemoryRouter><PropertyRow property={{ ...property, pipeline: { ...property.pipeline!, daysInStage: 20 } }} myId="agent-1" clean royal cleanVariant="card" /></MemoryRouter>);
     expect(worse).toMatch(/class="ry-obj-pill" data-tone="crit"><svg/);
     expect(worse).toContain("просрочено на 18 дн.");
-    expect(worse).not.toContain("flame");
+    expect(worse).toContain('class="ry-obj-overdue" data-tone="crit">');
+    expect(worse).not.toMatch(/class="ry-obj-overdue"[^>]*><svg/);
   });
   it("selection and publish call the same callbacks the catalog passes", () => {
     const onToggleSelect = vi.fn();

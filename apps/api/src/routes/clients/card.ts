@@ -1127,7 +1127,7 @@ cardRouter.post("/", requireAuth, async (req, res) => {
   // проворонил окно до автопереназначения (Настройки → leadAcceptMinutes).
   if (!acceptedAt) {
     sendLeadPush(assignedAgentId, client.id, {
-      title: "🔔 Новый лид",
+      title: "🔔 Новая заявка",
       body: `${client.fullName} — примите заявку, иначе её передадут другому агенту`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${client.id}`,

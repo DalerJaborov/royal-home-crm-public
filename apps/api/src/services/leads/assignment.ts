@@ -662,7 +662,7 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
   });
   if (n === null) return { ok: false, reason: "not_own" };
   sendLeadPush(nextAgentId, clientId, {
-    title: "🔔 Новый лид",
+    title: "🔔 Новая заявка",
     body: `${client.fullName} — передан вам`,
     url: `/clients/${client.shortId}`,
     tag: `lead-${clientId}`,

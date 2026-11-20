@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from "react";
+import { useEffect, useLayoutEffect, useRef, type TextareaHTMLAttributes } from "react";
 import {
   chooseNarration, narrationDraftText, narrationLengthLine, narrationTemplateLangs, narrationVariants, suggestedNarration,
   type NarrationEnding, type NarrationLengthCheck, type NarrationFacts, type NarrationLang, type NarrationTemplate, type NarrationVoiceSampleRef,
@@ -128,15 +128,30 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
 
 /**
  * Поле, которое растёт по тексту (владелец 20.11.2026: конец текста «с радостью покажем!» пряталась за внутренней прокруткой
- * поля). Высота равна содержимому — весь текст виден без прокрутки внутри поля; `minRows` — нижняя граница.
+ * поля). Высота равна содержимому — весь текст виден без прокрутки внутри поля; `minRows` — нижняя граница. Меняется ширина
+ * (поворот телефона, окно) — текст переносится иначе, поэтому высота пересчитывается и по ResizeObserver. `overflow-y: auto` —
+ * страховка: если высота не поспела, текст остаётся доступным прокруткой, а не обрезанным.
  */
 export function AutoGrowTextarea({ minRows, value, className, ...rest }: Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "rows"> & { minRows: number; value: string }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
+  const fit = () => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight + 2}px`;
-  }, [value]);
-  return <textarea ref={ref} rows={minRows} value={value} className={`${className ?? ""} resize-none overflow-hidden`} data-autogrow="" {...rest} />;
+  };
+  useLayoutEffect(fit, [value]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return <textarea ref={ref} rows={minRows} value={value} className={`${className ?? ""} resize-none overflow-x-hidden overflow-y-auto`} data-autogrow="" {...rest} />;
 }
