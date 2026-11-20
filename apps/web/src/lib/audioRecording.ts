@@ -32,10 +32,26 @@ export function isRecordingSupported(): boolean {
   );
 }
 
+/**
+ * Движок WebKit (Safari и ВСЕ браузеры iPhone): с iOS 18.4 он научился писать `audio/webm`, и список
+ * выше стал выбирать его первым. Но webm из Safari — без длительности и с иным заголовком, и модель
+ * расшифровки на такой записи отвечала ПУСТО (20.11.2026, iOS 18.7: два голосовых вопроса Ассистенту
+ * подряд, в журнале «модель вернула пустую расшифровку», файл `voice.webm`). mp4/AAC — формат, на котором
+ * диктовка с iPhone работала до 18.4, поэтому на WebKit он первый; webm остаётся запасным.
+ */
+export function isWebKitBrowser(userAgent: string | undefined = typeof navigator !== "undefined" ? navigator.userAgent : undefined): boolean {
+  if (!userAgent) return false;
+  if (/iPhone|iPad|iPod/i.test(userAgent)) return true;
+  return /Safari\//.test(userAgent) && !/Chrome\/|Chromium\/|Android|Edg\//.test(userAgent);
+}
+
 /** Первый формат из списка, который умеет этот браузер; undefined — пусть выберет сам. */
-export function pickRecorderMimeType(): string | undefined {
+export function pickRecorderMimeType(userAgent?: string): string | undefined {
   if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") return undefined;
-  return MIME_CANDIDATES.find((m) => {
+  const candidates = isWebKitBrowser(userAgent)
+    ? [...MIME_CANDIDATES].sort((a, b) => Number(!a.startsWith("audio/mp4")) - Number(!b.startsWith("audio/mp4")))
+    : MIME_CANDIDATES;
+  return candidates.find((m) => {
     try {
       return MediaRecorder.isTypeSupported(m);
     } catch {

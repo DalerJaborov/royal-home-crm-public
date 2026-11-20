@@ -8,7 +8,7 @@ import { DONUT_C, DONUT_GAP } from "./RoyalExpenseDonut";
 /**
  * Кольцо расходов нарисовано НАСТОЯЩЕЙ лентой «Расходы» (ClaudeExpenseFeed) внутри
  * раздела «Деньги» нового вида — не заглушкой. Сверяется то, что видит директор:
- * сумма в центре кольца = итог месяца над ним, суммы легенды складываются в итог,
+ * в центре кольца — самая большая доля с названием (не повтор итога), суммы легенды складываются в итог,
  * дуги вместе — ровно весь круг (100 %), ни одна категория с расходом не потеряна.
  */
 const state = vi.hoisted(() => ({ month: undefined as unknown }));
@@ -67,9 +67,14 @@ describe("кольцо расходов на настоящей ленте «Р�
     state.month = month(expenses);
     const html = render();
     const kpi = text(/<div class="cef-kpi">([\s\S]*?)<\/div>/.exec(html)![1]);
-    const center = text(/<figcaption class="ry-donut-center"><strong[^>]*>([\s\S]*?)<\/strong>/.exec(html)![1]);
-    expect(center).toBe(kpi);
+    // Центр не повторяет итог из заголовка (кадр владельца 20.11): там самая большая доля
+    // и её название — «Реклама 92 %».
+    const centerMatch = /<figcaption class="ry-donut-center"><strong[^>]*>([\s\S]*?)<\/strong><span>([^<]*)<\/span>/.exec(html)!;
     const total = amount(kpi);
+    const [topKey, topValue] = Object.entries(expenses).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))[0];
+    expect(text(centerMatch[1])).toBe(`${Math.round(((topValue ?? 0) / total) * 100)} %`);
+    expect(centerMatch[2]).toBe(EXPENSE_CATEGORY_LABELS[topKey as ExpenseCategory]);
+    expect(text(centerMatch[1])).not.toBe(kpi);
     expect(total).toBeCloseTo(Object.values(expenses).reduce((s, v) => s + (v ?? 0), 0), 2);
 
     // Легенда: «Категория <b>сумма</b>» — суммы складываются в итог месяца.

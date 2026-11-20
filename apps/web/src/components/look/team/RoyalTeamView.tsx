@@ -133,7 +133,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
                   <span className="ry-row-text">
                     <button type="button" className="ry-row-title ry-linklike" onClick={() => p.onOpen(m.id)}>{m.fullName}</button>
                     <span className="ry-row-sub ry-wrap" data-tone="warn">
-                      {absenceLabel(m)}{m.frozenAt ? `, с ${relativeTime(m.frozenAt)}` : ""}.{m.frozenReason ? ` Причина: ${m.frozenReason}.` : ""} Новые лиды ему не приходят.
+                      {absenceLabel(m)}{m.frozenAt ? `, с ${relativeTime(m.frozenAt)}` : ""}.{m.frozenReason ? ` Причина: ${m.frozenReason}.` : ""} Новые заявки ему не приходят.
                     </span>
                   </span>
                   <span className="ry-row-right"><RhButton variant="primary" onClick={() => p.onFreeze(m)}>Вернуть в строй</RhButton></span>

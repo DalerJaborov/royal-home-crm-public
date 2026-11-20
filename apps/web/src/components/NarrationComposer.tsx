@@ -1,3 +1,4 @@
+import { useEffect, useLayoutEffect, useRef, type TextareaHTMLAttributes } from "react";
 import {
   chooseNarration, narrationDraftText, narrationLengthLine, narrationTemplateLangs, narrationVariants, suggestedNarration,
   type NarrationEnding, type NarrationLengthCheck, type NarrationFacts, type NarrationLang, type NarrationTemplate, type NarrationVoiceSampleRef,
@@ -112,7 +113,7 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
             <button type="button" className="pill min-h-12! text-base! ghost ml-auto" disabled={disabled} onClick={() => reroll(lang)}>↻ Другой вариант</button>
           </div>
         )}
-        <textarea aria-label="Текст озвучки" rows={6} maxLength={5000} readOnly={disabled} className="w-full rounded-2xl border-2 p-4 text-[17px] leading-relaxed"
+        <AutoGrowTextarea aria-label="Текст озвучки" minRows={6} maxLength={5000} readOnly={disabled} className="w-full rounded-2xl border-2 p-4 text-[17px] leading-relaxed"
           value={text} onChange={(e) => onChange({ ...value, templateId: templateId ?? undefined, script: e.target.value })} />
         {lengthCheck && <p className={`rounded-xl px-4 py-3 text-base font-semibold ${lengthCheck.fits ? "bg-[var(--ok-bg)] text-[var(--ok)]" : "bg-[var(--crit-bg)] text-[var(--crit)]"}`} role="status">
           {lengthCheck.fits ? "✓ " : ""}{narrationLengthLine(lengthCheck)}</p>}
@@ -123,4 +124,34 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
       </div>
     </div>
   );
+}
+
+/**
+ * Поле, которое растёт по тексту (владелец 20.11.2026: конец текста «с радостью покажем!» пряталась за внутренней прокруткой
+ * поля). Высота равна содержимому — весь текст виден без прокрутки внутри поля; `minRows` — нижняя граница. Меняется ширина
+ * (поворот телефона, окно) — текст переносится иначе, поэтому высота пересчитывается и по ResizeObserver. `overflow-y: auto` —
+ * страховка: если высота не поспела, текст остаётся доступным прокруткой, а не обрезанным.
+ */
+export function AutoGrowTextarea({ minRows, value, className, ...rest }: Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "rows"> & { minRows: number; value: string }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const fit = () => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + 2}px`;
+  };
+  useLayoutEffect(fit, [value]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return <textarea ref={ref} rows={minRows} value={value} className={`${className ?? ""} resize-none overflow-x-hidden overflow-y-auto`} data-autogrow="" {...rest} />;
 }

@@ -63,7 +63,7 @@ suggestionsRouter.get("/:id/card-suggestions", requireAuth, async (req, res) => 
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   if (scopeToOwnAgent(req) && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   // Цитаты, заметка и адрес — слова клиента, в них звучит номер. Тем же правом,

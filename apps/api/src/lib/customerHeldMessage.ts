@@ -9,6 +9,7 @@
 // with the client's name and a link to the chat, at most once per chat per
 // window. Failing to write is transient (the webhook answers 503 and Meta
 // retries); a scope denial is permanent and is reported without the text.
+import { BARE_MESSAGE_MARKER, NO_TEXT_NOTE, describeForStaff } from "@royal-home/shared";
 import { loadBotAnswersItself, staffSignalAllowed } from "./botAnswersItself.js";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
@@ -60,7 +61,7 @@ function contentOf(input: CustomerNormalizedIngressInput): string {
   const text = input.inputText.trim();
   if (text) return text;
   const kinds = [...new Set(input.media.map(item => item.kind))];
-  return kinds.length ? `[вложение: ${kinds.join(", ")}]` : "[сообщение без текста]";
+  return kinds.length ? `[вложение: ${kinds.join(", ")}]` : BARE_MESSAGE_MARKER;
 }
 
 /** Pre-ACK. Throws only on a transient failure (caller answers 503). */
@@ -137,14 +138,14 @@ export async function notifyHeldCustomerMessages(holds: readonly CustomerHeldMes
         // A chat staff deleted stays deleted (their decision); every other unrecorded message reaches a person (15.11.2026, task 5).
         if (hold.unrecorded !== "chat_deleted") {
           await queueUnrecordedCustomer({ channel: hold.channel, peer: hold.peer, accountExternalId: hold.accountExternalId,
-            excerpt: hold.excerpt, why: `бот не ответит: ${plainReason(hold.reason)}` });
+            excerpt: describeForStaff(hold.excerpt), why: `бот не ответит: ${plainReason(hold.reason)}` });
         }
         continue;
       }
       if (seen.has(hold.conversationId)) continue;
       seen.add(hold.conversationId);
       await pushStaffAboutChat({ conversationId: hold.conversationId, channel: hold.channel,
-        body: `«${hold.excerpt}». Бот не ответит: ${plainReason(hold.reason)}.` });
+        body: `«${describeForStaff(hold.excerpt)}». Бот не ответит: ${plainReason(hold.reason)}.` });
     } catch (error) {
       void logSystemError("meta", `Уведомление о непереданном сообщении клиента не отправлено: ${error instanceof Error ? error.message : String(error)}`,
         { dedupKey: "customer-dm-routing-held-notify-failed", quietPult: true });
@@ -208,7 +209,7 @@ export async function notifyEscalatedCustomerTurn(input: { conversationId: strin
     if (!input.jobTopic && !staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal })) {
       return "skipped";
     }
-    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[сообщение без текста]";
+    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || NO_TEXT_NOTE;
     const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
     return await pushStaffAboutChat({ conversationId: input.conversationId, channel: input.channel,
       body: `«${excerpt}». Бот передал разговор человеку: ответьте клиенту сами.` });
@@ -345,7 +346,7 @@ export async function runUnrecordedCustomerSummary(): Promise<UnrecordedSummaryR
   // 198-5: a staff member without the phone permission sees the number masked, so time, account and text are the clues too.
   const who = (p: UnrecordedPending) => p.channel === "WHATSAPP" && /^\d{8,15}$/.test(p.peer) ? `номер +${p.peer}` : p.displayName?.trim() || "клиент";
   const first = people[0]!;
-  const line = (p: UnrecordedPending) => `${who(p)}, ${where(p)}, в ${DUSHANBE_TIME.format(new Date(p.at))}: «${p.excerpt || "[сообщение без текста]"}»`;
+  const line = (p: UnrecordedPending) => `${who(p)}, ${where(p)}, в ${DUSHANBE_TIME.format(new Date(p.at))}: «${describeForStaff(p.excerpt)}»`;
   const places = [...new Set(people.map(where))].join(", ");
   try {
     await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL",

@@ -405,6 +405,20 @@ export interface AdsBoard {
   };
 }
 
+/**
+ * Та же доска за явные даты — итоги прошлого периода для сравнения на экране
+ * «Реклама» (lib/adsCompare.ts). Опроса нет: прошлое уже не меняется.
+ */
+export function useAdsBoardRange(range: { from: string; to: string } | null, enabled = true) {
+  return useQuery({
+    queryKey: ["ads", "board", "range", range?.from, range?.to],
+    queryFn: () => api<AdsBoard>(`/ads/board?from=${range!.from}&to=${range!.to}`),
+    enabled: enabled && !!range,
+    staleTime: 10 * 60 * 1000,
+    refetchInterval: false as const,
+  });
+}
+
 /** Дашборд объявлений за произвольный период: сроки, состояние и деньги. */
 export function useAdsBoard(preset: AdPeriodPreset, enabled = true) {
   return useQuery({

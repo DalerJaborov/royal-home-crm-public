@@ -98,9 +98,9 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   PROPERTY_COUNT_DISPUTE_REJECT: "Спор о числе объектов отклонён",
 
   // Лиды и реактивация.
-  LEAD_ACCEPT: "Лид принят",
-  LEAD_ASSIGN: "Лид назначен",
-  LEAD_DECLINE: "Лид отклонён",
+  LEAD_ACCEPT: "Заявка принята",
+  LEAD_ASSIGN: "Заявка назначена",
+  LEAD_DECLINE: "Заявка отклонена",
   REACTIVATION_ACCEPT: "Предложение реактивации принято",
   REACTIVATION_DECLINE: "Предложение реактивации отклонено",
   REACTIVATION_AUTO_ACCEPT_CALL: "Реактивация принята звонком",

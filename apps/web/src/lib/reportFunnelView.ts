@@ -17,3 +17,17 @@ export function selectFunnelStages<T extends { key: string }>(funnel: readonly T
     deals: funnel.find((stage) => stage.key === "deals"),
   };
 }
+
+/**
+ * ВОРОНКА ЗАЯВОК ПЕРИОДА (20.11.2026): доля каждого шага — от числа заявок
+ * периода. Сервер считает шаг «дошёл сюда или дальше», поэтому шаг не больше
+ * предыдущего; округление и предел 100 % здесь — вторая защита на случай
+ * старого или кривого ответа, чтобы на экран никогда не вышло «больше 100 %».
+ */
+export function cohortFunnelView(cohort: readonly { key: string; label: string; count: number }[]) {
+  const leads = cohort.find((s) => s.key === "leads")?.count ?? 0;
+  const pct = (n: number) => (leads > 0 ? Math.min(100, Math.round((n / leads) * 100)) : null);
+  const steps = cohort.map((s) => ({ ...s, share: leads > 0 ? Math.min(1, s.count / leads) : 0, percent: pct(s.count) }));
+  const dealsStep = cohort.find((s) => s.key === "deals");
+  return { leads, steps, toDeal: dealsStep ? pct(dealsStep.count) : null };
+}

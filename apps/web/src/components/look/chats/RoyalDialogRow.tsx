@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { MESSAGE_PHONE_MASK } from "@royal-home/shared";
+import { MESSAGE_PHONE_MASK, describeServiceMarker } from "@royal-home/shared";
 import { Bot, Flame } from "lucide-react";
 import type { ConversationListItem } from "../../../hooks/useConversations";
 import { exactDateTime, listTime } from "../../../lib/format";
@@ -44,8 +44,10 @@ function pauseWaitHours(c: ConversationListItem, now: number): number | null {
  * (тот же смысл, что в самой переписке; кадр владельца 20.11). Цифр здесь нет и не было.
  * Отдельно от подписи отправителя, чтобы её можно было менять, не трогая текст.
  */
-export function previewText(content: string): string {
-  return content.split(MESSAGE_PHONE_MASK).join("номер скрыт");
+export function previewText(content: string, channel?: string | null): string {
+  // Служебная пометка бота — словами (одна функция на все места: @royal-home/shared/serviceMarkers).
+  const marker = describeServiceMarker(content, { channel });
+  return (marker ?? content).split(MESSAGE_PHONE_MASK).join("номер скрыт");
 }
 
 /**
@@ -82,7 +84,7 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
     // коллеги — просто текст, без подписи: как у бизнес-аккаунта WhatsApp, кто
     // именно ответил — в «Сведениях о сообщении» в переписке. Текст — через общий
     // previewText (#328: скрытый номер словами).
-    ? `${c.lastMessage.role === "assistant" && c.lastMessage.by?.kind === "agent" && !!viewerAgentId && c.lastMessage.by.agentId === viewerAgentId ? "Вы: " : ""}${previewText(c.lastMessage.content)}`
+    ? `${c.lastMessage.role === "assistant" && c.lastMessage.by?.kind === "agent" && !!viewerAgentId && c.lastMessage.by.agentId === viewerAgentId ? "Вы: " : ""}${previewText(c.lastMessage.content, c.channel)}`
     : "";
   return (
     <button

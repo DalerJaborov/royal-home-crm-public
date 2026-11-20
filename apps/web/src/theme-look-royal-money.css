@@ -589,3 +589,56 @@
 :root[data-ui-look="royal"] [data-ry-section="money"] :is(button, a, .pill, .rh-btn, .ry-btn, .cef-btn, .cef-icon-btn, .cef-chip, .cef-switch):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-never) {
   opacity: .5; cursor: not-allowed;
 }
+
+/* ============ итог месяца одной строкой (разделы директора, 20.11.2026) ============
+ * components/look/money/RoyalMoneyStrip.tsx: доход, расходы и прибыль рядом над
+ * вкладками «Расходы», «Выплаты» и другими. Знак сравнения — и цветом, и стрелкой. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 16px; min-width: 0;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-cell {
+  display: grid; align-content: start; gap: 4px; min-width: 0; padding: 16px 18px;
+  border-radius: var(--rh-ui-r-tile); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-label { font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-value {
+  font-size: 28px; font-weight: 700; line-height: 1.1; letter-spacing: -.03em; color: var(--rh-ui-text); overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-cell[data-tone="ok"] .ry-money-strip-value { color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-cell[data-tone="crit"] .ry-money-strip-value { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-delta { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-delta[data-good="true"] { color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-delta[data-good="false"] { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-hint { font-size: 14px; color: var(--rh-ui-hint); }
+@media (max-width: 640px) {
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-cell { padding: 12px 16px; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-strip-value { font-size: 24px; }
+}
+/* «⋯»: второстепенные разделы (подписки, календарь, таблица) в меню действий. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef .ry-money-more-tabs { display: grid; gap: 6px; padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid var(--rh-ui-sep); }
+/* На компьютере в новом виде действия тоже в «⋯» (ClaudeMoneyPage: foldTools): кнопка
+   видна, меню всплывает справа тем же списком, что на телефоне. */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure { position: relative; flex: none; margin-left: auto; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure > summary { display: flex; cursor: pointer; }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-tool-actions {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 25; display: grid; width: min(300px, calc(100vw - 40px)); padding: 8px; gap: 2px;
+  border-radius: 20px; background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-tool-actions :is(.cef-btn, .cef-icon-btn) {
+  width: 100%; min-height: 48px; justify-content: flex-start; gap: 12px; padding: 0 14px; border-radius: 14px; background: transparent; box-shadow: none; text-align: left;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-mobile-action-label { display: inline; }
+/* Легенда кольца: название сверху, сумма снизу — у всех чипов одинаково (кадр владельца
+   20.11: «Реклама 1 615,2 с.» переносилась в две строки, остальные стояли в одну). */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend button {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-items: start; column-gap: 8px; row-gap: 2px;
+  min-height: 56px; padding: 8px 14px; border-radius: 18px; text-align: left;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend button b { grid-column: 2; }
+/* Узкий телефон: вкладки переносятся во второй ряд и растягиваются по ширине — ни одна не
+   режется краем (кадр владельца 20.11: «Таблица» уезжала за край). */
+@media (max-width: 640px) {
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs { flex-wrap: wrap; overflow-x: visible; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs button { flex: 1 1 auto; padding: 0 12px; }
+}

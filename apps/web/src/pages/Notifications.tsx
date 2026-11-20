@@ -199,7 +199,7 @@ function LeadAcceptAction({
       >
         {acceptLead.isPending ? "Принятие…" : "Принять"}
       </button>
-      <MutationError mutation={acceptLead} fallback="Не удалось принять лид" />
+      <MutationError mutation={acceptLead} fallback="Не удалось принять заявку" />
     </div>
   );
 }

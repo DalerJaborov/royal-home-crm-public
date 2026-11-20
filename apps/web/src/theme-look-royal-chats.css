@@ -441,11 +441,18 @@
   padding: 0 6px; border-radius: var(--rh-r-sm); background: var(--rh-ui-press); color: var(--rh-ui-hint); font-size: var(--rh-fs-sm); white-space: nowrap;
 }
 
-/* Стрелка «Сведения о сообщении»: видна при наведении и с клавиатуры, на касание — долгое нажатие. */
+/* Стрелка «Сведения о сообщении»: видна при наведении и с клавиатуры, на касание — долгое нажатие.
+   Место под неё занято у СТРОКИ ТЕКСТА, цитаты и метки канала (правый отступ 22 px: бок пузыря 14 + 22 = 36 > 4 + 28 стрелки), а не у
+   всего пузыря: у фото и голосового лишний край съедал бы ширину. Там стрелка лежит поверх с лёгкой подложкой.
+   У самой кнопки обнулены min-width/min-height 44 px общего правила оболочки (раздували её поверх текста,
+   «Салом⌄», кадры iPhone 20.11); видимая часть 28 px, зона нажатия 44 px — невидимым слоем вне раскладки. */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation :is(.ry-msg-text, .quote, span.border-l-2, [data-message-channel]:not(.sr-only)) { display: block; padding-right: 22px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more {
-  position: absolute; top: 0; right: 0; display: grid; place-items: center; width: var(--rh-ctl-h); height: var(--rh-ctl-h); padding: 0;
-  border: 0; border-radius: var(--rh-r-full); background: inherit; color: inherit; cursor: pointer; opacity: 0; transition: opacity 120ms;
+  position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 28px; height: 28px; min-width: 0; min-height: 0; padding: 0;
+  border: 0; border-radius: var(--rh-r-full); background: transparent; color: inherit; cursor: pointer; opacity: 0; transition: opacity 120ms;
 }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more::before { content: ""; position: absolute; inset: -8px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub:not(:has(> .ry-msg-text)) > .ry-msg-more { background: color-mix(in srgb, var(--rh-ui-mix-dark) 38%, transparent); color: var(--rh-ui-on-color); opacity: 1; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more svg { width: 18px; height: 18px; opacity: .75; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub:hover > .ry-msg-more,
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more:focus-visible { opacity: 1; }
@@ -454,7 +461,6 @@
    обычно (ревью #332), «Сведения» — стрелкой или долгим нажатием вне текста. */
 @media (hover: none) {
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more { opacity: .6; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub { padding-right: 40px; }
 }
 
 /* Служебная строка по центру ленты, как в Telegram: запрос клиента, щит бота. */
@@ -536,9 +542,11 @@
      у прежнего телефонного чата): своя прокрутка только у ленты. */
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section.clean-conversation-placeholder { display: none; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section.clean-conversation:not(.clean-conversation-placeholder) {
-    position: fixed; z-index: 45; top: 0; left: 0; right: 0; bottom: auto;
+    position: fixed; z-index: 45; top: var(--clean-viewport-top, 0px); left: 0; right: 0; bottom: auto;
     height: var(--clean-viewport-height, 100dvh); border-radius: 0; box-shadow: none;
   }
+  /* Клавиатура открыта: полоски жеста «домой» нет — запас под неё не нужен, поле стоит вплотную к клавиатуре. */
+  :root[data-ui-look="royal"][data-clean-keyboard] .ry-chats[data-ry-section="chats"] .ry-chat-compose { padding-bottom: 8px !important; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-head { gap: 4px; padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px 4px; min-height: 64px; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who { gap: 10px; padding: 2px 4px; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { font-size: var(--rh-fs-lg); }

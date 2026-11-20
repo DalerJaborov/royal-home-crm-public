@@ -118,7 +118,7 @@ export function trashActorOf(actor: AssistantActor): TrashActor {
 }
 
 export const FOREIGN_CLIENT_SCOPE_MESSAGE = "Нет доступа: клиент закреплён за другим агентом";
-export const UNACCEPTED_LEAD_MESSAGE = "Сначала примите лид — до принятия карточка закрыта";
+export const UNACCEPTED_LEAD_MESSAGE = "Сначала примите заявку — до принятия карточка закрыта";
 
 /**
  * МОЖНО ЛИ ПОМОЩНИКУ ПИСАТЬ В ЭТУ КАРТОЧКУ ОТ ИМЕНИ АКТОРА — ровно то, что

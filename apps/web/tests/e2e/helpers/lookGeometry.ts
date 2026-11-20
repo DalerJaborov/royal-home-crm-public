@@ -348,7 +348,17 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         if (after.content !== "none" && after.position === "absolute") {
           for (let p: Element | null = el; p && p !== document.body; p = p.parentElement) if (getComputedStyle(p).position !== "static") { host = p; break; }
         }
-        const box = host ? host.getBoundingClientRect() : label && label !== el && visible(label) ? label.getBoundingClientRect() : r;
+        // Невидимая подложка ::before/::after с отрицательным отступом (`inset: -8px`) расширяет цель
+        // вокруг маленького значка (стрелка «Сведения» в пузыре чата, #339).
+        let grown = r;
+        for (const pseudo of ["::before", "::after"]) {
+          const ps = getComputedStyle(el, pseudo);
+          if (ps.content === "none" || ps.position !== "absolute" || getComputedStyle(el).position === "static") continue;
+          const t = -Math.min(0, parseFloat(ps.top) || 0), l = -Math.min(0, parseFloat(ps.left) || 0);
+          const b = -Math.min(0, parseFloat(ps.bottom) || 0), rr = -Math.min(0, parseFloat(ps.right) || 0);
+          if (t || l || b || rr) grown = new DOMRect(r.left - l, r.top - t, r.width + l + rr, r.height + t + b);
+        }
+        const box = host ? host.getBoundingClientRect() : label && label !== el && visible(label) ? label.getBoundingClientRect() : grown;
         if (Math.min(box.width, box.height) < 44 - 0.5) out.push(`smallTap: ${name(el)} — ${Math.round(box.width)}×${Math.round(box.height)}`);
       }
     }

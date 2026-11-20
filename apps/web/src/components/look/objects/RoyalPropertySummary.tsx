@@ -3,10 +3,9 @@ import { Link } from "react-router-dom";
 import type { Property } from "../../../types";
 import { formatMoney, formatPricePerSqm } from "../../../lib/format";
 import { propertyParams } from "../../../lib/propertyParams";
-import { propertyStageChip } from "../../../lib/propertyStageChip";
 import { ObjIcon, type ObjIconName } from "./ObjIcon";
 import { ObjStatusPill } from "./RoyalPropertyItem";
-import { toneFromChipTone } from "./objectTone";
+import { districtOnce, propertyStagePill } from "./objectTone";
 import { OwnerRow, ownerVisible } from "../../PropertyPeople";
 
 /**
@@ -34,28 +33,31 @@ export function royalPropertyFacts(property: Parameters<typeof propertyParams>[0
     .map(({ label, value }) => ({ label, value, icon: FACT_ICON[label] ?? "building-2" }));
 }
 
-export function RoyalPropertySummary({ property, place, onSchedule, onEdit, onMore, children, viewerRole, onAddSeller }: {
-  property: Property; place?: string; onSchedule: (() => void) | null; onEdit: (() => void) | null; onMore: () => void; children?: ReactNode;
+export function RoyalPropertySummary({ property, onSchedule, onEdit, onMore, children, viewerRole, onAddSeller }: {
+  property: Property; /** Не используется: строку «где это» теперь строит districtOnce (район один раз). Оставлено, чтобы не трогать вызовы. */ place?: string; onSchedule: (() => void) | null; onEdit: (() => void) | null; onMore: () => void; children?: ReactNode;
   /** Роль смотрящего — агенту этап бытовыми словами («Готовим видео»). Приходит от карточки. */
   viewerRole?: string;
   /** Продавец не записан — тихая строка и это действие (открыть правку «кто ведёт и контакты»); без права — нет действия. */
   onAddSeller?: (() => void) | null;
 }) {
-  const stage = propertyStageChip(property, Date.now(), viewerRole);
   // Продавец — в главном блоке, рядом с ценой (пачка D1): агент открывает объект, чтобы
   // позвонить продавцу или показать клиенту. Кому номер закрыт, блока нет (решает сервер:
   // полный номер видит директор, тот, кто ведёт объект, — маской и звонит через станцию).
   const showSeller = ownerVisible(property);
   const sellerKnown = !!property.sellerClient || !!property.ownerContact?.trim() || !!property.ownerContactMasked?.trim();
   const facts = royalPropertyFacts(property);
-  const sub = [Number(property.areaSqm) > 0 ? formatPricePerSqm(property.price, property.areaSqm, property.currency) : null, property.district?.name].filter(Boolean).join(" · ");
+  const pill = propertyStagePill(property, viewerRole);
+  // Район — один раз (заголовок или строка адреса); под ценой только цена за метр.
+  const sub = Number(property.areaSqm) > 0 ? formatPricePerSqm(property.price, property.areaSqm, property.currency) : "";
+  const where = districtOnce(property.title, property.district?.name, property.address, property.landmark);
+  const placeText = where.place;
   return (
     <section className="ry-obj-summary" data-testid="property-price" aria-label="Цена и главное об объекте">
-      <ObjStatusPill tone={toneFromChipTone(stage.tone)} label={stage.label} testId="property-stage" />
+      <ObjStatusPill tone={pill.tone} label={pill.label} testId="property-stage" />
       <p className="ry-obj-bigprice ry-num">{formatMoney(property.price, property.currency)}</p>
       {sub && <p className="ry-obj-sum-sub">{sub}</p>}
       <h1 className="ry-obj-title">{property.title}</h1>
-      {place && <p className="ry-obj-place">{place}</p>}
+      {placeText && <p className="ry-obj-place">{placeText}</p>}
       {facts.length > 0 && (
         <ul className="ry-obj-facts" data-testid="property-params" aria-label="Параметры объекта">
           {facts.map((fact) => (

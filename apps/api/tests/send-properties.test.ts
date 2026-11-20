@@ -263,7 +263,7 @@ describe("Отправка объектов клиенту", () => {
   it("непринятому лиду агент отправить не может — карточка до принятия закрыта", async () => {
     const res = await send(ownToken, clientPendingId, [publishedFromCrmId]);
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/примите лид/i);
+    expect(res.body.error).toMatch(/примите заявку/i);
   });
 
   it("клиенту без переписки — понятный отказ, а не молчание", async () => {

@@ -226,7 +226,7 @@ export async function releaseReactivationOffer(
 
   if (nextAgentId) {
     sendPushToAgent(nextAgentId, {
-      title: "🔔 Новый лид",
+      title: "🔔 Новая заявка",
       body: `${client.fullName} — предложение реактивации снято с прежнего агента, лид передан вам`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${client.id}`,
@@ -235,7 +235,7 @@ export async function releaseReactivationOffer(
     findAgentsWithPermission("clients.assign")
       .then((supervisors) =>
         sendPushToAgents(supervisors, {
-          title: "⏳ Лид ждёт назначения",
+          title: "⏳ Заявка ждёт назначения",
           body: `${client.fullName} — предложение реактивации снято, назначьте агента вручную`,
           url: `/clients/${client.shortId}`,
           tag: `lead-unassigned-${client.id}`,

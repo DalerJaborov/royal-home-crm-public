@@ -1,3 +1,4 @@
+import { BARE_ATTACHMENT_MARKER } from "@royal-home/shared";
 import { captureConversationPhoneMessages } from "./clientPhoneCapture.js";
 import type { CustomerPropertyAdmission } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -41,7 +42,7 @@ export async function recordScopedCustomerInput(input: Pick<MessengerTurnInput, 
       if (!stored || stored.tombstonedAt || (stored.originalConversationId && stored.originalConversationId !== ticket.conversationId)) return false;
       if (stored.inputRecordedAt) return true;
       if (input.skipSaveIncoming) return false;
-      const msg: ChatMessage = { role: "user", content: evidence.inputText || "[вложение без текста]", mid: evidence.eventId,
+      const msg: ChatMessage = { role: "user", content: evidence.inputText || BARE_ATTACHMENT_MARKER, mid: evidence.eventId,
         at: new Date(evidence.issuedAt).toISOString(),
         customerPropertyAdmission: ticket, ...(input.replyToMessageId ? { replyToMid: input.replyToMessageId } : {}) };
       const result = await appendConversationMessagesInTransaction(tx, ticket.conversationId, [msg]);

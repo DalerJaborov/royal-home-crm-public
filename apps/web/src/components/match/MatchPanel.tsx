@@ -1,3 +1,4 @@
+import { softenShouting } from "../../lib/softenShouting";
 import { useRef, useState, type ReactNode } from "react";
 import "../../theme-client-workspace.css";
 import { useAssignClientToAgent, useClientMatch, useSendProperties, useSendTarget } from "../../hooks/useClients";
@@ -14,6 +15,7 @@ import { useMobileUx } from "../../hooks/useMobileUx";
 import type { ClientPropertyMatchEvidence, SendPropertiesFallback } from "@royal-home/shared";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { MatchPropertyCard } from "./MatchPropertyCard";
+import { commonMatchGaps, MatchCommonGaps } from "./MatchEvidence";
 import { MatchClientCard } from "./MatchClientCard";
 import { bookedShowingsByProperty } from "../../lib/clientFormat";
 import type { Client, Property } from "../../types";
@@ -256,6 +258,7 @@ function ClientMatchPanel({
   const activeQuery = source === "match" ? matchQuery : catalogQuery;
   const items: (Property & { match?: ClientPropertyMatchEvidence })[] = source === "match" ? matchQuery.data?.properties ?? [] : catalogQuery.data?.items ?? [];
   const visibleItems = source === "match" && overviewLimit && !expanded ? items.slice(0, overviewLimit) : items;
+  const commonGaps = source === "match" ? commonMatchGaps(visibleItems) : commonMatchGaps([]);
   const total = source === "match" ? matchQuery.data?.total ?? 0 : catalogQuery.data?.total ?? 0;
   const currentPage = source === "match" ? page : filters.page ?? 1;
   const pageSize = source === "match" ? matchQuery.data?.pageSize ?? 12 : catalogQuery.data?.pageSize ?? 20;
@@ -279,7 +282,7 @@ function ClientMatchPanel({
     <PanelShell variant={overviewLimit && expanded ? "modal" : variant} open={open} layer={layer} title={`Подбор объектов${matchQuery.data ? ` · ${matchQuery.data.total}` : ""}`} onClose={overviewLimit && expanded ? () => { setPage(1); setSource("match"); setExpanded(false); } : onClose} footer={toolbar}
       sub={<>
         {!overviewLimit && matchQuery.data?.requirementsSummary?.length ? <p className="state">{matchQuery.data.requirementsSummary.join(" · ")}</p> : null}
-        {!overviewLimit && requirementsCurrent && client.requirementsNotes && <details className="client-request-notes"><summary>Пожелания клиента</summary><p>{client.requirementsNotes}</p></details>}
+        {!overviewLimit && requirementsCurrent && client.requirementsNotes && <details className="client-request-notes"><summary>Пожелания клиента</summary><p>{softenShouting(client.requirementsNotes)}</p></details>}
         {!requirementsCurrent && <p className="quiet warn">Предыдущие условия относятся к другой роли. Уточните, что клиент хочет купить.</p>}
         {!readOnly && <details className="client-match-delivery" open={selected.size > 0 || !!failure?.fallback}>
           <summary>Способ отправки{target.data?.channel ? ` · ${CHANNEL_WORD[target.data.channel] ?? target.data.channel}` : ""}</summary>
@@ -410,8 +413,9 @@ function ClientMatchPanel({
         {!previewFingerprint && <p role="status">Для отправки через CRM нужно обновить предпросмотр. <button type="button" className="lnk" disabled={busy} onClick={() => void prepare([...selected])}>Обновить предпросмотр</button></p>}
       </div> : <p role="alert" className="quiet crit">{failure.message}</p>)}
       {sendResult && <p className="quiet" role="status">{sendResult}</p>}
+      <MatchCommonGaps gaps={commonGaps} />
       <div className="client-match-grid">
-        {visibleItems.map(p => <MatchPropertyCard key={p.id} property={p} selected={selected.has(p.id)}
+        {visibleItems.map(p => <MatchPropertyCard key={p.id} property={p} hideCommon={commonGaps.hide} selected={selected.has(p.id)}
           onToggleSelect={readOnly ? undefined : () => toggleSelected(p.id, `№${p.shortId} · ${p.title}`)}
           selectionDisabled={busy || (!selected.has(p.id) && selected.size >= MAX_TO_SEND)}
           offered={(p.match?.sentCount ?? 0) > 0 || justOffered.has(p.id)}
