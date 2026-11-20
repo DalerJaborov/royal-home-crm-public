@@ -1,3 +1,4 @@
+import { NO_TEXT_NOTE } from "@royal-home/shared";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { sendPushToAgents } from "../push.js";
@@ -80,7 +81,7 @@ export async function alertChannelStaff(input: { channel: string;
       VALUES (${randomUUID()},'channel-staff-alert',${key},now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
     if (claimed !== 1) return "already"; // a person was already told about this message (or this batch)
     // clientOwnWords keeps the customer's voice transcript (stripUntrusted would drop it: review #224 L6).
-    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[голосовое или вложение без текста]";
+    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || NO_TEXT_NOTE;
     const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
     const name = chat.client?.fullName?.trim() || (chat.username ? `@${chat.username}` : "клиент из Telegram");
     // Direct-message chats are shown inside the client card only (routes/conversations.ts); without a card there is no CRM

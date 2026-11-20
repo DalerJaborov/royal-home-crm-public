@@ -15,6 +15,7 @@
 //    text and a push "answer by hand" (customerHeldMessage.ts).
 // The list itself lives in customerIntendedSilence.ts (one list for both guards).
 // Unclassified reasons need no test to be safe: by default they call a person.
+import { NO_TEXT_NOTE } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE, customerTurnSilenceIsIntended } from "./customerIntendedSilence.js";
 import { notifyUnansweredCustomerTurn } from "./customerHeldMessage.js";
@@ -80,11 +81,11 @@ export async function reportUnansweredCustomerTurn(eventKey: string, reason: str
       const input = ticketInput(eventKey, row);
       await notifyUnansweredCustomerTurn({ reason, channel: input?.channel ?? "", peer: input?.peer ?? "", conversationId: null,
         accountExternalId: input?.accountExternalId ?? null, displayName: input?.displayName ?? null,
-        excerpt: input?.inputText.trim().slice(0, 160) || "[сообщение без текста]" });
+        excerpt: input?.inputText.trim().slice(0, 160) || NO_TEXT_NOTE });
       return;
     }
     await notifyUnansweredCustomerTurn({ reason, channel: row.channel ?? "", peer: row.peer ?? "", conversationId: row.conversationId,
-      excerpt: (row.excerpt ?? "").trim() || "[сообщение без текста]" });
+      excerpt: (row.excerpt ?? "").trim() || NO_TEXT_NOTE });
   } catch (error) {
     void logSystemError("meta", `Не удалось сообщить о неотвеченном ходе бота (${reason}): ${error instanceof Error ? error.message : String(error)}`,
       { dedupKey: "customer-turn-unanswered-report-failed", quietPult: true });
