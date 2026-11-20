@@ -1,3 +1,4 @@
+import { RuDateField } from "../components/look/fields/RuFields";
 import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -383,9 +384,8 @@ function ReportsScreen({ royal }: { royal: boolean }) {
             </div>
             <label className="field">
               <span className="lab">С какого дня</span>
-              <input
+              <RuDateField
                 className="inp"
-                type="date"
                 value={from}
                 style={{ maxWidth: 180 }}
                 onChange={(e) => {
@@ -397,9 +397,8 @@ function ReportsScreen({ royal }: { royal: boolean }) {
             </label>
             <label className="field">
               <span className="lab">По какой день</span>
-              <input
+              <RuDateField
                 className="inp"
-                type="date"
                 value={to}
                 style={{ maxWidth: 180 }}
                 onChange={(e) => {

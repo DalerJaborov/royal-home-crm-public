@@ -1,3 +1,4 @@
+import { RuTimeField } from "../../components/look/fields/RuFields";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -1683,8 +1684,7 @@ function BotTimingSection() {
             </div>
             <div className="acts">
               <span className="nf">
-                <input
-                  type="time"
+                <RuTimeField
                   value={windowStart}
                   onChange={(e) => setWindowStart(e.target.value)}
                   aria-label="Напоминать с"
@@ -1692,8 +1692,7 @@ function BotTimingSection() {
                 />
               </span>
               <span className="nf">
-                <input
-                  type="time"
+                <RuTimeField
                   value={windowEnd}
                   onChange={(e) => setWindowEnd(e.target.value)}
                   aria-label="Напоминать до"

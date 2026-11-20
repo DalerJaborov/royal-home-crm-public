@@ -1,3 +1,4 @@
+import { claimAudio, releaseAudio } from "./look/rhAudio";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -143,6 +144,7 @@ export function NarrationPlayer({ load, knownSec, primary, disabled, prefetch, l
   load: () => Promise<string>; knownSec: number | null | undefined; primary?: boolean; disabled?: boolean; prefetch?: boolean; label?: string;
 }) {
   const el = useRef<HTMLAudioElement | null>(null);
+  const stops = useRef<(() => void) | null>(null);
   const url = useRef<string | null>(null);
   const loading = useRef<Promise<string> | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "ready" | "playing" | "paused" | "fallback">("idle");
@@ -164,7 +166,10 @@ export function NarrationPlayer({ load, knownSec, primary, disabled, prefetch, l
     const syncDuration = () => { if (Number.isFinite(audio.duration) && audio.duration > 0) setDur(audio.duration); };
     audio.onloadedmetadata = syncDuration;
     audio.ondurationchange = syncDuration;
-    audio.onplay = () => setState("playing");
+    // Один играющий звук на всё приложение (общий реестр с RhAudioPlayer): запуск озвучки гасит запись, и наоборот.
+    const stop = () => audio.pause();
+    stops.current = stop;
+    audio.onplay = () => { claimAudio(stop); setState("playing"); };
     audio.onpause = () => setState((s) => (s === "playing" ? "paused" : s));
     audio.onended = () => { setState("paused"); setPos(0); audio.currentTime = 0; };
     el.current = audio;
@@ -180,7 +185,7 @@ export function NarrationPlayer({ load, knownSec, primary, disabled, prefetch, l
     ensureLoaded().then(() => setState((s) => (s === "idle" ? "ready" : s))).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- скачиваем один раз на версию (key у плеера — id версии)
   }, [prefetch]);
-  useEffect(() => () => { el.current?.pause(); if (url.current) URL.revokeObjectURL(url.current); }, []);
+  useEffect(() => () => { el.current?.pause(); if (stops.current) releaseAudio(stops.current); if (url.current) URL.revokeObjectURL(url.current); }, []);
 
   function toggle() {
     setHint("");

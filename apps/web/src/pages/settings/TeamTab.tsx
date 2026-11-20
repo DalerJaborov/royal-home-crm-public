@@ -1,3 +1,4 @@
+import { RuTimeField } from "../../components/look/fields/RuFields";
 import { useMemo, useRef, useState } from "react";
 import { useServerSyncedFields, useServerSyncedForm } from "../../hooks/useServerSyncedForm";
 import { Link } from "react-router-dom";
@@ -1290,7 +1291,7 @@ function WorkdayStartBlock() {
       </div>
       <div className="acts">
         <span className="nf">
-          <input type="time" value={value} onChange={(e) => void save(e.target.value)} aria-label="Начало рабочего дня" style={{ width: 112 }}
+          <RuTimeField value={value} onChange={(e) => void save(e.target.value)} aria-label="Начало рабочего дня" style={{ width: 112 }}
             disabled={!settings || updateSettings.isPending} />
         </span>
         {saved && <span className="saved on">Сохранено</span>}
@@ -1418,8 +1419,7 @@ export function LeadDistributionSection() {
           </div>
           <div className="acts">
             <span className="nf">
-              <input
-                type="time"
+              <RuTimeField
                 value={start}
                 onChange={(e) => setStart(e.target.value)}
                 aria-label="Раздавать с"
@@ -1427,8 +1427,7 @@ export function LeadDistributionSection() {
               />
             </span>
             <span className="nf">
-              <input
-                type="time"
+              <RuTimeField
                 value={end}
                 onChange={(e) => setEnd(e.target.value)}
                 aria-label="Раздавать до"

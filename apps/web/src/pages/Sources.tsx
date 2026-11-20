@@ -1,3 +1,4 @@
+import { RuDateField } from "../components/look/fields/RuFields";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ClientSource } from "@royal-home/shared";
@@ -292,9 +293,8 @@ function SourcesScreen() {
             </div>
             <label className="field">
               <span className="lab">С какого дня</span>
-              <input
+              <RuDateField
                 className="inp"
-                type="date"
                 value={from}
                 style={{ maxWidth: 180 }}
                 onChange={(e) => {
@@ -305,9 +305,8 @@ function SourcesScreen() {
             </label>
             <label className="field">
               <span className="lab">По какой день</span>
-              <input
+              <RuDateField
                 className="inp"
-                type="date"
                 value={to}
                 style={{ maxWidth: 180 }}
                 onChange={(e) => {

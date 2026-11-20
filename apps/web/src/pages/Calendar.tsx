@@ -1,3 +1,4 @@
+import { RuDateTimeField } from "../components/look/fields/RuFields";
 import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import {
@@ -1040,9 +1041,8 @@ function TaskRow({
             onRescheduleSubmit?.(rescheduleValue, reason);
           }}
         >
-          <input
+          <RuDateTimeField
             className="inp"
-            type="datetime-local"
             value={rescheduleValue}
             onChange={(e) => onRescheduleChange?.(e.target.value)}
             aria-label="Новое время показа"

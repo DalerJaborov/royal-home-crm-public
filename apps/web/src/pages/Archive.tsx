@@ -1,3 +1,4 @@
+import { RuDateField } from "../components/look/fields/RuFields";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Trash2, Receipt, CheckCircle2, ClipboardList, BarChart3 } from "lucide-react";
@@ -866,11 +867,11 @@ function ArchiveScreen() {
             <div className="filters">
               <label className="field">
                 <span className="lab">Период с</span>
-                <input className="inp" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+                <RuDateField className="inp" value={from} onChange={(e) => setFrom(e.target.value)} />
               </label>
               <label className="field">
                 <span className="lab">по</span>
-                <input className="inp" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+                <RuDateField className="inp" value={to} onChange={(e) => setTo(e.target.value)} />
               </label>
               <span className="spacer" />
               <span className="note" style={{ fontSize: "var(--fs-13)", color: "var(--faint)" }}>

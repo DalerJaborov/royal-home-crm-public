@@ -291,7 +291,7 @@ export function Login() {
             }}
           >
             {gerb}
-            <h1>Входить по отпечатку / Face ID без кода?</h1>
+            <h1>Входить по отпечатку или лицу без кода?</h1>
             <p className="sub">Отпечаток и лицо остаются внутри устройства. В следующий раз войдёте одним касанием.</p>
 
             <div className="grav" aria-hidden />
@@ -391,7 +391,7 @@ export function Login() {
             {canPasskey && (
               <p className="alt">
                 <button className="lnk" type="button" onClick={() => void handlePasskeyLogin()} disabled={loading || passkeyBusy}>
-                  {passkeyBusy ? "Ждём устройство…" : "Войти по отпечатку / Face ID"}
+                  {passkeyBusy ? "Ждём устройство…" : "Войти по отпечатку или лицу"}
                 </button>
               </p>
             )}

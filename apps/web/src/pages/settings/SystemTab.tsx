@@ -1,3 +1,4 @@
+import { RuDateField } from "../../components/look/fields/RuFields";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useServerSyncedFields } from "../../hooks/useServerSyncedForm";
 import { Link } from "react-router-dom";
@@ -574,9 +575,8 @@ export function AssistantAuditSection() {
         </label>
         <label className="field">
           <span className="lab">Период с</span>
-          <input
+          <RuDateField
             className="inp"
-            type="date"
             value={from}
             onChange={(e) => {
               setFrom(e.target.value);
@@ -586,9 +586,8 @@ export function AssistantAuditSection() {
         </label>
         <label className="field">
           <span className="lab">по</span>
-          <input
+          <RuDateField
             className="inp"
-            type="date"
             value={to}
             onChange={(e) => {
               setTo(e.target.value);

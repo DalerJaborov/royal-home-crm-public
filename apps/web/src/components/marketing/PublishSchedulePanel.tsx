@@ -1,3 +1,4 @@
+import { RuDateTimeField } from "../look/fields/RuFields";
 import { MarketingBrandMark } from "../look/marketing/MarketingSection";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -296,7 +297,7 @@ export function ScheduleRow({ item, autoPublishEnabled }: { item: PublishSchedul
           <div className="pubq-acts">
             <label className="pubq-when">
               <span>Новое время (Душанбе)</span>
-              <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+              <RuDateTimeField value={when} onChange={(e) => setWhen(e.target.value)} />
             </label>
             <button className="pill" type="button" disabled={busy} onClick={onSaveTime}>
               {publishAt.isPending ? "Сохраняем…" : "Сохранить"}

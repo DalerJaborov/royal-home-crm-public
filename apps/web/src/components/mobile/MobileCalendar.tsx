@@ -1,3 +1,4 @@
+import { RuDateTimeField } from "../look/fields/RuFields";
 import { Fragment, type ReactNode } from "react";
 import { INTERACTION_TYPE_LABELS, showingConfirmationBadge } from "../../lib/clientFormat";
 import type { Interaction } from "../../types";
@@ -215,9 +216,8 @@ export function MobileTaskCard({
             onRescheduleSubmit?.(rescheduleValue, reason);
           }}
         >
-          <input
+          <RuDateTimeField
             className="inp"
-            type="datetime-local"
             value={rescheduleValue}
             onChange={(e) => onRescheduleChange?.(e.target.value)}
             aria-label="Новое время показа"
