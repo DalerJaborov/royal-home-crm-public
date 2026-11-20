@@ -31,18 +31,18 @@ function FullBlock({ role }: HomeBlockProps) {
 
 export const HOME_BLOCKS: readonly HomeBlockDef[] = [
   { id: "money", roles: DIRECTORS, title: "Деньги и главное за день", component: DirectorMoney },
-  { id: "decisions", roles: DIRECTORS, title: "Нужно ваше решение", span: "a", component: DirectorDecisions },
-  { id: "burning", roles: DIRECTORS, title: "Горит сейчас", span: "b", component: DirectorBurning },
-  { id: "check", roles: DIRECTORS, title: "Проверить", span: "a", component: DirectorCheck },
-  { id: "team", roles: DIRECTORS, title: "Команда", span: "b", component: DirectorTeam },
-  { id: "pulse", roles: DIRECTORS, title: "Заявки за 30 дней", span: "a", component: DirectorPulse },
-  { id: "commission", roles: DIRECTORS, title: "Комиссия по месяцам", span: "b", component: DirectorCommission },
-  { id: "channels", roles: DIRECTORS, title: "Заявки за месяц по каналам", component: DirectorChannels },
+  { id: "decisions", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Нужно ваше решение", span: "a", component: DirectorDecisions },
+  { id: "burning", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Горит сейчас", span: "b", component: DirectorBurning },
+  { id: "check", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Проверить", span: "a", component: DirectorCheck },
+  { id: "team", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Команда", span: "b", component: DirectorTeam },
+  { id: "pulse", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Заявки за 30 дней", span: "a", component: DirectorPulse },
+  { id: "commission", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Комиссия по месяцам", span: "b", component: DirectorCommission },
+  { id: "channels", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Заявки за месяц по каналам", component: DirectorChannels },
 
   { id: "ropTiles", roles: ["HEAD_OF_SALES"], title: "Задачи и нагрузка", component: RopTiles },
   { id: "ropTasks", roles: ["HEAD_OF_SALES"], title: "Требуют ответа", span: "a", component: RopTasks },
-  { id: "ropTeam", roles: ["HEAD_OF_SALES"], title: "Команда", span: "b", component: RopTeam },
-  { id: "ropLosses", roles: ["HEAD_OF_SALES"], title: "Где теряем клиентов", span: "a", component: RopLosses },
+  { id: "ropTeam", roles: ["HEAD_OF_SALES"], requires: ["dashboard.analytics", "team.viewFull"], title: "Команда", span: "b", component: RopTeam },
+  { id: "ropLosses", roles: ["HEAD_OF_SALES"], requires: ["reports.view"], title: "Где теряем клиентов", span: "a", component: RopLosses },
 
   { id: "agentTiles", roles: ["AGENT"], title: "Заявки, показы и дела", component: AgentTiles },
   { id: "agentFirstCalls", roles: ["AGENT"], title: "Позвонить сейчас", span: "a", component: AgentFirstCalls },
@@ -73,10 +73,12 @@ export const HOME_BLOCKS: readonly HomeBlockDef[] = [
   { id: "managerUnread", roles: MANAGERS, title: "Сообщения без ответа", component: ManagerUnread },
   // РОП получает те же графики команды (источники месяца, нагрузка агентов): право
   // dashboard.analytics проверяет сам TeamCharts.
-  { id: "teamCharts", roles: [...MANAGERS, "HEAD_OF_SALES"], title: "Графики по команде", component: ChartsBlock },
+  { id: "teamCharts", roles: [...MANAGERS, "HEAD_OF_SALES"], requires: ["dashboard.analytics"], title: "Графики по команде", component: ChartsBlock },
 
   { id: "ask", roles: ["MARKETING", ...MANAGERS], title: "Спросить помощника", component: AskBlock },
-  { id: "full", roles: [...DIRECTORS, "HEAD_OF_SALES", "AGENT"], title: "Весь прежний экран", component: FullBlock },
+  { id: "full", roles: [...DIRECTORS, "HEAD_OF_SALES", "AGENT"], title: "Весь прежний экран", component: FullBlock,
+    // Пульт директора без права на аналитику не показывается (DirectorFull), у РОП и агента прав не нужно.
+    requires: (role) => (role === "DIRECTOR" || role === "ADMIN" ? ["dashboard.analytics"] : []) },
 ];
 
 const DIRECTOR_LAYOUT = ["money", "decisions", "burning", "check", "team", "pulse", "commission", "channels", "full"] as const;

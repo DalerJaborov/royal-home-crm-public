@@ -10,6 +10,11 @@ import { uiPreferencesSchema } from "@royal-home/shared";
  * «Главная» → личные настройки → ядро. Хранилище и сессия — настоящие, сервер подменён.
  */
 const put = vi.hoisted(() => vi.fn());
+const perms = vi.hoisted(() => ({ deny: new Set<string>() }));
+vi.mock("../../../lib/permissions", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../../lib/permissions")>(),
+  useCan: () => (permission: string) => !perms.deny.has(permission),
+}));
 vi.mock("../../../lib/api", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../../lib/api")>(),
   api: (...args: unknown[]) => put(...args),
@@ -40,6 +45,7 @@ function signIn(id: string, role: string) {
 }
 
 beforeEach(() => {
+  perms.deny = new Set();
   vi.useFakeTimers({ shouldAdvanceTime: true });
   put.mockReset();
   put.mockImplementation((path: string) => Promise.resolve(path === "/me" ? { id: "a1", preferences: {} } : {}));
@@ -103,5 +109,32 @@ describe("«Оформление» → «Главная»", () => {
     expect(uiPreferencesSchema.safeParse({ home: { blocks: { HACKER: { hidden: ["x"] } } } }).success).toBe(false);
     expect(uiPreferencesSchema.safeParse({ home: { blocks: { AGENT: { hidden: ["x"], roles: ["DIRECTOR"] } } } }).success).toBe(false);
     expect(uiPreferencesSchema.safeParse({ home: { blocks: { AGENT: { hidden: Array.from({ length: 41 }, (_, i) => `b${i}`) } } } }).success).toBe(false);
+  });
+
+  it("последний включённый блок не выключить — главная не остаётся пустой", () => {
+    const { container } = view("AGENT");
+    const rest = HOME_LAYOUT.AGENT.slice(1);
+    for (const id of rest) {
+      const title = HOME_BLOCKS.find((b) => b.id === id)!.title;
+      fireEvent.click(screen.getByRole("switch", { name: title }));
+    }
+    const last = screen.getByRole("switch", { name: "Заявки, показы и дела" }) as HTMLButtonElement;
+    expect(last.disabled).toBe(true);
+    fireEvent.click(last);
+    expect(shown(container)).toEqual(["agentTiles"]);
+  });
+
+  it("админ без права на аналитику не видит выключателей блоков, которые ему не рисуются", () => {
+    signIn("ad1", "ADMIN");
+    perms.deny = new Set(["dashboard.analytics"]);
+    view("ADMIN");
+    // Остался один блок («Деньги и главное за день» с текстом «только руководству») — раздела нет.
+    expect(screen.queryByRole("heading", { name: "Главная" })).toBeNull();
+    perms.deny = new Set(["team.viewFull"]);
+    cleanup();
+    signIn("r1", "HEAD_OF_SALES");
+    view("HEAD_OF_SALES");
+    expect(screen.queryByRole("switch", { name: "Команда" })).toBeNull();
+    expect(screen.getByRole("switch", { name: "Требуют ответа" })).toBeTruthy();
   });
 });

@@ -168,13 +168,15 @@ function buildPrefsBody(state: UiPrefsValues): UiPreferences {
       : {}),
     security: { autoLogoutMinutes: state.autoLogoutMinutes },
     dismissedHints: [...state.dismissedHints],
-    // Чужую (прежнего входа на этом устройстве) раскладку не отправляем: тогда
-    // persistPreferences берёт сохранённую на сервере, как и порядок меню.
-    ...(state.homeBlocksOwnerId === useAuthStore.getState().agent?.id
-      ? { home: { blocks: structuredCloneHome(state.homeBlocks) } }
-      : {}),
+    // Раскладки главной (`home`) здесь НЕТ намеренно (ревью #326): обычное сохранение
+    // (тема, подсказка) берёт её с сервера, а шлёт её только setHomeBlocks. Иначе
+    // старая вкладка на другом устройстве откатывала бы раскладку, выбранную на
+    // телефоне, а API до этой правки отвечал бы 400 на любое сохранение настроек.
   };
 }
+
+/** Сколько сохранений раскладки главной сейчас в пути: пока они идут, ответ /me её не перетирает. */
+let homeSavesInFlight = 0;
 
 /** Раскладки главной по роли (в preferences — `home.blocks`). */
 export type HomeBlocksByRole = Partial<Record<Role, HomeBlocksLayout>>;
@@ -213,7 +215,8 @@ function persistPreferences(agentId: string, sessionEpoch: number, snapshot: () 
       if (!ownsSession(agentId, sessionEpoch)) throw new Error("Сессия сменилась. Войдите снова.");
       ({ preferences, changedAt } = snapshot());
       preferences = { ...preferences, navigation: profile.preferences?.navigation ?? { desktopOrder: [] } };
-      // Главная — так же: пока своя раскладка не пришла с сервера, PUT не стирает сохранённую.
+      // Главная: обычное сохранение шлёт раскладку, сохранённую на сервере, а не местную;
+      // своя раскладка уходит только из setHomeBlocks (у неё `home` уже в теле).
       if (!preferences.home && profile.preferences?.home) preferences = { ...preferences, home: profile.preferences.home };
     }
     const requestSequence = ++syncRequestSequence;
@@ -223,7 +226,9 @@ function persistPreferences(agentId: string, sessionEpoch: number, snapshot: () 
     lastAcknowledgedRequest = requestSequence;
     afterAck?.();
     queryClient.setQueryData<MyProfile>(["me"], (profile) =>
-      profile?.id === agentId ? { ...profile, preferences } : profile
+      profile?.id === agentId
+        ? { ...profile, preferences: preferences.home || !profile.preferences?.home ? preferences : { ...preferences, home: profile.preferences.home } }
+        : profile
     );
     if (useUiPrefs.getState().syncedAt < changedAt) {
       useUiPrefs.setState((state) => state.updatedAt <= changedAt ? { syncedAt: changedAt } : state);
@@ -314,13 +319,27 @@ export const useUiPrefs = create<UiPrefsState>()(
           commit({ dashboardHidden: hidden.includes(id) ? hidden.filter((w) => w !== id) : [...hidden, id] });
         },
         setHomeBlocks: (role, layout) => {
-          const actorId = useAuthStore.getState().agent?.id ?? null;
+          const { agent, sessionEpoch } = useAuthStore.getState();
+          if (!agent) return;
           // Раскладка чужого входа на этом устройстве не наследуется: начинаем со своей.
-          const base = get().homeBlocksOwnerId === actorId ? get().homeBlocks : {};
-          const next: HomeBlocksByRole = { ...base };
+          const before = get().homeBlocksOwnerId === agent.id ? get().homeBlocks : {};
+          const next: HomeBlocksByRole = { ...before };
           if (layout && ((layout.order?.length ?? 0) > 0 || (layout.hidden?.length ?? 0) > 0)) next[role] = layout;
           else delete next[role];
-          commit({ homeBlocks: next, homeBlocksOwnerId: actorId });
+          // Переключается сразу (optimistic); на сервер — ОТДЕЛЬНЫМ сохранением с `home`
+          // (обычная очередь темы её не шлёт). Отказ сервера — откат и сообщение.
+          set({ homeBlocks: next, homeBlocksOwnerId: agent.id });
+          homeSavesInFlight++;
+          void persistPreferences(agent.id, sessionEpoch, () => {
+            const state = get();
+            const own = state.homeBlocksOwnerId === agent.id ? state.homeBlocks : next;
+            return { preferences: { ...buildPrefsBody(state), home: { blocks: structuredCloneHome(own) } }, changedAt: state.updatedAt };
+          }).catch(async () => {
+            if (!ownsSession(agent.id, sessionEpoch)) return;
+            if (get().homeBlocks === next) set({ homeBlocks: before });
+            const { useToastStore } = await import("./toast");
+            useToastStore.getState().show("Раскладка главной не сохранилась. Повторите, когда будет связь.", "error");
+          }).finally(() => { homeSavesInFlight--; });
         },
         dismissHint: (id) => {
           const hints = get().dismissedHints;
@@ -335,14 +354,19 @@ export const useUiPrefs = create<UiPrefsState>()(
           }
           // Раскладка главной — только с сервера и только своя (как автовыход ниже):
           // устройство общее, чужая раскладка не должна прятать блоки следующему.
-          if (force || !get().serverHydrated || get().homeBlocksOwnerId !== actorId) {
-            set({ homeBlocks: readHomeBlocks(prefs?.home?.blocks), homeBlocksOwnerId: actorId });
+          // Применяется ПОСЛЕ решения «местное новее» (ревью #326): своя несохранённая
+          // раскладка (сохранение ещё в пути) серверной не перетирается.
+          const applyServerHome = () => set({ homeBlocks: readHomeBlocks(prefs?.home?.blocks), homeBlocksOwnerId: actorId });
+          const ownHome = get().homeBlocksOwnerId === actorId;
+          if (get().serverHydrated && !force) {
+            if (!ownHome) applyServerHome();
+            return;
           }
-          if (get().serverHydrated && !force) return;
           // A late initial /me may arrive inside the theme-change debounce.
           // Keep the unsynced choice and schedule its PUT for this account/epoch.
           // Rescheduling also restores the queue lost during a full page reload.
           const localWins = !force && get().updatedAt > get().syncedAt;
+          if (force || !ownHome || (!localWins && homeSavesInFlight === 0)) applyServerHome();
           if (localWins) {
             set({ serverHydrated: true });
             applyToDom(get());

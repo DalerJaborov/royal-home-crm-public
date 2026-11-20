@@ -2,7 +2,8 @@ import type { Role } from "@royal-home/shared";
 import { useAuthStore } from "../../../store/auth";
 import { useUiPrefs } from "../../../store/uiPrefs";
 import { RhButton, RhSwitch } from "../ui";
-import { homeBlocksAllowed, mergeHomeOrder } from "./core";
+import { useCan } from "../../../lib/permissions";
+import { homeBlocksAllowed, homeBlockVisible, mergeHomeOrder } from "./core";
 import { HOME_BLOCKS, HOME_LAYOUT, useHomeLayoutPrefs } from "./registry";
 
 /**
@@ -26,14 +27,19 @@ export function HomeBlocksSettings() {
   const role = useAuthStore((s) => s.agent?.role) as Role | undefined;
   const setHomeBlocks = useUiPrefs((s) => s.setHomeBlocks);
   const { order, hidden } = useHomeLayoutPrefs(role ?? "default");
+  const can = useCan();
   if (!role) return null;
-  const blocks = homeBlocksAllowed(role, HOME_BLOCKS, HOME_LAYOUT);
+  // Только блоки, которые человеку вообще что-то рисуют: без нужного права блок пуст,
+  // и выключатель для него был бы обманом (ревью #326).
+  const blocks = homeBlocksAllowed(role, HOME_BLOCKS, HOME_LAYOUT).filter((block) => homeBlockVisible(block, role, can));
   if (blocks.length < 2) return null;
   const defaults = blocks.map((block) => block.id);
   const byId = new Map(blocks.map((block) => [block.id, block]));
   const ids = mergeHomeOrder(defaults, order);
   const off = defaults.filter((id) => hidden.has(id));
   const customized = off.length > 0 || ids.join("|") !== defaults.join("|");
+  // Последний включённый блок не выключается: пустая главная — не выбор, а ошибка.
+  const onCount = defaults.length - off.length;
 
   const save = (nextOrder: string[], nextHidden: string[]) => {
     const sameOrder = nextOrder.join("|") === defaults.join("|");
@@ -67,7 +73,7 @@ export function HomeBlocksSettings() {
                 <span className="ry-home-set-acts">
                   <button type="button" className="ry-home-set-move" aria-label={`Выше: ${block.title}`} disabled={index === 0} onClick={() => move(index, -1)}><Arrow up /></button>
                   <button type="button" className="ry-home-set-move" aria-label={`Ниже: ${block.title}`} disabled={index === ids.length - 1} onClick={() => move(index, 1)}><Arrow up={false} /></button>
-                  <RhSwitch checked={on} label={block.title} onChange={(next) => toggle(id, next)} />
+                  <RhSwitch checked={on} label={block.title} disabled={on && onCount <= 1} onChange={(next) => toggle(id, next)} />
                 </span>
               </li>
             );

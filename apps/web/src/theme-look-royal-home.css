@@ -189,6 +189,8 @@
     animation: ry-home-grow-y 720ms cubic-bezier(.23, 1, .32, 1) both !important;
   }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br.alt { animation-delay: 60ms !important; }
+  /* Отрицательный столбик (Rh2BarChart, `data-negative`) висит ВНИЗ от оси: растёт от верхнего края. */
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br[data-negative] { transform-origin: 50% 0; }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .tr i {
     transform-origin: 0 50%; animation: ry-home-fill-v 720ms cubic-bezier(.23, 1, .32, 1) both !important;
   }
@@ -236,6 +238,8 @@
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-move:focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-move:disabled { opacity: .5; cursor: not-allowed; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-acts .ry-switch { margin-left: 8px; }
+/* Последний включённый блок не выключается — переключатель приглушён и не нажимается. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-acts .ry-switch:disabled { opacity: .5; cursor: not-allowed; }
 :root[data-ui-look="royal"] [data-ry-section="home"].ry-home-set > .ry-btn { justify-self: start; }
 
 /* ============================ ширина ============================ */

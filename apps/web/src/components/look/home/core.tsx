@@ -38,7 +38,18 @@ export interface HomeBlockDef {
   title: string;
   /** Где встаёт заглушка упавшего блока; по умолчанию — вся строка. */
   span?: HomeBlockSpan;
+  /**
+   * Права, без которых блок ничего не рисует (он проверяет их сам). Нужны «Оформлению»:
+   * выключатель блока, которого человеку всё равно не видно, не показывается.
+   */
+  requires?: readonly string[] | ((role: string) => readonly string[]);
   component: ComponentType<HomeBlockProps>;
+}
+
+/** Блок может что-то нарисовать этому человеку: у него есть все права блока для его роли. */
+export function homeBlockVisible(block: HomeBlockDef, role: string, can: (permission: string) => boolean): boolean {
+  const need = typeof block.requires === "function" ? block.requires(role) : block.requires ?? [];
+  return need.every((permission) => can(permission));
 }
 
 /**

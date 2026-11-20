@@ -80,7 +80,10 @@ export function AgentShowings() {
 export function AgentFirstCalls() {
   const { summary } = useAgentDay();
   const due = Array.isArray(summary.data?.firstCallDue) ? summary.data.firstCallDue : [];
-  const assigned = Array.isArray(summary.data?.assignedBySupervisor) ? summary.data.assignedBySupervisor : [];
+  // Клиент, назначенный руководителем, обычно стоит и в «первом звонке» — показываем
+  // его один раз, строкой срока (как прежний AgentHome: `!due.has(c.id)`).
+  const dueIds = new Set(due.map((row) => row.id));
+  const assigned = (Array.isArray(summary.data?.assignedBySupervisor) ? summary.data.assignedBySupervisor : []).filter((row) => !dueIds.has(row.id));
   if (due.length + assigned.length === 0) return null;
   const now = Date.now();
   return (

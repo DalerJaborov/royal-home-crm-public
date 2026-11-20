@@ -161,6 +161,18 @@ describe("время и каналы ядра (свой модуль, без Tod
     expect([greetingFor(6), greetingFor(13), greetingFor(19), greetingFor(2)]).toEqual(["Доброе утро", "Добрый день", "Добрый вечер", "Доброй ночи"]);
     expect([channelBrand("WHATSAPP"), channelBrand("telegram"), channelBrand("website"), channelBrand("okru")]).toEqual(["whatsapp", "telegram", "site", null]);
   });
+  it("анимация графиков: только при «без ограничений движения», полоса до своей доли, минус растёт вниз", async () => {
+    const { readFileSync, statSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const file = ["src/theme-look-royal-home.css", "apps/web/src/theme-look-royal-home.css"].map((p) => resolve(process.cwd(), p)).find((p) => { try { return statSync(p).isFile(); } catch { return false; } })!;
+    const css = readFileSync(file, "utf8");
+    const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference)"), css.indexOf("@keyframes ry-home-grow-y"));
+    expect(motion).toMatch(/\.chart \.br \{[^}]*animation: ry-home-grow-y/);
+    expect(motion).toMatch(/\.br\[data-negative\] \{ transform-origin: 50% 0; \}/);
+    expect(motion).toMatch(/\.bars \.b \.tr i \{[^}]*animation: ry-home-fill-v/);
+    expect(css).toMatch(/@keyframes ry-home-fill-v \{[^}]*\}[^}]*scaleX\(var\(--v, 0\)\)/);
+  });
+
   it("ни один файл ядра не импортирует pages/TodayRoyal", async () => {
     const { readdirSync, readFileSync, statSync } = await import("node:fs");
     const { join, resolve } = await import("node:path");

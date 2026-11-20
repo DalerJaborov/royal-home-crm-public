@@ -288,7 +288,7 @@ export function DirectorCommission() {
     <RhSection title="Комиссия по месяцам" to={d.hasRoute("/finance") ? "/finance" : undefined} className="ry-col-b">
       <HomeColumns
         note={`за год ${formatMoney(Math.round(c.totalTjs), "TJS")}`}
-        ariaLabel={`Комиссия по месяцам: ${c.months.map((m) => `${monthTitle(m.month)} ${num(m.amountTjs)}`).join(", ")} сомони`}
+        ariaLabel={`Комиссия по месяцам: ${c.months.map((m) => `${monthTitle(m.month)} ${num(Math.round(m.amountTjs))}`).join(", ")} сомони`}
         lastValueLabel={num(Math.round(last.amountTjs))}
         items={c.months.map((m) => ({
           key: m.month,
