@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { parseShortCode } from "@royal-home/shared";
+import { parseShortCode, registrySourceCaption } from "@royal-home/shared";
 import { LocateFixed, Home as HomeIcon, Navigation, X } from "lucide-react";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
@@ -22,7 +22,10 @@ import { openRouteNative } from "../lib/openRoute";
 import { distanceMeters } from "../lib/geoDistance";
 import { toast } from "../store/toast";
 import { formatMoney } from "../lib/format";
-import type { PropertyMapExplorerHandle } from "../components/PropertyMapExplorer";
+import type { PropertyMapExplorerHandle, RegistryMapLayer } from "../components/PropertyMapExplorer";
+import { useRegistryMap } from "../hooks/useConstructionRegistry";
+import { useUsdToTjsRate } from "../hooks/useSettings";
+import { applyPermitFilter, registryProjectsForMap, PERMIT_FILTER_OPTIONS, type PermitFilter } from "../lib/registryMapFilter";
 import { savePendingMapPin } from "../lib/pendingMapPin";
 import { ObjectsTabs } from "../components/SectionTabs";
 import { useRoyalLook } from "../hooks/useRoyalLook";
@@ -286,7 +289,29 @@ export function PropertiesMap() {
     return () => suggestSeq.invalidate();
   }, [debouncedQuery, suggestSeq]);
 
-  const { data, isLoading, error } = usePropertiesMap(scope === "mine" && agent ? { agentId: agent.id } : {});
+  const { data: rawData, isLoading, error } = usePropertiesMap(scope === "mine" && agent ? { agentId: agent.id } : {});
+
+  // Реестр разрешённых строек (20.11.2026): слой проектов, кольцо статуса у наших объектов, фильтр «Разрешение».
+  // Отдельный запрос; ответ /properties/map не меняется. Рубильник выключен — управляющих элементов нет.
+  const { data: registryData } = useRegistryMap(true);
+  const registryOn = registryData?.enabled === true;
+  const [registryLayerOn, setRegistryLayerOn] = useState(false);
+  const [permitFilter, setPermitFilter] = useState<PermitFilter>("all");
+  const usdRate = useUsdToTjsRate();
+  const activeFilter: PermitFilter = registryOn ? permitFilter : "all";
+  const data = useMemo(
+    () => (rawData ? applyPermitFilter(rawData, registryData?.propertyColors ?? {}, activeFilter, usdRate) : rawData),
+    [rawData, registryData, activeFilter, usdRate],
+  );
+  const registryLayer = useMemo<RegistryMapLayer | null>(() => {
+    if (!registryOn || !registryData) return null;
+    const colors = registryData.propertyColors;
+    return {
+      // Слой проектов виден только когда его включили; кольца статуса у наших объектов видны всегда.
+      projects: registryLayerOn ? registryProjectsForMap(registryData.projects, activeFilter) : [],
+      propertyColors: Object.fromEntries(Object.entries(colors).filter(([, c]) => activeFilter === "all" || c === activeFilter)),
+    };
+  }, [registryOn, registryData, registryLayerOn, activeFilter]);
 
   const ribbonItems = useMemo(() => {
     const items = (data?.properties ?? []).filter(
@@ -615,6 +640,7 @@ export function PropertiesMap() {
             onHoverProperty={setHoveredId}
             onEmptyClick={() => setSheet(null)}
             cardOpen={sheet != null}
+            registry={registryLayer}
           />
         )}
       </Suspense>
@@ -743,6 +769,37 @@ export function PropertiesMap() {
       </div>
 
       <ObjectsTabs />
+
+      {/* Реестр строек (только сотрудникам, рубильник в Настройках): слой проектов и фильтр по разрешению. */}
+      {registryOn && (
+        <div data-testid="registry-map-controls" style={{ margin: "0 0 8px" }}>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button
+              type="button"
+              className={`chip${registryLayerOn ? " ok" : ""}`}
+              aria-pressed={registryLayerOn}
+              onClick={() => setRegistryLayerOn((v) => !v)}
+            >
+              Реестр строек
+            </button>
+            <span className="quiet">Разрешение:</span>
+            <div className="seg" role="tablist" aria-label="Разрешение на строительство">
+              {PERMIT_FILTER_OPTIONS.map((o) => (
+                <button key={o.id} type="button" role="tab" aria-selected={permitFilter === o.id} onClick={() => setPermitFilter(o.id)}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {(registryLayerOn || permitFilter !== "all") && (
+            <p className="quiet" style={{ margin: "6px 0 0" }}>
+              {registryLayerOn ? "Кольца без заливки: стройки из реестра, у наших объектов кольцо вокруг метки. " : ""}
+              {permitFilter !== "all" ? "Объекты без связи с реестром скрыты. " : ""}
+              {registrySourceCaption(registryData?.updatedAt ?? null)}
+            </p>
+          )}
+        </div>
+      )}
 
       {loadFailed && (
         <div className="state">

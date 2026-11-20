@@ -1091,6 +1091,9 @@ const settingsUpdateSchema = z.object({
   botCommentPhoneConversation: z.boolean().optional(),
   /** Номер из комментария становится заявкой агенту (рубильник ревью #283, 20.11.2026). ВЫКЛ — как до #283. */
   botCommentPhoneLead: z.boolean().optional(),
+  /** Реестр разрешённых строек memor.pro (20.11.2026): еженедельный забор и показ сотрудникам; уведомление агенту при смене цвета. ВКЛ по умолчанию. */
+  constructionRegistryEnabled: z.boolean().optional(),
+  constructionRegistryNotify: z.boolean().optional(),
   /** Робозвонок покупателю после показа (13.09.2026, см. lib/postShowingCalls.ts и
    *  docs/buyer-antifraud-funnel-13-09-2026.md). Работает только поверх включённого
    *  живого голоса выше: свой канал звонка он не заводит, а пользуется тем же мостом. */
