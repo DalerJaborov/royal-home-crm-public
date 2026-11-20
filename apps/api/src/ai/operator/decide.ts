@@ -363,12 +363,14 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   let candidate: OperatorRole | null = null;
   if (u.role === "seller") candidate = "seller";
   else if (u.role === "buyer") candidate = propertyRef ? "buyer_property" : "buyer";
+  // Модель и слабая находка кода назвали разные стороны (слепое ревью #345): роль не угадываем — вопрос «купить или продать?».
+  else if (u.roleConflict && s.role === "unknown") candidate = null;
   else if (propertyRef) candidate = "buyer_property";
   // РОЛЬ — ПО СЛОВАМ КЛИЕНТА (владелец 20.11.2026: «чтобы покупатели не путались с продавцами»). Тема рекламы роль не
   // даёт: на рекламе «для собственников» пишут и покупатели (прод 20.11: «Салом» → заявка продавца; таджикская кнопка →
   // заявка покупателя). Без слов о роли — приветствие и вопрос «купить или продать?». Исключение одно: реклама КОНКРЕТНОГО
   // объекта, который сервер знает (фокус), и не голое приветствие — это интерес к объекту (SPEC, таблица ролей).
-  else if (s.role === "unknown" && ctx.ad.topic === "property" && ctx.focus && !u.greetingOnly) candidate = "buyer_property";
+  else if (s.role === "unknown" && ctx.ad.topic === "property" && ctx.focus && !u.greetingOnly && !u.roleConflict) candidate = "buyer_property";
   // «Хочу купить» у покупателя объекта — тот же покупатель объекта, а не общий поиск.
   if (candidate === "buyer" && s.role === "buyer_property") candidate = null;
   if (candidate && candidate !== s.role) {
@@ -392,6 +394,13 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     if (!said("no_call_ack")) flow.push(draft("no_call_ack"));
     // Повторное «не звоните» без номера: ответа нет — человек узнаёт (ревью #333, третий круг).
     else if (!answers.length) signal("no_phone");
+    return finish();
+  }
+  // «Нет, просто узнать», «Да нет, пока не надо» после предложения звонка (слепое ревью #345): номер не просим, коротко «пишите,
+  // когда удобно» один раз. Это не вечное «не звоните»: следующий вопрос по делу — снова интерес.
+  if (said("offer_call") && u.declines && !u.phone && u.question === "none" && !u.placeQuestion && !u.showing && !u.hasDetails &&
+    s.role !== "buyer" && s.role !== "seller") {
+    if (!said("no_call_ack")) flow.push(draft("no_call_ack"));
     return finish();
   }
 
@@ -419,17 +428,32 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   };
   // Номер известен только по каналу (WhatsApp) или из слов ЭТОГО хода: номер прошлых ходов нигде не сохранён (Р2).
   const phoneKnown = () => ctx.phoneKnown || !!u.phone;
-  /** За ответом «скажет агент» пойдёт номер или заявка: иначе это обещание без пути (клиент просил не звонить, номер не дали). */
-  const contactPathOpen = () => phoneKnown() || (!s.noCall && (s.asked.phone < Math.min(ctx.maxPhoneAsks, 2) || !said("office_phone")));
   /**
    * ИНТЕРЕС (владелец 21.11.2026: «почему то слишком быстро он номер берет»). Номер просим (или заводим заявку по номеру
    * WhatsApp), только когда клиент сам назвал роль, хочет показ, торгуется, просит человека, согласился на предложенный
    * звонок, назвал время или детали. Вопрос об объекте, цене, месте — ответ и ОДИН раз предложение звонка, без просьбы
    * номера в том же сообщении. Номер в словах клиента — заявка всегда.
    */
-  const agreedToCall = said("offer_call") && (u.agrees === true || u.ackOnly);
-  const strongInterest = !!u.phone || s.role === "buyer" || s.role === "seller" || u.showing === true || agreedToCall || u.bargain ||
-    u.question === "staff" || u.botQuestion || u.hasDetails || !!u.callback.when || u.callback.textOnly;
+  const agreedToCall = said("offer_call") && u.declines !== true && (u.agrees === true || u.ackOnly);
+  /**
+   * Второй вопрос по делу после предложения звонка — тоже интерес (слепое ревью #345: на рекламе объекта клиент спрашивал цену,
+   * место, этаж, документы, ремонт, а бот отвечал «скажет агент», номер не просил, заявку не заводил). В WhatsApp — заявка.
+   */
+  const askedAgain = said("offer_call") && u.declines !== true &&
+    (QUESTION_FOR_AGENT.has(u.question) || u.question === "fee" || !!u.placeQuestion || u.aboutThisProperty);
+  // Роль названа словами — интерес; покупатель только по вопросу этого хода («Квартира продаётся?») — ещё нет: ответ и
+  // предложение звонка, номер (в WhatsApp — заявка) — при следующем шаге клиента (слепое ревью #345).
+  // «Интересует эта квартира», «хочу купить эту» на объекте — роль словами этого хода, тоже интерес.
+  const roleInterest = ((s.role === "buyer" || s.role === "seller") && !(u.roleByQuestion && leadRole(prev.role) !== leadRole(s.role))) ||
+    ((u.role === "buyer" || u.role === "seller") && !u.roleByQuestion);
+  const strongInterest = !!u.phone || roleInterest || u.showing === true || agreedToCall || u.bargain ||
+    askedAgain || u.question === "staff" || u.botQuestion || u.hasDetails || !!u.callback.when || u.callback.textOnly;
+  /**
+   * За ответом «скажет агент» пойдёт номер или заявка: иначе это обещание без пути (клиент просил не звонить, номер не дали,
+   * или интереса нет, а предложение звонка уже звучало — тогда «скажет агент» не обещаем).
+   */
+  const contactPathOpen = () => (strongInterest || !said("offer_call")) &&
+    (phoneKnown() || (!s.noCall && (s.asked.phone < Math.min(ctx.maxPhoneAsks, 2) || !said("office_phone"))));
   /** Не больше двух просьб номера за разговор и не в соседних ходах: следующая — через два содержательных хода клиента. */
   const phoneAsksMax = Math.min(ctx.maxPhoneAsks, 2);
   const phoneAskCooled = () => s.asked.phone === 0 || (s.flags.clientTurns ?? 0) - (s.flags.phoneAskTurn ?? 0) >= 2;
@@ -453,7 +477,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
         if (!flow.length && !answers.length) { if (u.hasText && !u.ackOnly && !u.thanksOnly) flow.push(draft("got_it")); else signal("no_phone"); }
         return;
       }
-      flow.push(draft("ask_phone")); s.asked.phone += 1; s.flags.phoneAskTurn = s.flags.clientTurns ?? 0; s.step = "contact";
+      flow.push(draft(s.role === "seller" ? "ask_phone_seller" : "ask_phone")); s.asked.phone += 1; s.flags.phoneAskTurn = s.flags.clientTurns ?? 0; s.step = "contact";
       return;
     }
     // Номер не дали после всех просьб: один раз номер офиса, дальше тишина. Людей до заявки не зовём (решение владельца
@@ -493,9 +517,11 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     if (facts && (propertyLineComing || placeAsked)) {
       const id = facts.shortId;
       // «Где объект?» — район и город с сайта (и цена, если есть); места в карточке нет — честно «расскажет агент».
-      if (placeAsked && !facts.sold && facts.place) {
-        flow.push(facts.priceText ? draft("property_place_price", { id, place: facts.place, price: facts.priceText[language] })
-          : draft("property_place", { id, place: facts.place }));
+      // Место — ровно район и город с сайта (siteSync: location = район, город); «Рудаки» вслух не называем (SPEC «Тон»).
+      const place = facts.place && !/р[уӯ]дак/iu.test(facts.place) ? facts.place : null;
+      if (placeAsked && !facts.sold && place) {
+        flow.push(facts.priceText ? draft("property_place_price", { id, place, price: facts.priceText[language] })
+          : draft("property_place", { id, place }));
       } else {
         if (placeAsked && !facts.sold) answers.push(draft("place_by_agent"));
         flow.push(facts.sold ? draft("property_sold", { id }) : facts.priceText ? draft("property_price", { id, price: facts.priceText[language] })
@@ -531,9 +557,29 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (!answers.length && !flow.length && QUESTION_FOR_AGENT.has(u.question) && contactPathOpen()) {
     answers.push(draft(u.placeQuestion ? "place_by_agent" : "details_by_agent"));
   }
+  // Явная роль, номера нет (решение 21.11.2026 к SPEC п. 8, владелец: «слишком быстро он номер берет»): первым ответом — тёплое
+  // слово и ОДИН короткий вопрос по делу (покупателю — район, комнаты, бюджет; продавцу — что и где), номер — следующим ходом.
+  // В WhatsApp номер известен: заявка сразу (contact), вслух номер не просим.
+  const firstQuestion = roleFirstQuestion(s, u, phoneKnown());
+  if (firstQuestion) { flow.push(firstQuestion); greetBack(); return finish(); }
   contact();
   greetBack();
   return finish();
+}
+
+/** Первый вопрос по делу на явную роль без номера: один раз за разговор, только про недостающее. */
+function roleFirstQuestion(s: OperatorState, u: Understanding, phoneKnown: boolean): Draft | null {
+  if (phoneKnown || s.noCall || s.asked.details > 0 || s.asked.phone > 0 || (s.role !== "buyer" && s.role !== "seller")) return null;
+  // Покупатель только по вопросу: ответ и предложение звонка (contact), а не анкета.
+  if (u.roleByQuestion) return null;
+  // Клиент уже сам торопит контакт (торг, показ, человек, время звонка): вопрос о деталях не нужен, сразу номер.
+  if (u.bargain || u.showing || u.question === "staff" || u.botQuestion || u.callback.when || u.callback.textOnly) return null;
+  const fields = s.role === "seller" ? OPERATOR_SELLER_FIELDS : OPERATOR_BUYER_FIELDS;
+  const missing = fields.filter(field => !s.details[field]);
+  if (missing.length === 0) return null;
+  s.asked.details = 1;
+  return missing.length === fields.length ? draft(s.role === "seller" ? "role_details_seller" : "role_details_buyer")
+    : draft("role_details_missing", { missing });
 }
 
 /** Заявка: действие для приёма и «заявка принята» в памяти. Номер — из слов этого хода, иначе номер канала (WhatsApp). */

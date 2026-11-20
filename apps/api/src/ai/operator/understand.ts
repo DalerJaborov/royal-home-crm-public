@@ -75,6 +75,13 @@ const SHOWING_WORD = new RegExp(`${BW}(?:показ${TAIL}|покаж${TAIL}|п�
 /** Согласие: «да», «хорошо», «ҳа», «майлаш», «позвоните», «занг занед» (сложенный алфавит; 21.11.2026). */
 const AGREE_WORD = new RegExp(`^(?:да|ха|хо|бале|хоп|майли|майлаш|хорошо|давайте|конечно|ладно|ок|окей|хуб|розиям|мехохам|можно)(?:\\s|$)` +
   `|${BW}(?:(?:по|пере)звон${TAIL}|занг\\s+зан${TAIL})`, "u");
+/**
+ * Отказ (слепое ревью #345: «Да нет, пока не надо» считалось согласием по первому «да»): «нет», «не надо», «пока не нужно»,
+ * «не звоните», «лозим не / нест», «даркор не / нест», «ҳоло не», «намехоҳам», «занг назанед». Отказ сильнее согласия.
+ */
+const DECLINE_WORD = new RegExp(`^(?:(?:да|ха|ну)\\s+)?(?:нет|неа|не-не|не)(?:\\s|$)` +
+  `|${BW}(?:не\\s+(?:надо|нужно|нуждаюсь|сейчас|звон${TAIL}|перезван${TAIL}|хочу|интересн${TAIL})|ненадо|пока\\s+нет|` +
+  `(?:лозим|даркор|холо|хозир)\\s+(?:не|нест)|намехох${TAIL}|занг\\s+назан${TAIL}|нахох${TAIL})${EW}`, "u");
 /** Слово о жилье рядом с вопросом о месте: «хони заминитон», «эта квартира», «дом». */
 const HOUSE_WORD = new RegExp(`${BW}(?:хон(?:а|и|е)${TAIL}|хавли${TAIL}|замин${TAIL}|квартир${TAIL}|дом${TAIL}|участ${TAIL}|объект${TAIL}|обект${TAIL})`, "u");
 /** «Вы бот?», «это робот?», «шумо бот?» — вопрос о том, с кем говорит клиент (сложенный алфавит). */
@@ -175,7 +182,9 @@ function codeFacts(input: OperatorTurnInput) {
     rude: abuse === "threat" || abuse === "insult", spam: abuse === "spam",
     fee: leadOnlyAgencyFeeQuestion(own),
     placeQuestion: !isAdTemplateOpener(own) && PLACE_WORD.test(folded),
-    showing: !isAdTemplateOpener(own) && SHOWING_WORD.test(folded), agrees: AGREE_WORD.test(folded),
+    showing: !isAdTemplateOpener(own) && SHOWING_WORD.test(folded),
+    // Вопрос («Не далеко от центра?», «Нет, а где он?») — не отказ, а вопрос по делу.
+    agrees: AGREE_WORD.test(folded) && !DECLINE_WORD.test(folded), declines: DECLINE_WORD.test(folded) && !/[?؟]/u.test(own),
     quote: own.replace(/\s+/gu, " ").slice(0, 200),
   };
 }
@@ -211,7 +220,8 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     : intent.role === "renter" || intent.role === "landlord" ? "rent" : intent.role === "job" ? "job" : null;
   const role = roleWithOwnerRules(baseRole, code);
   const facts = classifyCustomerPropertyFactIntent(code.own, { hasPropertyContext: true });
-  const aboutThisProperty = !code.adOpener && (THIS_PROPERTY.test(code.folded) || (!!facts && !code.fee) || placeAboutProperty(code, ctx));
+  const aboutThisProperty = !code.adOpener && (THIS_PROPERTY.test(code.folded) || (!!facts && !code.fee) || placeAboutProperty(code, ctx) ||
+    focusPropertyQuestion(code, ctx));
   const staff = looksLikeWantsHumanAgent(code.own);
   const botQuestion = BOT_WORD.test(code.folded) && (/[?]/u.test(code.own) || PERSON_WORD.test(code.folded)) || PERSON_WORD.test(code.folded);
   const question: OperatorQuestion = code.fee ? "fee"
@@ -235,9 +245,27 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     job: { asked: null, openKey: position?.key ?? null },
     attachments: code.attachments, hasText: code.hasText, outsidePlace: outsidePlaceOf(code.own), quote: code.quote,
     placeQuestion: code.placeQuestion, bothRoles: role === "seller" && customerRoleSignals(code.own).both,
-    showing: code.showing, agrees: code.agrees,
+    showing: code.showing, agrees: code.agrees, declines: code.declines, roleByQuestion: roleByQuestion(role, question, code.own),
   };
 }
+
+/** Покупатель только по вопросу («Квартира продаётся?», «нархаш чанд?»), без явных слов покупки: это ещё не интерес к звонку. */
+function roleByQuestion(role: Understanding["role"], question: OperatorQuestion, own: string): boolean {
+  return role === "buyer" && question !== "none" && customerRoleSignals(own).strong !== "buyer" && !customerRoleSignals(own).buyWeak;
+}
+
+/**
+ * Реклама объекта, объект известен: «Квартира продаётся?», «сколько стоит ваша квартира», «хона дорам, иваз мекунед?» — вопрос
+ * об ЭТОМ объекте (слепое ревью #345: в WhatsApp такой вопрос сразу заводил заявку общего покупателя без ответа о цене).
+ * Своё жильё («хонаи ман», «моя квартира») сюда не попадает, кроме обмена на наш объект.
+ */
+function focusPropertyQuestion(code: ReturnType<typeof codeFacts>, ctx: OperatorContext): boolean {
+  if (!ctx.focus || code.fee || !HOUSE_WORD.test(code.folded)) return false;
+  if (!/[?؟]/u.test(code.own) && !PRICE_WORD.test(code.folded)) return false;
+  const signals = customerRoleSignals(code.own);
+  return !signals.strong && (!signals.ownHouse || EXCHANGE_WORD.test(code.folded));
+}
+const EXCHANGE_WORD = new RegExp(`${BW}(?:иваз${TAIL}|обмен${TAIL}|поменя${TAIL})`, "u");
 
 /** Вопрос о месте — это вопрос об объекте, когда рядом слово о жилье или клиент пришёл с рекламы объекта / объект в фокусе. */
 function placeAboutProperty(code: ReturnType<typeof codeFacts>, ctx: OperatorContext): boolean {
@@ -355,9 +383,17 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
   // РОЛЬ: явные слова решает КОД (словарь ai/customerAgentRole.ts: «продаю / мефурӯшам / furusham», «куплю / мехарам /
   // харидан», «ищу / меҷӯям», «сдаю / иҷора», «сниму»), модель — только когда код не решил (владелец 20.11.2026: «чтобы
   // покупатели не путались с продавцами»). Тема рекламы роль не даёт вовсе (ai/operator/decide.ts).
+  // Слепое ревью #345: поверх модели — только СИЛЬНЫЕ явные слова («мефурӯшам», «продаю», «харидан мехоҳам», «куплю»).
+  // Слабая находка (вопрос о цене / месте, «хона дорам», «… даркор», «бо савдо») — подсказка: модель молчит — берём её;
+  // модель назвала другую сторону — роль не ставим, бот спрашивает «купить или продать?» (`roleConflict`).
+  const strong = customerRoleSignals(code.own).strong;
   let role: Understanding["role"] = answer.role === "none" ? null : answer.role;
-  if (role && !leadOnlyQuoteFound(answer.roleQuote.slice(0, 200), clientTexts)) { rejected.push("role"); role = fallback.role; }
-  if (fallback.role && role !== fallback.role) { if (role) rejected.push("role"); role = fallback.role; }
+  let roleConflict = false;
+  if (role && !leadOnlyQuoteFound(answer.roleQuote.slice(0, 200), clientTexts)) { rejected.push("role"); role = null; }
+  const side = (value: Understanding["role"]) => value === "buyer" || value === "seller";
+  if (strong && !code.job && !code.rent) { if (role && role !== strong) rejected.push("role"); role = strong; }
+  else if (role && side(role) && side(fallback.role) && role !== fallback.role) { rejected.push("role"); role = null; roleConflict = true; }
+  else if (!role) role = fallback.role;
   role = roleWithOwnerRules(role, code);
 
   const details: Partial<OperatorDetails> = {};
@@ -392,7 +428,8 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       source: "model", role, question,
       aboutThisProperty: !code.adOpener && (answer.aboutThisProperty || fallback.aboutThisProperty),
       placeQuestion: code.placeQuestion, bothRoles: role === "seller" && fallback.bothRoles === true,
-      showing: code.showing, agrees: code.agrees,
+      showing: code.showing, agrees: code.agrees, declines: code.declines, ...(roleConflict ? { roleConflict: true } : {}),
+      roleByQuestion: roleByQuestion(role, question, code.own),
       details, hasDetails: Object.keys(details).length > 0 || fallback.hasDetails,
       phone: code.phone,
       // Модель ответила (пусто — значит времени нет): запасные правила её не перебивают; только если ответ отброшен кодом.

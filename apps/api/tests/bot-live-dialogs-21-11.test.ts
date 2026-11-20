@@ -27,6 +27,8 @@ const ctx = (over: Partial<OperatorContext> = {}): OperatorContext => ({
   brandName: "Royal Home", officePhone: "+992 00 000 00 02", sellerCommissionPercent: 2, outOfArea: false, ...over,
 });
 const PROPERTY_ID = "7d0f1d7e-3c5b-4e4b-9e57-1d2c3b4a5f60";
+/** Просьба номера (покупателю — «покажет», продавцу — «оценит и обсудит»). */
+const PHONE_ASK = (key: string) => key === "ask_phone" || key === "ask_phone_seller";
 function turn(text: string, c: OperatorContext, state: OperatorState = initialOperatorState()) {
   const u = understandFallback({ current: text }, state, c);
   const d = decide(state, u, c);
@@ -57,18 +59,21 @@ describe("fc9996a9: на вопрос клиента — ответ, потом 
     expect(noPlace.keys).toContain("place_by_agent");
     expect(noPlace.keys).toContain("offer_call");
   });
-  it("ИНВАРИАНТ: до заявки на вопрос по делу ответ не бывает одной просьбой номера (все роли и каналы)", () => {
+  it("ИНВАРИАНТ: до заявки на вопрос по делу ответ не бывает одной просьбой номера (все роли и каналы, первый и второй ход)", () => {
     const questions: Understanding["question"][] = ["other", "property_other", "property_price"];
+    // Второй ход: предложение звонка и вопрос о деталях уже звучали — здесь бот и просит номер (слепое ревью #345).
+    const second: OperatorState = { ...initialOperatorState(), spoken: { offer_call: 1 }, asked: { role: 0, details: 1, phone: 0 }, flags: { ...initialOperatorState().flags, clientTurns: 1 } };
     let checked = 0;
-    for (const role of [null, "buyer", "seller"] as const) for (const question of questions) for (const about of [false, true])
-      for (const place of [false, true]) for (const topic of [null, "property", "seller"] as const) for (const greeting of [null, "salom"] as const) {
-        const c = ctx({ ad: { topic, propertyId: null } });
-        const base = understandFallback({ current: "вопрос" }, initialOperatorState(), c);
-        const u: Understanding = { ...base, role, question, aboutThisProperty: about, placeQuestion: place, greeting, hasText: true, quote: "вопрос" };
-        const d = decide(initialOperatorState(), u, c);
-        const keys = d.steps.map(step => step.key).filter(key => key !== "greet" && key !== "greet_assalom");
-        if (keys.includes("ask_phone")) { checked++; expect(keys, JSON.stringify({ role, question, about, place, topic })).not.toEqual(["ask_phone"]); }
-      }
+    for (const start of [initialOperatorState(), second]) for (const role of [null, "buyer", "seller"] as const) for (const question of questions)
+      for (const about of [false, true]) for (const place of [false, true]) for (const topic of [null, "property", "seller"] as const)
+        for (const greeting of [null, "salom"] as const) {
+          const c = ctx({ ad: { topic, propertyId: null } });
+          const base = understandFallback({ current: "вопрос" }, start, c);
+          const u: Understanding = { ...base, role, question, aboutThisProperty: about, placeQuestion: place, greeting, hasText: true, quote: "вопрос" };
+          const d = decide(start, u, c);
+          const keys = d.steps.map(step => step.key).filter(key => key !== "greet" && key !== "greet_assalom");
+          if (keys.some(PHONE_ASK)) { checked++; expect(keys.length, JSON.stringify({ role, question, about, place, topic })).toBe(2); }
+        }
     expect(checked).toBeGreaterThan(20);
   });
 });
@@ -105,7 +110,7 @@ describe("номер не берём слишком быстро (владеле
         const t = turn(text, c, state);
         state = t.d.state;
         if (!["ок", "да", "Салом"].includes(text)) substantive++;
-        if (t.keys.includes("ask_phone")) {
+        if (t.keys.some(PHONE_ASK)) {
           asks++;
           expect(asks, `${n}`).toBeLessThanOrEqual(2);
           if (asks > 1) expect(substantive - lastAskTurn, `${n}: «${text}»`).toBeGreaterThanOrEqual(2);
@@ -122,13 +127,14 @@ describe("номер не берём слишком быстро (владеле
 });
 
 describe("иностранный номер в словах клиента — заявка с полным номером", () => {
-  it("«8977 589 27 67» → +7 и 11 цифр, не таджикский (агенту — кнопка «Позвонить» с причиной, #306), заявка заводится", () => {
-    const phone = extractVolunteeredPhone("8977 589 27 67");
-    expect(phone).toBe("+79775892767");
+  // Номер выдуманный (+7 900 000-00-01), не номер клиента с прода.
+  it("«8900 000 00 01» → +7 и 11 цифр, не таджикский (агенту — кнопка «Позвонить» с причиной, #306), заявка заводится", () => {
+    const phone = extractVolunteeredPhone("8900 000 00 01");
+    expect(phone).toBe("+79000000001");
     expect(isDialableTajikNumber(phone!)).toBe(false);
     const state = { ...initialOperatorState(), role: "buyer_property" as const, language: "tg" as const, asked: { role: 0, details: 0, phone: 1 } };
-    const t = turn("8977 589 27 67", ctx(), state);
-    expect(t.d.actions).toMatchObject([{ type: "accept_lead", role: "buyer", phone: "+79775892767" }]);
+    const t = turn("8900 000 00 01", ctx(), state);
+    expect(t.d.actions).toMatchObject([{ type: "accept_lead", role: "buyer", phone: "+79000000001" }]);
     expect(t.keys).toEqual(["phone_received"]);
   });
 });

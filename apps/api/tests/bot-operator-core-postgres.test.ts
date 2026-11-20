@@ -340,14 +340,14 @@ describe("ревью 19.11: недостающие тесты подключен
     expect(await intakeJob(f.eventKey)).toBeNull();
   });
 
-  it("Т2: Instagram — условия и просьба номера (без «одним сообщением»), номер следующим ходом, заявка продавца и мягкий вопрос о деталях", async () => {
+  it("Т2: Instagram — условия и один вопрос по делу (номер не первым ответом, SPEC п. 8), номер следующим ходом, заявка продавца", async () => {
     const f = await coreFixture("Хочу продать квартиру", "INSTAGRAM");
-    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, ваш номер телефона, агент позвонит, всё подробно расскажет и покажет.");
+    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, что продаёте и в каком районе, и агент с вами свяжется.");
     expect(await intakeJob(f.eventKey)).toBeNull();
     await settle(f.eventKey);
     const second = await f.receive("918 22 33 49");
-    expect(await plannedText(second)).toBe("Спасибо, передаю агенту, он позвонит вам в ближайшее время, " +
-      "а пока можете рассказать о квартире: район, сколько комнат и цену.");
+    // Вопрос о деталях уже звучал первым ответом — строка заявки его не повторяет.
+    expect(await plannedText(second)).toBe("Спасибо, номер получил, агент позвонит в ближайшее время.");
     expect((await intakeJob(second))?.payload).toMatchObject({ scenario: "seller", propertyId: null });
     coreModelUntouched(f);
   });

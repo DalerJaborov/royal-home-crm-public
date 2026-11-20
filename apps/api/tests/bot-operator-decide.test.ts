@@ -62,12 +62,13 @@ describe("таблица случаев SPEC.md (1–26)", () => {
     expect(t.state.asked.role).toBe(1);
   });
 
-  it("2. продолжение №1, «Сколько стоить эта квартира»: объект рекламы известен → объект и цена, предложение звонка уже звучало — номер не просим", () => {
+  it("2. продолжение №1, «Сколько стоить эта квартира»: объект рекламы известен → объект и цена; второй вопрос после предложения звонка — интерес, номер с объяснением", () => {
     const c = FB({ ad: { topic: "property", propertyId: PROPERTY_ID }, focus: focus164 });
     const [first, second] = run(c, [ru({ question: "fee" }), ru({ aboutThisProperty: true, question: "property_price" })]);
     // Владелец 21.11.2026: «слишком быстро он номер берет» — на вопрос об объекте ответ и ОДИН раз предложение звонка.
     expect(first!.keys).toEqual(["property_price", "offer_call"]);
-    expect(second!.keys).toEqual(["property_price"]);
+    // Слепое ревью #345: второй вопрос по делу после предложения звонка — интерес (иначе цепочка вопросов без номера и заявки).
+    expect(second!.keys).toEqual(["property_price", "ask_phone"]);
     expect(second!.text).toContain("№164");
     expect(second!.text).toContain("520 000 сомони");
     expect(second!.text).not.toMatch(/варианты от/u);
@@ -174,10 +175,10 @@ describe("таблица случаев SPEC.md (1–26)", () => {
     const c = IG({ ad: { topic: "property", propertyId: PROPERTY_ID }, focus: focus164 });
     const turns = run(c, [ru({ question: "fee" }), tg({ role: "seller", details: { units: "3" }, hasDetails: true, question: "other" }),
       tg({ details: { district: "Сино" }, hasDetails: true }), tg({ phone: "+992935551234" })]);
-    // 20.11.2026: детали до заявки не собираем — продавцу условия и просьба номера; вопрос о деталях — после заявки.
-    expect(turns[1]!.keys).toEqual(["seller_intro", "ask_phone"]);
-    // Номер только что просили (21.11.2026): в соседнем ходе — короткое «понял», а не та же просьба.
-    expect(turns[2]!.keys).toEqual(["got_it"]);
+    // 21.11.2026 (решение к SPEC п. 8): явная роль без номера — условия и ОДИН вопрос по делу; номер — следующим ходом,
+    // продавцу «оценит и всё обсудит».
+    expect(turns[1]!.keys).toEqual(["seller_intro", "role_details_seller"]);
+    expect(turns[2]!.keys).toEqual(["ask_phone_seller"]);
     expect(turns[1]!.state.role).toBe("seller");
     expect(turns[1]!.state.propertyId).toBeNull();
     expect(turns.map(t => t.text).join(" ").match(/2%/gu)?.length).toBe(1);
@@ -333,16 +334,16 @@ describe("пределы и запреты", () => {
     expect(turns[2]!.actions).toEqual([{ type: "call_staff", reason: "unclear" }]);
     expect(turns[3]!.silent && turns[3]!.actions.length === 0).toBe(true);
     // Ясная роль после тишины — разговор продолжается.
-    expect(one(IG(), ru({ role: "buyer" }), turns[3]!.state).keys).toEqual(["ask_phone"]);
+    expect(one(IG(), ru({ role: "buyer" }), turns[3]!.state).keys).toEqual(["role_details_buyer"]);
   });
 
   it("вопрос о деталях один раз, только про недостающее, ПОСЛЕ заявки, любой ответ принимается (20.11.2026)", () => {
     const partial = one(ctx(), ru({ role: "buyer", details: { rooms: "2" }, hasDetails: true }));
     expect(partial.keys).toEqual(["lead_and_details_missing"]);
     expect(partial.text).toBe("Спасибо, передаю агенту, он позвонит вам в ближайшее время, а пока можете добавить район и бюджет.");
-    // Номера нет: до заявки — только просьба номера, детали не выспрашиваем (они уже в памяти для заметки агенту).
+    // Номера нет (21.11.2026): первым ответом — один вопрос только про недостающее, номер — следующим ходом.
     const ig = one(IG(), ru({ role: "buyer", details: { rooms: "2" }, hasDetails: true }));
-    expect(ig.text).toBe("Напишите, пожалуйста, ваш номер телефона, агент позвонит, всё подробно расскажет и покажет.");
+    expect(ig.text).toBe("Напишите, пожалуйста, район и бюджет, и агент с вами свяжется.");
     expect(ig.state.details.rooms).toBe("2");
     const full = one(ctx(), ru({ role: "buyer", details: { rooms: "2", district: "Сино", budget: "60000$" }, hasDetails: true }));
     expect(full.keys).toEqual(["lead_known_phone"]);
@@ -353,19 +354,22 @@ describe("пределы и запреты", () => {
     expect(leads(turns)).toHaveLength(1);
   });
 
-  it("без номера: условия и просьба номера (первая), ответ без номера — вторая просьба, потом номер офиса один раз; номер — заявка и мягкий вопрос о недостающем", () => {
+  it("без номера: условия и вопрос по делу, потом просьба номера (продавцу «оценит»), вторая — через два хода, потом номер офиса один раз; номер — заявка", () => {
     const turns = run(IG(), [ru({ role: "seller" }), ru({ question: "area" }), ru({ details: { price: "80000$" }, hasDetails: true }),
-      ru({ ackOnly: true }), ru({ phone: "+992935551234" })]);
-    expect(turns[0]!.keys).toEqual(["seller_intro", "ask_phone"]);
-    expect(turns[0]!.state.asked.phone).toBe(1);
-    // 21.11.2026: в соседнем ходе номер не просим — только ответ; вторая просьба — через два содержательных хода.
-    expect(turns[1]!.keys).toEqual(["where_work"]);
-    expect(turns[2]!.keys).toEqual(["ask_phone"]);
-    expect(turns[2]!.text).toBe("Оставьте номер, и агент сам вам позвонит, расскажет подробно и покажет.");
-    expect(turns[3]!.text).toBe("Можете позвонить нам сами: +992 00 000 00 02.");
-    expect(turns.slice(0, 4).flatMap(t => t.actions)).toEqual([]);
-    expect(turns[4]!.keys).toEqual(["lead_and_details_missing"]);
-    expect(turns[4]!.text).toBe("Спасибо, передаю агенту, он позвонит вам в ближайшее время, а пока можете добавить район и сколько комнат.");
+      ru({ details: { rooms: "3" }, hasDetails: true }), ru({ ackOnly: true }), ru({ phone: "+992935551234" })]);
+    // 21.11.2026 (решение к SPEC п. 8): явная роль — условия и один вопрос по делу, номер не первым ответом.
+    expect(turns[0]!.keys).toEqual(["seller_intro", "role_details_seller"]);
+    expect(turns[0]!.state.asked.phone).toBe(0);
+    expect(turns[1]!.keys).toEqual(["where_work", "ask_phone_seller"]);
+    expect(turns[1]!.text).toMatch(/оценит и всё обсудит/u);
+    // В соседнем ходе номер не просим — короткое «понял»; вторая просьба — через два содержательных хода.
+    expect(turns[2]!.keys).toEqual(["got_it"]);
+    expect(turns[3]!.keys).toEqual(["ask_phone_seller"]);
+    expect(turns[3]!.text).toBe("Оставьте номер, и агент сам вам позвонит, оценит и всё обсудит.");
+    expect(turns[4]!.text).toBe("Можете позвонить нам сами: +992 00 000 00 02.");
+    expect(turns.slice(0, 5).flatMap(t => t.actions)).toEqual([]);
+    // Вопрос о деталях уже звучал первым ответом: строка заявки его не повторяет.
+    expect(turns[5]!.keys).toEqual(["phone_received"]);
     expect(leads(turns)).toHaveLength(1);
     expect(leads(turns)[0]).toMatchObject({ role: "seller", phone: "+992935551234" });
   });
@@ -384,12 +388,12 @@ describe("пределы и запреты", () => {
 
   it("Instagram: номер просим до maxPhoneAsks (вторая просьба другими словами), дальше один раз номер офиса и тишина", () => {
     const c = IG({ ad: { topic: "property", propertyId: PROPERTY_ID }, focus: focus164 });
-    // 21.11.2026: кнопка — цена и предложение звонка; вопрос — ответ без номера; «ок» на предложение — просьба номера;
-    // ещё «ок» сразу — номер в соседнем ходе не просим (тишина, человек узнаёт).
+    // 21.11.2026: кнопка — цена и предложение звонка; вопрос после предложения — интерес: ответ и просьба номера (слепое
+    // ревью #345); «ок» сразу — номер в соседнем ходе не просим (тишина).
     const turns = run(c, [ru({ adOpener: true }), ru({ question: "other" }), ru({ ackOnly: true }), ru({ ackOnly: true })]);
     expect(turns[0]!.keys).toEqual(["property_price", "offer_call"]);
-    expect(turns[1]!.keys).toEqual(["details_by_agent"]);
-    expect(turns[2]!.keys).toEqual(["ask_phone"]);
+    expect(turns[1]!.keys).toEqual(["details_by_agent", "ask_phone"]);
+    expect(turns[2]!.silent).toBe(true);
     expect(turns[3]!.silent).toBe(true);
     expect(turns[3]!.state.asked.phone).toBe(1);
     const strict = run(IG({ maxPhoneAsks: 1 }), [ru({ role: "buyer", details: { rooms: "2", district: "Сино", budget: "1" }, hasDetails: true }), ru({ ackOnly: true })]);
