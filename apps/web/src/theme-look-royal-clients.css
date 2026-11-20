@@ -593,3 +593,12 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow { position: relative; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page a.ry-crow-main::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow :is(.ry-crow-acts, .ry-crow-agent) { position: relative; z-index: 1; }
+
+/* Строка «Не связывались: 4 — …» и «Показать»: подписи нужно не меньше 12em, иначе кнопка уходит
+   строкой ниже (на 320 при тексте 17 буквы наезжали на кнопку, сторож overlap). */
+:root[data-ui-look="royal"] .clean-shell #main .rh2[data-ry-section="clients"].clean-clients-page > .scr > .clean-client-notices > .quiet > .txt { flex: 1 1 12em; min-width: 0; }
+/* Метка в строке клиента — одной строкой («первый звонок» не рвётся надвое). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow .chip { white-space: nowrap; max-width: 100%; }
+/* Крупный текст: «Продавцы / Покупатели» на всю строку, «Клиент» — строкой ниже. */
+:root[data-ui-look="royal"][data-mobile-ux]:is([data-text-size="large"], [data-text-size="xlarge"]) .rh2[data-ry-section="clients"].clean-clients-page .ry-clients-tools { flex-wrap: wrap; }
+:root[data-ui-look="royal"][data-mobile-ux]:is([data-text-size="large"], [data-text-size="xlarge"]) .rh2[data-ry-section="clients"].clean-clients-page .ry-clients-tools .seg { flex: 1 1 100%; }

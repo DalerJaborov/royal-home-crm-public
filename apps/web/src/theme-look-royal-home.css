@@ -348,3 +348,10 @@
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn svg { width: 22px; height: 22px; }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn:disabled { opacity: .6; cursor: default; }
+
+/* Крупный текст на узком телефоне (Профиль → Оформление): плитки в одну колонку — подпись
+   «Пропущенные звонки» не рвётся по буквам, а цифра остаётся крупной. */
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"]:is([data-text-size="large"], [data-text-size="xlarge"]) [data-ry-section="home"] .ry-strip { grid-template-columns: minmax(0, 1fr); }
+  :root[data-ui-look="royal"]:is([data-text-size="large"], [data-text-size="xlarge"]) [data-ry-section="home"] .ry-strip > .ry-tile { grid-column: auto; }
+}

@@ -331,6 +331,9 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         if (!visible(el) || skipped(el) || el.closest("[inert], [aria-hidden=\"true\"]")) continue;
         const r = el.getBoundingClientRect();
         if (r.width <= 2 || r.height <= 2) continue; // спрятанный флажок под своей подписью
+        // Клетка дня в сетке месяца: семь колонок на 320 физически уже 44; высота 44+, ширина ≥ 24
+        // (WCAG 2.5.8) — допустимо, как в любом календаре телефона.
+        if (el.closest(".cal") && r.height >= 44 - 0.5 && r.width >= 24) continue;
         // Ссылка внутри предложения — часть текста, не кнопка.
         if (el.tagName === "A" && getComputedStyle(el).display === "inline") {
           const host = el.parentElement;

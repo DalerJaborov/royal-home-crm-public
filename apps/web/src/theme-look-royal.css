@@ -235,6 +235,11 @@
 :root[data-ui-look="royal"][data-mobile-ux] { --rh-fs-sm-base: 15px; --rh-fs-md-base: 17px; --rh-fs-lg-base: 18px; }
 :root[data-ui-look="royal"][data-text-size="large"] { --rh-text-scale: 1.12; }
 :root[data-ui-look="royal"][data-text-size="xlarge"] { --rh-text-scale: 1.25; }
+/* Растёт текст, а не оболочка: нижнее меню, аватары и значки-счётчики держат обычный размер —
+   иначе на 320 подписи меню слипаются, а инициалы вылезают из круга (сторож «очень крупный», e2e). */
+:root[data-ui-look="royal"] :is(nav[data-bottomnav], .ry-avatar, .ry-crow-agent-av, .ry-circle, .ry-tile-alert) {
+  --rh-fs-xs: var(--rh-fs-xs-base); --rh-fs-sm: var(--rh-fs-sm-base); --rh-fs-md: var(--rh-fs-md-base); --rh-fs-lg: var(--rh-fs-lg-base);
+}
 /* Серый вторичный текст прежней разметки (.rh2 --muted/--faint, tailwind text-g500/g600, подсказка
    в поле) — тот же --rh-ui-hint: ≥ 4,5:1 к карточке, фону и подложке в обеих темах (тест). */
 :root[data-ui-look="royal"] :is(.rh2, .rh2 .mh, .rh2 .wiz) { --muted: var(--rh-ui-hint); --faint: var(--rh-ui-hint); }
@@ -887,4 +892,13 @@
 @media (max-width: 389.98px) {
   :root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision { padding-inline: 12px; }
   :root[data-ui-look="royal"] .clean-shell .clean .clean-decision-select { padding-inline: 8px; font-size: var(--rh-fs-sm); }
+}
+
+/* Крупный текст на узком телефоне: заголовок-дата главной на ступень меньше — иначе
+   «Пятница, 20 ноября» рвётся на две строки (сторож split). */
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"]:is([data-text-size="large"], [data-text-size="xlarge"]) .ry-hello-date { font-size: var(--rh-fs-xl); }
+  /* Системный список не переносит строку: на узком экране он держит обычный размер (15),
+     иначе «Мадина Каримова · 2 в работе» обрезается. Шторка-список вместо него — RhSelect, дальше. */
+  :root[data-ui-look="royal"]:is([data-text-size="large"], [data-text-size="xlarge"]) .clean-shell .clean .clean-decision-select { --rh-fs-sm: var(--rh-fs-sm-base); }
 }

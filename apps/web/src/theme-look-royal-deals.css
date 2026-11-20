@@ -344,3 +344,9 @@
    disabledDimGaps сверяет покрытие каждой перекраски кнопок). :not(#ry-dim) — вес id
    (такого id нет): правило тяжелее любой классовой перекраски выше и в шторках. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="deals"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
+
+/* Узкий телефон, текст 17: широкий шаг «Дальше: Согласование» — во всю строку, а не в две строки
+   внутри таблетки (сторож squeeze, отчёт 320 всех экранов, пачка C). */
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-step[data-wide="true"] { flex: 1 1 100%; }
+}
