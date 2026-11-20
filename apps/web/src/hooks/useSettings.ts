@@ -486,6 +486,12 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
   botMaxPhoneAsks: number;
   /** В режиме «только заявки»: «хотим посмотреть», «адрес» → заявка агенту сразу (по умолчанию true). */
   botHotIntentHandover: boolean;
+  /** После заявки: сотрудник писал за последние N минут — бот молчит (20.11.2026). */
+  botStaffQuietMinutes?: number;
+  /** «Бот пишет своими словами» (20.11.2026), по умолчанию выключен. */
+  botOwnWords?: boolean;
+  /** Номера проверяющих: с ними бот говорит как с клиентом, заявка карточкой не становится (20.11.2026). */
+  botReviewerPhones?: string[];
   /** «Бот отвечает сам» (18.11.2026): не зовёт руководство, сам отвечает шагом к номеру. По умолчанию false. */
   botAnswersItself: boolean;
   /** Номер из комментария: личное с вопросом, ответ под постом, скрытие (18.11.2026). По умолчанию false. */

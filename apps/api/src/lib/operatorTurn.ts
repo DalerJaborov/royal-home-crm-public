@@ -22,6 +22,7 @@ import { readCustomerOpenVacancies } from "./recruitmentPositions.js";
 import { leadOnlyWhen } from "./leadOnlySettings.js";
 import { leadOnlyCardAgentActive } from "./leadOnlyHandover.js";
 import { contactWhenWithoutAgent } from "./handoffPromise.js";
+import { isReviewerConversation } from "./botReviewers.js";
 
 
 const AD_TOPICS = new Set(["property", "seller", "job"]);
@@ -61,6 +62,23 @@ async function leadIntakePending(conversationId: string): Promise<boolean> {
   } catch { return true; }
 }
 
+/** Клиент дописывает подряд: прошлый ход оператора был не дольше этого назад («передал агенту» — один раз на серию). */
+export const OPERATOR_BURST_MS = 3 * 60_000;
+
+/**
+ * Сотрудник сам писал в этой переписке за последние `minutes` минут (агент из CRM, ответ из приложения Meta): после заявки
+ * бот уступает человеку (владелец 20.11.2026). Сбой чтения — «нет»: молчание без причины хуже короткого ответа.
+ */
+export async function staffWroteRecently(conversationId: string, minutes: number, now: Date): Promise<boolean> {
+  try {
+    const since = new Date(now.getTime() - Math.max(1, minutes) * 60_000).toISOString();
+    const rows = await prisma.$queryRaw<Array<{ n: number }>>`SELECT 1 AS "n" FROM "BotConversation" c,
+        jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages") = 'array' THEN c."messages" ELSE '[]'::jsonb END) e
+      WHERE c."id"=${conversationId} AND e->>'role'='assistant' AND e->'by'->>'kind' IN ('agent','manual') AND e->>'at' >= ${since} LIMIT 1`;
+    return rows.length > 0;
+  } catch { return false; }
+}
+
 /** Контекст хода оператора из базы и Настроек. Сбой чтения необязательного (вакансии, объект) — без него, не отказ хода. */
 export async function loadOperatorTurnSetup(input: {
   channel: string; conversationId: string; config: LeadOnlyConfig;
@@ -68,6 +86,8 @@ export async function loadOperatorTurnSetup(input: {
   focusPropertyId: string | null;
   /** Номер для звонка известен по каналу (WhatsApp и рубильник «номер WhatsApp»). */
   phoneKnownByChannel: boolean;
+  /** Номер отправителя в WhatsApp (для проверяющего из Настроек). */
+  peerPhone?: string | null;
   now?: Date;
 }): Promise<OperatorTurnSetup> {
   const now = input.now ?? new Date();
@@ -77,15 +97,19 @@ export async function loadOperatorTurnSetup(input: {
   // Объект разговора: этого хода, иначе тот, о котором уже говорили, иначе объект рекламы.
   const propertyId = input.focusPropertyId ?? state.propertyId ?? row?.adPropertyId ?? null;
   const clientId = row?.clientId ?? null;
-  const [focus, jobs, leadPending, cardAgentActive, noAgentWhen] = await Promise.all([focusOf(propertyId, input.channel), vacancies(),
+  const [focus, jobs, leadPending, cardAgentActive, noAgentWhen, staffActive] = await Promise.all([focusOf(propertyId, input.channel), vacancies(),
     clientId ? Promise.resolve(false) : leadIntakePending(input.conversationId),
     clientId ? leadOnlyCardAgentActive(clientId).catch(() => true) : Promise.resolve(true),
-    contactWhenWithoutAgent(now).catch(() => ({ ru: "в рабочее время", tg: "дар вақти корӣ" }))]);
+    contactWhenWithoutAgent(now).catch(() => ({ ru: "в рабочее время", tg: "дар вақти корӣ" })),
+    staffWroteRecently(input.conversationId, input.config.staffQuietMinutes ?? 30, now)]);
+  const reviewer = await isReviewerConversation(input.conversationId, input.peerPhone ?? null);
+  const previousAt = Date.parse(String((row?.leadOnlyPending as { updatedAt?: unknown } | null)?.updatedAt ?? ""));
   const topic = row?.adTopic && AD_TOPICS.has(row.adTopic) ? row.adTopic as "property" | "seller" | "job" : null;
   const ctx: OperatorContext = {
     channel: input.channel as OperatorChannel,
     phoneKnown: input.phoneKnownByChannel,
-    leadExists: !!clientId,
+    // У проверяющего заявка карточкой не становится (lib/botReviewers.ts): «заявка принята» держит его память, а не карточка.
+    leadExists: !!clientId || (reviewer && state.leadAccepted),
     leadPending,
     cardAgentActive,
     noAgentWhen,
@@ -99,6 +123,11 @@ export async function loadOperatorTurnSetup(input: {
     officePhone: PUBLIC_AGENCY_CONTACT.phone,
     sellerCommissionPercent: AGENCY_FACTS.commission.sellerPercent,
     outOfArea: false,
+    afterLeadReplies: input.config.repliesAfterLead !== false,
+    staffActive,
+    recentTurn: Number.isFinite(previousAt) && now.getTime() - previousAt >= 0 && now.getTime() - previousAt <= OPERATOR_BURST_MS,
+    workHours: { from: input.config.workHoursStart, to: input.config.workHoursEnd },
+    reviewer,
   };
   return { ctx, stored: row?.leadOnlyPending ?? null, state, clientId };
 }

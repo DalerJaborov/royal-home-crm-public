@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4148**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4150**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -28250,6 +28250,9 @@
         · дословно из кода
     - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : {…
       · зовёт noteLeadOnlyOnCard()
+  - если sealed.lead && await isReviewerPhone(sealed.phone, sealed.whatsappPhone)
+    - console.log(`[lead-only] проверка: заявка проверяющего не заводится (диалог ${conversation.id})`);
+      · пишет строку в журнал сервера
   - если !sealed.lead || !sealed.phone
     - return { status: "skipped", reason: "no_phone" };
       · дословно из кода
@@ -28323,6 +28326,9 @@
             · дословно из кода
         - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : {…
           · зовёт noteLeadOnlyOnCard()
+      - если sealed.lead && await isReviewerPhone(sealed.phone, sealed.whatsappPhone)
+        - console.log(`[lead-only] проверка: заявка проверяющего не заводится (диалог ${conversation.id})`);
+          · пишет строку в журнал сервера
       - если !sealed.lead || !sealed.phone
         - return { status: "skipped", reason: "no_phone" };
           · дословно из кода

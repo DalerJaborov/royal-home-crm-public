@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4148,
+  "forks": 4150,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -127223,6 +127223,21 @@
       },
       {
        "k": "if",
+       "t": "sealed.lead && await isReviewerPhone(sealed.phone, sealed.whatsappPhone)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[lead-only] проверка: заявка проверяющего не заводится (диалог ${conversation.id})`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
        "t": "!sealed.lead || !sealed.phone",
        "a": [],
        "c": [
@@ -127563,6 +127578,21 @@
              "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: \"noted\" } : {…",
              "a": [
               "зовёт noteLeadOnlyOnCard()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "sealed.lead && await isReviewerPhone(sealed.phone, sealed.whatsappPhone)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.log(`[lead-only] проверка: заявка проверяющего не заводится (диалог ${conversation.id})`);",
+             "a": [
+              "пишет строку в журнал сервера"
              ],
              "c": []
             }

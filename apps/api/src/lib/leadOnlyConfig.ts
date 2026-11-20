@@ -6,6 +6,7 @@
  * потому что его зовут и уведомления «по вашему объекту пишут» (lib/propertyInterestNotice.ts), а тот файл
  * тянет поиск объектов и приём заявок: круг импортов (audit:deps:gate).
  */
+import { isAutomationSwitchOn } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { clampMaxPhoneAsks, leadOnlyAppliesTo, LEAD_ONLY_DEFAULTS, type LeadOnlyConfig } from "../ai/leadOnlyMode.js";
 
@@ -13,12 +14,16 @@ export async function loadLeadOnlyConfig(): Promise<LeadOnlyConfig> {
   try {
     const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: {
       botLeadOnlyMode: true, botUseWhatsappNumber: true, botMaxPhoneAsks: true, botHotIntentHandover: true,
-      workHoursStart: true, workHoursEnd: true,
+      workHoursStart: true, workHoursEnd: true, botRepliesAfterLeadEnabled: true, botStaffQuietMinutes: true, botOwnWords: true,
     } });
     if (!row) return LEAD_ONLY_DEFAULTS;
     return { enabled: row.botLeadOnlyMode === true, useWhatsappNumber: row.botUseWhatsappNumber !== false,
       maxPhoneAsks: clampMaxPhoneAsks(row.botMaxPhoneAsks), hotIntentHandover: row.botHotIntentHandover !== false,
-      workHoursStart: row.workHoursStart || LEAD_ONLY_DEFAULTS.workHoursStart, workHoursEnd: row.workHoursEnd || LEAD_ONLY_DEFAULTS.workHoursEnd };
+      workHoursStart: row.workHoursStart || LEAD_ONLY_DEFAULTS.workHoursStart, workHoursEnd: row.workHoursEnd || LEAD_ONLY_DEFAULTS.workHoursEnd,
+      // Реестр «Автоматика ИИ и напоминания» (packages/shared/src/automationSwitches.ts): нет поля — ВКЛ.
+      repliesAfterLead: isAutomationSwitchOn(row, "botRepliesAfterLeadEnabled"),
+      staffQuietMinutes: Number.isInteger(row.botStaffQuietMinutes) && row.botStaffQuietMinutes > 0 ? row.botStaffQuietMinutes : 30,
+      ownWords: row.botOwnWords === true };
   } catch {
     // Настройки недоступны — режим считаем выключенным: прежнее поведение безопаснее молчания.
     return LEAD_ONLY_DEFAULTS;

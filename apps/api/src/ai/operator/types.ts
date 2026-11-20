@@ -37,15 +37,24 @@ export type OperatorDetails = Record<OperatorDetailField, string | null>;
 /** Ключи фраз (тексты — phrases.ts; тип Record<PhraseKey, …> там не даёт забыть ключ). */
 export const OPERATOR_PHRASE_KEYS = [
   "greet", "greet_assalom", "ask_role", "buyer_free", "identity", "bot_identity",
-  "seller_intro", "seller_commission", "ask_details_buyer", "ask_details_seller", "ask_details_missing",
-  "lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing",
-  "ask_details_seller_phone", "ask_details_buyer_phone", "ask_details_missing_phone", "office_phone",
+  "seller_intro", "seller_commission",
+  "lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing", "office_phone",
   "property_price", "property_no_price", "property_sold", "bargain",
   "lead_known_phone", "lead_callback", "lead_text_only", "ask_phone", "phone_received", "out_of_area_accepted",
   "callback_noted", "text_only_noted", "note_added", "welcome", "where_work", "rent_refusal", "photo_ack",
   "voice_failed", "foreign_post", "jobs_list", "job_open", "job_closed", "jobs_none", "job_contact",
   "no_call_ack", "rude_calm", "off_topic", "complaint_ack", "bargain_seller", "no_agent_noted",
+  // После заявки бот не молчит (владелец 20.11.2026): вопрос агенту, «когда позвонят?», приветствие, часы работы.
+  "question_noted", "lead_status", "lead_reminder", "work_hours",
+  // Только проверяющему из Настроек: «сброс» — разговор с нуля (lib/botReviewers.ts).
+  "reviewer_reset",
 ] as const;
+/**
+ * Ключи, которых больше нет (20.11.2026: «напишите одним сообщением» убрано), но которые лежат в памяти диалогов на проде
+ * (`spoken`). Чтение памяти их молча отбрасывает (state.ts), а не сбрасывает разговор целиком.
+ */
+export const OPERATOR_RETIRED_PHRASE_KEYS = ["ask_details_buyer", "ask_details_seller", "ask_details_missing",
+  "ask_details_seller_phone", "ask_details_buyer_phone", "ask_details_missing_phone"] as const;
 export type PhraseKey = typeof OPERATOR_PHRASE_KEYS[number];
 
 export type PhraseVarValue = string | number | readonly string[];
@@ -76,7 +85,11 @@ export interface OperatorState {
    * Заметки для агента, которые ещё не ушли (торг, «спрашивал цену объекта с рекламы»), и объект, номер и цену
    * которого уже назвали (одна строка на объект; повторно — только если клиент снова спросил цену).
    */
-  flags: { bargainAsked: boolean; adPriceAsked: boolean; propertyLineFor: string | null };
+  flags: { bargainAsked: boolean; adPriceAsked: boolean; propertyLineFor: string | null;
+    /** Прошлый ответ был только отметкой «передал агенту»: клиент дописывает подряд — второй раз не отмечаем (без повтора одной фразы). */
+    lastAck: boolean;
+    /** Продавцом клиент назвался сам: только тогда бот сам называет комиссию (тема рекламы роль не доказывает, 20.11.2026). */
+    sellerByWords: boolean };
   leadAccepted: boolean;
   /** Сотрудника уже звали (грубость, жалоба): не зовём второй раз. */
   staffCalled: boolean;
@@ -93,6 +106,10 @@ export type OperatorQuestion =
   | "fee"
   /** «Какие у вас услуги?» — ответ сам вопрос о роли. */
   | "services"
+  /** «Когда позвонят?», «что с заявкой?» (после заявки — напомнить агенту). */
+  | "status"
+  /** Время работы. */
+  | "hours"
   /** Цена / детали объекта, о котором разговор. */
   | "property_price"
   | "property_other"
@@ -124,6 +141,12 @@ export interface Understanding {
   language: OperatorLanguage | null;
   /** Слабая подсказка языка (одно «Салом»): берётся, только если язык разговора ещё не известен. */
   languageHint: OperatorLanguage | null;
+  /**
+   * Язык разговора по недавним репликам (код): последний уверенно определённый язык клиента, иначе язык последней реплики бота.
+   * Нужен, когда в этом сообщении языка нет (один номер, «ок»), а память оператора языка ещё не знает (20.11.2026: таджикский
+   * разговор, номер — и ответ по-русски).
+   */
+  contextLanguage?: OperatorLanguage | null;
   /** Чем клиент поздоровался: «ассалому алайкум» (ответ «Ваалайкум ассалом»), «салом», русское. */
   greeting: "assalom" | "salom" | "ru" | null;
   greetingOnly: boolean;
@@ -190,6 +213,16 @@ export interface OperatorContext {
   sellerCommissionPercent: number;
   /** Сервер знает, что объект разговора вне Душанбе (адрес объекта, гео). */
   outOfArea: boolean;
+  /** «Бот отвечает и после заявки» (Настройки, реестр выключателей; 20.11.2026). Нет поля — ВКЛ. */
+  afterLeadReplies?: boolean;
+  /** Сотрудник сам писал в этой переписке недавно (Настройки: botStaffQuietMinutes): после заявки бот молчит, ведёт человек. */
+  staffActive?: boolean;
+  /** Прошлый ход оператора был только что (клиент дописывает подряд). */
+  recentTurn?: boolean;
+  /** Разговор проверяющего из Настроек (lib/botReviewers.ts): «сброс» начинает сценарий заново, заявка карточкой не становится. */
+  reviewer?: boolean;
+  /** Рабочие часы из Настроек — для ответа «когда вы работаете». */
+  workHours?: { from: string; to: string };
 }
 
 export interface OperatorStepOut { key: PhraseKey; vars: PhraseVars; variant: number }

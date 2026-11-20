@@ -16,10 +16,10 @@
   "paths": 776,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4121,
+  "conditions": 4123,
   "untranslatedUnique": 473,
   "untranslatedTotal": 608,
-  "partialUnique": 1114,
+  "partialUnique": 1115,
   "translatedShare": 85
  },
  "untranslated": [
@@ -81321,6 +81321,12 @@
        ]
       },
       {
+       "t": "если есть заявка и это reviewer телефон",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
        "t": "если нет: заявка или нет: телефон",
        "k": "if",
        "a": [],
@@ -81413,6 +81419,13 @@
           },
           {
            "t": "если есть клиент (переписка)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть заявка и это reviewer телефон",
            "k": "if",
            "a": [],
            "c": [],

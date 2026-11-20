@@ -100,7 +100,7 @@ import { isOwnCustomerOutboxEcho } from "../lib/customerOutboxEcho.js";
 import { isOwnAccountSender, ownAccountPauseUntil } from "../lib/ownAccountGuard.js";
 import { isOutboundBlockedError, noteRealInbound } from "../lib/outboundShield.js";
 import { isMetaSendBlockError } from "../lib/metaSendBlock.js";
-import { OPERATOR_ECHO_PAUSE_MS, applyDeliveryPause, deliverBotVoiceReply } from "../lib/conversationDelivery.js";
+import { OPERATOR_ECHO_PAUSE_MS, applyDeliveryPause, deliverBotVoiceReply, staffRelayPauseMs } from "../lib/conversationDelivery.js";
 import {
   noteFirstContactDelivery,
   noteFirstContactReply,
@@ -1562,7 +1562,9 @@ export async function handleOutgoingEcho(msg: {
   // Короткая пауза не укорачивает действующую длинную (23.09.2026): свой агент
   // ответил из CRM — бот молчит годами, и сотрудник, дописавший с телефона, не
   // должен возвращать бота в разговор через 10 минут (applyDeliveryPause).
-  await applyDeliveryPause({ kind: "bot", id: conv.id }, new Date(Date.now() + OPERATOR_ECHO_PAUSE_MS), true);
+  // Режим «только заявки»: эстафета, а не 12 часов (владелец 20.11.2026, lib/conversationDelivery.ts::staffRelayPauseMs).
+  const echoPauseMs = (await staffRelayPauseMs({ kind: "bot", id: conv.id })) ?? OPERATOR_ECHO_PAUSE_MS;
+  await applyDeliveryPause({ kind: "bot", id: conv.id }, new Date(Date.now() + echoPauseMs), true);
   traceEchoReason("manual");
   const written = msg.text || (msg.attachmentType ? `[вложение: ${msg.attachmentType}]` : "");
   if (written) {

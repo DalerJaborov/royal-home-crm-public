@@ -100,10 +100,11 @@ export function customerSellerIntakeQuestion(known: readonly SellerFactKey[], la
     // book list «шумораи ҳуҷраҳо, масоҳат, … нарх бо асъор-ро нависед» that 12 sellers got in a week.
     const asks = missing.map(key => liveTg[key]);
     const list = asks.length > 1 ? `${asks.slice(0, -1).join(", ")} ва ${asks[asks.length - 1]}` : asks[0];
-    return `Хонаатон ${list}? Ҳамаи маълумотро дар як паём нависед.`;
+    // Без «дар як паём нависед» (владелец 20.11.2026: «какая разница, если он даже напишет не одним сообщением»).
+    return `Хонаатон ${list}?`;
   }
   const fields = missing.map(key => labels[key][language]).join(", ");
-  return `Для продажи напишите ${fields}. Можно всё одним сообщением.`;
+  return `Для продажи расскажите, пожалуйста: ${fields}.`;
 }
 const liveTg: Record<SellerFactKey, string> = { rooms: "чанд ҳуҷра", area: "чанд квадрат", district: "дар куҷо", floor: "кадом ошёна",
   condition: "бо таъмир ё каробка", price: "нархаш чанд" };
@@ -122,6 +123,13 @@ export function customerSellerIntakeQuestionLines(): string[] {
     for (const language of ["ru", "tg"] as const) lines.push(customerSellerIntakeQuestion(known, language));
     const retired = retiredSellerIntakeTg(known);
     if (retired) lines.push(retired);
+    // Строки до 20.11.2026 («одним сообщением») остаются узнаваемыми в памяти старых разговоров.
+    const missing = SELLER_FACT_ORDER.filter(key => !known.includes(key));
+    if (missing.length) {
+      const asks = missing.map(key => liveTg[key]);
+      lines.push(`Хонаатон ${asks.length > 1 ? `${asks.slice(0, -1).join(", ")} ва ${asks[asks.length - 1]}` : asks[0]}? Ҳамаи маълумотро дар як паём нависед.`);
+      lines.push(`Для продажи напишите ${missing.map(key => labels[key].ru).join(", ")}. Можно всё одним сообщением.`);
+    }
   }
   return lines;
 }

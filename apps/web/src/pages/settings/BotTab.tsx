@@ -1091,7 +1091,93 @@ function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: bool
               {askError}
             </p>
           )}
+          <BotHumanFields onToggle={onToggle} />
         </>
+      )}
+    </>
+  );
+}
+
+/**
+ * БОТ ПО-ЧЕЛОВЕЧЕСКИ (владелец 20.11.2026). «Бот отвечает и после заявки» — в «Автоматике ИИ и напоминаниях» (реестр
+ * выключателей); здесь — то, что нужно только режиму «только заявки»: сколько бот уступает сотруднику, живые слова модели
+ * и номера проверяющих. Тумблер переключается сразу (optimistic в useUpdateSettings).
+ */
+function BotHumanFields({ onToggle }: { onToggle: (field: string, next: boolean) => void }) {
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const ownWords = settings?.botOwnWords ?? false;
+  const quiet = settings?.botStaffQuietMinutes ?? 30;
+  const savedReviewers = (settings?.botReviewerPhones ?? []).join(", ");
+  const [reviewers, setReviewers] = useState(savedReviewers);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setReviewers(savedReviewers), [savedReviewers]);
+  const onError = (err: unknown) => setError(err instanceof Error ? err.message : "Не удалось сохранить настройку");
+  return (
+    <>
+      <SwitchRow
+        title="Бот пишет своими словами"
+        on={ownWords}
+        hint={
+          ownWords
+            ? "Что сказать, решает код, а слова подбирает ИИ. Если ответ ИИ не прошёл проверку, уходит готовая фраза."
+            : "Бот отвечает готовыми фразами. Включать после проверки на живых диалогах."
+        }
+        onToggle={() => onToggle("botOwnWords", !ownWords)}
+      />
+      <div className="mod">
+        <div className="t">
+          <b>Сотрудник ответил — бот молчит</b>
+          <span style={{ whiteSpace: "normal" }}>
+            Столько минут после сообщения сотрудника бот не вмешивается. Потом снова отвечает, если клиент пишет.
+          </span>
+        </div>
+        <div className="acts">
+          <div className="seg" role="group" aria-label="Сколько минут бот молчит после сотрудника">
+            {[15, 30, 60].map((n) => (
+              <button
+                key={n}
+                type="button"
+                aria-pressed={quiet === n}
+                aria-selected={quiet === n}
+                onClick={() => {
+                  setError(null);
+                  updateSettings.mutate({ botStaffQuietMinutes: n }, { onError });
+                }}
+              >
+                {n} мин
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="mod">
+        <div className="t">
+          <b>Номера проверяющих</b>
+          <span style={{ whiteSpace: "normal" }}>
+            С этих номеров бот говорит как с клиентом, заявка в CRM не заводится. Слово «сброс» начинает разговор заново.
+          </span>
+        </div>
+        <div className="acts">
+          <input
+            className="inp"
+            aria-label="Номера проверяющих через запятую"
+            placeholder="+992 …, +992 …"
+            value={reviewers}
+            onChange={(event) => setReviewers(event.target.value)}
+            onBlur={() => {
+              if (reviewers === savedReviewers) return;
+              setError(null);
+              const list = reviewers.split(/[,;\n]/u).map((phone) => phone.trim()).filter(Boolean);
+              updateSettings.mutate({ botReviewerPhones: list }, { onError });
+            }}
+          />
+        </div>
+      </div>
+      {error && (
+        <p className="msg" role="alert">
+          {error}
+        </p>
       )}
     </>
   );

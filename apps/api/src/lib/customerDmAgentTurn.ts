@@ -874,6 +874,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     return { status: "planned", partIds };
   } catch (error) {
     heldCause = safeCauseCode(error);
+    // 17.11 и 20.11 ход падал «RangeError» без места: в журнал — первая строка стека из нашего кода (файл:строка, без слов
+    // клиента), иначе причину не найти (разбор каналов 20.11.2026).
+    const frame = error instanceof Error ? (error.stack ?? "").split("\n")
+      .find(line => /apps[\\/]api[\\/](?:src|dist)|\/app\/(?:src|dist)\//u.test(line))?.trim().slice(0, 200) : undefined;
+    if (frame) void logSystemError("ai", `Ход бота клиента: ${heldCause} в ${frame.replace(/^at\s+/u, "")}`, { dedupKey: `customer-core-frame:${heldCause}:${frame}`, quietPult: true });
     await releaseHeldClaim(claim, "customer_core_unavailable");
     return { status: "held", reason: "customer_core_unavailable" };
   } finally {

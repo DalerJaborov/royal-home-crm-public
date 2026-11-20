@@ -66,6 +66,7 @@ import { leadOnlyAppliesTo, leadOnlyEscalateLine, leadOnlyFilterReply, leadOnlyO
 import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, noteLeadOnlyOnCard } from "../lib/leadOnlyHandover.js";
 import { leadOnlyQuietBeforeLead } from "../lib/leadOnlyConfig.js";
 import { runOperatorTurn, type OperatorTurnInput } from "../ai/operator/index.js";
+import { isReviewerPhone } from "../lib/botReviewers.js";
 import { saveOperatorStateTx } from "../ai/operator/state.js";
 import { loadOperatorTurnSetup, operatorLeadDraft } from "../lib/operatorTurn.js";
 import { adPropertyForLead } from "../lib/adPropertyRule.js";
@@ -3139,14 +3140,16 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     focusPropertyId = focusPropertyId ?? draft.requestedPropertyId ?? (await propertyChatLeadPropertyId(conversation.id)) ?? null;
     const wa = channel === "WHATSAPP" && leadOnlyConfig.useWhatsappNumber ? await resolveWhatsAppLeadIdentity(channel, subscriberId) : null;
     const setup = await loadOperatorTurnSetup({ channel, conversationId: conversation.id, config: leadOnlyConfig, focusPropertyId,
-      phoneKnownByChannel: !!wa?.leadPhone });
+      phoneKnownByChannel: !!wa?.leadPhone, peerPhone: channel === "WHATSAPP" ? subscriberId : null });
     const recent = history.slice(-8).map((m) => ({ role: m.role === "user" ? "user" as const : "assistant" as const, text: String(m.content ?? "") }));
-    const operator = await runOperatorTurn({ storedState: setup.stored, ctx: setup.ctx,
+    const operator = await runOperatorTurn({ storedState: setup.stored, ctx: setup.ctx, ownWords: { enabled: leadOnlyConfig.ownWords === true },
       input: { current: said, recent, conversationId: conversation.id, ...(attachments ? { attachments } : {}) } });
     for (const action of operator.actions) {
       if (action.type === "accept_lead") {
         const phone = action.phone ?? wa?.leadPhone ?? null;
         if (!phone || conversation.clientId) continue;
+        // Проверяющий из Настроек (lib/botReviewers.ts): тестовая заявка карточкой не становится и агентам не уходит.
+        if (await isReviewerPhone(phone, wa?.waPhone)) { console.log(`[messenger] проверка: заявка проверяющего не заводится (${conversation.id})`); continue; }
         let failure: string | null = null;
         try {
           const accepted = await acceptLead(conversation.id, channel, conversation.name ?? name, phone, operatorLeadDraft(action, draft), history, {

@@ -23,6 +23,7 @@ export const OPERATOR_STATE_TTL_MS = 30 * 24 * 60 * 60_000;
  */
 export const OPERATOR_HANDOFF_RESET_MS = 24 * 60 * 60_000;
 
+const KNOWN_KEYS: ReadonlySet<string> = new Set(OPERATOR_PHRASE_KEYS);
 const shortText = z.string().trim().max(120).nullable();
 const counter = z.number().int().min(0).max(1000);
 const storedSchema = z.object({
@@ -32,7 +33,10 @@ const storedSchema = z.object({
   step: z.enum(["start", "role", "details", "contact", "done", "handoff"]),
   language: z.enum(["ru", "tg"]).nullable(),
   asked: z.object({ role: counter, details: counter, phone: counter }),
-  spoken: z.partialRecord(z.enum(OPERATOR_PHRASE_KEYS), counter).default({}),
+  // Ключи, убранные из фраз (OPERATOR_RETIRED_PHRASE_KEYS), и любые незнакомые молча отбрасываются: из-за одной старой
+  // отметки память разговора (роль, язык, «заявка принята») не должна обнуляться (20.11.2026).
+  spoken: z.record(z.string(), counter).default({}).transform(raw =>
+    Object.fromEntries(Object.entries(raw).filter(([key]) => KNOWN_KEYS.has(key))) as Partial<Record<(typeof OPERATOR_PHRASE_KEYS)[number], number>>),
   propertyId: z.string().uuid().nullable(),
   details: z.object(Object.fromEntries(OPERATOR_DETAIL_FIELDS.map(field => [field, shortText.default(null)])) as Record<(typeof OPERATOR_DETAIL_FIELDS)[number], z.ZodDefault<typeof shortText>>),
   callback: z.object({ when: shortText, textOnly: z.boolean() }),
@@ -40,7 +44,8 @@ const storedSchema = z.object({
   outOfArea: z.boolean(),
   place: shortText.default(null),
   flags: z.object({ bargainAsked: z.boolean().default(false), adPriceAsked: z.boolean().default(false),
-    propertyLineFor: z.string().uuid().nullable().default(null) }),
+    propertyLineFor: z.string().uuid().nullable().default(null), lastAck: z.boolean().default(false),
+    sellerByWords: z.boolean().default(false) }),
   leadAccepted: z.boolean(),
   staffCalled: z.boolean(),
   closed: z.boolean().default(false),
@@ -61,7 +66,9 @@ export function readOperatorState(raw: unknown, now: Date = new Date()): Operato
     const { updatedAt: _updatedAt, ...rest } = parsed.data;
     const state = { ...rest, details: { ...emptyOperatorDetails(), ...rest.details }, spoken: { ...rest.spoken } } as OperatorState;
     // Через сутки «Передал агенту» снова можно сказать один раз (ревью 19.11, Р5).
-    if (age > OPERATOR_HANDOFF_RESET_MS) { delete state.spoken.note_added; delete state.spoken.no_agent_noted; }
+    if (age > OPERATOR_HANDOFF_RESET_MS) {
+      delete state.spoken.note_added; delete state.spoken.no_agent_noted; delete state.spoken.welcome; delete state.spoken.lead_reminder;
+    }
     if ((state.closed || state.step === "handoff") && age > OPERATOR_HANDOFF_RESET_MS) {
       state.closed = false; state.staffCalled = false;
       state.step = state.leadAccepted ? "done" : "start";
