@@ -825,15 +825,16 @@
 /* Предложение поставить CRM на экран — одной строкой в самом экране «Главная», не плавающим слоем
    (аудит К06.1, 21.11: плашка над меню закрывала низ каждого экрана). Разметка — InstallAppHint.tsx. */
 :root[data-ui-look="royal"] .ry-install-card {
-  display: grid; gap: 8px; max-width: 440px; margin: 0 auto; padding: 6px 6px 6px 14px; border-radius: var(--rh-r-full);
+  display: grid; gap: 8px; max-width: 440px; margin: 0 auto; padding: 12px 12px 8px 16px; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .ry-install-card:has(.ry-install-steps) { border-radius: var(--rh-r-lg); padding-top: 12px; }
-:root[data-ui-look="royal"] .ry-install-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* Две строки, как бы ни была узка ширина: значок и название, ниже действия справа. В одну строку на 390 px название
+   сжималось до слога на строку («Поста / вьте / CRM»). */
+:root[data-ui-look="royal"] .ry-install-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-install-row > .i { width: 20px; height: 20px; flex: none; color: var(--rh-ui-primary-ink); }
-:root[data-ui-look="royal"] .ry-install-row > b { flex: 1 1 auto; min-width: 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.25; }
+:root[data-ui-look="royal"] .ry-install-row > b { flex: 1 1 calc(100% - 32px); min-width: 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.25; }
 :root[data-ui-look="royal"] .ry-install-go {
-  flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
+  flex: none; min-height: 44px; margin-left: auto; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
   background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-install-x {
