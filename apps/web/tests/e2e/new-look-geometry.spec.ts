@@ -106,6 +106,27 @@ for (const device of DEVICES) {
 }
 
 /**
+ * «Размер текста: очень крупный» (+25%, Профиль → Оформление) на самом узком телефоне: ничего не
+ * вылезает и не режется — длинное переносится строкой (решение владельца 20.11, пачка C).
+ */
+test("новый вид, геометрия при «Очень крупном» тексте — iPhone 320 @smoke", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
+  test.setTimeout(10 * 60_000);
+  const context = await contextForRole(browser, "DIRECTOR", phone(IPHONE_UA, "light")(320));
+  const page = await context.newPage();
+  await stubLookVisualData(page, { textSize: "xlarge" });
+  const problems: string[] = [];
+  for (const screen of OWNER_SCREENS.filter((s) => s.url !== "/ads")) {
+    await open(page, screen);
+    await expect(page.locator("html")).toHaveAttribute("data-text-size", "xlarge");
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+    for (const f of await geometryFindings(page, { skip: screen.skip, kinds: kindsAt(320, screen.kinds) })) problems.push(`${screen.url} @320 xlarge: ${f}`);
+  }
+  await context.close();
+  expect(problems, "поломки геометрии при очень крупном тексте").toEqual([]);
+});
+
+/**
  * Движок Safari (WebKit): iPhone 390 и ПК 1440. Владелец смотрит с iPhone, а Chromium и
  * WebKit по-разному переносят строки и рисуют шрифт. WebKit ставится отдельно
  * (`npx playwright install webkit`); не установлен — тест пропускается с причиной.
