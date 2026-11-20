@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { House } from "lucide-react";
+import { PropertyPhoto } from "../property/PropertyPhoto";
 import { formatMoney } from "../../lib/format";
 import type { Interaction } from "../../types";
 
@@ -24,7 +24,7 @@ export function PropertyMiniCard({ property }: { property: NonNullable<Interacti
   const body = (
     <>
       <span className="ph" style={{ width: 48, height: 48, flexShrink: 0 }}>
-        {thumb ? <img src={thumb} alt="" loading="lazy" decoding="async" /> : <House className="i" strokeWidth={1.5} />}
+        <PropertyPhoto fill compact sources={[thumb]} />
       </span>
       <span className="t" style={{ minWidth: 0 }}>
         <b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

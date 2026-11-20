@@ -262,3 +262,8 @@
 /* Выключенная кнопка раздела приглушена всегда — любая, и строка-кнопка списка «Месяц» (пачка debt, второе ревью):
    :not(#ry-dim) — вес id (такого id нет), тяжелее любой классовой перекраски выше. */
 :root[data-ui-look="royal"] [data-ry-section="calendar"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
+
+/* Подпись события на ПК в узкой клетке (79 px) встаёт в две строки («4 / задачи»): радиус —
+   половина высоты ОДНОЙ строки, а не 999 px — две строки читаются плашкой, а не сплющенной
+   таблеткой (сторож lookGeometry «squeeze», 20.11). */
+:root[data-ui-look="royal"] .ry-calendar.rh2.screens[data-ry-section="calendar"] .cal .d .ev { border-radius: 10px; }

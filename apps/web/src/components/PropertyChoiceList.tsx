@@ -1,8 +1,9 @@
-import { useId, useState } from "react";
+import { useId } from "react";
 import type { Property } from "../types";
 import { formatArea, formatMoney } from "../lib/format";
 import { formatPropertyCode } from "../lib/clientFormat";
 import { statusChipLabel } from "../lib/theme2026";
+import { PropertyPhoto } from "./property/PropertyPhoto";
 
 type Choice = Pick<Property, "id" | "shortId" | "title"> & Partial<Pick<Property, "photos" | "price" | "currency" | "district" | "address" | "rooms" | "areaSqm" | "floor" | "totalFloors" | "status">>;
 
@@ -39,11 +40,8 @@ export function PropertyChoiceList({ items, value, onChange, emptyLabel, disable
   </fieldset>;
 }
 
+/** Фото объекта в выборе — общая дверь PropertyPhoto (ревью PR 331): та же очередь ссылок и та же заглушка. */
 function ChoicePhoto({ photo }: { photo?: Property["photos"][number] }) {
-  const [attempt, setAttempt] = useState(0);
-  const sources = [...new Set([photo?.thumbUrl, photo?.url].filter((url): url is string => !!url))];
-  return sources[attempt]
-    ? <img src={sources[attempt]} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" onError={() => setAttempt((n) => n + 1)} />
-    : <span className="w-full break-words px-1 text-center text-[14px] text-gray-500">{sources.length ? "Фото недоступно" : "Нет фото"}</span>;
+  return <PropertyPhoto fill sources={[photo?.thumbUrl, photo?.url]} />;
 }
 

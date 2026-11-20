@@ -5,6 +5,7 @@ import { useCanWriteAds, useLinkAd, useProperties } from "../../hooks/useAds";
 import type { AdSheetTarget } from "./AdPropertiesSheet";
 import type { UnmatchedAd } from "../../hooks/useAds";
 import { formatMoneyExact } from "../../lib/format";
+import { PropertyPhoto } from "../property/PropertyPhoto";
 
 /**
  * ПРИВЯЗКА РЕКЛАМЫ К ОБЪЕКТАМ — галерея публикаций.
@@ -110,7 +111,7 @@ function AdCard({ ad, onEditProperties }: { ad: UnmatchedAd; onEditProperties: (
           ad.candidates.map((c) => (
             <div className="prow" key={c.id}>
               <span className="ph" aria-hidden>
-                {c.coverUrl ? <img src={c.coverUrl} alt="" loading="lazy" /> : <ImageIcon className="i" />}
+                <PropertyPhoto fill compact sources={[c.coverUrl]} />
               </span>
               <div className="t">
                 <b>

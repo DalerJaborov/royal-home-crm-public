@@ -81,7 +81,7 @@ export function PropertyPeople({
           идти за номером, видно и так.
           С 18.11.2026 полный номер видит только директор; тот, кто ведёт объект, видит
           продавца именем и номером маской (`ownerContactMasked`) и звонит кнопкой. */}
-      {showOwner && (!property.ownerContactHidden || !!property.ownerContactMasked || !!property.sellerClient) && (
+      {showOwner && ownerVisible(property) && (
         <>
           <h3 className="sec-t">Собственник</h3>
           <OwnerRow property={property} phoneInField={ownerPhoneInField} />
@@ -91,12 +91,22 @@ export function PropertyPeople({
   );
 }
 
-function OwnerRow({
+/** Виден ли собственник этому сотруднику — решает сервер (маска, `ownerContactHidden`, `sellerClient`). */
+export function ownerVisible(property: Pick<Property, "ownerContactHidden" | "ownerContactMasked" | "sellerClient">): boolean {
+  return !property.ownerContactHidden || !!property.ownerContactMasked || !!property.sellerClient;
+}
+
+/** Строка собственника: имя, номер (полный или маской — как отдал сервер) и «Позвонить» через CRM. */
+export function OwnerRow({
   property,
   phoneInField = false,
+  hideDeadCall = false,
 }: {
   property: Pick<Property, "ownerContact" | "ownerContactMasked" | "sellerClient">;
   phoneInField?: boolean;
+  /** «Новый вид», главный блок карточки: без открытой карточки продавца звонить через
+   *  станцию не от чего — кнопки нет вовсе, а не неактивная (ревью PR 331). */
+  hideDeadCall?: boolean;
 }) {
   const seller = property.sellerClient ?? null;
   const fullPhone = property.ownerContact?.trim() || null;
@@ -125,7 +135,7 @@ function OwnerRow({
               продавца. Правило звонка живёт в CallClientButton: без открытой
               карточки продавца звонить через станцию не от чего — кнопка
               неактивна (звонка с личного телефона нет с 29.09.2026). */}
-          {phone && (
+          {phone && (canOpen || !hideDeadCall) && (
             <CallClientButton
               clientId={canOpen ? seller!.id : null}
               phone={phone}

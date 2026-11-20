@@ -432,10 +432,16 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
   return { start, retry, cancel };
 }
 
-export function useResumeConversationBot(id: string | null) {
+/** Одна переписка или все каналы общего чата клиента (новый вид, ревью #332):
+ *  руководитель ставит/снимает паузу разом во всех каналах разговора. */
+function botControlIds(id: string | readonly string[] | null): string[] {
+  return (Array.isArray(id) ? [...id] : id ? [id as string] : []).filter(Boolean);
+}
+
+export function useResumeConversationBot(id: string | readonly string[] | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api(`/conversations/${id}/resume`, { method: "POST" }),
+    mutationFn: () => Promise.all(botControlIds(id).map((one) => api(`/conversations/${one}/resume`, { method: "POST" }))),
     // Не silent, а свой текст: возврат диалога боту ничего не «сохраняет», но и
     // своей обратной связи у кнопки нет — ни Messages.tsx, ни MobileChatView не
     // рисуют отказ этой мутации. Заглушить её значило бы оставить оператора вовсе
@@ -451,10 +457,10 @@ export function useResumeConversationBot(id: string | null) {
 }
 
 /** Пауза без отправки сообщения — кнопки-пресеты в шапке инбокса. */
-export function usePauseConversationBot(id: string | null) {
+export function usePauseConversationBot(id: string | readonly string[] | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (pausedUntil: string) => api(`/conversations/${id}/pause`, { method: "POST", body: { pausedUntil } }),
+    mutationFn: (pausedUntil: string) => Promise.all(botControlIds(id).map((one) => api(`/conversations/${one}/pause`, { method: "POST", body: { pausedUntil } }))),
     // См. useResumeConversationBot: своей обратной связи у кнопок-пресетов нет,
     // поэтому тост оставляем — правим только слово.
     meta: { successText: "Бот на паузе — отвечаете вы" },
