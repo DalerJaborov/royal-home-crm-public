@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { SecretKeyEditor } from "../../components/SecretKeyEditor";
 import { CoverTemplatesSection } from "./CoverTemplatesSection";
 import { api } from "../../lib/api";
+import { Rh2ErrorState } from "../../components/rh2/Rh2ErrorState";
 import {
   useCoverReference,
   useOpenAiCovers,
@@ -25,7 +26,7 @@ import {
  * медиазапросы темы (правило CLAUDE.md).
  */
 export function OpenAiCoversSection({ templateHeading }: { templateHeading?: string } = {}) {
-  const { data, isLoading } = useOpenAiCovers();
+  const { data, isLoading, isError, refetch, isFetching } = useOpenAiCovers();
   const update = useUpdateOpenAiCovers();
   const test = useTestOpenAiCover();
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +83,9 @@ export function OpenAiCoversSection({ templateHeading }: { templateHeading?: str
           </p>
         )}
 
-        {isLoading || !data ? (
+        {isError && !data ? (
+          <Rh2ErrorState message="Не удалось загрузить настройки обложек. Проверьте связь и нажмите «Повторить»." onRetry={() => void refetch()} retrying={isFetching} />
+        ) : isLoading || !data ? (
           <p className="quiet">Загружаем…</p>
         ) : (
           <>

@@ -32,6 +32,7 @@ import { usePropertiesHealth } from "../hooks/usePropertiesHealth";
 import type { PropertyHealthBrief } from "@royal-home/shared";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
+import { Rh2RetryingNote } from "../components/rh2/Rh2ErrorState";
 
 import { Pagination } from "../components/Pagination";
 import { formatMoney, PROPERTY_TYPE_LABELS, pluralizeRu } from "../lib/format";
@@ -768,7 +769,7 @@ export function Properties() {
           {/* Первый запрос не прошёл, идут повторы (до ~30 с): сразу сказать словами, а не молча
               крутить серые плитки (съёмка экранов 20.11). */}
           {isLoading && !error && failureCount > 0 && (
-            <p className="quiet" role="status"><span className="txt">Связь с сервером прерывается, пробуем ещё раз…</span></p>
+            <Rh2RetryingNote onRetry={() => void refetch()} />
           )}
           {isLoading && !error && clean && view === "cards" && (
             <div className={royal ? "ry-obj-grid" : "clean-property-grid"} data-view={royal ? "cards" : undefined} aria-hidden="true">

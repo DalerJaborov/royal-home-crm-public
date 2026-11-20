@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { formatMoney } from "../../../lib/format";
 import type { Deal } from "../../../types";
+import { pillTone } from "../tileTone";
 import { RhCircle, type RhTone } from "../ui";
 import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
@@ -62,7 +63,7 @@ export function RoyalApprovalRow({ deal, showMoney, canDecide, canEdit, busy, on
             <button type="button" className="ry-deal-link" title="Отправить на доработку" onClick={onReturn}>Вернуть</button>
           </>
         ) : (
-          <span className="ry-deal-tag" data-tone="warn">ждёт руководителя</span>
+          <span className="ry-deal-tag" data-tone={pillTone("info")}>ждёт руководителя</span>
         )}
       </div>
     </div>
@@ -86,8 +87,8 @@ export function RoyalArchiveRow({ deal, kind, onOpen, actions }: {
         <span className="ry-deal-obj">{deal.property.title}</span>
         <span className="ry-deal-figs">
           <span className="ry-deal-price ry-num">{formatMoney(deal.property.price, deal.property.currency)}</span>
-          {done && deal.commissionAmount ? <span className="ry-deal-tag ry-num" data-tone="ok">+{formatMoney(deal.commissionAmount, deal.currency)}</span> : null}
-          {!done && deal.annulledAt && <span className="ry-deal-tag" data-tone="warn">аннулирована</span>}
+          {done && deal.commissionAmount ? <span className="ry-deal-tag ry-num" data-tone={pillTone("good")}>+{formatMoney(deal.commissionAmount, deal.currency)}</span> : null}
+          {!done && deal.annulledAt && <span className="ry-deal-tag" data-tone={pillTone("info")}>аннулирована</span>}
         </span>
         {/* Отказной лид: агентская часть комиссии делится 70/30 — условие обычной строкой со значком, не подсказкой и не таблеткой. */}
         {done && deal.refusedLeadSplit && (

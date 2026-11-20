@@ -68,9 +68,24 @@ export function retryDelayFor(failureCount: number, error: unknown): number {
 // поставил галочку, сменил статус), кнопки «Сохранить» там нет, и человек искал
 // её глазами, не понимая, применилось ли изменение. Централизованный обработчик
 // покрывает и те экраны, которые появятся потом.
+/**
+ * ЗАПРОС ДАННЫХ БЕЗ СЕТИ — ОШИБКА, А НЕ ПАУЗА (К14, аудит 20.11.2026: «нет сети = вечный скелет»).
+ * По умолчанию react-query (networkMode "online") при `navigator.onLine === false` не шлёт запрос вовсе, а
+ * ставит на паузу: статус остаётся `pending`, экран крутит серые плашки без единого слова и без «Повторить».
+ * Поэтому запросы данных идут в режиме "always" (запрос уходит, обрыв превращается в ошибку), а пока устройство
+ * без связи, повторять бессмысленно: ошибка и «Повторить» появляются сразу, а когда связь вернулась,
+ * `refetchOnReconnect` сам перезапрашивает упавшее. Вынесено ради теста (`__tests__/queryOfflinePolicy.test.ts`).
+ */
+export function shouldRetryQuery(failureCount: number, error: unknown, online: boolean = typeof navigator === "undefined" || navigator.onLine !== false): boolean {
+  if (!online) return false;
+  if (error instanceof ApiError && error.status === 429) return failureCount < 1;
+  return isTransientFailure(error) && failureCount < 4;
+}
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      networkMode: "always",
       // 12.09.2026: было 25 секунд на КАЖДЫЙ запрос в CRM. Живость горячих
       // мест (лиды, диалоги, сделки, уведомления, пульт) теперь держит поток
       // событий — lib/liveEvents.ts, — и общий таймер стал тем, чем должен
@@ -98,10 +113,7 @@ export const queryClient = new QueryClient({
       // (тот список остался как был) — ровно один повтор, не четыре: сервер
       // уже сказал, когда можно (retryAfterMs), тянуть его четыре раза подряд
       // незачем и добивало бы то же окно лимитера.
-      retry: (failureCount, error) => {
-        if (error instanceof ApiError && error.status === 429) return failureCount < 1;
-        return isTransientFailure(error) && failureCount < 4;
-      },
+      retry: (failureCount, error) => shouldRetryQuery(failureCount, error),
       // 1 → 2 → 4 → 8 секунд плюс разброс до 30%: без разброса полтора десятка
       // запросов одного экрана, упавших вместе на перезапуске, вместе же и
       // повторились бы — и добили бы только что поднявшийся API. Для 429 —

@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RoyalCallFlag, RoyalCallListen, RoyalCallRow } from "./RoyalCallRow";
+import { pillTone, scorePillTone } from "../tileTone";
 import { CALL_ICONS } from "./callIconData";
 import { CallIcon } from "./CallIcon";
 import { TranscriptView } from "../../TranscriptView";
@@ -165,7 +166,7 @@ describe("строка звонка", () => {
   it("ничего не прячет: суть, все пометки и одна кнопка на месте", () => {
     const markup = html(
       <RoyalCallRow dir="out" dirLabel="Исходящий" title="Клиент" meta={["Исходящий", "5 мин назад", "4:05", "Ноза"]}
-        note="Договорились о показе" flags={<><RoyalCallFlag tone="ok">Балл 82</RoyalCallFlag><RoyalCallFlag tone="crit">Без договорённости</RoyalCallFlag></>}
+        note="Договорились о показе" flags={<><RoyalCallFlag tone={scorePillTone(82)}>Балл 82</RoyalCallFlag><RoyalCallFlag tone={pillTone("info")}>Без договорённости</RoyalCallFlag></>}
         action={<RoyalCallListen open={false} onToggle={() => {}} controls="d1" duration="4:05" canListen />} />,
     );
     for (const text of ["Договорились о показе", "Балл 82", "Без договорённости", "4:05", "Ноза"]) expect(markup).toContain(text);

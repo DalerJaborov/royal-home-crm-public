@@ -17,6 +17,7 @@ import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { pillTone } from "../components/look/tileTone";
 import { RoyalDealsHead, RoyalDealsSummary } from "../components/look/deals/RoyalDealsHead";
 import { RoyalApprovalRow, RoyalArchiveRow, RoyalDealThumb } from "../components/look/deals/RoyalDealRows";
 import { RoyalDealColumnHead, RoyalDealTileBody } from "../components/look/deals/RoyalDealTile";
@@ -874,7 +875,7 @@ export function Deals() {
                           Одобрить
                         </button>
                       ) : (
-                        <span className="ry-deal-tag" data-tone="warn">ждёт руководителя</span>
+                        <span className="ry-deal-tag" data-tone={pillTone("info")}>ждёт руководителя</span>
                       )}
                     </span>
                   </article>

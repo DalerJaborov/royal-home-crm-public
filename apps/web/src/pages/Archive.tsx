@@ -612,7 +612,7 @@ function ArchiveScreen() {
                 <rect x="3" y="4" width="18" height="17" rx="3" />
                 <path d="M3 9h18" />
               </svg>
-              Объекты
+              <span className="lbl">Объекты</span>
             </span>
             <b>{binCount(propertyTrashLoading, propertyTrashPage?.total)}</b>
             <small>в корзине объектов</small>
@@ -627,7 +627,7 @@ function ArchiveScreen() {
                 <circle cx="12" cy="8" r="4" />
                 <path d="M4 21a8 8 0 0 1 16 0" />
               </svg>
-              Клиенты
+              <span className="lbl">Клиенты</span>
             </span>
             <b>{binCount(clientTrashLoading, clientTrashPage?.total)}</b>
             <small>в корзине клиентов</small>
@@ -642,7 +642,7 @@ function ArchiveScreen() {
                 <path d="M3 7h18v12H3z" />
                 <path d="M3 11h18" />
               </svg>
-              Расходы
+              <span className="lbl">Расходы</span>
             </span>
             {/* У расходов постраничной выдачи нет: сервер отдаёт весь список за
                 период, поэтому число это его длина, а не `total`. Без права

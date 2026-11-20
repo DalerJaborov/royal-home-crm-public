@@ -817,7 +817,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                         </div>
                         {c.hasRecording && liveData.calls.canHear && <Headphones className="i" aria-label="Есть запись" />}
                         {c.score != null && <span className={`score ${weekScoreTone(c.score)}`}>{c.score}</span>}
-                        {c.agreedNextStep === false && <span className="chip warn">без договорённости</span>}
+                        {c.agreedNextStep === false && <span className="chip mute">без договорённости</span>}
                       </Link>
                     ))}
                   </div>
@@ -1507,7 +1507,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                         </span>
                         {c.hasRecording && liveData.calls.canHear && <Headphones className="i" aria-label="Есть запись" />}
                         {c.score != null && <span className={`score ${weekScoreTone(c.score)}`}>{c.score}</span>}
-                        {c.agreedNextStep === false && <span className="chip warn">без договорённости</span>}
+                        {c.agreedNextStep === false && <span className="chip mute">без договорённости</span>}
                       </div>
                     ))}
                   </div>

@@ -1,12 +1,13 @@
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import { glueNumbers } from "../lib/glueNumbers";
-import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
+import { Rh2ErrorState, Rh2RetryingNote } from "../components/rh2/Rh2ErrorState";
 import { useClientRowActions } from "../hooks/useClientRowActions";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientRow, cleanClientColumns } from "../components/clean/CleanClientRow";
 import { CButton, cn } from "../components/clean/ui";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalClientListHead, RoyalClientRow } from "../components/look/clients/RoyalClients";
+import { clientActionPillTone } from "../components/look/tileTone";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RhButton } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
@@ -601,7 +602,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
             ))}
             {/* Первый запрос не прошёл, идут повторы (до ~30 с): сразу сказать словами, а не молча
                 крутить серые полосы (съёмка экранов 20.11). */}
-            {failureCount > 0 && <p className="quiet"><span className="txt">Связь с сервером прерывается, пробуем ещё раз…</span></p>}
+            {failureCount > 0 && <Rh2RetryingNote onRetry={() => void refetch()} />}
           </div>
         )}
         {/* Ошибка — словами и с кнопкой, а не вечные серые полосы (съёмка экранов 20.11:
@@ -877,7 +878,7 @@ function ClientRow({
   const chip = primaryState && primaryState.id !== "pending" ? (
     <ClientStateBadge client={c} />
   ) : action && action.id !== "accept" ? (
-    <Chip tone={action.tone}>{mobile ? action.short : action.label}</Chip>
+    <Chip tone={royal ? clientActionPillTone(action) : action.tone}>{mobile ? action.short : action.label}</Chip>
   ) : null;
 
   const name = c.displayName ?? formatClientName(c);

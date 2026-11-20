@@ -539,3 +539,13 @@
 :root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .tiles .tile.ry-tile-calm .hd .ic { background: var(--rh-ui-bg); color: var(--rh-ui-hint); }
 /* Пустые срезы одной строкой «Всё спокойно: …». */
 :root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .ry-calm-line .txt { white-space: normal; text-wrap: pretty; }
+
+/* «Верно» / «Неверно» в обучении бота (К13, аудит 20.11): рутинное действие не должно быть самым ярким пятном экрана.
+   Обе кнопки — спокойные, одного веса (серая подложка, как «вторичная» кнопка); смысл несут слова. Нажатая «Неверно» уходит
+   в режим исправления, там цвет не нужен. Высота — под палец (не ниже 44), а не 64. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .tr-acts .tr-act {
+  min-height: 52px; height: auto; background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); font-weight: 700; box-shadow: inset 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .tr-acts .tr-act:hover:not(:disabled) { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .tr-acts .tr-act:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }

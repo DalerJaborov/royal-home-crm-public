@@ -651,7 +651,7 @@ export function Notifications() {
                   Не удалось загрузить ленту. Это не значит, что уведомлений нет — попробуйте ещё раз.
                 </MhQuiet>
                 <button type="button" className="btn soft sm" onClick={() => refetch()}>
-                  Попробовать снова
+                  Повторить
                 </button>
               </>
             )}

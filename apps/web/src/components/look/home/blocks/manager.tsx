@@ -5,7 +5,7 @@ import { useTeamLive, type UnacceptedLead } from "../../../../hooks/useTeamLive"
 import { useConversations } from "../../../../hooks/useConversations";
 import { channelBrand } from "../time";
 import { RhAvatar, RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
-import { tileTone } from "../../tileTone";
+import { pillTone, tileTone } from "../../tileTone";
 import { HomeChip, HomeMore, HomeQuick, useExpandable, type HomeQuickItem } from "../parts";
 
 /**
@@ -107,9 +107,9 @@ export function ManagerTeam() {
               title={a.fullName}
               sub={`в работе ${a.activeLoad}, ждут ответа ${a.pendingAccept}, принял сегодня ${a.acceptedToday}`}
               subTone={a.pendingAccept > 0 ? "warn" : undefined}
-              right={a.escalated > 0 ? <HomeChip tone="crit">{a.escalated} просрочено</HomeChip>
+              right={a.escalated > 0 ? <HomeChip tone={pillTone("overdue", a.escalated)}>{a.escalated} просрочено</HomeChip>
                 // Решение владельца: «чем занят» не подписываем — честное «свободен/занят» по загрузке.
-                : <HomeChip tone={a.activeLoad > 0 ? "warn" : "ok"}>{a.activeLoad > 0 ? "занят" : "свободен"}</HomeChip>} />
+                : <HomeChip tone={pillTone("info")}>{a.activeLoad > 0 ? "занят" : "свободен"}</HomeChip>} />
           ))}
           <HomeMore rest={list.rest} onClick={list.more} />
         </RhGroup>}
@@ -157,7 +157,7 @@ function LeadRow({ lead, focus = false }: { lead: UnacceptedLead; focus?: boolea
       title={lead.fullName}
       sub={sub}
       subTone={lead.lost ? undefined : lead.escalated ? "crit" : "warn"}
-      right={lead.lost ? <HomeChip tone="muted">потерянный, вручную</HomeChip>
-        : lead.escalated ? <HomeChip tone="crit">никто не принял</HomeChip> : undefined} />
+      right={lead.lost ? <HomeChip tone={pillTone("info")}>потерянный, вручную</HomeChip>
+        : lead.escalated ? <HomeChip tone={pillTone("overdue")}>никто не принял</HomeChip> : undefined} />
   );
 }

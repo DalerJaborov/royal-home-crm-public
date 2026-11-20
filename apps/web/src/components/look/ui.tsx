@@ -277,7 +277,10 @@ export function RhAvatar({ name, src, size = 48 }: { name: string; src?: string 
   );
 }
 
-/** Короткое состояние блока: «Не загрузилось» + «Повторить», без первого лица. */
+/**
+ * Короткое состояние блока: «Не загрузилось» + «Повторить», без первого лица. Тот же текст и та же кнопка, что у
+ * общего `Rh2ErrorState` (components/rh2): внутри блока главной он стоит строкой, на экране — карточкой.
+ */
 export function RhBlockState({ kind, onRetry }: { kind: "loading" | "error" | "empty"; onRetry?: () => void }) {
   if (kind === "loading") return <div className="ry-skeleton" role="status" aria-label="Загрузка"><span /><span /><span /></div>;
   if (kind === "error") return (

@@ -22,6 +22,7 @@ import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalCallsTop } from "../components/look/calls/RoyalCallsTop";
 import { RoyalCallFlag, RoyalCallRow } from "../components/look/calls/RoyalCallRow";
+import { pillTone } from "../components/look/tileTone";
 import { RhAvatar, RhButton, RhCircle, RhGroup, RhRow } from "../components/look/ui";
 
 /**
@@ -343,7 +344,7 @@ export function Telephony() {
                       lead={<span className="ry-tel-av" data-online={ext.online ? "" : undefined}><RhAvatar name={ext.fullName} /></span>}
                       title={ext.fullName}
                       sub={`Номер ${ext.extension}`}
-                      right={<RoyalCallFlag tone={ext.online ? "ok" : ext.knownToStation ? "mute" : "crit"}>
+                      right={<RoyalCallFlag tone={pillTone(ext.online ? "good" : ext.knownToStation ? "info" : "today")}>
                         {ext.online ? "на связи" : ext.knownToStation ? "не подключён" : "нет на станции"}
                       </RoyalCallFlag>}
                     />
@@ -490,7 +491,7 @@ function RoyalLiveCalls({ live }: { live: TelephonyDashboard["live"] }) {
             dirLabel="Входящий"
             title={call.clientShortId ? <Link className="ry-call-name" to={`/clients/${call.clientShortId}`}>{name}</Link> : name}
             meta={[call.answered ? `Входящий, принял ${call.answeredByName ?? call.answeredBy ?? "оператор"}` : "Входящий, трубку ещё не сняли"]}
-            flags={<RoyalCallFlag tone={call.answered ? "ok" : "crit"}>{call.answered ? "Разговор" : "Ждёт ответа"}</RoyalCallFlag>}
+            flags={<RoyalCallFlag tone={pillTone(call.answered ? "good" : "today")}>{call.answered ? "Разговор" : "Ждёт ответа"}</RoyalCallFlag>}
             action={<span className="ry-call-tick ry-num" data-tone={call.answered ? undefined : "crit"}>{formatLiveSeconds(call.seconds)}</span>}
           />
         );
@@ -502,7 +503,7 @@ function RoyalLiveCalls({ live }: { live: TelephonyDashboard["live"] }) {
           dirLabel="Исходящий"
           title={<Link className="ry-call-name" to={`/clients/${call.clientShortId}`}>{call.clientName}</Link>}
           meta={["Исходящий, звоним клиенту"]}
-          flags={<RoyalCallFlag tone="warn">{OUTGOING_STATE[call.state] ?? call.state}</RoyalCallFlag>}
+          flags={<RoyalCallFlag tone={pillTone("info")}>{OUTGOING_STATE[call.state] ?? call.state}</RoyalCallFlag>}
           action={<span className="ry-call-tick ry-num">{formatLiveSeconds(call.seconds)}</span>}
         />
       ))}

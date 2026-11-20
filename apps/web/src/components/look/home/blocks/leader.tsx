@@ -7,6 +7,7 @@ import { mcOk, useMissionControl, type McHero } from "../../../../hooks/useMissi
 import { useTeamLive } from "../../../../hooks/useTeamLive";
 import { RoyalIcon } from "../../RoyalIcon";
 import { RhAvatar, RhBlockState, RhGroup, RhRow, RhSection } from "../../ui";
+import { pillToneOf } from "../../tileTone";
 import { HomeChip } from "../parts";
 import { monthPace, useMinuteNow } from "../time";
 import { agentStatus, commissionTrend, previousMonthPeriod } from "../leader";
@@ -144,7 +145,7 @@ export function LeaderTeam({ id, className, to = "/team", limit = 8 }: { id?: st
               lead={<RhAvatar name={agent.fullName} src={agent.avatarUrl} size={48} />}
               title={agent.fullName}
               sub={parts.join(" · ")}
-              right={status.flag ? <HomeChip tone={status.flag.tone}>{status.flag.text}</HomeChip> : undefined} />
+              right={status.flag ? <HomeChip tone={pillToneOf(status.flag.tone)}>{status.flag.text}</HomeChip> : undefined} />
           );
         })}
       </RhGroup>

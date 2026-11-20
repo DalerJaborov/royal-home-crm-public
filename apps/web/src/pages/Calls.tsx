@@ -45,7 +45,8 @@ import { ScreenTabs } from "../components/ScreenTabs";
 import { InboxTabs } from "../components/SectionTabs";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
-import { RoyalCallFlag, RoyalCallListen, RoyalCallRow, scoreFlagTone } from "../components/look/calls/RoyalCallRow";
+import { RoyalCallFlag, RoyalCallListen, RoyalCallRow } from "../components/look/calls/RoyalCallRow";
+import { pillTone, scorePillTone } from "../components/look/tileTone";
 import { CallSourceMark } from "../components/look/calls/CallSourceMark";
 import { RoyalCallsTop } from "../components/look/calls/RoyalCallsTop";
 
@@ -122,10 +123,10 @@ function CallRowItem({ call, showAgent, royal = false }: { call: CallRow; showAg
         note={!noAnswer && analysis ? analysis.summary : undefined}
         flags={!noAnswer && (
           analysis ? <>
-            <RoyalCallFlag tone={scoreFlagTone(scoreTone(analysis.score))}>Балл {analysis.score}</RoyalCallFlag>
-            {!analysis.agreedNextStep && <RoyalCallFlag tone="crit">Без договорённости</RoyalCallFlag>}
+            <RoyalCallFlag tone={scorePillTone(analysis.score)}>Балл {analysis.score}</RoyalCallFlag>
+            {!analysis.agreedNextStep && <RoyalCallFlag tone={pillTone("info")}>Без договорённости</RoyalCallFlag>}
           </> : (
-            <RoyalCallFlag tone="mute">{call.transcriptionStage ? "Расшифровываем" : missingAnalysisReason(call)}</RoyalCallFlag>
+            <RoyalCallFlag tone={pillTone("info")}>{call.transcriptionStage ? "Расшифровываем" : missingAnalysisReason(call)}</RoyalCallFlag>
           )
         )}
         action={noAnswer ? (
@@ -285,12 +286,12 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
         ]}
         flags={<>
           <CallSourceMark source={call.source} look="royal" />
-          {call.irrelevant && <RoyalCallFlag tone="mute">не по делу</RoyalCallFlag>}
-          {needsQualifying && <RoyalCallFlag tone="warn">без разбора</RoyalCallFlag>}
+          {call.irrelevant && <RoyalCallFlag tone={pillTone("info")}>не по делу</RoyalCallFlag>}
+          {needsQualifying && <RoyalCallFlag tone={pillTone("info")}>без разбора</RoyalCallFlag>}
           {!call.answered && (call.callbackAgent
-            ? <RoyalCallFlag tone="warn">перезвонит {call.callbackAgent.fullName}</RoyalCallFlag>
-            : <RoyalCallFlag tone="crit">Никто не перезвонил</RoyalCallFlag>)}
-          {call.missingCallback && <RoyalCallFlag tone="crit">без перезвона {call.missedCallbackHours}ч+</RoyalCallFlag>}
+            ? <RoyalCallFlag tone={pillTone("info")}>перезвонит {call.callbackAgent.fullName}</RoyalCallFlag>
+            : <RoyalCallFlag tone={pillTone("today")}>Никто не перезвонил</RoyalCallFlag>)}
+          {call.missingCallback && <RoyalCallFlag tone={pillTone("overdue")}>без перезвона {call.missedCallbackHours}ч+</RoyalCallFlag>}
           {call.client && <Link className="ry-call-more" to={`/clients/${call.client.shortId}`}>Открыть клиента</Link>}
           <BlockCallerButton callId={call.id} known={!!call.client} />
         </>}

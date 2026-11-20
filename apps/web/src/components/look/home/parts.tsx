@@ -10,6 +10,7 @@ import { RoyalSection } from "../clients/RoyalSection";
 import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
 import { RhButton, RhCircle, type RhTone } from "../ui";
+import type { PillTone } from "../tileTone";
 
 /**
  * ГЛАВНАЯ ОСТАЛЬНЫХ РОЛЕЙ В «НОВОМ ВИДЕ» (пачка home, 20.11.2026): общие детали.
@@ -156,7 +157,7 @@ export function PropertyState({ status, stage }: { status: PropertyStatus; stage
   );
 }
 
-/** Короткая плашка смысла справа в строке: срочное — сплошным красным, внимание — светлым янтарём. */
-export function HomeChip({ tone, children }: { tone: "crit" | "warn" | "ok" | "muted"; children: ReactNode }) {
+/** Короткая плашка смысла справа в строке; тон — только из `pillTone()` (tileTone.ts): обычное серым, сегодня янтарём, просрочено красным. */
+export function HomeChip({ tone, children }: { tone: PillTone; children: ReactNode }) {
   return <span className="ry-home-chip" data-tone={tone}>{children}</span>;
 }
