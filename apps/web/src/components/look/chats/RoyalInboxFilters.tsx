@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { RhSegmented, rhStepByKey } from "../ui";
 import { SlidersHorizontal } from "lucide-react";
 import type { ChatSegment, ConversationSegmentCounts } from "../../../hooks/useConversations";
 
@@ -21,13 +22,8 @@ export const ROYAL_SEGMENTS: Array<{ id: ChatSegment; label: string; count: keyo
 
 /** Срез, на который ведёт стрелка: по кругу; из спрятанного («пауза») — с первого. */
 export function segmentByArrow(current: ChatSegment, key: string): ChatSegment | null {
-  const step = key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
-  if (key === "Home") return ROYAL_SEGMENTS[0].id;
-  if (key === "End") return ROYAL_SEGMENTS[ROYAL_SEGMENTS.length - 1].id;
-  if (!step) return null;
-  const index = ROYAL_SEGMENTS.findIndex((item) => item.id === current);
-  const from = index < 0 ? (step > 0 ? -1 : 0) : index;
-  return ROYAL_SEGMENTS[(from + step + ROYAL_SEGMENTS.length) % ROYAL_SEGMENTS.length].id;
+  // Одно правило клавиш на все переключатели (RhSegmented, ui.tsx).
+  return rhStepByKey(ROYAL_SEGMENTS.map((item) => item.id), current, key) ?? null;
 }
 
 export function RoyalInboxFilters({ segment, counts, onSegmentChange, moreActive, children }: {
@@ -41,7 +37,6 @@ export function RoyalInboxFilters({ segment, counts, onSegmentChange, moreActive
 }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDetailsElement>(null);
-  const segRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const onDoc = (event: MouseEvent) => { if (!boxRef.current?.contains(event.target as Node)) setOpen(false); };
@@ -55,33 +50,19 @@ export function RoyalInboxFilters({ segment, counts, onSegmentChange, moreActive
     return () => { document.removeEventListener("click", onDoc); window.removeEventListener("keydown", onKey); };
   }, [open]);
 
-  const checkedIndex = ROYAL_SEGMENTS.findIndex((item) => item.id === segment);
-  const onArrow = (event: KeyboardEvent<HTMLDivElement>) => {
-    const next = segmentByArrow(segment, event.key);
-    if (!next) return;
-    event.preventDefault();
-    onSegmentChange(next);
-    segRef.current?.querySelector<HTMLButtonElement>(`[data-segment="${next}"]`)?.focus();
-  };
-
   return (
     <div className="ry-chats-filters">
-      <div ref={segRef} className="ry-chats-seg" role="radiogroup" aria-label="Какие разговоры показать" onKeyDown={onArrow}>
-        {ROYAL_SEGMENTS.map((item, index) => (
-          <button
-            key={item.id}
-            type="button"
-            role="radio"
-            data-segment={item.id}
-            aria-checked={segment === item.id}
-            tabIndex={index === (checkedIndex < 0 ? 0 : checkedIndex) ? 0 : -1}
-            onClick={() => onSegmentChange(item.id)}
-          >
-            {item.label}
-            {counts && <b className="ry-num">{counts[item.count]}</b>}
-          </button>
-        ))}
-      </div>
+      <RhSegmented
+        className="ry-chats-seg"
+        label="Какие разговоры показать"
+        value={segment}
+        onChange={onSegmentChange}
+        options={ROYAL_SEGMENTS.map((item) => ({
+          id: item.id,
+          attrs: { "data-segment": item.id },
+          label: <>{item.label}{counts && <b className="ry-num">{counts[item.count]}</b>}</>,
+        }))}
+      />
       <details
         ref={boxRef}
         className="ry-chats-more"

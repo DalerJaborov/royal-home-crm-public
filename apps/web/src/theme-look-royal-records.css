@@ -76,18 +76,18 @@
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .soft, .icon)) {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; height: auto; padding: 0 20px;
-  border: 0; border-radius: 999px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
-  font: inherit; font-size: 15px; font-weight: 600; line-height: 1.25; text-decoration: none; white-space: normal; box-shadow: none; cursor: pointer;
+  border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.25; text-decoration: none; white-space: normal; box-shadow: none; cursor: pointer;
   transition: transform 90ms cubic-bezier(.23, 1, .32, 1), background-color 160ms;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.ghost:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rh-ui-text) 14%, transparent);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.sm:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .soft, .icon)) { padding: 0 16px; font-size: 14px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.sm:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .soft, .icon)) { padding: 0 16px; font-size: var(--rh-fs-sm); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .ghost, .soft, .icon)):hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.ghost:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)):hover:not(:disabled) { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.danger { border: 0; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-crit) 86%, #000); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-crit) 86%, var(--rh-ui-mix-dark)); color: var(--rh-ui-crit-fg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:active:not(:disabled) { transform: scale(.97); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .pill:not(.icon) svg { flex: none; width: 18px; height: 18px; }
@@ -101,8 +101,8 @@
 /* ================================ метки ================================ */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .chip {
-  display: inline-flex; align-items: center; gap: 5px; min-height: 28px; height: auto; padding: 3px 12px; border: 0; border-radius: 999px;
-  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: 14px; font-weight: 600; line-height: 1.25; white-space: normal;
+  display: inline-flex; align-items: center; gap: 5px; min-height: 28px; height: auto; padding: 3px 12px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.25; white-space: normal;
   font-variant-numeric: tabular-nums; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .chip:is(.mute, .info) { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
@@ -116,29 +116,29 @@
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; min-height: 48px; margin: 0; padding: 8px 0;
-  border: 0; background: transparent; font-size: 15px; line-height: 1.45; color: var(--rh-ui-text);
+  border: 0; background: transparent; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet .txt { flex: 1 1 200px; min-width: 0; font-size: 15px; line-height: 1.45; color: inherit; overflow-wrap: anywhere; white-space: normal; text-wrap: pretty; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet .txt { flex: 1 1 200px; min-width: 0; font-size: var(--rh-fs-md); line-height: 1.45; color: inherit; overflow-wrap: anywhere; white-space: normal; text-wrap: pretty; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet.crit .txt { color: var(--rh-ui-crit-text); font-weight: 600; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet.warn .txt { color: var(--rh-ui-text); font-weight: 600; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet > .dot { flex: none; width: 12px; height: 12px; border-radius: 999px; background: var(--rh-ui-hint); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet > .dot { flex: none; width: 12px; height: 12px; border-radius: var(--rh-r-full); background: var(--rh-ui-hint); box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet > .dot.crit { width: 14px; height: 14px; background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent); }
 /* Внимание — ромбом и светлее срочного: различие не только оттенком. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet > .dot.warn { background: var(--rh-ui-warn); border-radius: 2px; transform: rotate(45deg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet > .dot.warn { background: var(--rh-ui-warn); border-radius: 0; transform: rotate(45deg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet > .dot.ok { background: var(--rh-ui-ok); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .quiet .lnk {
-  display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; color: var(--rh-ui-primary-ink); font-size: 15px; font-weight: 700; text-decoration: none;
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; color: var(--rh-ui-primary-ink); font-size: var(--rh-fs-md); font-weight: 700; text-decoration: none;
 }
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .empty {
-  display: grid; justify-items: center; gap: 10px; padding: 28px 16px; text-align: center; font-size: 16px; color: var(--rh-ui-hint);
+  display: grid; justify-items: center; gap: 10px; padding: 28px 16px; text-align: center; font-size: var(--rh-fs-md); color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .empty .ic {
-  display: grid; place-items: center; width: 60px; height: 60px; border-radius: 999px; background: var(--rh-ui-a2); color: var(--rh-ui-a2f);
+  display: grid; place-items: center; width: 60px; height: 60px; border-radius: var(--rh-r-full); background: var(--rh-ui-a2); color: var(--rh-ui-a2f);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .empty .ic :is(svg, .i) { width: 28px; height: 28px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .empty :is(p, b) { margin: 0; max-width: 52ch; font-size: 17px; font-weight: 600; line-height: 1.45; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .empty .sub { font-size: 15px; font-weight: 400; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .empty :is(p, b) { margin: 0; max-width: 52ch; font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.45; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .empty .sub { font-size: var(--rh-fs-md); font-weight: 400; color: var(--rh-ui-hint); }
 
 /* Ссылки в тексте строки: тот же текст, подчёркивание при наведении. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] a.lk {
@@ -146,20 +146,20 @@
   text-underline-offset: 3px; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] a.lk:hover { text-decoration-color: currentColor; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] :is(a.lk, .lnk, a):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: 4px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] :is(a.lk, .lnk, a):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: var(--rh-r-sm); }
 
 /* ================================== поля ================================== */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] :is(.scr, .sheet) :is(.inp, select, textarea, input:is([type="date"], [type="text"], [type="search"], [type="tel"], [type="number"], :not([type]))) {
-  min-height: 48px; padding: 10px 16px; border: 0; border-radius: 16px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
-  box-shadow: none; font: inherit; font-size: 16px; line-height: 1.4; max-width: 100%;
+  min-height: 48px; padding: 10px 16px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  box-shadow: none; font: inherit; font-size: var(--rh-fs-md); line-height: 1.4; max-width: 100%;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] :is(.scr, .sheet) textarea { min-height: 96px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] :is(.scr, .sheet) :is(.inp, select, textarea, input)::placeholder { color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] :is(.scr, .sheet) :is(.inp, select, textarea, input):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 1px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] :is(.scr, .sheet) input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--rh-ui-primary); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] :is(.scr, .sheet) :is(.fld, .field) > .lab { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .fld .msg { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] :is(.scr, .sheet) :is(.fld, .field) > .lab { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .fld .msg { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .fld.bad .msg { color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .fld.bad :is(input, select, textarea) { box-shadow: inset 0 0 0 2px var(--rh-ui-crit); }
 
@@ -168,15 +168,15 @@
    кандидат (Rh2Sheet через Rh2Portal с меткой раздела). Нижние отступы .sheet-f и
    .sheet-b (запас под полоску iPhone) не трогаем. */
 
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet { border-radius: 28px; background: var(--rh-ui-card); color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet.bottom { border-radius: 28px 28px 0 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .sheet-h :is(h2, h3) { font-size: 22px; font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .sheet-b { color: var(--rh-ui-text); font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .sec-t { margin: 16px 0 8px; font-size: 15px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet p.sub { font-size: 15px; line-height: 1.5; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet { border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet.bottom { border-radius: var(--rh-r-lg) var(--rh-r-lg) 0 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .sheet-h :is(h2, h3) { font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .sheet-b { color: var(--rh-ui-text); font-size: var(--rh-fs-md); line-height: 1.5; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .sec-t { margin: 16px 0 8px; font-size: var(--rh-fs-md); font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet p.sub { font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-hint); }
 /* «Удалить навсегда?»: вопрос обычным текстом 16, предупреждение — красный круг слева. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .sheet-b > p.state { display: flex; align-items: flex-start; gap: 10px; margin: 0; font-size: 16px; line-height: 1.5; color: var(--rh-ui-text); overflow-wrap: anywhere; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .sheet-b > p.state > .dot.crit { flex: none; width: 12px; height: 12px; margin-top: 6px; border-radius: 999px; background: var(--rh-ui-crit); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .sheet-b > p.state { display: flex; align-items: flex-start; gap: 10px; margin: 0; font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"] .sheet .sheet-b > p.state > .dot.crit { flex: none; width: 12px; height: 12px; margin-top: 6px; border-radius: var(--rh-r-full); background: var(--rh-ui-crit); }
 
 /* ============================ Архив и корзина ============================ */
 
@@ -186,9 +186,9 @@
 /* Шапка: заголовок 32 и одна строка пояснения. */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .pg-h { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 16px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .pg-h > div:first-child { flex: 1 1 320px; min-width: 0; }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .pg-h h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text); text-wrap: balance; }
-:root[data-ui-look="royal"][data-mobile-ux] .ry-archive[data-ry-section="records"] .pg-h h1 { font-size: 28px; }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .pg-h .sub { margin: 8px 0 0; max-width: 68ch; font-size: 16px; line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .pg-h h1 { margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text); text-wrap: balance; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-archive[data-ry-section="records"] .pg-h h1 { font-size: var(--rh-fs-2xl); }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .pg-h .sub { margin: 8px 0 0; max-width: 68ch; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
 
 /* Переходы между экранами настроек (SettingsTabs): таблетки, текущий — чёрная. */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .seg-ai {
@@ -196,30 +196,30 @@
   margin: 0; padding: 2px; background: transparent; border: 0; box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .seg-ai > a {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: var(--rh-r-full);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring);
-  font-size: 15px; font-weight: 600; text-decoration: none; white-space: nowrap;
+  font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none; white-space: nowrap;
 }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .seg-ai > a:hover { background: var(--rh-ui-hover); }
 @media (min-width: 820px) {
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .seg-ai { flex-wrap: wrap; overflow-x: visible; }
 }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .seg-ai > a[aria-current="page"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .seg-ai > a[aria-current="page"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .seg-ai > a:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .seg-ai > a .n {
-  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
-  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
 }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .seg-ai > a[aria-current="page"] .n { background: color-mix(in srgb, currentColor 18%, transparent); color: inherit; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .clean-section-switcher { margin: 0; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .clean-section-switcher select {
-  width: 100%; min-height: 52px; padding: 0 44px 0 20px; border: 0; border-radius: 999px;
-  background-color: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); font-size: 16px; font-weight: 600;
+  width: 100%; min-height: 52px; padding: 0 44px 0 20px; border: 0; border-radius: var(--rh-r-full);
+  background-color: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-field-line); font-size: var(--rh-fs-md); font-weight: 600;
 }
 
 /* Карточки: радиус 24, мягкая тень, без рамки. */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .card {
-  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-ui-r-card);
+  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
   min-width: 0; overflow-wrap: break-word;
 }
@@ -227,18 +227,18 @@
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .sec-h {
   display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin: 0 0 8px; min-width: 0;
 }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .sec-h h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); text-wrap: balance; }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .sec-h .note { font-size: 15px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .sec-h h2 { margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); text-wrap: balance; }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .sec-h .note { font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-hint); }
 /* Подзаголовок группы — обычным регистром (в прежней теме КАПСОМ). */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .sec-t {
-  display: block; margin: 20px 0 4px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; text-transform: none; color: var(--rh-ui-text);
+  display: block; margin: 20px 0 4px; font-size: var(--rh-fs-lg); font-weight: 700; letter-spacing: -.01em; text-transform: none; color: var(--rh-ui-text);
 }
 
 /* Три корзины — плитки 28 со значком в круге 48 и числом 40; выбранная — синее кольцо. */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button {
   display: grid; align-content: start; justify-items: start; gap: 4px; min-width: 0; min-height: 152px; margin: 0; padding: 16px 18px 18px;
-  border: 0; border-radius: var(--rh-ui-r-tile); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); text-align: left; font: inherit; cursor: pointer;
   transition: transform 90ms cubic-bezier(.23, 1, .32, 1), box-shadow 160ms;
 }
@@ -248,32 +248,32 @@
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button .hd {
   display: grid; justify-items: start; gap: 10px; min-width: 0; margin: 0;
-  font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-hint);
+  font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.3; color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button .hd .i {
-  box-sizing: border-box; width: 48px; height: 48px; padding: 12px; border-radius: 999px; stroke-width: 2;
+  box-sizing: border-box; width: 48px; height: 48px; padding: 12px; border-radius: var(--rh-r-full); stroke-width: 2;
   background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
 }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button:nth-child(2) .hd .i { background: var(--rh-ui-a1); color: var(--rh-ui-a1f); }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button:nth-child(3) .hd .i { background: var(--rh-ui-a2); color: var(--rh-ui-a2f); }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button b {
-  display: block; margin: 6px 0 0; font-family: var(--rh-ui-font-num); font-size: 40px; font-weight: 700;
+  display: block; margin: 6px 0 0; font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-4xl); font-weight: 700;
   letter-spacing: -.035em; line-height: 1; color: var(--rh-ui-text); font-variant-numeric: tabular-nums;
 }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button small { display: block; margin: 4px 0 0; font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button small { display: block; margin: 4px 0 0; font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); }
 
 /* Итоги архива — три числа-кнопки, ведут к спискам ниже. */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 8px 0 0; min-width: 0; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n {
   display: grid; align-content: start; justify-items: start; gap: 6px; min-width: 0; min-height: 96px; margin: 0; padding: 16px 18px;
-  border: 0; border-radius: 20px; background: var(--rh-ui-bg); color: var(--rh-ui-text); text-align: left; font: inherit; cursor: pointer;
+  border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-bg); color: var(--rh-ui-text); text-align: left; font: inherit; cursor: pointer;
   transition: transform 90ms cubic-bezier(.23, 1, .32, 1);
 }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n:hover:not(:disabled) { background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n:active:not(:disabled) { transform: scale(.98); }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n b { font-family: var(--rh-ui-font-num); font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n span { font-size: 14px; line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n b { font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n span { font-size: var(--rh-fs-sm); line-height: 1.35; color: var(--rh-ui-hint); }
 
 /* Строки списков (заявки, корзины, проданные, архив, журнал): круг 48, две строки, справа действия. */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list { display: block; margin: 0; padding: 0; border: 0; background: transparent; }
@@ -283,26 +283,26 @@
 }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row:first-child { box-shadow: none; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .av {
-  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 999px;
-  font-size: 16px; font-weight: 700;
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: var(--rh-r-full);
+  font-size: var(--rh-fs-md); font-weight: 700;
 }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .av :is(svg, .i) { width: 24px; height: 24px; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .t { display: grid; gap: 3px; flex: 1 1 240px; min-width: 0; }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .t > b { font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .t > b { font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere; }
 /* Причина, кто просит, когда — данные: переносятся целиком (прежняя тема резала многоточием в одну строку). */
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .t > :is(span, small, p) { margin: 0; overflow: visible; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; white-space: normal; text-overflow: clip; }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .t > :is(span, small, p) { margin: 0; overflow: visible; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; white-space: normal; text-overflow: clip; }
 /* Название, имя и ссылки в строке — тоже целиком: прежняя тема резала их многоточием на узком экране. */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .t :is(b, span, a, small, p, .txt) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; -webkit-line-clamp: none; line-clamp: none; max-height: none; }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .meta { flex: none; font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .meta { flex: none; font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .act { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; min-width: 0; }
 
 /* Загрузка и отказ. */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .state {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 52px; margin: 0; padding: 8px 0;
-  font-size: 15px; font-weight: 500; line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere;
+  font-size: var(--rh-fs-md); font-weight: 500; line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .state.err { color: var(--rh-ui-crit-text); font-weight: 600; }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .state > .dot.crit { flex: none; width: 14px; height: 14px; border-radius: 999px; background: var(--rh-ui-crit); }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .state > .dot.crit { flex: none; width: 14px; height: 14px; border-radius: var(--rh-r-full); background: var(--rh-ui-crit); }
 
 /* Срочная полоса над корзинами (ждут заявки, ошибка удаления). */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] > .scr > .card.tight > .quiet { min-height: 56px; }
@@ -311,12 +311,12 @@
 /* Период расходов: два поля даты и подпись. */
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; min-width: 0; margin: 4px 0 8px; }
 :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .filters .field { display: grid; gap: 6px; min-width: 0; }
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .filters .note { font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .filters .note { font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); }
 
 /* Ещё — листалка «Показать ещё» (Pagination). */
-:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 0 0; font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 0 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 
-@media (max-width: 640px) {
+@media (max-width: 767.98px) {
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins, :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button {
     grid-template-columns: 48px minmax(0, 1fr) auto; grid-template-areas: "ic hd num" "ic sm num";
@@ -324,64 +324,64 @@
   }
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button .hd { display: contents; }
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button .hd .i { grid-area: ic; }
-  :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button b { grid-area: num; margin: 0; font-size: 32px; }
+  :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button b { grid-area: num; margin: 0; font-size: var(--rh-fs-3xl); }
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button small { grid-area: sm; margin: 0; }
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n { min-height: 0; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 12px 16px; }
-  :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n b { font-size: 26px; }
+  :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .trio > .n b { font-size: var(--rh-fs-2xl); }
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .card { padding: 16px; }
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .card.tight { padding: 4px 16px; }
-  :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .pg-h .sub { font-size: 15px; }
+  :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .pg-h .sub { font-size: var(--rh-fs-md); }
   /* Действия строки — под текстом, с его отступа. */
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .act { flex: 1 1 100%; padding-left: 62px; }
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .meta { margin-left: 62px; }
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row:not(:has(> .av)) > :is(.act, .meta) { padding-left: 0; margin-left: 0; }
 }
-@media (max-width: 360px) {
+@media (max-width: 389.98px) {
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .act { padding-left: 0; }
   :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .scr .list > .row > .meta { margin-left: 0; }
 }
 /* Слово «.hd» на телефоне стало строкой плитки: подпись корзины — 17/600 тёмным. */
-@media (max-width: 640px) {
-  :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button .hd { font-size: 17px; color: var(--rh-ui-text); }
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"] .ry-archive[data-ry-section="records"] .bins > button .hd { font-size: var(--rh-fs-lg); color: var(--rh-ui-text); }
 }
 
 /* ======================= Подбор сотрудников: список ======================= */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page { background: var(--rh-ui-bg); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page h1.text-\[28px\] { font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page h1 + p { font-size: 16px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page h1.text-\[28px\] { font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page h1 + p { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .card {
-  border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page #vacancies-list .inp { flex: 1 1 auto; min-width: 0; padding: 0 20px; border-radius: 999px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page #vacancies-list .inp { flex: 1 1 auto; min-width: 0; padding: 0 20px; border-radius: var(--rh-r-full); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .clean-candidate-row { min-height: var(--rh-ui-row-h); border-radius: 0; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .clean-candidate-row:first-of-type { box-shadow: none; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .clean-candidate-row :is(.text-\[16px\]) { font-size: 17px; font-weight: 600; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .clean-candidate-row :is(.text-\[14px\], .text-\[13px\]) { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .clean-candidate-row :is(.text-\[16px\]) { font-size: var(--rh-fs-lg); font-weight: 600; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .clean-candidate-row :is(.text-\[14px\], .text-\[13px\]) { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .clean-candidate-row .text-ink { color: var(--rh-ui-text); }
 /* Этапы — таблетки 44, переносятся (лента без полосы прятала хвост: «В работе · 0» за краем). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.rh-tabs { display: flex; flex-wrap: wrap; gap: 8px; overflow: visible; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.rh-tabs > button {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-ring);
-  font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; cursor: pointer;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.rh-tabs > button:hover:not(:disabled) { background: var(--rh-ui-hover); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.rh-tabs > button[aria-selected="true"] { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.rh-tabs > button[aria-selected="true"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.rh-tabs > button .n { font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.rh-tabs > button:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 /* «Кандидаты / Вакансии» — капсула: выбранный на белой таблетке. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.big { display: inline-flex; gap: 4px; min-width: 0; padding: 4px; border: 0; border-radius: 999px; background: var(--rh-ui-raised); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.big { display: inline-flex; gap: 4px; min-width: 0; padding: 4px; border: 0; border-radius: var(--rh-r-full); background: var(--rh-seg-track); box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.big > button {
-  flex: none; min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-hint);
-  font: inherit; font-size: 15px; font-weight: 600; line-height: 1.2; white-space: normal; box-shadow: none; cursor: pointer;
+  flex: none; min-height: 44px; padding: 0 18px; border: 0; border-radius: var(--rh-r-full); background: transparent; color: var(--rh-ui-hint);
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.2; white-space: normal; box-shadow: none; cursor: pointer;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.big > button[aria-pressed="true"] { background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 1px 3px rgba(20, 24, 40, .12); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .seg.big > button[aria-pressed="true"] { background: var(--rh-seg-on); color: var(--rh-seg-on-fg); box-shadow: var(--rh-seg-on-shadow); }
 /* Строка кандидата: галочка у первой строки, круг и текст от верха. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .clean-candidate-row > .chk { align-self: start; justify-content: flex-start; min-height: 44px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .clean-candidate-row > a { align-items: flex-start; }
-@media (max-width: 1023px) {
+@media (max-width: 1023.98px) {
   :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-clients-page .clean-candidate-row { grid-template-columns: 44px minmax(0, 1fr); column-gap: 8px; padding: 12px 4px; }
 }
 
@@ -389,12 +389,12 @@
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-client-detail { background: var(--rh-ui-bg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-client-detail .card {
-  border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-client-detail .cd-h h1 { font-size: 28px; font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-client-detail .cd-h .sub { font-size: 15px; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-client-detail .clean-record-tabs { border-radius: 999px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-client-detail .cd-h h1 { font-size: var(--rh-fs-2xl); font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-client-detail .cd-h .sub { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-client-detail .clean-record-tabs { border-radius: var(--rh-r-full); background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].clean-client-detail .clean-record-tabs [aria-selected="true"] { background: var(--rh-ui-card); color: var(--rh-ui-text); }
 
 /* ================================== вход ================================== */
@@ -402,48 +402,48 @@
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] { min-height: 100dvh; background: var(--rh-ui-bg); }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn { min-height: 100dvh; padding: 24px 16px; }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .lgn-card {
-  box-sizing: border-box; width: min(440px, 100%); padding: 32px 28px 24px; border: 0; border-radius: var(--rh-ui-r-tile);
+  box-sizing: border-box; width: min(440px, 100%); padding: 32px 28px 24px; border: 0; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); text-align: center;
 }
 /* Знак агентства — синий круг с буквами (без золотой гравировки); загруженный логотип — как есть. */
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .gerb {
-  display: grid; place-items: center; width: 72px; height: 72px; margin: 0 auto 20px; border-radius: 999px;
+  display: grid; place-items: center; width: 72px; height: 72px; margin: 0 auto 20px; border-radius: var(--rh-r-full);
   background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); box-shadow: none;
-  font-size: 26px; font-weight: 700; letter-spacing: -.02em;
+  font-size: var(--rh-fs-2xl); font-weight: 700; letter-spacing: -.02em;
 }
-:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -.028em; line-height: 1.15; color: var(--rh-ui-text); text-wrap: balance; }
-:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .sub { margin: 8px auto 0; max-width: 34ch; font-size: 16px; line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
+:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn h1 { margin: 0; font-size: var(--rh-fs-2xl); font-weight: 700; letter-spacing: -.028em; line-height: 1.15; color: var(--rh-ui-text); text-wrap: balance; }
+:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .sub { margin: 8px auto 0; max-width: 34ch; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .grav { height: 1px; margin: 24px 0; background: var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .fld { display: grid; gap: 8px; text-align: left; }
-:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .fld .lab { font-size: 15px; font-weight: 600; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .fld .lab { font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .fld input {
-  box-sizing: border-box; width: 100%; min-height: 56px; padding: 0 20px; border: 0; border-radius: 16px;
-  background: var(--rh-ui-raised); color: var(--rh-ui-text); box-shadow: none; font: inherit; font-size: 18px; font-variant-numeric: tabular-nums;
+  box-sizing: border-box; width: 100%; min-height: 56px; padding: 0 20px; border: 0; border-radius: var(--rh-r-md);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-field-line); font: inherit; font-size: var(--rh-fs-lg); font-variant-numeric: tabular-nums;
 }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .fld input:focus { outline: 2px solid var(--rh-ui-primary); outline-offset: 0; }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .fld.bad input { box-shadow: inset 0 0 0 2px var(--rh-ui-crit); }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn form > .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)),
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn section > .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
-  width: 100%; min-height: 56px; margin-top: 20px; font-size: 17px; font-weight: 600;
+  width: 100%; min-height: 56px; margin-top: 20px; font-size: var(--rh-fs-lg); font-weight: 600;
 }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .steps { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; }
-:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .steps i { display: block; width: 24px; height: 4px; border-radius: 999px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .steps i { display: block; width: 24px; height: 4px; border-radius: var(--rh-r-full); background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .steps i.on { background: var(--rh-ui-primary); }
-:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .alt { margin: 16px 0 0; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
+:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .alt { margin: 16px 0 0; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .lnk {
   position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 8px; border: 0; background: transparent;
-  color: var(--rh-ui-primary-ink); font: inherit; font-size: 16px; font-weight: 600; text-decoration: none; cursor: pointer;
+  color: var(--rh-ui-primary-ink); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .lnk:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
-:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .lnk:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: 8px; }
-:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .login-error { margin: 12px 0 0; font-size: 15px; font-weight: 600; line-height: 1.45; color: var(--rh-ui-crit-text); text-align: left; }
-:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .login-code-status { margin: 12px 0 0; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .lnk:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: var(--rh-r-sm); }
+:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .login-error { margin: 12px 0 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.45; color: var(--rh-ui-crit-text); text-align: left; }
+:root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .login-code-status { margin: 12px 0 0; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
 /* Код — одно поле на шесть цифр, крупно. */
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .code { display: flex; justify-content: center; margin-top: 20px; }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .code .login-code-input {
-  box-sizing: border-box; width: 100%; max-width: 320px; min-height: 64px; padding: 0 0 0 .3em; border: 0; border-radius: 16px;
-  background: var(--rh-ui-raised); color: var(--rh-ui-text); box-shadow: none; text-align: center;
-  font-size: 28px; font-weight: 700; letter-spacing: .3em; font-variant-numeric: tabular-nums;
+  box-sizing: border-box; width: 100%; max-width: 320px; min-height: 64px; padding: 0 0 0 .3em; border: 0; border-radius: var(--rh-r-md);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-field-line); text-align: center;
+  font-size: var(--rh-fs-2xl); font-weight: 700; letter-spacing: .3em; font-variant-numeric: tabular-nums;
 }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .code .login-code-input:focus { outline: 2px solid var(--rh-ui-primary); outline-offset: 0; }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .code .login-code-input[aria-invalid="true"] { box-shadow: inset 0 0 0 2px var(--rh-ui-crit); }
@@ -452,7 +452,7 @@
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .login-code-secondary { margin-top: 16px; }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .login-code-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 12px; margin-top: 4px; }
 :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .login-code-back { margin-top: 12px; padding-top: 8px; border-top: 0; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
-@media (max-width: 480px) {
+@media (max-width: 767.98px) {
   :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn { padding: 16px; }
   :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .lgn-card, :root[data-ui-look="royal"] .ry-login[data-ry-section="records"] .lgn .login-code-card { padding: 28px 20px 20px; }
 }
@@ -464,45 +464,45 @@
 :root[data-ui-look="royal"] .ry-public[data-ry-section="records"] > :is(.scr, main.scr) { box-sizing: border-box; display: grid; gap: 16px; width: 100%; max-width: 960px; margin: 0 auto; padding: 24px 24px 48px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-public[data-ry-section="records"] > :is(.scr, main.scr) > * { min-width: 0; margin-top: 0; margin-bottom: 0; }
 :root[data-ui-look="royal"] .ry-public[data-ry-section="records"] .card {
-  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); min-width: 0; overflow-wrap: break-word;
 }
 :root[data-ui-look="royal"] .ry-public[data-ry-section="records"] .sec-h { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0 0 12px; min-width: 0; }
-:root[data-ui-look="royal"] .ry-public[data-ry-section="records"] .sec-h h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-public[data-ry-section="records"] .sec-t { display: block; margin: 20px 0 8px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; text-transform: none; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-public[data-ry-section="records"] p { font-size: 16px; line-height: 1.55; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-public[data-ry-section="records"] .sec-h h2 { margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-public[data-ry-section="records"] .sec-t { display: block; margin: 20px 0 8px; font-size: var(--rh-fs-lg); font-weight: 700; letter-spacing: -.01em; text-transform: none; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-public[data-ry-section="records"] p { font-size: var(--rh-fs-md); line-height: 1.55; color: var(--rh-ui-text); }
 
 /* Объект по ссылке: шапка (название, район, метки, цена), галерея, параметры, агент. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 20px; min-width: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h > div:first-child { flex: 1 1 320px; min-width: 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.12; color: var(--rh-ui-text); text-wrap: balance; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h h1 { margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.03em; line-height: 1.12; color: var(--rh-ui-text); text-wrap: balance; }
 /* Район и город — данные (прежняя тема прятала их на телефоне рядом с ценой). */
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h .sub { display: block; margin: 6px 0 0; font-size: 17px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h .sub { display: block; margin: 6px 0 0; font-size: var(--rh-fs-lg); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h .wrap { display: flex; flex-wrap: wrap; gap: 8px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h .acts { flex: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .money.big {
-  font-family: var(--rh-ui-font-num); font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1;
+  font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.03em; line-height: 1.1;
   color: var(--rh-ui-text); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .gal { gap: 8px; border-radius: var(--rh-ui-r-card); overflow: hidden; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .gal { gap: 8px; border-radius: var(--rh-r-lg); overflow: hidden; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .gal .cell { border-radius: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .gal .cell:focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: -3px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .gal .cell .more { font-size: 17px; font-weight: 700; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .gal .cell .more { font-size: var(--rh-fs-lg); font-weight: 700; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .fgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr)); gap: 12px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .fgrid .fld { display: grid; gap: 6px; padding: 14px 16px; border-radius: 20px; background: var(--rh-ui-bg); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .fgrid .fld .lab { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .fgrid .fld b { font-size: 18px; font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .fgrid .fld { display: grid; gap: 6px; padding: 14px 16px; border-radius: var(--rh-r-lg); background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .fgrid .fld .lab { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .fgrid .fld b { font-size: var(--rh-fs-lg); font-weight: 700; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .wrap { display: flex; flex-wrap: wrap; gap: 8px; }
 /* Агент: имя и строка, справа одна синяя «Позвонить агенту». */
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .mod.solve { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin: 0; padding: 0; border: 0; background: transparent; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .mod.solve .t { display: grid; gap: 4px; flex: 1 1 240px; min-width: 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .mod.solve .t b { font-size: 18px; font-weight: 700; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .mod.solve .t span { font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .mod.solve .acts .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) { min-height: 52px; padding: 0 24px; font-size: 16px; }
-@media (max-width: 640px) {
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .mod.solve .t b { font-size: var(--rh-fs-lg); font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .mod.solve .t span { font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .mod.solve .acts .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) { min-height: 52px; padding: 0 24px; font-size: var(--rh-fs-md); }
+@media (max-width: 767.98px) {
   :root[data-ui-look="royal"] .ry-public[data-ry-section="records"] > :is(.scr, main.scr) { padding: 16px 16px 40px; gap: 12px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h h1 { font-size: 26px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .money.big { font-size: 28px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h h1 { font-size: var(--rh-fs-2xl); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .money.big { font-size: var(--rh-fs-2xl); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .pg-h .acts > div { text-align: left; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .mod.solve .acts, :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-share .mod.solve .acts .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) { width: 100%; }
   :root[data-ui-look="royal"] .ry-public[data-ry-section="records"] .card { padding: 16px; }
@@ -510,45 +510,45 @@
 
 /* Отчёт владельцу: бренд, заголовок 32, карточка объекта с фото, плитки-числа 40. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-wrap { display: grid; gap: 16px; min-width: 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-brand b { font-size: 17px; font-weight: 700; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-brand span { font-size: 14px; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-brand img { border-radius: 999px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-title { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.12; color: var(--rh-ui-text); text-wrap: balance; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-sub { margin: 8px 0 0; font-size: 16px; line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-photo { border-radius: 20px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-brand b { font-size: var(--rh-fs-lg); font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-brand span { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-brand img { border-radius: var(--rh-r-full); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-title { margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.03em; line-height: 1.12; color: var(--rh-ui-text); text-wrap: balance; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-sub { margin: 8px 0 0; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-photo { border-radius: var(--rh-r-lg); }
 /* Название объекта задано в разметке через --fs-17: в карточке отчёта — 20. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-prop { --fs-17: 20px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-prop h2 { font-size: 20px; font-weight: 700; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-price { font-family: var(--rh-ui-font-num); font-size: 28px; font-weight: 700; letter-spacing: -.03em; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-prop h2 { font-size: var(--rh-fs-xl); font-weight: 700; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-price { font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-2xl); font-weight: 700; letter-spacing: -.03em; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-prop-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-seg { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--rh-ui-raised); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-seg { display: inline-flex; gap: 4px; padding: 4px; border-radius: var(--rh-r-full); background: var(--rh-ui-raised); box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-seg button {
-  min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-hint);
-  font: inherit; font-size: 15px; font-weight: 600; line-height: 1.2; white-space: normal; box-shadow: none; cursor: pointer;
+  min-height: 44px; padding: 0 18px; border: 0; border-radius: var(--rh-r-full); background: transparent; color: var(--rh-ui-hint);
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.2; white-space: normal; box-shadow: none; cursor: pointer;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-seg button[aria-pressed="true"] { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-seg button:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-tiles { gap: 12px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-tile { padding: 16px 18px; border-radius: 20px; background: var(--rh-ui-bg); box-shadow: none; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-tile b { font-family: var(--rh-ui-font-num); font-size: 40px; font-weight: 700; letter-spacing: -.035em; line-height: 1; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-tile span { font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-note { font-size: 15px; line-height: 1.5; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-tile { padding: 16px 18px; border-radius: var(--rh-r-lg); background: var(--rh-ui-bg); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-tile b { font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-4xl); font-weight: 700; letter-spacing: -.035em; line-height: 1; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-tile span { font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-note { font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-chart .bar { fill: var(--rh-ui-primary); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-chart .bar.zero { fill: var(--rh-ui-raised); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-chart text { fill: var(--rh-ui-hint); font-size: 14px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-chart text { fill: var(--rh-ui-hint); font-size: var(--rh-fs-sm); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-chart .val { fill: var(--rh-ui-text); font-weight: 700; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-topics li { font-size: 16px; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-topics li { font-size: var(--rh-fs-md); color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-topics .n { font-weight: 700; font-variant-numeric: tabular-nums; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-topics .bar { background: var(--rh-ui-raised); border-radius: 999px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-topics .bar > i { background: var(--rh-ui-primary); border-radius: 999px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-next h3 { font-size: 18px; font-weight: 700; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-next :is(p, ul) { font-size: 16px; line-height: 1.5; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-foot { font-size: 14px; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-empty b { font-size: 18px; font-weight: 700; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-empty span { font-size: 16px; color: var(--rh-ui-hint); }
-@media (max-width: 640px) {
-  :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-title { font-size: 28px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-tile b { font-size: 34px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-topics .bar { background: var(--rh-ui-raised); border-radius: var(--rh-r-full); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-topics .bar > i { background: var(--rh-ui-primary); border-radius: var(--rh-r-full); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-next h3 { font-size: var(--rh-fs-lg); font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-next :is(p, ul) { font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-foot { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-empty b { font-size: var(--rh-fs-lg); font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-empty span { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-title { font-size: var(--rh-fs-2xl); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="records"].ry-owner .or-tile b { font-size: var(--rh-fs-3xl); }
 }
 
 @media (prefers-reduced-motion: reduce) {

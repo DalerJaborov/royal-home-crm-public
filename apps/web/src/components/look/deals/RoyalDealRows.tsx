@@ -57,7 +57,7 @@ export function RoyalApprovalRow({ deal, showMoney, canDecide, canEdit, busy, on
       <div className="ry-deal-row-acts">
         {canDecide ? (
           <>
-            <button type="button" className="ry-btn" data-variant="soft" disabled={busy} onClick={onApprove}>Одобрить</button>
+            <button type="button" className="ry-btn" data-variant="secondary" disabled={busy} onClick={onApprove}>Одобрить</button>
             {canEdit && <button type="button" className="ry-deal-link" title="Поправить цифры, не отправляя на доработку" onClick={onEdit}>Изменить</button>}
             <button type="button" className="ry-deal-link" title="Отправить на доработку" onClick={onReturn}>Вернуть</button>
           </>

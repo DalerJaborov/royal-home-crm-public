@@ -59,7 +59,7 @@ export function RoyalDealTileBody({ deal, showAgent, canWrite, prev, next, close
               Дальше: {next.label}<DealIcon name="chev-right" size={22} />
             </button>
           ) : (
-            <button type="button" className="ry-btn ry-deal-close" data-variant="soft" aria-label={closeLabel} onClick={stop(onClose)}>
+            <button type="button" className="ry-btn ry-deal-close" data-variant="secondary" aria-label={closeLabel} onClick={stop(onClose)}>
               <DealIcon name="send" size={20} />{closeLabel}
             </button>
           )}

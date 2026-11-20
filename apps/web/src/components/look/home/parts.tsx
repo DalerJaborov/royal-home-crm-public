@@ -105,7 +105,7 @@ export function HomeMore({ rest, onClick, disabled, label }: { rest: number; onC
   if (rest <= 0) return null;
   return (
     <div className="ry-home-more">
-      <RhButton variant="gray" onClick={onClick} disabled={disabled}>{label ?? "Показать ещё"} ({rest})</RhButton>
+      <RhButton variant="secondary" onClick={onClick} disabled={disabled}>{label ?? "Показать ещё"} ({rest})</RhButton>
     </div>
   );
 }

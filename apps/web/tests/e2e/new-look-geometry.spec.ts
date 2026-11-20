@@ -1,6 +1,6 @@
 import { test, expect, webkit, devices, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
 import { contextForRole, type RoleName } from "./pages/roleAuth";
-import { ANDROID_UA, GEOMETRY_KINDS, IPHONE_UA, OWNER_WIDTHS, geometryFindings, type GeometryKind } from "./helpers/lookGeometry";
+import { ANDROID_UA, CONSTITUTION_KINDS, GEOMETRY_KINDS, IPHONE_UA, OWNER_WIDTHS, geometryFindings, type GeometryKind } from "./helpers/lookGeometry";
 import { LOOK_CONVERSATION_ID, stubLookVisualData } from "./helpers/lookVisualFixtures";
 
 /**
@@ -25,7 +25,9 @@ type Screen = { url: string; ready: string; skip?: string; kinds?: readonly Geom
 /** Экраны с кадров владельца — полный ряд ширин, обе темы, оба телефона. */
 const OWNER_SCREENS: Screen[] = [
   { url: "/properties", ready: ".ry-objects-head" },
-  { url: "/ads", ready: '[data-ry-section="marketing"] .tiles .tile' },
+  // «Реклама» — раздел директора: 20.11 его переделывает параллельная ветка (feat/look-director-sections),
+  // её ссылки-подписи и строки отчёта ниже 44 px. Конституция (цель 44, текст 13, список) — после её влития.
+  { url: "/ads", ready: '[data-ry-section="marketing"] .tiles .tile', kinds: GEOMETRY_KINDS.filter((k) => !CONSTITUTION_KINDS.includes(k)) },
   // Чат ждёт пузыри, а не кнопку: в новом виде номер в реплике — тихое «номер скрыт»
   // (решение владельца «как WhatsApp», ветка look-chat-clean), кнопки может не быть.
   // Окно переписки целиком у ветки look-chat-clean (#332): здесь только «Позвонить»
@@ -177,10 +179,15 @@ test("новый вид, сторож геометрии ловит каждую
     { url: "/clients", ready: ".ry-crow .ry-crow-when", kind: "emptyArea", css: `${R} [data-ry-section="clients"] .ry-crow .ry-crow-when { grid-area: req !important; }` },
     // дыра в сетке плиток главной
     { url: "/", ready: ".ry-strip", kind: "hole", css: `${R} [data-ry-section="home"] .ry-strip > .ry-tile:last-child { grid-column: 1 / -1 !important; }` },
+    // Конституция оболочки (пачка C): текст мельче 13, цель нажатия меньше 44, обрезанный список.
+    { url: "/clients", ready: ".ry-crow .ry-crow-name", kind: "smallText", css: `${R} [data-ry-section="clients"] .ry-crow-name { font-size: 11px !important; }` },
+    { url: "/", ready: ".ry-section-link", kind: "smallTap", css: `${R} .ry-section-link { min-width: 0 !important; min-height: 20px !important; padding: 0 !important; }` },
+    { url: "/", ready: ".ry-today", kind: "selectClip", optional: true, css: `${R} .clean-shell .clean .clean-decision-select { field-sizing: fixed !important; width: 72px !important; flex: none !important; }` },
   ];
   for (const b of breaks) {
     await open(page, { url: b.url, ready: b.ready });
-    if (b.optional && (await page.locator("[data-msg-call]").count()) === 0) continue;
+    if (b.optional && b.kind === "ghostCall" && (await page.locator("[data-msg-call]").count()) === 0) continue;
+    if (b.optional && b.kind === "selectClip" && (await page.locator(".clean-decision-select").count()) === 0) continue;
     await page.evaluate(() => document.fonts.ready.then(() => true));
     expect(await geometryFindings(page, { kinds: [b.kind] }), `${b.kind} без поломки на ${b.url}`).toEqual([]);
     await page.addStyleTag({ content: b.css });
@@ -211,7 +218,9 @@ for (const role of Object.keys(ALL_SCREENS) as (keyof typeof ALL_SCREENS)[]) {
     test(`новый вид, геометрия всех экранов — ${role}, ${device.name} @geometry-full`, async ({ browser }, testInfo) => {
       test.skip(testInfo.project.name !== "chromium", "контексты и ширины задаются внутри теста");
       test.setTimeout(30 * 60_000);
-      const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main" }));
+      // Конституция (цель 44, текст 13, список) на всех экранах — пока только отчётом: обязательна на
+      // экранах с кадров владельца (@smoke выше); по остальным — после прохода по разделам (пачка C, 20.11).
+      const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main", kinds: GEOMETRY_KINDS.filter((k) => !CONSTITUTION_KINDS.includes(k)) }));
       const narrowed = { ...device, widths: device.widths.filter((w) => [320, 390, 1440].includes(w)) };
       expect(await sweep(browser, role, narrowed, screens), "поломки геометрии").toEqual([]);
     });

@@ -22,12 +22,21 @@ import type { Page } from "@playwright/test";
  *  - wordBreak — слово в кнопке/вкладке разорвано по буквам («Продавц/ы» на 320);
  *  - emptyArea — в сетке с именованными областями область никем не занята (строка «agent»
  *                строки клиента на 391–430 px стояла пустой, ревью #328).
+ *  Конституция оболочки (пачка C, 20.11.2026):
+ *  - smallText — видимый текст мельче 13 px (шкала --rh-fs-*: мельче xs 13 не бывает);
+ *  - smallTap  — нажимаемое меньше 44 px по высоте или ширине (кнопка, ссылка-кнопка, вкладка,
+ *                переключатель, поле). Ссылка внутри предложения — не кнопка, не считается;
+ *                флажок внутри подписи считается по подписи;
+ *  - selectClip — выбранный пункт выпадающего списка шире самого списка (обрезан: «Мадина
+ *                Каримова · 2 в р…» на 320/768).
  *
  * Каждая находка — строка «вид: что и где», чтобы сообщение теста называло место.
  * Без импортов в браузерной части: функция уходит в page.evaluate целиком.
  */
-export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea";
-export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea"];
+export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea" | "smallText" | "smallTap" | "selectClip";
+export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea", "smallText", "smallTap", "selectClip"];
+/** Виды конституции оболочки (critic-uiux.md §9): цель нажатия ≥ 44, текст ≥ 13, список не режет выбранное. */
+export const CONSTITUTION_KINDS: readonly GeometryKind[] = ["smallText", "smallTap", "selectClip"];
 
 /** Пропустить заведомо задуманное: селекторы, внутри которых проверка не идёт. */
 export type GeometryOptions = { skip?: string; kinds?: readonly GeometryKind[] };
@@ -300,6 +309,59 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
     }
 
     // ---- wordBreak: слово в кнопке или вкладке разорвано по буквам ----
+    // ---- smallText: текст мельче 13 px ----
+    if (want.has("smallText")) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const el = n.parentElement;
+        if (!el || !(n.textContent ?? "").trim() || !visible(el) || skipped(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 2 || r.height <= 2) continue; // текст для экранного чтеца
+        const size = parseFloat(getComputedStyle(el).fontSize);
+        if (size < 13 - 0.01) out.push(`smallText: ${name(el)} — ${size} px`);
+      }
+    }
+    // ---- smallTap: нажимаемое меньше 44 px ----
+    if (want.has("smallTap")) {
+      const tappable = root.querySelectorAll<HTMLElement>('button, a[href], summary, select, [role="button"], [role="tab"], [role="radio"], [role="switch"], [role="checkbox"], input:not([type="hidden"])');
+      for (const el of tappable) {
+        if (!visible(el) || skipped(el) || el.closest("[inert], [aria-hidden=\"true\"]")) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 2 || r.height <= 2) continue; // спрятанный флажок под своей подписью
+        // Ссылка внутри предложения — часть текста, не кнопка.
+        if (el.tagName === "A" && getComputedStyle(el).display === "inline") {
+          const host = el.parentElement;
+          const siblingsText = host ? [...host.childNodes].some((c) => c !== el && c.nodeType === 3 && (c.textContent ?? "").trim()) : false;
+          if (siblingsText) continue;
+        }
+        // Флажок или переключатель в подписи: нажимается подпись целиком. Ссылка, растянутая
+        // подложкой ::after (position: absolute) на строку, нажимается всей строкой.
+        const label = el.closest("label");
+        const after = getComputedStyle(el, "::after");
+        let host: Element | null = null;
+        if (after.content !== "none" && after.position === "absolute") {
+          for (let p: Element | null = el; p && p !== document.body; p = p.parentElement) if (getComputedStyle(p).position !== "static") { host = p; break; }
+        }
+        const box = host ? host.getBoundingClientRect() : label && label !== el && visible(label) ? label.getBoundingClientRect() : r;
+        if (Math.min(box.width, box.height) < 44 - 0.5) out.push(`smallTap: ${name(el)} — ${Math.round(box.width)}×${Math.round(box.height)}`);
+      }
+    }
+    // ---- selectClip: выбранный пункт шире самого списка ----
+    if (want.has("selectClip")) {
+      const ctx = document.createElement("canvas").getContext("2d");
+      for (const sel of root.querySelectorAll<HTMLSelectElement>("select")) {
+        if (!ctx || !visible(sel) || skipped(sel)) continue;
+        const text = sel.selectedOptions[0]?.text ?? "";
+        if (!text.trim()) continue;
+        const s = getComputedStyle(sel);
+        ctx.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+        // Системная стрелка списка рисуется внутри поля (~20 px), если вид не снят appearance: none.
+        const arrow = s.appearance === "none" ? 0 : 20;
+        const room = sel.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight) - arrow;
+        const need = ctx.measureText(text).width;
+        if (need > room + 1) out.push(`selectClip: ${name(sel)} «${text.slice(0, 28)}» — нужно ${Math.round(need)}, есть ${Math.round(room)}`);
+      }
+    }
     if (want.has("wordBreak")) {
       for (const el of root.querySelectorAll("button, a, [role=tab], .chip, .pill")) {
         if (!visible(el) || skipped(el)) continue;

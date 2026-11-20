@@ -27,23 +27,23 @@
 
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head { display: flex; align-items: center; gap: 16px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head h1 {
-  margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text);
+  margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-switch {
-  display: flex; gap: 2px; flex: none; padding: 4px; border-radius: 999px;
-  background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  display: flex; gap: 2px; flex: none; padding: 4px; border-radius: var(--rh-r-full);
+  background: transparent; box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-switch a {
-  position: relative; display: grid; place-items: center; width: 52px; height: 44px; border-radius: 999px;
+  position: relative; display: grid; place-items: center; width: 52px; height: 44px; border-radius: var(--rh-r-full);
   color: var(--rh-ui-hint); text-decoration: none; transition: background-color 160ms, color 160ms;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-switch a:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-switch a[aria-current="page"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-switch a[aria-current="page"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-switch a:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-switch-n {
-  position: absolute; top: 0; right: 2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px;
+  position: absolute; top: 0; right: 2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: var(--rh-r-full);
   display: grid; place-items: center; background: var(--rh-ui-badge); color: var(--rh-ui-on-color);
-  font-size: 13px; font-weight: 700; line-height: 1; box-shadow: 0 0 0 2px var(--rh-ui-card);
+  font-size: var(--rh-fs-xs); font-weight: 700; line-height: 1; box-shadow: 0 0 0 2px var(--rh-ui-card);
 }
 
 /* ========================= раскладка ПК: список | разговор ========================= */
@@ -53,23 +53,23 @@
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section {
   display: flex; flex-direction: column; min-width: 0; height: var(--ry-chat-h); max-height: none !important; min-height: 0 !important;
-  margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: var(--rh-ui-r-card);
+  margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
-@media (max-width: 1099.98px) and (min-width: 820px) {
+@media (max-width: 1439.98px) and (min-width: 820px) {
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] { --ry-chat-list-w: 300px; }
 }
 
 /* Пустое состояние, ошибка и «нет переписок» — прежние блоки, новая одежда. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] > .scr > .card.tight {
-  padding: 16px 20px; border: 0; border-radius: var(--rh-ui-r-card);
+  padding: 16px 20px; border: 0; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .card.tight .empty p { font-size: 16px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .card.tight .empty p { font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-empty {
   display: grid; justify-items: center; gap: 12px; margin: auto; padding: 32px 20px; text-align: center;
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-empty h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-empty h2 { margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; color: var(--rh-ui-text); }
 
 /* ================================ список ================================ */
 
@@ -77,68 +77,67 @@
   display: grid; gap: 10px; padding: 12px; border: 0; box-shadow: 0 1px 0 var(--rh-ui-sep);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-b > input[type="search"] {
-  width: 100%; min-height: 44px; padding: 0 18px; border: 0 !important; border-radius: 999px;
-  background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 16px; box-shadow: none !important;
+  width: 100%; min-height: 44px; padding: 0 18px; border: 0 !important; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: var(--rh-fs-md); box-shadow: inset 0 0 0 1px var(--rh-ui-field-line) !important;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-b > input[type="search"]::placeholder { color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-b > input[type="search"]:focus-visible { box-shadow: inset 0 0 0 2px var(--rh-ui-primary) !important; outline: 0; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-b > .meta { margin: 0 !important; font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-b > .meta { margin: 0 !important; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
 
 /* Один фильтр «Ждут / Мои / Все» и кнопка «Ещё». */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-filters { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg {
   display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; flex: 1 1 auto; min-width: 0; padding: 4px;
-  border-radius: 999px; background: var(--rh-ui-bg);
-}
+  border-radius: var(--rh-r-full); background: var(--rh-seg-track); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; min-height: 44px; padding: 0 8px;
-  border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-hint);
-  font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  border: 0; border-radius: var(--rh-r-full); background: transparent; color: var(--rh-ui-hint);
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; cursor: pointer;
   transition: background-color 160ms, color 160ms;
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button b { font-size: 15px; font-weight: 700; opacity: .75; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button[aria-checked="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button b { font-size: var(--rh-fs-md); font-weight: 700; opacity: .75; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button[aria-checked="true"] { background: var(--rh-seg-on); color: var(--rh-seg-on-fg); box-shadow: var(--rh-seg-on-shadow); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more { flex: none; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more > summary {
-  position: relative; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 999px; list-style: none; cursor: pointer;
+  position: relative; display: grid; place-items: center; width: 52px; height: 52px; border-radius: var(--rh-r-full); list-style: none; cursor: pointer;
   background: var(--rh-ui-bg); color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more > summary::-webkit-details-marker { display: none; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more > summary svg { width: 22px; height: 22px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more[open] > summary { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more[data-active] > summary::after {
-  content: ""; position: absolute; top: 8px; right: 8px; width: 10px; height: 10px; border-radius: 999px;
+  content: ""; position: absolute; top: 8px; right: 8px; width: 10px; height: 10px; border-radius: var(--rh-r-full);
   background: var(--rh-ui-primary); box-shadow: 0 0 0 2px var(--rh-ui-bg);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more > summary:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more-body {
   position: absolute; z-index: 30; top: calc(100% + 8px); left: 0; right: 0; display: grid; gap: 12px; padding: 14px;
-  border-radius: 20px; background: var(--rh-ui-card); box-shadow: var(--rh-ui-cap-shadow), 0 0 0 1px var(--rh-ui-ring);
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-chip {
   display: inline-flex; align-items: center; justify-self: start; gap: 8px; min-height: 44px; padding: 0 16px;
-  border: 0; border-radius: 999px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
-  font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-bg); color: var(--rh-ui-text);
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-chip svg { width: 20px; height: 20px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-chip b { opacity: .75; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-chip[aria-pressed="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
 /* Канал и аккаунт — прежние поля, раскрыты сразу; своя подпись-переключатель не нужна. */
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more-body .clean-inbox-filters { margin: 0; font-size: 15px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more-body .clean-inbox-filters { margin: 0; font-size: var(--rh-fs-md); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more-body .clean-inbox-filters > summary { display: none; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more-body .clean-inbox-filters[open] > div { padding: 0; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more-body .clean-inbox-filters label { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more-body .clean-inbox-filters label { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more-body .clean-inbox-filters select {
-  min-height: 44px; padding: 0 14px; border: 0; border-radius: 14px; background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 16px;
+  min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: var(--rh-fs-md);
 }
 
 /* «Ждёт человека» и «пауза больше суток»: тихие строки со своим действием. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-alerts { display: grid; gap: 6px; padding: 10px 12px; box-shadow: 0 1px 0 var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-alert { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-width: 0; min-height: 48px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-alert-ic {
-  display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 999px;
+  display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: var(--rh-r-full);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-alert-ic svg { width: 18px; height: 18px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-alert[data-tone="crit"] .ry-chats-alert-ic { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
@@ -146,22 +145,22 @@
   background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-alert-tx {
-  flex: 1 1 150px; min-width: 0; overflow-wrap: anywhere; font-size: 14px; line-height: 1.3; color: var(--rh-ui-hint);
+  flex: 1 1 150px; min-width: 0; overflow-wrap: anywhere; font-size: var(--rh-fs-sm); line-height: 1.3; color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-alert-tx b { color: var(--rh-ui-text); font-weight: 700; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-alert > button {
-  flex: none; margin-left: auto; min-height: 44px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--rh-ui-press); color: var(--rh-ui-text);
-  font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  flex: none; margin-left: auto; min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-press); color: var(--rh-ui-text);
+  font: inherit; font-size: var(--rh-fs-sm); font-weight: 600; white-space: nowrap; cursor: pointer;
 }
 
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-scroll {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-scroll > .pane-b { padding: 16px; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] .state { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] .state { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] .empty { display: grid; justify-items: center; gap: 12px; padding: 24px 8px; text-align: center; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] .empty p { margin: 0; font-size: 16px; font-weight: 600; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] .empty .pill { min-height: 44px; border-radius: 999px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] .empty p { margin: 0; font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] .empty .pill { min-height: 44px; border-radius: var(--rh-r-full); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-b:last-child { padding: 8px 12px; box-shadow: 0 -1px 0 var(--rh-ui-sep); border: 0 !important; }
 
 /* Строка разговора: аватар с меткой канала, имя, одна строка, справа ожидание. */
@@ -180,22 +179,22 @@
 
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-av { position: relative; display: inline-grid; flex: none; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-ch {
-  position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px;
-  background: #5a6070; color: #ffffff; box-shadow: 0 0 0 2px var(--rh-ui-card);
+  position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-channel); color: var(--rh-ui-on-color); box-shadow: 0 0 0 2px var(--rh-ui-card);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-ch svg { width: 13px; height: 13px; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-ch[data-channel="WHATSAPP"] { background: #25d366; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-ch:is([data-channel="TELEGRAM"], [data-channel="TELEGRAM_DIRECT"]) { background: #2aabee; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-ch[data-channel="INSTAGRAM"] { background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285aeb 90%); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-ch[data-channel="FACEBOOK"] { background: #0866ff; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-ch[data-channel="WHATSAPP"] { background: var(--rh-ui-brand-wa); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-ch:is([data-channel="TELEGRAM"], [data-channel="TELEGRAM_DIRECT"]) { background: var(--rh-ui-brand-tg); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-ch[data-channel="INSTAGRAM"] { background: var(--rh-ui-brand-ig); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-ch[data-channel="FACEBOOK"] { background: var(--rh-ui-brand-fb); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-row[aria-current="true"] .ry-chat-ch { box-shadow: 0 0 0 2px var(--rh-ui-primary-soft); }
 
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-tx { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 2px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-name {
-  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 17px; font-weight: 600; line-height: 1.25;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.25;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-last {
-  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; line-height: 1.3; color: var(--rh-ui-hint);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--rh-fs-md); line-height: 1.3; color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-row[data-waiting] .ry-chat-last { color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-flag { color: var(--rh-ui-crit-text); font-weight: 700; }
@@ -203,22 +202,22 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-acc { font-weight: 600; }
 
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-rt { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-wait { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--rh-ui-hint); white-space: nowrap; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-wait { font-size: var(--rh-fs-md); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--rh-ui-hint); white-space: nowrap; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-wait[data-tone="crit"] { color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-wait[data-tone="warn"] { color: var(--rh-ui-warn); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-time { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--rh-ui-hint); white-space: nowrap; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-time { font-size: var(--rh-fs-sm); font-weight: 500; font-variant-numeric: tabular-nums; color: var(--rh-ui-hint); white-space: nowrap; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-marks { display: flex; align-items: center; gap: 6px; min-height: 22px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-paused { display: grid; place-items: center; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-paused svg { width: 18px; height: 18px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-paused[data-tone="crit"] { color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-unread {
-  display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
-  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font-size: 13px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+  display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font-size: var(--rh-fs-xs); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-unread:empty { min-width: 10px; width: 10px; height: 10px; padding: 0; }
 
 /* Страницы «Показать ещё» — прежняя кнопка. */
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] :is(.pill, button.pill) { border-radius: 999px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] :is(.pill, button.pill) { border-radius: var(--rh-r-full); }
 
 /* ============================== разговор ============================== */
 
@@ -228,18 +227,18 @@
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who {
   display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; min-height: 48px; padding: 2px 8px 2px 4px;
-  border: 0; border-radius: 16px; background: transparent; color: var(--rh-ui-text); font: inherit; text-align: left; cursor: pointer;
+  border: 0; border-radius: var(--rh-r-md); background: transparent; color: var(--rh-ui-text); font: inherit; text-align: left; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who:hover { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 17px; font-weight: 650; line-height: 1.25; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx small { white-space: normal; overflow-wrap: anywhere; font-size: 14px; line-height: 1.3; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--rh-fs-lg); font-weight: 650; line-height: 1.25; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx small { white-space: normal; overflow-wrap: anywhere; font-size: var(--rh-fs-sm); line-height: 1.3; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx .clean-bot-state { color: var(--rh-ui-hint); font-weight: 500; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx .clean-bot-state[data-paused="true"] { color: var(--rh-ui-warn); font-weight: 600; }
 
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-round {
-  display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px;
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--rh-r-full);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); cursor: pointer;
   transition: transform 90ms cubic-bezier(.23, 1, .32, 1), background-color 160ms;
 }
@@ -254,18 +253,18 @@
 
 /* «Вернуть боту» на ПК — значок со словами (действие включает бота поверх агента). */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-pill-btn {
-  display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 0 16px 0 12px; border: 0; border-radius: 999px;
-  background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 0 16px 0 12px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; cursor: pointer;
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-pill-btn svg { width: 20px; height: 20px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-pill-btn:disabled { opacity: .5; cursor: default; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-pill-btn:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 /* Телефон: «Вернуть боту?» Да / Нет. */
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-confirm { min-width: 220px; padding: 14px; gap: 12px; }:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-confirm p { margin: 0; font-size: 16px; font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-confirm { min-width: 220px; padding: 14px; gap: 12px; }:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-confirm p { margin: 0; font-size: var(--rh-fs-md); font-weight: 700; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-confirm-actions button {
-  min-height: 44px; border: 0; border-radius: 999px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  min-height: 44px; border: 0; border-radius: var(--rh-r-full); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-confirm-no { background: var(--rh-ui-press); color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-confirm-yes { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
@@ -275,19 +274,19 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-box { position: relative; flex: none; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu {
   position: absolute; z-index: 40; top: calc(100% + 8px); right: 0; display: grid; gap: 2px; min-width: 248px; max-width: min(320px, calc(100vw - 24px)); padding: 6px;
-  border-radius: 20px; background: var(--rh-ui-card); box-shadow: var(--rh-ui-cap-shadow), 0 0 0 1px var(--rh-ui-ring);
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu > button {
   display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 14px;
-  border: 0; border-radius: 14px; background: transparent; color: var(--rh-ui-text);
-  font: inherit; font-size: 15px; font-weight: 600; text-align: left; cursor: pointer;
+  border: 0; border-radius: var(--rh-r-md); background: transparent; color: var(--rh-ui-text);
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; text-align: left; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu > button:hover:not(:disabled) { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu > button:disabled { opacity: .5; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu > button svg { width: 20px; height: 20px; flex: none; color: var(--rh-ui-hint); }
 
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-note {
-  display: flex; align-items: center; gap: 8px; flex: none; padding: 8px 16px; font-size: 14px; font-weight: 600; line-height: 1.35;
+  display: flex; align-items: center; gap: 8px; flex: none; padding: 8px 16px; font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.35;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-note[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-note svg { width: 18px; height: 18px; flex: none; }
@@ -297,48 +296,48 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-details {
   padding: 16px 20px !important; border: 0 !important; background: var(--rh-ui-card); box-shadow: 0 1px 0 var(--rh-ui-sep);
 }
-@media (min-width: 1180px) {
+@media (min-width: 1440px) {
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-workspace[data-context-open] { grid-template-columns: minmax(0, 1fr) minmax(260px, 300px); }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-workspace > .clean-contact-details { box-shadow: -1px 0 0 var(--rh-ui-sep); }
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-title { font-size: 20px; font-weight: 700; letter-spacing: -.02em; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-facts dt { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-facts dd { font-size: 16px; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-title { font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.02em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-facts dt { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-facts dd { font-size: var(--rh-fs-md); color: var(--rh-ui-text); }
 
 /* Лента. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .thread { padding: 16px; background: var(--rh-ui-bg); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-thread-content { gap: 2px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .day {
-  align-self: center; margin: 6px 0 8px; padding: 4px 12px; border: 0; border-radius: 999px;
-  background: var(--rh-ui-card); color: var(--rh-ui-hint); font-size: 13px; font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  align-self: center; margin: 6px 0 8px; padding: 4px 12px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-hint); font-size: var(--rh-fs-xs); font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
   /* Плашка даты стоит на своём месте в ленте, а не липнет к верху: прежний телефонный
      слой (theme-2026-mobile-chat.css, sticky) клал «Сегодня» поверх первого видимого
      пузыря и закрывал его текст (сторож #328, 320 px, 20.11.2026). */
   position: static;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub {
-  position: relative; max-width: min(78%, 560px); padding: 9px 14px 7px; border: 0; border-radius: 18px;
-  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: 16px; line-height: 1.45; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  position: relative; max-width: min(78%, 560px); padding: 9px 14px 7px; border: 0; border-radius: var(--rh-r-md);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-md); line-height: 1.45; box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me {
-  border-radius: 18px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); box-shadow: none;
+  border-radius: var(--rh-r-md); background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); box-shadow: none;
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .who { display: block; margin-bottom: 2px; font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .who { display: block; margin-bottom: 2px; font-size: var(--rh-fs-xs); font-weight: 600; color: var(--rh-ui-hint); }
 /* «Клиент» над каждым входящим повторяет то, что уже сказано стороной пузыря
    (макет: подписи нет). Для экранного чтеца подпись остаётся. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub:not(.me) > .who {
   position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .tm { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; font-size: 13px; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .meta { font-size: 13px; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) :is(.who, .tm, .meta, .note) { color: rgba(255, 255, 255, .86); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) :is(a, .lnk, .tm svg) { color: #ffffff; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .tm { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; font-size: var(--rh-fs-xs); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .meta { font-size: var(--rh-fs-xs); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) :is(.who, .tm, .meta, .note) { color: color-mix(in srgb, var(--rh-ui-on-color) 86%, transparent); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) :is(a, .lnk, .tm svg) { color: var(--rh-ui-on-color); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) .who { background: transparent; border: 0; padding: 0; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) blockquote,
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) [data-quote] { background: rgba(255, 255, 255, .16); color: #ffffff; border-color: rgba(255, 255, 255, .5); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .lnk { min-height: 32px; font-size: 14px; font-weight: 600; color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) [data-quote] { background: color-mix(in srgb, var(--rh-ui-on-color) 16%, transparent); color: var(--rh-ui-on-color); border-color: color-mix(in srgb, var(--rh-ui-on-color) 50%, transparent); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .lnk { min-height: 32px; font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-primary-ink); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-bot-feedback button { min-height: 44px; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-jump-latest .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)) { min-height: 44px; border-radius: 999px; background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-jump-latest .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot)) { min-height: 44px; border-radius: var(--rh-r-full); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
 /* Выключенная кнопка раздела приглушена всегда — любая: .pill, .rh-btn, .ry-btn и голый button
    (ревью PR 286: правило только для таблеток пропускало перекраску прочих кнопок).
    :not(#ry-dim) — вес id (такого id нет): тяжелее любой классовой перекраски. Свои
@@ -348,14 +347,14 @@
 /* Поиск по переписке — прежняя строка, новая одежда. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-timeline > .pane-b { background: var(--rh-ui-card); border-bottom: 0 !important; box-shadow: 0 1px 0 var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-timeline > .pane-b input[type="search"] {
-  min-height: 44px; padding: 0 16px; border: 0 !important; border-radius: 999px; background: var(--rh-ui-bg); font-size: 16px; box-shadow: none !important;
+  min-height: 44px; padding: 0 16px; border: 0 !important; border-radius: var(--rh-r-full); background: var(--rh-ui-bg); font-size: var(--rh-fs-md); box-shadow: inset 0 0 0 1px var(--rh-ui-field-line) !important;
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-timeline > .pane-b .call { width: 44px; height: 44px; border-radius: 999px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-timeline > .pane-b .call { width: 44px; height: 44px; border-radius: var(--rh-r-full); }
 
 /* Строки-предупреждения над полем (окно ответа, отказ, телефон скроется). */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .suggest {
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; padding: 8px 16px; border: 0;
-  background: var(--rh-ui-card); font-size: 14px; line-height: 1.4; color: var(--rh-ui-text); box-shadow: 0 -1px 0 var(--rh-ui-sep);
+  background: var(--rh-ui-card); font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-text); box-shadow: 0 -1px 0 var(--rh-ui-sep);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .suggest .txt { min-width: 0; overflow-wrap: anywhere; }
 
@@ -367,8 +366,8 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-quick::-webkit-scrollbar { display: none; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-quick button {
   flex: none; max-width: 260px; min-height: 44px; padding: 6px 16px; white-space: normal; overflow-wrap: anywhere; text-align: left; line-height: 1.25; /* текст быстрого ответа виден целиком до отправки (18.11) */
-  border: 0; border-radius: 999px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
-  font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-bg); color: var(--rh-ui-text);
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer; box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-quick button:active:not(:disabled) { transform: scale(.97); }
 
@@ -379,13 +378,13 @@
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-quick + .ry-chat-compose { box-shadow: none; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > select {
-  flex: 1 0 100%; width: 100%; max-width: none; min-height: 44px; padding: 0 14px; border: 0; border-radius: 14px; background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 16px;
+  flex: 1 0 100%; width: 100%; max-width: none; min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: var(--rh-fs-md);
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .meta { flex: 1 0 100%; font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .meta { flex: 1 0 100%; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > textarea {
   order: 2; flex: 1 1 0; width: auto; min-width: 0; min-height: 44px; max-height: 120px; padding: 11px 16px; margin: 0;
-  border: 0 !important; border-radius: 22px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
-  font-size: 16px; line-height: 1.4; resize: none; box-shadow: none !important;
+  border: 0 !important; border-radius: var(--rh-r-lg); background: var(--rh-ui-bg); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); line-height: 1.4; resize: none; box-shadow: inset 0 0 0 1px var(--rh-ui-field-line) !important;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > textarea::placeholder { color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > textarea:focus-visible { box-shadow: inset 0 0 0 2px var(--rh-ui-primary) !important; outline: 0; }
@@ -396,7 +395,7 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > :is(button[title="Записать голосовое"], div.rounded-full) { order: 3; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .ry-chat-send { order: 4; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose :is(button.call, button.rounded-full) {
-  display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px;
+  display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--rh-r-full);
   background: transparent; color: var(--rh-ui-hint); box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose :is(button.call, button.rounded-full):hover:not(:disabled) { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
@@ -407,19 +406,19 @@
 
 /* «Ответ ставит бота на паузу: …» — прежняя строка; в новом виде её больше нет (20.11.2026). */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .suggest.ry-chat-pausepick {
-  flex-wrap: nowrap; gap: 8px; padding: 0 16px 10px; box-shadow: none; font-size: 14px; color: var(--rh-ui-hint);
+  flex-wrap: nowrap; gap: 8px; padding: 0 16px 10px; box-shadow: none; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-pausepick .txt { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-pausepick select {
-  flex: 0 1 auto; min-width: 0; min-height: 44px; padding: 0 12px; border: 0 !important; border-radius: 999px;
-  background: var(--rh-ui-bg) !important; color: var(--rh-ui-text); font-size: 14px; font-weight: 600; box-shadow: none !important;
+  flex: 0 1 auto; min-width: 0; min-height: 44px; padding: 0 12px; border: 0 !important; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-bg) !important; color: var(--rh-ui-text); font-size: var(--rh-fs-sm); font-weight: 600; box-shadow: inset 0 0 0 1px var(--rh-ui-field-line) !important;
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-read-only-chat-note { margin: 0; padding: 12px 16px; font-size: 14px; color: var(--rh-ui-hint); background: var(--rh-ui-card); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-read-only-chat-note { margin: 0; padding: 12px 16px; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); background: var(--rh-ui-card); }
 
 /* Загрузка и ошибка разговора. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-state { padding: 24px; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-state h2 { font-size: 20px; font-weight: 700; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-message-skeleton { height: 56px; max-width: 70%; margin-top: 16px; border-radius: 20px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-state h2 { font-size: var(--rh-fs-xl); font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-message-skeleton { height: 56px; max-width: 70%; margin-top: 16px; border-radius: var(--rh-r-lg); background: var(--rh-ui-raised); }
 
 /* ====================== переписка как в мессенджере (20.11.2026) ======================
  * Владелец: «бот на паузе… и функции всякие лишние в окне переписки — убрать,
@@ -428,24 +427,24 @@
  * кто ответил — в «Сведениях о сообщении» (долгое нажатие, правая кнопка, стрелка).
  */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub:not(.ry-cont) { margin-top: 6px; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.ry-tail:not(.me) { border-bottom-left-radius: 4px; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me.ry-tail { border-bottom-right-radius: 4px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.ry-tail:not(.me) { border-bottom-left-radius: var(--rh-r-sm); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me.ry-tail { border-bottom-right-radius: var(--rh-r-sm); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .tm { margin-top: 2px; line-height: 1; font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .ry-tick { display: inline-block; width: 16px; height: 16px; flex: none; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me .ry-tick[data-status="read"] { color: #b9ecff; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me .ry-tick[data-status="read"] { color: var(--rh-ui-tick-read); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .ry-tick[data-status="failed"] {
-  display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 999px; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg);
-  font-size: 13px; font-weight: 800; line-height: 1;
+  display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: var(--rh-r-full); background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg);
+  font-size: var(--rh-fs-xs); font-weight: 800; line-height: 1;
 }
 /* Скрытый номер клиента — тихая пометка внутри фразы, без кнопки (звонок — в шапке). */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-masked-phone {
-  padding: 0 6px; border-radius: 6px; background: var(--rh-ui-press); color: var(--rh-ui-hint); font-size: 14px; white-space: nowrap;
+  padding: 0 6px; border-radius: var(--rh-r-sm); background: var(--rh-ui-press); color: var(--rh-ui-hint); font-size: var(--rh-fs-sm); white-space: nowrap;
 }
 
 /* Стрелка «Сведения о сообщении»: видна при наведении и с клавиатуры, на касание — долгое нажатие. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more {
-  position: absolute; top: 2px; right: 2px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
-  border: 0; border-radius: 999px; background: inherit; color: inherit; cursor: pointer; opacity: 0; transition: opacity 120ms;
+  position: absolute; top: 0; right: 0; display: grid; place-items: center; width: var(--rh-ctl-h); height: var(--rh-ctl-h); padding: 0;
+  border: 0; border-radius: var(--rh-r-full); background: inherit; color: inherit; cursor: pointer; opacity: 0; transition: opacity 120ms;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more svg { width: 18px; height: 18px; opacity: .75; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub:hover > .ry-msg-more,
@@ -454,32 +453,32 @@
 /* Палец: наведения нет — стрелка видна всегда, приглушённо; текст выделяется как
    обычно (ревью #332), «Сведения» — стрелкой или долгим нажатием вне текста. */
 @media (hover: none) {
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more { opacity: .6; width: 28px; height: 28px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub { padding-right: 30px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more { opacity: .6; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub { padding-right: 40px; }
 }
 
 /* Служебная строка по центру ленты, как в Telegram: запрос клиента, щит бота. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-lines { display: grid; justify-items: center; gap: 6px; margin: 10px 0 4px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 10px; align-self: center; max-width: min(92%, 520px); margin: 10px auto 4px;
-  padding: 6px 14px; border-radius: 14px; background: var(--rh-ui-card); color: var(--rh-ui-hint); box-shadow: 0 0 0 1px var(--rh-ui-ring);
-  font-size: 14px; font-weight: 500; line-height: 1.35; text-align: center; overflow-wrap: anywhere;
+  padding: 6px 14px; border-radius: var(--rh-r-md); background: var(--rh-ui-card); color: var(--rh-ui-hint); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  font-size: var(--rh-fs-sm); font-weight: 500; line-height: 1.35; text-align: center; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-lines > .ry-service { margin: 0; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-acts { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-acts button {
-  min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-primary-ink);
-  font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+  min-height: 44px; padding: 0 12px; border: 0; border-radius: var(--rh-r-full); background: transparent; color: var(--rh-ui-primary-ink);
+  font: inherit; font-size: var(--rh-fs-sm); font-weight: 700; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-acts button:hover:not(:disabled) { background: var(--rh-ui-hover); }
 
 /* Меню «⋯» и скрепки: подпись группы, отметка выбранного канала, быстрые ответы. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-group { display: grid; gap: 2px; padding-top: 6px; margin-top: 4px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-cap { padding: 4px 14px 2px; font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-cap { padding: 4px 14px 2px; font-size: var(--rh-fs-xs); font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-group > button {
   display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 14px;
-  border: 0; border-radius: 14px; background: transparent; color: var(--rh-ui-text);
-  font: inherit; font-size: 15px; font-weight: 600; text-align: left; cursor: pointer;
+  border: 0; border-radius: var(--rh-r-md); background: transparent; color: var(--rh-ui-text);
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; text-align: left; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-group > button:hover:not(:disabled) { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-group > button svg { width: 20px; height: 20px; flex: none; color: var(--rh-ui-primary-ink); }
@@ -504,25 +503,25 @@
 
 /* Сведения о контакте: объект продавца — блоком, без полосы над перепиской. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-contact-object > .pane-b {
-  flex-wrap: wrap; margin: 0 0 12px; padding: 12px 14px !important; border: 0 !important; border-radius: 16px; background: var(--rh-ui-bg);
+  flex-wrap: wrap; margin: 0 0 12px; padding: 12px 14px !important; border: 0 !important; border-radius: var(--rh-r-md); background: var(--rh-ui-bg);
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-contact-object .txt { font-size: 15px !important; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-contact-object .pill { min-height: 44px; border-radius: 999px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-contact-object .txt { font-size: var(--rh-fs-md) !important; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-contact-object .pill { min-height: 44px; border-radius: var(--rh-r-full); }
 
 /* Шторка «Сведения о сообщении» (портал с той же меткой раздела). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows { display: grid; gap: 12px; margin: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows > div { display: grid; gap: 2px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows dt { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows dd { margin: 0; font-size: 16px; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows dt { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows dd { margin: 0; font-size: var(--rh-fs-md); color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rate { margin-top: 16px; padding-top: 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rate .clean-bot-feedback button { min-height: 44px; font-size: 15px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rate .clean-bot-feedback button { min-height: 44px; font-size: var(--rh-fs-md); }
 
 /* ============================== телефон ============================== */
 
-@media (max-width: 819px) {
+@media (max-width: 819.98px) {
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] > .scr { gap: 12px; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head { justify-content: space-between; gap: 12px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head h1 { font-size: 28px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head h1 { font-size: var(--rh-fs-2xl); }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-switch a { width: 48px; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"][data-chat-active="thread"] .ry-chats-head { display: none; }
 
@@ -531,7 +530,7 @@
   /* Список — обычной страницей: прокручивается весь экран, а не коробка внутри. */
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section[aria-label="Диалоги"] { height: auto; overflow: visible; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-scroll { overflow: visible; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button { padding: 0 4px; font-size: 15px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button { padding: 0 4px; font-size: var(--rh-fs-md); }
 
   /* Переписка — на весь экран поверх меню, как в мессенджере (тот же приём, что
      у прежнего телефонного чата): своя прокрутка только у ленты. */
@@ -542,8 +541,8 @@
   }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-head { gap: 4px; padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px 4px; min-height: 64px; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who { gap: 10px; padding: 2px 4px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { font-size: 17px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx small { font-size: 14px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { font-size: var(--rh-fs-lg); }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx small { font-size: var(--rh-fs-sm); }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub { max-width: 86%; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose { padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)) !important; gap: 4px; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-details { max-height: none; flex: 1 1 auto; }

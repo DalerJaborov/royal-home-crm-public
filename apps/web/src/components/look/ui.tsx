@@ -1,4 +1,4 @@
-import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useId, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { RoyalBrandIcon, RoyalIcon } from "./RoyalIcon";
 import type { RoyalBrandName, RoyalIconName } from "./royalIconData";
@@ -108,14 +108,137 @@ export function RhTile({ variant, icon, label, value, unit, to, alert, note }: {
   return <div className="ry-tile" data-variant={variant}>{inner}</div>;
 }
 
-export function RhButton({ variant = "soft", children, ...rest }: {
-  variant?: "primary" | "soft" | "dark" | "gray";
-} & ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button type="button" {...rest} className={`ry-btn${rest.className ? ` ${rest.className}` : ""}`} data-variant={variant}>{children}</button>;
+/**
+ * КНОПКА — четыре вида (конституция оболочки, пачка C): `primary` — главное действие, одна на
+ * блок; `secondary` — обычное; `ghost` — только текст; `danger` — необратимое. Прежние `soft` и
+ * `gray` — синонимы `secondary`, `dark` — `primary` (старые вызовы не ломаются, вид один).
+ * `disabledReason` — кнопка выключена, причина видна подписью под ней и озвучивается чтецом:
+ * выключенная кнопка без причины для новичка выглядит сломанной (critic-uiux P1-11).
+ */
+export type RhButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+type RhButtonVariantInput = RhButtonVariant | "soft" | "gray" | "dark";
+export function rhButtonVariant(variant: RhButtonVariantInput = "secondary"): RhButtonVariant {
+  return variant === "soft" || variant === "gray" ? "secondary" : variant === "dark" ? "primary" : variant;
 }
 
-export function RhLinkButton({ to, variant = "soft", children, label }: { to: string; variant?: "primary" | "soft" | "dark" | "gray"; children: ReactNode; label?: string }) {
-  return <Link to={to} className="ry-btn" data-variant={variant} aria-label={label}>{children}</Link>;
+export function RhButton({ variant = "secondary", disabledReason, children, ...rest }: {
+  variant?: RhButtonVariantInput;
+  /** Причина, почему кнопка выключена. Есть причина — кнопка выключена всегда. */
+  disabledReason?: string | null;
+} & ButtonHTMLAttributes<HTMLButtonElement>) {
+  const reasonId = useId();
+  const button = (
+    <button type="button" {...rest}
+      disabled={rest.disabled || !!disabledReason}
+      title={disabledReason || rest.title}
+      aria-describedby={disabledReason ? reasonId : rest["aria-describedby"]}
+      className={`ry-btn${rest.className ? ` ${rest.className}` : ""}`} data-variant={rhButtonVariant(variant)}>{children}</button>
+  );
+  if (!disabledReason) return button;
+  return <span className="ry-btn-hold">{button}<span id={reasonId} className="ry-btn-reason">{disabledReason}</span></span>;
+}
+
+export function RhLinkButton({ to, variant = "secondary", children, label }: { to: string; variant?: RhButtonVariantInput; children: ReactNode; label?: string }) {
+  return <Link to={to} className="ry-btn" data-variant={rhButtonVariant(variant)} aria-label={label}>{children}</Link>;
+}
+
+/** Следующий вариант по клавише: стрелки по кругу, Home/End; из невидимого значения — с края. */
+export function rhStepByKey<Id extends string>(ids: readonly Id[], current: Id | undefined, key: string): Id | undefined {
+  if (!ids.length) return undefined;
+  if (key === "Home") return ids[0];
+  if (key === "End") return ids[ids.length - 1];
+  const step = key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
+  if (!step) return undefined;
+  const index = current === undefined ? -1 : ids.indexOf(current);
+  const from = index < 0 ? (step > 0 ? -1 : 0) : index;
+  return ids[(from + step + ids.length) % ids.length];
+}
+
+export type RhChoice<Id extends string> = {
+  id: Id;
+  label: ReactNode;
+  /** Подпись для чтеца, когда видимая подпись — значок или сокращение. */
+  ariaLabel?: string;
+  disabled?: boolean;
+  /** Свои атрибуты варианта (data-*) — для тестов и слоёв экранов. */
+  attrs?: Record<string, string | undefined>;
+};
+
+/**
+ * SEGMENTED — 2–4 взаимоисключающих варианта ОДНОГО списка («Ждут / Мои / Все», «Продавцы /
+ * Покупатели»). Радиогруппа: стрелки переключают, в порядке Tab — одна кнопка. Вид — серый
+ * трек, выбранный на светлой таблетке (theme-look-royal.css, .ry-seg). Значение вне вариантов
+ * (спрятанный срез) — ни один не выбран, в Tab-порядке первый.
+ */
+export function RhSegmented<Id extends string>({ value, options, onChange, label, className }: {
+  value: Id | undefined; options: readonly RhChoice<Id>[]; onChange: (id: Id) => void; label: string; className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const ids = options.filter((o) => !o.disabled).map((o) => o.id);
+  const checked = options.findIndex((o) => o.id === value);
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const next = rhStepByKey(ids, value, event.key);
+    if (!next) return;
+    event.preventDefault();
+    onChange(next);
+    ref.current?.querySelector<HTMLButtonElement>(`[data-rh-choice="${next}"]`)?.focus();
+  };
+  return (
+    <div ref={ref} role="radiogroup" aria-label={label} className={`ry-seg${className ? ` ${className}` : ""}`} onKeyDown={onKeyDown}>
+      {options.map((o, index) => (
+        <button key={o.id} type="button" role="radio" {...o.attrs} data-rh-choice={o.id}
+          aria-checked={o.id === value} aria-label={o.ariaLabel} disabled={o.disabled}
+          tabIndex={index === (checked < 0 ? 0 : checked) ? 0 : -1}
+          onClick={() => onChange(o.id)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * TABS — разделы одной страницы («Кратко / Объекты / Переписка»). Список вкладок: стрелки и
+ * Home/End, у панели — `${idPrefix}-panel-<id>`, у вкладки — `${idPrefix}-tab-<id>`. Вид — без
+ * трека, выбранная на мягком синем (.ry-tabs). Переход между страницами — RhNavTabs.
+ */
+export function RhTabs<Id extends string>({ value, tabs, onChange, label, idPrefix, className, tabClassName }: {
+  value: Id; tabs: readonly RhChoice<Id>[]; onChange: (id: Id) => void; label: string;
+  idPrefix: string; className?: string; tabClassName?: string;
+}) {
+  const ids = tabs.filter((t) => !t.disabled).map((t) => t.id);
+  return (
+    <div role="tablist" aria-label={label} className={`ry-tabs${className ? ` ${className}` : ""}`}>
+      {tabs.map((t) => (
+        <button key={t.id} type="button" role="tab" {...t.attrs} id={`${idPrefix}-tab-${t.id}`}
+          aria-selected={t.id === value} aria-label={t.ariaLabel} aria-controls={`${idPrefix}-panel-${t.id}`}
+          tabIndex={t.id === value ? 0 : -1} disabled={t.disabled} className={tabClassName}
+          onClick={(event) => { onChange(t.id); event.currentTarget.scrollIntoView?.({ block: "nearest", inline: "nearest" }); }}
+          onKeyDown={(event) => {
+            const next = rhStepByKey(ids, t.id, event.key);
+            if (!next) return;
+            event.preventDefault();
+            onChange(next);
+            event.currentTarget.ownerDocument.getElementById(`${idPrefix}-tab-${next}`)?.focus();
+          }}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Вкладки-ссылки между страницами одного раздела: тот же вид, что RhTabs, смысл — навигация. */
+export function RhNavTabs({ items, label, className }: {
+  items: readonly { to: string; label: ReactNode; current: boolean; ariaLabel?: string; title?: string }[]; label: string; className?: string;
+}) {
+  return (
+    <nav aria-label={label} className={`ry-tabs${className ? ` ${className}` : ""}`}>
+      {items.map((item) => (
+        <Link key={item.to} to={item.to} aria-current={item.current ? "page" : undefined} aria-label={item.ariaLabel} title={item.title}>{item.label}</Link>
+      ))}
+    </nav>
+  );
 }
 
 /** Переключатель 56×34: переключается сразу (optimistic), подпись — снаружи. */
@@ -147,7 +270,7 @@ export function RhBlockState({ kind, onRetry }: { kind: "loading" | "error" | "e
   if (kind === "error") return (
     <div className="ry-state" role="alert">
       <span>Не загрузилось</span>
-      {onRetry && <RhButton variant="gray" onClick={onRetry}>Повторить</RhButton>}
+      {onRetry && <RhButton variant="secondary" onClick={onRetry}>Повторить</RhButton>}
     </div>
   );
   return <div className="ry-state">Пусто</div>;
