@@ -50,6 +50,22 @@ describe("номер объекта в имени файла и тексте", (
   it("в речи число словами: «объект двести тринадцать» → 213", () => {
     expect(textObjectNumbers("это объект двести тринадцать в Сино")).toEqual([213]);
   });
+  it("ложные номера (ревью 21.11): «школа номер 5», годы, «3ка» — не номер объекта", () => {
+    expect(textObjectNumbers("рядом школа номер пять и дом номер 12")).toEqual([]);
+    expect(textObjectNumbers("школа номер 5")).toEqual([]);
+    expect(fileObjectNumber("2026.mp4")).toBeNull();
+    expect(fileObjectNumber("2025_ремонт.mp4")).toBeNull();
+    expect(fileObjectNumber("1998 дом.mov")).toBeNull();
+    expect(textObjectNumbers("2026 год, новый дом", { leadingBare: true })).toEqual([]);
+    expect(textObjectNumbers("2026", { leadingBare: true })).toEqual([]);
+    expect(textObjectNumbers("3ка Сино", { leadingBare: true })).toEqual([]);
+    expect(textObjectNumbers("2-шка у парка", { leadingBare: true })).toEqual([]);
+    expect(fileObjectNumber("3ка Сино.mp4")).toBeNull();
+    expect(fileObjectNumber("82-й мкр.mp4")).toBeNull();
+    // Явная метка — номер, даже похожий на год.
+    expect(textObjectNumbers("№2026")).toEqual([2026]);
+    expect(textObjectNumbers("ОБ-213 финал")).toEqual([213]);
+  });
 });
 
 describe("признаки из слов", () => {
@@ -67,6 +83,11 @@ describe("признаки из слов", () => {
     expect(extractClipFacts("площадь 85,5 м2").areas).toEqual([85]);
     expect(extractClipFacts("этаж 7 из 9").floor).toBe(7);
     expect(extractClipFacts("82 мкр рядом школа").microdistricts).toEqual([82]);
+  });
+  it("цена в долларах: «$127 200», «61 000 долларов» — отдельно от сомони", () => {
+    expect(extractClipFacts("цена $127 200").pricesUsd).toEqual([127_200]);
+    expect(extractClipFacts("61 000 долларов").pricesUsd).toEqual([61_000]);
+    expect(extractClipFacts("61 000 долларов").prices).toEqual([]);
   });
   it("речь: «пятьсот пятьдесят тысяч» → 550000", () => {
     expect(extractClipFacts("цена пятьсот пятьдесят тысяч сомони").prices).toEqual([550_000]);
@@ -114,6 +135,14 @@ describe("кандидаты", () => {
     const som = prop({ districtId: "d-som", rooms: 3 });
     expect(scoreClipCandidates({ caption: "3 комнаты за 550 000 сомони" }, [som], districts).candidates).toEqual([]);
     expect(scoreClipCandidates({ caption: "район Сомони 3 комнаты" }, [som], districts).candidates.map((c) => c.propertyId)).toEqual([som.id]);
+  });
+  it("цена через общий пересчёт в сомони: объект в долларах узнаётся по сумме в сомони и по сумме с «$»", () => {
+    const usd = prop({ price: 100_000, currency: "USD" });
+    const rate = 10.9;
+    expect(scoreClipCandidates({ caption: "цена 1 090 000 сомони" }, [usd], districts, () => true, rate).candidates.map((c) => c.propertyId)).toEqual([usd.id]);
+    expect(scoreClipCandidates({ caption: "всего $100 000" }, [usd], districts, () => true, rate).candidates.map((c) => c.propertyId)).toEqual([usd.id]);
+    expect(scoreClipCandidates({ caption: "цена 100 000" }, [usd], districts, () => true, rate).candidates.map((c) => c.propertyId)).toEqual([usd.id]);
+    expect(scoreClipCandidates({ caption: "цена 500 000 сомони" }, [usd], districts, () => true, rate).candidates).toEqual([]);
   });
   it("кандидат, которого сотрудник вести не может, не показывается", () => {
     const a = prop({ shortId: 777 });

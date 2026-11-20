@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import {
   SOCIAL_PHOTO_POST_CHANNELS,
@@ -26,7 +26,8 @@ import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
 import { loadChannelInfos } from "../lib/socialVideoChannels.js";
-import { effectiveCaptionLimit, generateSocialVideoCaptions, SocialVideoAiError } from "../lib/socialVideoAi.js";
+import { containsForbiddenWord, effectiveCaptionLimit, generateSocialVideoCaptions, SocialVideoAiError } from "../lib/socialVideoAi.js";
+import { stripDashes } from "../ai/seoGenerator.js";
 import {
   SocialVideoError,
   createSocialPhotoPostFromUpload,
@@ -38,6 +39,7 @@ import {
 } from "../lib/socialVideoPosts.js";
 import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import { videoHandoffDir } from "../upload.js";
+import { dropDraftIfStillDraft } from "../lib/staffSocialPostSweep.js";
 import { dushanbeDateString, dushanbeTimeString } from "../lib/dushanbeTime.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { downloadAssistantMedia } from "./assistantMedia.js";
@@ -60,9 +62,13 @@ import {
  *  - публикация → publishSocialVideo (проверки площадок, захват статуса, фон).
  * Перед публикацией — превью: что, куда, подпись, когда; кнопки «Опубликовать», «Изменить подпись»,
  * «Другая подпись», «Выбрать сети», «Отмена». В СЕТИ УХОДИТ ТОЛЬКО ПО КНОПКЕ «Опубликовать» ТОГО ЖЕ
- * СОТРУДНИКА: строка StaffSocialPost захватывается условной записью PREVIEW → PUBLISHING, поэтому
- * двойное нажатие и повтор апдейта Telegram второй публикации не дают (и сам publishSocialVideo
- * второй раз из DRAFT не запустит).
+ * СОТРУДНИКА и только с ПОСЛЕДНЕГО превью: в кнопке номер превью, а при показе запоминается отпечаток
+ * подписи и сетей — уходит ровно то, что человек видел. Все смены статуса условные (updateMany из
+ * ожидаемого): пока пишется новая подпись или выбираются сети (PREPARING / PICKING), «Опубликовать»
+ * не срабатывает; после захвата PUBLISHING никто подпись уже не перепишет. Двойное нажатие и повтор
+ * апдейта Telegram второй публикации не дают (и сам publishSocialVideo второй раз из DRAFT не запустит).
+ * Долгое (скачивание, ИИ, публикация) идёт в очереди этого чата (DeferWork), кнопка отвечает сразу.
+ * Брошенное убирает lib/staffSocialPostSweep.ts (cron, раз в 15 минут).
  *
  * Приватность: только личка привязанного сотрудника, не пересланное (чужой файл, в том числе от
  * клиента, сюда не попадает). Рубильник «Шабнам публикует ролики и фото без объекта» — реестр
@@ -70,13 +76,22 @@ import {
  */
 
 export const STAFF_SOCIAL_POST_TTL_MS = 24 * 3_600_000;
-const EDIT_CAPTION_WINDOW_MS = 30 * 60_000;
+const EDIT_CAPTION_WINDOW_MS = 10 * 60_000;
 const CAPTION_DAILY_LIMIT = 40;
 export const STAFF_SOCIAL_ALBUM_QUIET_MS = 2_500;
 
 type Lang = "ru" | "tg";
 type Actor = { id: string; fullName: string };
 type PostRow = Prisma.StaffSocialPostGetPayload<object>;
+
+/** Как запустить долгую часть нажатия: бот передаёт очередь чата (assistantBot.ts), тесты — сразу. */
+export type DeferWork = (work: () => Promise<void>) => Promise<void>;
+export const runInline: DeferWork = (work) => work();
+
+/** Статусы, из которых можно показать превью заново. */
+const SHOWABLE = ["PREPARING", "PREVIEW", "EDIT_CAPTION", "PICKING"];
+/** Статусы, в которых превью живое и кнопки работают. */
+const LIVE = ["PREVIEW", "EDIT_CAPTION"];
 
 // ───────────────────────────── тексты ─────────────────────────────
 
@@ -121,6 +136,12 @@ const T = {
     sentState: "✅ Отправлено в публикацию",
     cancelState: "Отменено",
     updatedBelow: "Превью обновлено, смотрите ниже ↓",
+    oldPreview: "Это старое превью, смотрите последнее ниже",
+    changed: "Подпись или сети изменились, показываю заново",
+    busy: "Подождите, готовлю подпись",
+    regenerating: "Пишу другую подпись…",
+    preparingShort: "Готовлю…",
+    captionAbove: (n: number) => `в сообщении выше ↑ (${n} знаков, уйдёт целиком)`,
   },
   tg: {
     off: "Нашри постҳо бе объект тавассути ман ҳоло дар Танзимот хомӯш аст. Постро дар бахши «Роликҳо»-и CRM созед.",
@@ -162,6 +183,12 @@ const T = {
     sentState: "✅ Ба нашр фиристода шуд",
     cancelState: "Бекор шуд",
     updatedBelow: "Пешнамоиш нав шуд, дар поён нигоҳ кунед ↓",
+    oldPreview: "Ин пешнамоиши кӯҳна аст, охиринашро дар поён нигоҳ кунед",
+    changed: "Матн ё шабакаҳо иваз шуданд, аз нав нишон медиҳам",
+    busy: "Каме сабр кунед, матнро омода мекунам",
+    regenerating: "Матни дигар менависам…",
+    preparingShort: "Омода мекунам…",
+    captionAbove: (n: number) => `дар паёми боло ↑ (${n} аломат, пурра меравад)`,
   },
 } as const;
 
@@ -230,6 +257,21 @@ export function briefOf(text: string | null | undefined): string {
     .trim();
 }
 
+/**
+ * Не имена, а слова служебных учёток («Royal Home Офис», «Бот», «Маркетолог»): запрет на них
+ * выбрасывал бы из подписи название самого агентства и обычные слова.
+ */
+const NOT_A_NAME = new Set(["royal", "home", "роял", "хоум", "офис", "office", "admin", "админ", "администратор", "бот", "bot",
+  "робот", "robot", "агентство", "агент", "менеджер", "маркетинг", "маркетолог", "директор", "сотрудник", "отдел", "продаж",
+  "тест", "test", "душанбе", "оператор", "монтажёр", "монтажер", "смм", "smm"]);
+
+/** Слова из имён действующих сотрудников (3+ буквы): их не должно быть в публичной подписи. */
+export async function staffNameWords(): Promise<string[]> {
+  const rows = await prisma.agent.findMany({ where: { isActive: true }, select: { fullName: true }, take: 2000 });
+  return [...new Set(rows.flatMap((r) => r.fullName.split(/[^\p{L}]+/u)))]
+    .filter((w) => w.length >= 3 && !NOT_A_NAME.has(w.toLowerCase().replace(/ё/gu, "е")));
+}
+
 // ───────────────────────────── сети по умолчанию ─────────────────────────────
 
 const kindChannels = (kind: string): readonly SocialVideoChannel[] => (kind === "PHOTO" ? SOCIAL_PHOTO_POST_CHANNELS : SOCIAL_VIDEO_CHANNELS);
@@ -257,16 +299,25 @@ function blockedFor(item: SocialVideoItem, channel: SocialVideoChannel): string 
 const jsonChannels = (v: Prisma.JsonValue | null | undefined): SocialVideoChannel[] =>
   Array.isArray(v) ? v.filter((x): x is SocialVideoChannel => typeof x === "string" && (SOCIAL_VIDEO_CHANNELS as readonly string[]).includes(x)) : [];
 
+/** Отпечаток того, что уйдёт: подпись и сети. Совпал с показанным — публикуем, нет — показываем заново. */
+export function previewHash(item: Pick<SocialVideoItem, "caption" | "channels">): string {
+  return createHash("sha256").update(`${item.caption}\n${[...item.channels].sort().join(",")}`).digest("hex").slice(0, 32);
+}
+
 // ───────────────────────────── подпись ─────────────────────────────
 
 const FALLBACK_BRIEF = { VIDEO: "Ролик агентства недвижимости Royal Home в Душанбе", PHOTO: "Фото от агентства недвижимости Royal Home в Душанбе" } as const;
+const NEUTRAL_CAPTION = { RU: "Royal Home, агентство недвижимости в Душанбе", TG: "Royal Home, агентии амволи ғайриманқул дар Душанбе" } as const;
 
-/** Подпись тем же ИИ, что у экрана «Ролики»; не вышло — null (тогда короткая из слов сотрудника). */
-async function writeCaption(agentId: string, brief: string, title: string, language: SocialVideoCaptionLanguage, channels: SocialVideoChannel[], avoid: string[] = []): Promise<{ caption: string } | { error: "limit" | "ai" }> {
+/**
+ * Подпись тем же ИИ, что у экрана «Ролики». Служебного названия с именем сотрудника модель не видит,
+ * имена действующих сотрудников вычищаются проверкой фактов (lib/socialVideoAi.ts).
+ */
+async function writeCaption(agentId: string, brief: string, language: SocialVideoCaptionLanguage, channels: SocialVideoChannel[], avoid: string[] = []): Promise<{ caption: string } | { error: "limit" | "ai" }> {
   const cap = await claimAgentAiAction(agentId, "assistant-social-caption", CAPTION_DAILY_LIMIT);
   if (!cap.allowed) return { error: "limit" };
   try {
-    const variants = await generateSocialVideoCaptions({ brief, title, tone: "SELLING", language, channels, avoid: avoid.slice(0, 9) });
+    const variants = await generateSocialVideoCaptions({ brief, tone: "SELLING", language, channels, avoid: avoid.slice(0, 9) }, { forbiddenWords: await staffNameWords() });
     return variants[0] ? { caption: variants[0] } : { error: "ai" };
   } catch (err) {
     if (!(err instanceof SocialVideoAiError)) void logSystemError("ai", `Шабнам: подпись поста без объекта — ${describeError(err)}`, { dedupKey: "staff-social-caption" });
@@ -274,10 +325,19 @@ async function writeCaption(agentId: string, brief: string, title: string, langu
   }
 }
 
+/** Запасная подпись: только слова самого сотрудника (без тире и имён сотрудников), иначе нейтральная строка. */
+async function fallbackCaption(ownWords: string, language: string): Promise<string> {
+  const own = stripDashes(ownWords).trim();
+  if (own.length >= 3 && !containsForbiddenWord(own, await staffNameWords())) return own;
+  return language === "TG" ? NEUTRAL_CAPTION.TG : NEUTRAL_CAPTION.RU;
+}
+
 // ───────────────────────────── превью ─────────────────────────────
 
 const ACTIONS = { publish: "p", edit: "e", regen: "g", networks: "n", toggle: "t", back: "b", cancel: "x" } as const;
 const cb = (action: string, id: string, arg?: number) => `spub:${action}:${id}${arg !== undefined ? `:${arg}` : ""}`;
+/** Предел текста сообщения Telegram (4096) с запасом. */
+const MESSAGE_ROOM = 3900;
 
 function durationText(sec: number | null): string {
   if (!sec || sec <= 0) return "";
@@ -285,19 +345,26 @@ function durationText(sec: number | null): string {
   return ` ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function socialPostPreviewText(post: Pick<PostRow, "kind" | "language">, item: SocialVideoItem, lang: Lang, notes: string[] = []): string {
+/**
+ * Текст превью. Подпись показывается ЦЕЛИКОМ: не влезает в одно сообщение вместе с остальным —
+ * уходит отдельным сообщением выше (sendMessage делит длинное сам), а в превью — ссылка на него.
+ * Непоказанной части подписи не бывает.
+ */
+export function socialPostPreviewParts(item: SocialVideoItem, lang: Lang, notes: string[]): { captionAlone: string | null; text: string } {
   const t = textOf(lang);
   const what = item.mediaKind === "PHOTO" ? t.photos(item.imagePaths.length || 1) : t.video(durationText(item.durationSec));
   const where = item.channels.map((c) => SOCIAL_VIDEO_CHANNEL_LABELS[c]).join(", ") || t.noChannels;
-  const lines = [t.title, "", `${t.what}: ${what}`, `${t.where}: ${where}`, `${t.when}: ${t.whenNow}`, "", `${t.caption}:`, item.caption.slice(0, 3000)];
-  if (notes.length) lines.push("", ...notes);
-  return lines.join("\n").slice(0, 4000);
+  const head = [t.title, "", `${t.what}: ${what}`, `${t.where}: ${where}`, `${t.when}: ${t.whenNow}`, ""];
+  const tail = notes.length ? ["", ...notes] : [];
+  const inline = [...head, `${t.caption}:`, item.caption, ...tail].join("\n");
+  if (inline.length <= MESSAGE_ROOM) return { captionAlone: null, text: inline };
+  return { captionAlone: item.caption, text: [...head, `${t.caption}: ${t.captionAbove(item.caption.length)}`, ...tail].join("\n").slice(0, MESSAGE_ROOM) };
 }
 
-function previewButtons(id: string, lang: Lang): TelegramInlineButton[][] {
+function previewButtons(id: string, version: number, lang: Lang): TelegramInlineButton[][] {
   const t = textOf(lang);
   return [
-    [{ text: t.publish, callback_data: cb(ACTIONS.publish, id) }],
+    [{ text: t.publish, callback_data: cb(ACTIONS.publish, id, version) }],
     [{ text: t.edit, callback_data: cb(ACTIONS.edit, id) }, { text: t.regen, callback_data: cb(ACTIONS.regen, id) }],
     [{ text: t.networks, callback_data: cb(ACTIONS.networks, id) }, { text: t.cancel, callback_data: cb(ACTIONS.cancel, id) }],
   ];
@@ -320,27 +387,46 @@ async function previewNotes(post: PostRow, item: SocialVideoItem, lang: Lang): P
   return notes;
 }
 
-/** Показать (или обновить) превью: старое сообщение превью теряет кнопки, новое — с кнопками. */
-async function showPreview(post: PostRow, extraNotes: string[] = []): Promise<void> {
-  if (!post.socialVideoPostId) return;
+/**
+ * Показать (или обновить) превью. Только пока пост не опубликован и не отменён: сначала условно берётся
+ * новый номер превью, в конце условно ставится PREVIEW с этим номером, сообщением и отпечатком подписи.
+ * Опоздавший показ (пост уже публикуют или есть превью новее) свои кнопки снимает. false — не показано.
+ */
+async function showPreview(postId: string, extraNotes: string[] = []): Promise<boolean> {
+  const bumped = await prisma.staffSocialPost.updateMany({ where: { id: postId, status: { in: SHOWABLE } }, data: { previewVersion: { increment: 1 } } });
+  if (!bumped.count) return false;
+  const post = await prisma.staffSocialPost.findUnique({ where: { id: postId } });
+  if (!post?.socialVideoPostId) return false;
   const item = await getSocialVideo(post.socialVideoPostId);
   const lang = replyLanguage(post.request);
-  const text = socialPostPreviewText(post, item, lang, [...extraNotes, ...(await previewNotes(post, item, lang))]);
-  if (post.previewMessageId) await editMessageText(post.chatId, post.previewMessageId, textOf(lang).updatedBelow, null).catch(() => {});
-  const sent = await sendMessageWithButtons(post.chatId, text, previewButtons(post.id, lang));
-  await prisma.staffSocialPost.update({ where: { id: post.id }, data: { previewMessageId: sent?.message_id ?? null, status: "PREVIEW" } });
+  const t = textOf(lang);
+  const { captionAlone, text } = socialPostPreviewParts(item, lang, [...extraNotes, ...(await previewNotes(post, item, lang))]);
+  if (post.previewMessageId) await editMessageText(post.chatId, post.previewMessageId, t.updatedBelow, null).catch(() => {});
+  if (captionAlone) await sendMessage(post.chatId, captionAlone);
+  const sent = await sendMessageWithButtons(post.chatId, text, previewButtons(post.id, post.previewVersion, lang));
+  const moved = await prisma.staffSocialPost.updateMany({
+    where: { id: post.id, status: { in: SHOWABLE }, previewVersion: post.previewVersion },
+    data: { status: "PREVIEW", previewMessageId: sent?.message_id ?? null, previewCaptionHash: previewHash(item) },
+  });
+  if (!moved.count) {
+    if (sent?.message_id) await editMessageText(post.chatId, sent.message_id, t.oldPreview, null).catch(() => {});
+    return false;
+  }
+  return true;
 }
 
 // ───────────────────────────── создание поста ─────────────────────────────
 
-function postTitle(actor: Actor, kind: string): string {
+/** Служебное название в «Роликах» CRM. Без имени сотрудника (автор и так виден в CRM), в ИИ не уходит. */
+function postTitle(kind: string): string {
   const now = new Date();
-  return `${kind === "PHOTO" ? "Фото" : "Ролик"} из Telegram · ${actor.fullName} · ${dushanbeDateString(now).slice(5).split("-").reverse().join(".")} ${dushanbeTimeString(now)}`.slice(0, 120);
+  return `${kind === "PHOTO" ? "Фото" : "Ролик"} из Telegram · ${dushanbeDateString(now).slice(5).split("-").reverse().join(".")} ${dushanbeTimeString(now)}`.slice(0, 120);
 }
 
 /**
  * Черновик + подпись + превью. `makeDraft` создаёт SocialVideoPost той же функцией, что экран CRM.
  * Подпись пишется под выбранные сети (длина и хештеги), затем сети, которым файл не подходит, снимаются.
+ * Строку за это время убрала уборка — черновик удаляется, превью не показывается.
  */
 async function preparePost(post: PostRow, actor: Actor, transcript: string | null, makeDraft: (channels: SocialVideoChannel[], title: string, brief: string) => Promise<SocialVideoItem>): Promise<void> {
   const lang = replyLanguage(post.request);
@@ -350,23 +436,22 @@ async function preparePost(post: PostRow, actor: Actor, transcript: string | nul
   const channels = asked.length ? asked : ready;
   const ownWords = briefOf(post.request);
   const brief = (ownWords.length >= 3 ? ownWords : transcript && transcript.length >= 3 ? transcript : FALLBACK_BRIEF[post.kind === "PHOTO" ? "PHOTO" : "VIDEO"]).slice(0, 2000);
-  const title = postTitle(actor, post.kind);
-  const item = await makeDraft(channels, title, brief);
-  await prisma.staffSocialPost.update({ where: { id: post.id }, data: { socialVideoPostId: item.id } });
+  const item = await makeDraft(channels, postTitle(post.kind), brief);
+  const linked = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PREPARING" }, data: { socialVideoPostId: item.id } });
+  if (!linked.count) { await deleteSocialVideo(item.id).catch(() => {}); return; }
   logAgentAudit(actor.id, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { source: "telegram-shabnam", kind: post.kind, staffSocialPostId: post.id });
   const notes: string[] = [];
-  const written = await writeCaption(actor.id, brief, title, post.language as SocialVideoCaptionLanguage, channels);
+  const written = await writeCaption(actor.id, brief, post.language as SocialVideoCaptionLanguage, channels);
   let caption: string;
   if ("caption" in written) caption = written.caption;
   else {
-    // Запасная подпись — только слова самого сотрудника (без выдуманного), иначе нейтральная строка.
-    caption = ownWords.length >= 3 ? ownWords : post.language === "TG" ? "Royal Home, агентии амволи ғайриманқул дар Душанбе" : "Royal Home, агентство недвижимости в Душанбе";
+    caption = await fallbackCaption(ownWords, post.language);
     notes.push(written.error === "limit" ? t.captionLimit : t.captionAi);
   }
   const fitting = channels.filter((c) => !blockedFor({ ...item, caption }, c));
   await updateSocialVideo(item.id, { caption, channels: fitting });
-  const fresh = await prisma.staffSocialPost.update({ where: { id: post.id }, data: { channels: fitting } });
-  await showPreview(fresh, notes);
+  await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PREPARING" }, data: { channels: fitting } });
+  await showPreview(post.id, notes);
 }
 
 /** Сообщение «не можете» по исходу проверки. */
@@ -385,7 +470,7 @@ export async function startVideoPostFromClip(input: {
   if (!gate.ok) return gateRefusal(gate, input.caption);
   const existing = await prisma.staffSocialPost.findUnique({ where: { staffClipIntakeId: input.intakeId } });
   if (existing) {
-    if (existing.status === "PREVIEW" || existing.status === "EDIT_CAPTION") { await showPreview(existing); return null; }
+    if (LIVE.includes(existing.status) || existing.status === "PICKING") { await showPreview(existing.id); return null; }
     if (existing.status === "PREPARING") return null; // первое нажатие ещё готовит пост
     return existing.status === "CANCELLED" ? "Пост по этому ролику отменён. Пришлите ролик ещё раз." : "Этот ролик уже отправлен в публикацию.";
   }
@@ -400,7 +485,7 @@ export async function startVideoPostFromClip(input: {
   const tmpPath = await videoToTemp(input.fileId);
   if (!tmpPath) {
     // Строку убираем: повторное нажатие должно попробовать снова (staffClipIntakeId уникален).
-    await prisma.staffSocialPost.delete({ where: { id: post.id } }).catch(() => {});
+    await prisma.staffSocialPost.deleteMany({ where: { id: post.id, status: "PREPARING" } }).catch(() => {});
     return textOf(lang).download;
   }
   try {
@@ -418,9 +503,11 @@ export async function startVideoPostFromClip(input: {
 
 /** Подготовка не удалась: черновик и строка убираются (в сети ничего не ушло), повтор возможен. */
 async function failPreparation(post: PostRow, err: unknown, lang: Lang): Promise<string> {
-  const fresh = await prisma.staffSocialPost.findUnique({ where: { id: post.id }, select: { socialVideoPostId: true } });
-  if (fresh?.socialVideoPostId) await deleteSocialVideo(fresh.socialVideoPostId).catch(() => {});
-  await prisma.staffSocialPost.delete({ where: { id: post.id } }).catch(() => {});
+  const fresh = await prisma.staffSocialPost.findUnique({ where: { id: post.id }, select: { socialVideoPostId: true, status: true } });
+  if (fresh?.status === "PREPARING") {
+    if (fresh.socialVideoPostId) await deleteSocialVideo(fresh.socialVideoPostId).catch(() => {});
+    await prisma.staffSocialPost.deleteMany({ where: { id: post.id, status: "PREPARING" } }).catch(() => {});
+  }
   if (err instanceof SocialVideoError) return err.message;
   void logSystemError("telegram", `Шабнам: пост без объекта не подготовлен — ${describeError(err)}`, { dedupKey: "staff-social-prepare" });
   return textOf(lang).failed;
@@ -471,7 +558,8 @@ function incomingPhoto(msg: TelegramIncomingMessage): { fileId: string; name: st
 
 /**
  * Фото в личке Шабнам с подписью «опубликуй…» (или продолжение уже начатого альбома) → один пост.
- * Без слов о публикации фото сюда не попадают: ими живут расходы и мастер объекта.
+ * Без слов о публикации фото сюда не попадают: ими живут расходы и мастер объекта. Мастер объекта
+ * стоит в assistantBot.ts РАНЬШЕ: сотрудник в мастере, фото с «выложи» — это фото объекта.
  * true — сообщение разобрано здесь.
  */
 export async function handleStaffSocialPhoto(msg: TelegramIncomingMessage, agent: Actor): Promise<boolean> {
@@ -530,7 +618,7 @@ async function createPhotoPost(album: PendingAlbum): Promise<void> {
     }
   }
   if (!buffers.length) {
-    await prisma.staffSocialPost.delete({ where: { id: post.id } }).catch(() => {});
+    await prisma.staffSocialPost.deleteMany({ where: { id: post.id, status: "PREPARING" } }).catch(() => {});
     await sendMessage(album.chatId, t.download);
     return;
   }
@@ -545,10 +633,10 @@ async function createPhotoPost(album: PendingAlbum): Promise<void> {
 
 // ───────────────────────────── новая подпись словами ─────────────────────────────
 
-/** Ответ на «Изменить подпись» (30 минут): следующий текст — подпись как есть. true — наш ответ. */
+/** Ответ на «Изменить подпись» (10 минут): следующий текст — подпись как есть (без длинных тире). true — наш ответ. */
 export async function handleStaffSocialText(msg: TelegramIncomingMessage, agent: Actor): Promise<boolean> {
-  const text = (msg.text ?? "").trim();
-  if (msg.chat.type !== "private" || !text || text.startsWith("/") || msg.forward_origin || msg.forward_from_message_id) return false;
+  const raw = (msg.text ?? "").trim();
+  if (msg.chat.type !== "private" || !raw || raw.startsWith("/") || msg.forward_origin || msg.forward_from_message_id) return false;
   const chatId = String(msg.chat.id);
   const post = await prisma.staffSocialPost.findFirst({
     where: { chatId, agentId: agent.id, status: "EDIT_CAPTION", updatedAt: { gte: new Date(Date.now() - EDIT_CAPTION_WINDOW_MS) } },
@@ -556,31 +644,42 @@ export async function handleStaffSocialText(msg: TelegramIncomingMessage, agent:
   });
   if (!post?.socialVideoPostId) return false;
   const t = textOf(replyLanguage(post.request));
-  if (/^(?:отмена|отменить|бекор|бекор кардан)$/iu.test(text)) {
-    await prisma.staffSocialPost.update({ where: { id: post.id }, data: { status: "PREVIEW" } });
+  if (/^(?:отмена|отменить|бекор|бекор кардан)$/iu.test(raw)) {
     await sendMessage(chatId, t.captionKept);
-    await showPreview({ ...post, status: "PREVIEW" });
+    await showPreview(post.id);
     return true;
   }
+  const text = stripDashes(raw).trim();
   const limit = effectiveCaptionLimit(jsonChannels(post.channels));
   if (text.length > limit) { await sendMessage(chatId, t.captionTooLong(limit)); return true; }
-  await updateSocialVideo(post.socialVideoPostId, { caption: text });
-  await showPreview({ ...post, status: "PREVIEW" });
+  // Захват на время записи: «Опубликовать» на старом превью в эту секунду не сработает.
+  const claimed = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "EDIT_CAPTION" }, data: { status: "PREPARING" } });
+  if (!claimed.count) return true;
+  try {
+    await updateSocialVideo(post.socialVideoPostId, { caption: text });
+  } finally {
+    await showPreview(post.id);
+  }
   return true;
 }
 
 // ───────────────────────────── кнопки ─────────────────────────────
 
-const CALLBACK = /^spub:([pegntbx]):([\da-f-]{36})(?::(\d{1,2}))?$/u;
+const CALLBACK = /^spub:([pegntbx]):([\da-f-]{36})(?::(\d{1,6}))?$/u;
 
-/** `spub:<действие>:<id>[:<номер сети>]`. true — наша кнопка. */
-export async function handleStaffSocialCallback(query: TelegramCallbackQuery): Promise<boolean> {
+/**
+ * `spub:<действие>:<id>[:<номер превью или сети>]`. true — наша кнопка.
+ * Проверки и захваты статуса — сразу, и кнопка сразу получает ответ; долгое (ИИ, публикация,
+ * новое превью) — через `defer`, в очереди этого чата.
+ */
+export async function handleStaffSocialCallback(query: TelegramCallbackQuery, defer: DeferWork = runInline): Promise<boolean> {
   const match = CALLBACK.exec(query.data ?? "");
   if (!match) return false;
   const answer = (text?: string) => answerCallbackQuery(query.id, text).catch(() => {});
   const chat = query.message?.chat;
   if (chat?.type !== "private" || query.from?.id !== chat.id) { await answer(); return true; }
   const chatId = String(chat.id);
+  const messageId = query.message?.message_id ?? null;
   const post = await prisma.staffSocialPost.findUnique({ where: { id: match[2]! } });
   const agent = post ? await prisma.agent.findUnique({ where: { id: post.agentId }, select: { id: true, fullName: true, telegramChatId: true } }) : null;
   // Нажать может только тот, кто прислал файл, из своей же лички.
@@ -588,9 +687,15 @@ export async function handleStaffSocialCallback(query: TelegramCallbackQuery): P
   const lang = replyLanguage(post.request);
   const t = textOf(lang);
   const action = match[1]!;
+  const draftId = post.socialVideoPostId;
+  const failed = async (err: unknown) => {
+    void logSystemError("telegram", `Шабнам: кнопка поста без объекта — ${describeError(err)}`, { dedupKey: "staff-social-callback" });
+    await sendMessage(chatId, t.publishFailed).catch(() => {});
+  };
   try {
-    if (!["PREVIEW", "EDIT_CAPTION"].includes(post.status) || !post.socialVideoPostId) {
-      await answer(post.status === "PUBLISHING" ? t.already : t.stale);
+    if (post.status === "PREPARING") { await answer(t.busy); return true; }
+    if (!SHOWABLE.includes(post.status) || !draftId) {
+      await answer(post.status === "PUBLISHING" || post.status === "PUBLISHED" ? t.already : t.stale);
       return true;
     }
     if (post.expiresAt < new Date()) { await answer(t.stale); await sendMessage(chatId, t.expired); return true; }
@@ -598,34 +703,51 @@ export async function handleStaffSocialCallback(query: TelegramCallbackQuery): P
     if (!gate.ok) { await answer(); await sendMessage(chatId, gateRefusal(gate, post.request)); return true; }
 
     if (action === ACTIONS.cancel) {
-      const claimed = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: ["PREVIEW", "EDIT_CAPTION"] } }, data: { status: "CANCELLED" } });
+      const claimed = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: [...LIVE, "PICKING"] } }, data: { status: "CANCELLED" } });
       if (!claimed.count) { await answer(t.stale); return true; }
-      await deleteSocialVideo(post.socialVideoPostId).catch(() => {});
-      logAgentAudit(agent.id, "SOCIAL_VIDEO_DELETED", "SocialVideoPost", post.socialVideoPostId, { source: "telegram-shabnam", staffSocialPostId: post.id });
       await answer();
+      await dropDraftIfStillDraft(draftId);
+      logAgentAudit(agent.id, "SOCIAL_VIDEO_DELETED", "SocialVideoPost", draftId, { source: "telegram-shabnam", staffSocialPostId: post.id });
       if (post.previewMessageId) await editMessageText(chatId, post.previewMessageId, t.cancelState, null).catch(() => {});
       await sendMessage(chatId, t.cancelled);
       return true;
     }
     if (action === ACTIONS.edit) {
-      await prisma.staffSocialPost.update({ where: { id: post.id }, data: { status: "EDIT_CAPTION" } });
-      await answer();
-      await sendMessage(chatId, t.askCaption);
+      const claimed = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: LIVE } }, data: { status: "EDIT_CAPTION" } });
+      await answer(claimed.count ? undefined : t.stale);
+      if (claimed.count) await sendMessage(chatId, t.askCaption);
       return true;
     }
     if (action === ACTIONS.regen) {
-      await answer();
-      const item = await getSocialVideo(post.socialVideoPostId);
-      const ownWords = briefOf(post.request);
-      const brief = (item.brief ?? (ownWords.length >= 3 ? ownWords : FALLBACK_BRIEF[post.kind === "PHOTO" ? "PHOTO" : "VIDEO"])).slice(0, 2000);
-      const written = await writeCaption(agent.id, brief, item.title, post.language as SocialVideoCaptionLanguage, item.channels, [item.caption]);
-      if ("caption" in written) await updateSocialVideo(item.id, { caption: written.caption });
-      await showPreview(post, "caption" in written ? [] : [written.error === "limit" ? t.captionLimit : t.captionAi]);
+      // Захват PREPARING: пока пишется новая подпись, «Опубликовать» не сработает, и после ответа ИИ
+      // подпись пишется, только если пост всё ещё наш (не опубликован и не отменён).
+      const claimed = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: LIVE } }, data: { status: "PREPARING" } });
+      if (!claimed.count) { await answer(t.stale); return true; }
+      await answer(t.regenerating);
+      await defer(async () => {
+        try {
+          const item = await getSocialVideo(draftId);
+          const ownWords = briefOf(post.request);
+          const brief = (item.brief ?? (ownWords.length >= 3 ? ownWords : FALLBACK_BRIEF[post.kind === "PHOTO" ? "PHOTO" : "VIDEO"])).slice(0, 2000);
+          const written = await writeCaption(agent.id, brief, post.language as SocialVideoCaptionLanguage, item.channels, [item.caption]);
+          const still = await prisma.staffSocialPost.findUnique({ where: { id: post.id }, select: { status: true } });
+          if (still?.status !== "PREPARING") return;
+          if ("caption" in written) await updateSocialVideo(item.id, { caption: written.caption });
+          await showPreview(post.id, "caption" in written ? [] : [written.error === "limit" ? t.captionLimit : t.captionAi]);
+        } catch (err) {
+          await failed(err);
+          await showPreview(post.id).catch(() => false);
+        }
+      });
       return true;
     }
     if (action === ACTIONS.networks || action === ACTIONS.toggle) {
+      if (action === ACTIONS.networks) {
+        const claimed = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: LIVE } }, data: { status: "PICKING" } });
+        if (!claimed.count) { await answer(t.stale); return true; }
+      } else if (post.status !== "PICKING") { await answer(t.stale); return true; }
       const { ready } = await readyChannels(post.kind);
-      const item = await getSocialVideo(post.socialVideoPostId);
+      const item = await getSocialVideo(draftId);
       let selected = item.channels;
       if (action === ACTIONS.toggle) {
         const channel = kindChannels(post.kind)[Number(match[3])];
@@ -633,7 +755,7 @@ export async function handleStaffSocialCallback(query: TelegramCallbackQuery): P
         const next = selected.includes(channel) ? selected.filter((c) => c !== channel) : [...selected, channel];
         if (!next.length) { await answer(t.needOne); return true; }
         await updateSocialVideo(item.id, { channels: next });
-        await prisma.staffSocialPost.update({ where: { id: post.id }, data: { channels: next } });
+        await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PICKING" }, data: { channels: next } });
         selected = next;
       }
       await answer();
@@ -642,36 +764,60 @@ export async function handleStaffSocialCallback(query: TelegramCallbackQuery): P
         .filter(({ c }) => ready.includes(c) && !blockedFor(item, c))
         .map(({ c, i }) => [{ text: `${selected.includes(c) ? "✅" : "▫️"} ${SOCIAL_VIDEO_CHANNEL_LABELS[c]}`, callback_data: cb(ACTIONS.toggle, post.id, i) }]);
       rows.push([{ text: t.done, callback_data: cb(ACTIONS.back, post.id) }]);
-      if (post.previewMessageId) await editMessageText(chatId, post.previewMessageId, t.pickNetworks, rows).catch(() => {});
+      if (messageId) await editMessageText(chatId, messageId, t.pickNetworks, rows).catch(() => {});
       else await sendMessageWithButtons(chatId, t.pickNetworks, rows);
       return true;
     }
     if (action === ACTIONS.back) {
+      if (post.status !== "PICKING") { await answer(t.stale); return true; }
       await answer();
-      await showPreview(post);
+      await defer(async () => { await showPreview(post.id).catch(failed); });
       return true;
     }
-    // «Опубликовать»: захват строки — второй тап и повтор апдейта не публикуют дважды.
-    const claimed = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: ["PREVIEW", "EDIT_CAPTION"] } }, data: { status: "PUBLISHING" } });
-    if (!claimed.count) { await answer(t.already); return true; }
-    await answer(t.sentState);
-    try {
-      const item = await publishSocialVideo(post.socialVideoPostId, { mode: "NOW" });
-      await prisma.staffSocialPost.update({ where: { id: post.id }, data: { status: "PUBLISHED", publishedAt: new Date() } });
-      const where = item.channels.map((c) => SOCIAL_VIDEO_CHANNEL_LABELS[c]).join(", ");
-      logAgentAudit(agent.id, "SOCIAL_VIDEO_PUBLISH", "SocialVideoPost", item.id, { source: "telegram-shabnam", mode: "NOW", channels: item.channels, staffSocialPostId: post.id });
-      if (post.previewMessageId) await editMessageText(chatId, post.previewMessageId, `${t.sentState}: ${where}`, null).catch(() => {});
-      await sendMessage(chatId, t.queued(where));
-    } catch (err) {
-      await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PUBLISHING" }, data: { status: "PREVIEW" } });
-      if (err instanceof SocialVideoError) { await sendMessage(chatId, t.refused(err.message)); return true; }
-      throw err;
+
+    // «Опубликовать» — только с последнего превью и только то, что в нём показано.
+    const version = match[3] === undefined ? null : Number(match[3]);
+    if (version === null || version !== post.previewVersion || messageId === null || messageId !== post.previewMessageId) {
+      await answer(t.oldPreview);
+      return true;
     }
+    const claimed = await prisma.staffSocialPost.updateMany({
+      where: { id: post.id, status: { in: LIVE }, previewVersion: version, previewMessageId: messageId },
+      data: { status: "PUBLISHING" },
+    });
+    if (!claimed.count) { await answer(t.already); return true; }
+    // После захвата подпись никто не перепишет; сверяем, что она та же, что в показанном превью
+    // (её могли поменять и в «Роликах» CRM).
+    const shown = await getSocialVideo(draftId);
+    if (previewHash(shown) !== post.previewCaptionHash) {
+      await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PUBLISHING" }, data: { status: "PREVIEW" } });
+      await answer(t.changed);
+      await defer(async () => { await showPreview(post.id).catch(failed); });
+      return true;
+    }
+    await answer(t.sentState);
+    await defer(async () => {
+      try {
+        const item = await publishSocialVideo(draftId, { mode: "NOW" });
+        await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PUBLISHING" }, data: { status: "PUBLISHED", publishedAt: new Date() } });
+        const where = item.channels.map((c) => SOCIAL_VIDEO_CHANNEL_LABELS[c]).join(", ");
+        logAgentAudit(agent.id, "SOCIAL_VIDEO_PUBLISH", "SocialVideoPost", item.id, { source: "telegram-shabnam", mode: "NOW", channels: item.channels, staffSocialPostId: post.id });
+        await editMessageText(chatId, messageId, `${t.sentState}: ${where}`, null).catch(() => {});
+        await sendMessage(chatId, t.queued(where));
+      } catch (err) {
+        // Публикация не началась (черновик всё ещё черновик) — превью снова живое; началась — отмечаем PUBLISHED.
+        const still = await getSocialVideo(draftId).catch(() => null);
+        const started = still !== null && still.status !== "DRAFT";
+        await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PUBLISHING" }, data: started ? { status: "PUBLISHED", publishedAt: new Date() } : { status: "PREVIEW" } });
+        if (err instanceof SocialVideoError) { await sendMessage(chatId, t.refused(err.message)); return; }
+        if (!started) await failed(err);
+        else void logSystemError("telegram", `Шабнам: после запуска публикации — ${describeError(err)}`, { dedupKey: "staff-social-callback" });
+      }
+    });
     return true;
   } catch (err) {
-    void logSystemError("telegram", `Шабнам: кнопка поста без объекта — ${describeError(err)}`, { dedupKey: "staff-social-callback" });
     await answer();
-    await sendMessage(chatId, t.publishFailed).catch(() => {});
+    await failed(err);
     return true;
   }
 }

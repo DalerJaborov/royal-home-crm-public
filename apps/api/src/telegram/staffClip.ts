@@ -40,7 +40,7 @@ import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import { videoHandoffDir } from "../upload.js";
 import { fileObjectNumber, textObjectNumbers, recognizeClipProperty, describeCandidate, type ClipRecognition } from "../lib/clipPropertyRecognition.js";
 import { transcribeClipSpeech } from "./staffClipSpeech.js";
-import { socialPublishGate, startVideoPostFromClip, wantsNoProperty } from "./staffSocialPost.js";
+import { runInline, socialPublishGate, startVideoPostFromClip, wantsNoProperty, type DeferWork } from "./staffSocialPost.js";
 import { handoffReceiptText } from "./montajerReceive.js";
 import { clipCountsAsPublished } from "../lib/publishedClip.js";
 import { cancelPreviousClipRetries, openReplacement, undoReplacement } from "../lib/remakeRequests.js";
@@ -216,11 +216,30 @@ export async function handleStaffClipMessage(msg: TelegramIncomingMessage, agent
     if (refusal) await sendMessage(chatId, refusal);
     return true;
   }
-  const found = await propertyFromCaption(clip.filename, caption);
-  if (found && canManage(actor, found)) await offer(chatId, intake.id, found);
-  else if (found) await ask(chatId, intake.id, actor, [], `${formatPropertyCode(found.shortId)} вам недоступен.`, social.ok);
-  else await askRecognized(chatId, intake.id, actor, await recognizeIntake(intake, actor, chatId), social.ok);
+  // Явный номер или ссылка в ПОДПИСИ — сотрудник назвал объект сам: сразу «Готов / Монтаж».
+  const found = await propertyFromCaption(null, caption);
+  if (found && canManage(actor, found)) { await offer(chatId, intake.id, found); return true; }
+  if (found) { await ask(chatId, intake.id, actor, [], `${formatPropertyCode(found.shortId)} вам недоступен.`, social.ok); return true; }
+  // Номер из ИМЕНИ файла — только догадка (ревью 21.11.2026: «2026.mp4», чужой ролик со старым именем).
+  // Сразу «Готов / Монтаж» — лишь когда его подтверждает ещё признак из подписи (район, цена, комнаты…)
+  // и объект ведёт сам сотрудник; иначе это кандидат с кнопкой «Да, это …».
+  const recognition = await recognizeIntake(intake, actor, chatId);
+  const sure = await confirmedFileNumber(recognition, actor);
+  if (sure) await offer(chatId, intake.id, sure);
+  else await askRecognized(chatId, intake.id, actor, recognition, social.ok);
   return true;
+}
+
+/** Лучший кандидат — номер из имени файла, подтверждённый ещё одним признаком, у объекта самого сотрудника. */
+async function confirmedFileNumber(recognition: ClipRecognition, actor: Actor): Promise<PropertyRef | null> {
+  const top = recognition.candidates[0];
+  if (!top || recognition.candidates.length > 1) return null;
+  const byNumber = top.reasons.includes(`номер ${top.shortId}`);
+  const corroborated = top.reasons.some((r) => r !== `номер ${top.shortId}`);
+  if (!byNumber || !corroborated) return null;
+  const p = await prisma.property.findUnique({ where: { id: top.propertyId }, select: PROPERTY_REF });
+  if (!p || (p.assignedAgentId !== actor.id && p.intakeAgentId !== actor.id)) return null;
+  return p;
 }
 
 /** Ответ словами на «к какому объекту» (30 минут): номер или часть адреса. true — наш ответ. */
@@ -399,8 +418,13 @@ async function undo(intake: { id: string; propertyId: string | null; result: Pri
 }
 
 const CALLBACK = /^clip:(r|m|u|x|p|f):([\da-f-]{36})(?::(\d{1,7}))?$/u;
-/** `clip:r|m|u|x:<id>` и выбор объекта `clip:p:<id>:<номер>`. true — наша кнопка. */
-export async function handleStaffClipCallback(query: TelegramCallbackQuery): Promise<boolean> {
+/**
+ * `clip:r|m|u|x|f:<id>` и выбор объекта `clip:p:<id>:<номер>`. true — наша кнопка.
+ * Долгое (скачать ролик, принять, подготовить пост) — через `defer`: бот передаёт очередь этого чата
+ * (assistantBot.ts, runInAssistantLane), и нажатие не держит разбор остальных апдейтов. Кнопка получает
+ * ответ сразу, до долгой части.
+ */
+export async function handleStaffClipCallback(query: TelegramCallbackQuery, defer: DeferWork = runInline): Promise<boolean> {
   const match = CALLBACK.exec(query.data ?? "");
   if (!match) return false;
   const answer = (text?: string) => answerCallbackQuery(query.id, text).catch(() => {});
@@ -445,12 +469,20 @@ export async function handleStaffClipCallback(query: TelegramCallbackQuery): Pro
       if (from !== "ASKING" && from !== "CHOSEN") { await answer("Кнопка устарела"); return true; }
       const claimed = await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: from }, data: { status: "WORKING" } });
       if (!claimed.count) { await answer("Уже выполняется"); return true; }
-      await answer();
-      const refusal = await startFreePost(intake.id, chatId, actor);
-      if (refusal) {
-        await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: "WORKING" }, data: { status: from } });
-        await sendMessage(chatId, refusal);
-      }
+      await answer("Готовлю пост…");
+      await defer(async () => {
+        try {
+          const refusal = await startFreePost(intake.id, chatId, actor);
+          if (refusal) {
+            await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: "WORKING" }, data: { status: from } });
+            await sendMessage(chatId, refusal);
+          }
+        } catch (err) {
+          void logSystemError("telegram", `Ролик от сотрудника, пост без объекта: ${describeError(err)}`, { dedupKey: "staff-clip" });
+          await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: "WORKING" }, data: { status: from } }).catch(() => {});
+          await sendMessage(chatId, "Не получилось, попробуйте ещё раз.").catch(() => {});
+        }
+      });
       return true;
     }
     if (action === "p") {
@@ -467,21 +499,29 @@ export async function handleStaffClipCallback(query: TelegramCallbackQuery): Pro
     const p = await prisma.property.findUnique({ where: { id: intake.propertyId }, select: PROPERTY_REF });
     if (!p || !canManage(actor, p)) { await prisma.staffClipIntake.update({ where: { id: intake.id }, data: { status: "CHOSEN" } }); await answer("Объект недоступен"); return true; }
     await answer(action === "r" ? "Принимаю ролик" : "Передаю монтажёру");
-    const tmpPath = await fileToTemp(intake.fileId);
-    if (!tmpPath) {
-      await prisma.staffClipIntake.update({ where: { id: intake.id }, data: { status: "CHOSEN" } });
-      await sendMessage(chatId, "Не получилось скачать ролик из Telegram — пришлите его ещё раз.");
-      return true;
-    }
-    try {
-      const text = action === "r" ? await doReady(intake.id, p, actor, tmpPath, intake.filename) : await doMontage(intake.id, p, actor, tmpPath, intake.filename);
-      const done = await prisma.staffClipIntake.findUnique({ where: { id: intake.id }, select: { status: true } });
-      const undoButton = done && (done.status === "READY" || done.status === "MONTAGE") ? [[{ text: "↩️ Не тот объект (в течение часа)", callback_data: `clip:u:${intake.id}` }]] : [];
-      if (undoButton.length) await sendMessageWithButtons(chatId, text, undoButton);
-      else await sendMessage(chatId, text);
-    } finally {
-      await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
-    }
+    await defer(async () => {
+      try {
+        const tmpPath = await fileToTemp(intake.fileId);
+        if (!tmpPath) {
+          await prisma.staffClipIntake.update({ where: { id: intake.id }, data: { status: "CHOSEN" } });
+          await sendMessage(chatId, "Не получилось скачать ролик из Telegram — пришлите его ещё раз.");
+          return;
+        }
+        try {
+          const text = action === "r" ? await doReady(intake.id, p, actor, tmpPath, intake.filename) : await doMontage(intake.id, p, actor, tmpPath, intake.filename);
+          const done = await prisma.staffClipIntake.findUnique({ where: { id: intake.id }, select: { status: true } });
+          const undoButton = done && (done.status === "READY" || done.status === "MONTAGE") ? [[{ text: "↩️ Не тот объект (в течение часа)", callback_data: `clip:u:${intake.id}` }]] : [];
+          if (undoButton.length) await sendMessageWithButtons(chatId, text, undoButton);
+          else await sendMessage(chatId, text);
+        } finally {
+          await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+        }
+      } catch (err) {
+        void logSystemError("telegram", `Ролик от сотрудника: ${describeError(err)}`, { dedupKey: "staff-clip" });
+        await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: "WORKING" }, data: { status: "CHOSEN" } }).catch(() => {});
+        await sendMessage(chatId, "Не получилось, попробуйте ещё раз.").catch(() => {});
+      }
+    });
   } catch (err) {
     void logSystemError("telegram", `Ролик от сотрудника: ${describeError(err)}`, { dedupKey: "staff-clip" });
     await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: "WORKING" }, data: { status: "CHOSEN" } }).catch(() => {});

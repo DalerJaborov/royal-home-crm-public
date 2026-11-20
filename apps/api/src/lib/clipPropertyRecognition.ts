@@ -1,6 +1,7 @@
-import { formatPropertyCode } from "@royal-home/shared";
+import { convertToTjs, FALLBACK_USD_TO_TJS, formatPropertyCode } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { normalizeForQuoteMatch } from "../ai/callQuoteCheck.js";
+import { loadMoneyContext } from "./money.js";
 
 /**
  * К КАКОМУ ОБЪЕКТУ ЭТОТ РОЛИК (21.11.2026, владелец: «научи чтобы еще и ролики распознавала
@@ -66,7 +67,10 @@ const MIN_SCORE = 30;
 // ───────────────────────────── номер объекта ─────────────────────────────
 
 /** Слово сразу после числа делает его не номером объекта: «3 комнаты», «5 этаж», «85 м2», «550 тыс». */
-const UNIT_AFTER = /^\s*(?:\d{3}(?!\d)|[.,]\d|[-–]?\s*(?:х\s*)?(?:комн|ком(?!\p{L})|к(?!\p{L})|кк(?!\p{L})|этаж|эт(?!\p{L})|м2|м²|м(?!\p{L})|кв|квадрат|метр|сотк|тыс|млн|миллион|сомон|смн|сом(?!\p{L})|tjs|\$|usd|долл|хона|ҳуҷра|хучра|утоқ|ошён|ошен|хазор|ҳазор|мин|сек|шт|фото|ролик|мкр|микро|дом))/iu;
+const UNIT_AFTER = /^\s*(?:\d{3}(?!\d)|[.,]\d|[-–]?\s*(?:(?:к[аи]|шк[аи]|х|й|я|го|ий|ой|ый|год\p{L}*|г)(?!\p{L})|(?:х\s*)?(?:комн|ком(?!\p{L})|к(?!\p{L})|кк(?!\p{L})|этаж|эт(?!\p{L})|м2|м²|м(?!\p{L})|кв|квадрат|метр|сотк|тыс|млн|миллион|сомон|смн|сом(?!\p{L})|tjs|\$|usd|долл|хона|ҳуҷра|хучра|утоқ|ошён|ошен|хазор|ҳазор|мин|сек|шт|фото|ролик|мкр|микро|дом)))/iu;
+
+/** Голые 1900–2099 — это год («2026.mp4», «2026 год», «2025_ремонт»), а не номер объекта. */
+const isYear = (digits: string): boolean => /^(?:19|20)\d\d$/u.test(digits);
 
 /** Имя файла камеры («IMG_1234», «VID_20261121_…», «PXL_…») и дата съёмки номером не считаются. */
 const CAMERA_NAME = /^(?:img|vid|pxl|mvi|dsc|dji|gopr|mov|video|screen|rec|whatsapp|telegram|photo)[\s_-]/iu;
@@ -79,15 +83,16 @@ export function fileObjectNumber(filename: string | null | undefined): number | 
   const tagged = /^(?:obj(?:ect)?|ob|об(?:ъект(?:и)?)?|№|#)\s*[-_.]?\s*(\d{1,6})(?!\d)/iu.exec(base);
   if (tagged) return Number(tagged[1]);
   const leading = /^(\d{1,6})(?!\d)/u.exec(base);
-  if (!leading) return null;
+  if (!leading || isYear(leading[1]!)) return null;
   if (UNIT_AFTER.test(base.slice(leading[0].length))) return null;
   return Number(leading[1]);
 }
 
 /**
  * Номер объекта, названный в тексте явно: «№213», «ОБ-213», «объект 213», «объекти 213»,
- * а в начале подписи — голое «213» (если дальше не единица: «3 комнаты» — не номер).
- * В расшифровке речи «номер двести тринадцать» после свёртки чисел — «номер 213».
+ * а в начале подписи — голое «213» (если дальше не единица: «3 комнаты», «3ка» — не номер, и не год).
+ * В речи — только «объект двести тринадцать» (после свёртки чисел «объект 213»): «школа номер пять»,
+ * «дом номер 12» номером объекта не считаются (ревью 21.11.2026).
  */
 export function textObjectNumbers(text: string | null | undefined, opts: { leadingBare?: boolean } = {}): number[] {
   if (!text) return [];
@@ -98,13 +103,13 @@ export function textObjectNumbers(text: string | null | undefined, opts: { leadi
     if (!UNIT_AFTER.test(after)) found.add(Number(m[1]));
   }
   const spoken = normalizeForQuoteMatch(text);
-  for (const m of spoken.matchAll(/(?:^| )(?:объект|объекта|объекти|номер|номери|раками|ракам)( )(\d{1,6})(?= |$)/gu)) {
+  for (const m of spoken.matchAll(/(?:^| )(?:объект|объекта|объекту|объекти)( )(\d{1,6})(?= |$)/gu)) {
     const after = spoken.slice((m.index ?? 0) + m[0].length);
     if (!UNIT_AFTER.test(after)) found.add(Number(m[2]));
   }
   if (opts.leadingBare) {
     const leading = /^\s*(\d{1,6})(?!\d)/u.exec(text);
-    if (leading && !UNIT_AFTER.test(text.slice(leading[0].length))) found.add(Number(leading[1]));
+    if (leading && !isYear(leading[1]!) && !UNIT_AFTER.test(text.slice(leading[0].length))) found.add(Number(leading[1]));
   }
   return [...found].filter((n) => Number.isSafeInteger(n) && n > 0);
 }
@@ -115,7 +120,10 @@ export interface ClipFacts {
   rooms: number | null;
   floor: number | null;
   areas: number[];
+  /** Цены без валюты (сомони или в валюте объекта). */
   prices: number[];
+  /** Цены в долларах («$127 200», «61 000 долларов»). */
+  pricesUsd: number[];
   microdistricts: number[];
   /** Слова текста в сравнимом виде (без регистра, таджикские буквы свёрнуты, числа цифрами). */
   tokens: string[];
@@ -135,9 +143,9 @@ function expandMillions(text: string): string {
 }
 
 export function extractClipFacts(text: string | null | undefined): ClipFacts {
-  const facts: ClipFacts = { rooms: null, floor: null, areas: [], prices: [], microdistricts: [], tokens: [] };
+  const facts: ClipFacts = { rooms: null, floor: null, areas: [], prices: [], pricesUsd: [], microdistricts: [], tokens: [] };
   if (!text?.trim()) return facts;
-  const prepared = expandMillions(text)
+  const prepared = expandMillions(text.replace(/\$|usd/giu, " долларов "))
     // «85,5 м2» — площадь с дробью: дробь отбрасываем (допуск сравнения полтора метра), иначе «85,5» склеится в 855.
     .replace(/(\d+)[.,]\d+(?=\s*(?:м2|м²|кв|квадрат|метр))/giu, "$1")
     .replace(/(\d+)\s*[кk](?![\p{L}])/giu, (_, n: string) => `${n} тысяч`);
@@ -164,7 +172,10 @@ export function extractClipFacts(text: string | null | undefined): ClipFacts {
     else if (/^(?:м2|м²|кв|квм|квадрат|метр)/u.test(next) && n >= 10 && n <= 3000) facts.areas.push(n);
     else if (/^(?:мкр|мкрн|микрора)/u.test(next) && n >= 1 && n <= 200) facts.microdistricts.push(n);
     else if (/^(?:мкр|мкрн|микрора)/u.test(prev) && n >= 1 && n <= 200) facts.microdistricts.push(n);
-    else if (n >= 10_000 && n <= 60_000_000 && t.length <= 8) facts.prices.push(n);
+    else if (n >= 10_000 && n <= 60_000_000 && t.length <= 8) {
+      if (/^(?:доллар|долл)/u.test(next) || /^(?:доллар|долл)/u.test(prev)) facts.pricesUsd.push(n);
+      else facts.prices.push(n);
+    }
   }
   return facts;
 }
@@ -236,6 +247,8 @@ export function scoreClipCandidates(
   properties: readonly RecognitionProperty[],
   districts: readonly RecognitionDistrict[],
   canUse: (p: RecognitionProperty) => boolean = () => true,
+  /** Курс для пересчёта цены объекта в сомони — общий `convertToTjs` (packages/shared/src/money.ts). */
+  usdToTjs: number = FALLBACK_USD_TO_TJS,
 ): ClipRecognition {
   const sources: SourceFacts[] = [];
   if (texts.filename) {
@@ -273,10 +286,17 @@ export function scoreClipCandidates(
     for (const s of sources) {
       if (s.numbers.includes(p.shortId)) add(100, `номер ${p.shortId}`, s.source, true);
       const f = s.facts;
-      if (f.prices.length) {
-        const hit = f.prices.find((v) => Math.abs(v - p.price) <= p.price * 0.02);
-        if (hit) add(35, `цена ${groupDigits(p.price)}${p.currency === "USD" ? " $" : ""}`, s.source, true);
-        else if (f.prices.every((v) => Math.abs(v - p.price) > p.price * 0.15)) score -= 30;
+      if (f.prices.length || f.pricesUsd.length) {
+        // Цена объекта в сомони — одним общим пересчётом; число без валюты сверяем и с сомони, и с ценой
+        // в валюте самого объекта («127 200» у объекта в долларах), число с «$» — через тот же курс.
+        const tjs = convertToTjs(p.price, p.currency, usdToTjs);
+        const near = (a: number, b: number, share: number) => b > 0 && Math.abs(a - b) <= b * share;
+        const asTjs = [...f.prices, ...f.pricesUsd.map((v) => convertToTjs(v, "USD", usdToTjs))];
+        const hitAt = (share: number) => asTjs.some((v) => near(v, tjs, share))
+          || f.prices.some((v) => near(v, p.price, share))
+          || (p.currency === "USD" && f.pricesUsd.some((v) => near(v, p.price, share)));
+        if (hitAt(0.02)) add(35, `цена ${groupDigits(p.price)}${p.currency === "USD" ? " $" : ""}`, s.source, true);
+        else if (!hitAt(0.15)) score -= 30;
       }
       if (f.areas.length) {
         const hit = f.areas.find((v) => Math.abs(v - p.areaSqm) <= Math.max(1.5, p.areaSqm * 0.03));
@@ -343,7 +363,7 @@ export async function recognizeClipProperty(
   canUse: (p: RecognitionProperty & { status: string; assignedAgentId: string | null; intakeAgentId: string | null; createdById: string | null }) => boolean = () => true,
 ): Promise<ClipRecognition> {
   if (!texts.filename && !texts.caption?.trim() && !texts.transcript?.trim()) return { candidates: [], ambiguousCount: null };
-  const [rows, districts] = await Promise.all([
+  const [rows, districts, money] = await Promise.all([
     prisma.property.findMany({
       where: ACTIVE_WHERE,
       select: {
@@ -354,7 +374,8 @@ export async function recognizeClipProperty(
       take: RECOGNITION_LIMIT,
     }),
     prisma.district.findMany({ select: { id: true, name: true, nameTj: true } }),
+    loadMoneyContext(),
   ]);
   const properties = rows.map((r) => ({ ...r, status: String(r.status), areaSqm: Number(r.areaSqm), price: Number(r.price), currency: String(r.currency) }));
-  return scoreClipCandidates(texts, properties, districts, canUse as (p: RecognitionProperty) => boolean);
+  return scoreClipCandidates(texts, properties, districts, canUse as (p: RecognitionProperty) => boolean, money.usdToTjs);
 }

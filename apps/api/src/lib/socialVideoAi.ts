@@ -134,6 +134,18 @@ function makeFactGuard(source: string): (line: string) => boolean {
   };
 }
 
+/**
+ * ЗАПРЕЩЁННЫЕ СЛОВА В ПУБЛИЧНОЙ ПОДПИСИ (21.11.2026, ревью PR #349): имена действующих сотрудников.
+ * Подпись уходит в соцсети компании: фамилия агента или маркетолога из описания или озвучки туда
+ * попадать не должна. Сравнение по слову целиком, без регистра, «ё» = «е».
+ */
+export function containsForbiddenWord(text: string, words: readonly string[]): boolean {
+  if (!words.length) return false;
+  const norm = (w: string) => w.toLowerCase().replace(/ё/gu, "е");
+  const tokens = new Set(norm(text).split(/[^\p{L}]+/u).filter(Boolean));
+  return words.some((w) => tokens.has(norm(w)));
+}
+
 /** Строка как её увидит человек: без markdown-звёздочек, длинных тире и с эмодзи в начале (решения владельца 20.09.2026). */
 function cleanLine(line: string): string {
   return moveTrailingEmojiToStart(stripDashes(line.replace(/\*+/g, "").replace(/^[\s•\-–—]+/u, "")).trim()).trim();
@@ -362,7 +374,11 @@ async function callModelWithTimeout(input: SocialVideoAiCaptionRequest): Promise
  * Нет ответа, пустой ответ или все варианты забракованы проверкой фактов →
  * `SocialVideoAiError` с текстом для экрана.
  */
-export async function generateSocialVideoCaptions(input: SocialVideoAiCaptionRequest): Promise<string[]> {
+export async function generateSocialVideoCaptions(
+  input: SocialVideoAiCaptionRequest,
+  /** Слова, которых не должно быть в подписи (имена сотрудников): строка с ними выбрасывается, крючок — бракует вариант. */
+  opts: { forbiddenWords?: readonly string[] } = {},
+): Promise<string[]> {
   const answer = await callModelWithTimeout(input);
   if (answer == null) {
     // callGemini уже записал причину в журнал ошибок и вернул null (нет ключа, отказ Google, блокировка промта).
@@ -373,7 +389,9 @@ export async function generateSocialVideoCaptions(input: SocialVideoAiCaptionReq
     throw new SocialVideoAiError("ИИ вернул пустой ответ — нажмите «Перегенерировать»");
   }
 
-  const isSafe = makeFactGuard(`${input.brief}\n${input.title ?? ""}`);
+  const factGuard = makeFactGuard(`${input.brief}\n${input.title ?? ""}`);
+  const forbidden = opts.forbiddenWords ?? [];
+  const isSafe = (line: string) => factGuard(line) && !containsForbiddenWord(line, forbidden);
   const limit = effectiveCaptionLimit(input.channels);
   // Заходы, которые уже показывали, и повторы внутри ответа не берём: «Перегенерировать» должно давать новое.
   const usedKeys = new Set(input.avoid.map(hookKey));

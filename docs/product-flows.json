@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4194,
+  "forks": 4198,
   "mounts": 88,
-  "cron": 143,
+  "cron": 144,
   "jobs": 34,
   "hidden": 0
  },
@@ -113652,6 +113652,201 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Уборка журнала сообщений помощницы\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "staff-social-post-sweep",
+   "when": "*/15 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const r = await sweepStaffSocialPosts();",
+       "a": [
+        "зовёт sweepStaffSocialPosts()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const expired = await prisma.staffSocialPost.findMany({ where: { status: { in: ALIVE }, expiresAt: { lt: now …",
+         "a": [
+          "читает в базе: staffSocialPost"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const post of expired",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: ALIVE } }, data: …",
+           "a": [
+            "меняет в базе: staffSocialPost"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!moved.count",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await dropDraftIfStillDraft(post.socialVideoPostId);",
+           "a": [
+            "зовёт dropDraftIfStillDraft()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const stuck = await prisma.staffSocialPost.findMany({ where: { status: \"PREPARING\", updatedAt: { lt: new Date…",
+         "a": [
+          "читает в базе: staffSocialPost"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const post of stuck",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "post.previewMessageId && post.socialVideoPostId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: \"PREPARING\" }, data: { …",
+             "a": [
+              "меняет в базе: staffSocialPost"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const gone = await prisma.staffSocialPost.deleteMany({ where: { id: post.id, status: \"PREPARING\" } });",
+           "a": [
+            "удаляет в базе: staffSocialPost"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!gone.count",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await dropDraftIfStillDraft(post.socialVideoPostId);",
+           "a": [
+            "зовёт dropDraftIfStillDraft()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const [asking, chosen] = await Promise.all([ prisma.staffClipIntake.updateMany({ where: { status: \"WORKING\", …",
+         "a": [
+          "меняет в базе: staffClipIntake"
+         ],
+         "c": []
+        }
+       ],
+       "from": "sweepStaffSocialPosts() — apps/api/src/lib/staffSocialPostSweep.ts"
+      },
+      {
+       "k": "if",
+       "t": "r.cancelled + r.dropped + r.restored + r.released + r.files > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Уборка постов Шабнам: ${JSON.stringify(r)}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка уборки постов Шабнам\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],

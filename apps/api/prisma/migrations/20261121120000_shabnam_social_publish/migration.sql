@@ -13,8 +13,10 @@ CREATE TABLE "StaffSocialPost" (
     "language" TEXT NOT NULL DEFAULT 'RU',
     "channels" JSONB,
     "socialVideoPostId" TEXT,
-    "status" TEXT NOT NULL DEFAULT 'PREVIEW',
+    "status" TEXT NOT NULL DEFAULT 'PREPARING',
     "previewMessageId" INTEGER,
+    "previewVersion" INTEGER NOT NULL DEFAULT 0,
+    "previewCaptionHash" TEXT,
     "publishedAt" TIMESTAMP(3),
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -27,3 +29,4 @@ CREATE UNIQUE INDEX "StaffSocialPost_staffClipIntakeId_key" ON "StaffSocialPost"
 CREATE UNIQUE INDEX "StaffSocialPost_mediaGroupKey_key" ON "StaffSocialPost"("mediaGroupKey");
 CREATE UNIQUE INDEX "StaffSocialPost_socialVideoPostId_key" ON "StaffSocialPost"("socialVideoPostId");
 CREATE INDEX "StaffSocialPost_chatId_status_updatedAt_idx" ON "StaffSocialPost"("chatId", "status", "updatedAt");
+CREATE INDEX "StaffSocialPost_status_expiresAt_idx" ON "StaffSocialPost"("status", "expiresAt");

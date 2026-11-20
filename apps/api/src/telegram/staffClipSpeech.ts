@@ -8,6 +8,8 @@ import { tryRunFfmpeg } from "../lib/ffmpeg.js";
 import { maskPhonesInFreeText } from "../lib/clientPhone.js";
 import { createAssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { runAssistantMediaUnderstanding } from "./assistantMedia.js";
+import { logSystemError } from "../lib/systemError.js";
+import { describeError } from "../lib/describeError.js";
 import { resolveTelegramFileMaterialization, TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES } from "./api.js";
 
 /**
@@ -56,7 +58,8 @@ export async function transcribeClipSpeech(fileId: string, agentId: string): Pro
     const text = result.extraction.transcript.trim();
     return text ? { transcript: maskPhonesInFreeText(text).slice(0, 4000) } : { skipped: "no_audio" };
   } catch (err) {
-    console.warn("[telegram:staff-clip] расшифровка звука ролика не удалась", err instanceof Error ? err.message : err);
+    // Без расшифровки распознавание идёт по имени файла и подписи; сбой виден в журнале CRM, а не только в консоли.
+    void logSystemError("ai", `Звук ролика для распознавания объекта не расшифрован — ${describeError(err)}`, { dedupKey: "staff-clip-speech" });
     return { skipped: "failed" };
   } finally {
     await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});

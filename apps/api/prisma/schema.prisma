@@ -3158,15 +3158,22 @@ model StaffSocialPost {
   channels          Json?
   /// Черновик в «Роликах» CRM — то, что уходит в публикацию.
   socialVideoPostId String?   @unique
-  /// PREVIEW — ждём кнопку; EDIT_CAPTION — ждём новый текст; PUBLISHING — нажато «Опубликовать»;
-  /// PUBLISHED — ушло в публикацию; CANCELLED. Подготовка не удалась — строка и черновик удаляются (повтор возможен).
-  status            String    @default("PREVIEW")
+  /// PREPARING — готовим (черновик, подпись, новая подпись): публиковать нельзя; PREVIEW — превью показано,
+  /// ждём кнопку; EDIT_CAPTION — ждём новый текст; PICKING — выбор сетей; PUBLISHING — нажато «Опубликовать»;
+  /// PUBLISHED — ушло в публикацию; CANCELLED — отменено человеком или уборкой (lib/staffSocialPostSweep.ts).
+  /// Все переходы условные (updateMany из ожидаемого статуса). Подготовка не удалась — строка и черновик удаляются.
+  status            String    @default("PREPARING")
   previewMessageId  Int?
+  /// Номер показанного превью (в кнопке «Опубликовать»): старое превью не публикует.
+  previewVersion    Int       @default(0)
+  /// Отпечаток подписи и сетей показанного превью: уходит ровно то, что человек видел.
+  previewCaptionHash String?
   publishedAt       DateTime?
   expiresAt         DateTime
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   @@index([chatId, status, updatedAt])
+  @@index([status, expiresAt])
 }
 
 /// СВОЯ МУЗЫКА ДЛЯ ПЕРЕМОНТАЖА (18.11.2026, lib/narrationMusic.ts): треки без авторских прав, которые

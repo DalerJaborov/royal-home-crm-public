@@ -129,7 +129,7 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
 };
 
 export interface AutomationSwitchGroup {
-  id: "ai" | "tasks" | "notifications" | "bot" | "assistant";
+  id: "ai" | "tasks" | "notifications" | "bot";
   title: string;
   /** Ключи группы: свои и уже существовавшие (`dealStaleSellersEnabled`). */
   keys: ReadonlyArray<AutomationSwitchKey | "dealStaleSellersEnabled">;
@@ -137,7 +137,11 @@ export interface AutomationSwitchGroup {
 
 /** Группы и порядок строк на экране. */
 export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
-  { id: "ai", title: "ИИ решает за агента", keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "aiJobSeekerAutoDetachEnabled"] },
+  {
+    id: "ai",
+    title: "ИИ решает за агента",
+    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled"],
+  },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {
     id: "notifications",
@@ -145,7 +149,6 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled"] },
-  { id: "assistant", title: "Шабнам", keys: ["shabnamSocialPublishEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

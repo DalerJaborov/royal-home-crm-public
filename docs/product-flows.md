@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2504**; вместе с задачами по расписанию и фоновыми заданиями — **4194**. Модулей: **88**.
+Путей: **788**. Развилок в самих путях: **2504**; вместе с задачами по расписанию и фоновыми заданиями — **4198**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -25351,6 +25351,49 @@
       · удаляет в базе: staffNotice
 - если сорвалось
   - reportCronTickError("Уборка журнала сообщений помощницы", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### staff-social-post-sweep — */15 * * * *
+
+- пробует
+  - const r = await sweepStaffSocialPosts();
+    · зовёт sweepStaffSocialPosts()
+    - const expired = await prisma.staffSocialPost.findMany({ where: { status: { in: ALIVE }, expiresAt: { lt: now …
+      · читает в базе: staffSocialPost
+    - для каждого: const post of expired
+      - const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: ALIVE } }, data: …
+        · меняет в базе: staffSocialPost
+      - если !moved.count
+        - continue;
+          · переходит к следующему
+      - await dropDraftIfStillDraft(post.socialVideoPostId);
+        · зовёт dropDraftIfStillDraft()
+    - const stuck = await prisma.staffSocialPost.findMany({ where: { status: "PREPARING", updatedAt: { lt: new Date…
+      · читает в базе: staffSocialPost
+    - для каждого: const post of stuck
+      - если post.previewMessageId && post.socialVideoPostId
+        - const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PREPARING" }, data: { …
+          · меняет в базе: staffSocialPost
+        - continue;
+          · переходит к следующему
+      - const gone = await prisma.staffSocialPost.deleteMany({ where: { id: post.id, status: "PREPARING" } });
+        · удаляет в базе: staffSocialPost
+      - если !gone.count
+        - continue;
+          · переходит к следующему
+      - await dropDraftIfStillDraft(post.socialVideoPostId);
+        · зовёт dropDraftIfStillDraft()
+    - const [asking, chosen] = await Promise.all([ prisma.staffClipIntake.updateMany({ where: { status: "WORKING", …
+      · меняет в базе: staffClipIntake
+  - если r.cancelled + r.dropped + r.restored + r.released + r.files > 0
+    - console.log(`[cron] Уборка постов Шабнам: ${JSON.stringify(r)}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка уборки постов Шабнам", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
