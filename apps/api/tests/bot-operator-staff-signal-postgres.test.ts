@@ -69,7 +69,8 @@ describe("дверь «клиент ждёт»: решение оператор�
     expect(await alertClientWaiting({ conversationId: complaint, trigger: "follow_up", staffRequired: true, staffReason: "complaint" })).toBe("director");
     const [alert] = await leadershipAlerts(complaint);
     // urgent=false: колокольчик сразу, пуш — в часы тревог; ночью не будит (lib/directorAlertQueue.ts).
-    expect(alert).toMatchObject({ title: "💬 Жалоба клиента", recipientRoles: ["DIRECTOR", "ADMIN"], urgent: false });
+    // Владелец 20.11.2026: «лучше такие уведомления отправлять ропу тоже» — РОП (HEAD_OF_SALES), директор, админ.
+    expect(alert).toMatchObject({ title: "💬 Жалоба клиента", recipientRoles: ["HEAD_OF_SALES", "DIRECTOR", "ADMIN"], urgent: false });
     expect(alert!.body).toContain("клиент жалуется. Бот ответил «Ваше сообщение увидит руководитель.» и дальше молчит.");
   });
 
@@ -80,12 +81,10 @@ describe("дверь «клиент ждёт»: решение оператор�
     expect(await leadershipAlerts(id)).toMatchObject([{ title: "💬 Жалоба клиента", urgent: false, excludeAgentId: agentId }]);
   });
 
-  it("грубость: без карточки — руководству (обычной срочностью); с агентом — только агенту, как раньше", async () => {
+  it("грубость: без карточки — руководству поштучно НЕ идёт (владелец 20.11: «руководителя просто так не дергал»); с агентом — агенту", async () => {
     const noCard = await chat();
-    expect(await alertClientWaiting({ conversationId: noCard, trigger: "follow_up", staffReason: "rude" })).toBe("director");
-    const [alert] = await leadershipAlerts(noCard);
-    expect(alert).toMatchObject({ urgent: false });
-    expect(alert!.body).toContain("клиент написал грубо. Бот ответил «Понимаю вас, дальше с вами продолжит наш сотрудник.»");
+    expect(await alertClientWaiting({ conversationId: noCard, trigger: "follow_up", staffReason: "rude" })).toBe("skipped");
+    expect(await leadershipAlerts(noCard)).toHaveLength(0);
     const withAgent = await chat({ card: "agent" });
     expect(await alertClientWaiting({ conversationId: withAgent, trigger: "follow_up", staffReason: "rude" })).toBe("agent");
     expect(await leadershipAlerts(withAgent)).toHaveLength(0);

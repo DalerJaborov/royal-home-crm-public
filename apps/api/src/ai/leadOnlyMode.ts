@@ -55,7 +55,7 @@ export interface LeadOnlyConfig {
 
 export const LEAD_ONLY_DEFAULTS: LeadOnlyConfig = Object.freeze({
   enabled: false, useWhatsappNumber: true, maxPhoneAsks: 2, hotIntentHandover: true,
-  workHoursStart: "09:30", workHoursEnd: "18:00", repliesAfterLead: true, staffQuietMinutes: 30, ownWords: false,
+  workHoursStart: "09:30", workHoursEnd: "18:00", repliesAfterLead: true, staffQuietMinutes: 180, ownWords: false,
 });
 
 /**
@@ -305,7 +305,9 @@ export function leadOnlyCallbackWhen(input: { now: string; workHoursStart: strin
   const inside = start <= end ? now >= start && now < end : now >= start || now < end;
   // Последний час рабочего дня — уже не «в ближайшее время» (разбор 20.11.2026: вечерние заявки ждут агента 4,5–18 часов):
   // честно «завтра с <начало>», раньше позвонят — тем лучше.
-  if (inside && start <= end && minutesOf(end) - minutesOf(now) <= LEAD_ONLY_LATE_MINUTES) return { kind: "tomorrow_from", from: start };
+  // Круглосуточное окно (00:00–24:00 или начало = концу) — всегда «в ближайшее время» (ревью #333).
+  const roundTheClock = start === end || (minutesOf(start) === 0 && minutesOf(end) >= 23 * 60 + 59);
+  if (inside && !roundTheClock && start <= end && minutesOf(end) - minutesOf(now) <= LEAD_ONLY_LATE_MINUTES) return { kind: "tomorrow_from", from: start };
   if (inside) return { kind: "soon" };
   // До начала окна (раннее утро) — «сегодня с 09:30», после конца — «завтра утром».
   return start <= end && now < start ? { kind: "today_from", from: start } : { kind: "tomorrow_from", from: start };

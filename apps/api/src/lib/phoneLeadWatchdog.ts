@@ -598,6 +598,8 @@ async function tryAcceptQuietly(row: PhoneWithoutLead): Promise<"accepted" | "ac
         fromHistory: true,
       }
     );
+    // Проверяющий из Настроек: заявку не заводят нарочно (дверь — acceptLead), попытка засчитана, тревоги нет.
+    if (result.reviewer) return "accepted";
     if (!result.accepted) return "declined";
     // «accepted» без карточки — не успех (AI-DIALOGUE01): так приём отвечает и
     // опоздавшему из гонки, чей победитель жив или умер до привязки. Тик ставит

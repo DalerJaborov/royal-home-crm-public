@@ -1107,7 +1107,7 @@ function BotHumanFields({ onToggle }: { onToggle: (field: string, next: boolean)
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const ownWords = settings?.botOwnWords ?? false;
-  const quiet = settings?.botStaffQuietMinutes ?? 30;
+  const quiet = settings?.botStaffQuietMinutes ?? 180;
   const savedReviewers = (settings?.botReviewerPhones ?? []).join(", ");
   const [reviewers, setReviewers] = useState(savedReviewers);
   const [error, setError] = useState<string | null>(null);
@@ -1129,12 +1129,12 @@ function BotHumanFields({ onToggle }: { onToggle: (field: string, next: boolean)
         <div className="t">
           <b>Сотрудник ответил — бот молчит</b>
           <span style={{ whiteSpace: "normal" }}>
-            Столько минут после сообщения сотрудника бот не вмешивается. Потом снова отвечает, если клиент пишет.
+            Столько бот не вмешивается после сообщения сотрудника. Потом отвечает коротко, если клиент пишет. Кнопка «Пауза» в переписке — бессрочно.
           </span>
         </div>
         <div className="acts">
           <div className="seg" role="group" aria-label="Сколько минут бот молчит после сотрудника">
-            {[15, 30, 60].map((n) => (
+            {[60, 180, 360].map((n) => (
               <button
                 key={n}
                 type="button"
@@ -1145,7 +1145,7 @@ function BotHumanFields({ onToggle }: { onToggle: (field: string, next: boolean)
                   updateSettings.mutate({ botStaffQuietMinutes: n }, { onError });
                 }}
               >
-                {n} мин
+                {n / 60} ч
               </button>
             ))}
           </div>

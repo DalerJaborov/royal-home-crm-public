@@ -45,7 +45,7 @@ export function emptyOperatorDetails(): OperatorDetails {
 export function initialOperatorState(): OperatorState {
   return { version: 2, role: "unknown", step: "start", language: null, asked: { role: 0, details: 0, phone: 0 }, spoken: {},
     propertyId: null, details: emptyOperatorDetails(), callback: { when: null, textOnly: false }, noCall: false,
-    outOfArea: false, place: null, flags: { bargainAsked: false, adPriceAsked: false, propertyLineFor: null, lastAck: false, sellerByWords: false }, leadAccepted: false,
+    outOfArea: false, place: null, flags: { bargainAsked: false, adPriceAsked: false, propertyLineFor: null, lastAck: false, sellerByWords: false, signaled: [] }, leadAccepted: false,
     staffCalled: false, closed: false, jobAnswered: null };
 }
 
@@ -95,6 +95,12 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     s.staffCalled = true;
     actions.push({ type: "call_staff", reason });
   };
+  /** «Не понял», «вложения без слов» — один сигнал человеку на разговор (кому — решает дверь «клиент ждёт»). */
+  const signalOnce = (reason: "unclear" | "attachments") => {
+    if (s.flags.signaled.includes(reason)) return;
+    s.flags.signaled = [...s.flags.signaled, reason];
+    actions.push({ type: "call_staff", reason });
+  };
   let handoff: OperatorDecision["handoff"];
 
   // ── язык: липкий, меняет только осмысленный текст ─────────────────────────
@@ -142,11 +148,26 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     return finish();
   }
 
-  // ── вложение без своих слов: шаг не двигает ───────────────────────────────
+  // ── переписку ведёт сотрудник, заявки ещё нет (эстафета 20.11.2026, запасной вариант): бот не спрашивает ни роль, ни номер,
+  // клиенту не отвечает, сотрудник получает сигнал; номер клиента — всё равно заявка.
+  if (!s.leadAccepted && ctx.staffThread) {
+    const notCandidate = s.role !== "job" && s.role !== "rent" && u.role !== "job" && u.role !== "rent";
+    if (u.phone && notCandidate) acceptLeadSilently(s, u, ctx, actions);
+    actions.push({ type: "call_staff", reason: "staff_thread" });
+    return finish();
+  }
+
+  // ── вложение без своих слов: один короткий ответ, повтор — тишина и один сигнал человеку (20.11.2026) ─────────
   if (!u.hasText && !u.attachments.ownPost) {
+    const before = answers.length;
     if (u.attachments.voice === "failed") { if (!said("voice_failed")) answers.push(draft("voice_failed")); }
     else if (u.attachments.foreignPost) { if (!said("foreign_post")) answers.push(draft("foreign_post")); }
-    else if (u.attachments.media && (s.role === "seller" || s.role === "unknown") && !said("photo_ack")) answers.push(draft("photo_ack"));
+    else if (u.attachments.media && s.role === "seller" && !said("photo_ack")) answers.push(draft("photo_ack"));
+    else if (!s.leadAccepted && s.role === "unknown" && !said("media_received") && !said("photo_ack")) {
+      answers.push(draft("media_received"));
+      if (s.asked.role < 2) { flow.push(draft("ask_role")); s.asked.role += 1; s.step = "role"; }
+    }
+    if (answers.length === before && !s.leadAccepted) signalOnce("attachments");
     return finish();
   }
   if (u.attachments.foreignPost && !said("foreign_post")) answers.push(draft("foreign_post"));
@@ -346,8 +367,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (s.role === "unknown" || s.role === "rent" || s.role === "job") {
     if (wantsContact) { contact(); return finish(); }
     if (s.asked.role >= 2) {
-      // Два непонятных ответа на вопрос о роли: молчим (до заявки людей не зовём; через сутки тишины — заново, state.ts).
+      // Два непонятных ответа на вопрос о роли: молчим и один раз зовём человека (20.11.2026; кому — лесенка двери
+      // «клиент ждёт»: агент, руководство поштучно не беспокоим). Через сутки тишины — заново (state.ts).
       s.step = "handoff";
+      signalOnce("unclear");
       return finish();
     }
     // Приветствие в ответ на приветствие (SPEC «Тон») — всегда первым, даже рядом с ответом на вопрос (перенесено из 19.11).

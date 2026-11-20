@@ -227,3 +227,51 @@ describe("память старых разговоров переживает в
     expect(state.spoken).toEqual({ seller_intro: 1, phone_received: 1 });
   });
 });
+
+describe("ревью #333", () => {
+  it("эстафета, запасной вариант: до заявки в переписке сотрудника бот не спрашивает, зовёт этого сотрудника; номер — заявка", () => {
+    const quiet = run(FB({ staffThread: true }), [ru({ greetingOnly: true, greeting: "ru" })])[0]!;
+    expect(quiet.silent).toBe(true);
+    expect(quiet.actions).toEqual([{ type: "call_staff", reason: "staff_thread" }]);
+    const phone = run(FB({ staffThread: true }), [ru({ phone: "+992900000001" })])[0]!;
+    expect(phone.silent).toBe(true);
+    expect(phone.actions.map(a => a.type)).toEqual(["accept_lead", "call_staff"]);
+  });
+  it("вложение без слов: один короткий ответ на языке разговора и вопрос о роли; повтор — тишина и один сигнал", () => {
+    const media = u({ hasText: false, attachments: { voice: "none", ownPost: false, foreignPost: false, media: true } });
+    const turns = run(FB(), [media, media, media]);
+    expect(turns[0]!.text).toBe("Спасибо, получил. Вы хотите купить или продать недвижимость?");
+    expect(turns[1]!.silent).toBe(true);
+    expect(turns[1]!.actions).toEqual([{ type: "call_staff", reason: "attachments" }]);
+    expect(turns[2]!.silent && turns[2]!.actions.length === 0).toBe(true);
+    const tgFirst = run(FB(), [media], { ...initialOperatorState(), language: "tg" })[0]!;
+    expect(tgFirst.text).toBe("Ташаккур, гирифтам. Шумо хона мехаред ё мефурӯшед?");
+  });
+  it("дважды непонятно («Оае», «Ттк», «Мр») — тишина и один сигнал человеку", () => {
+    const turns = run(FB(), [ru(), ru(), ru(), ru()]);
+    expect(turns[2]!.silent).toBe(true);
+    expect(turns[2]!.actions).toEqual([{ type: "call_staff", reason: "unclear" }]);
+    expect(turns[3]!.actions).toEqual([]);
+  });
+  it("запасной ход после сбоя: соискателю и арендатору заявку не заводит", async () => {
+    const stored = serializeOperatorState({ ...initialOperatorState(), role: "job" });
+    const turn = await runOperatorTurn({ storedState: stored, ctx: { ...FB(), ad: undefined as never }, model: async () => null,
+      input: { current: "+992 90 000 00 01" } });
+    expect(turn.actions.filter(a => a.type === "accept_lead")).toEqual([]);
+  });
+  it("круглосуточное окно 00:00–24:00: в 23:30 — «в ближайшее время», а не «завтра с 00:00»", () => {
+    expect(leadOnlyCallbackWhen({ now: "23:30", workHoursStart: "00:00", workHoursEnd: "24:00" })).toEqual({ kind: "soon" });
+    expect(leadOnlyCallbackWhen({ now: "23:30", workHoursStart: "00:00", workHoursEnd: "23:59" })).toEqual({ kind: "soon" });
+  });
+  it("проверка «своими словами»: сроки, новые действия, имя, «ты», деньги — только из готовой фразы; бот не выдаёт себя за человека", () => {
+    const template = "Спасибо, передал агенту, он позвонит вам завтра с 10:00.";
+    expect(checkComposedReply("Спасибо, передал агенту, он позвонит вам сегодня.", "Спасибо, передал агенту, он позвонит вам завтра.", "ru")).toBe("time");
+    expect(checkComposedReply("Спасибо, передал агенту, он приедет и покажет квартиру.", template, "ru")).not.toBeNull();
+    expect(checkComposedReply("Спасибо, передал агенту Фарходу, он позвонит вам завтра с 10:00.", template, "ru")).toBe("name");
+    expect(checkComposedReply("Передал агенту, он ответит в течение часа.", "Передал агенту.", "ru")).not.toBeNull();
+    expect(checkComposedReply("Спасибо, твой вопрос передал агенту.", "Передал агенту.", "ru")).toBe("informal");
+    expect(checkComposedReply("Ташаккур, дархостат ба агент расид.", "Ба агент расондам.", "tg")).toBe("informal");
+    expect(checkComposedReply("Для вас бесплатно, платит продавец.", "Для покупателя наши услуги бесплатны.", "ru")).toBe("money");
+    expect(checkComposedReply("Спасибо, передал агенту, он позвонит вам завтра с 10:00.", template, "ru")).toBeNull();
+  });
+});

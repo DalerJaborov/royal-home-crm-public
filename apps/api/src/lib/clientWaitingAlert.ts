@@ -121,6 +121,22 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
 export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up" | "handover";
 
 /** A person (an agent in the CRM or staff from the messenger app) answered in the chat after `since`. Pure. */
+/** Кто из сотрудников последним писал в этой переписке из CRM (ответ из приложения Meta сотрудника не называет). */
+/**
+ * Кому из руководства доходит сигнал «клиент ждёт» (владелец 20.11.2026: «лучше такие уведомления отправлять ропу тоже»):
+ * РОП (роль HEAD_OF_SALES), директор и админ — одной очередью. Нет действующего РОПа — директор и админ, как раньше.
+ */
+export const CLIENT_WAITING_LEADERSHIP = ["HEAD_OF_SALES", "DIRECTOR", "ADMIN"] as const;
+
+export function lastStaffWriterId(messages: unknown): string | null {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const by = (messages[i] as { role?: string; by?: { kind?: string; agentId?: string } } | null)?.by;
+    if (by?.kind === "agent" && typeof by.agentId === "string") return by.agentId;
+  }
+  return null;
+}
+
 export function humanRepliedSince(messages: unknown, since: Date): boolean {
   if (!Array.isArray(messages)) return false;
   return messages.some(raw => {
@@ -350,6 +366,12 @@ export async function alertClientWaiting(input: {
       ? `${name}: клиент жалуется. Бот ответил «${OPERATOR_PHRASES.complaint_ack.ru[0]}» и дальше молчит. ${answerHint}`
       : staffReason === "rude"
       ? `${name}: клиент написал грубо. Бот ответил «${OPERATOR_PHRASES.rude_calm.ru[0]}» и дальше молчит. ${answerHint}`
+      : staffReason === "staff_thread"
+      ? `${name}: клиент написал в переписку, которую вы ведёте. Бот не вмешивается, ответьте клиенту.`
+      : staffReason === "unclear"
+      ? `${name}: бот дважды не понял, что нужно клиенту, и замолчал. ${answerHint}`
+      : staffReason === "attachments"
+      ? `${name}: клиент присылает вложения без слов, бот ответил один раз и дальше молчит. ${answerHint}`
       : input.trigger === "follow_up"
       // Подсказка, где отвечать (Telegram Direct: из CRM нельзя), потерялась при своде #201 с #198 — возвращена 16.11.
       ? `${name}: бот ответил клиенту, что это уточнит агент. ${chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint}`
@@ -370,18 +392,21 @@ export async function alertClientWaiting(input: {
 
   try {
     if (staffReason) {
-      // Решение оператора (жалоба, грубость, 20.11.2026). Агент карточки — штатным пушем: исправлять «никто не звонит» ему.
-      // Жалобу видит ещё и руководство (клиенту обещан руководитель): копия в очередь руководства. Без агента — только
-      // руководству. Срочность обычная (`info`): колокольчик сразу, пуш — в часы тревог из Настроек, ночью не будит
-      // (правило владельца «редко беспокоить»; lib/directorAlertQueue.ts).
-      const toLeadership = !agent || staffReason === "complaint";
+      // ЛЕСЕНКА СИГНАЛОВ (владелец 20.11.2026: «бот полностью со всеми сам справлялся и руководителя просто так не дергал»).
+      // Первым — агент: сотрудник, который сам ведёт эту переписку (для «клиент пишет в вашу переписку»), иначе агент карточки.
+      // Руководство поштучно — только жалоба (клиенту обещан руководитель). Грубость, «не понял», вложения без агента —
+      // руководству поштучно НЕ идут (дневная сводка — ветка Б). Срочность обычная (`info`): ночью не будит.
+      const writer = staffReason === "staff_thread" ? lastStaffWriterId(chat.messages) : null;
+      const target = writer ?? agent;
+      const toLeadership = staffReason === "complaint";
+      if (!target && !toLeadership) return "skipped";
       const queued = toLeadership ? await enqueueDirectorAlert({ title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа, агента нет",
-        body, url, kind: "message", level: "CRITICAL", severity: "info", tag, recipientRoles: ["DIRECTOR", "ADMIN"],
-        ...(agent ? { excludeAgentId: agent } : {}) }) : false;
+        body, url, kind: "message", level: "CRITICAL", severity: "info", tag, recipientRoles: [...CLIENT_WAITING_LEADERSHIP],
+        ...(target ? { excludeAgentId: target } : {}) }) : false;
       let agentTold = false;
-      if (agent) {
+      if (target) {
         try {
-          await sendPushToAgent(agent, { kind: "message", level: "CRITICAL", title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа",
+          await sendPushToAgent(target, { kind: "message", level: "CRITICAL", title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа",
             body, url, tag });
           agentTold = true;
         } catch (err) {
@@ -409,7 +434,7 @@ export async function alertClientWaiting(input: {
       level: "CRITICAL",
       severity: "critical",
       tag,
-      recipientRoles: ["DIRECTOR", "ADMIN"],
+      recipientRoles: [...CLIENT_WAITING_LEADERSHIP],
     });
     if (!queued) throw new Error("очередь тревог руководству недоступна");
     return "director";
@@ -681,7 +706,7 @@ export async function repeatClientWaiting(input: { conversationId: string; since
   try {
     if (agent) { await sendPushToAgent(agent, { kind: "message", level: "CRITICAL", title: "💬 Клиент всё ещё ждёт ответа", body, url, tag }); agentPushed = true; }
     const queued = await enqueueDirectorAlert({ title: "💬 Клиент ждёт ответа после передачи сотруднику", body, url, kind: "message",
-      level: "CRITICAL", severity: "critical", tag, recipientRoles: ["DIRECTOR", "ADMIN"], ...(agent ? { excludeAgentId: agent } : {}) });
+      level: "CRITICAL", severity: "critical", tag, recipientRoles: [...CLIENT_WAITING_LEADERSHIP], ...(agent ? { excludeAgentId: agent } : {}) });
     if (!queued && !agent) throw new Error("очередь тревог руководству недоступна");
     return "sent";
   } catch (err) {

@@ -674,6 +674,8 @@ export interface MetaIncoming {
    * recipient — клиент. Поэтому senderId ниже заполняется из recipient.
    */
   isEcho?: boolean;
+  /** Эхо: приложение, из которого ушло сообщение (Meta: `message.app_id`; входящие Страницы — 263902037430900). */
+  echoAppId?: string;
 }
 
 interface WhatsAppValue {
@@ -847,6 +849,8 @@ interface MessagingEvent {
     mid?: string;
     text?: string;
     is_echo?: boolean;
+    /** Эхо: приложение-отправитель (Messenger Platform, message_echoes). */
+    app_id?: string | number;
     /** «Сообщение недоступно» в Instagram: Meta не может показать, что прислано. */
     is_unsupported?: boolean;
     /** У вложения есть не только тип, но и адрес: у пересланного поста/рилса это
@@ -1302,6 +1306,7 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
           attachmentType: event.message.attachments?.[0]?.type,
           messageId: event.message.mid,
           isEcho: true,
+          ...(event.message.app_id != null ? { echoAppId: String(event.message.app_id) } : {}),
         });
         continue;
       }

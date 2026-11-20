@@ -163,7 +163,9 @@ export async function defaultPauseForSender(target: DeliveryTarget, sender?: Mes
  * ЭСТАФЕТА ВМЕСТО ВЕЧНОЙ ПАУЗЫ (владелец 20.11.2026: «бот не должен же молчать»). В режиме «только заявки» (WhatsApp,
  * Instagram, Facebook) бот после заявки отвечает коротко и не продаёт «вторым голосом» (ai/operator/decide.ts), поэтому
  * ответ сотрудника больше не глушит его на 10 лет: бот уступает человеку на N минут (Настройки → Бот, botStaffQuietMinutes,
- * по умолчанию 30). Сотрудник молчит дольше, а клиент пишет — бот снова отвечает, агент получает обычный пуш о сообщении.
+ * по умолчанию 180 — запасной вариант эстафеты ревью #333: отложенного ответа «по неотвеченному сообщению» на нынешнем
+ * конвейере ядра надёжно не сделать). До заявки в переписке, где писал сотрудник, бот и после срока не задаёт вопросов —
+ * только сигнал человеку (ai/operator/decide.ts, staffThread). После заявки — короткий ответ и заметка агенту.
  * Ручная кнопка «Пауза» в переписке ставит свой явный срок и этим правилом не меняется; вне режима (сайт, Telegram) — как
  * было. Уже стоящие вечные паузы НЕ укорачиваются (applyDeliveryPause не укорачивает действующую паузу): отличить
  * автоматическую от поставленной кнопкой «Бессрочно» по данным нельзя (journal 2026-11-20-bot-human-replies.md).
@@ -177,8 +179,9 @@ export async function staffRelayPauseMs(target: Pick<DeliveryTarget, "kind" | "i
     const { loadLeadOnlyConfig } = await import("./leadOnlyConfig.js");
     const { leadOnlyAppliesTo } = await import("../ai/leadOnlyMode.js");
     const config = await loadLeadOnlyConfig();
-    if (!config.enabled || !leadOnlyAppliesTo(row.channel) || config.repliesAfterLead === false) return null;
-    return Math.max(5, config.staffQuietMinutes ?? 30) * 60_000;
+    // Эстафета — отдельный смысл от «Бот отвечает и после заявки» (ревью #333): её держит только режим и срок из Настроек.
+    if (!config.enabled || !leadOnlyAppliesTo(row.channel)) return null;
+    return Math.max(5, config.staffQuietMinutes ?? 180) * 60_000;
   } catch {
     return null;
   }

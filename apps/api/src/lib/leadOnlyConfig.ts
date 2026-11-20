@@ -22,7 +22,7 @@ export async function loadLeadOnlyConfig(): Promise<LeadOnlyConfig> {
       workHoursStart: row.workHoursStart || LEAD_ONLY_DEFAULTS.workHoursStart, workHoursEnd: row.workHoursEnd || LEAD_ONLY_DEFAULTS.workHoursEnd,
       // Реестр «Автоматика ИИ и напоминания» (packages/shared/src/automationSwitches.ts): нет поля — ВКЛ.
       repliesAfterLead: isAutomationSwitchOn(row, "botRepliesAfterLeadEnabled"),
-      staffQuietMinutes: Number.isInteger(row.botStaffQuietMinutes) && row.botStaffQuietMinutes > 0 ? row.botStaffQuietMinutes : 30,
+      staffQuietMinutes: Number.isInteger(row.botStaffQuietMinutes) && row.botStaffQuietMinutes > 0 ? row.botStaffQuietMinutes : 180,
       ownWords: row.botOwnWords === true };
   } catch {
     // Настройки недоступны — режим считаем выключенным: прежнее поведение безопаснее молчания.

@@ -869,6 +869,12 @@ export async function acceptLead(
     commentPhoneHoldUntil?: Date;
   }
 ): Promise<MessengerTurnResult> {
+  // ПРОВЕРЯЮЩИЙ ИЗ НАСТРОЕК (20.11.2026, lib/botReviewers.ts) — одна дверь для всех путей приёма: живой ход, ядро, сторож
+  // лидов. Тестовая заявка карточкой не становится и агентам не уходит; номер сотрудника по-прежнему отсекает приём ниже.
+  if (await isReviewerPhone(phone, options?.whatsappPhone)) {
+    console.log(`[lead] проверяющий: заявка не заводится (диалог ${conversationId})`);
+    return { reply: "", ready: false, accepted: false, shouldReply: false, reviewer: true };
+  }
   // Без учёта регистра, общим правилом на все каналы (ночная проверка
   // 24.09.2026): раньше здесь стояло точное сравнение, и «сино» из разговора
   // не находило «Сино» в справочнике — район молча не попадал в карточку.
@@ -3148,8 +3154,6 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       if (action.type === "accept_lead") {
         const phone = action.phone ?? wa?.leadPhone ?? null;
         if (!phone || conversation.clientId) continue;
-        // Проверяющий из Настроек (lib/botReviewers.ts): тестовая заявка карточкой не становится и агентам не уходит.
-        if (await isReviewerPhone(phone, wa?.waPhone)) { console.log(`[messenger] проверка: заявка проверяющего не заводится (${conversation.id})`); continue; }
         let failure: string | null = null;
         try {
           const accepted = await acceptLead(conversation.id, channel, conversation.name ?? name, phone, operatorLeadDraft(action, draft), history, {
@@ -3158,6 +3162,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
             ...(wa?.waPhone ? { whatsappPhone: wa.waPhone } : {}),
             attachments: saved, clientText: said, extraPhones: extractAllPhones(said), silent: true, fromHistory: true,
           });
+          if (accepted.reviewer) continue;
           if (!accepted.accepted) failure = "приём отказал";
         } catch (err) {
           console.error("[messenger] оператор заявок: приём заявки", err instanceof Error ? err.message : err);

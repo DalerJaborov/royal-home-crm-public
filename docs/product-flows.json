@@ -127223,21 +127223,6 @@
       },
       {
        "k": "if",
-       "t": "sealed.lead && await isReviewerPhone(sealed.phone, sealed.whatsappPhone)",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[lead-only] проверка: заявка проверяющего не заводится (диалог ${conversation.id})`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
        "t": "!sealed.lead || !sealed.phone",
        "a": [],
        "c": [
@@ -127258,6 +127243,21 @@
         "зовёт acceptLead()"
        ],
        "c": []
+      },
+      {
+       "k": "if",
+       "t": "result.reviewer",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { status: \"skipped\", reason: \"reviewer\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
       },
       {
        "k": "do",
@@ -127585,21 +127585,6 @@
           },
           {
            "k": "if",
-           "t": "sealed.lead && await isReviewerPhone(sealed.phone, sealed.whatsappPhone)",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "console.log(`[lead-only] проверка: заявка проверяющего не заводится (диалог ${conversation.id})`);",
-             "a": [
-              "пишет строку в журнал сервера"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
            "t": "!sealed.lead || !sealed.phone",
            "a": [],
            "c": [
@@ -127620,6 +127605,21 @@
             "зовёт acceptLead()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "result.reviewer",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { status: \"skipped\", reason: \"reviewer\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "do",

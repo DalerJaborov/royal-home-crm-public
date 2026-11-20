@@ -1471,6 +1471,22 @@ const DOWNLOADABLE_ATTACHMENTS = new Set(["image", "audio", "voice", "video", "d
  * из CRM) мало: бот возвращался в разговор, который директор ещё вёл с телефона
  * (жалоба владельца 28.09.2026) — поэтому 12 часов, OPERATOR_ECHO_PAUSE_MS.
  */
+/** Входящие Страницы Facebook (живой человек в Page inbox): `app_id` эха по документации Meta (Graph API v12.0+). */
+export const META_PAGE_INBOX_APP_ID = "263902037430900";
+/** Документация Meta печатает этот же идентификатор и без последнего нуля (14 цифр) — принимаем обе записи. */
+const META_PAGE_INBOX_APP_IDS: ReadonlySet<string> = new Set([META_PAGE_INBOX_APP_ID, "26390203743090"]);
+
+/**
+ * Эхо — НЕ ответ сотрудника (ревью #333, 20.11.2026): у него `app_id` чужого приложения (не входящие Страницы — значит
+ * автоответ, «нет на месте», чат-бот Meta или другое подключённое приложение). Неясно по документации Meta: какой
+ * `app_id` у мгновенного ответа и «нет на месте» из Business Suite (если тот же, что у входящих, — не отличить).
+ */
+export function echoIsAutomatic(input: { appId?: string; at: number; lastClientAt: number | null }): boolean {
+  // Только `app_id`: признак «через секунды после клиента» отброшен — живой сотрудник тоже отвечает быстро, а ошибка в
+  // эту сторону пускает бота поверх человека (ревью #333, тест manual-reply-pauses-bot). Без `app_id` — как раньше, человек.
+  return !!input.appId && !META_PAGE_INBOX_APP_IDS.has(input.appId);
+}
+
 export async function handleOutgoingEcho(msg: {
   channel: MessengerChannel;
   senderId: string;
@@ -1478,6 +1494,7 @@ export async function handleOutgoingEcho(msg: {
   attachmentType?: string;
   messageId?: string;
   accountExternalId?: string;
+  echoAppId?: string;
 }): Promise<void> {
   /**
    * СНАЧАЛА — память об отправке, и только потом переписка.
@@ -1553,6 +1570,14 @@ export async function handleOutgoingEcho(msg: {
     return;
   }
 
+  // Автоответ Страницы или другого приложения — не человек: ни паузы, ни записи «вручную» (ревью #333).
+  const lastClient = [...history].reverse().find((m) => (m as { role?: string }).role === "user") as { at?: string } | undefined;
+  if (echoIsAutomatic({ appId: msg.echoAppId, at: Date.now(), lastClientAt: lastClient?.at ? Date.parse(lastClient.at) : null })) {
+    traceEchoReason("template");
+    console.log(`[вебхук] ${msg.channel}: эхо автоответа (app ${msg.echoAppId ?? "?"}) — не ручной ответ (диалог ${conv.id})`);
+    return;
+  }
+
   // Пауза — РАНЬШЕ записи в переписку (26.08.2026). Это два независимых запроса, и
   // при прежнем порядке сбой второго оставлял реплику сотрудника в истории, а бота —
   // БЕЗ паузы: он продолжал отвечать поверх живого человека (ровно баг 17.08, ради
@@ -1570,7 +1595,9 @@ export async function handleOutgoingEcho(msg: {
   if (written) {
     await appendConversationMessages(conv.id, [{ role: "assistant", content: written, by: { kind: "manual" } }]);
   }
-  console.log(`[вебхук] ${msg.channel}: ответ вручную из мессенджера — бот на паузе (диалог ${conv.id})`);
+  // app_id в журнале — чтобы после подписки Messenger на message_echoes сверить живым ответом из Business Suite, что он
+  // считается человеком (документация Meta не называет app_id Business Suite).
+  console.log(`[вебхук] ${msg.channel}: ответ вручную из мессенджера (app ${msg.echoAppId ?? "—"}) — бот на паузе (диалог ${conv.id})`);
 }
 
 /** Тот же принцип, что у metaChatLimiter — ключуем по chat_id, не по IP: весь

@@ -76,7 +76,9 @@ function fallbackTurn(previous: OperatorState, understanding: Understanding, ctx
   let text: string | null = null;
   if (previous.leadAccepted || ctx.leadExists) text = null;
   // Номер в словах клиента — заявка всегда, даже когда роль не ясна (решит классификатор приёма; владелец 20.11.2026).
-  else if ((phoneKnown && role) || understanding.phone) {
+  // Соискатель и аренда заявкой не становятся (SPEC, таблица ролей) — и в запасном ходе тоже (ревью #333).
+  else if (((phoneKnown && role) || understanding.phone) && !["job", "rent"].includes(previous.role) &&
+    understanding.role !== "job" && understanding.role !== "rent") {
     actions.push({ type: "accept_lead", role, propertyId: role === "buyer" && previous.role === "buyer_property" ? previous.propertyId : null,
       phone: understanding.phone, note: `Бот не смог собрать ответ, заявка запасным путём. Слова клиента: «${understanding.quote}»`,
       outOfArea: previous.outOfArea, callbackWhen: null, textOnly: false, noCall: previous.noCall });

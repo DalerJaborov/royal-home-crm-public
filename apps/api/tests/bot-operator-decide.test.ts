@@ -323,8 +323,9 @@ describe("пределы и запреты", () => {
     expect(turns[0]!.keys).toEqual(["greet", "ask_role"]);
     expect(turns[1]!.keys).toEqual(["ask_role"]);
     expect(turns[1]!.text).not.toBe(turns[0]!.text.replace(/^Здравствуйте! /u, ""));
-    // Людей до заявки не зовём (решение владельца 13.11): только тишина.
-    expect(turns[2]!.silent && turns[2]!.actions.length === 0).toBe(true);
+    // 20.11.2026: после двух непонятных — тишина и ОДИН сигнал человеку (кому — лесенка двери «клиент ждёт»).
+    expect(turns[2]!.silent).toBe(true);
+    expect(turns[2]!.actions).toEqual([{ type: "call_staff", reason: "unclear" }]);
     expect(turns[3]!.silent && turns[3]!.actions.length === 0).toBe(true);
     // Ясная роль после тишины — разговор продолжается.
     expect(one(IG(), ru({ role: "buyer" }), turns[3]!.state).keys).toEqual(["ask_phone"]);
@@ -592,7 +593,7 @@ describe("сторож-перебор: инварианты на случайн�
         if (c.phoneKnown) expect(d.steps.map(step => step.key), where).not.toContain("ask_phone");
         accepted += d.actions.filter(a => a.type === "accept_lead").length;
         // Людей зовём только при грубости и жалобе (решение владельца 13.11: до заявки никого не беспокоим).
-        for (const a of d.actions) if (a.type === "call_staff") expect(["rude", "complaint"], where).toContain(a.reason);
+        for (const a of d.actions) if (a.type === "call_staff") expect(["rude", "complaint", "unclear", "attachments", "staff_thread"], where).toContain(a.reason);
         expect(d.silent, where).toBe(d.steps.length === 0);
         state = d.state;
       }

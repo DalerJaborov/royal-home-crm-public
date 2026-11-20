@@ -79,6 +79,16 @@ export async function staffWroteRecently(conversationId: string, minutes: number
   } catch { return false; }
 }
 
+/** В переписке хоть раз писал сотрудник (из CRM или из приложения Meta). Сбой чтения — «нет». */
+export async function staffWroteEver(conversationId: string): Promise<boolean> {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ n: number }>>`SELECT 1 AS "n" FROM "BotConversation" c,
+        jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages") = 'array' THEN c."messages" ELSE '[]'::jsonb END) e
+      WHERE c."id"=${conversationId} AND e->>'role'='assistant' AND e->'by'->>'kind' IN ('agent','manual') LIMIT 1`;
+    return rows.length > 0;
+  } catch { return false; }
+}
+
 /** Контекст хода оператора из базы и Настроек. Сбой чтения необязательного (вакансии, объект) — без него, не отказ хода. */
 export async function loadOperatorTurnSetup(input: {
   channel: string; conversationId: string; config: LeadOnlyConfig;
@@ -101,8 +111,9 @@ export async function loadOperatorTurnSetup(input: {
     clientId ? Promise.resolve(false) : leadIntakePending(input.conversationId),
     clientId ? leadOnlyCardAgentActive(clientId).catch(() => true) : Promise.resolve(true),
     contactWhenWithoutAgent(now).catch(() => ({ ru: "в рабочее время", tg: "дар вақти корӣ" })),
-    staffWroteRecently(input.conversationId, input.config.staffQuietMinutes ?? 30, now)]);
+    staffWroteRecently(input.conversationId, input.config.staffQuietMinutes ?? 180, now)]);
   const reviewer = await isReviewerConversation(input.conversationId, input.peerPhone ?? null);
+  const staffThread = await staffWroteEver(input.conversationId);
   const previousAt = Date.parse(String((row?.leadOnlyPending as { updatedAt?: unknown } | null)?.updatedAt ?? ""));
   const topic = row?.adTopic && AD_TOPICS.has(row.adTopic) ? row.adTopic as "property" | "seller" | "job" : null;
   const ctx: OperatorContext = {
@@ -128,6 +139,7 @@ export async function loadOperatorTurnSetup(input: {
     recentTurn: Number.isFinite(previousAt) && now.getTime() - previousAt >= 0 && now.getTime() - previousAt <= OPERATOR_BURST_MS,
     workHours: { from: input.config.workHoursStart, to: input.config.workHoursEnd },
     reviewer,
+    staffThread,
   };
   return { ctx, stored: row?.leadOnlyPending ?? null, state, clientId };
 }

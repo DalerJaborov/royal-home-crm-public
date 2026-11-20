@@ -45,7 +45,7 @@ export const OPERATOR_PHRASE_KEYS = [
   "voice_failed", "foreign_post", "jobs_list", "job_open", "job_closed", "jobs_none", "job_contact",
   "no_call_ack", "rude_calm", "off_topic", "complaint_ack", "bargain_seller", "no_agent_noted",
   // После заявки бот не молчит (владелец 20.11.2026): вопрос агенту, «когда позвонят?», приветствие, часы работы.
-  "question_noted", "lead_status", "lead_reminder", "work_hours",
+  "question_noted", "lead_status", "lead_reminder", "work_hours", "media_received",
   // Только проверяющему из Настроек: «сброс» — разговор с нуля (lib/botReviewers.ts).
   "reviewer_reset",
 ] as const;
@@ -89,7 +89,9 @@ export interface OperatorState {
     /** Прошлый ответ был только отметкой «передал агенту»: клиент дописывает подряд — второй раз не отмечаем (без повтора одной фразы). */
     lastAck: boolean;
     /** Продавцом клиент назвался сам: только тогда бот сам называет комиссию (тема рекламы роль не доказывает, 20.11.2026). */
-    sellerByWords: boolean };
+    sellerByWords: boolean;
+    /** Сигналы человеку «не понял», «вложения без слов», уже отправленные в этом разговоре (по одному). */
+    signaled: Array<"unclear" | "attachments"> };
   leadAccepted: boolean;
   /** Сотрудника уже звали (грубость, жалоба): не зовём второй раз. */
   staffCalled: boolean;
@@ -219,6 +221,8 @@ export interface OperatorContext {
   staffActive?: boolean;
   /** Прошлый ход оператора был только что (клиент дописывает подряд). */
   recentTurn?: boolean;
+  /** В переписке уже писал сотрудник (из CRM или из приложения Meta): до заявки бот не спрашивает, ведёт человек (20.11.2026). */
+  staffThread?: boolean;
   /** Разговор проверяющего из Настроек (lib/botReviewers.ts): «сброс» начинает сценарий заново, заявка карточкой не становится. */
   reviewer?: boolean;
   /** Рабочие часы из Настроек — для ответа «когда вы работаете». */
@@ -228,7 +232,13 @@ export interface OperatorContext {
 export interface OperatorStepOut { key: PhraseKey; vars: PhraseVars; variant: number }
 
 /** Почему оператор зовёт человека: грубость или жалоба (SPEC, случаи 22 и 26). Одно объявление на весь путь до сигнала. */
-export type OperatorStaffReason = "rude" | "complaint";
+export type OperatorStaffReason = "rude" | "complaint"
+  /** Клиент пишет в переписку, где уже писал сотрудник (до заявки): бот вопросов не задаёт, ведёт человек (20.11.2026). */
+  | "staff_thread"
+  /** Дважды не понял, что нужно клиенту, и замолчал (20.11.2026). */
+  | "unclear"
+  /** Вложения без слов подряд: бот ответил один раз и дальше молчит (20.11.2026). */
+  | "attachments";
 
 export type OperatorAction =
   | {

@@ -45,7 +45,9 @@ const storedSchema = z.object({
   place: shortText.default(null),
   flags: z.object({ bargainAsked: z.boolean().default(false), adPriceAsked: z.boolean().default(false),
     propertyLineFor: z.string().uuid().nullable().default(null), lastAck: z.boolean().default(false),
-    sellerByWords: z.boolean().default(false) }),
+    sellerByWords: z.boolean().default(false),
+    signaled: z.array(z.string()).default([]).transform(list => list.filter((item): item is "unclear" | "attachments" =>
+      item === "unclear" || item === "attachments")) }),
   leadAccepted: z.boolean(),
   staffCalled: z.boolean(),
   closed: z.boolean().default(false),

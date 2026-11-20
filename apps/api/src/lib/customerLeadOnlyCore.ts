@@ -26,7 +26,6 @@ import { loadOperatorTurnSetup } from "./operatorTurn.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
 import { LEAD_MODEL_FAILED_NOTE } from "../services/leads/intentUnknown.js";
-import { isReviewerPhone } from "./botReviewers.js";
 
 import { CUSTOMER_LEAD_ONLY_INTAKE_JOB } from "./operatorTurn.js";
 export { CUSTOMER_LEAD_ONLY_INTAKE_JOB };
@@ -303,11 +302,6 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
     if (intake.scenario !== "callback" && intake.scenario !== "no_call") return { status: "skipped", reason: "card_exists" };
     return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : { status: "skipped", reason: "card_missing" };
   }
-  // Проверяющий из Настроек (lib/botReviewers.ts): тестовая заявка карточкой не становится и агентам не уходит.
-  if (sealed.lead && await isReviewerPhone(sealed.phone, sealed.whatsappPhone)) {
-    console.log(`[lead-only] проверка: заявка проверяющего не заводится (диалог ${conversation.id})`);
-    return { status: "skipped", reason: "reviewer" };
-  }
   // Номера нет — заявки нет и звать некого (решение владельца 13.11.2026). Сюда доходят только задания, поставленные
   // прежней версией до выката (тогда объект без номера звал агента объекта).
   if (!sealed.lead || !sealed.phone) return { status: "skipped", reason: "no_phone" };
@@ -327,6 +321,8 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
       clientText: sealed.clientText, silent: true, fromHistory: true,
       ...(intake.modelFailed ? { leadNote: LEAD_MODEL_FAILED_NOTE } : {}),
     });
+  // Проверяющий (дверь — acceptLead): заявку не заводили нарочно, тревоги нет.
+  if (result.reviewer) return { status: "skipped", reason: "reviewer" };
   const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id },
     select: { client: { select: { kind: true, assignedAgentId: true } } } });
   if (!linked?.client) {

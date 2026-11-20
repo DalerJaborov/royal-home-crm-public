@@ -24,13 +24,13 @@ const MAX_LENGTH = 320;
 
 /** Ключи, где живые слова не нужны: номер офиса, вакансии, «сброс» проверяющего — точные данные важнее тона. */
 const TEMPLATE_ONLY: ReadonlySet<string> = new Set(["office_phone", "jobs_list", "job_open", "job_closed", "jobs_none", "job_contact",
-  "reviewer_reset", "identity"]);
+  "reviewer_reset", "identity", "bot_identity"]);
 
 const SCHEMA = { type: "object", properties: { reply: { type: "string", description: "Ответ клиенту" } }, required: ["reply"] } as const;
 export const operatorComposeModel: LeadOnlyIntentModel = leadOnlyStructuredModel({ endpoint: OPERATOR_COMPOSE_ENDPOINT, schema: SCHEMA, maxTokens: 300 });
 
 export const OPERATOR_COMPOSE_SYSTEM = [
-  "Ты пишешь короткий ответ клиенту агентства недвижимости в Душанбе от лица вежливого живого администратора.",
+  "Ты пишешь короткий ответ клиенту агентства недвижимости в Душанбе от лица вежливого помощника агентства. Себя человеком не называй.",
   "Тебе дан ОБРАЗЕЦ — готовый ответ, который уже решил сервер. Скажи ТУ ЖЕ мысль своими словами, тепло и просто, как человек в мессенджере.",
   "Нельзя: добавлять новые факты, цифры, цены, сроки, имена, адреса, обещания, вопросы и предложения, которых нет в образце.",
   "Если в образце есть цифры, номер, время или процент — перенеси их без изменений. Если в образце нет вопроса — не задавай вопрос.",
@@ -47,7 +47,36 @@ const BANNED = new RegExp(`${BW}(?:рудаки|рӯдакӣ|рудакӣ|одн
   `скидк${TAIL}|тахфиф${TAIL}|вариант${TAIL}|подбер${TAIL}|ты|тебе|тебя|ту)${EW}|https?:|www\\.|—|–`, "iu");
 const EMOJI = /\p{Extended_Pictographic}/u;
 
-export type ComposeRejection = "empty" | "too_long" | "language" | "digits" | "question" | "promise" | "commission" | "banned" | "sentences";
+export type ComposeRejection = "empty" | "too_long" | "language" | "digits" | "question" | "promise" | "commission" | "banned" | "sentences" |
+  "time" | "money" | "informal" | "name";
+
+/**
+ * Слова, которые можно сказать, только если они есть в готовой фразе (ревью #333): сроки и время, новые обещания-действия
+ * агента, деньги. Сравнение по основе слова в сложенном алфавите (foldCustomerText), границы — BW/EW/TAIL, не \w/.
+ */
+const TIME_STEMS = ["сегодн", "завтр", "послезавтр", "утр", "вечер", "дн[её]м", "ночь", "час", "минут", "недел", "скоро", "сразу", "течени",
+  "ближайш", "имруз", "пагох", "бегох", "сахар", "соат", "дакика", "зуди", "хозир", "фавран", "хафта", "баъд"];
+const ACT_STEMS = ["приед", "покаж", "показ", "привез", "отправ", "пришл", "подбер", "организ", "встрет", "устро", "гарант", "обеща", "договор",
+  "меояд", "нишон", "мефирист", "интихоб", "кафолат", "ваъда", "биёр"];
+const MONEY_STEMS = ["бесплатн", "ройгон", "плат", "пул", "сомон", "доллар", "комисс", "нарх", "цен", "стоимост", "скидк", "тахфиф", "хаки", "хаққ", "дорог", "дешев", "арзон", "кимат", "қимат"];
+const stemPattern = (stems: readonly string[]) => new RegExp(`${BW}(?:${stems.join("|")})${TAIL}`, "giu");
+const TIME_RE = stemPattern(TIME_STEMS), ACT_RE = stemPattern(ACT_STEMS), MONEY_RE = stemPattern(MONEY_STEMS);
+/** Русское «ты» и таджикское обращение на «ту» (местоимения, притяжательные формы, повелительное без «-ед»). */
+const INFORMAL = new RegExp(`${BW}(?:ты|тебе|тебя|тобой|твой|твоя|твое|твои|твоего|твоему|твоих|напиши|скажи|позвони|жди|отправь|пришли|ту|туро|туба|` +
+  `дархостат|саволат|ракамат|хонаат|номат|паемат|навис|бигу|занг\\s+зан)${EW}`, "iu");
+/** Слова, которых нет в готовой фразе, по основе (первые 5 букв сложенного слова). */
+function newStems(reply: string, template: string, pattern: RegExp): boolean {
+  const stemsOf = (text: string) => new Set([...foldCustomerText(text).matchAll(pattern)].map(match => match[0].slice(0, 5)));
+  const allowed = stemsOf(template);
+  return [...stemsOf(reply)].some(stem => !allowed.has(stem));
+}
+/** Имя собственное не в начале предложения, которого нет в готовой фразе (имя агента, чужой район). */
+function newName(reply: string, template: string): boolean {
+  const names = (text: string) => text.split(/(?<=[.!?])\s+/u).flatMap(sentence => sentence.split(/\s+/u).slice(1))
+    .map(word => word.replace(/[^\p{L}]/gu, "")).filter(word => /^\p{Lu}\p{Ll}+/u.test(word));
+  const allowed = new Set(names(template).concat(template.split(/\s+/u).map(word => word.replace(/[^\p{L}]/gu, ""))));
+  return names(reply).some(word => !allowed.has(word));
+}
 
 /** Проверка ответа модели против готовой фразы: только та же мысль, ничего сверх неё. null — годится. */
 export function checkComposedReply(reply: string, template: string, language: OperatorLanguage): ComposeRejection | null {
@@ -65,6 +94,11 @@ export function checkComposedReply(reply: string, template: string, language: Op
   if (PROMISE.test(foldCustomerText(text)) && !PROMISE.test(foldCustomerText(template))) return "promise";
   if (COMMISSION.test(text) && !COMMISSION.test(template)) return "commission";
   if (text.split(/(?<=[.!?])\s+/u).filter(Boolean).length > 3) return "sentences";
+  if (INFORMAL.test(foldCustomerText(text))) return "informal";
+  if (newStems(text, template, TIME_RE)) return "time";
+  if (newStems(text, template, ACT_RE)) return "promise";
+  if (newStems(text, template, MONEY_RE)) return "money";
+  if (newName(text, template)) return "name";
   return null;
 }
 

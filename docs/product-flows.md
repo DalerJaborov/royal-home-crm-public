@@ -28250,14 +28250,14 @@
         · дословно из кода
     - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : {…
       · зовёт noteLeadOnlyOnCard()
-  - если sealed.lead && await isReviewerPhone(sealed.phone, sealed.whatsappPhone)
-    - console.log(`[lead-only] проверка: заявка проверяющего не заводится (диалог ${conversation.id})`);
-      · пишет строку в журнал сервера
   - если !sealed.lead || !sealed.phone
     - return { status: "skipped", reason: "no_phone" };
       · дословно из кода
   - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
     · зовёт acceptLead()
+  - если result.reviewer
+    - return { status: "skipped", reason: "reviewer" };
+      · дословно из кода
   - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …
     · читает в базе: botConversation
   - если !linked?.client
@@ -28326,14 +28326,14 @@
             · дословно из кода
         - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : {…
           · зовёт noteLeadOnlyOnCard()
-      - если sealed.lead && await isReviewerPhone(sealed.phone, sealed.whatsappPhone)
-        - console.log(`[lead-only] проверка: заявка проверяющего не заводится (диалог ${conversation.id})`);
-          · пишет строку в журнал сервера
       - если !sealed.lead || !sealed.phone
         - return { status: "skipped", reason: "no_phone" };
           · дословно из кода
       - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
         · зовёт acceptLead()
+      - если result.reviewer
+        - return { status: "skipped", reason: "reviewer" };
+          · дословно из кода
       - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …
         · читает в базе: botConversation
       - если !linked?.client
