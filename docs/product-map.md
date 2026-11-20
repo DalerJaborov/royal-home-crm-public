@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 71 |
 | Из них видно в меню | 33 |
 | Модулей сервера | 88 |
-| Адресов сервера всего | 780 |
+| Адресов сервера всего | 782 |
 | Задач по расписанию | 136 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -158,7 +158,7 @@
 | `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 138 | да (36 мест) | `apps/api/src/routes/properties.ts` |
 | `/api/v1/construction-registry` | **без подписи** | 7 | да (1 мест) | `apps/api/src/routes/constructionRegistry.ts` |
 | `/api/v1/transfer-requests` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/transferRequests.ts` |
-| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 56 | да (13 мест) | `apps/api/src/routes/clients.ts` |
+| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 58 | да (13 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |

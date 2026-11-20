@@ -149,7 +149,7 @@ export function ManagerHome() {
               ) : (
                 <p className="quiet">
                   <span className="dot ok" />
-                  <span className="txt">Все лиды приняты. Новые заявки появятся здесь сами.</span>
+                  <span className="txt">Все заявки приняты. Новые заявки появятся здесь сами.</span>
                 </p>
               )}
             </div>

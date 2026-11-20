@@ -100,7 +100,7 @@ export function ChatPropertySend({
         title={
           clientId && clientShortId
             ? "Подбор — отправить объект клиенту"
-            : "У диалога нет карточки клиента, сначала создайте лид"
+            : "У диалога нет карточки клиента, сначала создайте заявку"
         }
         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-line-soft hover:text-gray-600 disabled:opacity-40"
       >

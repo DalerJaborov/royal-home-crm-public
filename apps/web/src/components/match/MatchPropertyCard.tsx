@@ -40,6 +40,7 @@ export function MatchPropertyCard({
   bookedShowingAt,
   onScheduleShowing,
   onClosePanel,
+  hideCommon,
 }: {
   property: Property & { match?: ClientPropertyMatchEvidence };
   /** Чекбокс отбора для массовой отправки рисуется, только когда передан
@@ -58,6 +59,8 @@ export function MatchPropertyCard({
   onScheduleShowing?: () => void;
   /** Панель закрывается при переходе на страницу объекта (как в прежнем окне). */
   onClosePanel?: () => void;
+  /** Общие для всего списка «не знаем / спросить»: показаны один раз над списком, на карточке их нет. */
+  hideCommon?: ReadonlySet<string>;
 }) {
   const navigate = useNavigate();
   /**
@@ -122,7 +125,7 @@ export function MatchPropertyCard({
             </span>
           )}
         </span>
-        {p.match && <MatchEvidenceLines match={p.match} />}
+        {p.match && <MatchEvidenceLines match={p.match} hide={hideCommon} />}
       </div>
       <div className="who">
         {agentOf(p) ? (

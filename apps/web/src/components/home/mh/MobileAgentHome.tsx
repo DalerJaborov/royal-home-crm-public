@@ -234,7 +234,7 @@ export function MobileAgentHome() {
           пилюля ждущих принятия (другое число, не то же самое, что дел на
           сегодня) переехал в подпись, а не пропал.
 
-          Тревога («время принять лид вышло») считает `usePendingAcceptAlert`
+          Тревога («время принять заявку вышло») считает `usePendingAcceptAlert`
           выше — с 15.09.2026 это чистый локальный расчёт с таймером, без
           шины настроения и без звука: оба были частью удалённого знака ИИ и
           удалены вместе с ним. */}
@@ -387,7 +387,7 @@ export function MobileAgentHome() {
           <div className="card-s">
             <p className="hint">
               {clientDisplayName(noContact[0].fullName)} — {NO_CONTACT_TEXT.item}.
-              Короткий звонок сегодня дешевле, чем новый лид завтра.
+              Короткий звонок сегодня дешевле, чем новая заявка завтра.
             </p>
             <div className="chips">
               <CallClientButton
@@ -589,7 +589,7 @@ function PendingRow({
           )}
           {escalated ? " · никто не принял" : ` · ${leadHint(c)}`}
         </span>
-        {/* «Почему лид ваш» — та же строка сервера, что в окне приёма и на ПК. */}
+        {/* «Почему заявка ваша» — та же строка сервера, что в окне приёма и на ПК. */}
         {c.leadReason && <span className="s">{c.leadReason.text}</span>}
       </button>
       <button
@@ -607,7 +607,7 @@ function PendingRow({
     </div>
     {acceptLead.isError && (
       <div style={{ padding: "0 14px 12px" }}>
-        <MutationError mutation={acceptLead} fallback="Не удалось принять лид" variant="rh2" />
+        <MutationError mutation={acceptLead} fallback="Не удалось принять заявку" variant="rh2" />
       </div>
     )}
     </>

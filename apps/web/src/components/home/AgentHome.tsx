@@ -102,7 +102,7 @@ export function AgentHome() {
   const sub = [
     todayLabel(),
     [
-      pendingTotal > 0 && `${pendingTotal} ${pluralizeRu(pendingTotal, ["новый лид", "новых лида", "новых лидов"])}`,
+      pendingTotal > 0 && `${pendingTotal} ${pluralizeRu(pendingTotal, ["новая заявка", "новых заявки", "новых заявок"])}`,
       data && showings.length > 0 && `${showings.length} ${pluralizeRu(showings.length, ["показ", "показа", "показов"])}`,
     ]
       .filter(Boolean)
@@ -213,7 +213,7 @@ export function AgentHome() {
               {data ? (
                 <>
                   <Tile tone="lime" value={showings.length} label="показов сегодня" href="/calendar" />
-                  <Tile tone="aqua" value={data.funnel[0]?.count ?? 0} label="лидов за месяц" href="/clients" />
+                  <Tile tone="aqua" value={data.funnel[0]?.count ?? 0} label="заявок за месяц" href="/clients" />
                   <Tile tone="lav" value={noContactPage?.total ?? noContact.length} label={NO_CONTACT_TEXT.tile} href="/clients?slice=noContact" />
                 </>
               ) : (

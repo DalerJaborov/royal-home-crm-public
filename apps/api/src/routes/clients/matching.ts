@@ -86,7 +86,7 @@ async function loadSendableClient(req: Request, res: Response): Promise<Sendable
   // До принятия лида карточка для агента закрыта (см. POST /:id/interactions) —
   // писать клиенту в мессенджер в обход этой блокировки тоже нельзя.
   if (ownAgentId && !client.acceptedAt) {
-    res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
     return null;
   }
   return client;

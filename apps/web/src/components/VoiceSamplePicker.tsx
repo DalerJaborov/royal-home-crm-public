@@ -72,16 +72,16 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
             {list.map((voice) => {
               const on = value === voice.id;
               return (
-                <div key={voice.id} className={`flex min-w-0 flex-col gap-2 rounded-2xl border-2 p-3 ${on ? "border-blue bg-blue/10" : "border-line"}`}>
+                <div key={voice.id} className={`flex h-full min-w-0 flex-col gap-2 rounded-2xl border-2 p-3 ${on ? "border-blue bg-blue/10" : "border-line"}`}>
                   <label className="flex min-h-12! min-w-0 cursor-pointer items-center gap-2 text-[17px]">
                     <input type="radio" name={name} value={voice.id} checked={on} onChange={() => onChange(voice.id)} />
                     {/* Имя целиком, переносом, а не «Nataly Vershini…» (20.11.2026, кадр владельца с телефона). */}
                     <span className="min-w-0 break-words font-medium">{voice.name}</span>
                   </label>
-                  {(recommendedId === voice.id || lastPickedId === voice.id) && <span className="text-[15px] text-[var(--muted)]">
+                  {(recommendedId === voice.id || lastPickedId === voice.id) && <span className="self-start rounded-full bg-[var(--soft)] px-2.5 py-0.5 text-[13px] text-[var(--muted)]" data-testid="voice-note">
                     {[recommendedId === voice.id ? "по умолчанию" : null, lastPickedId === voice.id ? "вы выбирали в прошлый раз" : null].filter(Boolean).join(", ")}</span>}
                   {has.has(voice.id) && (
-                    <button type="button" className="pill ghost min-h-12! text-base!" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
+                    <button type="button" className="pill ghost mt-auto min-h-12! text-base!" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
                       onClick={() => void play(voice)}>
                       {playing === voice.id ? "■ Стоп" : "▶ Прослушать"}
                     </button>

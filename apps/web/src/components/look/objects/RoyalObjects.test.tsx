@@ -23,7 +23,7 @@ const property = {
   intakeAgent: { id: "agent-1", fullName: "Ноза Каримова" }, assignedAgent: { id: "agent-2", fullName: "Фаррух" },
   handoverPendingSince: "2026-10-09", demandCount: 3,
   videoHandoffBrief: { state: "editing", hours: 5, deliveredOf: [12, 15] },
-  pipeline: { overdue: true, owner: "EDITOR", daysInStage: 5, limitDays: 2 },
+  pipeline: { inPipeline: true, overdue: true, owner: "EDITOR", daysInStage: 5, limitDays: 2 },
 } as unknown as Property;
 
 const row = (extra: Partial<ComponentProps<typeof PropertyRow>> = {}) =>
@@ -55,10 +55,17 @@ describe("royal property catalog item", () => {
     expect(html).toContain("clean-property-thumbnail");
     expect(html).not.toContain("ry-obj-");
   });
-  it("overdue stage is critical by brightness and icon, not by shade alone", () => {
+  it("просроченный этап — жёлтая плашка со значком и словами; красная без огня — только при тройном превышении срока", () => {
     const html = row();
-    expect(html).toMatch(/class="ry-obj-pill" data-tone="crit"><svg/);
-    expect(html).toContain("ry-obj-overdue");
+    expect(html).toMatch(/class="ry-obj-pill" data-tone="warn"><svg/);
+    expect(html).toContain("срок прошёл на 3 дн.");
+    expect(html).toContain('class="ry-obj-overdue" data-tone="warn">');
+    expect(html).not.toMatch(/class="ry-obj-overdue"[^>]*><svg/);
+    const worse = renderToStaticMarkup(<MemoryRouter><PropertyRow property={{ ...property, pipeline: { ...property.pipeline!, daysInStage: 20 } }} myId="agent-1" clean royal cleanVariant="card" /></MemoryRouter>);
+    expect(worse).toMatch(/class="ry-obj-pill" data-tone="crit"><svg/);
+    expect(worse).toContain("просрочено на 18 дн.");
+    expect(worse).toContain('class="ry-obj-overdue" data-tone="crit">');
+    expect(worse).not.toMatch(/class="ry-obj-overdue"[^>]*><svg/);
   });
   it("selection and publish call the same callbacks the catalog passes", () => {
     const onToggleSelect = vi.fn();
