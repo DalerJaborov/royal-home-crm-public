@@ -68,6 +68,7 @@ import { PropertyPriceCard } from "../components/property/PropertyPriceCard";
 import { PropertyActionSheet, type ActionSheetItem } from "../components/property/PropertyActionSheet";
 import { Button } from "../components/rh2/Button";
 import { Card } from "../components/rh2/Card";
+import { ConstructionPermitCard } from "../components/ConstructionPermitCard";
 import { PageHeader } from "../components/rh2/PageHeader";
 import { List, Row } from "../components/rh2/Row";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
@@ -863,6 +864,7 @@ function PropertyViewCard({
     </div>
   );
   const promotionBlock = <>
+    {!isTrashed && <ConstructionPermitCard propertyId={property.shortId} />}
     <PropertyAdBadge propertyId={property.id} />
     {!isTrashed && property.status === "AVAILABLE" && <PropertyPriceDemandCard propertyId={property.id} />}
     {!isTrashed && property.status === "AVAILABLE" && <MarketBlock propertyId={property.id} />}

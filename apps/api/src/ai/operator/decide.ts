@@ -8,10 +8,16 @@
  * Модель шаг не выбирает: она только понимает ход (understand.ts). Здесь — роли, шаги, пределы и запреты:
  *  - вопрос о роли не больше двух раз (второй раз другими словами), потом тишина;
  *  - вопрос о деталях один раз на роль, только про недостающее; любой ответ принимается;
- *  - номер известен (WhatsApp) — заявка в тот же ход (вопрос о деталях — в том же ответе), без «удобно?»;
- *    нет — детали и номер одним сообщением, потом просьба номера до `maxPhoneAsks`, потом один раз номер офиса;
- *  - комиссия продавцу — сама один раз (и на его прямой вопрос), покупателю — никогда;
- *  - после принятой заявки вопросов нет, новые детали — заметкой агенту;
+ *  - роль понятна и номер есть (WhatsApp или в словах клиента) — заявка в этот же ход; номера нет — просьба номера до
+ *    `maxPhoneAsks`, потом один раз номер офиса. Детали до заявки НЕ собираем (владелец 20.11.2026: «агент для чего тогда
+ *    существует?»): один мягкий необязательный вопрос о деталях — в ответе с заявкой, ответ уходит агенту заметкой;
+ *  - номер в словах клиента — заявка ВСЕГДА (любая роль, кроме вакансии и аренды), даже после грубости или жалобы;
+ *  - комиссия продавцу — сама один раз, только если продавцом он назвался сам (не по теме рекламы), и на его прямой вопрос;
+ *    покупателю — никогда;
+ *  - после принятой заявки бот не молчит (владелец 20.11.2026): отвечает коротко по делу, вопрос и новую деталь передаёт
+ *    агенту заметкой и говорит об этом; без подбора объектов, без вопросов о бюджете и районе, без повтора одной фразы.
+ *    Молчит после заявки только на «ок» и смайлик, на повторное «спасибо», пока клиент дописывает подряд, и пока сотрудник
+ *    сам ведёт переписку (`ctx.staffActive`);
  *  - роль не теряется между ходами, язык липкий (меняет только осмысленный текст клиента);
  *  - вне Душанбе — заявка с `outOfArea` (её решает директор), клиенту не отказываем;
  *  - грубость и жалоба — одна спокойная фраза, сотрудник, дальше молчим (сотрудника зовём ТОЛЬКО здесь).
@@ -25,7 +31,12 @@ import {
 
 /** Что спрашиваем у покупателя и у продавца (SPEC, таблица ролей). */
 export const OPERATOR_BUYER_FIELDS: readonly OperatorDetailField[] = ["rooms", "district", "budget"];
-export const OPERATOR_SELLER_FIELDS: readonly OperatorDetailField[] = ["district", "rooms", "area", "floor", "renovation", "price"];
+/** Продавцу — три главных пункта, а не анкета: площадь, этаж, ремонт агент узнает сам (владелец 20.11.2026). */
+export const OPERATOR_SELLER_FIELDS: readonly OperatorDetailField[] = ["district", "rooms", "price"];
+/** Справочные ответы, которые в разговоре звучат один раз (повтор — не та же фраза, а сигнал человеку). */
+const ONCE_PER_CONVERSATION: ReadonlySet<PhraseKey> = new Set(["where_work", "work_hours", "identity", "bot_identity", "buyer_free"]);
+/** Отметки «передал агенту» после заявки: клиент дописывает подряд — отмечаем один раз на серию. */
+const ACK_KEYS: ReadonlySet<PhraseKey> = new Set(["note_added", "question_noted", "lead_status", "no_agent_noted"]);
 /** Шагов в ответе не больше двух: одна мысль на сообщение, не больше двух предложений (SPEC, правило 10 и «Тон»). */
 export const OPERATOR_MAX_STEPS = 2;
 
@@ -36,7 +47,7 @@ export function emptyOperatorDetails(): OperatorDetails {
 export function initialOperatorState(): OperatorState {
   return { version: 2, role: "unknown", step: "start", language: null, asked: { role: 0, details: 0, phone: 0 }, spoken: {},
     propertyId: null, details: emptyOperatorDetails(), callback: { when: null, textOnly: false }, noCall: false,
-    outOfArea: false, place: null, flags: { bargainAsked: false, adPriceAsked: false, propertyLineFor: null }, leadAccepted: false,
+    outOfArea: false, place: null, flags: { bargainAsked: false, adPriceAsked: false, propertyLineFor: null, lastAck: false, sellerByWords: false, signaled: [], closedBy: null }, leadAccepted: false,
     staffCalled: false, closed: false, jobAnswered: null };
 }
 
@@ -77,20 +88,63 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   const answers: Draft[] = [];
   const flow: Draft[] = [];
   const said = (key: PhraseKey) => (s.spoken[key] ?? 0) > 0;
+  // Продавцом клиент назвался сам (не только тема рекламы «для собственников»): комиссию сами называем только ему.
+  if (u.role === "seller") s.flags.sellerByWords = true;
+  else if (u.role === "buyer") s.flags.sellerByWords = false;
   const commissionSaid = () => said("seller_intro") || said("seller_commission") || answers.some(a => a.key === "seller_commission");
   const callStaff = (reason: Extract<OperatorAction, { type: "call_staff" }>["reason"]) => {
     if (s.staffCalled && reason !== "complaint") return;
     s.staffCalled = true;
     actions.push({ type: "call_staff", reason });
   };
+  /**
+   * Бот молчит по делу («не понял», вложения, номер не дали): сигнал на КАЖДОЕ такое молчание — дверь «клиент ждёт» держит
+   * один сигнал на эпизод ожидания (ключ — начало неотвеченной серии). Так новый эпизод (после ответа человека) снова даёт
+   * сигнал, а серия сообщений подряд — один (ревью #333, третий круг). «Ок» и «спасибо» сигнала не дают.
+   */
+  const signal = (reason: "unclear" | "attachments" | "no_phone") => {
+    if (u.ackOnly || u.thanksOnly) return;
+    actions.push({ type: "call_staff", reason });
+  };
+  /** Раз в сутки на переписку (после срока эстафеты бот отвечает сам, но сотруднику знать полезно — не на каждый ход). */
+  const signalDaily = (reason: "staff_thread") => {
+    if (s.flags.signaled.includes(reason)) return;
+    s.flags.signaled = [...s.flags.signaled, reason];
+    actions.push({ type: "call_staff", reason });
+  };
   let handoff: OperatorDecision["handoff"];
 
   // ── язык: липкий, меняет только осмысленный текст ─────────────────────────
   if (u.language) s.language = u.language;
+  // В сообщении языка нет (номер, «ок»): язык разговора — по последней реплике с ясным языком (клиента или сотрудника), а не
+  // «русский по умолчанию» и не устаревшая память (20.11.2026: таджикский разговор, номер, ответ ушёл по-русски).
+  else if (u.contextLanguage) s.language = u.contextLanguage;
   else if (!s.language && u.languageHint) s.language = u.languageHint;
   // Чужой пост при неизвестном языке — таджикский (SPEC, случай 20); язык разговора от этого не меняется.
   const language: OperatorLanguage = s.language ?? (u.attachments.foreignPost ? "tg" : "ru");
-  const finish = () => ({ ...compose(s, language, answers, flow, actions), ...(handoff ? { handoff } : {}) });
+  let yielded = false;
+  const finish = () => {
+    // Справочный ответ (где работаем, часы, «вы бот?», «для покупателя бесплатно», «кто вы») звучит в разговоре ОДИН раз:
+    // повторять его — пластинка (живые диалоги 12–14.11: «работаем только в Душанбе» по три раза). Повтор вопроса — без
+    // той же фразы; если сказать больше нечего — сигнал человеку (ревью #333, часовая сверка 20.11).
+    const repeated = answers.filter(item => ONCE_PER_CONVERSATION.has(item.key) && said(item.key));
+    if (repeated.length) {
+      for (const item of repeated) answers.splice(answers.indexOf(item), 1);
+      if (!answers.length && !flow.length && !u.ackOnly && !u.thanksOnly &&
+        !actions.some(action => action.type === "call_staff" || action.type === "follow_up")) actions.push({ type: "call_staff", reason: "repeat_question" });
+    }
+    const decision = compose(s, language, answers, flow, actions);
+    // ИНВАРИАНТ (ревью #333): после заявки карточка без живого агента, бот молчит не на «ок» и человека в этом ходе не
+    // звали — руководство узнаёт дверью «клиент ждёт». С живым агентом сигнал — его штатный пуш о каждом сообщении.
+    if (decision.silent && !handoff && s.leadAccepted && !ctx.cardAgentActive && !u.ackOnly && !u.thanksOnly &&
+      !decision.actions.some(action => action.type === "call_staff" || action.type === "follow_up")) decision.actions.push({ type: "follow_up" });
+    // Заявка ещё в очереди приёма (карточки нет): слова клиента — пометкой, она дождётся карточки и уйдёт агенту.
+    if (decision.silent && !handoff && s.leadAccepted && !ctx.leadExists && ctx.leadPending && !u.ackOnly && !u.thanksOnly &&
+      !decision.actions.some(action => action.type === "append_note")) {
+      decision.actions.push({ type: "append_note", note: u.quote ? `Клиент пишет: «${u.quote}»` : "Клиент прислал вложение без слов", phone: null });
+    }
+    return { ...decision, ...(handoff ? { handoff } : {}), ...(yielded ? { yielded: true as const } : {}) };
+  };
 
   // ── факты хода в память ────────────────────────────────────────────────────
   if (ctx.leadExists && !s.leadAccepted) { s.leadAccepted = true; s.step = "done"; }
@@ -111,59 +165,108 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (ctx.outOfArea) s.outOfArea = true;
   if (u.bargain) s.flags.bargainAsked = true;
 
-  if (s.closed) return finish();
+  if (s.closed) {
+    // Разговор ведёт человек (грубость, жалоба): бот молчит, но номер клиента — всегда заявка, а новая деталь — заметка;
+    // человек узнаёт и о новом сообщении (один сигнал на эпизод, держит дверь).
+    if (u.phone && !s.leadAccepted) acceptLeadSilently(s, u, ctx, actions);
+    else if (s.leadAccepted && (u.phone || u.hasDetails)) actions.push({ type: "append_note", note: operatorLeadNote(s, u, ctx), phone: u.phone });
+    // Повтор — не новая жалоба: агенту (копия руководству была один раз, при самой жалобе) (ревью #333, четвёртый круг).
+    if (!u.ackOnly && !u.thanksOnly) actions.push({ type: "call_staff", reason: "closed_followup" });
+    return finish();
+  }
   // Грубость и жалоба — одна спокойная фраза и человек, дальше бот молчит (SPEC «Тон», случаи 22 и 26). Заявку не заводим.
   if (u.rude) {
-    answers.push(draft("rude_calm")); callStaff("rude"); s.closed = true; s.step = "handoff";
+    answers.push(draft("rude_calm")); callStaff("rude"); s.closed = true; s.flags.closedBy = "rude"; s.step = "handoff";
     return finish();
   }
   if (u.complaint) {
-    answers.push(draft("complaint_ack")); callStaff("complaint"); s.closed = true; s.step = "handoff";
+    answers.push(draft("complaint_ack")); callStaff("complaint"); s.closed = true; s.flags.closedBy = "complaint"; s.step = "handoff";
     return finish();
   }
 
-  // ── вложение без своих слов: шаг не двигает ───────────────────────────────
+  // ── переписку ведёт сотрудник, заявки ещё нет (эстафета 20.11.2026, запасной вариант): бот не спрашивает ни роль, ни номер,
+  // клиенту не отвечает, сотрудник получает сигнал; номер клиента — всё равно заявка.
+  // Сотрудник писал здесь НЕДАВНО (в пределах срока из Настроек): бот молчит и зовёт его (ревью #333, второй круг: не
+  // навсегда — после срока ход обычный, без повторного приветствия, и сигнал). Номер в словах, или WhatsApp с ясной ролью —
+  // заявка всё равно; вакансия — путь рекрутёра.
+  if (!s.leadAccepted && ctx.staffThread && ctx.staffActive) {
+    const wordsRole = u.role === "seller" || u.role === "buyer" ? u.role : s.role === "seller" || s.role === "buyer" || s.role === "buyer_property" ? s.role : null;
+    if (u.role === "job" && ctx.recruiterPath) { s.role = "job"; handoff = "recruiter"; return finish(); }
+    const notCandidate = s.role !== "job" && s.role !== "rent" && u.role !== "job" && u.role !== "rent";
+    if (u.role === "seller") s.role = "seller"; else if (u.role === "buyer" && s.role === "unknown") s.role = "buyer";
+    if (notCandidate && (u.phone || (ctx.phoneKnown && wordsRole))) acceptLeadSilently(s, u, ctx, actions);
+    // Отдельного «клиент ждёт» нет: сотрудник сейчас сам переписывается (ему — штатный пуш о сообщении), а если он молчит
+    // дольше нормы — сторож молчания (тишина помечена `yielded`, не намеренной) (ревью #333, третий круг).
+    yielded = true;
+    return finish();
+  }
+  // Сотрудник писал раньше срока: бот снова ведёт разговор, а сотруднику — «клиент пишет в вашу переписку» раз в сутки.
+  if (!s.leadAccepted && ctx.staffThread) signalDaily("staff_thread");
+
+  // ── вложение без своих слов: один короткий ответ, повтор — тишина и один сигнал человеку (20.11.2026) ─────────
   if (!u.hasText && !u.attachments.ownPost) {
+    const before = answers.length;
     if (u.attachments.voice === "failed") { if (!said("voice_failed")) answers.push(draft("voice_failed")); }
     else if (u.attachments.foreignPost) { if (!said("foreign_post")) answers.push(draft("foreign_post")); }
-    else if (u.attachments.media && (s.role === "seller" || s.role === "unknown") && !said("photo_ack")) answers.push(draft("photo_ack"));
+    else if (u.attachments.media && s.role === "seller" && !said("photo_ack")) answers.push(draft("photo_ack"));
+    else if (!s.leadAccepted && s.role === "unknown" && !said("media_received") && !said("photo_ack")) {
+      answers.push(draft("media_received"));
+      if (s.asked.role < 2) { flow.push(draft("ask_role")); s.asked.role += 1; s.step = "role"; }
+    }
+    if (answers.length === before && !s.leadAccepted) signal("attachments");
     return finish();
   }
   if (u.attachments.foreignPost && !said("foreign_post")) answers.push(draft("foreign_post"));
 
   // ── ответы на прямые вопросы клиента (вопросов от бота здесь нет) ─────────
   const answerQuestions = (propertyLineComing: boolean) => {
-    if (u.question === "fee") {
+    // «Какие у вас условия?» от продавца — тот же вопрос о комиссии (живой прогон 19.11, перенесено из неотправленной правки).
+    if (u.question === "fee" || (u.question === "services" && s.role === "seller")) {
       if (s.role === "seller") answers.push(draft("seller_commission", { percent: ctx.sellerCommissionPercent }));
       // Кнопка рекламы объекта «Сколько стоят ваши услуги?» — вопрос об объекте: ответ строка объекта (SPEC, случай 10).
       else if (!(s.role === "buyer_property" && propertyLineComing)) answers.push(draft("buyer_free"));
     }
     if (u.question === "area") answers.push(draft("where_work"));
-    if (u.question === "identity") answers.push(draft("identity", { brand: ctx.brandName }));
+    // «Вы бот?» модель часто метит и как «кто вы»: «Нет, это агентство…» прозвучало бы отрицанием бота (живой прогон 19.11).
+    if (u.question === "identity" && !u.botQuestion) answers.push(draft("identity", { brand: ctx.brandName }));
+    if (u.question === "hours" && ctx.workHours) answers.push(draft("work_hours", { from: ctx.workHours.from, to: ctx.workHours.to }));
     if (u.botQuestion) answers.push(draft("bot_identity"));
     // Продавец сам собственник: «агент обсуждает с собственником» ему не подходит (ревью 19.11, Р8).
     if (u.bargain) answers.push(draft(s.role === "seller" ? "bargain_seller" : "bargain"));
   };
 
-  // ── заявка уже принята: вопросов нет, но содержательный ход не остаётся без ответа (ревью 19.11, Р5) ───
+  // ── заявка уже принята: вопросов о бюджете и районе нет, подборок нет, но клиент не остаётся в тишине ─────────────
+  // (владелец 20.11.2026: «если после передачи агенту клиент опять что-то написал, бот не должен же молчать»; август
+  // 2026: «вторым голосом» продавать нельзя — поэтому только короткий ответ по делу и заметка агенту).
   if (s.leadAccepted) {
+    // Вопрос о работе и после заявки ведёт путь рекрутёра, а не тишина (живой прогон 19.11, перенесено).
+    if (u.role === "job" && ctx.recruiterPath) { answers.length = 0; flow.length = 0; handoff = "recruiter"; return finish(); }
+    const extra = ctx.afterLeadReplies !== false;
     answerQuestions(false);
-    // Продавцу комиссию называем сами один раз: если в ход заявки место занял ответ на его вопрос — теперь.
-    if (s.role === "seller" && !commissionSaid() && answers.length === 0) answers.push(draft("seller_commission", { percent: ctx.sellerCommissionPercent }));
+    // Продавцу комиссию называем сами один раз — только если продавцом он назвался сам (не по рекламе «для собственников»).
+    if (s.role === "seller" && s.flags.sellerByWords && !commissionSaid() && answers.length === 0) {
+      answers.push(draft("seller_commission", { percent: ctx.sellerCommissionPercent }));
+    }
     // Карточка без живого агента: «передал агенту» — неправда; честно «записали», руководство узнаёт (Р4).
     const noAgent = !ctx.cardAgentActive;
+    // Клиент дописывает подряд: «передал агенту» звучит один раз на серию, дальше — молча в заметку.
+    const burst = !!ctx.recentTurn && s.flags.lastAck;
     const noted = (key: PhraseKey, vars: PhraseVars = {}, oncePerDay = true): void => {
-      if (noAgent) { if (!said("no_agent_noted")) flow.push(draft("no_agent_noted", { when: ctx.noAgentWhen[language] })); return; }
-      if (!oncePerDay || !said(key)) flow.push(draft(key, vars));
+      if (burst && (ACK_KEYS.has(key) || noAgent)) return;
+      if (noAgent) { if (extra || !said("no_agent_noted")) flow.push(draft("no_agent_noted", { when: ctx.noAgentWhen[language] })); return; }
+      // Новое поведение: каждая новая деталь отмечается (варианты по кругу), прежнее — один раз в сутки.
+      if (extra || !oncePerDay || !said(key)) flow.push(draft(key, vars));
     };
-    const note = (text: string, extra: { phone?: string | null; outOfArea?: true } = {}) =>
-      actions.push({ type: "append_note", note: text, phone: extra.phone ?? null, ...(extra.outOfArea ? { outOfArea: true as const } : {}) });
+    const note = (text: string, more: { phone?: string | null; outOfArea?: true } = {}) =>
+      actions.push({ type: "append_note", note: text, phone: more.phone ?? null, ...(more.outOfArea ? { outOfArea: true as const } : {}) });
     // Роль, названная ЭТИМ ходом («хочу продать»), идёт в заметку как новая цель, память роли разговора не трогает.
     const goalRole = u.role === "seller" ? "seller" as const : u.role === "buyer" ? "buyer" as const : null;
     const newGoal = !!goalRole && leadRole(s.role) !== goalRole;
     const noteState = goalRole ? { ...s, role: goalRole } : s;
     const askedProperty = !!ctx.focus && (u.attachments.ownPost || (u.aboutThisProperty && !u.adOpener) || u.question === "property_price" ||
       (u.adOpener && ctx.ad.topic === "property"));
+    // Что-то по делу, что не легло ни в одну полку ниже: «адрес офиса?», «а документы нужны?», «звоните завтра днём».
+    const substantive = u.hasText && !u.ackOnly && !u.thanksOnly && !u.greetingOnly && !u.adOpener && u.quote.trim().length >= 4;
     if (askedProperty && ctx.focus) {
       const f = ctx.focus;
       flow.push(f.sold ? draft("property_sold", { id: f.shortId }) : f.priceText ? draft("property_price", { id: f.shortId, price: f.priceText[language] })
@@ -191,13 +294,38 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       if (!u.bargain) noted("note_added");
     } else if (u.offTopic) {
       if (!said("off_topic")) flow.push(draft("off_topic"));
+    } else if (extra && u.question === "status") {
+      // «Когда позвонят?»: напоминание агенту — заметкой в карточку (агент получает пуш о сообщении клиента штатно).
+      note(`Клиент спрашивает, когда с ним свяжутся${u.quote ? `: «${u.quote}»` : ""}`);
+      noted("lead_status");
+    } else if (extra && goalRole && !newGoal) {
+      // Клиент повторил то, что уже в заявке («хочу продать»): напоминаем, что заявка у агента, один раз в сутки.
+      if (!said("lead_reminder") && !said("no_agent_noted")) flow.push(noAgent ? draft("no_agent_noted", { when: ctx.noAgentWhen[language] }) : draft("lead_reminder"));
+    } else if (extra && answers.length === 0 && substantive) {
+      // Вопрос по делу — «передал ваш вопрос»; сообщение без вопроса — «передал агенту». Оба — заметкой в карточку.
+      const asked = u.question !== "none" || /[?]/u.test(u.quote);
+      note(`${asked ? "Вопрос клиента" : "Клиент пишет"}: «${u.quote}»`);
+      noted(asked ? "question_noted" : "note_added");
+    } else if (extra && u.greetingOnly && answers.length === 0) {
+      if (!said("lead_reminder") && !said("no_agent_noted")) {
+        flow.push(draft(u.greeting === "assalom" ? "greet_assalom" : "greet"));
+        flow.push(noAgent ? draft("no_agent_noted", { when: ctx.noAgentWhen[language] }) : draft("lead_reminder"));
+      }
     } else if (u.thanksOnly && !said("welcome")) flow.push(draft("welcome"));
     if (noAgent && actions.some(action => action.type === "append_note")) actions.push({ type: "follow_up" });
+    // Инвариант (ревью #333): карточка без живого агента, бот молчит не на «ок» — руководство узнаёт.
+    else if (noAgent && !answers.length && !flow.length && !u.ackOnly && !u.thanksOnly) actions.push({ type: "follow_up" });
+    // Сотрудник сам ведёт переписку прямо сейчас: бот молчит, заметки агенту остаются (агенту — штатный пуш о сообщении).
+    if (ctx.staffActive) {
+      answers.length = 0; flow.length = 0; yielded = true;
+      // Карточка без живого агента: о сообщении клиента узнаёт руководство (дверь «клиент ждёт»).
+      if (noAgent && !actions.some(action => action.type === "follow_up")) actions.push({ type: "follow_up" });
+    }
     return finish();
   }
 
   // ── не по теме: одна фраза, второй раз молчим (случай 24) ─────────────────
-  if (u.offTopic && !u.role) {
+  if (u.offTopic && !u.role && !u.phone) {
     if (!said("off_topic")) answers.push(draft("off_topic"));
     return finish();
   }
@@ -242,37 +370,44 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (u.callback.noCall && !u.phone) {
     s.noCall = true;
     if (!said("no_call_ack")) flow.push(draft("no_call_ack"));
+    // Повторное «не звоните» без номера: ответа нет — человек узнаёт (ревью #333, третий круг).
+    else if (!answers.length) signal("no_phone");
     return finish();
   }
 
+  /** Один мягкий необязательный вопрос о деталях — в ответе с заявкой, только про недостающее (владелец 20.11.2026). */
+  const detailsWithLead = (): Draft | null => {
+    if (s.asked.details > 0 || (s.role !== "buyer" && s.role !== "seller")) return null;
+    const fields = s.role === "seller" ? OPERATOR_SELLER_FIELDS : OPERATOR_BUYER_FIELDS;
+    const missing = fields.filter(field => !s.details[field]);
+    if (missing.length === 0) return null;
+    s.asked.details = 1;
+    const when = ctx.callbackWhen[language];
+    return missing.length === fields.length ? draft(s.role === "seller" ? "lead_and_details_seller" : "lead_and_details_buyer", { when })
+      : draft("lead_and_details_missing", { when, missing });
+  };
   const leadMessage = (): Draft => {
     const when = ctx.callbackWhen[language];
     if (s.outOfArea) return draft("out_of_area_accepted");
     // «Пишите» или «не звоните» (Р3): заявка без обещания звонка — агент напишет.
     if (s.callback.textOnly || s.noCall) return draft("lead_text_only", { where: operatorWhereVar(ctx.channel) });
     if (s.callback.when) return draft("lead_callback", { time: s.callback.when });
+    const details = detailsWithLead();
+    if (details) return details;
     if (u.phone && !ctx.phoneKnown) return draft("phone_received", { when });
     return draft("lead_known_phone", { when });
   };
   // Номер известен только по каналу (WhatsApp) или из слов ЭТОГО хода: номер прошлых ходов нигде не сохранён (Р2).
   const phoneKnown = () => ctx.phoneKnown || !!u.phone;
-  const acceptLead = () => {
-    actions.push({ type: "accept_lead", role: leadRole(s.role), propertyId: s.role === "buyer_property" ? s.propertyId : null,
-      phone: u.phone, note: operatorLeadNote(s, u, ctx), outOfArea: s.outOfArea, callbackWhen: s.callback.when,
-      textOnly: s.callback.textOnly, noCall: s.noCall });
-    s.leadAccepted = true; s.step = "done";
-  };
   const contact = () => {
     if (phoneKnown()) {
-      // Продавцу комиссию называем сами один раз — если раньше не успели (вопрос клиента занял место).
-      if (s.role === "seller" && !commissionSaid() && answers.length === 0 && flow.length === 0) {
-        flow.push(draft("seller_commission", { percent: ctx.sellerCommissionPercent }));
-      }
-      acceptLead();
+      acceptLeadSilently(s, u, ctx, actions);
       flow.push(leadMessage());
       return;
     }
-    if (s.noCall) return;
+    // «Не звоните» без номера: бот номер больше не просит, а человек узнаёт один раз (инвариант ревью #333: клиент не
+    // остаётся и без ответа, и без человека).
+    if (s.noCall) { if (!flow.length && !answers.length) signal("no_phone"); return; }
     if (s.asked.phone < ctx.maxPhoneAsks) {
       flow.push(draft("ask_phone")); s.asked.phone += 1; s.step = "contact";
       return;
@@ -280,6 +415,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     // Номер не дали после всех просьб: один раз номер офиса, дальше тишина. Людей до заявки не зовём (решение владельца
     // 13.11.2026: «никаких уведомлений не надо никому высылать, пока он не станет лидом»).
     if (!said("office_phone")) flow.push(draft("office_phone", { phone: ctx.officePhone }));
+    else signal("no_phone");
     s.step = "handoff";
   };
   // Клиент сам дал номер, просит человека, спрашивает «вы бот?» или торгуется — сразу шаг «контакт».
@@ -288,11 +424,14 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (s.role === "unknown" || s.role === "rent" || s.role === "job") {
     if (wantsContact) { contact(); return finish(); }
     if (s.asked.role >= 2) {
-      // Два непонятных ответа на вопрос о роли: молчим (до заявки людей не зовём; через сутки тишины — заново, state.ts).
+      // Два непонятных ответа на вопрос о роли: молчим и один раз зовём человека (20.11.2026; кому — лесенка двери
+      // «клиент ждёт»: агент, руководство поштучно не беспокоим). Через сутки тишины — заново (state.ts).
       s.step = "handoff";
+      signal("unclear");
       return finish();
     }
-    if (u.greeting && !said("greet") && !said("greet_assalom") && answers.length === 0) {
+    // Приветствие в ответ на приветствие (SPEC «Тон») — всегда первым, даже рядом с ответом на вопрос (перенесено из 19.11).
+    if (u.greeting && !said("greet") && !said("greet_assalom") && !ctx.staffThread) {
       flow.push(draft(u.greeting === "assalom" ? "greet_assalom" : "greet"));
     }
     flow.push(draft("ask_role")); s.asked.role += 1; s.step = "role";
@@ -315,41 +454,21 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     return decision;
   }
 
-  // Покупатель (общий запрос) и продавец: один вопрос о деталях, потом контакт.
-  if (wantsContact) { contact(); return finish(); }
-  const fields = s.role === "seller" ? OPERATOR_SELLER_FIELDS : OPERATOR_BUYER_FIELDS;
-  if (s.asked.details === 0) {
-    const missing = fields.filter(field => !s.details[field]);
-    if (missing.length === 0) { contact(); return finish(); }
-    const seller = s.role === "seller";
-    const all = missing.length === fields.length;
-    // Номер известен (WhatsApp): заявка в ЭТОТ ход, вопрос о деталях — в том же ответе. Клиент, не ответивший на вопрос,
-    // не пропадает (П1 приёмки 19.11). Время звонка, «пишите», вне Душанбе — обычная строка заявки без вопроса.
-    if (phoneKnown() && (s.outOfArea || s.callback.textOnly || s.callback.when || s.noCall)) { contact(); return finish(); }
-    s.asked.details = 1;
-    if (seller && !commissionSaid() && answers.length === 0) flow.push(draft("seller_intro", { percent: ctx.sellerCommissionPercent }));
-    if (phoneKnown()) {
-      const when = ctx.callbackWhen[language];
-      acceptLead();
-      flow.push(all ? draft(seller ? "lead_and_details_seller" : "lead_and_details_buyer", { when }) : draft("lead_and_details_missing", { when, missing }));
-      return finish();
-    }
-    // Номера нет: детали и номер одним сообщением — это первая просьба номера.
-    if (!s.noCall && s.asked.phone < ctx.maxPhoneAsks) {
-      flow.push(all ? draft(seller ? "ask_details_seller_phone" : "ask_details_buyer_phone") : draft("ask_details_missing_phone", { missing }));
-      s.asked.phone += 1; s.step = "contact";
-      return finish();
-    }
-    flow.push(all ? draft(seller ? "ask_details_seller" : "ask_details_buyer") : draft("ask_details_missing", { missing }));
-    s.step = "details";
-    return finish();
+  // Покупатель (общий запрос) и продавец: сразу шаг «контакт» — заявка (номер есть) или просьба номера. Детали до заявки
+  // не собираем: мягкий вопрос о них — в ответе с заявкой (владелец 20.11.2026). Продавцу, который назвался сам, — условия.
+  if (s.role === "seller" && s.flags.sellerByWords && !commissionSaid() && answers.length === 0 && !s.noCall) {
+    flow.push(draft("seller_intro", { percent: ctx.sellerCommissionPercent }));
   }
-  // Вопрос о деталях уже был: любой ответ принимается. Встречный вопрос клиента без деталей шаг не двигает и
-  // вопрос о деталях не повторяет (SPEC, правило 5).
-  const pureQuestion = answers.length > 0 && !u.hasDetails && !u.outsidePlace && !u.callback.when && !u.callback.textOnly;
-  if (s.step === "details" && pureQuestion) return finish();
   contact();
   return finish();
+}
+
+/** Заявка: действие для приёма и «заявка принята» в памяти. Номер — из слов этого хода, иначе номер канала (WhatsApp). */
+function acceptLeadSilently(s: OperatorState, u: Understanding, ctx: OperatorContext, actions: OperatorAction[]): void {
+  actions.push({ type: "accept_lead", role: leadRole(s.role), propertyId: s.role === "buyer_property" ? s.propertyId : null,
+    phone: u.phone, note: operatorLeadNote(s, u, ctx), outOfArea: s.outOfArea, callbackWhen: s.callback.when,
+    textOnly: s.callback.textOnly, noCall: s.noCall });
+  s.leadAccepted = true; s.step = "done";
 }
 
 function textOnlyNote(ctx: OperatorContext): string {
@@ -388,8 +507,13 @@ function jobAnswer(s: OperatorState, u: Understanding, ctx: OperatorContext, lan
 /** Не больше двух шагов: ответ на вопрос клиента первым, последний шаг потока (просьба, заявка) остаётся всегда. */
 function compose(s: OperatorState, language: OperatorLanguage, answers: readonly Draft[], flow: readonly Draft[],
   actions: OperatorAction[]): OperatorDecision {
-  let chosen = [...answers, ...flow];
-  if (chosen.length > OPERATOR_MAX_STEPS) chosen = flow.length ? [answers[0] ?? flow[0]!, flow.at(-1)!] : chosen.slice(0, OPERATOR_MAX_STEPS);
+  // Приветствие в ответ на приветствие (SPEC «Тон») — одно-два слова, в предел шагов не входит и идёт первым.
+  const isGreeting = (item: Draft) => item.key === "greet" || item.key === "greet_assalom";
+  const greeting = flow.find(isGreeting) ?? null;
+  const rest = flow.filter(item => !isGreeting(item));
+  let chosen = [...answers, ...rest];
+  if (chosen.length > OPERATOR_MAX_STEPS) chosen = rest.length ? [answers[0] ?? rest[0]!, rest.at(-1)!] : chosen.slice(0, OPERATOR_MAX_STEPS);
+  if (greeting) chosen = [greeting, ...chosen];
   const seen = new Set<PhraseKey>();
   const steps: OperatorStepOut[] = [];
   for (const item of chosen) {
@@ -399,5 +523,7 @@ function compose(s: OperatorState, language: OperatorLanguage, answers: readonly
     s.spoken[item.key] = variant + 1;
     steps.push({ key: item.key, vars: item.vars, variant });
   }
+  // Серия «передал агенту»: помним, что прошлый ответ был только отметкой (тишина серию не прерывает).
+  if (steps.length) s.flags.lastAck = steps.every(step => ACK_KEYS.has(step.key));
   return { state: s, language, steps, actions, silent: steps.length === 0 };
 }

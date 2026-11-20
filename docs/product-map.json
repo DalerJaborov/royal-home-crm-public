@@ -973,6 +973,14 @@
       "usedBy": 36
     },
     {
+      "mount": "/api/v1/construction-registry",
+      "router": "constructionRegistryRouter",
+      "file": "apps/api/src/routes/constructionRegistry.ts",
+      "endpoints": 7,
+      "label": null,
+      "usedBy": 1
+    },
+    {
       "mount": "/api/v1/transfer-requests",
       "router": "transferRequestsRouter",
       "file": "apps/api/src/routes/transferRequests.ts",
@@ -1376,9 +1384,9 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 12,
+      "endpoints": 14,
       "label": "Переписка по всем каналам",
-      "usedBy": 3
+      "usedBy": 4
     },
     {
       "mount": "/api/v1/audit-log",
@@ -1713,6 +1721,11 @@
       "id": "comment-needs-human-sweep",
       "expr": "6-59/10 * * * *",
       "label": null
+    },
+    {
+      "id": "construction-registry-sync",
+      "expr": "30 4 * * 1",
+      "label": "Раз в неделю забирает реестр разрешённых строек Душанбе и связывает с нашими объектами"
     },
     {
       "id": "contact-link-sweep",

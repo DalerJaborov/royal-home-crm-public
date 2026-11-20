@@ -15,6 +15,7 @@
  * Модуль только распознаёт. Кого уведомлять и как — дело вызывающего.
  */
 
+import { isAckOnlyMessage } from "./ackOnly.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { customerAsksForHuman, customerComplainsNoContact, customerRefusesHuman } from "./customerAskSignals.js";
 
@@ -34,6 +35,8 @@ function ownText(clientText: string): string {
  * Жалоба на отсутствие связи. Слова подобраны так, чтобы не задеть обычное
  * «позвоните мне» (просьба, а не жалоба): нужен признак ОТРИЦАНИЯ или ожидания.
  */
+/** Нетерпение и упрёк: с ними «жду» остаётся жалобой («сколько можно ждать», «уже жду», «никто не звонит»). */
+const IMPATIENCE = /(?<![\p{L}])(?:не|нет|никто|ни|сколько|почему|уже|до\s+сих|обещали|чаро|ҳеҷ|хеч|чанд\s+р[уӯ]з|нагирифт\p{L}*|назад\p{L}*|намезан\p{L}*)(?![\p{L}])/u;
 const NO_CONTACT_COMPLAINT = rx([
   // Таджикский: «не позвонили», «никто не звонит», «сколько ждать»
   // ОТРИЦАНИЕ ОБЯЗАТЕЛЬНО (починено 20.09.2026). До этого группа «(на|не)?» была
@@ -61,6 +64,9 @@ const NO_CONTACT_COMPLAINT = rx([
 export function looksLikeNoContactComplaint(clientText: string): boolean {
   const text = ownText(clientText);
   if (!text) return false;
+  // «Спасибо, жду звонка», «Хоп, интизор мешавам»: благодарность и спокойное ожидание — не жалоба (ревью #333, 20.11.2026;
+  // такое сообщение получало «Ваше сообщение увидит руководитель» и бот замолкал).
+  if (isAckOnlyMessage(text) && !IMPATIENCE.test(text.toLowerCase().replace(/ё/gu, "е"))) return false;
   // Общий словарь (ai/customerAskSignals.ts, 14.11.2026): «мне никто не звонит»,
   // «почему никто не звонит», «вы обещали перезвонить», «агент так и не вышел на
   // связь» здешний список не знал.

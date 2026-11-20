@@ -59,3 +59,12 @@ export function priceTier(pricePerSqm: number | null, scale: { low: number; high
 export function tierColor(tier: 0 | 1 | 2, colors: MapPriceColors): string {
   return tier === 0 ? colors.low : tier === 1 ? colors.mid : colors.high;
 }
+
+/** Цвета статуса реестра строек: те же токены темы (зелёный, янтарный, красный), что и шкала цены. */
+export function readRegistryColors(): { green: string; yellow: string; red: string } {
+  return {
+    green: readRgbToken("--rgb-green", "rgb(79,207,138)"),
+    yellow: readRgbToken("--rgb-amber", "rgb(229,176,74)"),
+    red: readRgbToken("--rgb-red", "rgb(240,127,134)"),
+  };
+}

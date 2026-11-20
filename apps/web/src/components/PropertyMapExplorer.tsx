@@ -10,7 +10,9 @@ import {
   clusterPlaque,
   priceLabel,
 } from "../lib/mapGeoJson";
-import { readMapPriceColors } from "../lib/themeMapColors";
+import { readMapPriceColors, readRegistryColors } from "../lib/themeMapColors";
+import { registryColorTitle } from "../lib/registryMapFilter";
+import type { RegistryColor, RegistryMapResponse } from "@royal-home/shared";
 import { useThemeId } from "../store/uiPrefs";
 import { THEMES } from "../lib/themes";
 import { fetchReverseGeocode } from "../lib/reverseGeocode";
@@ -185,6 +187,14 @@ function basemapPaint(dark: boolean): maplibregl.RasterLayerSpecification["paint
  */
 maplibregl.setWorkerUrl("/vendor/maplibre/maplibre-gl-worker.mjs");
 
+/** Слой «Реестр строек» (20.11.2026): проекты реестра отдельными кольцами и цвет статуса у наших объектов. */
+export interface RegistryMapLayer {
+  /** Жилые проекты, уже отфильтрованные; пусто — слой выключен. */
+  projects: RegistryMapResponse["projects"];
+  /** Цвет реестра у наших объектов (по id), для кольца вокруг метки. */
+  propertyColors: Record<string, RegistryColor>;
+}
+
 export interface PropertyMapExplorerHandle {
   flyTo: (lat: number, lng: number, zoom?: number) => void;
 }
@@ -206,7 +216,10 @@ export function PropertyMapExplorer({
   onHoverProperty,
   onEmptyClick,
   cardOpen = false,
+  registry = null,
 }: {
+  /** Реестр строек поверх карты; null — реестра нет (рубильник выключен). */
+  registry?: RegistryMapLayer | null;
   data: PropertiesMapResponse;
   currentAgentId: string | null;
   /** id объекта ИЛИ дома, на который сейчас смотрят (лента карточек либо тап) —
@@ -365,6 +378,7 @@ export function PropertyMapExplorer({
    *  карту: новая заменяет прежнюю. */
   const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const hoveredIdRef = useRef<string | null>(hoveredId);
+  const registryPopupRef = useRef<maplibregl.Popup | null>(null);
   const cardOpenRef = useRef(cardOpen);
   cardOpenRef.current = cardOpen;
   /** Обратный геокодер (Nominatim) по этому же клику — новый клик до ответа
@@ -499,6 +513,8 @@ export function PropertyMapExplorer({
       map.addSource("properties", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addSource("buildings", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addSource("near-me", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addSource("registry-projects", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addSource("registry-rings", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
 
       const colors = readMapPriceColors();
       const tierColorExpr = ["match", ["get", "tier"], 0, colors.low, 1, colors.mid, colors.high] as const;
@@ -507,6 +523,45 @@ export function PropertyMapExplorer({
       // и подписи цен рисуются DOM-маркерами (см. syncLabels ниже), а не
       // символьными слоями MapLibre — почему именно так, разобрано в
       // «ПОДПИСИ — DOM, А НЕ СИМВОЛЬНЫЕ СЛОИ» в шапке файла.
+
+      // Реестр строек (20.11.2026): слои лежат ПОД пузырьками, чтобы не мешать нажатиям на наши объекты.
+      // Проект реестра — полое кольцо (полупрозрачная середина, толстая обводка статуса), наш объект —
+      // сплошной пузырёк; кольцо вокруг нашего пузырька — статус его связи с реестром.
+      const registryColors = readRegistryColors();
+      const registryColorExpr = [
+        "match",
+        ["get", "color"],
+        "green",
+        registryColors.green,
+        "yellow",
+        registryColors.yellow,
+        registryColors.red,
+      ] as unknown as maplibregl.DataDrivenPropertyValueSpecification<string>;
+      map.addLayer({
+        id: "registry-projects",
+        type: "circle",
+        source: "registry-projects",
+        minzoom: 11,
+        paint: {
+          "circle-radius": 8,
+          "circle-color": registryColorExpr,
+          "circle-opacity": 0.28,
+          "circle-stroke-width": 3,
+          "circle-stroke-color": registryColorExpr,
+        },
+      });
+      map.addLayer({
+        id: "registry-rings",
+        type: "circle",
+        source: "registry-rings",
+        paint: {
+          "circle-radius": 15,
+          "circle-color": registryColorExpr,
+          "circle-opacity": 0,
+          "circle-stroke-width": 3,
+          "circle-stroke-color": registryColorExpr,
+        },
+      });
 
       // Ярус «средне» — пузырьки цены, заливка по терцилям (правило 3).
       map.addLayer({
@@ -588,6 +643,38 @@ export function PropertyMapExplorer({
         const id = e.features?.[0]?.properties?.id as string | undefined;
         if (id) handlersRef.current.onSelectBuilding(id);
       });
+      // Проект реестра: попап с названием, застройщиком, оценкой и статусом. Если под пальцем есть и наш
+      // объект, выигрывает наш (его обработчик выше), попап реестра не открывается.
+      map.on("click", "registry-projects", (e: maplibregl.MapLayerMouseEvent) => {
+        const ours = map.queryRenderedFeatures(e.point, {
+          layers: ["bubbles", "bubbles-unmatched", "buildings-extrusion"].filter((id) => map.getLayer(id)),
+        });
+        if (ours.length > 0) return;
+        const props = e.features?.[0]?.properties;
+        if (!props) return;
+        registryPopupRef.current?.remove();
+        const box = document.createElement("div");
+        const title = document.createElement("b");
+        title.textContent = String(props.title ?? "");
+        box.appendChild(title);
+        const lines = [
+          props.customer ? `Застройщик: ${String(props.customer)}` : "",
+          props.letter ? `Оценка застройщика: ${String(props.letter)}` : "Оценка застройщика: мало данных",
+          `В реестре: ${registryColorTitle(props.color as RegistryColor).toLowerCase()}`,
+        ];
+        for (const line of lines) {
+          if (!line) continue;
+          const row = document.createElement("div");
+          row.textContent = line;
+          box.appendChild(row);
+        }
+        registryPopupRef.current = new maplibregl.Popup({ closeButton: true, maxWidth: "260px", className: "map-registry-popup" })
+          .setLngLat(e.lngLat)
+          .setDOMContent(box)
+          .addTo(map);
+      });
+      map.on("mouseenter", "registry-projects", () => (map.getCanvas().style.cursor = "pointer"));
+      map.on("mouseleave", "registry-projects", () => (map.getCanvas().style.cursor = ""));
       for (const layer of ["bubbles", "bubbles-unmatched", "buildings-extrusion"]) {
         map.on("mouseenter", layer, () => (map.getCanvas().style.cursor = "pointer"));
         map.on("mouseleave", layer, () => (map.getCanvas().style.cursor = ""));
@@ -611,7 +698,7 @@ export function PropertyMapExplorer({
       // тап ничего не делает.
       // Плашки кластеров сюда не входят: они DOM-маркеры и гасят свой клик сами
       // (`stopPropagation`), до этого обработчика он не доходит.
-      const interactiveLayers = ["bubbles", "bubbles-unmatched", "buildings-extrusion"];
+      const interactiveLayers = ["bubbles", "bubbles-unmatched", "buildings-extrusion", "registry-projects"];
       map.on("click", (e: maplibregl.MapMouseEvent) => {
         if (longPressRef.current?.consumeFired()) return;
         const hits = map.queryRenderedFeatures(e.point, { layers: interactiveLayers.filter((id) => map.getLayer(id)) });
@@ -905,6 +992,9 @@ export function PropertyMapExplorer({
     setVis(map, "bubbles", medium);
     setVis(map, "buildings-extrusion", close);
     setVis(map, "bubbles-unmatched", close);
+    // Кольцо статуса реестра: на среднем ярусе у всех объектов, на близком только у объектов без контура дома.
+    setVis(map, "registry-rings", !far);
+    if (map.getLayer("registry-rings")) map.setFilter("registry-rings", close ? ["==", ["get", "unmatched"], true] : null);
     // Подписи — DOM-маркеры, у них нет `visibility`: пересобираем, но только
     // когда ярус правда сменился (см. labelTierRef).
     const tier = far ? "far" : close ? "close" : "medium";
@@ -954,6 +1044,37 @@ export function PropertyMapExplorer({
     else pendingDataRef.current = apply;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
+
+  // ---- Реестр строек: кольца проектов и кольца статуса вокруг наших объектов. ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReadyRef.current) return;
+    const projectsSource = map.getSource("registry-projects") as maplibregl.GeoJSONSource | undefined;
+    const ringsSource = map.getSource("registry-rings") as maplibregl.GeoJSONSource | undefined;
+    if (!projectsSource || !ringsSource) return;
+    projectsSource.setData({
+      type: "FeatureCollection",
+      features: (registry?.projects ?? []).map((p) => ({
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: [p.lng, p.lat] },
+        properties: { id: p.id, title: p.title, customer: p.customer, color: p.color, letter: p.letter ?? "" },
+      })),
+    });
+    const colors = registry?.propertyColors ?? {};
+    ringsSource.setData({
+      type: "FeatureCollection",
+      features: data.properties
+        .filter((p) => p.lat != null && p.lng != null && colors[p.id] !== undefined)
+        .map((p) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [p.lng as number, p.lat as number] },
+          properties: { id: p.id, color: colors[p.id], unmatched: !p.buildingId },
+        })),
+    });
+    // Фильтр кольца зависит от яруса масштаба: после новых данных выставить его заново.
+    applyZoomTier(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registry, data, styleReady]);
 
   // ---- Своя метка (интейк-агент = текущий) — окрас поверх ценового. ----
   useEffect(() => {

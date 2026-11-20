@@ -112,6 +112,30 @@ function outsidePlaceOf(text: string): string | null {
   return place && !RUDAKI.test(place) ? place : null;
 }
 
+/**
+ * Язык разговора по недавним репликам (20.11.2026): последний уверенно определённый язык клиента (осмысленный текст, не
+ * «ок», не цифры, не кнопка рекламы), иначе язык последней реплики бота или сотрудника. null — языка в разговоре нет.
+ */
+export function operatorContextLanguage(recent: OperatorTurnInput["recent"]): OperatorLanguage | null {
+  // Последняя реплика с уверенно определённым языком — клиента ИЛИ нашей стороны (бот, сотрудник из Business Suite): клиент
+  // прислал только номер после таджикского ответа сотрудника — отвечаем по-таджикски (разбор 20.11.2026, п. 7).
+  for (const turn of [...(recent ?? [])].reverse()) {
+    const own = turn.role === "user" ? clientOwnWords(turn.text).trim() : turn.text.trim();
+    if (letterCount(own) < 2) continue;
+    if (turn.role === "user" && (isNeutralShortReply(own) || isAdTemplateOpener(own))) continue;
+    const language = customerDmDialogueLanguage([own]);
+    if (language) return language;
+  }
+  return null;
+}
+
+/** «Когда позвонят?», «где агент?», «кай занг мезанед?», «что с заявкой?» (сложенный алфавит, без \w и \b). */
+const STATUS_QUESTION = new RegExp(`${BW}(?:когда|скоро\\s+ли|кай|кадай|кай\\s+вакт)${EW}[^.!?]{0,30}(?:(?:по|пере)?звон${TAIL}|свяж${TAIL}|занг${TAIL}|тамос${TAIL}|агент${TAIL})` +
+  `|${BW}(?:что|чи)\\s+(?:с|бо)\\s+(?:заявк${TAIL}|дархост${TAIL})|${BW}(?:где|кучо|куҷо)\\s+(?:агент${TAIL}|ваш\\s+агент)`, "u");
+/** «Когда вы работаете?», «до скольки работаете?», «соати кор» — время работы. */
+const HOURS_QUESTION = new RegExp(`${BW}(?:график${TAIL}|до\\s+скольки|часы\\s+работ${TAIL}|соати\\s+кор${TAIL}|вакти\\s+кор${TAIL}|вақти\\s+кор${TAIL})` +
+  `|${BW}(?:когда|кай)${EW}[^.!?]{0,20}(?:работ${TAIL}|кор\\s+мекун${TAIL}|открыт${TAIL})`, "u");
+
 /** Общая часть понимания — только код: номер, вложения, вежливость, кнопка рекламы, язык, запреты владельца. */
 function codeFacts(input: OperatorTurnInput) {
   const own = clientOwnWords(input.current).trim();
@@ -128,6 +152,7 @@ function codeFacts(input: OperatorTurnInput) {
     hasText: letters >= 2 || !!phone,
     language: letters >= 2 && !neutral && !adOpener ? customerDmDialogueLanguage([own]) : null,
     languageHint: letters >= 1 ? resolveCustomerDmLanguage(own) : null,
+    contextLanguage: operatorContextLanguage(input.recent),
     ackOnly: isAckOnlyMessage(own), thanksOnly: isThanksOnlyMessage(own),
     greetingOnly: letters > 0 && clientSaidNothingSubstantive(own) && !isAckOnlyMessage(own) && !adOpener,
     greeting: greetingOf(folded),
@@ -174,7 +199,9 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
   const botQuestion = BOT_WORD.test(code.folded) && (/[?]/u.test(code.own) || PERSON_WORD.test(code.folded)) || PERSON_WORD.test(code.folded);
   const question: OperatorQuestion = code.fee ? "fee"
     : aboutThisProperty ? (PRICE_WORD.test(code.folded) || facts?.includes("price") ? "property_price" : "property_other")
-    : staff && !botQuestion ? "staff" : "none";
+    : STATUS_QUESTION.test(code.folded) ? "status"
+    : HOURS_QUESTION.test(code.folded) ? "hours"
+    : staff && !botQuestion ? "staff" : /[?]/u.test(code.own) && !code.adOpener && !code.greetingOnly ? "other" : "none";
   const details = role === "job" || role === "rent" ? {} : detailsFromSearch(code.own, language);
   const position = role === "job" ? selectedRecruitmentPosition(ctx.vacancies.open, code.own) : null;
   const preference = textPreference(code.own);
@@ -184,7 +211,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     hasDetails: Object.keys(details).length > 0 || (digitsBeyondPhone && code.letters > 0),
     phone: code.phone,
     callback: { when: operatorCallbackRange(code.own, language), ...preference },
-    language: code.language, languageHint: code.languageHint, greeting: code.greeting, greetingOnly: code.greetingOnly,
+    language: code.language, languageHint: code.languageHint, contextLanguage: code.contextLanguage, greeting: code.greeting, greetingOnly: code.greetingOnly,
     ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
     bargain: customerPolicyTermAsked("negotiation", code.own), rude: code.rude, botQuestion,
     offTopic: code.spam, complaint: looksLikeNoContactComplaint(code.own),
@@ -194,7 +221,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
 }
 
 // ── модель ──────────────────────────────────────────────────────────────────
-const QUESTIONS = ["none", "fee", "services", "property_price", "property_other", "area", "identity", "staff", "other"] as const;
+const QUESTIONS = ["none", "fee", "services", "property_price", "property_other", "area", "identity", "staff", "status", "hours", "other"] as const;
 const modelText = z.string().max(400).default("");
 export const operatorModelAnswerSchema = z.object({
   role: z.enum(["buyer", "seller", "rent", "job", "none"]),
@@ -259,9 +286,10 @@ export const OPERATOR_UNDERSTAND_SYSTEM = [
   "«Сколько стоят ваши услуги?», «какая комиссия» без слов о продаже своего — это question=fee и role=none.",
   "Недавние реплики — только чтобы понять короткое или неясное сообщение: «сколько вы берёте?» после «продаю дом» — seller.",
   "question: fee — цена услуг или условия агентства; services — какие у вас услуги; property_price — цена объекта; property_other — другое об объекте;",
-  "area — где работаете; identity — «вы такой-то?», «кто это?» (ошиблись номером); staff — просит человека, агента; other — другой вопрос; none — вопроса нет.",
+  "area — где работаете; identity — «вы такой-то?», «кто это?» (ошиблись номером); staff — просит человека, агента;",
+  "status — когда позвонит агент, что с заявкой; hours — время работы; other — другой вопрос по делу (адрес, документы); none — вопроса нет.",
   "Детали (rooms, district, budget, area, floor, renovation, price, units) — копируй как написал клиент, ничего не пересчитывай.",
-  "callbackWhen — только если клиент сам назвал время звонка; «2.30» в рабочий день — это 14:30.",
+  "callbackWhen — только если клиент сам назвал время звонка; «2.30» в рабочий день — это 14:30; «завтра днём» — так и пиши.",
   "Не выдумывай: нет в словах клиента — пустая строка или false.",
 ].join("\n");
 
@@ -312,7 +340,10 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
   }
 
   let when = answer.callbackWhen.trim();
-  if (when && !(TIME_TEXT.test(when) && /\d/u.test(when) && leadOnlyQuoteFound(answer.callbackQuote.slice(0, 200), [code.own]))) {
+  // Время звонка — с цифрами («с 11 до 2.30») или словами о времени («завтра днём», 20.11.2026: после заявки это время
+  // молча терялось), но всегда с цитатой из слов клиента.
+  if (when && !(TIME_TEXT.test(when) && (/\d/u.test(when) || CALL_OR_TIME_WORD.test(foldCustomerText(when))) &&
+    leadOnlyQuoteFound(answer.callbackQuote.slice(0, 200), [code.own]))) {
     rejected.push("callbackWhen"); when = "";
   }
 
@@ -324,7 +355,8 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
   if (asked && !(POSITION_TEXT.test(asked) && appearsIn(asked, [code.own]))) { rejected.push("jobPosition"); asked = null; }
   const position = role === "job" ? selectedRecruitmentPosition(ctx.vacancies.open, [code.own, asked ?? ""].join(" ")) : null;
 
-  const question: OperatorQuestion = code.fee ? "fee" : answer.question;
+  // Вопрос о статусе и о часах код узнаёт и сам: модель промолчала — берём вопрос запасных правил.
+  const question: OperatorQuestion = code.fee ? "fee" : answer.question === "none" && fallback.question !== "other" ? fallback.question : answer.question;
   const preference = { textOnly: answer.textOnly || fallback.callback.textOnly, noCall: (answer.noCall || fallback.callback.noCall) && !answer.textOnly };
   return {
     rejected,
@@ -341,7 +373,7 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       // раньше; модель промолчала — прежнее слово кода.
       language: groundedCustomerDmLanguage(code.own)
         ?? (code.letters >= 2 && !isNeutralShortReply(code.own) && answer.language !== "none" ? answer.language : code.language),
-      languageHint: code.languageHint, greeting: code.greeting, greetingOnly: code.greetingOnly,
+      languageHint: code.languageHint, contextLanguage: code.contextLanguage, greeting: code.greeting, greetingOnly: code.greetingOnly,
       ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
       bargain: answer.bargain || fallback.bargain,
       // Грубость и жалоба закрывают разговор для бота: модель ИЛИ код; лишний раз позвать человека дешевле, чем спорить.

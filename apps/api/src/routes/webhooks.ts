@@ -100,7 +100,7 @@ import { isOwnCustomerOutboxEcho } from "../lib/customerOutboxEcho.js";
 import { isOwnAccountSender, ownAccountPauseUntil } from "../lib/ownAccountGuard.js";
 import { isOutboundBlockedError, noteRealInbound } from "../lib/outboundShield.js";
 import { isMetaSendBlockError } from "../lib/metaSendBlock.js";
-import { OPERATOR_ECHO_PAUSE_MS, applyDeliveryPause, deliverBotVoiceReply } from "../lib/conversationDelivery.js";
+import { OPERATOR_ECHO_PAUSE_MS, applyDeliveryPause, deliverBotVoiceReply, staffRelayPauseMs } from "../lib/conversationDelivery.js";
 import {
   noteFirstContactDelivery,
   noteFirstContactReply,
@@ -1471,6 +1471,24 @@ const DOWNLOADABLE_ATTACHMENTS = new Set(["image", "audio", "voice", "video", "d
  * из CRM) мало: бот возвращался в разговор, который директор ещё вёл с телефона
  * (жалоба владельца 28.09.2026) — поэтому 12 часов, OPERATOR_ECHO_PAUSE_MS.
  */
+/** Входящие Страницы Facebook (живой человек в Page inbox): `app_id` эха по документации Meta (Graph API v12.0+). */
+export const META_PAGE_INBOX_APP_ID = "263902037430900";
+/** Документация Meta печатает этот же идентификатор и без последнего нуля (14 цифр) — принимаем обе записи. */
+const META_PAGE_INBOX_APP_IDS: ReadonlySet<string> = new Set([META_PAGE_INBOX_APP_ID, "26390203743090"]);
+
+/**
+ * Эхо — НЕ ответ сотрудника, только если его `app_id` в явном списке автоматов (ревью #333). Неясно по документации Meta:
+ * какой `app_id` у мгновенного ответа и «нет на месте» из Business Suite — список пополняется по журналу.
+ */
+export function echoIsAutomatic(input: { appId?: string; at: number; lastClientAt: number | null }): boolean {
+  // Безопасное умолчание (ревью #333, второй круг): автоответ — ТОЛЬКО по явному списку известных автоматов (пока пуст);
+  // всё неизвестное — человек, бот на паузе. Ошибка в другую сторону пустила бы бота поверх живого сотрудника.
+  // `app_id` каждого ручного эха пишется в журнал — по замеру список пополняется.
+  return !!input.appId && KNOWN_AUTOMATION_APP_IDS.has(input.appId) && !META_PAGE_INBOX_APP_IDS.has(input.appId);
+}
+/** Приложения-автоматы Meta (мгновенный ответ, «нет на месте»), чьё эхо — не человек. Пополнять только по замеру. */
+export const KNOWN_AUTOMATION_APP_IDS: ReadonlySet<string> = new Set<string>();
+
 export async function handleOutgoingEcho(msg: {
   channel: MessengerChannel;
   senderId: string;
@@ -1478,6 +1496,7 @@ export async function handleOutgoingEcho(msg: {
   attachmentType?: string;
   messageId?: string;
   accountExternalId?: string;
+  echoAppId?: string;
 }): Promise<void> {
   /**
    * СНАЧАЛА — память об отправке, и только потом переписка.
@@ -1553,6 +1572,14 @@ export async function handleOutgoingEcho(msg: {
     return;
   }
 
+  // Автоответ Страницы или другого приложения — не человек: ни паузы, ни записи «вручную» (ревью #333).
+  const lastClient = [...history].reverse().find((m) => (m as { role?: string }).role === "user") as { at?: string } | undefined;
+  if (echoIsAutomatic({ appId: msg.echoAppId, at: Date.now(), lastClientAt: lastClient?.at ? Date.parse(lastClient.at) : null })) {
+    traceEchoReason("template");
+    console.log(`[вебхук] ${msg.channel}: эхо автоответа (app ${msg.echoAppId ?? "?"}) — не ручной ответ (диалог ${conv.id})`);
+    return;
+  }
+
   // Пауза — РАНЬШЕ записи в переписку (26.08.2026). Это два независимых запроса, и
   // при прежнем порядке сбой второго оставлял реплику сотрудника в истории, а бота —
   // БЕЗ паузы: он продолжал отвечать поверх живого человека (ровно баг 17.08, ради
@@ -1562,13 +1589,17 @@ export async function handleOutgoingEcho(msg: {
   // Короткая пауза не укорачивает действующую длинную (23.09.2026): свой агент
   // ответил из CRM — бот молчит годами, и сотрудник, дописавший с телефона, не
   // должен возвращать бота в разговор через 10 минут (applyDeliveryPause).
-  await applyDeliveryPause({ kind: "bot", id: conv.id }, new Date(Date.now() + OPERATOR_ECHO_PAUSE_MS), true);
+  // Режим «только заявки»: эстафета, а не 12 часов (владелец 20.11.2026, lib/conversationDelivery.ts::staffRelayPauseMs).
+  const echoPauseMs = (await staffRelayPauseMs({ kind: "bot", id: conv.id })) ?? OPERATOR_ECHO_PAUSE_MS;
+  await applyDeliveryPause({ kind: "bot", id: conv.id }, new Date(Date.now() + echoPauseMs), true);
   traceEchoReason("manual");
   const written = msg.text || (msg.attachmentType ? `[вложение: ${msg.attachmentType}]` : "");
   if (written) {
     await appendConversationMessages(conv.id, [{ role: "assistant", content: written, by: { kind: "manual" } }]);
   }
-  console.log(`[вебхук] ${msg.channel}: ответ вручную из мессенджера — бот на паузе (диалог ${conv.id})`);
+  // app_id в журнале — чтобы после подписки Messenger на message_echoes сверить живым ответом из Business Suite, что он
+  // считается человеком (документация Meta не называет app_id Business Suite).
+  console.log(`[вебхук] ${msg.channel}: ответ вручную из мессенджера (app ${msg.echoAppId ?? "—"}) — бот на паузе (диалог ${conv.id})`);
 }
 
 /** Тот же принцип, что у metaChatLimiter — ключуем по chat_id, не по IP: весь

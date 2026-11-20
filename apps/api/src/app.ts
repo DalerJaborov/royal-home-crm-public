@@ -31,6 +31,7 @@ import { districtsRouter } from "./routes/districts.js";
 import { geoRouter } from "./routes/geo.js";
 import { landmarksRouter } from "./routes/landmarks.js";
 import { propertiesRouter } from "./routes/properties.js";
+import { constructionRegistryRouter } from "./routes/constructionRegistry.js";
 import { transferRequestsRouter } from "./routes/transferRequests.js";
 import { clientsRouter } from "./routes/clients.js";
 import { dealsRouter } from "./routes/deals.js";
@@ -720,6 +721,8 @@ app.use("/api/v1/geo", geoRouter);
 app.use("/api/v1/landmarks", landmarksRouter);
 app.use("/api/v1/property-offers", propertyOffersRouter);
 app.use("/api/v1/properties", propertiesRouter);
+// Реестр разрешённых строек (memor.pro, 20.11.2026): только сотрудникам, под requireAuth внутри.
+app.use("/api/v1/construction-registry", constructionRegistryRouter);
 app.use("/api/v1/transfer-requests", transferRequestsRouter);
 app.use("/api/v1/clients", clientsRouter);
 app.use("/api/v1/deals", dealsRouter);

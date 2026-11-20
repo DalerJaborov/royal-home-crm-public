@@ -3,6 +3,7 @@ import { customerAgentForeignShareOnly, type CustomerAgentAttachmentInput } from
 import { customerDmAbuseKind, customerDmForeignShareNoise } from "./customerAgentAbuse.js";
 import { foldCustomerText } from "./customerAgentRole.js";
 import { clientOwnWords } from "./untrustedContent.js";
+import { looksLikeMoneyRequest } from "./moneyRequestGuard.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 
 /**
@@ -23,6 +24,8 @@ export const customerSpamMuteSchema = z.object({
   /** Spam turns seen (most recent last); `key` makes a retried event count once. */
   turns: z.array(z.object({ key: z.string().min(1).max(64), at: z.string().datetime() }).strict()).max(MAX_REMEMBERED_TURNS).default([]),
   mutedUntil: z.string().datetime().optional(),
+  /** «Вернуть боту» (руководство, 20.11.2026): этот разговор больше не отсеивается как спам. */
+  exempt: z.boolean().optional(),
 }).strict();
 export type CustomerSpamMute = z.infer<typeof customerSpamMuteSchema>;
 
@@ -43,11 +46,13 @@ export function customerSpamMuteActive(state: CustomerSpamMute, now: Date): bool
  */
 const INTEREST = new RegExp([
   `${BW}(?:квартир|кувартир|комнат|хона|хавли|хучра|участ|земельн|замин|манзил|недвижим|жиль|новостройк|ипотек|дуплекс|пентхаус)${TAIL}`,
+  // Таджикское «ҷой» (место, жильё: «ҷой лозим»), латиница (ревью #333; tajik-phrasebook, словарь чата).
+  `${BW}(?:чой|чои|joy|uy|hovli|havli|zamin|manzil|uchastok|xonai|honai|kvartir)${TAIL}`,
   `${BW}(?:дом(?:а|у|е|ом|ик\\p{L}*)?|дача|дачу|дачи|двушк\\p{L}*|трешк\\p{L}*|однушк\\p{L}*|студи[яюи])${EW}`,
   `${BW}(?:цен[аыуе]|ценой|стоимост|стоит|почем|сколько|нарх|чанд\\s+(?:пул|аст|мешавад|сомони|доллар))${TAIL}`,
   `${BW}(?:адрес|сурога|локаци|район|ноих|микрорайон|ориентир)${TAIL}`,
   `${BW}(?:продам|продаю|продаем|продать|продается|мефурушам|мефурушем|фуруш|куплю|купить|покупк|покупа|харидан|харидорам|мехарам|мехарем|харид|снять|сниму|сдам|сдаю|сдается|аренд|ичора|ичорагир)${TAIL}`,
-  `${BW}(?:обект|обявлени|элон|риелтор|риэлтор|рассрочк|кредит|задаток|просмотр)${TAIL}`,
+  `${BW}(?:обект|обявлени|элон|риелтор|риэлтор|рассрочк|кредит|задаток|просмотр|ваканс|резюме)${TAIL}`,
   `${BW}(?:об|ob)\\s*[-№#]?\\s*\\d{1,6}${EW}`, `№\\s*\\d{1,6}${EW}`,
   `${BW}(?:narx|price|cena|tsena|skolko|kvartira|xona|hona|dom|adres|address|nomer|telefon|vacancy|rabota)${TAIL}`,
   `${BW}royal\\s*home${TAIL}`,
@@ -69,11 +74,15 @@ export function customerSpamInterest(text: string): boolean {
 export function customerSpamTurn(input: { inputText: string; attachmentInput?: CustomerAgentAttachmentInput }): boolean {
   if (customerSpamInterest(input.inputText)) return false;
   if (customerDmAbuseKind(input.inputText) === "spam") return true;
+  // Просьба денег, помощи, в долг (владелец 20.11.2026: «деньги спрашивают у нас»): та же дверь, что у бота (ai/moneyRequestGuard.ts).
+  if (looksLikeMoneyRequest(input.inputText)) return true;
   return customerAgentForeignShareOnly(input.attachmentInput) && customerDmForeignShareNoise(input.inputText);
 }
 
 /** The state after one more spam turn: remembers the turn once, forgets turns older than the window, sets the mark at the threshold. */
 export function customerSpamMuteRecord(state: CustomerSpamMute, turn: { key: string; now: Date }): CustomerSpamMute {
+  // «Вернуть боту» (руководство, ревью #333): возвращённый разговор в спам больше не записывается — признак не теряется.
+  if (state.exempt) return state;
   const since = turn.now.getTime() - SPAM_WINDOW_MS;
   const kept = state.turns.filter(item => Date.parse(item.at) >= since && item.key !== turn.key);
   const turns = [...kept, { key: turn.key, at: turn.now.toISOString() }].slice(-MAX_REMEMBERED_TURNS);
@@ -82,9 +91,12 @@ export function customerSpamMuteRecord(state: CustomerSpamMute, turn: { key: str
     turns.length >= SPAM_TURNS_TO_MUTE ? { mutedUntil: new Date(turn.now.getTime() + SPAM_MUTE_MS).toISOString() } : {}) };
 }
 
+/** Лента режима «только заявки»: такой ход — без ответа, модели, заявки и сигнала (владелец 20.11.2026). */
+export const SPAM_FILTERED_NO_REPLY = "spam_filtered_no_reply";
+
 /** Decision for a turn that arrives while the mark may be set. */
 export function customerSpamMuteGate(state: CustomerSpamMute, input: { inputText: string; now: Date }): "muted" | "released" | "open" {
-  if (!customerSpamMuteActive(state, input.now)) return "open";
+  if (state.exempt || !customerSpamMuteActive(state, input.now)) return "open";
   return customerSpamInterest(input.inputText) ? "released" : "muted";
 }
 
