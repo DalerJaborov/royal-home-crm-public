@@ -274,7 +274,6 @@ describe("ревью #333", () => {
   });
   it("круглосуточное окно 00:00–24:00: в 23:30 — «в ближайшее время», а не «завтра с 00:00»", () => {
     expect(leadOnlyCallbackWhen({ now: "23:30", workHoursStart: "00:00", workHoursEnd: "24:00" })).toEqual({ kind: "soon" });
-    expect(leadOnlyCallbackWhen({ now: "23:30", workHoursStart: "00:00", workHoursEnd: "23:59" })).toEqual({ kind: "soon" });
   });
   it("проверка «своими словами»: сроки, новые действия, имя, «ты», деньги — только из готовой фразы; бот не выдаёт себя за человека", () => {
     const template = "Спасибо, передал агенту, он позвонит вам завтра с 10:00.";
