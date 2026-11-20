@@ -152,6 +152,9 @@ for (const textSize of ["large", "xlarge"] as const) {
           const context = await contextForRole(browser, role, phone(IPHONE_UA, theme)(width));
           const page = await context.newPage();
           await stubLookVisualData(page, { textSize });
+          // Первый заход холодной сессии дольше (вход по cookie, настройки, /ui-shell) — прогрев.
+          await page.goto("/clients", { waitUntil: "domcontentloaded" });
+          await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal", { timeout: 60_000 }).catch(() => {});
           // Главная агента на телефоне — по настройке сервера (#329), подмена /ui-shell новый вид не включает.
           for (const screen of TEXT_SCREENS.filter((sc) => !(role === "AGENT" && sc.url === "/"))) {
             await open(page, screen);
