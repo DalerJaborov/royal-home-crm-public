@@ -46,11 +46,14 @@ const runId = Date.now();
 const password = "testpass123";
 const directorPhone = `+99295${String(runId).slice(-7)}`;
 const agentPhone = `+99296${String(runId).slice(-7)}`;
+const managerPhone = `+99294${String(runId).slice(-7)}`;
 
 let directorId: string;
 let agentId: string;
 let directorToken: string;
 let agentToken: string;
+let managerId: string;
+let managerToken: string;
 
 async function login(phone: string): Promise<string> {
   const res = await request(app).post("/api/v1/auth/login").send({ phone, password });
@@ -69,13 +72,21 @@ beforeAll(async () => {
   });
   agentId = agent.id;
 
+  // Руководитель: dashboard.analytics есть, finance.view нет.
+  const manager = await prisma.agent.create({
+    data: { fullName: "Брифинг Руководитель", phone: managerPhone, role: "MANAGER", passwordHash, isActive: true },
+  });
+  managerId = manager.id;
+
   directorToken = await login(directorPhone);
   agentToken = await login(agentPhone);
+  managerToken = await login(managerPhone);
 });
 
 afterAll(async () => {
   await prisma.agent.delete({ where: { id: directorId } }).catch(() => {});
   await prisma.agent.delete({ where: { id: agentId } }).catch(() => {});
+  await prisma.agent.delete({ where: { id: managerId } }).catch(() => {});
   const dir = path.join(
     path.resolve(process.env.PRIVATE_UPLOADS_DIR ?? "./uploads-private"),
     "voice",
@@ -178,5 +189,44 @@ describe("buildFallbackBriefingText", () => {
 
   it("не выдумывает ошибок, которых не было", () => {
     expect(buildFallbackBriefingText(zero)).not.toContain("ошиб");
+  });
+});
+
+describe("GET /api/v1/dashboard/briefing: комиссия компании только с finance.view (21.11.2026)", () => {
+  const get = (token: string) => request(app).get("/api/v1/dashboard/briefing").set("Authorization", `Bearer ${token}`);
+  const factsOf = (call: number) => (callAiText.mock.calls[call]?.[0] as { user: string }).user;
+
+  it("руководитель без finance.view: нет комиссии ни в числах, ни в подсказке, ни в запасном тексте", async () => {
+    callAiText.mockResolvedValue({ text: "Спокойное утро." });
+    const res = await get(managerToken);
+    expect(res.status).toBe(200);
+    expect(res.body.numbers.commissionMonth).toBeNull();
+    expect(morningBriefingSchema.safeParse(res.body).success).toBe(true);
+    expect(factsOf(0)).not.toMatch(/комисс/i);
+
+    resetBriefingCache();
+    callAiText.mockResolvedValue(null);
+    const fallback = await get(managerToken);
+    expect(fallback.body.text).not.toMatch(/комисс/i);
+  });
+
+  it("директор видит комиссию; кэш не смешивается в обе стороны", async () => {
+    callAiText.mockResolvedValue({ text: "Утро." });
+    const director = await get(directorToken);
+    expect(director.body.numbers.commissionMonth).toEqual(expect.any(Number));
+    expect(factsOf(0)).toMatch(/комисс/i);
+
+    // директор уже закэшировал вариант с деньгами — руководитель обязан получить свой, без них
+    const manager = await get(managerToken);
+    expect(manager.body.numbers.commissionMonth).toBeNull();
+    expect(factsOf(1)).not.toMatch(/комисс/i);
+    expect(callAiText).toHaveBeenCalledTimes(2);
+
+    resetBriefingCache();
+    callAiText.mockClear();
+    await get(managerToken);
+    const directorAfter = await get(directorToken);
+    expect(directorAfter.body.numbers.commissionMonth).toEqual(expect.any(Number));
+    expect(callAiText).toHaveBeenCalledTimes(2);
   });
 });
