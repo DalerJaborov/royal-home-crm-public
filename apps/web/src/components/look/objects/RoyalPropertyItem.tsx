@@ -87,7 +87,7 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
             </span>
           ))}
         </div>}
-        {overdue && <p className="ry-obj-overdue" data-tone={tone === "crit" ? "crit" : "warn"}>{STAGE_OWNER_LABELS[p.pipeline!.owner ?? ""] ?? p.pipeline!.owner ?? "Этап"} задерживает объект: {p.pipeline!.daysInStage} дн. при сроке {p.pipeline!.limitDays ?? "не задан"}.</p>}
+        {overdue && <p className="ry-obj-overdue" data-tone={pillTone(tone === "crit" ? "overdue" : "today")}>{STAGE_OWNER_LABELS[p.pipeline!.owner ?? ""] ?? p.pipeline!.owner ?? "Этап"} задерживает объект: {p.pipeline!.daysInStage} дн. при сроке {p.pipeline!.limitDays ?? "не задан"}.</p>}
         <div className="ry-obj-foot">
           <span className="ry-obj-agent" title={agentTitle}>
             {agentName ? <RhAvatar name={agentName} size={44} /> : null}

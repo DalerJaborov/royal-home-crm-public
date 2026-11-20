@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { CallIcon, type CallGlyphName } from "./CallIcon";
 import type { PillTone } from "../tileTone";
+import { pillTone } from "../tileTone";
 
 /**
  * СТРОКА ЗВОНКА «НОВОГО ВИДА» (пачка calls, 18.11.2026) — одна разметка на пять
@@ -101,7 +102,7 @@ export function RoyalCallRow({ dir, dirLabel, title, meta, note, flags, action, 
         <div className="ry-call-text">
           <span className="ry-call-title">{title}</span>
           {parts.length > 0 && (
-            <span className="ry-call-meta" data-tone={dir === "missed" ? "crit" : undefined}>
+            <span className="ry-call-meta" data-tone={dir === "missed" ? pillTone("overdue") : undefined}>
               {parts.map((part, i) => (
                 <span key={i} className="ry-call-part">{part}</span>
               ))}

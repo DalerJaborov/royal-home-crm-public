@@ -19,6 +19,7 @@ import { TeamTabs } from "../components/SectionTabs";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalTeamView } from "../components/look/team/RoyalTeamView";
+import { loadView } from "../components/rh2/Rh2ErrorState";
 
 /** Достижения месяца: по одному значку на номинацию, только среди активных с ненулевым результатом.
  *  Комиссия приходит null у смотрящего без finance.view (ночная проверка 24.09.2026, №159/М4) —
@@ -107,10 +108,10 @@ function TeamDesktop() {
   const royal = useRoyalLook();
   const can = useCan();
   const isSupervisor = can("team.viewFull");
-  const { data: team, isLoading: teamLoading, isError: teamError, refetch: refetchTeam } = useTeam(isSupervisor);
+  const { data: team, isLoading: teamLoading, isError: teamError, fetchStatus: teamFetch, refetch: refetchTeam } = useTeam(isSupervisor);
   const { data: stages } = useTeamStages(isSupervisor);
   const stagesById = new Map((stages?.agents ?? []).map((a) => [a.id, a]));
-  const { data: fame, isLoading: fameLoading, isError: fameError, refetch: refetchFame } = useHallOfFame();
+  const { data: fame, isLoading: fameLoading, isError: fameError, fetchStatus: fameFetch, refetch: refetchFame } = useHallOfFame();
   const { data: top } = useTopAgents();
   const canManageAgents = can("agents.manage");
   // Комиссия — отдельное право (ночная проверка 24.09.2026, №159/М4): экран
@@ -255,8 +256,8 @@ function TeamDesktop() {
     return (
       <RoyalTeamView
         supervisor={isSupervisor}
-        fame={{ data: fame, loading: fameLoading, error: fameError, retry: () => void refetchFame() }}
-        team={{ data: team, loading: teamLoading, error: teamError, retry: () => void refetchTeam() }}
+        fame={{ data: fame, view: loadView({ data: fame, isError: fameError, fetchStatus: fameFetch }), retry: () => void refetchFame() }}
+        team={{ data: team, view: loadView({ data: team, isError: teamError, fetchStatus: teamFetch }), retry: () => void refetchTeam() }}
         visible={visible}
         counts={counts}
         online={online}
@@ -508,7 +509,7 @@ function TeamDesktop() {
                 <span className="sk w22" /> Загружаем команду
               </div>
             </div>
-          ) : teamError ? (
+          ) : teamError && !team ? (
             <div className="card tight" style={{ marginTop: 12 }}>
               <div className="state err">
                 <span className="dot crit" /> Команда не загрузилась. Это сбой связи, а не пустой штат.{" "}

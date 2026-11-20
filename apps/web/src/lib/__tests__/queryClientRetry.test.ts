@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTransientFailure, retryDelayFor, shouldRetryQuery } from "../queryClient";
+import { isTransientFailure, retryDelayFor } from "../queryClient";
 import { ApiError } from "../apiError";
 
 /**
@@ -59,28 +59,10 @@ describe("retryDelayFor — потолок паузы перед повторо�
   });
 });
 
-/**
- * К14 (аудит 20.11.2026): «нет сети = вечный скелет». Запрос на паузе (networkMode "online" при `onLine === false`)
- * не ошибка и не загрузка — экран крутит серые плашки без текста. Запросы данных идут в режиме "always", а
- * без связи не повторяются: ошибка и «Повторить» видны сразу.
- */
-describe("запросы данных без сети (К14)", () => {
-  it("общий клиент не ставит запросы на паузу: режим always", async () => {
-    const { queryClient } = await import("../queryClient");
-    expect(queryClient.getDefaultOptions().queries?.networkMode).toBe("always");
-  });
-
-  it("устройство без связи — ни одного повтора (ошибка видна сразу)", () => {
-    expect(shouldRetryQuery(0, new TypeError("Failed to fetch"), false)).toBe(false);
-    expect(shouldRetryQuery(0, new ApiError("", 503, null), false)).toBe(false);
-  });
-
-  it("со связью обрыв и перезапуск сервера повторяются до четырёх раз, 429 — один, остальное никогда", () => {
-    expect(shouldRetryQuery(0, new TypeError("Failed to fetch"), true)).toBe(true);
-    expect(shouldRetryQuery(3, new ApiError("", 502, null), true)).toBe(true);
-    expect(shouldRetryQuery(4, new ApiError("", 502, null), true)).toBe(false);
-    expect(shouldRetryQuery(0, new ApiError("", 429, null), true)).toBe(true);
-    expect(shouldRetryQuery(1, new ApiError("", 429, null), true)).toBe(false);
-    expect(shouldRetryQuery(0, new ApiError("", 404, null), true)).toBe(false);
+describe("окно повторов — одно число (ревью #346)", () => {
+  it("RETRY_WINDOW_MS = сумма пауз 1+2+4+8 с = 15 с", async () => {
+    const { RETRY_WINDOW_MS, QUERY_RETRY_ATTEMPTS } = await import("../queryClient");
+    expect(QUERY_RETRY_ATTEMPTS).toBe(4);
+    expect(RETRY_WINDOW_MS).toBe(15_000);
   });
 });

@@ -5,7 +5,7 @@ import { test, expect, type Page } from "@playwright/test";
  *
  * Ошибка: API «отрубается» целиком (route abort на все запросы данных, кроме входа и оболочки) — на пяти
  * ключевых экранах при ширине 390 за разумное время виден понятный текст и «Повторить»; после «Повторить» при
- * вернувшемся API экран показывает данные. Повторы запросов (4 попытки, ~15 с) входят в ожидание.
+ * вернувшемся API экран показывает данные. Повторы запросов (окно RETRY_WINDOW_MS из lib/queryClient.ts) входят в ожидание.
  * Кадры снимаются, если задана SHOTS_DIR (метка — SHOTS_TAG: before / after).
  */
 /** Понятные слова ошибки: «Не удалось загрузить…», «Не загрузилось», «Нет связи с сервером» (чат — отдельная пачка, у него своя фраза). */
@@ -40,10 +40,10 @@ for (const [label, width, height] of [["m390", 390, 844], ["d1440", 1440, 900]] 
 
     await page.goto("/clients");
     await expect(page.locator(".ry-crow").first()).toBeVisible({ timeout: 30_000 });
-    // «позвонить сейчас» (шаг просрочен) — спокойная пилюля: срок уже виден датой в строке.
+    // «позвонить сейчас» (шаг просрочен) не спокойнее «ответить»: жёлтая (свежая просрочка) или красная (от суток), как дата.
     for (const chip of await page.locator(".ry-crow .ry-crow-step .chip").all()) {
       const text = (await chip.innerText()).trim().toLowerCase();
-      if (text.startsWith("позвонить")) await expect(chip).not.toHaveClass(/\b(warn|crit)\b/);
+      if (text.startsWith("позвонить")) await expect(chip).toHaveClass(/\b(warn|crit)\b/);
     }
     await shot(page, `clients-${label}`);
 
@@ -105,7 +105,8 @@ for (const screen of SCREENS) {
     expect(box && box.x >= 12 && box.x + box.width <= 390 - 12, "текст ошибки прижат к краю экрана").toBe(true);
     await shot(page, `error-${screen.name}-m390`);
 
-    // Связь вернулась — «Повторить» приводит данные.
+    // API вернулся: «Повторить» приводит данные. У экрана с несколькими блоками (главная, финансы) кнопка у каждого блока
+    // своя, поэтому жмём по одной, пока они есть (это про кнопку; без сети данные приходят сами, см. тест «без сети» ниже).
     await restoreApi(page);
     for (let i = 0; i < 12; i++) {
       const button = page.getByRole("button", { name: "Повторить" }).first();
@@ -118,7 +119,7 @@ for (const screen of SCREENS) {
   });
 }
 
-test("без сети 390: переход по меню на клиентов — не вечный скелет, а текст и «Повторить» @tones", async ({ page, context }, testInfo) => {
+test("без сети 390: «Нет связи…», а когда связь вернулась, данные загружаются САМИ, без «Повторить» @tones", async ({ page, context }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "ширины выставляются в десктопном проекте");
   test.setTimeout(150_000);
   await withShell(page);
@@ -131,16 +132,61 @@ test("без сети 390: переход по меню на клиентов �
   await context.setOffline(true);
   // Переход внутри приложения (без загрузки страницы): так и бывает, когда связь пропала посреди работы.
   await page.evaluate(() => { window.history.pushState({}, "", "/clients"); window.dispatchEvent(new PopStateEvent("popstate")); });
-  const retry = page.getByRole("button", { name: /^(Повторить|Обновить)$/ }).first();
-  await expect(retry, "без сети нет «Повторить» (вечный скелет: запрос стоит на паузе)").toBeVisible({ timeout: 60_000 });
-  await expect(page.locator(".ry-skeleton, .sk, [class*='skeleton']").locator("visible=true")).toHaveCount(0, { timeout: 5_000 });
+  await expect(page.getByText("Нет связи").first(), "без сети нет «Нет связи» (вечный скелет: запрос на паузе без слов)").toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/Загрузим, как только она появится/).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Повторить" }).first()).toBeVisible();
+  await expect(page.getByText(/Не удалось загрузить|Карточка не найдена/i)).toHaveCount(0);
   await shot(page, "offline-clients-m390");
+  // Связь вернулась: ни одного нажатия, запрос уходит сам и список появляется.
   await context.setOffline(false);
-  for (let i = 0; i < 8; i++) {
-    const button = page.getByRole("button", { name: /^(Повторить|Обновить)$/ }).first();
-    if (!(await button.isVisible().catch(() => false))) break;
-    await button.click();
-    await page.waitForTimeout(700);
-  }
   await expect(page.locator(".ry-crow").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Нет связи")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Повторить" })).toHaveCount(0);
 });
+
+test("фоновая ошибка при уже загруженных данных не стирает экран 390 @tones", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "ширины выставляются в десктопном проекте");
+  test.setTimeout(150_000);
+  await withShell(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/clients");
+  await expect(page.locator(".ry-crow").first()).toBeVisible({ timeout: 30_000 });
+  const rows = await page.locator(".ry-crow").count();
+  // Данные считаются свежими 30 с (staleTime): ждём, пока запрос «протухнет», тогда возврат во вкладку его обновит.
+  await page.waitForTimeout(31_000);
+  let attempts = 0;
+  await page.route("**/api/v1/**", (route) => {
+    const url = route.request().url();
+    if (SESSION_URL.test(url)) return route.fallback();
+    if (/\/api\/v1\/clients(\?|$)/.test(url)) attempts++;
+    // 404 не повторяется: обновление падает сразу, а данные в кэше остаются.
+    return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "не найдено" }) });
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+  await expect.poll(() => attempts, { message: "возврат во вкладку не перезапросил список (проверка была бы пустой)", timeout: 15_000 }).toBeGreaterThan(0);
+  await page.waitForTimeout(2_000);
+  // Фоновая ошибка не стёрла список и не показала ошибку вместо данных.
+  await expect(page.locator(".ry-crow")).toHaveCount(rows);
+  await expect(page.getByText(ERROR_TEXT)).toHaveCount(0);
+});
+
+for (const [label, width, height] of [["m390", 390, 844], ["d1440", 1440, 900]] as const) {
+  test(`деньги ${label}: сводка месяца не загрузилась — пояснение своей строкой во всю ширину карточки (К16) @tones`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "ширины выставляются в десктопном проекте");
+    test.setTimeout(120_000);
+    await withShell(page);
+    await page.setViewportSize({ width, height });
+    // Падает только сводка месяца: остальное (список расходов) живёт, карточка месяца показывает пояснение.
+    await page.route("**/api/v1/expenses/summary**", (route) => route.abort("connectionrefused"));
+    await page.goto("/finance");
+    const note = page.locator(".cef-feed > .cef-card:first-child > .cef-muted").first();
+    await expect(note, "нет пояснения «Сводка месяца не загрузилась»").toBeVisible({ timeout: 90_000 });
+    // Правило сетки живое (раньше комментарий между селекторами делал его мёртвым): строка занимает все колонки карточки.
+    const column = await note.evaluate((el) => getComputedStyle(el).gridColumnEnd);
+    expect(column).toBe("-1");
+    const card = await page.locator(".cef-feed > .cef-card:first-child").boundingBox();
+    const box = await note.boundingBox();
+    expect(card && box && box.x >= card.x && box.x + box.width <= card.x + card.width + 1, "пояснение вылезло за карточку").toBe(true);
+    await shot(page, `money-summary-error-${label}`);
+  });
+}

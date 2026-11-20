@@ -30,6 +30,10 @@ describe("clientAction: один чип-действие по приоритет
     const c = { ...base, unread: true, nextStep: { nextAction: "позвонить", nextActionDate: "2026-10-05T10:00:00Z" } };
     expect(clientAction(c, NOW, false)?.id).toBe("call-now");
   });
+  it("у «позвонить сейчас» есть срок просрочки в миллисекундах (цвет пилюли нового вида идёт по нему)", () => {
+    const c = { ...base, nextStep: { nextAction: "позвонить", nextActionDate: "2026-10-05T10:00:00Z" } };
+    expect(clientAction(c, NOW, false)?.overdueMs).toBe(NOW - new Date("2026-10-05T10:00:00Z").getTime());
+  });
   it("будущий шаг чипа не даёт", () => {
     const c = { ...base, nextStep: { nextAction: "показ", nextActionDate: "2026-10-07T10:00:00Z" } };
     expect(clientAction(c, NOW, false)).toBeNull();

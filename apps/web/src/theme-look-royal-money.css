@@ -225,7 +225,7 @@
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-head { grid-area: head; margin: 0; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .ry-donut { grid-area: ring; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-legend { grid-area: legend; }
-:root[data-ui-look="royal"] [data-ry-section="money"] /* Пояснение «сводка не загрузилась» — своя строка внизу, только когда оно есть: пустая именованная область «note» оставляла дыру (К16, 16.1). */
+/* Пояснение «сводка не загрузилась» — своя строка внизу, только когда оно есть: пустая именованная область «note» оставляла дыру (К16, 16.1). */
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-muted { grid-area: auto; grid-column: 1 / -1; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend { gap: 8px; font-size: 15px; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend button {

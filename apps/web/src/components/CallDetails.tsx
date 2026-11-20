@@ -15,7 +15,6 @@ import { IconCheck } from "./proto/ProtoIcons";
 import { Rh2Inline } from "./rh2/Rh2Scope";
 import { TranscriptView } from "./TranscriptView";
 import { translationResetFor } from "../lib/callTranslationSync";
-import { scorePillTone } from "./look/tileTone";
 
 /**
  * Разговор целиком: запись, разбор и расшифровка.
@@ -71,9 +70,10 @@ const RETRANSCRIBE_INVALIDATE_KEYS = new Set<string>([
   "interaction-transcript",
 ]);
 
-/** Цвет балла разбора — из общей функции тона (К13, 20.11.2026): хороший — зелёный, остальное спокойно; низкий балл — итог разговора, а не тревога. */
 export function scoreTone(score: number): string {
-  return scorePillTone(score) === "ok" ? "ok" : "mute";
+  if (score >= 70) return "ok";
+  if (score >= 45) return "warn";
+  return "crit";
 }
 
 export function formatCallDuration(seconds: number | null | undefined): string {

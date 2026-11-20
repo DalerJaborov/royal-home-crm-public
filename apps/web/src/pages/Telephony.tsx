@@ -492,7 +492,7 @@ function RoyalLiveCalls({ live }: { live: TelephonyDashboard["live"] }) {
             title={call.clientShortId ? <Link className="ry-call-name" to={`/clients/${call.clientShortId}`}>{name}</Link> : name}
             meta={[call.answered ? `Входящий, принял ${call.answeredByName ?? call.answeredBy ?? "оператор"}` : "Входящий, трубку ещё не сняли"]}
             flags={<RoyalCallFlag tone={pillTone(call.answered ? "good" : "today")}>{call.answered ? "Разговор" : "Ждёт ответа"}</RoyalCallFlag>}
-            action={<span className="ry-call-tick ry-num" data-tone={call.answered ? undefined : "crit"}>{formatLiveSeconds(call.seconds)}</span>}
+            action={<span className="ry-call-tick ry-num" data-tone={call.answered ? undefined : pillTone("today")}>{formatLiveSeconds(call.seconds)}</span>}
           />
         );
       })}
@@ -556,7 +556,7 @@ function QueuePauseCard({ royal = false }: { royal?: boolean }) {
     return (
       <section className="ry-tel-queue" aria-label="Приём звонков">
         <div className="ry-tel-queue-row">
-          <RhCircle icon={paused ? "hourglass" : "headphones"} tone={paused ? "warn" : "ok"} />
+          <RhCircle icon={paused ? "hourglass" : "headphones"} tone={pillTone(paused ? "today" : "good")} />
           <div className="ry-tel-queue-t">
             <b>{paused ? "Вы отошли" : "Вы принимаете звонки"}</b>
             <span>

@@ -374,6 +374,8 @@ export function useMissionControl(enabled = true) {
     isLoading: live.isLoading || zones.isLoading,
     isError: live.isError || zones.isError,
     error: live.error ?? zones.error,
+    /** Любой из двух опросов на паузе (нет связи) — экран говорит «нет связи», а не крутит плашки (общая loadView). */
+    fetchStatus: (live.fetchStatus === "paused" || zones.fetchStatus === "paused" ? "paused" : live.fetchStatus === "fetching" || zones.fetchStatus === "fetching" ? "fetching" : "idle") as "fetching" | "paused" | "idle",
     dataUpdatedAt: Math.max(live.dataUpdatedAt, zones.dataUpdatedAt),
     /** Идёт обновление любого из двух опросов — этим кольцо пульта решает,
      *  дышать ореолу или нет (движение конечно: ровно на время запроса). */

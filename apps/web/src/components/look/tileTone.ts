@@ -38,7 +38,7 @@ export function tileTone(meaning: TileMeaning, value: number | null | undefined)
  *  - `overdue` — реально просрочено или потеряно → красная, без огня: причину называет текст;
  *  - `good` — хороший итог → зелёная;
  *  - ноль, пусто и «нет числа» — всегда спокойно (`neutral`), каким бы ни был смысл.
- * Экраны нового вида красят пилюли, метки и кружки только отсюда — сторож `tones.guard.test.ts`
+ * Экраны нового вида красят пилюли, метки и кружки только отсюда — сторож `pillTone.test.ts`
  * не пропускает буквальный `tone="crit"` и красные/янтарные классы мимо этой функции.
  */
 export type PillTone = "crit" | "warn" | "ok" | "neutral";
@@ -68,12 +68,16 @@ export function pillToneOf(severity: "crit" | "warn" | "ok" | "muted" | "mute" |
   return pillTone("info", count);
 }
 
+/** Шаг клиента просрочен на сутки и больше — красный; свежая просрочка — жёлтая (то же, что «сегодня»). */
+export const CALL_NOW_CRIT_AFTER_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Чип действия в строке клиента (К13, 13.1). «Позвонить сейчас» стоит на каждой строке, где шаг просрочен, и срок
- * уже виден датой рядом («просрочено · …»), поэтому сама пилюля спокойная; янтарные остаются «принять заявку»,
- * «ответить», «первый звонок» (ждут сегодня), красные — только когда заявку никто не принял вовремя.
+ * Чип действия в строке клиента (К13, 13.1; ревью #346). «Позвонить сейчас» — шаг просрочен, и пилюля не может быть
+ * спокойнее «ответить»: цвет идёт по сроку, как дата рядом («просрочено · …»): свежая просрочка жёлтая, от суток
+ * и больше красная. Остальные: «принять заявку», «ответить», «первый звонок» ждут сегодня (жёлтые), красные — только
+ * когда заявку никто не принял вовремя.
  */
-export function clientActionPillTone(action: { id: string; tone: "warn" | "crit" }): PillTone {
-  if (action.id === "call-now") return pillTone("info");
+export function clientActionPillTone(action: { id: string; tone: "warn" | "crit"; overdueMs?: number }): PillTone {
+  if (action.id === "call-now") return pillTone((action.overdueMs ?? 0) >= CALL_NOW_CRIT_AFTER_MS ? "overdue" : "today");
   return pillTone(action.tone === "crit" ? "overdue" : "today");
 }

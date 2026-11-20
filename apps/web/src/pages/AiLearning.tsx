@@ -10,7 +10,7 @@ import { BotTrainer } from "../components/trainer/BotTrainer";
 import { useBotLearning } from "../hooks/useBotLearning";
 import { useBotAuditList } from "../hooks/useBotAudit";
 import { useSettings } from "../hooks/useSettings";
-import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
+import { Rh2ErrorState, Rh2OfflineState, loadView } from "../components/rh2/Rh2ErrorState";
 import { StatTile } from "../components/ui/StatTile";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { ControlRoot } from "../components/look/control/ControlRoot";
@@ -188,9 +188,10 @@ export function AiLearning() {
          * ответов). Сырое число — рядом в скобках, честно, не спрятано.
          */}
         {/* Сводка не пришла — словами и «Повторить», а не вечные «…» в плитках (К14, аудит 20.11.2026). */}
-        {(learning.isError && !data) && (
+        {loadView(learning) === "error" && (
           <Rh2ErrorState message="Не удалось загрузить обучение бота. Проверьте связь и нажмите «Повторить»." onRetry={() => { void learning.refetch(); void audit.refetch(); }} retrying={learning.isFetching} />
         )}
+        {loadView(learning) === "offline" && <Rh2OfflineState onRetry={() => { void learning.refetch(); void audit.refetch(); }} />}
         <div className="tiles">
           <StatTile
             {...(royal ? controlTile("lightbulb", questionsWaiting) : { icon: HelpCircle })}

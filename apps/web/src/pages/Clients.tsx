@@ -1,6 +1,6 @@
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import { glueNumbers } from "../lib/glueNumbers";
-import { Rh2ErrorState, Rh2RetryingNote } from "../components/rh2/Rh2ErrorState";
+import { Rh2ErrorState, Rh2OfflineState, Rh2RetryingNote, loadView } from "../components/rh2/Rh2ErrorState";
 import { useClientRowActions } from "../hooks/useClientRowActions";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientRow, cleanClientColumns } from "../components/clean/CleanClientRow";
@@ -294,7 +294,9 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   };
   // «Прочие обращения» — управленческий раздел: без права сервер ответил бы 403.
   const otherBlocked = isOther && !can("otherInquiries.view");
-  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt, failureCount } = useClients(clientQuery, !otherBlocked);
+  const { data, isLoading, isFetching, error, fetchStatus, refetch, dataUpdatedAt, failureCount } = useClients(clientQuery, !otherBlocked);
+  // Что вместо списка, пока данных нет: «нет связи» (запрос на паузе) или ошибка; есть данные — их не прячем (ревью #346).
+  const loadState = loadView({ data, isError: !!error, fetchStatus });
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...clientQuery, page: 1 }, (filters.page ?? 1) > 1 && !otherBlocked);
   // Мягкая подгрузка вместо страниц (решение владельца 15.09.2026): строки копятся,
@@ -600,7 +602,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
             {[0, 1, 2, 3, 4].map((i) => (
               <Skeleton key={i} kind="row" />
             ))}
-            {/* Первый запрос не прошёл, идут повторы (до ~30 с): сразу сказать словами, а не молча
+            {/* Первый запрос не прошёл, идут повторы (окно `RETRY_WINDOW_MS`, lib/queryClient.ts): сразу сказать словами, а не молча
                 крутить серые полосы (съёмка экранов 20.11). */}
             {failureCount > 0 && <Rh2RetryingNote onRetry={() => void refetch()} />}
           </div>
@@ -609,7 +611,8 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
             обрыв запроса клиентов — скелетоны без конца). `error` появляется только после
             всех повторов запроса (lib/queryClient.ts), а повторные попытки сторожа пустого
             списка показываются на самой кнопке («Пробуем снова…»), а не скелетоном. */}
-        {!!error && !listGuard.broken && (
+        {loadState === "offline" && <Rh2OfflineState onRetry={() => void refetch()} />}
+        {loadState === "error" && !listGuard.broken && (
           <Rh2ErrorState message="Не удалось загрузить клиентов. Проверьте связь и попробуйте ещё раз." onRetry={() => void refetch()} retrying={isFetching} />
         )}
         {listGuard.broken && <EmptyListGuardBanner guard={listGuard} variant="desktop" />}

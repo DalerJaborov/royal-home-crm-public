@@ -18,6 +18,52 @@ import { RefreshCw } from "lucide-react";
  * что именно не загрузилось («Не удалось загрузить звонки. Попробуйте ещё
  * раз.»); формулировка всё равно должна остаться человеческой.
  */
+/**
+ * ЕДИНАЯ ФУНКЦИЯ «ЧТО СЕЙЧАС С ЗАГРУЗКОЙ» (ревью #346): одно место, где решается, что показать вместо данных.
+ *  - есть данные → "ready": их НЕ прячем ни при фоновой ошибке, ни при паузе (человек видит прежнее, а не пустой экран);
+ *  - данных нет, запрос на паузе (устройство без связи, react-query networkMode "online") → "offline":
+ *    «Нет связи. Загрузим, как только она появится» — сам запрос поедет, когда связь вернётся;
+ *  - данных нет, запрос упал → "error": «Не удалось загрузить» + «Повторить»;
+ *  - иначе → "loading" (серые плашки).
+ * Сторож `loadErrorGuard.test.ts` не пускает на экраны нового вида проверку `isError` мимо этой функции.
+ */
+export type LoadView = "ready" | "loading" | "offline" | "error";
+export type LoadQuery = { data: unknown; isError: boolean; fetchStatus: "fetching" | "paused" | "idle" };
+export function loadView(q: LoadQuery): LoadView {
+  if (q.data !== undefined) return "ready";
+  if (q.fetchStatus === "paused") return "offline";
+  if (q.isError) return "error";
+  return "loading";
+}
+
+/** Текст «нет связи»: один на карточку и на блок главной (`RhBlockState kind="offline"`). */
+export const OFFLINE_TEXT = "Нет связи. Загрузим, как только она появится.";
+
+export function Rh2OfflineState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="empty" role="status">
+      <span className="ic">
+        <RefreshCw className="i" aria-hidden />
+      </span>
+      <p>{OFFLINE_TEXT}</p>
+      <button className="pill ghost" type="button" onClick={onRetry}>
+        Повторить
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Карточка вместо данных, когда их нет: «нет связи» или «не удалось загрузить» (иначе null — экран рисует своё).
+ * Вызывать вместо самописного `isError && …`.
+ */
+export function Rh2LoadProblem({ query, message }: { query: LoadQuery & { refetch: () => unknown; isFetching: boolean }; message?: string }) {
+  const view = loadView(query);
+  if (view === "offline") return <Rh2OfflineState onRetry={() => void query.refetch()} />;
+  if (view === "error") return <Rh2ErrorState message={message} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
+  return null;
+}
+
 export function Rh2ErrorState({
   message = "Не удалось загрузить. Проверьте связь и нажмите «Повторить».",
   onRetry,
@@ -41,7 +87,7 @@ export function Rh2ErrorState({
 }
 
 /**
- * Первый запрос не прошёл, идут повторы (до ~15 с): говорим словами, с отступами и сразу даём «Повторить» —
+ * Первый запрос не прошёл, идут повторы (окно `RETRY_WINDOW_MS`, lib/queryClient.ts): говорим словами, с отступами и сразу даём «Повторить» —
  * а не молча крутим серые плашки и не жмём строку к краю карточки (К14, аудит 20.11.2026, кадр 14.2).
  */
 export function Rh2RetryingNote({ onRetry }: { onRetry: () => void }) {

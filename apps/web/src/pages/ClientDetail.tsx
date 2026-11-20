@@ -2,6 +2,7 @@ import { PropertyChoiceList } from "../components/PropertyChoiceList";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
+import { Rh2OfflineState, loadView } from "../components/rh2/Rh2ErrorState";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
 import { usableRouteId } from "../lib/routeId";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
@@ -154,6 +155,7 @@ function ClientDetailCard() {
     isLoading,
     isError,
     error: clientError,
+    fetchStatus: clientFetch,
     refetch: refetchClient,
   } = useClient(id, { pollConversations: chat.open });
   // «Подбор · N» (17.09.2026, docs/match-policy-plan-17-09.md §6) — грузится,
@@ -472,8 +474,19 @@ function ClientDetailCard() {
    * «клиента передали или удалили» и шёл искать его заново вместо того, чтобы
    * обновить страницу. 404 — это и есть «не найдена», а не 500/таймаут.
    */
-  const notFoundError = isError && clientError instanceof ApiError && clientError.status === 404;
-  if (isError && !notFoundError) {
+  const notFoundError = isError && !client && clientError instanceof ApiError && clientError.status === 404;
+  // Нет связи и нет данных: не «карточка не найдена» (запрос на паузе), а «Нет связи» — загрузится сам, когда она вернётся.
+  if (loadView({ data: client, isError, fetchStatus: clientFetch }) === "offline") {
+    return (
+      <Rh2Screen>
+        <div className="card">
+          <Rh2OfflineState onRetry={() => void refetchClient()} />
+        </div>
+      </Rh2Screen>
+    );
+  }
+  // Данные уже есть — фоновая ошибка обновления их НЕ прячет (ревью #346): карточка остаётся на экране.
+  if (isError && !client && !notFoundError) {
     /* Ранние ответы живут в области темы (`Rh2Screen`): прежний `EmptyState`
        со Tailwind-классами рисовался вне `.rh2`, и кнопке приходилось брать
        собственную обёртку. Тексты и действие те же. */
@@ -2171,9 +2184,9 @@ function LiveVoiceCallSheet({ clientId, onClose }: { clientId: string; onClose: 
         />
         <PropertyChoiceList items={pickerOptions} value={propertyId} onChange={setPropertyId}
           emptyLabel="Без объекта" disabled={call.isPending} loading={picker.isLoading || chosen.isLoading}
-          error={picker.isError || chosen.isError}
+          error={(picker.isError && !picker.properties) || (chosen.isError && !chosen.data)}
           onRetry={() => { void picker.refetch(); if (chosenMissing) void chosen.refetch(); }} />
-        {!picker.isFetching && !picker.isError && propertyQ && !pickerList.length && chosen.data && <p role="status">По этому запросу ничего не найдено. Выбранный объект сохранён выше.</p>}
+        {!picker.isFetching && !(picker.isError && !picker.properties) && propertyQ && !pickerList.length && chosen.data && <p role="status">По этому запросу ничего не найдено. Выбранный объект сохранён выше.</p>}
       </div>
       <MutationError mutation={call} variant="rh2" fallback="Робот не смог позвонить. Попробуйте позже." />
     </Rh2Sheet>

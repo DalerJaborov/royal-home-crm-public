@@ -8,7 +8,7 @@ import { useCan, useCanCreateProperty } from "../lib/permissions";
 import { PropertyWizard } from "../components/property-wizard/PropertyWizard";
 import { useProperty } from "../hooks/useProperties";
 import { ApiError } from "../lib/apiError";
-import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
+import { Rh2ErrorState, Rh2OfflineState, loadView } from "../components/rh2/Rh2ErrorState";
 import { useLookAttribute, useRoyalLook } from "../hooks/useRoyalLook";
 import { useWizardRoyalLook } from "../components/look/wizard/useWizardRoyalLook";
 import { RoyalSection, useRoyalSectionName } from "../components/look/clients/RoyalSection";
@@ -138,7 +138,7 @@ export function PropertyEdit() {
 function PropertyEditScreen() {
   const section = useRoyalSectionName();
   const id = usableRouteId(useParams().id);
-  const { data: property, isLoading, isError, error, refetch, isFetching } = useProperty(id);
+  const { data: property, isLoading, isError, error, fetchStatus, refetch, isFetching } = useProperty(id);
   const can = useCan();
   // Запасной путь — карточка того же объекта: человек пришёл править именно её,
   // и при прямом заходе (уведомление, закладка, обновление страницы) шаг назад
@@ -165,8 +165,20 @@ function PropertyEditScreen() {
       </div>
     );
   }
+  // Нет связи (запрос на паузе) — не «объект не найден»: «Нет связи», загрузится сам (ревью #346).
+  if (loadView({ data: property, isError, fetchStatus }) === "offline") {
+    return (
+      <div className={section ? "rh2 screens ry-wiz-edit" : "rh2 screens"} data-ry-section={section}>
+        <div className="scr">
+          <div className="card">
+            <Rh2OfflineState onRetry={() => void refetch()} />
+          </div>
+        </div>
+      </div>
+    );
+  }
   // Обрыв связи или сбой сервера — это не «объект не найден»: словами и с «Повторить» (К14, аудит 20.11.2026).
-  const notFoundLike = isError && error instanceof ApiError && (error.status === 404 || error.status === 403);
+  const notFoundLike = isError && !property && error instanceof ApiError && (error.status === 404 || error.status === 403);
   if (isError && !property && !notFoundLike) {
     return (
       <div className={section ? "rh2 screens ry-wiz-edit" : "rh2 screens"} data-ry-section={section}>

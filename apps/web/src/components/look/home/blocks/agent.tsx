@@ -4,10 +4,11 @@ import { lazyWithReload } from "../../../../lib/lazyWithReload";
 import { useDashboardSummary } from "../../../../hooks/useDashboard";
 import { useClients } from "../../../../hooks/useClients";
 import { buildShowings } from "../../../../lib/agentDay";
-import { RhAvatar, RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
+import { RhAvatar, RhCircle, RhGroup, RhRow, RhSection, RhTile, blockState } from "../../ui";
 import { HomeBars, num } from "../charts";
 import { FullScreenToggle } from "./full";
 import { CallClientButton } from "../../../CallClientButton";
+import { pillTone } from "../../tileTone";
 
 /**
  * ГЛАВНАЯ АГЕНТА — блоки ядра (перенесены из pages/TodayRoyal.tsx, home-core 20.11.2026).
@@ -45,9 +46,10 @@ export function AgentTiles() {
 
 export function AgentPending() {
   const { pendingPage, pending } = usePending();
+  const pendingState = blockState(pendingPage);
   return (
     <RhSection id="ry-agent-pending" title="Ждут принятия" to="/clients" className="ry-col-a">
-      {pendingPage.isPending ? <RhBlockState kind="loading" /> : pendingPage.isError ? <RhBlockState kind="error" onRetry={() => void pendingPage.refetch()} />
+      {pendingState ? pendingState
         : pending.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Новых заявок нет" /></RhGroup>
         : <RhGroup>{pending.slice(0, 6).map((client) => (
           <RhRow key={client.id} to={`/clients/${client.shortId}`} lead={<RhAvatar name={client.fullName} />} title={client.fullName} sub="новая заявка" subTone="warn" />
@@ -59,9 +61,10 @@ export function AgentPending() {
 export function AgentShowings() {
   const { summary, tasks } = useAgentDay();
   const showings = summary.data ? buildShowings(tasks) : [];
+  const showingsState = blockState(summary);
   return (
     <RhSection id="ry-agent-showings" title="Показы сегодня" to="/calendar" linkLabel="Календарь" className="ry-col-b">
-      {summary.isPending ? <RhBlockState kind="loading" /> : summary.isError ? <RhBlockState kind="error" onRetry={() => void summary.refetch()} />
+      {showingsState ? showingsState
         : showings.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="calendar-days" tone="a5" />} title="Показов нет" /></RhGroup>
         : <RhGroup>{showings.slice(0, 6).map((showing) => (
           <RhRow key={showing.id} to={showing.client?.shortId ? `/clients/${showing.client.shortId}` : "/calendar"}
@@ -98,11 +101,11 @@ export function AgentFirstCalls() {
           return (
             <div key={row.id} className="ry-agent-call-row">
               <RhRow to={`/clients/${row.shortId}`}
-                lead={<RhCircle icon={late ? "hourglass" : "phone-call"} tone={late ? "crit" : "warn"} filled={late} />}
+                lead={<RhCircle icon={late ? "hourglass" : "phone-call"} tone={pillTone(late ? "overdue" : "today")} filled={late} />}
                 title={row.fullName}
                 sub={late ? ["срок вышел, позвоните сейчас", row.afterDue].filter(Boolean).join(" · ") : `первый звонок до ${dushanbeTime(row.dueAt)}`}
                 subTone={late ? "crit" : "warn"}
-                right={<span className="ry-row-time" data-tone={late ? "crit" : undefined}>{dushanbeTime(row.dueAt)}</span>} />
+                right={<span className="ry-row-time" data-tone={late ? pillTone("overdue") : undefined}>{dushanbeTime(row.dueAt)}</span>} />
               <CallClientButton clientId={row.id} phone={row.phone} variant="icon" label={`Позвонить: ${row.fullName}`}
                 title="Позвонить через CRM" className="ry-agent-call-btn" stopPropagation={false} />
             </div>

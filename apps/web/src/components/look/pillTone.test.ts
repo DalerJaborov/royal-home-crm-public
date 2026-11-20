@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { clientActionPillTone, pillTone, pillToneOf, scorePillTone, type PillMeaning } from "./tileTone";
+import { CALL_NOW_CRIT_AFTER_MS, clientActionPillTone, pillTone, pillToneOf, scorePillTone, type PillMeaning } from "./tileTone";
 
 /**
  * ТОН ПИЛЮЛИ — ОДНА ФУНКЦИЯ (К13, аудит 20.11.2026): обычное нейтрально, жёлтое — сегодня, красное — просрочено,
@@ -36,8 +36,10 @@ describe("pillTone", () => {
     expect(pillToneOf("crit", 0)).toBe("neutral");
   });
 
-  it("чип действия клиента: «позвонить сейчас» спокойный (срок виден датой), остальные — сегодня, «никто не принял» — красный", () => {
-    expect(clientActionPillTone({ id: "call-now", tone: "warn" })).toBe("neutral");
+  it("чип действия клиента: «позвонить сейчас» не спокойнее «ответить» (по сроку: свежая просрочка жёлтая, от суток красная), «никто не принял» — красный", () => {
+    expect(clientActionPillTone({ id: "call-now", tone: "warn" })).toBe("warn");
+    expect(clientActionPillTone({ id: "call-now", tone: "warn", overdueMs: 3 * 3600_000 })).toBe("warn");
+    expect(clientActionPillTone({ id: "call-now", tone: "warn", overdueMs: CALL_NOW_CRIT_AFTER_MS })).toBe("crit");
     expect(clientActionPillTone({ id: "reply", tone: "warn" })).toBe("warn");
     expect(clientActionPillTone({ id: "first-call", tone: "warn" })).toBe("warn");
     expect(clientActionPillTone({ id: "accept", tone: "warn" })).toBe("warn");
@@ -60,13 +62,31 @@ function tsxFiles(dir: URL, out: string[] = []): string[] {
   return out;
 }
 
-type Leak = { rule: "literal-tone" | "literal-data-tone" | "tailwind-color" | "chip-class"; fragment: string };
+type Leak = { rule: "literal-tone" | "literal-data-tone" | "tailwind-color" | "chip-class" | "circle-tone" | "cond-data-tone" | "tile-tone"; fragment: string };
+
+/** `tone="crit"` или `tone={…"crit"…}` с буквальным тоном-результатом (круг RhCircle и плитка Tile нового вида). */
+const TONE_PROP_LITERAL = /<(RhCircle|Tile|CChip)\b[^>]*?\btone=(?:"(?:crit|warn)"|\{[^}]*\})/g;
+/** `data-tone={…}`: выражение целиком. */
+const DATA_TONE_EXPR = /\bdata-tone=\{([^}]*)\}/g;
 
 /** Нарушения в одном тексте разметки. */
 export function toneLeaks(source: string): Leak[] {
   const leaks: Leak[] = [];
-  // Пилюля с буквальным тоном (строка или строка в фигурных скобках): тон обязан прийти из pillTone()/scorePillTone()/pillToneOf().
+  // Круг и плитка нового вида: красные и жёлтые буквально (в том числе в условии `late ? "crit" : "warn"`) — мимо функции тона.
+  for (const m of source.matchAll(TONE_PROP_LITERAL)) {
+    const expr = m[0].slice(m[0].indexOf("tone="));
+    // Зелёный «всё хорошо» кружок может стоять буквально; красный и жёлтый — только из функции.
+    if (/^tone="(?:crit|warn)"/.test(expr) || /(?<![=!]==?\s*)["'`](?:crit|warn)["'`]/.test(expr)) {
+      leaks.push({ rule: m[1] === "RhCircle" ? "circle-tone" : "tile-tone", fragment: m[0].slice(0, 70) });
+    }
+  }
+  // `data-tone={cond ? "crit" : undefined}` — тон по условию тоже обязан идти через функцию (pillTone("overdue") и т. п.).
+  for (const m of source.matchAll(DATA_TONE_EXPR)) {
+    if (/(?<![=!]==?\s*)["'`](?:crit|warn|ok)["'`]/.test(m[1])) leaks.push({ rule: "cond-data-tone", fragment: m[0].slice(0, 70) });
+  }
+  // Пилюля с буквальным тоном (строка, строка в фигурных скобках или условие): тон обязан прийти из pillTone()/scorePillTone()/pillToneOf().
   for (const m of source.matchAll(/<(?:RoyalCallFlag|HomeChip)\b[^>]*?\btone=(?:"[^"]*"|\{\s*["'`][^"'`]*["'`]\s*\})/g)) leaks.push({ rule: "literal-tone", fragment: m[0].slice(0, 70) });
+  for (const m of source.matchAll(/<(?:RoyalCallFlag|HomeChip)\b[^>]*?\btone=\{[^}]*\?[^}]*["'`](?:crit|warn|ok)["'`][^}]*\}/g)) leaks.push({ rule: "literal-tone", fragment: m[0].slice(0, 70) });
   // Тег, пилюля или метка с буквальным data-tone.
   for (const m of source.matchAll(/<span\b[^>]*\bclassName="[^"]*\b[\w-]*(?:tag|chip|pill|flag)\b[^"]*"[^>]*\bdata-tone="(?:crit|warn|ok)"/g)) leaks.push({ rule: "literal-data-tone", fragment: m[0].slice(0, 70) });
   for (const m of source.matchAll(/\b(?:bg|text|border|ring|fill|stroke|from|to|via)-(?:red|amber|yellow|orange|rose|green|emerald|lime|teal)-\d+/g)) leaks.push({ rule: "tailwind-color", fragment: m[0] });
@@ -86,7 +106,9 @@ describe("сторож: пилюли нового вида красятся то
         // Прежний вид (ветка без royal) красит `chip warn/crit` и цветные классы по-старому: правило про разметку нового вида.
         const inLook = file.includes("/components/look/");
         for (const leak of toneLeaks(readFileSync(file, "utf8"))) {
-          if (!inLook && (leak.rule === "chip-class" || leak.rule === "tailwind-color")) continue;
+          if (!inLook && (leak.rule === "chip-class" || leak.rule === "tailwind-color" || leak.rule === "tile-tone")) continue;
+          // Мобильные списки прежнего вида красят свои плитки по-старому: круг и data-tone по условию — правило нового вида (look и pages).
+          if (file.includes("/components/mobile/") && (leak.rule === "circle-tone" || leak.rule === "cond-data-tone")) continue;
           found.push(`${file.split("/src/")[1]}: ${leak.rule}: ${leak.fragment}`);
         }
       }
@@ -104,6 +126,16 @@ describe("сторож: пилюли нового вида красятся то
     expect(toneLeaks('<b className="bg-red-500 text-white">x</b>')).toHaveLength(1);
     expect(toneLeaks('<span className="chip warn">x</span>')).toHaveLength(1);
     expect(toneLeaks('<span className={"chip crit xs"}>x</span>')).toHaveLength(1);
+    // Круг, плитка, чип и data-tone по условию — мимо функции тона.
+    expect(toneLeaks('<RhCircle icon="flame" tone="crit" />').map((l) => l.rule)).toEqual(["circle-tone"]);
+    expect(toneLeaks('<RhCircle icon={late ? "hourglass" : "phone"} tone={late ? "crit" : "warn"} />').map((l) => l.rule)).toEqual(["circle-tone"]);
+    expect(toneLeaks('<Tile icon="stack" tone="warn" label="x" />').map((l) => l.rule)).toEqual(["tile-tone"]);
+    expect(toneLeaks('<CChip tone={ok ? "ok" : "crit"}>x</CChip>').map((l) => l.rule)).toEqual(["tile-tone"]);
+    expect(toneLeaks('<span data-tone={late ? "crit" : undefined}>x</span>').map((l) => l.rule)).toEqual(["cond-data-tone"]);
+    expect(toneLeaks('<RoyalCallFlag tone={missed ? "crit" : "mute"}>x</RoyalCallFlag>')).toHaveLength(1);
+    // Через функцию, сравнение и «спокойный» кружок — чисто.
+    expect(toneLeaks('<RhCircle icon="x" tone={pillTone(late ? "overdue" : "today")} /><RhCircle tone={state === "ok" ? "ok" : "a0"} />')).toEqual([]);
+    expect(toneLeaks('<span data-tone={late ? pillTone("overdue") : undefined} data-x={state === "crit"}>x</span>')).toEqual([]);
     // Тон из функции — чисто.
     expect(toneLeaks('<RoyalCallFlag tone={pillTone("today")}>x</RoyalCallFlag><HomeChip tone={pillToneOf(flag.tone)}>y</HomeChip>')).toEqual([]);
     expect(toneLeaks('<span className="ry-deal-tag" data-tone={pillTone("info")}>x</span>')).toEqual([]);
