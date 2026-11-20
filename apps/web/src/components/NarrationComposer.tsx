@@ -41,7 +41,7 @@ export function resolveNarrationDraft({ templates, endings = [], facts, value, d
 
 const LANG_LABEL: Record<NarrationLang, string> = { tg: "Тоҷикӣ", ru: "Русский" };
 
-export function NarrationComposer({ templates, endings = [], voices, samples, facts, value, onChange, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript, lastPickedVoiceId, disabled, name, lengthCheck }: {
+export function NarrationComposer({ templates, endings = [], voices, samples, facts, value, onChange, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript, lastPickedVoiceId, recommendedVoiceId, disabled, name, lengthCheck }: {
   templates: NarrationTemplate[];
   endings?: NarrationEnding[];
   voices: Array<{ id: string; name: string; gender?: "male" | "female" }>;
@@ -56,6 +56,8 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
   /** Текст, если агент ещё ничего не трогал (карточка — текст текущей версии). */
   defaultScript?: string | null;
   lastPickedVoiceId?: string | null;
+  /** Голос по умолчанию из Настроек (20.11.2026): подпись «по умолчанию» у плитки. */
+  recommendedVoiceId?: string | null;
   disabled?: boolean;
   name: string;
   /** Укладывается ли текст в ролик (18.11.2026, shared narrationLengthCheck); null — ролика ещё нет. */
@@ -93,7 +95,7 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
           </div>
         )}
         {voices.length > 0
-          ? <VoiceSamplePicker name={name} voices={voices} value={voiceId} samples={samples} lang={lang} disabled={disabled} lastPickedId={lastPickedVoiceId ?? null}
+          ? <VoiceSamplePicker name={name} voices={voices} value={voiceId} samples={samples} lang={lang} disabled={disabled} lastPickedId={lastPickedVoiceId ?? null} recommendedId={recommendedVoiceId ?? null}
               onChange={(id) => onChange({ ...value, voiceId: id })} />
           : <p className="text-base text-[var(--muted)]">Голоса ещё не добавлены. Их добавляет руководство в Настройках → «Озвучка роликов».</p>}
       </div>
@@ -115,7 +117,7 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
         {lengthCheck && <p className={`rounded-xl px-4 py-3 text-base font-semibold ${lengthCheck.fits ? "bg-[var(--ok-bg)] text-[var(--ok)]" : "bg-[var(--crit-bg)] text-[var(--crit)]"}`} role="status">
           {lengthCheck.fits ? "✓ " : ""}{narrationLengthLine(lengthCheck)}</p>}
         <div className="flex flex-wrap items-center justify-between gap-2 text-[15px] text-[var(--muted)]">
-          <span>{edited ? "Текст изменён вами." : "Числа и район подставлены из объекта и звучат словами. Можно поправить."}</span>
+          <span>{edited ? (value.script !== undefined ? "Текст изменён вами." : "Текст этой озвучки, его можно поправить.") : "Числа и район подставлены из объекта и звучат словами. Можно поправить."}</span>
           {edited && !disabled && <button type="button" className="pill min-h-12! text-base! ghost" onClick={() => pickTemplate(templateId)}>Вернуть текст шаблона</button>}
         </div>
       </div>

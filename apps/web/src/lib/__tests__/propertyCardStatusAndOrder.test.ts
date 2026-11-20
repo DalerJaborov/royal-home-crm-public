@@ -51,8 +51,12 @@ describe("карточка объекта: статус, порядок, одн�
       expect(order.every((i) => i >= 0), tags.join(" → ")).toBe(true);
       expect([...order].sort((a, b) => a - b)).toEqual(order);
     };
-    inOrder(["{fieldsBlock}", 'data-testid="property-video-stage"', "{showSolve && viewSolve}", "{dealSlot}", "{changeRequestBlock}", "if (legacyAgentMobile)"]);
-    inOrder(["<PropertyGallery", "<PropertyPriceCard", "{!royal && workBlocks}", 'id="rh-pcard-tabs"', "{royal && workBlocks}", "{royal && narrationBlock}", 'title="Сведения"']);
+    // Озвучка (20.11.2026, владелец: «первым выходит, как будто не часть карточки») — внутри рабочих блоков сразу после
+    // строки «Ролик»; наверху карточки только строка-напоминание, когда озвучка ждёт одобрения этого человека.
+    inOrder(["{fieldsBlock}", 'data-testid="property-video-stage"', "{narrationBlock}", "{showSolve && viewSolve}", "{dealSlot}", "{changeRequestBlock}", "if (legacyAgentMobile)"]);
+    inOrder(["{narrationNudge}", "<PropertyGallery", "<PropertyPriceCard", "{!royal && workBlocks}", 'id="rh-pcard-tabs"', "{royal && workBlocks}", 'title="Сведения"']);
+    expect(view).not.toContain("{!royal && narrationBlock}");
+    expect(view).not.toContain("{royal && narrationBlock}");
   });
 
   it("описание на телефоне уходит за главные блоки, на ПК стоит под фото", () => {
