@@ -227,19 +227,20 @@
   /* Имя и время, плашка и ответственный делят СВОЮ строку (одна клетка, края
      к краям), а не общую колонку: длинное имя агента не сжимает имя клиента. */
   display: grid; grid-template-columns: 44px minmax(0, 1fr) 48px;
-  grid-template-areas: "av top acts" "av req acts" "av foot acts";
+  grid-template-areas: "av top acts" "av req acts" "av when acts" "av foot acts";
   align-items: center; column-gap: 10px; row-gap: 3px; min-width: 0; min-height: 96px; padding: 10px 12px;
   color: var(--rh-ui-text); background: var(--rh-ui-card);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-deleted] { opacity: .72; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-av { grid-area: av; display: grid; place-items: center; width: 44px; height: 44px; text-decoration: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-main {
-  grid-area: top; justify-self: start; display: block; min-width: 0; max-width: calc(100% - 96px);
+  grid-area: top; justify-self: start; display: block; min-width: 0; max-width: 100%;
   color: inherit; text-decoration: none; border-radius: 8px;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page a.ry-crow-main:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-name {
-  display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  /* Имя — до двух строк, не обрезается раньше даты (пачка D1, critic-uiux P1-3). */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; overflow-wrap: anywhere;
   font-size: 17px; font-weight: 600; line-height: 1.25;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page a.ry-crow-main:hover .ry-crow-name { color: var(--rh-ui-primary-ink); }
@@ -264,22 +265,25 @@
    19.11: «нет полные имена»; до 19.11 здесь был только кружок с инициалами). */
 @media (max-width: 390px) {
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] {
-    grid-template-areas: "av top acts" "av req acts" "av foot acts" "av agent acts";
+    grid-template-areas: "av top acts" "av req acts" "av when acts" "av foot acts" "av agent acts";
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent]:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) {
-    grid-template-areas: "av top" "av req" "av foot" "av agent" ". acts";
+    grid-template-areas: "av top" "av req" "av when" "av foot" "av agent" ". acts";
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-step { max-width: 100%; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-agent { grid-area: agent; justify-self: start; max-width: 100%; }
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-when {
-  grid-area: top; justify-self: end; min-width: 0; max-width: 112px; white-space: normal; text-align: right;
+  /* Телефон: одна дата с глаголом своей строкой под запросом — имя получает всю ширину (пачка D1). */
+  grid-area: when; justify-self: start; min-width: 0; max-width: 100%; white-space: normal; text-align: left;
   font-size: 14px; font-variant-numeric: tabular-nums; color: var(--rh-ui-hint);
 }
 /* Есть срок — справа срок и под ним время последнего контакта (до 18.11 контакт прятался:
    это данные, сторож hiddenTextSelectors). */
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-deadline] .ry-crow-when { display: flex; flex-direction: column; align-items: flex-end; gap: 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-deadline] .ry-crow-when { display: block; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-deadline { font-weight: 600; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-when[data-tone="crit"] > * { color: var(--rh-ui-crit-text); font-weight: 600; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-stale { display: block; color: var(--rh-ui-crit-text); font-weight: 600; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-label-phone,
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-label {
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
@@ -304,7 +308,7 @@
 /* Несколько действий (Принять / Отклонить, Восстановить) — четвёртой строкой под данными, не сжимая имя. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) {
   grid-template-columns: 44px minmax(0, 1fr);
-  grid-template-areas: "av top" "av req" "av foot" ". acts";
+  grid-template-areas: "av top" "av req" "av when" "av foot" ". acts";
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) .ry-crow-acts {
   justify-content: flex-start; padding-top: 6px;
@@ -576,27 +580,11 @@
 /* Строка «Не связывались: 4» и «Показать» — кнопка уходит строкой ниже, а не рвёт подпись. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .quiet { flex-wrap: wrap; }
 
-/* Имя клиента на телефоне — во всю ширину строки, сроки — строкой под ним. Прежде колонка
-   двух дат («22.11 02:20 / 20.11 02:20») забирала справа 112 px, и на 320 px от имени
-   оставалось «Сито…», на 390 — «Ситора Наза…». */
-@media (max-width: 430px) {
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow {
-    grid-template-areas: "av top acts" "av when acts" "av req acts" "av foot acts";
-  }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] {
-    grid-template-areas: "av top acts" "av when acts" "av req acts" "av foot acts" "av agent acts";
-  }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent]:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) {
-    grid-template-areas: "av top" "av when" "av req" "av foot" "av agent" ". acts";
-  }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-main { max-width: 100%; }
-  /* Строка «agent» есть в сетке на всём ≤430 — ответственный встаёт в неё и на 391–430
-     (до ревью #328 он получал её только ≤390, и на 414/430 строка стояла пустой). */
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-step { max-width: 100%; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-agent { grid-area: agent; justify-self: start; max-width: 100%; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-when,
-  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-deadline] .ry-crow-when {
-    grid-area: when; justify-self: start; max-width: 100%; text-align: left;
-    display: flex; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 10px;
-  }
+/* «Следующий шаг» под шапкой карточки клиента (пачка D1, 20.11.2026): отдельной поверхностью,
+   сразу под кнопками «Позвонить / Написать», на телефоне и на ПК. */
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="clients"] .scr > .client-next-step {
+  margin: 12px 0; padding: 16px; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="clients"] .scr > .client-next-step b { font-size: 15px; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="clients"] .scr > .client-next-step p { font-size: 16px; color: var(--rh-ui-text, var(--ink)); }

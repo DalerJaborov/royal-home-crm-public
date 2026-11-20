@@ -181,6 +181,53 @@
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br.alt { fill: color-mix(in srgb, var(--rh-ui-primary) 42%, var(--rh-ui-card)); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br[data-negative] { fill: var(--rh-ui-crit); }
 
+/* ============================ главные руководителей (20.11.2026) ============================ */
+
+/* Плита денег: подпись периода слева, переход в «Деньги» справа; сравнение с прошлым месяцем
+   строкой под суммой (стрелка вверх/вниз — значок, а не только цвет). */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-link,
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-mini-link {
+  display: inline-flex; align-items: center; flex: none; min-height: 44px; padding: 6px 14px; border-radius: 999px;
+  background: var(--rh-ui-hero-mini); color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: underline;
+  text-underline-offset: 3px; transition: transform 90ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-link:active,
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-mini-link:active { transform: scale(.97); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-link:focus-visible,
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-mini-link:focus-visible { outline: 3px solid #ffffff; outline-offset: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-trend {
+  display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 16px; font-weight: 600; line-height: 1.35; color: #ffffff;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-trend > span { min-width: 0; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-trend-icon { flex: none; margin-top: 1px; color: var(--rh-ui-tile); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-trend[data-dir="down"] .ry-hero-trend-icon { transform: scaleY(-1); color: #ffd3cf; }
+
+/* Мини-строки плиты: текст с числом — одним абзацем, перенос по словам (не колонками флекса). */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-mini-text { display: inline; min-width: 0; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-minis > span { max-width: 100%; }
+/* Телефон: плита денег во всю ширину, плитки под ней парами; одна лишняя — во всю ширину
+   (считая без плиты: правило полосы выше считает её первой и растягивало вторую из двух). */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-strip="money"] > .ry-hero ~ .ry-tile:last-child:nth-child(odd) { grid-column: auto; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-strip="money"] > .ry-hero ~ .ry-tile:last-child:nth-child(even) { grid-column: 1 / -1; }
+
+/* «Распределение заявок» РОП: имя агента и под ним мелкая строка «сегодня принял N». */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-bar-name { display: grid; gap: 2px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-bar-name > small { font-size: 13px; font-weight: 500; line-height: 1.3; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+
+/* Подпись плитки на 320 px («Пропущенные звонки» в половине ширины) переносится внутри слова
+   с дефисом, а не вылезает за край плитки. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-tile-label { min-width: 0; overflow-wrap: anywhere; hyphens: auto; }
+
+/* Пустой блок — одна спокойная строка: имя блока и «пока нет данных», без карточки с нулями. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quiet {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; min-height: 48px; margin: 0;
+  padding: 12px 18px; border-radius: var(--rh-ui-r-card); box-shadow: inset 0 0 0 1px var(--rh-ui-sep);
+  font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quiet > b { font-weight: 600; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quiet-note { margin: 8px 4px 0; font-size: 14px; line-height: 1.35; color: var(--rh-ui-hint); }
+
 /* ============================ анимация графиков ============================ */
 
 /* Появление графиков (home-core, 20.11.2026; владелец 20.11: «с анимацией графиков»): столбики
@@ -263,6 +310,7 @@
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-blk > .ry-col-a { grid-column: 1; }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-blk > .ry-col-b { grid-column: 2; }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip > .ry-tile:last-child:nth-child(odd of .ry-tile) { grid-column: auto; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-strip="money"] > .ry-hero ~ .ry-tile:last-child:nth-child(even) { grid-column: auto; }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-tiles="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   /* Пять плиток: три сверху, две снизу пошире — без пустой клетки. */
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-tiles="5"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
@@ -279,3 +327,15 @@
   /* Счётчик в капсуле — на верхнем краю круга, не на подписи. */
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-count { top: -8px; right: -4px; }
 }
+
+/* «Позвонить сейчас» на главной агента (пачка D1, 20.11.2026): строка-ссылка в карточку и
+   рядом круглая трубка 48. Кнопка — соседка ссылки, не налезает на неё ни на 320, ни на ПК. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-group > .ry-agent-call-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 12px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-group > .ry-agent-call-row + .ry-agent-call-row { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row > .ry-row { flex: 1 1 auto; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn {
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); cursor: pointer;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn svg { width: 22px; height: 22px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn:disabled { opacity: .6; cursor: default; }

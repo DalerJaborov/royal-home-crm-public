@@ -18,6 +18,7 @@ function rowFloors(p: { type: string; floor?: number | null; totalFloors?: numbe
   return f.label === "Этаж" ? `, ${f.value} этаж` : `, ${f.value}`;
 }
 import type { Property } from "../types";
+import { PropertyPhoto } from "./property/PropertyPhoto";
 
 /**
  * ЧИПЫ СОСТОЯНИЯ МОНТАЖА (25.09.2026, задание D, владелец: «в списке объектов
@@ -159,7 +160,7 @@ export function PropertyRow({
           Есть снимок — он и стоит в рамке (эталон допускает `.ph img`). */}
       <span className="ph">
         {p.photos[0] ? (
-          <img src={p.photos[0].thumbUrl} alt="" loading="lazy" decoding="async" />
+          <PropertyPhoto fill compact sources={[p.photos[0].thumbUrl, p.photos[0].url]} />
         ) : (
           <svg className="i" viewBox="0 0 24 24">
             <path d="M3 11 12 3l9 8v10H3z" />

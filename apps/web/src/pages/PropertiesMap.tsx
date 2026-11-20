@@ -30,6 +30,7 @@ import { useCleanShell } from "../hooks/useCleanShell";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { createLatestRequest } from "../lib/latestRequest";
 import { mapCardFacts } from "../lib/mapCardFacts";
+import { PropertyPhoto } from "../components/property/PropertyPhoto";
 
 // Самая тяжёлая зависимость экрана (MapLibre GL) — грузим только когда карта
 // реально открыта, тем же приёмом, что раньше был у Leaflet в Properties.tsx.
@@ -110,7 +111,7 @@ function MapPropertyCard({
     >
       <div className="map-card-photo">
         {p.coverPhotoUrl ? (
-          <img src={p.coverPhotoUrl} alt="" loading="lazy" />
+          <PropertyPhoto fill compact sources={[p.coverPhotoUrl]} />
         ) : (
           <div className="map-card-nophoto">
             <HomeIcon size={22} color="rgb(var(--rgb-ink) / 0.28)" />
@@ -138,16 +139,14 @@ function MapPropertyCard({
 function MapObjectCard({ p, onOpen, onClose }: { p: MapProperty; onOpen: () => void; onClose: () => void }) {
   const facts = mapCardFacts(p);
   const mobile = useMobileUx();
-  const [photoFailed, setPhotoFailed] = useState(false);
-  useEffect(() => setPhotoFailed(false), [p.id]);
   return (
     <div className="map-obj-card" role="region" aria-label={p.title}>
       <button type="button" className="map-obj-close" aria-label="Закрыть" onClick={onClose}>
         <X size={18} />
       </button>
       <button type="button" className="map-obj-photo" onClick={onOpen} aria-label="Открыть объект">
-        {p.coverPhotoUrl && !photoFailed ? (
-          <img src={p.coverPhotoUrl} alt="" onError={() => setPhotoFailed(true)} />
+        {p.coverPhotoUrl ? (
+          <PropertyPhoto fill sources={[p.coverPhotoUrl]} />
         ) : (
           <span className="map-card-nophoto">
             <HomeIcon size={24} color="rgb(var(--rgb-ink) / 0.28)" />

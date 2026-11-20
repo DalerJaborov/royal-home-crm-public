@@ -10,6 +10,7 @@ import { useCanWriteAds } from "../../hooks/useAds";
 import { AdMaterialsNote, AdPropertyChips } from "./AdPropertyChips";
 import { AdLeadStatsLine, LeadVsMetaNote } from "./AdLeadStatsLine";
 import type { AdSheetTarget } from "./AdPropertiesSheet";
+import { PropertyPhoto } from "../property/PropertyPhoto";
 
 /**
  * СПИСОК ОБЪЯВЛЕНИЙ — что рекламируем, идёт ли оно и сколько стоило.
@@ -217,7 +218,7 @@ function BoardRow({ row, last, onEdit }: { row: AdBoardRow; last: boolean; onEdi
     <div style={last ? undefined : { borderBottom: "1px solid var(--line-soft)" }}>
       <div className="prow wrapt" style={{ borderBottom: 0 }}>
         <span className="ph" aria-hidden>
-          {cover ? <img src={cover} alt="" loading="lazy" /> : <ImageIcon className="i" />}
+          <PropertyPhoto fill compact sources={[cover]} />
         </span>
 
         <div className="t">

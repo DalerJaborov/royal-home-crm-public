@@ -11,7 +11,17 @@ import { enqueueDirectorAlert } from "./directorAlertQueue.js";
  * выдачи сессии (логин / логин+2FA); ошибки здесь не должны ломать вход —
  * всё обёрнуто и логируется, но не пробрасывается.
  */
-export async function recordLogin(req: Request, agent: { id: string; fullName: string }): Promise<void> {
+/**
+ * Текст пуша сотруднику о входе с нового устройства. Агенту — без IP (пачка D1, 20.11.2026):
+ * «IP ::1» ему ничего не говорит и выглядит поломкой. Директору и остальным ролям IP
+ * в их собственном пуше остаётся (ревью #331); в журнале входов он есть всегда.
+ */
+export function newDevicePushBody(label: string, ip: string | null | undefined, role: string | undefined): string {
+  const where = role === "AGENT" || !ip ? label : `${label}, IP ${ip}`;
+  return `В вашу учётку вошли с нового устройства: ${where}. Если это не вы — смените пароль.`;
+}
+
+export async function recordLogin(req: Request, agent: { id: string; fullName: string; role?: string }): Promise<void> {
   try {
     const { label, key } = resolveDeviceKey(req);
     const ip = clientIp(req);
@@ -31,10 +41,10 @@ export async function recordLogin(req: Request, agent: { id: string; fullName: s
 
     if (isNewDevice) {
       const body = `${label}${ip ? `, IP ${ip}` : ""}`;
-      // Самому сотруднику — вдруг это не он.
+      // Самому сотруднику — вдруг это не он. Агенту без IP (newDevicePushBody).
       void sendPushToAgent(agent.id, {
         title: "🔐 Вход с нового устройства",
-        body: `В вашу учётку вошли с нового устройства: ${body}. Если это не вы — смените пароль.`,
+        body: newDevicePushBody(label, ip, agent.role),
         url: "/profile",
         tag: `new-device-${agent.id}`,
       }).catch((err) => console.error("[loginLog] Push агенту не отправлен:", err instanceof Error ? err.message : err));

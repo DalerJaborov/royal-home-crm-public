@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Home } from "lucide-react";
 import { clientIntents, type ClientActivityProperty, type ClientPropertyActivity } from "@royal-home/shared";
 import { useProperties } from "../hooks/useProperties";
 import { useClientPropertyActivity } from "../hooks/useClientPropertyActivity";
 import { formatMoney, PROPERTY_STATUS_LABELS, relativeTime } from "../lib/format";
 import type { Client, Property } from "../types";
 import { ClientShowingActions } from "./ClientShowingActions";
+import { PropertyPhoto } from "./property/PropertyPhoto";
 
 function PropertyLine({ property }: { property: ClientActivityProperty | Property }) {
   const thumb = "thumbUrl" in property ? property.thumbUrl : property.photos?.[0]?.thumbUrl;
   return <Link className="client-property-line" to={`/properties/${property.shortId}`}>
-    {thumb ? <img src={thumb} alt="" loading="lazy" width={72} height={60} /> : <Home aria-hidden="true" size={28} />}
+    <PropertyPhoto compact sources={[thumb]} maxWidth={72} style={{ width: 72, flex: "none", borderRadius: 10 }} />
     <span><b>№{property.shortId} · {property.title}</b>
       <span>{formatMoney(property.price, property.currency)} · {PROPERTY_STATUS_LABELS[property.status as keyof typeof PROPERTY_STATUS_LABELS] ?? property.status}</span>
     </span>

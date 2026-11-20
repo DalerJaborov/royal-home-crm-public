@@ -12,6 +12,7 @@ import { RhButton } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { clientListScope } from "../lib/clientListScope";
+import { royalClientRowText } from "../lib/royalClientRowText";
 const MobileClientsList = lazyWithReload(() => import("../components/mobile/MobileClientsList").then((m) => ({ default: m.MobileClientsList })));
 const MobileInquiries = lazyWithReload(() => import("../components/mobile/MobileInquiries").then((m) => ({ default: m.MobileInquiries })));
 import { useCallback, useEffect, useState } from "react";
@@ -965,13 +966,17 @@ function ClientRow({
   );
 
   const visibleNextStep = !isTrashed && !c.hiddenReason && !pending ? c.nextStep : null;
+  const rowRequest = isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен";
+  // «Новый вид»: имя и якорь порознь по общему правилу (lib/royalClientRowText.ts, ревью PR 331):
+  // склейка «Имя · ищет …» обрезала имя, а сырой fullName терял заглушки и адрес продавца.
+  const royalText = royal ? royalClientRowText(c, rowRequest) : null;
   const cleanRowProps = clean && !inSheet ? {
     id: c.id,
-    name,
+    name: royalText ? royalText.name : name,
     href: isTrashed ? undefined : `/clients/${c.shortId}`,
     avatar: <ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />,
     identity: [formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · "),
-    request: isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен",
+    request: royalText ? royalText.request : rowRequest,
     source: CLIENT_SOURCE_LABELS[c.source] ?? c.source,
     nextAction: canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null),
     nextActionDate: !canAcceptRow && !chip ? visibleNextStep?.nextActionDate : null,

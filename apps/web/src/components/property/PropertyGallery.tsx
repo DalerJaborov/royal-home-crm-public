@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, ImageOff, Images } from "lucide-react";
+import { ChevronLeft, ChevronRight, Images } from "lucide-react";
 import { galleryDots } from "../../lib/galleryDots";
 import { isMotionDisabled } from "../../lib/motionPolicy";
-import type { PropertyPhoto } from "../../types";
+import type { PropertyPhoto as PropertyPhotoItem } from "../../types";
 import { PhotoLightbox } from "../PhotoLightbox";
 import { Button } from "../rh2/Button";
 import { Rh2EmptyState } from "../rh2/Rh2EmptyState";
+import { PropertyPhoto } from "./PropertyPhoto";
 
 /**
  * ГАЛЕРЕЯ КАРТОЧКИ ОБЪЕКТА — одна на ПК и телефон (контракт 06.10.2026, раздел 6).
@@ -25,7 +26,7 @@ import { Rh2EmptyState } from "../rh2/Rh2EmptyState";
  * alt-текстом: в кадрах стенда у объекта была именно такая (review-mobile.md).
  */
 export function PropertyGallery({ photos, thumbs = false }: {
-  photos: PropertyPhoto[];
+  photos: PropertyPhotoItem[];
   /** «Новый вид»: полоса миниатюр под лентой (макет). Те же кадры и тот же переход goTo, что у стрелок. */
   thumbs?: boolean;
 }) {
@@ -33,7 +34,6 @@ export function PropertyGallery({ photos, thumbs = false }: {
   const frame = useRef(0);
   const [index, setIndex] = useState(0);
   const [lightboxAt, setLightboxAt] = useState<number | null>(null);
-  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
   const total = photos.length;
   const current = Math.min(index, Math.max(0, total - 1));
 
@@ -108,20 +108,8 @@ export function PropertyGallery({ photos, thumbs = false }: {
               onClick={() => setLightboxAt(i)}
               aria-label={`Открыть фото ${i + 1} из ${total} во весь экран`}
             >
-              {broken.has(ph.id) ? (
-                <span className="rh-gallery-ph" aria-hidden>
-                  <ImageOff className="i" />
-                </span>
-              ) : (
-                <img
-                  src={near ? ph.url : ph.thumbUrl}
-                  alt=""
-                  loading={i === 0 ? "eager" : "lazy"}
-                  decoding="async"
-                  draggable={false}
-                  onError={() => setBroken((prev) => new Set(prev).add(ph.id))}
-                />
-              )}
+              {/* Битая ссылка — общая заглушка «Фото недоступно» (PropertyPhoto), а не значок без слов. */}
+              <PropertyPhoto fill eager={i === 0} sources={[near ? ph.url : ph.thumbUrl, ph.thumbUrl, ph.url]} />
             </button>
           );
         })}
@@ -172,7 +160,7 @@ export function PropertyGallery({ photos, thumbs = false }: {
       <div className="ry-gal-thumbs" role="group" aria-label="Миниатюры фото">
         {photos.map((ph, i) => (
           <button key={ph.id} type="button" aria-current={i === current} aria-label={`Фото ${i + 1} из ${total}`} onClick={() => goTo(i)}>
-            {broken.has(ph.id) ? <ImageOff className="i" aria-hidden /> : <img src={ph.thumbUrl || ph.url} alt="" loading="lazy" decoding="async" draggable={false} />}
+            <PropertyPhoto fill compact sources={[ph.thumbUrl, ph.url]} />
           </button>
         ))}
       </div>

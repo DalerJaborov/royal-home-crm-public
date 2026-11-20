@@ -30,12 +30,15 @@ export function PropertyOwnerCard({
   property,
   showIntakeShare = false,
   ownerPhoneInField = false,
+  showOwner = true,
 }: {
   property: Property;
   /** Доля принявшего объект — финансовая информация, только при finance.view. */
   showIntakeShare?: boolean;
   /** Номер собственника уже стоит в поле «Телефон собственника» ниже — см. PropertyPeople. */
   ownerPhoneInField?: boolean;
+  /** «Новый вид»: собственник уже стоит в главном блоке карточки рядом с ценой — второй раз не печатаем. */
+  showOwner?: boolean;
 }) {
   const can = useCan();
   const myId = useAuthStore((s) => s.agent?.id);
@@ -105,7 +108,7 @@ export function PropertyOwnerCard({
         </div>
       )}
 
-      <PropertyPeople property={property} showIntakeShare={showIntakeShare} ownerPhoneInField={ownerPhoneInField} />
+      <PropertyPeople property={property} showIntakeShare={showIntakeShare} ownerPhoneInField={ownerPhoneInField} showOwner={showOwner} />
 
       {property.handoverFromAgent && !isPendingForMe && (
         <div className="quiet">

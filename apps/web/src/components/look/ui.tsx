@@ -86,15 +86,22 @@ export function RhSection({ id, title, to, linkLabel = "Все", children, class
   );
 }
 
-/** Плитка с крупной цифрой: `brand` — лайм, `ink` — чёрная (цифра лаймом). */
-export function RhTile({ variant, icon, label, value, unit, to, alert }: {
-  variant: "brand" | "ink" | "plain"; icon: RoyalIconName; label: string; value: ReactNode; unit?: string; to?: string;
+/**
+ * Плитка с крупной цифрой: `brand` — лайм, `ink` — чёрная (цифра лаймом), `plain` — белая;
+ * по смыслу (вариант выдаёт `tileTone()` из ./tileTone): `calm` — ноль, серая;
+ * `crit` — срочное, светло-красная с красной цифрой; `ok` — хороший итог, светло-зелёная.
+ */
+export function RhTile({ variant, icon, label, value, unit, to, alert, note }: {
+  variant: "brand" | "ink" | "plain" | "calm" | "crit" | "ok"; icon: RoyalIconName; label: string; value: ReactNode; unit?: string; to?: string;
   /** Ошибка блока, к которому ведёт плитка: точка-знак, чтобы ошибку ниже сгиба было видно наверху. */
   alert?: boolean;
+  /** Одна короткая строка под цифрой: период или пояснение («сегодня», «дольше всех ждёт 40 мин»). */
+  note?: ReactNode;
 }) {
   const inner = <>
     <span className="ry-tile-label"><RoyalIcon name={icon} size={26} />{label}{alert && <span className="ry-tile-alert" role="img" aria-label="Часть данных не загрузилась" />}</span>
     <span className="ry-tile-value ry-num">{value}{unit && <small>{unit}</small>}</span>
+    {note && <span className="ry-tile-note">{note}</span>}
   </>;
   if (to?.startsWith("#")) return <a href={to} className="ry-tile" data-variant={variant} onClick={scrollToHash(to)}>{inner}</a>;
   if (to) return <Link to={to} className="ry-tile" data-variant={variant}>{inner}</Link>;

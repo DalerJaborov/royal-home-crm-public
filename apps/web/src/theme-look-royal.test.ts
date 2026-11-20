@@ -571,8 +571,8 @@ export const HIDING_ALLOWED = new Set<string>([
   `${R}[data-mobile-ux] .rh2[data-ry-section="clients"] .scr.clean-client-detail .ry-ctab svg`,
   `${R}[data-mobile-ux] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > svg`,
   `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent-av`,
-  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-nophoto-text`,
-  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-nophoto-text`,
+  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .rh-photo-text`,
+  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .rh-photo-text`,
   // Дубли: заголовок экрана на телефоне (он же в шапке; для чтеца остаётся), короткая и
   // длинная подпись вкладки (видна одна из двух), подписи колонок для чтеца и шапка таблицы
   // на телефоне (на ПК — видимая шапка), имя отправителя в пузыре (оно в шапке переписки),

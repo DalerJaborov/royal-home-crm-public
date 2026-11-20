@@ -1261,6 +1261,44 @@ function CompanyDaysOffBlock() {
   );
 }
 
+/**
+ * НАЧАЛО РАБОЧЕГО ДНЯ СОТРУДНИКОВ (20.11.2026) — отдельно от часов раздачи заявок выше.
+ * С этого часа главная руководителя помечает агента «сегодня не заходил» (только в его
+ * рабочий день: выходные компании и личные выходные не в счёт). Сохраняется сразу.
+ */
+function WorkdayStartBlock() {
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings({ silent: true });
+  const [value, setValue] = useState("");
+  const [saved, setSaved] = useState(false);
+  useServerSyncedFields(settings && { start: settings.workdayStart ?? "09:30" }, { start: [value, setValue] });
+  async function save(next: string) {
+    setValue(next);
+    setSaved(false);
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(next) || next === (settings?.workdayStart ?? "09:30")) return;
+    await updateSettings.mutateAsync({ workdayStart: next });
+    setSaved(true);
+  }
+  return (
+    <div className="mod">
+      <div className="t">
+        <b>Начало рабочего дня</b>
+        <span>
+          С этого часа на главной руководителя агент без единого дела и без захода в CRM помечается «сегодня не
+          заходил». В выходные компании и в личные выходные агента пометки нет. На раздачу заявок не влияет.
+        </span>
+      </div>
+      <div className="acts">
+        <span className="nf">
+          <input type="time" value={value} onChange={(e) => void save(e.target.value)} aria-label="Начало рабочего дня" style={{ width: 112 }}
+            disabled={!settings || updateSettings.isPending} />
+        </span>
+        {saved && <span className="saved on">Сохранено</span>}
+      </div>
+    </div>
+  );
+}
+
 export function LeadDistributionSection() {
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
@@ -1408,6 +1446,7 @@ export function LeadDistributionSection() {
       </form>
 
       <CompanyDaysOffBlock />
+      <WorkdayStartBlock />
     </section>
   );
 }

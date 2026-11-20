@@ -3433,9 +3433,9 @@
     },
     {
      "k": "do",
-     "t": "const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRol…",
+     "t": "const overdueTasksAgentWhere = overdueTasksOfAgentsWhere(now, [id], visibleInteractionWhere(investigationView…",
      "a": [
-      "зовёт overdueTasksWhere()"
+      "зовёт overdueTasksOfAgentsWhere()"
      ],
      "c": []
     },

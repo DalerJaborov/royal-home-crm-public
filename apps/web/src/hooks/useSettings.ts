@@ -568,6 +568,9 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
    * это влияет только на то, когда новый лид уходит агенту. */
   workHoursStart: string;
   workHoursEnd: string;
+  /** Начало рабочего дня сотрудников, "HH:MM" по Душанбе (20.11.2026) — с него главная
+   *  руководителя помечает «сегодня не заходил»; не окно раздачи заявок. */
+  workdayStart?: string;
   /** Общие выходные компании (11.10.2026), 0 — воскресенье … 6 — суббота. Пусто — выходных нет. */
   companyDaysOff?: number[];
   /** Ответ бота клиенту вне рабочих часов. */
