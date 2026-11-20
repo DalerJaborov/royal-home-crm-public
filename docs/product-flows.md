@@ -220,11 +220,11 @@
     - если !found
       - continue;
         · переходит к следующему
-    - row.leadStats = leadStatsOf( toCents(row.period.spendTjs), found.total, row.period.conversations );
+    - row.leadStats = leadStatsOf( toCents(row.period.spendTjs), found.total, row.period.conversations, { seesCompa…
       · зовёт leadStatsOf()
     - для каждого: const p of row.properties
       - если counts
-        - p.leadStats = leadStatsOf(toCents(p.spendTjs), counts, p.conversations, { shares: true });
+        - p.leadStats = leadStatsOf(toCents(p.spendTjs), counts, p.conversations, { shares: true, seesCompanyMoney });
           · зовёт leadStatsOf()
   - totalLeadStats = leadStatsOf( rows.reduce((acc, r)
     · зовёт leadStatsOf()
@@ -427,7 +427,7 @@
     · ответ 400 — «Неверный период: несуществующая календарная дата»
 - const report = await buildAdSpendReport({ from: period.from, to: period.to });
   · зовёт buildAdSpendReport()
-- res.json({ ...report, label: period.label, ...freshness });
+- res.json({ ...report, rows, label: period.label, ...freshness });
   · ответ 200
 
 ### POST /api/v1/ads/sync
@@ -14657,7 +14657,9 @@
 
 - const range = parseReportRange(req.query);
   · зовёт parseReportRange()
-- res.json({ ...range, funnel: await buildFunnelReport(range, reportViewer(req)) });
+- const [funnel, cohort] = await Promise.all([buildFunnelReport(range, viewer), buildFunnelCohort(range, viewer…
+  · зовёт buildFunnelReport()
+- res.json({ ...range, funnel, cohort });
   · ответ 200
 
 ### GET /api/v1/reports/hot-properties

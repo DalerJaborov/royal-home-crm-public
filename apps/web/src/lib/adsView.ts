@@ -245,7 +245,7 @@ export function describeLeadStats(stats: AdLeadStats | null | undefined, spendTj
   const funnel = [
     stats.showings > 0 ? `до показа ${formatLeadCount(stats.showings)}` : null,
     stats.deals > 0 ? `${stats.deals} ${pluralizeRu(stats.deals, ["сделка", "сделки", "сделок"])}` : null,
-    stats.commissionTjs > 0 ? `комиссия ${formatMoneyExact(stats.commissionTjs, "TJS")}` : null,
+    stats.commissionTjs != null && stats.commissionTjs > 0 ? `комиссия ${formatMoneyExact(stats.commissionTjs, "TJS")}` : null,
   ]
     .filter(Boolean)
     .join(" · ");

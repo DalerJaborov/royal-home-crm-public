@@ -24,13 +24,24 @@ export interface FunnelStage {
   commission?: number | null;
 }
 
+/**
+ * Путь заявок периода (GET /reports/funnel → cohort, 20.11.2026): заявки,
+ * пришедшие за период, и сколько из них дошло до шага или дальше. Шаг не больше
+ * предыдущего. Нет поля — старый сервер, экран рисует прежнюю воронку событий.
+ */
+export interface FunnelCohortStage {
+  key: "leads" | "contacted" | "showings" | "negotiations" | "deals";
+  label: string;
+  count: number;
+}
+
 export function useFunnelReport(range: { from?: string; to?: string }, enabled = true) {
   const params = new URLSearchParams();
   if (range.from) params.set("from", range.from);
   if (range.to) params.set("to", range.to);
   return useQuery({
     queryKey: ["report-funnel", range],
-    queryFn: () => api<{ from: string; to: string; funnel: FunnelStage[] }>(`/reports/funnel?${params}`),
+    queryFn: () => api<{ from: string; to: string; funnel: FunnelStage[]; cohort?: FunnelCohortStage[] }>(`/reports/funnel?${params}`),
     enabled,
     // Данные месячные: глобальный опрос раз в 25 секунд гонял бы тяжёлый
     // запрос впустую на каждой открытой вкладке.
