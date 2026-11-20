@@ -11,6 +11,22 @@ import type { Page, Route } from "@playwright/test";
  */
 const now = Date.now();
 const ago = (min: number) => new Date(now - min * 60_000).toISOString();
+/**
+ * Подмена поверх настоящего ответа. Страница могла закрыться или уйти на другой адрес, пока
+ * ответ шёл (конец теста, переход): тогда «Response has been disposed» — это не поломка вида,
+ * а гонка самой подмены, и она не должна ронять сторож.
+ */
+function patch(edit: (body: Record<string, unknown>, route: Route) => Record<string, unknown>) {
+  return async (route: Route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    try {
+      const response = await route.fetch();
+      const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+      if (!body || typeof body !== "object") return await route.fulfill({ response });
+      await route.fulfill({ response, json: edit(body, route) });
+    } catch { /* страница уже закрыта или ушла дальше */ }
+  };
+}
 const json = (body: unknown) => (route: Route) => route.request().method() === "GET" ? route.fulfill({ json: body }) : route.fallback();
 
 export const LOOK_CONVERSATION_ID = "look-fix-c1";
@@ -58,32 +74,21 @@ export async function stubLookVisualData(page: Page, opts: { look?: boolean } = 
   // настройка «тёмная/светлая» иначе подменила бы обе темы одной.
   await page.addInitScript(() => { try { localStorage.removeItem("royal-home-ui"); } catch { /* приватный режим */ } });
   // Тема, сохранённая в учётке на сервере (GET /me → preferences.theme), тоже уступает системе.
-  await page.route((u) => u.pathname === "/api/v1/me", async (route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    const response = await route.fetch();
-    const body = await response.json().catch(() => null) as { preferences?: Record<string, unknown> } | null;
-    if (!body || typeof body !== "object") return route.fulfill({ response });
-    const preferences = body.preferences && typeof body.preferences === "object" ? { ...body.preferences } : body.preferences;
+  await page.route((u) => u.pathname === "/api/v1/me", patch((body) => {
+    const preferences = body.preferences && typeof body.preferences === "object" ? { ...(body.preferences as Record<string, unknown>) } : body.preferences;
     if (preferences && typeof preferences === "object") delete (preferences as Record<string, unknown>).theme;
-    await route.fulfill({ response, json: { ...body, preferences } });
-  });
+    return { ...body, preferences };
+  }));
   await page.route("**/api/v1/ui-shell", (route) => route.request().method() === "GET"
     ? route.fulfill({ json: look ? { enabled: true, look: "royal" } : { enabled: true }, headers: { "cache-control": "no-store" } })
     : route.fallback());
   // Черновик объекта: рядом с «+ Объект» встаёт «Продолжить черновик».
   await page.route((u) => u.pathname === "/api/v1/properties/drafts/current", json({ revision: 1, draft: { values: { title: "Черновик" }, media: [] } }));
   // Каталог: живые объекты стенда, но «Найдено: 117», «Ждут проверки: 2» и «Этап просрочен у 4».
-  await page.route((u) => u.pathname === "/api/v1/properties", async (route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    const response = await route.fetch();
-    const body = await response.json();
-    const pending = new URL(route.request().url()).searchParams.get("status") === "PENDING_REVIEW";
-    await route.fulfill({ response, json: { ...body, total: pending ? 2 : 117 } });
-  });
-  await page.route((u) => u.pathname === "/api/v1/properties/summary", async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({ response, json: { ...(await response.json()), overduePipelineCount: 4 } });
-  });
+  await page.route((u) => u.pathname === "/api/v1/properties", patch((body, route) => ({
+    ...body, total: new URL(route.request().url()).searchParams.get("status") === "PENDING_REVIEW" ? 2 : 117,
+  })));
+  await page.route((u) => u.pathname === "/api/v1/properties/summary", patch((body) => ({ ...body, overduePipelineCount: 4 })));
   await page.route((u) => u.pathname === "/api/v1/ads/board", json(adsBoard));
   await page.route((u) => u.pathname === "/api/v1/clients/look-fix-client/seller-object", json(null));
   await page.route((u) => u.pathname === `/api/v1/conversations/${LOOK_CONVERSATION_ID}` || u.pathname.startsWith("/api/v1/conversations/groups/"), json(conversation));
