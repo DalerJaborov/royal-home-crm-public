@@ -930,6 +930,7 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
                 " с личного телефона"
               )}{" "}
               или дождитесь его сообщения.
+              {replyChannel === "WHATSAPP" && " В WhatsApp можно также отправить первое сообщение кнопкой «Написать в WhatsApp» в карточке клиента: она шлёт заранее одобренный текст."}
             </span>
           </div>
         )}

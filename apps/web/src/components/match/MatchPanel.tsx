@@ -299,7 +299,7 @@ function ClientMatchPanel({
         <label>Объекты <select className="inp" aria-label="Ответственный за объекты" value={scope} disabled={source === "catalog"} onChange={event => { setScope(event.target.value as "all" | "mine"); setPage(1); }}>
           <option value="all">Вся база</option><option value="mine">Только мои</option>
         </select></label>
-        <button type="button" className="lnk" onClick={() => { setSource(source === "match" ? "catalog" : "match"); setExpanded(source === "match"); }}>{source === "match" ? "Показать все объекты" : "Вернуться к подбору"}</button>
+        <button type="button" className="lnk" onClick={() => { setSource(source === "match" ? "catalog" : "match"); setExpanded(source === "match"); }}>{source === "match" ? "Посмотреть каталог (свободные)" : "Вернуться к подбору"}</button>
       </div>
       {source === "match" && <>
         {matchQuery.data && <p className="client-match-count">Показано {visibleItems.length} из {total}{scope === "mine" ? " среди моих объектов" : ""}. Сначала самые подходящие.</p>}
@@ -402,7 +402,7 @@ function ClientMatchPanel({
       </div>}
       {!activeQuery.isLoading && !activeQuery.isError && items.length === 0 && <div className="empty">
         <p>{matchQuery.data?.reason === "not_buyer" && source === "match" ? "Подбор доступен только подтверждённому покупателю." : matchQuery.data?.reason === "closed" && source === "match" ? "Клиент уже купил — подбор ему не нужен." : "Подходящих объектов пока нет. Уточните требования или посмотрите каталог."}</p>
-        {source === "match" && <button type="button" className="pill ghost" onClick={() => { setSource("catalog"); setExpanded(true); }}>Посмотреть каталог</button>}
+        {source === "match" && <button type="button" className="pill ghost" onClick={() => { setSource("catalog"); setExpanded(true); }}>Посмотреть каталог (свободные)</button>}
       </div>}
       {!readOnly && failure && (failure.fallback ? <div className="client-match-preview">
         <h3>Отправка подборки · {failure.fallback.links.length}</h3>

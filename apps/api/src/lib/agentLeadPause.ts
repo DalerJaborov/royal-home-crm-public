@@ -36,11 +36,11 @@ export interface StartPauseInput {
 }
 
 export async function startLeadPause(input: StartPauseInput): Promise<{ released: number }> {
-  const toRelease = await findUnacceptedLeadsOfAgent(input.agentId, "Пауза приёма лидов", { keepOwnProperty: true });
+  const toRelease = await findUnacceptedLeadsOfAgent(input.agentId, "Пауза приёма заявок", { keepOwnProperty: true });
   const reason = input.reason?.trim() || null;
   const why = input.bySupervisor
-    ? `Руководитель ${input.actor.fullName} поставил агенту паузу приёма лидов${reason ? `: «${reason}»` : ""} — лид возвращён в очередь`
-    : "Агент включил паузу приёма лидов — непринятый лид возвращён в очередь";
+    ? `Руководитель ${input.actor.fullName} поставил агенту паузу приёма заявок${reason ? `: «${reason}»` : ""} — заявка возвращена в очередь`
+    : "Агент включил паузу приёма заявок — непринятая заявка возвращена в очередь";
 
   let released: ReleasableLead[] = [];
   await prisma.$transaction(async (tx) => {

@@ -82,9 +82,9 @@ describe("acceptLead — двойной клик", () => {
 
     const reloaded = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
     expect(reloaded.acceptedAt).not.toBeNull();
-    // Записей «Лид принят агентом» — ровно одна, не по одной на каждый клик.
+    // Записей «Заявка принята агентом» — ровно одна, не по одной на каждый клик.
     const accepts = await prisma.interaction.count({
-      where: { clientId: client.id, notes: "Лид принят агентом — контакты открыты" },
+      where: { clientId: client.id, notes: "Заявка принята агентом — контакты открыты" },
     });
     expect(accepts).toBe(1);
   });

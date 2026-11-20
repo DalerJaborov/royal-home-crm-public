@@ -100,9 +100,9 @@ export function RoyalScoreCard() {
   return (
     <section className="card">
       <div className="sec-h stack">
-        <h2>Мои баллы</h2>
+        <h2>Мой Royal Score</h2>
         <span className="note">
-          в компании {data.companyRank} из {data.totalCompanyAgents}, среди активных {data.rank} из {data.totalAgents}
+          рейтинг агента по работе с клиентами: в компании {data.companyRank} из {data.totalCompanyAgents}, среди активных {data.rank} из {data.totalAgents}
         </span>
       </div>
 

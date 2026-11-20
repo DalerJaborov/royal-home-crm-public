@@ -1486,7 +1486,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
    */
   const staffMatch = await findStaffPhone([input.phone, input.whatsappPhone]);
   if (staffMatch) {
-    void logSystemError("api", `Лид из канала (${input.source}) на номер сотрудника не заведён: ${staffPhoneError(staffMatch)}`, {
+    void logSystemError("api", `Заявка из канала (${input.source}) на номер сотрудника не заведена: ${staffPhoneError(staffMatch)}`, {
       dedupKey: `staff-phone-lead:${staffMatch.agentId}`,
     });
     throw new StaffPhoneLeadError(staffMatch);
@@ -1672,7 +1672,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
         const changed = await changeClientAgent({
           clientId: created.id,
           toAgentId: agentId,
-          reason: `Лид создан автоматически: ${label}`,
+          reason: `Заявка создана автоматически: ${label}`,
           source: "intake.createNewChannelLead",
           tx,
           skipInteraction: true,
@@ -1687,7 +1687,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
           clientId: updated.id,
           actor: { kind: "system", source: "intake-new-channel-lead", subjectAgentId: agentId },
           type: "SYSTEM",
-          notes: `Лид создан автоматически: ${label}`,
+          notes: `Заявка создана автоматически: ${label}`,
           tx,
         });
         if (ownedPending) {
@@ -1831,7 +1831,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
       const changed = await changeClientAgent({
         clientId,
         toAgentId: agentId,
-        reason: "Лид назначен по очереди — проверка на дубль закрыта (разные люди)",
+        reason: "Заявка назначена по очереди — проверка на дубль закрыта (разные люди)",
         source: "intake.assignHeldLead",
         tx,
         skipInteraction: true,
@@ -1843,7 +1843,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
         clientId,
         actor: { kind: "system", source: "intake-held-lead", subjectAgentId: agentId },
         type: "SYSTEM",
-        notes: "Лид назначен по очереди — проверка на дубль закрыта (разные люди)",
+        notes: "Заявка назначена по очереди — проверка на дубль закрыта (разные люди)",
         tx,
       });
       return true;

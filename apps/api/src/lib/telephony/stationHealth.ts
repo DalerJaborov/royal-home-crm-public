@@ -283,6 +283,22 @@ export function consultantDialplanCheck(consultantWanted: boolean, status: Conte
  * не только записью в журнале.
  */
 export const LIVE_VOICE_APP_CHECK = "Робот: приложение на станции";
+
+/**
+ * Проверка «настройки телефонии не отошли от рабочих». Имя — КЛЮЧ: по нему лежат снимок здоровья («Телефония: <имя>») и ключ
+ * тревоги, а на экране «Интеграции» оно читается как есть. Переименована 20.11.2026 («рабочий эталон» — слово разработчика);
+ * строка старого снимка удаляется кодом, иначе красная запись жила бы на экране вечно, ни с чем не сверяясь.
+ */
+export const BASELINE_CHECK_NAME = "Настройки звонков";
+export const LEGACY_BASELINE_CHECK_NAMES = ["Настройки телефонии: рабочий эталон"] as const;
+
+/** Удаляет снимки здоровья под прежними именами проверки (вызывается на каждом обходе; пустая выборка ничего не стоит). */
+export async function dropLegacyHealthSnapshots(): Promise<number> {
+  const { count } = await prisma.integrationHealthSnapshot.deleteMany({
+    where: { name: { in: LEGACY_BASELINE_CHECK_NAMES.map((n) => `Телефония: ${n}`) } },
+  });
+  return count;
+}
 export const LIVE_VOICE_PAUSE_CHECK = "Робот: пауза";
 
 export interface LiveVoiceAppStatus {
@@ -886,7 +902,7 @@ export async function runStationHealthTick(now: Date = new Date()): Promise<Stat
     const drift = await collectBaselineDrift(amiCreds ?? null);
     if (drift.length > 0) {
       checks.push({
-        name: "Настройки телефонии изменились",
+        name: BASELINE_CHECK_NAME,
         ok: false,
         detail: describeDrift(drift),
         cls: "config",
@@ -907,6 +923,7 @@ export async function runStationHealthTick(now: Date = new Date()): Promise<Stat
   const networkDown = checks.some((c) => c.cls === "network" && c.ok === false);
   const networkConfirmed = recordNetworkFailure(networkDown);
 
+  await dropLegacyHealthSnapshots().catch(() => 0);
   for (const check of checks) {
     // Снимок — на тот же экран, что и остальные внешние доступы (IntegrationHealthSnapshot,
     // /integrations, "Здоровье системы"): один механизм на все интеграции, а не третий свой.

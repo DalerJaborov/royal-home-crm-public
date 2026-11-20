@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ClientSource } from "@royal-home/shared";
-import { reportDateRangeError } from "@royal-home/shared";
+import { pluralizeRu, reportDateRangeError } from "@royal-home/shared";
+
+/** «3 заявки», «5 заявок»: число с правильным окончанием (аудит 20.11.2026, К03). */
+const requests = (n: number) => `${n} ${pluralizeRu(n, ["заявка", "заявки", "заявок"])}`;
 import { useCan } from "../lib/permissions";
 import {
   useSourcesReport,
@@ -402,7 +405,7 @@ function SourcesScreen() {
             <div className="sec" id="donut-section">
               <div className="sec-h">
                 <h2>Откуда приходят</h2>
-                <span className="note">{nums(leadsTotal)} заявок за период</span>
+                <span className="note">{requests(leadsTotal)} за период</span>
               </div>
               <div className="card tight">
                 {donutRows.length === 0 ? (
@@ -418,7 +421,7 @@ function SourcesScreen() {
                       key: s.source,
                       label: label(s.source),
                       value: s.total,
-                      quantity: `${s.total} заявок, ${Math.round((s.total / leadsTotal) * 100)} %`,
+                      quantity: `${requests(s.total)}, ${Math.round((s.total / leadsTotal) * 100)} %`,
                     }))}
                   />
                 )}
@@ -467,7 +470,7 @@ function SourcesScreen() {
                         <div className="t">
                           <b>{label(s.source)}</b>
                           <span>
-                            {s.wrote ? `${s.wrote} обращений` : "обращений не считаем"}, {s.total} заявок, {s.closed}{" "}
+                            {s.wrote ? `${s.wrote} обращений` : "обращений не считаем"}, {requests(s.total)}, {s.closed}{" "}
                             сделок
                           </span>
                         </div>
@@ -692,7 +695,7 @@ function ChannelCostSection({
                     {c.anomalyLeadsDown ? (
                       <span
                         className="chip warn"
-                        title={`Сегодня ${c.leadsToday} заявок при среднем ${c.leadsTrailing7Avg} в день за 7 дней, заметное падение`}
+                        title={`Сегодня ${requests(c.leadsToday)} при среднем ${c.leadsTrailing7Avg} в день за 7 дней, заметное падение`}
                       >
                         {c.leadsToday} к {c.leadsTrailing7Avg}
                       </span>
@@ -713,7 +716,7 @@ function ChannelCostSection({
                 <div className="t">
                   <b>{c.label}</b>
                   <span>
-                    {c.leadsMonth} заявок, {c.showingsMonth} показов, {c.dealsClosedMonth} сделок
+                    {requests(c.leadsMonth)}, {c.showingsMonth} показов, {c.dealsClosedMonth} сделок
                     {seesMoney && c.spendMonthTjs != null ? `, расход ${nums(c.spendMonthTjs)}` : ""}
                   </span>
                 </div>
@@ -774,8 +777,8 @@ function LostSection({
         {worst?.topReason && (
           <div className="quiet warn" style={{ marginTop: 12 }}>
             <span className="txt">
-              В канале «{worst.label}» чаще всего теряем по причине «{worst.topReason}»: {worst.lost} заявок из{" "}
-              {worst.totalLeads}.
+              В канале «{worst.label}» чаще всего теряем по причине «{worst.topReason}»: потеряно {worst.lost} из{" "}
+              {requests(worst.totalLeads)}.
             </span>
           </div>
         )}

@@ -417,7 +417,7 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
 
   if (nextAgentId) {
     void sendPushToAgent(nextAgentId, {
-      title: isHot ? `🔥 Горячий клиент передан вам` : `🤝 Отказная заявка передан вам`,
+      title: isHot ? `🔥 Горячий клиент передан вам` : `🤝 Отказная заявка передана вам`,
       body: `${client.fullName}: ${reasonLabel}${comment?.trim() ? ` — ${comment.trim().slice(0, 80)}` : ""}`,
       url: `/clients/${client.shortId}`,
       tag: `refusal-${client.id}`,

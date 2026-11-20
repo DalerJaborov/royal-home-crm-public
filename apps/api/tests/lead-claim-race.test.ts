@@ -85,7 +85,7 @@ describe("захват лида при приёме", () => {
     await acceptLead({ clientId: id, agentId: agentA });
     const again = await acceptLead({ clientId: id, agentId: agentA });
     expect(again.ok).toBe(true);
-    expect(await prisma.interaction.count({ where: { clientId: id, notes: { contains: "Лид принят агентом" } } })).toBe(1);
+    expect(await prisma.interaction.count({ where: { clientId: id, notes: { contains: "Заявка принята агентом" } } })).toBe(1);
   });
 });
 

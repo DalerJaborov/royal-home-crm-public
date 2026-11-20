@@ -1106,7 +1106,7 @@ async function askAgentToCallBack(
   // сказал «утром» — задача на начало рабочего дня, без ночного пуша (Б9).
   const due = await callbackDue(call, target.agentDaysOff);
   const reroute = opts.stranger
-    ? " Новый звонящий: консультант обещал звонок агента, а лид ещё никому не ушёл."
+    ? " Новый звонящий: консультант обещал звонок агента, а заявка ещё никому не ушла."
     : target.source === "named" && client.assignedAgentId !== target.agentId
       ? " Звонок обещан агентом объекта, который назвал консультант."
       : target.source === "duty" || target.source === "management"

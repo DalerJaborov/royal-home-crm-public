@@ -947,7 +947,7 @@ function TransferPairs({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
       note={data ? `за ${data.windowDays} дней` : undefined}
       hint={
         data
-          ? `Какие пары чаще всего передают клиентов друг другу. Если пара повторилась ${data.frequentThreshold} раза и больше, она отмечена: стоит спросить, что происходит.`
+          ? `Какие пары чаще всего передают клиентов друг другу. Если пара повторилась ${data.frequentThreshold} раза и больше, она отмечена. Нужно ли присмотреться, решает руководитель.`
           : undefined
       }
     >

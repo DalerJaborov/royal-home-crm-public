@@ -69,9 +69,9 @@ async function loadRecentObjections(): Promise<string[]> {
 function summarizeFunnel(funnel: MarketingFunnelResult): string {
   return funnel.channels
     .map((c) => {
-      const money = c.spendMonthTjs != null ? `, расход ${Math.round(c.spendMonthTjs)} с., цена лида ${c.costPerLeadTjs ?? "—"} с.` : "";
+      const money = c.spendMonthTjs != null ? `, расход ${Math.round(c.spendMonthTjs)} с., цена заявки ${c.costPerLeadTjs ?? "—"} с.` : "";
       const anomaly = c.anomalyLeadsDown ? " [СЕГОДНЯ ЗАМЕТНЫЙ СПАД]" : "";
-      return `${c.label}: лидов за месяц ${c.leadsMonth}, показов ${c.showingsMonth}, сделок ${c.dealsClosedMonth}${money}${anomaly}`;
+      return `${c.label}: заявок за месяц ${c.leadsMonth}, показов ${c.showingsMonth}, сделок ${c.dealsClosedMonth}${money}${anomaly}`;
     })
     .join("\n");
 }
@@ -81,7 +81,7 @@ function summarizeLost(rows: { label: string; lost: number; totalLeads: number; 
   return rows
     .map(
       (r) =>
-        `${r.label}: потеряно ${r.lost} из ${r.totalLeads} лидов${r.lostShare != null ? ` (${r.lostShare}%)` : ""}` +
+        `${r.label}: потеряно ${r.lost} из ${r.totalLeads} заявок${r.lostShare != null ? ` (${r.lostShare}%)` : ""}` +
         (r.topReason ? `, чаще всего: ${r.topReason}` : "")
     )
     .join("\n");
@@ -171,7 +171,7 @@ export async function buildMarketingInsights(seesMoney: boolean, force = false):
         "Ты маркетинговый директор агентства недвижимости Royal Home в Душанбе. Тебе присылают уже готовый срез " +
         "цифр за период — воронку по каналам, где теряют клиентов, где сейчас копится очередь без ответа, и " +
         "дословные возражения клиентов из разговоров. Твоя работа — увидеть связь между этими кусками, которую " +
-        "человек не увидит, глядя на каждый отдельно (например: канал даёт много лидов, но именно на нём больше " +
+        "человек не увидит, глядя на каждый отдельно (например: канал даёт много заявок, но именно на нём больше " +
         "всего потерь с одной и той же причиной — значит дело не в канале, а в том, как его обрабатывают).\n\n" +
         "Ответь:\n" +
         "1) headline — одна фраза, самое важное за период, что нужно увидеть в первую секунду;\n" +

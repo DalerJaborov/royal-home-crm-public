@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { GEMINI_VOICES, voiceGenderLabel } from "@royal-home/shared";
+import { GEMINI_VOICES, TELEPHONY_OPTIONS, voiceGenderLabel } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { dushanbeDate, dushanbeDayKey, dushanbeTime, dushanbeTodayKey } from "../../lib/date";
 import { MessengerAccounts } from "./MessengerAccounts";
@@ -1649,23 +1649,7 @@ function PublishWindowFields() {
 }
 
 /** Куда станция звонит сотруднику перед соединением с клиентом. */
-const AGENT_DIAL_MODES = [
-  {
-    value: "auto",
-    title: "Сам выберет (рекомендуется)",
-    hint: "Аппарат сотрудника на связи — звоним на него бесплатно; выключен — на мобильный.",
-  },
-  {
-    value: "mobile",
-    title: "На мобильный сотрудника",
-    hint: "Ничего устанавливать не нужно. Оплачиваются два плеча: до сотрудника и до клиента.",
-  },
-  {
-    value: "extension",
-    title: "На внутренний номер (софтфон)",
-    hint: "Плечо до сотрудника бесплатное. Нужен софтфон на телефоне или IP-аппарат на столе.",
-  },
-] as const;
+const AGENT_DIAL_MODES = TELEPHONY_OPTIONS.asteriskAgentDialMode; // подписи — в packages/shared/src/telephonyOptions.ts, их же читает текст сервера
 
 function AgentDialModeSetting() {
   const { data: settings } = useSettings();
@@ -3168,18 +3152,7 @@ function AudioUploadRow({
  * нет намеренно — режим задаётся самим номером, иначе появилось бы состояние
  * «режим включён, номера нет», в котором звонок уходит в тишину.
  */
-const PRIMARY_TARGETS = [
-  {
-    value: "queue",
-    title: "Операторам в очередь",
-    hint: "Как было с запуска телефонии: звонок звонит у операторов на приёме.",
-  },
-  {
-    value: "extension",
-    title: "Прямо на SIP-аппарат",
-    hint: "Звонок идёт только на указанный внутренний номер — например, на софтфон в телефоне. Операторы при этом не звонят вовсе.",
-  },
-] as const;
+const PRIMARY_TARGETS = TELEPHONY_OPTIONS.incomingPrimaryTarget;
 
 function PrimaryTargetSetting() {
   const { data: settings } = useSettings();
@@ -3248,28 +3221,7 @@ function PrimaryTargetSetting() {
   );
 }
 
-const NO_ANSWER_ACTIONS = [
-  {
-    value: "none",
-    title: "Ничего не делать",
-    hint: "Клиент слышит гудки, пока не положит трубку сам или пока его сеть не сбросит звонок (обычно через 30–60 секунд).",
-  },
-  {
-    value: "forward",
-    title: "Позвонить дежурному",
-    hint: "Станция переводит звонок на номер ниже. Клиент почти всегда с кем-то поговорит; плечо платное.",
-  },
-  {
-    value: "voicemail",
-    title: "Предложить оставить сообщение",
-    hint: "CRM расшифрует сообщение, заведёт карточку и поставит задачу перезвонить. Бесплатно.",
-  },
-  {
-    value: "both",
-    title: "Дежурному, потом сообщение",
-    hint: "Сначала звонок дежурному, если и он не взял — запись сообщения. Максимум шансов не потерять клиента.",
-  },
-] as const;
+const NO_ANSWER_ACTIONS = TELEPHONY_OPTIONS.incomingNoAnswerAction;
 
 function NoAnswerRuleSetting() {
   const { data: settings } = useSettings();
@@ -3470,32 +3422,7 @@ function RouteToAgentSetting() {
  * — по календарной ротации списка ниже (lib/telephony/dutyRosterRouting.ts).
  * "ivr_menu" — единственный, кому диалплан правда нужен (DTMF-меню).
  */
-const ROUTING_MODES = [
-  {
-    value: "assigned_then_forward",
-    title: "Как сейчас: своему агенту, потом дежурному",
-    hint: "Работает прямо сейчас. Известного клиента станция уводит его агенту (настройка выше), незнакомого — по правилу «если оператор не ответил».",
-    live: true,
-  },
-  {
-    value: "kpi_queue",
-    title: "Очередь по KPI",
-    hint: "Незнакомый звонок и клиент без агента уходят лучшему свободному по Royal Score — тем же переводом, что известному клиенту. Отдельной настройки станции не требует.",
-    live: true,
-  },
-  {
-    value: "dedicated_operator",
-    title: "Дежурный по очереди",
-    hint: "Лёгкая версия вместо удалённой 18.08.2026 роли оператора — без рабочего места и отдельных прав, просто список ниже. Кто дежурит сегодня, выбирается по календарному дню. Отдельной настройки станции не требует.",
-    live: true,
-  },
-  {
-    value: "ivr_menu",
-    title: "Голосовое меню (IVR)",
-    hint: "«Нажмите 1 для продажи, 2 для покупки…». Нужна отдельная настройка станции.",
-    live: false,
-  },
-] as const;
+const ROUTING_MODES = TELEPHONY_OPTIONS.incomingRoutingMode.map((o) => ({ ...o, live: o.value !== "ivr_menu" }));
 
 function RoutingModeSetting() {
   const { data: settings } = useSettings();

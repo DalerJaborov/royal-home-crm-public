@@ -3258,7 +3258,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(400, \"Лиды получают только агенты и руководитель продаж\");",
+         "t": "return fail(400, \"Заявки получают только агенты и руководитель продаж\");",
          "a": [
           "дословно из кода"
          ],
@@ -3288,7 +3288,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(409, \"Сотрудник уже заморожен — лиды ему и так не идут\");",
+         "t": "return fail(409, \"Сотрудник уже заморожен — заявки ему и так не идут\");",
          "a": [
           "дословно из кода"
          ],
@@ -64103,7 +64103,7 @@
           },
           {
            "k": "do",
-           "t": "const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : \"Лид\";",
+           "t": "const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : \"Заявка\";",
            "a": [
             "зовёт clientNamePhoneSafe()"
            ],
@@ -100074,7 +100074,7 @@
             },
             {
              "k": "do",
-             "t": "const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: \"Лид назначен утренней…",
+             "t": "const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: \"Заявка назначена утре…",
              "a": [
               "зовёт changeClientAgent()"
              ],
@@ -101072,7 +101072,7 @@
                 },
                 {
                  "k": "do",
-                 "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Заявка по объекту не принят вовремя\", body: `${lead…",
+                 "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Заявка по объекту не принята вовремя\", body: `${lea…",
                  "a": [
                   "зовёт notifyFeedOnly()"
                  ],
@@ -115766,7 +115766,7 @@
            "c": [
             {
              "k": "do",
-             "t": "checks.push({ name: \"Настройки телефонии изменились\", ok: false, detail: describeDrift(drift), cls: \"config\",…",
+             "t": "checks.push({ name: BASELINE_CHECK_NAME, ok: false, detail: describeDrift(drift), cls: \"config\", });",
              "a": [
               "дословно из кода"
              ],
@@ -115790,6 +115790,14 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "await dropLegacyHealthSnapshots().catch(()",
+         "a": [
+          "зовёт dropLegacyHealthSnapshots()"
+         ],
+         "c": []
         },
         {
          "k": "loop",

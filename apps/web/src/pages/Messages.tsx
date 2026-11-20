@@ -2010,6 +2010,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               " с личного телефона"
             )}{" "}
             или дождитесь его сообщения.
+            {(isGroupedEntry ? replySource?.channel : conversation?.channel) === "WHATSAPP" && " В WhatsApp можно также отправить первое сообщение кнопкой «Написать в WhatsApp» в карточке клиента: она шлёт заранее одобренный текст."}
           </span>
         </div>
       )}

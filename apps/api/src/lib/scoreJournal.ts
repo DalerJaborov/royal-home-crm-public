@@ -352,7 +352,7 @@ export const CATEGORY_OF: Partial<Record<ActiveScoreEventKind, RoyalScoreCategor
  * фронте показывается ровно это, а не отдельно придуманная копия.
  */
 export const EVENT_LABELS: Partial<Record<ActiveScoreEventKind, string>> = {
-  lead_accepted: "Принял лид",
+  lead_accepted: "Принял заявку",
   call_on_time: "Позвонил вовремя",
   card_filled: "Карточка клиента полностью заполнена",
   showing_done: "Показ проведён, итог заполнен",

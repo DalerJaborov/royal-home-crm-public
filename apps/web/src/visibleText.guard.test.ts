@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { baselineOnMain } from "./baselineVsMain";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,8 +20,8 @@ import baseline from "./visibleText.baseline.json";
 type Kind = "emoji" | "caps" | "codes";
 type Counts = Record<Kind, Record<string, number>>;
 
-/** Значки-картинки (смайлы, символы, предупреждающие знаки). Галочки ✓ ✗ и стрелки — текстовые знаки, их не считаем. */
-export const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}\u{2705}\u{274C}\u{2753}\u{2757}\u{FE0F}]/u;
+/** Значки-картинки (смайлы, символы, предупреждающие знаки). Галочки ✓ ✗ и стрелки — текстовые знаки, их не считаем; ✔ ✨ ⭐ ⏸ ⏰ ❤ ‼ считаем. */
+export const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{2712}\u{2714}-\u{2716}\u{2718}-\u{27BF}\u{23E9}-\u{23FA}\u{2B50}-\u{2B55}\u{203C}\u{2049}\u{FE0F}]/u;
 /** Слово заглавными кириллицей, 5 букв и больше (латинские имена вида AGENT, FAILED — это коды, не текст). */
 export const SHOUTING = /(?<![\p{L}_])[А-ЯЁ]{5,}(?![\p{L}_])/u;
 
@@ -73,7 +73,7 @@ function walk(dir: string, out: string[] = []): string[] {
     const full = path.join(dir, name);
     if (name === "node_modules" || name === "generated") continue;
     if (statSync(full).isDirectory()) walk(full, out);
-    else if (/\.tsx$/.test(full) && !/\.(test|spec)\.tsx$/.test(full)) out.push(full);
+    else if (/\.tsx?$/.test(full) && !/\.d\.ts$/.test(full) && !/\.(test|spec)\.tsx?$/.test(full)) out.push(full);
   }
   return out;
 }
@@ -116,13 +116,9 @@ describe("видимые тексты: без эмодзи, крика загл�
   });
 
   it("список исключений не вырос по сравнению с origin/main", () => {
-    let main: Counts | null = null;
-    try {
-      const raw = execSync("git show origin/main:apps/web/src/visibleText.baseline.json", { cwd: srcDir, stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 }).toString();
-      main = JSON.parse(raw) as Counts;
-    } catch {
-      main = null; // нет git, нет origin/main или файла ещё нет на главной ветке: сверять не с чем
-    }
+    const res = baselineOnMain<Counts>("apps/web/src/visibleText.baseline.json", srcDir);
+    expect(res.ok ? "" : res.why).toBe("");
+    const main = res.ok ? res.main : null;
     if (!main) return;
     const grew: string[] = [];
     for (const kind of ["emoji", "caps", "codes"] as Kind[]) {

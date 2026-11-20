@@ -25,7 +25,6 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
   leads: [
     { title: "Свой объект: свой клиент", aliases: ["Распределение клиентов"] },
     { title: "Занятость агента в раздаче" }, { title: "Передача как признак конфликта" },
-    { title: "Лимит активных заявок", aliases: ["Лимиты агентов"] },
     { title: "Уведомления", aliases: ["Напоминания о показах"] },
     { title: "Когда агент уходит из компании" }, { title: "Реактивация старых клиентов" },
   ],
@@ -80,6 +79,12 @@ export function settingsSectionsFor(tab: SettingsTabId, role?: string) {
   return SETTINGS_SECTIONS[tab].filter((section) => !section.directorOnly || role === "DIRECTOR");
 }
 
+/**
+ * Поиск по настройкам понимает старое слово: «лиды», «лидов» находят то же, что «заявки», «заявок» (владелец 20.11.2026: слово
+ * «лид» из экранов убрано, но привычка осталась). И запрос, и текст приводятся к одной основе «заявк».
+ */
+// Без «взгляда назад» (Safari до 16.4 его не понимает): начало слова ловим группой и возвращаем её обратно.
+const OLD_WORD = new RegExp("(^|[^а-яё])ли" + "д(?:а|у|ом|е|ы|ов|ам|ами|ах)?(?![а-яё])", "g");
 export function normalizeSettingsSearch(text: string) {
-  return text.toLocaleLowerCase("ru").replace(/ё/g, "е");
+  return text.toLocaleLowerCase("ru").replace(/ё/g, "е").replace(OLD_WORD, "$1заявк").replace(/заявок/g, "заявк");
 }

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -13,11 +13,12 @@ import baseline from "./noLeadWord.baseline.json";
  *     текст. Файлы, где оно ещё осталось (настройки, финансы, отчёты, источники — разделы других веток), перечислены в
  *     `noLeadWord.baseline.json` с числом строк. Список только убывает: новый файл или лишняя строка краснят; исправили —
  *     уменьшите число или уберите запись (устаревшая запись тоже краснит).
- *  2. Сервер: поля `title:` / `body:` / `message:` / `error:` / `label:` в `apps/api/src` — те же правила и тот же список (ключи
- *     `api/…`); маршруты, приём заявок и уведомления первого звонка в списке быть не могут.
+ *  2. Сервер: каждая строка кода в `apps/api/src` (кроме консольных логов и сравнений со старым текстом), в том числе строки
+ *     многострочных шаблонов, — те же правила и тот же список (ключи `api/…`); маршруты, приём заявок и уведомления первого
+ *     звонка в списке быть не могут.
  */
-/** Поля, в которых сервер кладёт текст для людей: заголовок и тело уведомления, сообщение и ошибка ответа, подпись. */
-const SERVER_TEXT_FIELD = /(?<![.\w])(title|body|message|error|label)\s*:/;
+/** Строки сервера, которые не показываются людям: журнал консоли и сравнения со старым текстом в базе (`contains`, регулярки). Всё остальное в `apps/api/src` — текст для людей, в том числе многострочные шаблоны. */
+const SERVER_NOT_TEXT = /console\.(error|warn|log)|contains\s*:|startsWith|endsWith|\bre:|\.test\(|\.match\(/;
 const WORD = /(?<![а-яёa-z])[Лл]ид(?:а|у|ом|е|ы|ов|ам|ами|ах)?(?![а-яёa-z])/u;
 
 function walk(dir: string, accept: (file: string) => boolean, out: string[] = []): string[] {
@@ -68,10 +69,17 @@ describe("слово «лид» в текстах для сотрудников"
     }
     const apiSrc = path.resolve(srcDir, "../../api/src");
     for (const file of walk(apiSrc, (f) => f.endsWith(".ts") && !f.endsWith(".d.ts"))) {
-      const hits = codeLines(readFileSync(file, "utf8")).filter((l) => WORD.test(l.text) && SERVER_TEXT_FIELD.test(l.text) && !/(contains|startsWith|endsWith)\s*:/.test(l.text)).length;
+      const hits = codeLines(readFileSync(file, "utf8")).filter((l) => WORD.test(l.text) && !SERVER_NOT_TEXT.test(l.text)).length;
       if (hits) out[`api/${path.relative(apiSrc, file).split(path.sep).join("/")}`] = hits;
     }
     return out;
+  }
+  if (process.env.UPDATE_LEAD_WORD_BASELINE) {
+    it("обновляет список исключений", () => {
+      const sorted = Object.fromEntries(Object.entries(found()).sort(([a], [b]) => a.localeCompare(b)));
+      writeFileSync(path.join(srcDir, "noLeadWord.baseline.json"), JSON.stringify(sorted, null, 1) + "\n");
+    });
+    return;
   }
   it("новых файлов и новых строк со словом нет, список исключений только убывает", () => {
     const now = found();
