@@ -34,6 +34,8 @@ interface ViewSlots {
   trashedNotice: ReactNode; addressNotice: ReactNode; lockedNotice: ReactNode;
   /** Озвучка наверху карточки (18.11.2026): тот же блок, что на ПК, без своей копии. */
   narrationBlock?: ReactNode;
+  /** «Озвучка ждёт вашего одобрения» — ссылка к блоку озвучки ниже (ревью #334). */
+  narrationNudge?: ReactNode;
   reelsBlock: ReactNode; promotionBlock: ReactNode; shareOpensBlock: ReactNode;
   matchDialog: ReactNode; deleteDialog: ReactNode; requestDeleteDialog: ReactNode;
 }
@@ -77,7 +79,7 @@ export function LegacyAgentPropertyView({ property, can, updateProperty, isTrash
           />
           {slots.addressNotice}
           {slots.lockedNotice}
-          {slots.narrationBlock}
+          {slots.narrationNudge}
           <MobilePropertyHero photos={photos} />
           {/* Фото на телефоне правятся на месте (пункт 17 разбора): сетка-редактор
               появляется только по «Изменить фото» и уходит по «Готово» — в
@@ -123,6 +125,8 @@ export function LegacyAgentPropertyView({ property, can, updateProperty, isTrash
 
           {showSolve && viewSolve}
           {dealSlot}
+          {/* Озвучка ролика — после фото, цены и «что решить», а не первой (20.11.2026, владелец). */}
+          {slots.narrationBlock}
 
           {/* Порядок на телефоне (24.09.2026): фото → цена → параметры → что решить
               → кто ведёт и описание → ролик, статистика, история. Раньше «Кто ведёт

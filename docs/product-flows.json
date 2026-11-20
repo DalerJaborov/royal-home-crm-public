@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 783,
-  "forks": 4180,
+  "endpoints": 784,
+  "forks": 4182,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -49586,6 +49586,80 @@
     {
      "k": "do",
      "t": "res.json({ rows, deliveryRows, sent: false });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/narration/remix-retry",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/remix-retry",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const access = await narrationAccessForAgent(req.agent!.id, p.id);",
+     "a": [
+      "зовёт narrationAccessForAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!access",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Повторить может тот, кто ведёт объект, или руководство\" });",
+       "a": [
+        "ответ 403 — «Повторить может тот, кто ведёт объект, или руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const outcome = await retryNarrationRemix(p.id, access.agentId);",
+     "a": [
+      "зовёт retryNarrationRemix()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "outcome === \"NOTHING_TO_RETRY\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Повторять нечего: озвучка уже наложена или ошибка другая. Обновите карт…",
+       "a": [
+        "ответ 409 — «Повторять нечего: озвучка уже наложена или ошибка другая. Обновите…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, message: \"CRM попробует наложить озвучку ещё раз в течение минуты.\" });",
      "a": [
       "ответ 200"
      ],

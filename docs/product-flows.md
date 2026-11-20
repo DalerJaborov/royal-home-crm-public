@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **783**. Развилок в самих путях: **2491**; вместе с задачами по расписанию и фоновыми заданиями — **4180**. Модулей: **88**.
+Путей: **784**. Развилок в самих путях: **2493**; вместе с задачами по расписанию и фоновыми заданиями — **4182**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -11213,6 +11213,23 @@
 - const [rows, deliveryRows] = await Promise.all([ preparePublicationMetadataPreview(p.id), listPriceCaptionDel…
   · зовёт preparePublicationMetadataPreview()
 - res.json({ rows, deliveryRows, sent: false });
+  · ответ 200
+
+### POST /api/v1/properties/:id/narration/remix-retry
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- const access = await narrationAccessForAgent(req.agent!.id, p.id);
+  · зовёт narrationAccessForAgent()
+- если !access
+  - return res.status(403).json({ error: "Повторить может тот, кто ведёт объект, или руководство" });
+    · ответ 403 — «Повторить может тот, кто ведёт объект, или руководство»
+- const outcome = await retryNarrationRemix(p.id, access.agentId);
+  · зовёт retryNarrationRemix()
+- если outcome === "NOTHING_TO_RETRY"
+  - return res.status(409).json({ error: "Повторять нечего: озвучка уже наложена или ошибка другая. Обновите карт…
+    · ответ 409 — «Повторять нечего: озвучка уже наложена или ошибка другая. Обновите…»
+- res.json({ ok: true, message: "CRM попробует наложить озвучку ещё раз в течение минуты." });
   · ответ 200
 
 ### GET /api/v1/properties/:id/narration
