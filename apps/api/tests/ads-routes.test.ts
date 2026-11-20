@@ -637,6 +637,6 @@ describe("Живые данные кабинета (Graph замокан)", () =
     const full = await get("/api/v1/ads/insights?month=2026-08&force=1", adminToken);
     expect(full.status).toBe(200);
     expect(full.body.text).toContain("Разбор");
-    expect(vi.mocked(adInsightsModule.buildAdInsights)).toHaveBeenLastCalledWith("2026-08", true);
+    expect(vi.mocked(adInsightsModule.buildAdInsights)).toHaveBeenLastCalledWith("2026-08", true, { seesCompanyMoney: true });
   });
 });
