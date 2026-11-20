@@ -247,8 +247,10 @@ export function compare(files, baseline) {
 /**
  * «БАЗА ТОЛЬКО УБЫВАЕТ» — проверка, а не обещание (ревью #337): база ветки сверяется с базой
  * `origin/main`. Новый ключ или выросшее число — красное. На main базы нет — значит, она пустая.
- * Рост объявляется вслух: строкой `Look-Audit-Base-Growth: <причина>` в сообщении коммита ветки
- * (облачная проверка ship меток PR не видит) или локально LOOK_AUDIT_BASE_GROWTH=1.
+ * Рост объявляется вслух ПО ФАЙЛУ: строкой в сообщении коммита ветки (облачная проверка ship
+ * меток PR не видит)
+ *   Look-Audit-Base-Growth: apps/web/src/theme-look-royal-money.css — причина
+ * Рост в файле, который не назван, — красное; объявленный рост печатается (виден в выводе ship).
  */
 export function baselineGrowth(current, main) {
   const grown = [];
@@ -256,14 +258,31 @@ export function baselineGrowth(current, main) {
     const before = main.files?.[file]?.counts ?? {};
     for (const [key, n] of Object.entries(entry.counts ?? {})) {
       const was = before[key] ?? 0;
-      if (n > was) grown.push(`${file}  ${key}  (${was} -> ${n})`);
+      if (n > was) grown.push({ file, key, was, now: n });
     }
   }
   return grown;
 }
 
-export function commitsDeclareGrowth(log) {
-  return /^Look-Audit-Base-Growth:[ \t]*\S/m.test(log ?? "");
+/** Объявления роста из сообщений коммитов: файл → причина. Без причины объявление не считается. */
+export function declaredGrowth(log) {
+  const out = new Map();
+  for (const m of (log ?? "").matchAll(/^Look-Audit-Base-Growth:[ \t]*(\S+)[ \t]+(?:—|–|-)[ \t]*(\S.*)$/gm)) out.set(m[1].replace(/\\/g, "/"), m[2].trim());
+  return out;
+}
+
+/** Рост, разложенный на объявленный (с причиной) и необъявленный. Файл можно назвать путём или именем. */
+export function splitGrowth(growth, declared) {
+  const reasonOf = (file) => {
+    for (const [name, reason] of declared) if (file === name || file.endsWith(`/${name}`)) return reason;
+    return null;
+  };
+  const allowed = []; const undeclared = [];
+  for (const g of growth) {
+    const reason = reasonOf(g.file);
+    (reason ? allowed : undeclared).push({ ...g, reason });
+  }
+  return { allowed, undeclared };
 }
 
 function git(args) {
@@ -303,14 +322,18 @@ function main() {
   const mainText = git(["show", "origin/main:.look-audit-baseline.json"]);
   const mainBase = mainText ? JSON.parse(mainText) : { files: {} };
   const growth = baselineGrowth(baseline, mainBase);
-  const declared = process.env.LOOK_AUDIT_BASE_GROWTH === "1" || commitsDeclareGrowth(git(["log", "--format=%B", "origin/main..HEAD"]));
-  if (growth.length && declared) {
-    console.log(`audit:look: база исключений выросла против main (${growth.length}) — объявлено вслух, пропускаю.`);
-  } else if (growth.length) {
-    badBase.push(`база выросла против main: ${growth.length} ключей`);
-    for (const g of growth.slice(0, 10)) badBase.push(`  ${g}`);
-    if (growth.length > 10) badBase.push(`  … ещё ${growth.length - 10}`);
-    badBase.push("База только убывает. Рост объявляется строкой «Look-Audit-Base-Growth: <причина>» в коммите ветки (локально LOOK_AUDIT_BASE_GROWTH=1).");
+  const { allowed, undeclared } = splitGrowth(growth, declaredGrowth(git(["log", "--format=%B", "origin/main..HEAD"])));
+  if (allowed.length) {
+    const byFile = new Map();
+    for (const g of allowed) byFile.set(g.file, { reason: g.reason, n: (byFile.get(g.file)?.n ?? 0) + 1 });
+    console.log(`audit:look: база исключений выросла против main — объявлено вслух (${allowed.length} ключей):`);
+    for (const [file, { reason, n }] of byFile) console.log(`  ${file}: +${n} — ${reason}`);
+  }
+  if (undeclared.length) {
+    badBase.push(`база выросла против main в необъявленных файлах: ${undeclared.length} ключей`);
+    for (const g of undeclared.slice(0, 10)) badBase.push(`  ${g.file}  ${g.key}  (${g.was} -> ${g.now})`);
+    if (undeclared.length > 10) badBase.push(`  … ещё ${undeclared.length - 10}`);
+    badBase.push("База только убывает. Рост объявляется по файлу строкой «Look-Audit-Base-Growth: <файл> — <причина>» в коммите ветки.");
   }
   const total = Object.values(files).reduce((s, f) => s + f.length, 0);
   if (shrinkable.length) {

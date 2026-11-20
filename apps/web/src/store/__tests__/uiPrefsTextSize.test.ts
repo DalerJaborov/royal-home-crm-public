@@ -38,7 +38,11 @@ afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.resetModules(); })
 describe("размер текста", () => {
   it("выбор сразу ставит атрибут на <html>, уходит на сервер и лежит на устройстве", async () => {
     const { useUiPrefs } = await load();
-    expect(useUiPrefs.getState().textSize).toBe("normal");
+    expect(useUiPrefs.getState().textSize).toBeUndefined();
+    // Не выбран — в теле сохранения поля нет (сервер оставляет сохранённое).
+    useUiPrefs.getState().setTheme("royal-home-2026-night");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect("textSize" in puts().at(-1)!).toBe(false);
     useUiPrefs.getState().setTextSize("xlarge");
     expect(dataset.textSize).toBe("xlarge");
     await vi.advanceTimersByTimeAsync(2000);

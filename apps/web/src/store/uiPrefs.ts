@@ -45,8 +45,9 @@ interface UiPrefsValues {
   theme: ThemeId;
   /** Облик — компоновка экрана. Независим от темы: тема меняет цвета, облик — саму раскладку. */
   look: LookId;
-  /** Размер текста нового вида: обычный / крупный / очень крупный (Профиль → Оформление). */
-  textSize: TextSizeId;
+  /** Размер текста нового вида: обычный / крупный / очень крупный (Профиль → Оформление).
+   *  Не выбран (undefined) — обычный; на сервер уходит только выбранный. */
+  textSize?: TextSizeId;
   aurora: boolean;
   glass: boolean;
   dashboardHidden: string[];
@@ -120,7 +121,7 @@ const DEFAULT_PREFS: UiPrefsValues = {
   // Классический по умолчанию: смена облика — осознанный выбор сотрудника,
   // а не сюрприз после обновления.
   look: "classic",
-  textSize: "normal",
+  textSize: undefined,
   aurora: true,
   glass: computeDefaultGlass(),
   dashboardHidden: [],
@@ -170,7 +171,8 @@ function buildPrefsBody(state: UiPrefsValues): UiPreferences {
   return {
     theme: state.theme,
     look: state.look,
-    textSize: state.textSize,
+    // Только выбранный: устройство, где размер не трогали, не перетирает выбор с другого устройства.
+    ...(state.textSize ? { textSize: state.textSize } : {}),
     effects: { aurora: state.aurora, glass: state.glass },
     dashboard: { hidden: [...state.dashboardHidden] },
     ...(state.navigationOwnerId === useAuthStore.getState().agent?.id

@@ -80,7 +80,7 @@ test("сжатие базы только уменьшает", () => {
 });
 
 /* ───── обходы, найденные ревью #337: каждый обязан краснеть ───── */
-import { baselineGrowth, badShadowLayer, commitsDeclareGrowth, shadowTokensOf } from "./audit-look.mjs";
+import { baselineGrowth, badShadowLayer, declaredGrowth, shadowTokensOf, splitGrowth } from "./audit-look.mjs";
 
 test("шрифт: своя переменная, em/%/vw, слова, calc — всё мимо шкалы", () => {
   for (const v of ["var(--x)", ".62em", "120%", "4vw", "small", "larger", "calc(var(--rh-fs-md) + 1px)", "max(1em, var(--rh-fs-sm))", "var(--rh-fs-md-base)"]) {
@@ -128,12 +128,28 @@ test("TSX: tailwind с числом, text-xs, стиль на нескольки
   assert.equal(tsxFindings(`<b style={{ borderRadius: "var(--rh-r-md)", fontSize: "var(--rh-fs-sm)" }} className="bg-[var(--rh-ui-card)]" />`).length, 0);
 });
 
-test("база против main: новый ключ и рост — красное, сжатие — нет; объявление вслух", () => {
+test("база против main: новый ключ и рост — красное, сжатие — нет", () => {
   const main = { files: { "a.css": { reason: "r", counts: { "color #111": 2 } } } };
   assert.deepEqual(baselineGrowth({ files: { "a.css": { reason: "r", counts: { "color #111": 1 } } } }, main), []);
   assert.equal(baselineGrowth({ files: { "a.css": { reason: "r", counts: { "color #111": 3 } } } }, main).length, 1);
   assert.equal(baselineGrowth({ files: { "a.css": { reason: "r", counts: { "color #222": 1 } } } }, main).length, 1);
   assert.equal(baselineGrowth({ files: { "b.css": { reason: "r", counts: { "color #111": 1 } } } }, { files: {} }).length, 1);
-  assert.equal(commitsDeclareGrowth("feat: x\n\nLook-Audit-Base-Growth: первая база\n"), true);
-  assert.equal(commitsDeclareGrowth("Look-Audit-Base-Growth:   \n"), false);
+});
+
+test("рост объявляется по файлу с причиной; неназванный файл — красное", () => {
+  const log = "fix: x\n\nLook-Audit-Base-Growth: apps/web/src/a.css — ветка Х правит\nLook-Audit-Base-Growth: b.css - вторая\nLook-Audit-Base-Growth: первая база без файла\nLook-Audit-Base-Growth: c.css —   \n";
+  const declared = declaredGrowth(log);
+  assert.equal(declared.get("apps/web/src/a.css"), "ветка Х правит");
+  assert.equal(declared.get("b.css"), "вторая");
+  assert.equal(declared.has("c.css"), false); // без причины не считается
+  const growth = [
+    { file: "apps/web/src/a.css", key: "color #1", was: 0, now: 1 },
+    { file: "apps/web/src/b.css", key: "color #1", was: 0, now: 2 },
+    { file: "apps/web/src/c.css", key: "color #1", was: 0, now: 1 },
+  ];
+  const { allowed, undeclared } = splitGrowth(growth, declared);
+  assert.deepEqual(allowed.map((g) => g.file), ["apps/web/src/a.css", "apps/web/src/b.css"]);
+  assert.deepEqual(undeclared.map((g) => g.file), ["apps/web/src/c.css"]);
+  // «Старое» объявление без файла ничего не разрешает.
+  assert.equal(splitGrowth(growth, declaredGrowth("Look-Audit-Base-Growth: первая база конституции — четыре раздела")).allowed.length, 0);
 });

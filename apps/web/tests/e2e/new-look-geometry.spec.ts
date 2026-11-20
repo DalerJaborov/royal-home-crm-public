@@ -109,22 +109,59 @@ for (const device of DEVICES) {
  * «Размер текста: очень крупный» (+25%, Профиль → Оформление) на самом узком телефоне: ничего не
  * вылезает и не режется — длинное переносится строкой (решение владельца 20.11, пачка C).
  */
-test("новый вид, геометрия при «Очень крупном» тексте — iPhone 320 @smoke", async ({ browser }, testInfo) => {
+test("новый вид, геометрия при «Очень крупном» тексте — iPhone 320 и 390 @smoke", async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
-  test.setTimeout(10 * 60_000);
-  const context = await contextForRole(browser, "DIRECTOR", phone(IPHONE_UA, "light")(320));
-  const page = await context.newPage();
-  await stubLookVisualData(page, { textSize: "xlarge" });
+  test.setTimeout(15 * 60_000);
   const problems: string[] = [];
-  for (const screen of OWNER_SCREENS.filter((s) => s.url !== "/ads")) {
-    await open(page, screen);
-    await expect(page.locator("html")).toHaveAttribute("data-text-size", "xlarge");
-    await page.evaluate(() => document.fonts.ready.then(() => true));
-    for (const f of await geometryFindings(page, { skip: screen.skip, kinds: kindsAt(320, screen.kinds) })) problems.push(`${screen.url} @320 xlarge: ${f}`);
+  for (const width of [320, 390]) {
+    const context = await contextForRole(browser, "DIRECTOR", phone(IPHONE_UA, "light")(width));
+    const page = await context.newPage();
+    await stubLookVisualData(page, { textSize: "xlarge" });
+    for (const screen of OWNER_SCREENS.filter((s) => s.url !== "/ads")) {
+      await open(page, screen);
+      await expect(page.locator("html")).toHaveAttribute("data-text-size", "xlarge");
+      await page.evaluate(() => document.fonts.ready.then(() => true));
+      for (const f of await geometryFindings(page, { skip: screen.skip, kinds: kindsAt(width, screen.kinds) })) problems.push(`${screen.url} @${width} xlarge: ${f}`);
+    }
+    await context.close();
   }
-  await context.close();
   expect(problems, "поломки геометрии при очень крупном тексте").toEqual([]);
 });
+
+/**
+ * «Крупный» и «Очень крупный» на всех телефонах владельца (360–430), обе темы, директор и агент,
+ * пять главных экранов — полным прогоном (пачка C, повторное ревью #337).
+ */
+const TEXT_SCREENS: Screen[] = [
+  { url: "/", ready: ".ry-today" },
+  { url: "/clients", ready: '[data-ry-section="clients"]' },
+  { url: "/properties", ready: ".ry-objects-head" },
+  { url: `/messages?open=${LOOK_CONVERSATION_ID}`, ready: ".bub", kinds: ["ghostCall", "blur", "smallText", "fieldFrame"] },
+  { url: "/finance", ready: "main#main" },
+];
+for (const textSize of ["large", "xlarge"] as const) {
+  for (const theme of ["light", "dark"] as const) {
+    test(`новый вид, «${textSize === "large" ? "Крупный" : "Очень крупный"}» текст, телефоны 360–430, ${theme} @geometry-full`, async ({ browser }, testInfo) => {
+      test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
+      test.setTimeout(30 * 60_000);
+      const problems: string[] = [];
+      for (const role of ["DIRECTOR", "AGENT"] as const) {
+        for (const width of [360, 390, 414, 430]) {
+          const context = await contextForRole(browser, role, phone(IPHONE_UA, theme)(width));
+          const page = await context.newPage();
+          await stubLookVisualData(page, { textSize });
+          for (const screen of TEXT_SCREENS) {
+            await open(page, screen);
+            await page.evaluate(() => document.fonts.ready.then(() => true));
+            for (const f of await geometryFindings(page, { skip: screen.skip, kinds: kindsAt(width, screen.kinds) })) problems.push(`${role} ${screen.url} @${width} ${textSize}: ${f}`);
+          }
+          await context.close();
+        }
+      }
+      expect(problems, "поломки геометрии при крупном тексте").toEqual([]);
+    });
+  }
+}
 
 /**
  * Движок Safari (WebKit): iPhone 390 и ПК 1440. Владелец смотрит с iPhone, а Chromium и
@@ -242,9 +279,10 @@ for (const role of Object.keys(ALL_SCREENS) as (keyof typeof ALL_SCREENS)[]) {
     test(`новый вид, геометрия всех экранов — ${role}, ${device.name} @geometry-full`, async ({ browser }, testInfo) => {
       test.skip(testInfo.project.name !== "chromium", "контексты и ширины задаются внутри теста");
       test.setTimeout(30 * 60_000);
-      // Конституция (цель 44, текст 13, список) на всех экранах — пока только отчётом: обязательна на
+      // Конституция (цель 44, текст 13, список) на всех экранах — пока без них: обязательна на
       // экранах с кадров владельца (@smoke выше); по остальным — после прохода по разделам (пачка C, 20.11).
-      const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main", kinds: GEOMETRY_KINDS.filter((k) => !CONSTITUTION_KINDS.includes(k)) }));
+      // Двойная рамка поля (fieldFrame) уже проверяется везде: 48 экранов пройдены (повторное ревью #337).
+      const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main", kinds: GEOMETRY_KINDS.filter((k) => k === "fieldFrame" || !CONSTITUTION_KINDS.includes(k)) }));
       const narrowed = { ...device, widths: device.widths.filter((w) => [320, 390, 1440].includes(w)) };
       expect(await sweep(browser, role, narrowed, screens), "поломки геометрии").toEqual([]);
     });

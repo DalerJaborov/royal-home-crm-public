@@ -872,10 +872,11 @@
 /* Поля: видимая граница >= 3:1 (было: серая заливка без рамки на белом — 1,2:1, critic-uiux P1-10).
    Линия — внутренней тенью: слои экранов ставят border: 0, а фокус рисуют обводкой (outline).
    Правило целиком в :where() — нулевой вес: любое правило слоя или детали с своей рамкой
-   его перебивает. Не рисуется (ревью #337): у поля со своей рамкой (класс border*), у поля
+   его перебивает. Не рисуется (ревью #337): у поля со своей рамкой (класс border*, кроме border-0 и
+   border-none — у них рамки нет), у поля
    внутри обёртки-капсулы (подпись со значком — поиск; выпадающий список; шторка вопроса; ответ;
    форма помощника) — там рамку рисует обёртка. Сторож — вид геометрии fieldFrame. */
-:root[data-ui-look="royal"] :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="hidden"], [type="submit"], [type="button"], [type="image"]), select, textarea):where(:not([class*="border"])):where(:not(:is(.ry-search, .clean-settings-search, .rh-select, .qsheet, .lf-reply, .ai-q-form, .srch, [role="search"], label:has(> svg)) *)) {
+:root[data-ui-look="royal"] :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="hidden"], [type="submit"], [type="button"], [type="image"]), select, textarea):where(:not([class*="border"]), .border-0, .border-none):where(:not(:is(.ry-search, .clean-settings-search, .rh-select, .qsheet, .lf-reply, .ai-q-form, .srch, [role="search"], label:has(> svg)) *)) {
   box-shadow: inset 0 0 0 1px var(--rh-ui-field-line);
 }
 /* Выпадающий список не режет выбранное: ширина по содержимому, не шире строки. */
