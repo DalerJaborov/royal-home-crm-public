@@ -224,7 +224,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (u.role === "seller") candidate = "seller";
   else if (u.role === "buyer") candidate = propertyRef ? "buyer_property" : "buyer";
   else if (propertyRef) candidate = "buyer_property";
-  else if (s.role === "unknown" && ctx.ad.topic === "property") candidate = "buyer_property";
+  // Реклама объекта делает покупателем объекта, только когда объект известен. Тема «объект» без объекта — это любая
+  // опознанная реклама, в том числе реклама самого агентства (Ad.brand) и вакансии по ней (lib/adAttribution.ts::resolveAdTopic,
+  // этап 2.3 плана): по ней роли не угадываем, а спрашиваем (SPEC, строка 12; 19.11 соискатель так получил заявку покупателя).
+  else if (s.role === "unknown" && ctx.ad.topic === "property" && !!(ctx.ad.propertyId ?? ctx.focus)) candidate = "buyer_property";
   else if (s.role === "unknown" && ctx.ad.topic === "seller") candidate = "seller";
   // «Хочу купить» у покупателя объекта — тот же покупатель объекта, а не общий поиск.
   if (candidate === "buyer" && s.role === "buyer_property") candidate = null;

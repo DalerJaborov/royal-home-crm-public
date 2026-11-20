@@ -197,10 +197,18 @@ const OPT_OUT_SILENCES: ReadonlySet<ClientWaitingTrigger> = new Set(["silence", 
  * the bot's own «the agent will tell» / «a person is needed» signals are not sent. The mode answers such turns itself (a phone
  * ask, or a lead on a WhatsApp number). Failures (`failed`) and the 30-minute watchdog (`silence`) stay: those are faults, not
  * leads. A vacancy chat keeps the recruiter's path (`jobTopic`).
+ *
+ * Решение оператора приёма заявок «звать человека» (`staffReason`: жалоба, грубость — SPEC, случаи 22 и 26) это правило
+ * НЕ глушит: клиенту уже сказано «Ваше сообщение увидит руководитель» / «продолжит наш сотрудник», и это обещание
+ * правдиво, только если человек правда узнал (20.11.2026, живой диалог 19.11: жалоба до заявки, сигнала не было никому).
  */
 const LEAD_ONLY_QUIET: ReadonlySet<ClientWaitingTrigger> = new Set(["follow_up", "escalate"]);
 
-async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger, jobTopic = false): Promise<WaitingChat | null> {
+/** Почему оператор приёма заявок зовёт человека (ai/operator, действие `call_staff`). */
+export type ClientWaitingStaffReason = "complaint" | "rude";
+
+async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger, jobTopic = false,
+  staffReason: ClientWaitingStaffReason | null = null): Promise<WaitingChat | null> {
   const client = { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } as const;
   if (source === "bot") {
     const chat = await prisma.botConversation.findUnique({
@@ -208,7 +216,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: C
       select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, silenceAlertFor: true, clientId: true, client },
     });
     if (!chat || chat.optedOutAt && OPT_OUT_SILENCES.has(trigger) || chat.client?.deletedAt) return null;
-    if (!chat.clientId && !jobTopic && LEAD_ONLY_QUIET.has(trigger) && await leadOnlyQuietBeforeLead(chat.channel)) return null;
+    if (!chat.clientId && !jobTopic && !staffReason && LEAD_ONLY_QUIET.has(trigger) && await leadOnlyQuietBeforeLead(chat.channel)) return null;
     const previous = chat.silenceAlertFor;
     return {
       openId: chat.id,
@@ -283,19 +291,26 @@ export async function alertClientWaiting(input: {
    * заменён (в нём факты или подтверждение действия). Сведение #283 с #311, 19.11.2026.
    */
   staffRequired?: boolean;
+  /**
+   * Оператор приёма заявок зовёт человека по делу (SPEC, случаи 22 и 26). Сигнал идёт и до заявки в режиме «только заявки»,
+   * и повторно по тому же чату; текст называет причину. Жалобу видит руководство (клиенту обещано «увидит руководитель»):
+   * она не уходит агенту карточки, на которого клиент, возможно, и жалуется. Подразумевает `staffRequired`.
+   */
+  staffReason?: ClientWaitingStaffReason;
   /** Номер клиента известен, а заявки нет: при «бот отвечает сам» человек всё равно узнаёт (lib/botAnswersItself.ts). */
   phoneKnown?: boolean;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
-  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId, input.trigger, input.jobTopic === true);
+  const staffReason = input.staffReason ?? null;
+  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId, input.trigger, input.jobTopic === true, staffReason);
   if (!chat) return "excluded";
   /**
    * «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026): руководство про чат без карточки и без своего агента не зовём — ни «агент
    * уточнит», ни «передал сотруднику» (клиенту бот уже ответил). Клиент совсем без ответа (escalate/silence) — сбой, сигнал
    * как раньше, один на эпизод. Агент своего клиента, карточка без агента, техсбой, аварийный рубильник и вакансия — как раньше.
    */
-  const signal = { kind: clientWaitingSignalKind(input.trigger, input.alwaysTell === true || input.staffRequired === true), ownAgent: !!chat.agentId, hasCard: chat.hasCard,
+  const signal = { kind: clientWaitingSignalKind(input.trigger, input.alwaysTell === true || input.staffRequired === true || !!staffReason), ownAgent: !!chat.agentId, hasCard: chat.hasCard,
     phoneKnown: input.phoneKnown === true };
   // Настройку читаем, только когда она может что-то решить (техсбой, свой агент и карточка проходят при любом положении).
   const selfAnswer = !input.jobTopic && staffSignalAllowed({ on: true, ...signal }) === false &&
@@ -310,7 +325,8 @@ export async function alertClientWaiting(input: {
   // disturb people): three empty searches in a row are one signal, not three.
   // A completed CALL after the previous signal is an answer too (review #205, С-4): the agent who phoned the customer learns
   // about the NEXT promise "the agent will tell", instead of never hearing of this chat again.
-  if (input.trigger === "follow_up" && chat.lastAlertAt && !humanRepliedSince(chat.messages, chat.lastAlertAt)) {
+  // Жалоба и грубость — новый повод, а не повтор «агент уточнит»: прошлый неотвеченный сигнал их не глушит.
+  if (input.trigger === "follow_up" && !staffReason && chat.lastAlertAt && !humanRepliedSince(chat.messages, chat.lastAlertAt)) {
     const called = chat.clientId ? (await fetchLastCallContactByClient([chat.clientId])).get(chat.clientId) : undefined;
     if (!called || called.getTime() <= chat.lastAlertAt.getTime()) return "skipped";
   }
@@ -325,8 +341,13 @@ export async function alertClientWaiting(input: {
 
   const name = chat.name;
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
+  const answerHint = chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint;
   const body =
-    input.trigger === "follow_up"
+    staffReason === "complaint"
+      ? `${name}: клиент жалуется. Бот ответил «Ваше сообщение увидит руководитель» и дальше молчит. ${answerHint}`
+      : staffReason === "rude"
+      ? `${name}: клиент написал грубо. Бот ответил, что дальше продолжит сотрудник, и молчит. ${answerHint}`
+      : input.trigger === "follow_up"
       // Подсказка, где отвечать (Telegram Direct: из CRM нельзя), потерялась при своде #201 с #198 — возвращена 16.11.
       ? `${name}: бот ответил клиенту, что это уточнит агент. ${chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint}`
       : input.trigger === "escalate"
@@ -342,7 +363,8 @@ export async function alertClientWaiting(input: {
           (chat.replyHint === "Ответьте клиенту." ? "" : ` ${chat.replyHint}`);
   const url = `/messages?open=${chat.openId}`;
   const tag = `client-waiting-${chat.openId}`;
-  const agent = chat.agentId;
+  // Жалобу видит руководство, а не агент карточки (клиенту обещано «увидит руководитель»; жаловаться могут на самого агента).
+  const agent = staffReason === "complaint" ? null : chat.agentId;
 
   try {
     if (agent) {
@@ -350,7 +372,7 @@ export async function alertClientWaiting(input: {
       return "agent";
     }
     const queued = await enqueueDirectorAlert({
-      title: "💬 Клиент ждёт ответа, агента нет",
+      title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа, агента нет",
       body,
       url,
       kind: "message",

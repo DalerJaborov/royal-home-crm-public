@@ -321,7 +321,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       }
       // Сотрудника зовём только при грубости и жалобе (до заявки людей не беспокоим, решение владельца 13.11): дверь «клиент ждёт».
       // «Бот отвечает сам» решение оператора не отменяет: он один хозяин разговора (SPEC, случаи 22 и 26; сведение #283 с #311).
-      if (plan.signal) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn, false, true);
+      if (plan.signal) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn, false, true, plan.signal.reason);
       if (!plan.text) {
         // Оператор решил молчать (ок после заявки, третий вопрос о роли, повтор вложения): намеренная тишина, не сбой.
         await releaseHeldClaim(claim, LEAD_ONLY_OPERATOR_SILENT);
@@ -935,11 +935,13 @@ export async function signalStaffFollowUp(conversationId: string, customerMessag
   /** Номер клиента известен: при «бот отвечает сам» сигнал всё равно идёт (lib/botAnswersItself.ts, phoneKnown). */
   phoneKnown = false,
   /** Человека звать при любом положении «бот отвечает сам» (оператор: грубость, жалоба; обещание агента, оставшееся в ответе). */
-  staffRequired = false): Promise<"agent" | "director" | "already" | "skipped"> {
+  staffRequired = false,
+  /** Оператор приёма заявок зовёт человека по жалобе или грубости: сигнал идёт и до заявки (lib/clientWaitingAlert.ts). */
+  staffReason?: "complaint" | "rude"): Promise<"agent" | "director" | "already" | "skipped"> {
   try {
     const { alertClientWaiting } = await import("./clientWaitingAlert.js");
     const outcome = await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs), jobTopic,
-      ...(phoneKnown ? { phoneKnown: true } : {}), ...(staffRequired ? { staffRequired: true } : {}) });
+      ...(phoneKnown ? { phoneKnown: true } : {}), ...(staffRequired ? { staffRequired: true } : {}), ...(staffReason ? { staffReason } : {}) });
     // Meta keeps its four outcomes (review 0e463b02 N5 is the channel door's); «бот отвечает сам» (`self`) — никого не звали.
     return outcome === "excluded" || outcome === "self" ? "skipped" : outcome;
   } catch (error) {

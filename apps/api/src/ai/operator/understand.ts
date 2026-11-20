@@ -293,6 +293,10 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
   const answer = parsed.data;
   const fallback = understandFallback(input, state, ctx);
   const code = codeFacts(input);
+  // Готовая кнопка рекламы («Можно узнать об этом подробнее?») — не слова клиента: ни роли, ни вопроса, ни языка в ней нет
+  // (SPEC: строка 12 и «Язык»). Модель находит в ней «покупателя» и подкрепляет цитатой из той же кнопки — 19.11 так
+  // соискатель стал покупателем с заявкой. Понимание кнопки — только код (запасные правила), что бы ни сказала модель.
+  if (code.adOpener) return { understanding: fallback, rejected: [] };
   const clientTexts = [code.own, ...recentClientWords(input)];
   const rejected: string[] = [];
 
@@ -331,7 +335,9 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       phone: code.phone,
       // Модель ответила (пусто — значит времени нет): запасные правила её не перебивают; только если ответ отброшен кодом.
       callback: { when: when || (rejected.includes("callbackWhen") ? fallback.callback.when : null), ...preference },
-      language: code.letters >= 2 && !isNeutralShortReply(code.own) && !code.adOpener && answer.language !== "none" ? answer.language : code.language,
+      // Язык решает КОД (та же дверь, что у ядра: ai/customerDmLanguage.ts), модель — только когда код не решил. 19.11 модель
+      // назвала русским таджикское «телефон номера нависед» (русские заимствования), и ответ ушёл по-русски (SPEC «Язык»).
+      language: code.language ?? (code.letters >= 2 && !isNeutralShortReply(code.own) && answer.language !== "none" ? answer.language : null),
       languageHint: code.languageHint, greeting: code.greeting, greetingOnly: code.greetingOnly,
       ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
       bargain: answer.bargain || fallback.bargain,
@@ -352,8 +358,8 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
 export async function understandTurn(input: OperatorTurnInput, state: OperatorState, ctx: OperatorContext,
   model: LeadOnlyIntentModel = operatorUnderstandModel, timeoutMs = LEAD_ONLY_INTENT_TIMEOUT_MS): Promise<Understanding> {
   const own = clientOwnWords(input.current).trim();
-  // Номер, эмодзи, вложение без слов: спрашивать модель не о чем.
-  if (letterCount(own) < 2) return understandFallback(input, state, ctx);
+  // Номер, эмодзи, вложение без слов, готовая кнопка рекламы: спрашивать модель не о чем.
+  if (letterCount(own) < 2 || isAdTemplateOpener(own)) return understandFallback(input, state, ctx);
   const recent = (input.recent ?? []).slice(-MAX_RECENT).map(turn => ({ from: turn.role === "user" ? "client" : "bot",
     text: (turn.role === "user" ? clientOwnWords(turn.text) : turn.text).slice(0, 300) }));
   const raw = await askLeadOnlyModel(model, { system: OPERATOR_UNDERSTAND_SYSTEM, conversationId: input.conversationId ?? null,
