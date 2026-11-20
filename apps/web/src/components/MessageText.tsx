@@ -58,14 +58,26 @@ export function MessageText({
 
   // split сохраняет пустые куски по краям — они рисуются как пустые строки и не мешают.
   const parts = text.split(MESSAGE_PHONE_MASK);
+  if (quietMask) {
+    return (
+      <>
+        {parts.map((part, i) => (
+          <Fragment key={i}>
+            {part}
+            {i < parts.length - 1 && (
+              <span className="ry-masked-phone" title="Номер скрыт. Звонок клиенту — кнопкой в шапке переписки">номер скрыт</span>
+            )}
+          </Fragment>
+        ))}
+      </>
+    );
+  }
   return (
     <>
       {parts.map((part, i) => (
         <Fragment key={i}>
           {part}
-          {i < parts.length - 1 && (quietMask ? (
-            <span className="ry-masked-phone" title="Номер скрыт. Звонок клиенту — кнопкой в шапке переписки">номер скрыт</span>
-          ) : readOnly ? <span>Номер скрыт</span> : (
+          {i < parts.length - 1 && (readOnly ? <span>Номер скрыт</span> : (
             <CallClientButton
               clientId={clientId}
               /* Маска-«точка» — тот же признак «номер закрыт», что у CallClientButton

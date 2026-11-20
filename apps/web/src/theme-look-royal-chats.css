@@ -417,40 +417,6 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-state h2 { font-size: 20px; font-weight: 700; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-message-skeleton { height: 56px; max-width: 70%; margin-top: 16px; border-radius: 20px; background: var(--rh-ui-raised); }
 
-/* ============================== телефон ============================== */
-
-@media (max-width: 819px) {
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] > .scr { gap: 12px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head { justify-content: space-between; gap: 12px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head h1 { font-size: 28px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-switch a { width: 48px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"][data-chat-active="thread"] .ry-chats-head { display: none; }
-
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two { display: block; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two[data-conversation-selected] > section[aria-label="Диалоги"] { display: none; }
-  /* Список — обычной страницей: прокручивается весь экран, а не коробка внутри. */
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section[aria-label="Диалоги"] { height: auto; overflow: visible; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-scroll { overflow: visible; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button { padding: 0 4px; font-size: 15px; }
-
-  /* Переписка — на весь экран поверх меню, как в мессенджере (тот же приём, что
-     у прежнего телефонного чата): своя прокрутка только у ленты. */
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section.clean-conversation-placeholder { display: none; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section.clean-conversation:not(.clean-conversation-placeholder) {
-    position: fixed; z-index: 45; top: 0; left: 0; right: 0; bottom: auto;
-    height: var(--clean-viewport-height, 100dvh); border-radius: 0; box-shadow: none;
-  }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-head { gap: 4px; padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px 4px; min-height: 64px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who { gap: 10px; padding: 2px 4px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { font-size: 17px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx small { font-size: 14px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub { max-width: 86%; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose { padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)) !important; gap: 4px; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-details { max-height: none; flex: 1 1 auto; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-workspace[data-context-open] > .clean-conversation-timeline { display: none; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .suggest.ry-chat-pausepick { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
-}
-
 /* ====================== переписка как в мессенджере (20.11.2026) ======================
  * Владелец: «бот на паузе… и функции всякие лишние в окне переписки — убрать,
  * как в WhatsApp». Наши ответы (бот и сотрудник) — одинаковые пузыри справа,
@@ -542,3 +508,37 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows dd { margin: 0; font-size: 16px; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rate { margin-top: 16px; padding-top: 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rate .clean-bot-feedback button { min-height: 44px; font-size: 15px; }
+
+/* ============================== телефон ============================== */
+
+@media (max-width: 819px) {
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] > .scr { gap: 12px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head { justify-content: space-between; gap: 12px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head h1 { font-size: 28px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-switch a { width: 48px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"][data-chat-active="thread"] .ry-chats-head { display: none; }
+
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two { display: block; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two[data-conversation-selected] > section[aria-label="Диалоги"] { display: none; }
+  /* Список — обычной страницей: прокручивается весь экран, а не коробка внутри. */
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section[aria-label="Диалоги"] { height: auto; overflow: visible; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] section[aria-label="Диалоги"] > .pane-scroll { overflow: visible; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button { padding: 0 4px; font-size: 15px; }
+
+  /* Переписка — на весь экран поверх меню, как в мессенджере (тот же приём, что
+     у прежнего телефонного чата): своя прокрутка только у ленты. */
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section.clean-conversation-placeholder { display: none; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section.clean-conversation:not(.clean-conversation-placeholder) {
+    position: fixed; z-index: 45; top: 0; left: 0; right: 0; bottom: auto;
+    height: var(--clean-viewport-height, 100dvh); border-radius: 0; box-shadow: none;
+  }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-head { gap: 4px; padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px 4px; min-height: 64px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who { gap: 10px; padding: 2px 4px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { font-size: 17px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx small { font-size: 14px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub { max-width: 86%; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose { padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)) !important; gap: 4px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-details { max-height: none; flex: 1 1 auto; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-workspace[data-context-open] > .clean-conversation-timeline { display: none; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .suggest.ry-chat-pausepick { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+}
