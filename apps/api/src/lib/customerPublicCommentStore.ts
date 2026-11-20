@@ -1,3 +1,5 @@
+import { trackBackgroundTask } from "./shutdownState.js";
+import { botOffCommentsStored } from "./commentBotOffHook.js";
 import { enrollCustomerAgentSubjectTx, readCustomerPublicSourceExecution, type CustomerAgentExecution } from "./customerAgentEnrollment.js";
 import { customerAgentAssignmentSuperseded, customerAgentLaneCutoverOf } from "./customerAgentLegacyCutover.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -250,7 +252,7 @@ export async function commitVerifiedMetaPublicCapture(input: VerifiedMetaCapture
       if (enrolled.lane === "HELD" || original?.lane === "LEGACY" && enrolled.lane !== "LEGACY" && !movedThread) throw new PublicCaptureHeld("origin_changed");
       selections.set(item.target.commentId, original ?? enrolled);
     }
-    return await prisma.$transaction(async tx => {
+    const committed = await prisma.$transaction(async tx => {
       const keys = items.map(item => item.target.commentId);
       // Existing sources have deterministic TEXT order before any installation/policy lock.
       if (keys.length) await tx.$queryRaw`SELECT "id" FROM "InstagramComment" WHERE "commentId"=ANY(${keys}::text[]) ORDER BY "id" FOR UPDATE`;
@@ -330,6 +332,11 @@ export async function commitVerifiedMetaPublicCapture(input: VerifiedMetaCapture
       }
       return { status: "current" as const, value: refs };
     });
+    // Бот выключен при приёме (SKIPPED bot_off): номер из комментария — только карточка, без текстов и скрытия (второе
+    // ревью 1b, №1). После коммита и в фоне; дверь читает только строки bot_off, остальные не трогает.
+    const ids = items.map(item => item.target.commentId);
+    void trackBackgroundTask(botOffCommentsStored(ids));
+    return committed;
   } catch (error) {
     if (error instanceof PublicCaptureHeld) return { status: "held", reason: error.reason };
     // DB/AEAD/schema failure is never successful intake; caller chooses pre-ACK 503.

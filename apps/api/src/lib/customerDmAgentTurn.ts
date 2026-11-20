@@ -47,6 +47,8 @@ import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } f
 import { logSystemError } from "./systemError.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
+import { loadBotAnswersItself } from "./botAnswersItself.js";
+import { selfAnswerLine, selfAnswerLines, selfCallbackRequested } from "../ai/botSelfAnswerText.js";
 import { enqueueRecruitmentCandidateAlertTx } from "./customerRecruitmentAlert.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
@@ -64,7 +66,8 @@ import { bindCustomerMetaSendCredentials } from "./customerMetaTransport.js";
 import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
 import { assertOperatorStateCurrentTx, enqueueCustomerLeadOnlyIntakeTx, LEAD_ONLY_OPERATOR_SILENT, OperatorStateStaleError, planCustomerLeadOnlyTurn,
   type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
-import { leadOnlyAppliesTo } from "../ai/leadOnlyMode.js";
+import { leadOnlyAppliesTo, leadOnlyEscalateLine } from "../ai/leadOnlyMode.js";
+import { selfAnswerLeadIntake } from "./selfAnswerLead.js";
 import { z } from "zod";
 import { customerDeliveryTransportSchema } from "./customerDeliveryContracts.js";
 import { coreReplyRepeatBlocked } from "./outboundShield.js";
@@ -106,6 +109,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   if (prepared.status === "already_planned") return { status: "unchanged", reason: "already_planned" };
   if (prepared.status !== "prepared") return { status: "held", reason: prepared.reason };
   const lane = prepared.lane;
+  // Блокировка Meta (368 и родня) ход НЕ останавливает — как в main (#273): оператор оформляет заявку по номеру, ответ
+  // планируется, а выпустить его не даёт дверь отправки (lib/metaSendBlock.ts), она же передаёт переписку человеку.
+  // Ранний выход здесь (#283 до 20.11) оставлял клиента без заявки и без человека (HANDOFF #283, блокер ревью 19.11).
   return withBotTurnTrace({ channel: lane.principal.scope.channel, account: lane.principal.scope.endpointScopeId,
     peer: lane.principal.scope.peer, conversation: lane.principal.scope.conversationId,
     event: lane.principal.admission.eventKey, kind: prepared.attachmentInput ? "media" : "text",
@@ -314,7 +320,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
           `${stateError instanceof Error ? stateError.message : String(stateError)}`.slice(0, 500), { dedupKey: "lead-only-operator-state-write" });
       }
       // Сотрудника зовём только при грубости и жалобе (до заявки людей не беспокоим, решение владельца 13.11): дверь «клиент ждёт».
-      if (plan.signal) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn);
+      // «Бот отвечает сам» решение оператора не отменяет: он один хозяин разговора (SPEC, случаи 22 и 26; сведение #283 с #311).
+      if (plan.signal) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn, false, true);
       if (!plan.text) {
         // Оператор решил молчать (ок после заявки, третий вопрос о роли, повтор вложения): намеренная тишина, не сбой.
         await releaseHeldClaim(claim, LEAD_ONLY_OPERATOR_SILENT);
@@ -327,6 +334,28 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // principal changed, every candidate line would be a repeat): the caller keeps the old held path.
     /** The bot's own last line asked the customer something: a bare «Да» is then an answer (re-review #205, Н-3). */
     const lastBotAsked = () => /[?？]/u.test(remembered.context.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? "");
+    /** «Бот отвечает сам»: страховочная дверь оформила заявку этим ходом — карточка будет, людей отдельно не зовём. */
+    let safetyLineMadeLead = false;
+    /**
+     * «Бот отвечает сам», номер известен: заявка агенту (lib/selfAnswerLead.ts) и утверждённая строка «Передаю ваш вопрос
+     * агенту, он свяжется с вами» (ai/leadOnlyMode.ts::leadOnlyEscalateLine, тексты #283 от 18.11) — в ОДНОЙ транзакции:
+     * ответ без заявки или заявка без ответа не остаются. null — номера нет или строка была бы повтором.
+     */
+    const planSelfAnswerLead = async (modelFailed: boolean, assistantTexts: readonly string[]): Promise<CustomerDmAgentTurnResult | null> => {
+      const intake = await selfAnswerLeadIntake({ channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer,
+        conversationId: lane.ticket.conversationId, eventKey: claim.eventKey, inputText: fullInput(), turns: remembered.context.turns, modelFailed });
+      if (!intake) return null;
+      const line = leadOnlyEscalateLine(language, true, assistantTexts);
+      if ((await customerReplyRepeatBlocked(mutations.principal, [line])).has(line) || !await current(linkWait)) return null;
+      const partIds = await prisma.$transaction(async tx => {
+        const ids = await createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
+          parts: [{ payload: { kind: "text" as const, text: line } }] });
+        await enqueueCustomerLeadOnlyIntakeTx(tx, intake);
+        return ids;
+      });
+      safetyLineMadeLead = true;
+      return { status: "planned", partIds };
+    };
     const planSafetyLine = async (why: string): Promise<CustomerDmAgentTurnResult | null> => {
       try {
         // Lead-only mode: no «the agent will tell» and no staff signal before a lead (owner 13.11.2026). The mode's own
@@ -335,15 +364,41 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         // The model failed on the question (not its own escalate, not a repeat): WhatsApp with a known number gets one lead per
         // conversation with the note «бот не справился с вопросом» (owner 17.11.2026).
         const assistantTexts = remembered.context.turns.filter(turn => turn.role === "assistant").map(turn => turn.text);
-        const blocked = await customerReplyRepeatBlocked(mutations.principal, customerSafetyCandidateLines());
-        const line = customerSafetyLine(language, lane.context.knownPhoneSource, customerSafetyMemory(assistantTexts, l => blocked.has(l)));
+        const blocked = await customerReplyRepeatBlocked(mutations.principal, [...customerSafetyCandidateLines(), ...selfAnswerLines()]);
+        const memory = customerSafetyMemory(assistantTexts, l => blocked.has(l));
+        // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): без карточки человека не зовут — фраза «это скажет агент»
+        // стала бы обещанием, которое некому выполнить. Выход из тупика — один шаг к номеру (номер есть — телефон офиса).
+        let selfAnswer = !jobTopicTurn && await loadBotAnswersItself() && !(await customerConversationHasCard(lane.ticket.conversationId));
+        const callback = selfAnswer && selfCallbackRequested(fullInput());
+        if (selfAnswer) {
+          /**
+           * Номер известен (WhatsApp, номер в словах клиента) — это заявка агенту (решение владельца 13.11: лид = номер), в том
+           * числе на «позвоните мне завтра» (ревью #283: бот отвечал «позвоните нам сами», и заявка терялась). Дверь —
+           * lib/selfAnswerLead.ts: задание приёма ядра в одной транзакции с ответом, время звонка в пометке карточки. Номера
+           * нет — фраза ниже (просьба номера), людей не зовём.
+           */
+          const lead = await planSelfAnswerLead(why !== "staff_or_supported_reply_required" && why !== "repeat_shield" && why !== SELF_ANSWER_CALLS_STAFF,
+            assistantTexts);
+          if (lead) return lead;
+          // Номер известен, а заявку оформить нельзя (повтор строки, разговор сменился): «оставьте номер» было бы
+          // нелепо — прежний путь, человек узнаёт (staffSignalAllowed пропускает сигнал с известным номером).
+          if (lane.context.knownPhoneSource !== "none" || planningPrincipal.scope.channel === "WHATSAPP") selfAnswer = false;
+        }
+        // Телефон офиса — только своему бренду: аккаунту Арвана номер Royal Home не называем (ревью 1b, №10).
+        const line = selfAnswer ? selfAnswerLine(language, { phoneAsked: memory.phoneAsked, callback,
+          brandName: await (await import("../messengers/accounts.js")).accountBrandName(planningPrincipal.scope.accountId) })
+          : customerSafetyLine(language, lane.context.knownPhoneSource, memory);
         if (blocked.has(line) || !await current(linkWait)) return null;
         const partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
           parts: [{ payload: { kind: "text" as const, text: line } }] }));
         // The model's own escalate keeps its push with the customer's words (caller); every other line is one follow_up.
-        if (why !== "staff_or_supported_reply_required") void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn);
-        void logSystemError("ai", `Бот не смог ответить по существу (${why}) — клиенту ушла короткая фраза «это скажет агент», ответственному — сигнал`,
-          { dedupKey: `customer-safety-line:${why}`, quietPult: true });
+        if (why !== "staff_or_supported_reply_required") void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn,
+          lane.context.knownPhoneSource !== "none");
+        // «Бот отвечает сам» (ревью #283, (д)): человека не звали — журнал не пишет «ответственному — сигнал».
+        void logSystemError("ai", selfAnswer
+          ? `Бот не смог ответить по существу (${why}) — «бот отвечает сам»: клиенту ушла просьба номера, людей не звали`
+          : `Бот не смог ответить по существу (${why}) — клиенту ушла короткая фраза «это скажет агент», ответственному — сигнал`,
+          { dedupKey: `customer-safety-line:${selfAnswer ? "self:" : ""}${why}`, quietPult: true });
         return { status: "planned", partIds };
       } catch (error) {
         heldCause = safeCauseCode(error);
@@ -401,7 +456,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
           parts: [{ payload: { kind: "text" as const, text: video.text }, property }] }));
         if (video.agentPromised) {
           // «Агент пришлёт» is true only if someone learns about it; a signal that did not go out is visible in the journal.
-          void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn).then(outcome => {
+          // «Бот отвечает сам» это обещание не глушит (ревью #283, блокер 2 / видео): без сигнала оно было бы неправдой.
+          void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn,
+            lane.context.knownPhoneSource !== "none", true).then(outcome => {
             if (outcome === "skipped") void logSystemError("ai", "Бот пообещал клиенту видео от агента, но новый сигнал агенту не ушёл (уже был или некому). Откройте переписку.",
               { dedupKey: `customer-video-promise-skipped:${lane.ticket.conversationId}`, quietPult: true });
           });
@@ -638,7 +695,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
           // «Передать сотруднику»: the person still gets the customer's own words (review #205, С-3), as before this change.
           if (result.status === "ready" && result.decision.kind === "escalate") {
             await notifyEscalatedCustomerTurn({ conversationId: lane.ticket.conversationId, channel: lane.principal.scope.channel,
-              text: fullInput(), jobTopic: remembered.context.publicState.topic === "job" });
+              text: fullInput(), jobTopic: remembered.context.publicState.topic === "job", answered: true,
+              phoneKnown: lane.context.knownPhoneSource !== "none" && !safetyLineMadeLead });
           }
           return planned;
         }
@@ -676,6 +734,22 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         (await customerReplyRepeatBlocked(mutations.principal, [sealed.text])).has(sealed.text)) {
       const planned = await planSafetyLine("repeat_shield");
       if (planned) return planned;
+    }
+    /**
+     * «БОТ ОТВЕЧАЕТ САМ» (ревью #283, блокер 2): ответ зовёт агента («это подскажет агент», «он позвонит», «передам
+     * руководству» — ai/customerAgentStaffFollowUp.ts), а карточки нет и человека при ВКЛ не зовут — обещание повисло бы.
+     * Без подтверждения действия и без фактов объекта ответ заменяется: номер известен — заявка агенту и «Передаю ваш
+     * вопрос агенту…», номера нет — просьба номера (planSafetyLine). Ответ с фактами или подтверждением не заменяется —
+     * тогда его обещание доходит до человека сигналом (staffRequired ниже).
+     */
+    const callsStaff = customerReplyCallsStaff(sealed.text);
+    let staffRequired = false;
+    if (callsStaff && !jobTopicTurn && await loadBotAnswersItself() && !(await customerConversationHasCard(lane.ticket.conversationId))) {
+      if (mutations.receipts.length === 0 && !result.evidence.some(e => ["receipt", "facts", "property_unresolved"].includes(e.value.kind))) {
+        const planned = await planSafetyLine(SELF_ANSWER_CALLS_STAFF);
+        if (planned) return planned;
+      }
+      staffRequired = true;
     }
     const mediaMode = customerPropertyMediaExecutionMode();
     const photoRequested = mediaMode !== "OFF" && explicitCustomerPropertyPhotoRequest(text);
@@ -792,8 +866,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     }
     // «Это скажет агент» / «агент позвонит» is only true if the responsible person learns about it now (15.11.2026): the one
     // door alertClientWaiting (assigned agent, else management), keyed by THIS customer message, not a 6 h window.
-    // The reply is already planned; the signal never blocks it.
-    if (customerReplyCallsStaff(sealed.text)) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn);
+    // The reply is already planned; the signal never blocks it. The condition is the same pure check of the same sealed text
+    // as `callsStaff` above, written as in main on purpose: tests/customer-bot-8-chats-15-11.test.ts pins this exact door call.
+    if (customerReplyCallsStaff(sealed.text)) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn,
+      lane.context.knownPhoneSource !== "none", staffRequired);
     return { status: "planned", partIds };
   } catch (error) {
     heldCause = safeCauseCode(error);
@@ -841,12 +917,31 @@ export async function customerReplyRepeatBlocked(principal: CustomerAgentMutatio
   }
 }
 
+/** Причина страховочной строки: ответ модели звал человека («агент подскажет / позвонит»), а бот отвечает сам (ревью #283, Б2). */
+const SELF_ANSWER_CALLS_STAFF = "self_answer_calls_staff";
+
+/** The chat already has a client card (a lead exists). A read failure counts as «has a card»: the old path (signal) is safer. */
+async function customerConversationHasCard(conversationId: string | null | undefined): Promise<boolean> {
+  if (!conversationId) return false;
+  try {
+    return !!(await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { clientId: true } }))?.clientId;
+  } catch {
+    return true;
+  }
+}
+
 /** The follow-up signal of a reply that promised an agent (15.11.2026). Exported for the class test; never throws. */
-export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number, jobTopic = false): Promise<"agent" | "director" | "already" | "skipped"> {
+export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number, jobTopic = false,
+  /** Номер клиента известен: при «бот отвечает сам» сигнал всё равно идёт (lib/botAnswersItself.ts, phoneKnown). */
+  phoneKnown = false,
+  /** Человека звать при любом положении «бот отвечает сам» (оператор: грубость, жалоба; обещание агента, оставшееся в ответе). */
+  staffRequired = false): Promise<"agent" | "director" | "already" | "skipped"> {
   try {
     const { alertClientWaiting } = await import("./clientWaitingAlert.js");
-    const outcome = await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs), jobTopic });
-    return outcome === "excluded" ? "skipped" : outcome; // Meta keeps its four outcomes (review 0e463b02 N5 is the channel door's)
+    const outcome = await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs), jobTopic,
+      ...(phoneKnown ? { phoneKnown: true } : {}), ...(staffRequired ? { staffRequired: true } : {}) });
+    // Meta keeps its four outcomes (review 0e463b02 N5 is the channel door's); «бот отвечает сам» (`self`) — никого не звали.
+    return outcome === "excluded" || outcome === "self" ? "skipped" : outcome;
   } catch (error) {
     console.error("[client-waiting]", error instanceof Error ? error.message : "UnknownError");
     return "skipped";

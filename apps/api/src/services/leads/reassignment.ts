@@ -739,7 +739,9 @@ export async function assignPendingLeads(): Promise<number> {
        * заявка — без следа отказа/потери и либо свежая (48 ч), либо ни разу никому
        * не назначавшаяся.
        */
-      AND: [newLeadOnlyWhere()],
+      AND: [newLeadOnlyWhere(),
+        // Номер из комментария (18.11.2026, lib/commentPhoneHold.ts): карточка ждёт ответа клиента боту в личных.
+        { OR: [{ commentPhoneHoldUntil: null }, { commentPhoneHoldUntil: { lte: new Date() } }] }],
       // Раздел L (03.09.2026): карточка с открытой проверкой на дубль (см.
       // lib/duplicateReview.ts) намеренно без агента — не «забытая», а придержанная.
       // Без этого фильтра утренняя волна назначала бы её мимо агента, которого

@@ -31,6 +31,7 @@ import { runWhatsappCallingHealthCheck } from "./lib/whatsappCallingHealth.js";
 import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
 import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
 import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
+import { releaseCommentPhoneHolds } from "./lib/commentPhoneHold.js";
 import { runTransferRequestTick } from "./lib/ownershipTransferRequest.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
@@ -2280,6 +2281,13 @@ export function startCronJobs() {
     if (!(await isWithinWorkingHours())) return;
     if (isDistributionRunning) return;
     isDistributionRunning = true;
+    try {
+      // Номер из комментария (18.11.2026): ответил боту или прошло 20 минут — карточка возвращается в раздачу ДО волны.
+      const held = await releaseCommentPhoneHolds();
+      if (held.answered + held.expired > 0) console.log(`[cron] Номер из комментария → в раздачу: ответили ${held.answered}, молчат ${held.expired}`);
+    } catch (err) {
+      reportCronTickError("Ошибка снятия придержки номера из комментария", err);
+    }
     try {
       const assigned = await assignPendingLeads();
       if (assigned > 0) console.log(`[cron] Назначено лидов, ждавших агента: ${assigned}`);
