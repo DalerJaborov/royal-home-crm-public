@@ -60,20 +60,20 @@ export function UiCheck() {
   }, []);
 
   return (
-    <main style={{ padding: "20px 16px 120px", maxWidth: 720, margin: "0 auto", color: "var(--rh-ui-text)" }}>
+    <main style={{ padding: "20px 16px 120px", maxWidth: 720, margin: "0 auto", color: "var(--rh-ui-text, inherit)" }}>
       {/* Невидимая проба: env() читается только через стиль настоящего элемента. */}
       <div ref={probeRef} aria-hidden="true" style={{ position: "absolute", visibility: "hidden", paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }} />
       <h1 style={{ fontSize: 28, fontWeight: 700, margin: "0 0 8px" }}>Проверка экрана</h1>
       <p style={{ fontSize: 16, lineHeight: 1.5, margin: "0 0 16px" }}>
-        Нажмите «Открыть пробную шторку», сделайте снимок экрана и пришлите. Ничего никуда не отправляется — цифры только на этом экране.
+        Нажмите «Открыть пробную шторку», сделайте снимок экрана и пришлите. Ничего никуда не отправляется, цифры остаются только на этом экране.
       </p>
-      <button type="button" onClick={() => setSheet(true)} style={{ minHeight: 48, padding: "0 20px", borderRadius: 999, border: 0, background: "var(--rh-ui-primary)", color: "var(--rh-ui-primary-fg)", fontSize: 16, fontWeight: 600, marginBottom: 20 }}>
+      <button type="button" onClick={() => setSheet(true)} style={{ minHeight: 48, padding: "0 20px", borderRadius: 999, border: 0, background: "var(--rh-ui-primary, rgb(43 89 255))", color: "var(--rh-ui-primary-fg, white)", fontSize: 16, fontWeight: 600, marginBottom: 20 }}>
         Открыть пробную шторку
       </button>
       <dl style={{ margin: 0, display: "grid", gap: 12 }}>
         {Object.entries(snapshot).map(([label, value]) => (
           <div key={label} style={{ borderBottom: "1px solid rgba(0,0,0,.08)", paddingBottom: 10 }}>
-            <dt style={{ fontSize: 14, color: "var(--rh-ui-hint)" }}>{label}</dt>
+            <dt style={{ fontSize: 14, color: "var(--rh-ui-hint, gray)" }}>{label}</dt>
             <dd style={{ margin: "2px 0 0", fontSize: 22, fontWeight: 700, overflowWrap: "anywhere" }}>{value}</dd>
           </div>
         ))}

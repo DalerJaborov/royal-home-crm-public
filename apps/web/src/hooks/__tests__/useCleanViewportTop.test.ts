@@ -17,10 +17,13 @@ describe("useCleanViewport: верх видимой области", () => {
   const vv = { height: 448, offsetTop: 396 };
   const dataset: Record<string, string> = {};
 let focused = true;
+const timers: { fn: () => void; ms: number }[] = [];
+const rafs: (() => void)[] = [];
+let focusOut: () => void = () => undefined;
 let field: unknown = null;
 
   beforeEach(() => {
-    hooks.effects.length = 0; props.clear(); focused = true;
+    hooks.effects.length = 0; props.clear(); focused = true; timers.length = 0; rafs.length = 0;
     for (const key of Object.keys(dataset)) delete dataset[key];
     vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal("MutationObserver", class { observe() {} disconnect() {} });
@@ -28,13 +31,13 @@ let field: unknown = null;
     vi.stubGlobal("HTMLElement", Field);
     field = new Field();
     vi.stubGlobal("window", {
-      innerHeight: 844, setTimeout: () => 0, clearTimeout: () => undefined, requestAnimationFrame: () => 0, cancelAnimationFrame: () => undefined,
+      innerHeight: 844, setTimeout: (fn: () => void, ms: number) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout: () => undefined, requestAnimationFrame: (fn: () => void) => { rafs.push(fn); return rafs.length; }, cancelAnimationFrame: () => undefined,
       addEventListener: () => undefined, removeEventListener: () => undefined,
       visualViewport: { get height() { return vv.height; }, get offsetTop() { return vv.offsetTop; }, addEventListener: () => undefined, removeEventListener: () => undefined },
     });
     vi.stubGlobal("document", {
       body: {}, get activeElement() { return focused ? field : null; }, querySelector: () => null,
-      addEventListener: () => undefined, removeEventListener: () => undefined,
+      addEventListener: (type: string, cb: () => void) => { if (type === "focusout") focusOut = cb; }, removeEventListener: () => undefined,
       documentElement: { dataset, style: { setProperty: (k: string, v: string) => props.set(k, v), removeProperty: (k: string) => props.delete(k) } },
     });
   });
@@ -49,12 +52,26 @@ let field: unknown = null;
     expect(props.has("--clean-viewport-top")).toBe(false);
   });
 
-  it("клавиатура закрылась (поле без фокуса) — верх строго 0, даже если iOS ещё держит offsetTop", () => {
+  it("верх считается по геометрии, а не по фокусу: поле не в фокусе, видимая область сдвинута — верх 396px", () => {
     focused = false;
     callHook(true);
     const cleanup = hooks.effects.pop()!()!;
+    expect(props.get("--clean-viewport-top")).toBe("396px");
+    cleanup();
+  });
+
+  it("клавиатура закрылась (видимая область снова во всё окно) — верх строго 0, даже если offsetTop не вернулся; поздний сброс через 350 мс", () => {
+    callHook(true);
+    const cleanup = hooks.effects.pop()!()!;
+    expect(props.get("--clean-viewport-top")).toBe("396px");
+    vv.height = 844; // клавиатура закрылась, а offsetTop ещё 396 (iOS присылает его позже)
+    focusOut();
+    expect(timers.at(-1)?.ms).toBe(350);
+    timers.at(-1)!.fn(); // последний пересчёт по таймеру
+    rafs.splice(0).forEach((fn) => fn());
     expect(props.get("--clean-viewport-top")).toBe("0px");
     cleanup();
+    vv.height = 448;
   });
 
   it("без клавиатуры верх — 0px, отрицательный (резиновая прокрутка) не уходит в минус", () => {

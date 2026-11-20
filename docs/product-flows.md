@@ -30150,7 +30150,7 @@
       - если claimed !== 1
         - return "already";
           · дословно из кода
-      - const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || describeServiceMarker(BARE_ATTAC…
+      - const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || NO_TEXT_NOTE;
         · зовёт clientOwnWords()
       - const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
         · зовёт scrubMentionedClientPhonesInText()

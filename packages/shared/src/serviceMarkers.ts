@@ -44,3 +44,30 @@ export function describeServiceMarker(
   if (opts.hasAttachments) return "";
   return `Клиент прислал файл — в CRM он не сохранился, посмотрите ${whereToLook(opts.channel)}`;
 }
+
+/**
+ * Нейтральная подпись для push сотрудникам, когда текста нет и неизвестно, что именно пришло
+ * (файл, голосовое или реакция): ничего не утверждает про то, сохранён ли файл в CRM.
+ */
+export const NO_TEXT_NOTE = "Клиент прислал сообщение без текста (файл, голосовое или реакцию) — откройте чат";
+
+const KIND_WORD: Record<string, string> = { image: "фото", video: "видео", audio: "голосовое", file: "файл", document: "документ", sticker: "стикер", location: "место", contact: "контакт" };
+
+/**
+ * Слова для push сотрудникам вместо служебной строки бота (`[вложение: image]`, `[сообщение без текста]`, пусто).
+ * `[сообщение без текста]` пишется только там, где медиа точно не было (lib/customerHeldMessage.ts), поэтому
+ * «реакция или место» здесь честно; «[вложение без текста]» и пустой текст — нейтрально (NO_TEXT_NOTE).
+ * Обычный текст клиента возвращается как есть.
+ */
+export function describeForStaff(excerpt: string | null | undefined): string {
+  const text = (excerpt ?? "").trim();
+  if (!text) return NO_TEXT_NOTE;
+  if (text === BARE_MESSAGE_MARKER) return "Сообщение без текста (реакция или место) — откройте чат";
+  if (text === BARE_ATTACHMENT_MARKER) return NO_TEXT_NOTE;
+  const kinds = /^\[вложение:\s*([^\]]+)\]$/u.exec(text);
+  if (kinds) {
+    const words = [...new Set(kinds[1].split(",").map((k) => KIND_WORD[k.trim().toLowerCase()] ?? "файл"))];
+    return `Клиент прислал ${words.join(", ")} — откройте чат`;
+  }
+  return text;
+}
