@@ -473,3 +473,13 @@
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .wrap > a.chip { flex-wrap: wrap; row-gap: 2px; border-radius: 20px; padding-block: 6px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .wrap > a.chip > span:first-of-type { flex: 1 1 10em; overflow-wrap: break-word; word-break: normal; }
 :root[data-ui-look="royal"][data-mobile-ux] .rh2.screens[data-ry-section="marketing"] .pg-h .acts > .field > select.inp { display: block; width: 100%; max-width: none; }
+
+/* Главные цифры рекламы директора (components/ads/AdsDirectorTiles.tsx, 20.11.2026):
+   крупные суммы («3 220 700,70 с.») не режутся — на узком телефоне плитки в один столбец,
+   число переносится, а не уезжает за край плитки. */
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles.ry-ads-tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+}
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles.ry-ads-tiles .tile b.money {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; white-space: normal; overflow-wrap: anywhere; min-width: 0;
+}

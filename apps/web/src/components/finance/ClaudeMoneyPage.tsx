@@ -14,12 +14,19 @@ import { ClaudeSubscriptions } from "./ClaudeSubscriptions";
 import { ClaudePaymentCalendar } from "./ClaudePaymentCalendar";
 import { ClaudeExpenseTable } from "./ClaudeExpenseTable";
 import { ClaudeCategorySettings } from "./ClaudeCategorySettings";
+import { RU_MONTH_INPUT_STYLE, RuMonthText } from "../ui/RuMonthText";
 
 const TABS: { key: FinanceWorkspace; label: string }[] = [
   { key: "expenses", label: "Расходы" }, { key: "recurring", label: "Подписки" },
   { key: "calendar", label: "Календарь" }, { key: "table", label: "Таблица" },
   { key: "overview", label: "Обзор и прогноз" }, { key: "payouts", label: "Выплаты" }, { key: "founders", label: "Учредители" },
 ];
+/**
+ * Новый вид (разделы директора, 20.11.2026): в строке вкладок — главное (расходы,
+ * обзор, выплаты, учредители), способы показа и подписки — в меню «⋯». Открытый
+ * второстепенный раздел остаётся видимой вкладкой, чтобы было понятно, где ты.
+ */
+const ROYAL_PRIMARY: FinanceWorkspace[] = ["expenses", "overview", "payouts", "founders"];
 function monthName(month: string) {
   return new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric", timeZone: "Asia/Dushanbe" })
     .format(new Date(`${month}-15T12:00:00Z`));
@@ -31,16 +38,26 @@ function moveMonth(month: string, direction: number) {
 }
 
 /** The approved Claude money workspace, using live CRM controllers. */
-export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceChange, canManage, archiveAllowed, overview, payouts, onExport, exporting, exportError, pdfMonths = 6 }: {
+export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceChange, canManage, archiveAllowed, overview, payouts, onExport, exporting, exportError, pdfMonths = 6, royal = false, summary }: {
   month: string; onMonthChange: (month: string) => void;
   workspace: FinanceWorkspace; onWorkspaceChange: (workspace: FinanceWorkspace) => void;
   canManage: boolean; archiveAllowed: boolean; overview: ReactNode; payouts: ReactNode;
   onExport: () => void; exporting: boolean; exportError: string | null;
   /** Сколько месяцев истории в PDF — тот же диапазон, что у графиков обзора. */
   pdfMonths?: number;
+  /** Новый вид: короткая строка вкладок и всё второстепенное в «⋯». */
+  royal?: boolean;
+  /** Итог месяца (доход, расходы, прибыль) над разделом — кроме «Обзора», где он плитками. */
+  summary?: ReactNode;
 }) {
   const readOnly = useIsReadOnly();
   const mobile = useMobileUx();
+  // «⋯» сворачивается и на компьютере в новом виде: шесть кнопок в ряд — шум.
+  const foldTools = mobile || royal;
+  // Новый вид: короткие подписи — четыре вкладки целиком на 320 px (кадр владельца 20.11).
+  const visibleTabs = royal ? TABS.map((t) => (t.key === "overview" ? { ...t, label: "Обзор" } : t)).filter((t) => ROYAL_PRIMARY.includes(t.key) || t.key === workspace)
+    .sort((a, b) => (ROYAL_PRIMARY.indexOf(a.key) + 99) % 99 - (ROYAL_PRIMARY.indexOf(b.key) + 99) % 99) : TABS;
+  const moreTabs = royal ? TABS.filter((t) => !ROYAL_PRIMARY.includes(t.key) && t.key !== workspace) : [];
   const writable = canManage && !readOnly;
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef<HTMLDetailsElement>(null);
@@ -61,7 +78,7 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
   useEffect(() => {
     // Keep the originating action visible until the sheet restores focus.
     // A portal is outside <details>; its pointer events must not dismiss it.
-    if (!mobile || !toolsOpen || categoriesOpen || sheet) return;
+    if (!foldTools || !toolsOpen || categoriesOpen || sheet) return;
     const closeOutside = (event: PointerEvent) => {
       if (!toolsRef.current?.contains(event.target as Node)) setToolsOpen(false);
     };
@@ -76,13 +93,13 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
       document.removeEventListener("pointerdown", closeOutside);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [mobile, toolsOpen, categoriesOpen, sheet]);
+  }, [foldTools, toolsOpen, categoriesOpen, sheet]);
   const add = (initialDate?: string, initialRecurring = false) => { if (writable) setSheet({ expense: null, initialDate, initialRecurring }); };
   const addPreset = (preset: ClaudeSubscriptionPreset) => { if (writable) setSheet({ expense: null, initialRecurring: true, preset }); };
   const edit = (expense: ClaudeExpense) => setSheet({ expense });
   const monthControls = <div className="cef-month-controls">
     <button type="button" className="cef-icon-btn" aria-label="Предыдущий месяц" disabled={month <= "1900-01"} onClick={() => onMonthChange(moveMonth(month, -1))}><ChevronLeft /></button>
-    <label className="cef-month-picker"><span className="sr-only">Месяц финансов</span><input type="month" value={month} min="1900-01" max="2199-12" onChange={(event) => { if (/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(event.target.value)) onMonthChange(event.target.value); }} /></label>
+    <label className="cef-month-picker" style={{ position: "relative" }}><span className="sr-only">Месяц финансов</span><RuMonthText month={month} /><input type="month" style={RU_MONTH_INPUT_STYLE} value={month} min="1900-01" max="2199-12" onChange={(event) => { if (/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(event.target.value)) onMonthChange(event.target.value); }} /></label>
     <button type="button" className="cef-icon-btn" aria-label="Следующий месяц" disabled={month >= "2199-12"} onClick={() => onMonthChange(moveMonth(month, 1))}><ChevronRight /></button>
   </div>;
   return <div className="cef cef-page">
@@ -96,14 +113,17 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
         event.preventDefault();
         const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
         tabs[next]?.focus(); tabs[next]?.click();
-      }}>{TABS.map((tab) => <button type="button" key={tab.key} role="tab" className={workspace === tab.key ? "cef-active" : ""} id={`finance-tab-${tab.key}`} aria-selected={workspace === tab.key} aria-controls={`finance-panel-${tab.key}`} tabIndex={workspace === tab.key ? 0 : -1} onClick={() => onWorkspaceChange(tab.key)}>{tab.label}</button>)}</div>
+      }}>{visibleTabs.map((tab) => <button type="button" key={tab.key} role="tab" className={workspace === tab.key ? "cef-active" : ""} id={`finance-tab-${tab.key}`} aria-selected={workspace === tab.key} aria-controls={`finance-panel-${tab.key}`} tabIndex={workspace === tab.key ? 0 : -1} onClick={() => onWorkspaceChange(tab.key)}>{tab.label}</button>)}</div>
       {writable && <button type="button" className="cef-btn cef-blue cef-add" onClick={() => add()}><Plus size={20} />Расход</button>}
     </header>
     <div className="cef-tools">
       {workspace !== "calendar" && monthControls}
-      <details ref={toolsRef} className="cef-tool-disclosure" open={!mobile || toolsOpen} onToggle={(event) => { if (mobile) setToolsOpen(event.currentTarget.open); }}>
+      <details ref={toolsRef} className="cef-tool-disclosure" open={!foldTools || toolsOpen} onToggle={(event) => { if (foldTools) setToolsOpen(event.currentTarget.open); }}>
         <summary className="cef-icon-btn" aria-label="Действия с финансами"><MoreHorizontal aria-hidden="true" /></summary>
         <div className="cef-tool-actions">
+          {moreTabs.length > 0 && <div className="ry-money-more-tabs" aria-label="Другие разделы денег">
+            {moreTabs.map((tab) => <button type="button" key={tab.key} className="cef-btn cef-soft" onClick={() => { setToolsOpen(false); onWorkspaceChange(tab.key); }}>{tab.label}</button>)}
+          </div>}
           <button type="button" className="cef-btn cef-soft" onClick={() => setCategoriesOpen(true)}><SlidersHorizontal size={18} /><span>Категории и лимиты</span></button>
           <button type="button" className="cef-icon-btn" aria-label="Скачать общую финансовую выгрузку" disabled={exporting} onClick={onExport}><Download /><span className="cef-mobile-action-label">Скачать CSV</span></button>
           <ReportPdfActions kind="finance" params={{ month, months: pdfMonths }} layout="contents" buttonClassName="cef-btn cef-soft" />
@@ -112,6 +132,7 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
       </details>
     </div>
     {exportError && <p className="cef-error" role="alert">{exportError}</p>}
+    {workspace !== "overview" && summary}
     <section className="cef-panel" role="tabpanel" id={`finance-panel-${workspace}`} aria-labelledby={`finance-tab-${workspace}`}>
       {workspace === "expenses" && <ClaudeExpenseFeed month={month} canManage={writable} onAdd={() => add()} onEdit={edit} />}
       {workspace === "recurring" && <ClaudeSubscriptions month={month} canManage={writable} onAdd={() => add(undefined, true)} onAddPreset={addPreset} />}

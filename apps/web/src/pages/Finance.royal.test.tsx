@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import type { FinanceMonth } from "../hooks/useFinance";
 import { RoyalExpenseDonut } from "../components/look/money/RoyalExpenseDonut";
+import { profitDelta } from "../components/look/money/RoyalMoneyStrip";
 
 /**
  * «НОВЫЙ ВИД» раздела «Деньги» (пачка money): разметка другая — суммы те же.
@@ -76,7 +77,9 @@ describe("«Деньги» в новом виде: те же суммы, что 
       state.royal = false;
       const before = sums(render(`/finance?workspace=${workspace}`));
       state.royal = true;
-      const after = sums(render(`/finance?workspace=${workspace}`));
+      // Строка «доход · расходы · прибыль» (разделы директора, 20.11) — добавка нового
+      // вида над разделом; её суммы сверяет свой тест ниже, здесь сравнивается остальное.
+      const after = sums(render(`/finance?workspace=${workspace}`).replace(/<section class="ry-money-strip"[\s\S]*?<\/section>/, ""));
       expect(before.length).toBeGreaterThan(0);
       expect(after).toEqual(before);
     }
@@ -103,6 +106,38 @@ describe("«Деньги» в новом виде: те же суммы, что 
     state.data = { months: [sep, oct], usdToTjsRate: 10.9 };
     const loss = render("/finance?workspace=overview");
     expect(loss).toMatch(/class="ry-money-tile" data-tone="crit"><span class="ry-circle" data-tone="crit">(?:(?!ry-money-tile").)*Прибыль/);
+  });
+  it("доход, расходы и прибыль одной строкой над «Расходами» и «Выплатами», со сравнением с прошлым месяцем", () => {
+    state.royal = true;
+    for (const workspace of ["expenses", "payouts", "founders"]) {
+      const html = render(`/finance?workspace=${workspace}`);
+      const strip = /<section class="ry-money-strip"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+      const t = strip.replace(/<[^>]+>/g, " ").replace(/[  ]/g, " ").replace(/\s+/g, " ");
+      expect(t, workspace).toContain("Доход компании 14 000 с.");
+      expect(t).toContain("Расходы 18 500 с.");
+      // убыток: и словом, и красным; сравнение с сентябрём — со стрелкой и в обе стороны
+      expect(t).toContain("Убыток 4 501 с.");
+      expect(t).toContain("▲ на 1 550 с. больше, чем в сентябре");
+      expect(t).toContain("▲ на 15 500 с. больше, чем в сентябре");
+      // прибыль сменилась убытком — словами, без арифметики через ноль, красным
+      expect(t).toContain("в сентябре была прибыль 9 450 с.");
+      expect(strip).toMatch(/data-tone="crit"/);
+    }
+    // В «Обзоре» итоги уже стоят плитками — строки нет; в прежнем виде её нет нигде.
+    expect(render("/finance?workspace=overview")).not.toContain("ry-money-strip");
+    state.royal = false;
+    expect(render("/finance?workspace=expenses")).not.toContain("ry-money-strip");
+  });
+  it("новый вид: в строке вкладок главное, подписки/календарь/таблица — в «⋯», открытый раздел виден вкладкой", () => {
+    state.royal = true;
+    const tabs = (html: string) => [...html.matchAll(/role="tab"[^>]*>([^<]+)</g)].map((m) => m[1]);
+    expect(tabs(render("/finance"))).toEqual(["Расходы", "Обзор", "Выплаты", "Учредители"]);
+    const more = render("/finance");
+    expect(more).toContain('aria-label="Другие разделы денег"');
+    for (const label of ["Подписки", "Календарь", "Таблица"]) expect(more).toContain(`>${label}</button>`);
+    expect(tabs(render("/finance?workspace=calendar"))).toEqual(["Расходы", "Обзор", "Выплаты", "Учредители", "Календарь"]);
+    state.royal = false;
+    expect(tabs(render("/finance"))).toHaveLength(7);
   });
   it("метка раздела стоит только в новом виде; прежний вид разметкой не тронут", () => {
     state.royal = true;
@@ -154,5 +189,21 @@ describe("кольцо расходов: та же доля и та же под�
   it("без расходов дуг нет — не рисует ноль как долю", () => {
     const html = renderToStaticMarkup(<RoyalExpenseDonut parts={parts.map((p) => ({ ...p, value: 0 }))} total={0} center="—" caption="всего" />);
     expect(html).not.toContain("ry-donut-seg");
+  });
+});
+
+describe("сравнение прибыли и убытка с прошлым месяцем (ревью PR 336)", () => {
+  const t = (v: number, p: number) => { const d = profitDelta(v, p, "в октябре"); return { text: d.text.replace(/[ ]/g, " "), good: d.good }; };
+  it("убыток уменьшился — хорошо, словами по модулю", () =>
+    expect(t(-2000, -5000)).toEqual({ text: "▼ убыток меньше на 3 000 с., чем в октябре", good: true }));
+  it("убыток вырос — плохо", () =>
+    expect(t(-5000, -2000)).toEqual({ text: "▲ убыток больше на 3 000 с., чем в октябре", good: false }));
+  it("была прибыль, стал убыток — плохо; был убыток, стала прибыль — хорошо", () => {
+    expect(t(-100, 400)).toEqual({ text: "в октябре была прибыль 400 с.", good: false });
+    expect(t(100, -400)).toEqual({ text: "в октябре был убыток 400 с.", good: true });
+  });
+  it("прибыль выросла и упала — как обычно", () => {
+    expect(t(500, 200).good).toBe(true);
+    expect(t(200, 500)).toEqual({ text: "▼ на 300 с. меньше, чем в октябре", good: false });
   });
 });

@@ -59,7 +59,7 @@ import { loadDemandSupply } from "../lib/demandSupply.js";
 import { loadResponseSpeed } from "../lib/responseSpeed.js";
 import { buildSecurityReviewDigest } from "../lib/securityReviewDigest.js";
 import { logSystemError } from "../lib/systemError.js";
-import { buildAgentsReport, buildFunnelReport, buildSourcesReport, parseReportRange, type ReportViewer } from "../lib/teamReports.js";
+import { buildAgentsReport, buildFunnelCohort, buildFunnelReport, buildSourcesReport, parseReportRange, type ReportViewer } from "../lib/teamReports.js";
 
 export const reportsRouter = Router();
 
@@ -166,7 +166,11 @@ function reportViewer(req: Request): ReportViewer {
 // их же зовёт PDF-отчёт по команде, и считать одно и то же дважды нельзя.
 reportsRouter.get("/funnel", async (req, res) => {
   const range = parseReportRange(req.query);
-  res.json({ ...range, funnel: await buildFunnelReport(range, reportViewer(req)) });
+  const viewer = reportViewer(req);
+  const [funnel, cohort] = await Promise.all([buildFunnelReport(range, viewer), buildFunnelCohort(range, viewer)]);
+  // funnel — события периода (итоги: заявки, показы, сделки, комиссия);
+  // cohort — путь заявок периода, шаг не больше предыдущего (воронка на экране).
+  res.json({ ...range, funnel, cohort });
 });
 
 reportsRouter.get("/agents", async (req, res) => {
