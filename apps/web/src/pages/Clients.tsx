@@ -953,7 +953,7 @@ function ClientRow({
 
   const visibleNextStep = !isTrashed && !c.hiddenReason && !pending ? c.nextStep : null;
   const rowRequest = isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен";
-  // «Новый вид»: имя и якорь порознь по общему правилу (lib/royalClientRowText.ts, ревью #331):
+  // «Новый вид»: имя и якорь порознь по общему правилу (lib/royalClientRowText.ts, ревью PR 331):
   // склейка «Имя · ищет …» обрезала имя, а сырой fullName терял заглушки и адрес продавца.
   const royalText = royal ? royalClientRowText(c, rowRequest) : null;
   const cleanRowProps = clean && !inSheet ? {

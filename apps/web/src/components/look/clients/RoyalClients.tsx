@@ -82,7 +82,7 @@ export function RoyalClientRow({ id, name, href, avatar, identity, request, sour
           {deadline
             ? <span className="ry-crow-text ry-crow-deadline">{overdue ? "просрочено · " : "срок "}<span className="ry-crow-nowrap">{deadline}</span></span>
             : <span className="ry-crow-hint ry-crow-last">{staleContact ? "Давно не связывались · " : "связывались "}<span className="ry-crow-nowrap">{lastContact}</span></span>}
-          {/* Оба признака сразу (ревью #331): срок шага не прячет, что клиент давно без связи. */}
+          {/* Оба признака сразу (ревью PR 331): срок шага не прячет, что клиент давно без связи. */}
           {deadline && staleContact && <span className="ry-crow-hint ry-crow-stale">Давно не связывались</span>}
         </span>
       </div>

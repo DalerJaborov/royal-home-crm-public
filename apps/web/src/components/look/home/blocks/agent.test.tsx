@@ -42,7 +42,7 @@ describe("«Позвонить сейчас»", () => {
     expect(container.textContent).not.toContain("срок первого звонка прошёл");
   });
 
-  it("у строки «назначил руководитель» тоже своя трубка (ревью #331)", () => {
+  it("у строки «назначил руководитель» тоже своя трубка (ревью PR 331)", () => {
     render(wrap(<AgentFirstCalls />));
     const button = screen.getByRole("button", { name: "Позвонить: Мадина Рахимова" });
     expect(button.closest("a")).toBeNull();

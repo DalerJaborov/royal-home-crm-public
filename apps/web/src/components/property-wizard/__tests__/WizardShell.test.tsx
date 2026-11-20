@@ -59,7 +59,7 @@ describe("property wizard workspace", () => {
     expect(html).toMatch(/<div class="wizard-danger-zone"><button[^>]*data-variant="danger"[^>]*data-testid="wizard-delete-draft"/);
   });
 
-  it("shows a failed deletion next to the bottom button, not in the header (ревью #331)", () => {
+  it("shows a failed deletion next to the bottom button, not in the header (ревью PR 331)", () => {
     const html = render({ onDeleteDraft: () => {}, onSaveAndExit: () => {}, deleteDraftError: "Не удалось удалить черновик." });
     const zone = html.slice(html.indexOf('class="wizard-danger-zone"'));
     expect(zone).toContain('data-testid="wizard-delete-error"');

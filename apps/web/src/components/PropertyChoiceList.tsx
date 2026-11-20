@@ -40,7 +40,7 @@ export function PropertyChoiceList({ items, value, onChange, emptyLabel, disable
   </fieldset>;
 }
 
-/** Фото объекта в выборе — общая дверь PropertyPhoto (ревью #331): та же очередь ссылок и та же заглушка. */
+/** Фото объекта в выборе — общая дверь PropertyPhoto (ревью PR 331): та же очередь ссылок и та же заглушка. */
 function ChoicePhoto({ photo }: { photo?: Property["photos"][number] }) {
   return <PropertyPhoto fill sources={[photo?.thumbUrl, photo?.url]} />;
 }

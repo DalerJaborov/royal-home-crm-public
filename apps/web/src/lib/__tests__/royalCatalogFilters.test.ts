@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { royalCatalogFilterCount } from "../royalCatalogFilters";
 
-/** «Фильтры (n)»: считаются только условия, сужающие выдачу; порядок — нет (ревью #331). */
+/** «Фильтры (n)»: считаются только условия, сужающие выдачу; порядок — нет (ревью PR 331). */
 describe("число на кнопке «Фильтры» каталога", () => {
   it("сортировка не фильтр", () => {
     expect(royalCatalogFilterCount({ sort: "price_asc" }, false)).toBe(0);

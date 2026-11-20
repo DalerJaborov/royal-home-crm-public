@@ -90,8 +90,8 @@ export function PropertyPhoto({
         alignItems: "center",
         justifyContent: "center",
         gap: 6,
-        background: "var(--rh-ui-raised, var(--soft, #eef0f4))",
-        color: "var(--faint, #6b7280)",
+        background: "var(--rh-ui-raised, var(--soft))",
+        color: "var(--rh-ui-hint, var(--faint))",
         textAlign: "center",
         ...style,
       }}

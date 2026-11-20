@@ -105,7 +105,7 @@ export function OwnerRow({
   property: Pick<Property, "ownerContact" | "ownerContactMasked" | "sellerClient">;
   phoneInField?: boolean;
   /** «Новый вид», главный блок карточки: без открытой карточки продавца звонить через
-   *  станцию не от чего — кнопки нет вовсе, а не неактивная (ревью #331). */
+   *  станцию не от чего — кнопки нет вовсе, а не неактивная (ревью PR 331). */
   hideDeadCall?: boolean;
 }) {
   const seller = property.sellerClient ?? null;
