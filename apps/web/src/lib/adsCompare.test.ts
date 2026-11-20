@@ -3,7 +3,6 @@ import { previousAdPeriod } from "./adsCompare";
 
 describe("прошлый период «Рекламы» — отрезок той же длины прямо перед выбранным", () => {
   it.each([
-    ["today", "2026-11-20", { from: "2026-11-19", to: "2026-11-19" }],
     ["yesterday", "2026-11-20", { from: "2026-11-18", to: "2026-11-18" }],
     ["7d", "2026-11-20", { from: "2026-11-07", to: "2026-11-13" }],
     ["30d", "2026-11-20", { from: "2026-09-22", to: "2026-10-21" }],
@@ -16,6 +15,8 @@ describe("прошлый период «Рекламы» — отрезок то
     expect(previousAdPeriod(preset, today)).toEqual(expected);
   });
   it("за всё время сравнивать не с чем", () => expect(previousAdPeriod("all", "2026-11-20")).toBeNull());
+  it("сегодня не сравниваем: неполный день против целого вчерашнего врал бы «расход упал»", () =>
+    expect(previousAdPeriod("today", "2026-11-20")).toBeNull());
   it("7 и 30 дней: прошлый отрезок той же длины и не пересекается с текущим", () => {
     const days = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000 + 1;
     const w7 = previousAdPeriod("7d", "2026-11-20")!;

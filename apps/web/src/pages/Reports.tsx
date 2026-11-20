@@ -437,7 +437,8 @@ function ReportsScreen({ royal }: { royal: boolean }) {
         {/* Воронка за период */}
         <div className="sec" id="funnel-section">
           <div className="sec-h">
-            <h2>Воронка за период</h2>
+            {/* Ревью PR 336: подпись прямо говорит, что шаги — про заявки этого периода. */}
+            <h2>{cohort ? "Воронка: из заявок за период" : "Воронка за период"}</h2>
             <span className="note">
               {dot(from)} по {dot(to)}
             </span>

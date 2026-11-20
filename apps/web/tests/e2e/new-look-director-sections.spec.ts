@@ -12,7 +12,7 @@ import { expectNoOverflowAt } from "./helpers/noOverflow";
  *    с кабинетом — цена заявки, цена сделки и окупаемость (данные подменены: на
  *    стенде рекламы нет);
  *  - «Деньги» — доход, расходы и прибыль рядом над «Расходами», второстепенное в «⋯»;
- *  - «Контроль руководителя» — нули серые, пустые срезы одной строкой «Всё спокойно»;
+ *  - «Контроль руководителя» — нули серые, пустые срезы одной строкой «Без замечаний» под срезами с проблемами;
  *  - ни на одной ширине нет горизонтальной прокрутки, ничего не вылезает за край.
  * Ответ /ui-shell подменяется (как в остальных new-look-*.spec.ts).
  */
@@ -36,8 +36,34 @@ const board = (enabled: boolean, spend: number, lead: number, deals: number, com
     total: 0, linked: 0, foreign: 0, brandTjs: 0, brandCount: 0, pending: 0, conversations: lead * 2 },
 });
 
-const SIZES = [390, 1440];
+const SIZES = [320, 390, 1440];
 const STRIPS = ".seg-ai, .hscroll, .tbl-wrap, .rh-filters-scroll, .clean-section-switcher, .cef-main-tabs";
+
+test("реклама на 320 с крупными суммами: ничего не вылезает, суммы не режутся @smoke", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "проверяется в десктопном проекте");
+  test.setTimeout(120_000);
+  await look(page);
+  await page.route((u) => u.pathname === "/api/v1/ads/board", (route) => {
+    const prev = new URL(route.request().url()).searchParams.has("from");
+    return route.fulfill({ json: prev ? board(true, 2_480_300.55, 911, 7, 1_200_000) : board(true, 3_220_700.7, 1_204, 12, 9_870_450.25) });
+  });
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto("/ads");
+  await expect(page.locator(".ry-ads-tiles")).toBeVisible({ timeout: 30_000 });
+  const t = (await page.locator(".ry-ads-tiles").innerText()).replace(/[  ]/g, " ");
+  expect(t).toContain("3 220 700,70 с.");
+  await expectNoOverflowAt(page, 320, ".pg-h, .tiles .tile, .tiles .tile b, .card, .quiet", { strips: STRIPS, height: 1400 });
+  // Число не режется краем плитки: ни шире своей строки, ни правее плитки (кадр 20.11:
+  // «3 220 700,7» обрезалось — общий сторож этого не видел, у плитки overflow hidden).
+  const clipped = await page.locator(".ry-ads-tiles .tile").evaluateAll((tiles) => tiles.flatMap((tile) => {
+    const t = tile.getBoundingClientRect();
+    const b = tile.querySelector("b")!;
+    const r = b.getBoundingClientRect();
+    return b.scrollWidth > b.clientWidth + 1 || r.right > t.right + 1 ? [b.textContent ?? ""] : [];
+  }));
+  expect(clipped).toEqual([]);
+  if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/after-ads-big-320.png`, fullPage: true });
+});
 
 for (const width of SIZES) {
   test(`отчёты на ${width}: воронка без «больше 100 %», склонения, одна строка вкладок @smoke`, async ({ page }, testInfo) => {
@@ -70,6 +96,7 @@ for (const width of SIZES) {
     await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal", { timeout: 30_000 });
     await expect(page.getByText("Реклама не подключена, поэтому цифр по ней нет.")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".tiles .tile")).toHaveCount(0);
+    // директор меняет настройки — ему кнопка; остальным текст «попросите директора» (тест web)
     await expect(page.getByRole("link", { name: "Подключить" })).toHaveAttribute("href", "/settings?tab=channels");
     await expectNoOverflowAt(page, width, ".pg-h, .card, .quiet", { strips: STRIPS });
 
@@ -105,7 +132,16 @@ for (const width of SIZES) {
     await expect(strip).toContainText("Доход компании");
     await expect(strip).toContainText("Расходы");
     await expect(strip).toContainText(/Прибыль|Убыток/);
-    await expect(page.locator(".cef-main-tabs [role=tab]")).toHaveText(["Расходы", "Обзор и прогноз", "Выплаты", "Учредители"]);
+    await expect(page.locator(".cef-main-tabs [role=tab]")).toHaveText(["Расходы", "Обзор", "Выплаты", "Учредители"]);
+    // все четыре вкладки целиком в окне — ничего не режется краем (кадр владельца 20.11)
+    for (const tab of await page.locator(".cef-main-tabs [role=tab]").all()) {
+      const box = await tab.boundingBox();
+      expect(box, "вкладка видна").not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
+    }
+    // месяц по-русски, а не на языке телефона
+    await expect(page.locator(".cef-month-picker .ru-month-text")).toHaveText(/^(Январь|Февраль|Март|Апрель|Май|Июнь|Июль|Август|Сентябрь|Октябрь|Ноябрь|Декабрь) \d{4}$/);
     // «⋯» открывает меню, в нём — подписки, календарь и таблица
     await page.locator(".cef-tool-disclosure > summary").click();
     await expect(page.getByRole("button", { name: "Календарь" })).toBeVisible();
@@ -126,7 +162,7 @@ for (const width of SIZES) {
     await expect(page.locator(".ry-control .tiles .tile").first()).toBeVisible({ timeout: 30_000 });
     // на стенде почти всё по нулям: нулевые плитки серые, а пустые срезы — одной строкой
     await expect(page.locator(".ry-control .tile.ry-tile-calm").first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator(".ry-calm-line")).toContainText("Всё спокойно");
+    await expect(page.locator(".ry-calm-line")).toContainText("Без замечаний");
     const calmBg = await page.locator(".ry-control .tile.ry-tile-calm").first().evaluate((el) => getComputedStyle(el).backgroundColor);
     const cardBg = await page.locator(".ry-control .card").first().evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(calmBg, "серая подложка нулевой плитки отличается от карточки").not.toBe(cardBg);

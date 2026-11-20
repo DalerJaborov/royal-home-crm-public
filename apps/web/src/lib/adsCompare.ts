@@ -6,7 +6,8 @@ import type { AdPeriodPreset } from "./adsView";
  * Директор спрашивает не «сколько потратили», а «лучше или хуже, чем было».
  * Сервер доски (`GET /ads/board`) уже принимает произвольные даты from/to — здесь
  * только вычисляется отрезок той же длины прямо перед выбранным:
- *  - сегодня → вчера, вчера → позавчера;
+ *  - сегодня — НЕ сравниваем: день ещё идёт, а вчера уже целый (ревью PR 336);
+ *  - вчера → позавчера;
  *  - 7 и 30 дней → предыдущие 7 и 30 дней;
  *  - этот месяц (с 1-го по сегодня) → прошлый месяц с 1-го по то же число
  *    (а не весь прошлый месяц: иначе 20 дней сравнивались бы с 30);
@@ -20,10 +21,8 @@ export function previousAdPeriod(preset: AdPeriodPreset, todayKey: string): { fr
   const shift = (k: string, days: number) => key(new Date(day(k).getTime() + days * 86_400_000));
   const today = todayKey;
   switch (preset) {
-    case "today": {
-      const y = shift(today, -1);
-      return { from: y, to: y };
-    }
+    case "today":
+      return null;
     case "yesterday": {
       const y = shift(today, -2);
       return { from: y, to: y };

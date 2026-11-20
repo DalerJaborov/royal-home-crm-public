@@ -14,6 +14,7 @@ import { ClaudeSubscriptions } from "./ClaudeSubscriptions";
 import { ClaudePaymentCalendar } from "./ClaudePaymentCalendar";
 import { ClaudeExpenseTable } from "./ClaudeExpenseTable";
 import { ClaudeCategorySettings } from "./ClaudeCategorySettings";
+import { RU_MONTH_INPUT_STYLE, RuMonthText } from "../ui/RuMonthText";
 
 const TABS: { key: FinanceWorkspace; label: string }[] = [
   { key: "expenses", label: "Расходы" }, { key: "recurring", label: "Подписки" },
@@ -53,7 +54,8 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
   const mobile = useMobileUx();
   // «⋯» сворачивается и на компьютере в новом виде: шесть кнопок в ряд — шум.
   const foldTools = mobile || royal;
-  const visibleTabs = royal ? TABS.filter((t) => ROYAL_PRIMARY.includes(t.key) || t.key === workspace)
+  // Новый вид: короткие подписи — четыре вкладки целиком на 320 px (кадр владельца 20.11).
+  const visibleTabs = royal ? TABS.map((t) => (t.key === "overview" ? { ...t, label: "Обзор" } : t)).filter((t) => ROYAL_PRIMARY.includes(t.key) || t.key === workspace)
     .sort((a, b) => (ROYAL_PRIMARY.indexOf(a.key) + 99) % 99 - (ROYAL_PRIMARY.indexOf(b.key) + 99) % 99) : TABS;
   const moreTabs = royal ? TABS.filter((t) => !ROYAL_PRIMARY.includes(t.key) && t.key !== workspace) : [];
   const writable = canManage && !readOnly;
@@ -97,7 +99,7 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
   const edit = (expense: ClaudeExpense) => setSheet({ expense });
   const monthControls = <div className="cef-month-controls">
     <button type="button" className="cef-icon-btn" aria-label="Предыдущий месяц" disabled={month <= "1900-01"} onClick={() => onMonthChange(moveMonth(month, -1))}><ChevronLeft /></button>
-    <label className="cef-month-picker"><span className="sr-only">Месяц финансов</span><input type="month" value={month} min="1900-01" max="2199-12" onChange={(event) => { if (/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(event.target.value)) onMonthChange(event.target.value); }} /></label>
+    <label className="cef-month-picker" style={{ position: "relative" }}><span className="sr-only">Месяц финансов</span><RuMonthText month={month} /><input type="month" style={RU_MONTH_INPUT_STYLE} value={month} min="1900-01" max="2199-12" onChange={(event) => { if (/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(event.target.value)) onMonthChange(event.target.value); }} /></label>
     <button type="button" className="cef-icon-btn" aria-label="Следующий месяц" disabled={month >= "2199-12"} onClick={() => onMonthChange(moveMonth(month, 1))}><ChevronRight /></button>
   </div>;
   return <div className="cef cef-page">

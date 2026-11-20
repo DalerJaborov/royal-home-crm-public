@@ -14,6 +14,8 @@ import { signAccessToken } from "../src/auth/jwt.js";
  *    не-продавцы) без сделок в строки не попадает; директор, сам закрывший
  *    сделку, остаётся — иначе сумма сделок по людям не сойдётся с итогом.
  *
+ * 3. В рейтинге — RATED_ROLES: РОП с агентами не соревнуется, если сам не закрыл сделку.
+ *
  * Период — один давний день, на который другие тесты карточек не заводят:
  * когорта считается по дате карточки, и чужие клиенты исказили бы числа.
  */
@@ -29,12 +31,14 @@ let propertyId = "";
 let agentId = "";
 let shareholderId = "";
 let directorId = "";
+let ropId = "";
 
 beforeAll(async () => {
   directorId = (await prisma.agent.create({ data: { fullName: `Директор когорта ${runId}`, phone: `+992931${sfx}`, role: "DIRECTOR", passwordHash: "x" } })).id;
   agentId = (await prisma.agent.create({ data: { fullName: `Агент когорта ${runId}`, phone: `+992930${sfx}`, role: "AGENT", passwordHash: "x" } })).id;
   shareholderId = (await prisma.agent.create({ data: { fullName: `Акционер когорта ${runId}`, phone: `+992929${sfx}`, role: "SHAREHOLDER", passwordHash: "x" } })).id;
-  ids.agents.push(directorId, agentId, shareholderId);
+  ropId = (await prisma.agent.create({ data: { fullName: `РОП когорта ${runId}`, phone: `+992928${sfx}`, role: "HEAD_OF_SALES", passwordHash: "x" } })).id;
+  ids.agents.push(directorId, agentId, shareholderId, ropId);
   token = signAccessToken({ sub: directorId, role: "DIRECTOR" });
   districtId = (await prisma.district.create({ data: { name: `Район когорта ${runId}` } })).id;
   propertyId = (
@@ -51,9 +55,14 @@ beforeAll(async () => {
   const called = await client(2);
   const dealNoShowing = await client(3);
   const showingAndTalks = await client(4);
+  // Клиент сам звонил, трубку не взяли, плюс заметка сотрудника — это НЕ «связались»
+  // (общее правило lib/noContact.ts, ревью #336).
+  const missedOnly = await client(5);
   void silent;
   ids.interactions.push(
-    (await prisma.interaction.create({ data: { clientId: called, agentId, type: "CALL", notes: "звонок когорта", createdAt: at } })).id,
+    (await prisma.interaction.create({ data: { clientId: called, agentId, type: "CALL", callAttempt: "NO_ANSWER", notes: "звонок когорта", createdAt: at } })).id,
+    (await prisma.interaction.create({ data: { clientId: missedOnly, agentId, type: "CALL", actorKind: "AGENT", notes: "Входящий звонок: пропущен", createdAt: at } })).id,
+    (await prisma.interaction.create({ data: { clientId: missedOnly, agentId, type: "MESSAGE", notes: "заметка когорта", createdAt: at } })).id,
     (await prisma.interaction.create({ data: { clientId: showingAndTalks, agentId, propertyId, type: "SHOWING", notes: "показ когорта", createdAt: at } })).id,
   );
   ids.deals.push(
@@ -73,12 +82,12 @@ afterAll(async () => {
 });
 
 describe("воронка заявок периода", () => {
-  it("шаги — заявки периода, дошедшие до шага или дальше; каждый не больше предыдущего", async () => {
+  it("шаги — заявки периода, дошедшие до шага или дальше; пропущенный входящий и заметка — не «связались»", async () => {
     const res = await request(app).get(`/api/v1/reports/funnel?from=${DAY}&to=${DAY}`).set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     const cohort = res.body.cohort as { key: string; count: number }[];
     expect(cohort.map((s) => [s.key, s.count])).toEqual([
-      ["leads", 4],
+      ["leads", 5],
       ["contacted", 3],
       ["showings", 2],
       ["negotiations", 2],
@@ -91,11 +100,12 @@ describe("воронка заявок периода", () => {
 });
 
 describe("рейтинг по агентам — только те, кто продаёт", () => {
-  it("акционера нет, агент есть, директор со своей сделкой периода есть", async () => {
+  it("акционера и РОП без сделок нет, агент есть, директор со своей сделкой периода есть", async () => {
     const res = await request(app).get(`/api/v1/reports/agents?from=${DAY}&to=${DAY}`).set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     const rows = res.body as { agentId: string; dealsClosed: number }[];
     expect(rows.some((r) => r.agentId === shareholderId)).toBe(false);
+    expect(rows.some((r) => r.agentId === ropId)).toBe(false);
     expect(rows.some((r) => r.agentId === agentId)).toBe(true);
     expect(rows.find((r) => r.agentId === directorId)?.dealsClosed).toBe(1);
   });

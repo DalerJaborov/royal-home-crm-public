@@ -30,6 +30,7 @@ export function RoyalMoneyStrip({ current, previous }: { current: FinanceMonth; 
         previous={previous?.profit}
         prevLabel={prevLabel}
         tone={current.profit < 0 ? "crit" : current.profit > 0 ? "ok" : undefined}
+        delta={previous ? profitDelta(current.profit, previous.profit, prevLabel) : null}
         unsigned={current.profit < 0}
         hint="доход минус расходы"
       />
@@ -37,20 +38,47 @@ export function RoyalMoneyStrip({ current, previous }: { current: FinanceMonth; 
   );
 }
 
-function Cell({ label, value, previous, prevLabel, hint, tone, growthIsBad = false, unsigned = false }: {
+/**
+ * Сравнение итога месяца (ревью PR 336): при убытке «▲ больше» про отрицательные числа
+ * читалось наоборот. Здесь — словами по модулю, цвет по смыслу: убыток уменьшился —
+ * хорошо; сменился знак — так и пишем, без арифметики через ноль.
+ */
+export function profitDelta(value: number, previous: number, prevLabel: string): { text: string; good: boolean | null } {
+  const cur = Math.round(value);
+  const prev = Math.round(previous);
+  if (cur === prev) return { text: `столько же, сколько ${prevLabel}`, good: null };
+  if (cur < 0 && prev < 0) {
+    const d = Math.abs(cur) - Math.abs(prev);
+    return d < 0
+      ? { text: `▼ убыток меньше на ${nums(-d)} с., чем ${prevLabel}`, good: true }
+      : { text: `▲ убыток больше на ${nums(d)} с., чем ${prevLabel}`, good: false };
+  }
+  if (cur < 0) return { text: prev > 0 ? `${prevLabel} была прибыль ${nums(prev)} с.` : `${prevLabel} было в ноль`, good: false };
+  if (prev < 0) return { text: `${prevLabel} был убыток ${nums(-prev)} с.`, good: true };
+  const d = cur - prev;
+  return { text: `${d > 0 ? "▲" : "▼"} на ${nums(Math.abs(d))} с. ${d > 0 ? "больше" : "меньше"}, чем ${prevLabel}`, good: d > 0 };
+}
+
+function Cell({ label, value, previous, prevLabel, hint, tone, growthIsBad = false, unsigned = false, delta }: {
   label: string; value: number; previous?: number; prevLabel: string; hint: string; tone?: "ok" | "crit"; growthIsBad?: boolean;
   /** Знак уже сказан словом («Убыток») — число без минуса. */
   unsigned?: boolean;
+  /** Готовое сравнение (итог месяца) вместо простой разницы. */
+  delta?: { text: string; good: boolean | null } | null;
 }) {
   const diff = previous === undefined ? null : Math.round(value) - Math.round(previous);
-  const good = diff === null || diff === 0 ? null : growthIsBad ? diff < 0 : diff > 0;
+  const simple = diff === null ? null : {
+    text: diff === 0 ? `столько же, сколько ${prevLabel}` : `${diff > 0 ? "▲" : "▼"} на ${nums(Math.abs(diff))} с. ${diff > 0 ? "больше" : "меньше"}, чем ${prevLabel}`,
+    good: diff === 0 ? null : growthIsBad ? diff < 0 : diff > 0,
+  };
+  const shownDelta = delta !== undefined ? delta : simple;
   return (
     <div className="ry-money-strip-cell" data-tone={tone}>
       <span className="ry-money-strip-label">{label}</span>
       <strong className="ry-money-strip-value ry-num">{nums(unsigned ? Math.abs(value) : value)}{"\u00a0"}с.</strong>
-      {diff !== null && (
-        <span className="ry-money-strip-delta" data-good={good === null ? undefined : String(good)}>
-          {diff === 0 ? `столько же, сколько ${prevLabel}` : `${diff > 0 ? "▲" : "▼"} на ${nums(Math.abs(diff))}\u00a0с. ${diff > 0 ? "больше" : "меньше"}, чем ${prevLabel}`}
+      {shownDelta && (
+        <span className="ry-money-strip-delta" data-good={shownDelta.good === null ? undefined : String(shownDelta.good)}>
+          {shownDelta.text}
         </span>
       )}
       <span className="ry-money-strip-hint">{hint}</span>

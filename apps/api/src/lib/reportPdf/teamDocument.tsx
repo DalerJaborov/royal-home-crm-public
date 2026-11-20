@@ -12,7 +12,6 @@ import { C, money, num, percent } from "./theme.js";
  */
 export const AGENT_ROWS_LIMIT = 300;
 
-/** Простые слова вместо внутренних (лид → заявка). */
 export interface TeamReportInput {
   periodLabel: string;
   preparedBy: string;
@@ -52,7 +51,7 @@ export function TeamReport({ periodLabel, preparedBy, generatedAtLabel, seesMone
       </Section>
 
       <Section
-        title="Воронка"
+        title="Воронка: из заявок за период"
         hint="Заявки, пришедшие за период, и сколько из них дошло до каждого шага к сегодняшнему дню. Шаг засчитан, если клиент дошёл до него или дальше, поэтому каждый шаг не больше предыдущего."
         lead={<FunnelBars steps={cohort.map((x) => ({ label: x.label, count: x.count }))} />}
       />

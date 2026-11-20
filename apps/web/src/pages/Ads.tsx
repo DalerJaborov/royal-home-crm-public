@@ -113,8 +113,12 @@ function AdsContent() {
   // и одна строка «не подключено» вместо пяти нулевых плиток.
   const royal = !!section;
   const notConnected = !!board.data && !board.data.enabled;
+  // Кабинет отключили, а история объявлений есть — её не прячем (ревью PR 336):
+  // одной строкой «не подключено» заменяются только пустые плитки и списки.
+  const hasHistory = (board.data?.totals.total ?? 0) > 0 || (board.data?.totals.foreign ?? 0) > 0;
+  const bareNotConnected = royal && notConnected && !hasHistory;
   const prevRange = royal ? previousAdPeriod(period, dushanbeTodayKey()) : null;
-  const previousBoard = useAdsBoardRange(prevRange, royal && !notConnected && !!board.data);
+  const previousBoard = useAdsBoardRange(prevRange, royal && !!board.data && (!notConnected || hasHistory));
 
   const totals = board.data?.totals;
   // Свежесть данных читаем с дашборда: он грузится на любой вкладке, а отчёт по
@@ -167,7 +171,7 @@ function AdsContent() {
             </p>
           </div>
           {/* Не подключено — период и сверка не к чему: в новом виде их нет. */}
-          {!(royal && notConnected) && <div className="acts">
+          {!bareNotConnected && <div className="acts">
             <label className="field">
               <span className="vh">Период</span>
               <select
@@ -198,18 +202,25 @@ function AdsContent() {
             обращений пришло, столько стоило одно. Всё остальное — в списке. */}
         {/* Ошибка запроса — не нули (F10, 02.10.2026): «потрачено 0,00 TJS ·
             0 обращений» при упавшем сервере читалось как «реклама стоит». */}
-        {royal && notConnected ? (
-          /* Реклама не подключена — одна строка вместо пяти нулевых плиток и пустых списков. */
+        {royal && notConnected && (
+          /* Реклама не подключена — одна строка вместо нулевых плиток и пустых списков.
+             Подключить может только тот, кто меняет настройки; остальным — к кому идти. */
           <div className="card tight">
             <div className="quiet">
               <span className="dot" />
-              <span className="txt">Реклама не подключена, поэтому цифр по ней нет.</span>
-              <Link className="pill ghost sm" to="/settings?tab=channels">
-                Подключить
-              </Link>
+              <span className="txt">
+                {hasHistory ? "Реклама сейчас не подключена: ниже — то, что было раньше." : "Реклама не подключена, поэтому цифр по ней нет."}
+                {!can("settings.manage") && " Подключить может директор — попросите его."}
+              </span>
+              {can("settings.manage") && (
+                <Link className="pill ghost sm" to="/settings?tab=channels">
+                  Подключить
+                </Link>
+              )}
             </div>
           </div>
-        ) : board.isError && !board.data ? (
+        )}
+        {bareNotConnected ? null : board.isError && !board.data ? (
           <div className="card tight">
             <div className="quiet crit" role="alert">
               <span className="dot crit" />
@@ -228,6 +239,7 @@ function AdsContent() {
             pacing={pacing.data}
             syncedAt={syncedAt}
             periodLabel={board.data?.label ?? "период"}
+            seesMoney={can("finance.view")}
           />
         ) : (
         /* ПЯТЬ ПЛИТОК (компактная версия по макету владельца, 13.10.2026): деньги за период,
@@ -388,7 +400,7 @@ function AdsContent() {
           </>
         )}
 
-        {!(royal && notConnected) && <>
+        {!bareNotConnected && <>
         <AiDigest month={digestMonth} />
 
         <div className="sec-h">

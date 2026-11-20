@@ -629,3 +629,16 @@
   width: 100%; min-height: 48px; justify-content: flex-start; gap: 12px; padding: 0 14px; border-radius: 14px; background: transparent; box-shadow: none; text-align: left;
 }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-tool-disclosure .cef-mobile-action-label { display: inline; }
+/* Легенда кольца: название сверху, сумма снизу — у всех чипов одинаково (кадр владельца
+   20.11: «Реклама 1 615,2 с.» переносилась в две строки, остальные стояли в одну). */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend button {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-items: start; column-gap: 8px; row-gap: 2px;
+  min-height: 56px; padding: 8px 14px; border-radius: 18px; text-align: left;
+}
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend button b { grid-column: 2; }
+/* Узкий телефон: вкладки переносятся во второй ряд и растягиваются по ширине — ни одна не
+   режется краем (кадр владельца 20.11: «Таблица» уезжала за край). */
+@media (max-width: 640px) {
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs { flex-wrap: wrap; overflow-x: visible; }
+  :root[data-ui-look="royal"] [data-ry-section="money"] .cef-toolbar .cef-main-tabs button { flex: 1 1 auto; padding: 0 12px; }
+}

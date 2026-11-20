@@ -704,7 +704,7 @@
         },
         {
          "k": "do",
-         "t": "row.leadStats = leadStatsOf( toCents(row.period.spendTjs), found.total, row.period.conversations );",
+         "t": "row.leadStats = leadStatsOf( toCents(row.period.spendTjs), found.total, row.period.conversations, { seesCompa…",
          "a": [
           "зовёт leadStatsOf()"
          ],
@@ -722,7 +722,7 @@
            "c": [
             {
              "k": "do",
-             "t": "p.leadStats = leadStatsOf(toCents(p.spendTjs), counts, p.conversations, { shares: true });",
+             "t": "p.leadStats = leadStatsOf(toCents(p.spendTjs), counts, p.conversations, { shares: true, seesCompanyMoney });",
              "a": [
               "зовёт leadStatsOf()"
              ],
@@ -1745,7 +1745,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ...report, label: period.label, ...freshness });",
+     "t": "res.json({ ...report, rows, label: period.label, ...freshness });",
      "a": [
       "ответ 200"
      ],

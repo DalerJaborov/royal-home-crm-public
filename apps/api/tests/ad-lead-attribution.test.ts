@@ -117,12 +117,12 @@ describe("attributeLeads", () => {
     for (const id of ["p0", "p1", "p2", "p3"]) expect(ad.byProperty.get(id)!.leads).toBe(0.75);
     expect(ad.total.leads).toBe(3);
     // Цена клиента объекта: доля расхода (30 с.) / 0,75 клиента = 40 с. — как цена по объявлению (120 / 3).
-    const stats = leadStatsOf(30_00, ad.byProperty.get("p3")!, 0, { shares: true });
+    const stats = leadStatsOf(30_00, ad.byProperty.get("p3")!, 0, { shares: true, seesCompanyMoney: true });
     expect(stats.leadsAreShares).toBe(true);
     expect(stats.costPerLeadTjs).toBe(40);
     // Итог объявления целыми и без флага долей.
-    expect(leadStatsOf(120_00, ad.total, 0).leadsAreShares).toBeUndefined();
-    expect(leadStatsOf(120_00, ad.total, 0).costPerLeadTjs).toBe(40);
+    expect(leadStatsOf(120_00, ad.total, 0, { seesCompanyMoney: true }).leadsAreShares).toBeUndefined();
+    expect(leadStatsOf(120_00, ad.total, 0, { seesCompanyMoney: true }).costPerLeadTjs).toBe(40);
   });
 
   it("расход объектов согласован с аллокацией денег: те же доли, та же сумма до цента", () => {
@@ -173,7 +173,7 @@ describe("leadStatsOf", () => {
   const counts = { leads: 4, showings: 2, deals: 1, commissionCents: 600_00 };
 
   it("цена клиента, цена показа, цена обращения Meta и окупаемость", () => {
-    const s = leadStatsOf(400_00, counts, 8);
+    const s = leadStatsOf(400_00, counts, 8, { seesCompanyMoney: true });
     expect(s).toEqual({
       leads: 4,
       showings: 2,
@@ -187,8 +187,17 @@ describe("leadStatsOf", () => {
     });
   });
 
+  it("без права finance.view комиссии компании и окупаемости нет — null, а не ноль (20.11.2026)", () => {
+    const s = leadStatsOf(400_00, counts, 8, { seesCompanyMoney: false });
+    expect(s.commissionTjs).toBeNull();
+    expect(s.romi).toBeNull();
+    // расход и цены — не деньги компании, остаются
+    expect(s.costPerLeadTjs).toBe(100);
+    expect(s.deals).toBe(1);
+  });
+
   it("нулевой расход: цен нет (органика не стоит денег), окупаемости нет", () => {
-    const s = leadStatsOf(0, counts, 8);
+    const s = leadStatsOf(0, counts, 8, { seesCompanyMoney: true });
     expect(s.costPerLeadTjs).toBeNull();
     expect(s.costPerShowingTjs).toBeNull();
     expect(s.costPerLeadMeta).toBeNull();
@@ -197,7 +206,7 @@ describe("leadStatsOf", () => {
   });
 
   it("нулевые клиенты при расходе: цена клиента null, а не ноль; обращения Meta при этом считаются", () => {
-    const s = leadStatsOf(300_00, { leads: 0, showings: 0, deals: 0, commissionCents: 0 }, 3);
+    const s = leadStatsOf(300_00, { leads: 0, showings: 0, deals: 0, commissionCents: 0 }, 3, { seesCompanyMoney: true });
     expect(s.costPerLeadTjs).toBeNull();
     expect(s.costPerShowingTjs).toBeNull();
     expect(s.costPerLeadMeta).toBe(100);
@@ -206,7 +215,7 @@ describe("leadStatsOf", () => {
   });
 
   it("нет обращений Meta: цена обращения null", () => {
-    expect(leadStatsOf(100_00, counts, 0).costPerLeadMeta).toBeNull();
+    expect(leadStatsOf(100_00, counts, 0, { seesCompanyMoney: true }).costPerLeadMeta).toBeNull();
   });
 });
 

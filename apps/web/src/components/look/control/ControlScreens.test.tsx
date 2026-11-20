@@ -188,7 +188,12 @@ describe("экраны контроля в новом виде: тот же те
     state.royal = true;
     const html = render("/oversight", <Oversight />);
     const royalText = text(html);
-    expect(royalText).toContain("Всё спокойно: просроченных задач нет, после показов никто не пропал");
+    expect(royalText).toContain("Без замечаний: просроченных задач нет, после показов никто не пропал");
+    // журнал передач — за всё время: не прячется, а окно названо прямо
+    expect(royalText).toContain("за 30 дней передач клиентов не было");
+    expect(royalText).toContain("Передачи между агентами");
+    // строка «без замечаний» стоит ПОД срезами с проблемами
+    expect(royalText.indexOf("Без замечаний")).toBeGreaterThan(royalText.indexOf("Не связывались С клиентом"));
     expect(royalText).toContain("Не связывались");
     for (const gone of ["Просроченные задачи Обещанный", "Переговоры по кругу С продавцом", "Звонки-опросы после показа", "Кто кому чаще передаёт клиентов"]) {
       expect(royalText, gone).not.toContain(gone);
@@ -201,11 +206,25 @@ describe("экраны контроля в новом виде: тот же те
     // прежний вид — все срезы на месте, строки «всё спокойно» нет
     state.royal = false;
     const legacy = text(render("/oversight", <Oversight />));
-    expect(legacy).not.toContain("Всё спокойно");
+    expect(legacy).not.toContain("Без замечаний");
     expect(legacy).toContain("Звонки-опросы после показа");
     // сводка не пришла — сворачивать нечем, сбой не выглядит спокойствием
     state.royal = true;
     state.summary = null;
-    expect(text(render("/oversight", <Oversight />))).not.toContain("Всё спокойно");
+    expect(text(render("/oversight", <Oversight />))).not.toContain("Без замечаний");
+  });
+
+  it("нет числа у среза — «неизвестно», а не «спокойно»: срез показан, NaN на плитке нет (ревью PR 336)", () => {
+    const { sellerPropertyMissingWarn: _w, sellerPropertyMissingCritical: _c, ...rest } = oversight.summary;
+    void _w; void _c;
+    state.summary = { ...rest, overdueTasks: 0 };
+    state.royal = true;
+    const html = text(render("/oversight", <Oversight />));
+    expect(html).not.toContain("NaN");
+    expect(html).not.toContain("у всех продавцов есть объект");
+    expect(html).not.toContain("undefined");
+    expect(html).toContain("Продавец без объекта 2 карточки Принят");
+    // ноль — свёрнут в строку
+    expect(html).toContain("Без замечаний: просроченных задач нет");
   });
 });

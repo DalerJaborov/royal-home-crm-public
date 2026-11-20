@@ -982,6 +982,8 @@ export function Oversight() {
   const investigations = useCanViewInvestigations();
   const canView = can("dashboard.analytics");
   const { data: summary, isError: summaryError, refetch: refetchSummary } = useOversightSummary(canView);
+  // Срезы, раскрытые нажатием на нулевую плитку (новый вид сворачивает пустые).
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   // Вкладки раздела «Команда» (перенос меню 15.09.2026) — тот же набор и та же
   // логика подписи, что в pages/Team.tsx / lib/navigation.ts.
   const { data: sectionCounters } = useCounters();
@@ -1011,13 +1013,18 @@ export function Oversight() {
     );
   }
 
-  const sellerMissing = summary ? summary.sellerPropertyMissingWarn + summary.sellerPropertyMissingCritical : undefined;
+  // Нет поля (нет права или старый сервер) — «неизвестно», а не ноль: NaN на плитке и
+  // «спокойно» в строке были бы враньём (ревью PR 336).
+  const sellerMissing =
+    typeof summary?.sellerPropertyMissingWarn === "number" && typeof summary?.sellerPropertyMissingCritical === "number"
+      ? summary.sellerPropertyMissingWarn + summary.sellerPropertyMissingCritical
+      : undefined;
   // Срочность плиток — одна переменная на подпись и на круг нового вида.
   const overdueCritical = !!summary?.overdueTasks;
   const noContactCritical = !!summary?.noContactClients;
   // Новый вид: пустые срезы не занимают по экрану каждый, а собираются в одну строку
-  // «всё спокойно». Решаем по сводке; нет сводки (грузится или сбой) — показываем все,
-  // чтобы сбой не выглядел спокойствием.
+  // «Без замечаний» под срезами с проблемами. Решаем по сводке; нет сводки (грузится или
+  // сбой) — показываем все; нет числа у среза — тоже показываем: «неизвестно» не ноль.
   const fold = royal && !!summary && !summaryError;
   const slices: { key: string; count: number | undefined; calm: string; el: ReactNode }[] = [
     { key: "overdue", count: summary?.overdueTasks, calm: "просроченных задач нет", el: <OverdueTasks key="overdue" /> },
@@ -1026,13 +1033,22 @@ export function Oversight() {
     ...(investigations ? [{ key: "seller", count: sellerMissing, calm: "у всех продавцов есть объект", el: <SellerPropertyMissing key="seller" /> }] : []),
     { key: "endless", count: summary?.endlessNegotiations, calm: "переговоров по кругу нет", el: <EndlessNegotiations key="endless" /> },
     ...(investigations ? [{ key: "refused", count: summary?.refusedHighScore, calm: "хорошие клиенты не отказывались", el: <RefusedHighScore key="refused" /> }] : []),
-  ];
-  const lateSlices: { key: string; count: number | undefined; calm: string; el: ReactNode }[] = [
     ...(investigations ? [{ key: "series", count: summary?.agentLossSeries, calm: "никто не теряет клиентов подряд", el: <AgentLossSeries key="series" /> }] : []),
-    { key: "transfers", count: summary?.recentTransfers, calm: "передач клиентов не было", el: <TransfersLog key="transfers" /> },
   ];
-  const calmList = fold ? [...slices, ...lateSlices].filter((x) => (x.count ?? 0) === 0).map((x) => x.calm) : [];
-  const shown = (list: typeof slices) => list.filter((x) => !fold || (x.count ?? 0) > 0).map((x) => x.el);
+  const calmList = fold
+    ? [
+        ...slices.filter((x) => x.count === 0 && !expanded.has(x.key)).map((x) => x.calm),
+        // Журнал передач — за всё время, а число в сводке — за окно: журнал не прячем,
+        // а в строке честно пишем, за какой срок передач не было.
+        ...(summary?.recentTransfers === 0 ? [`за ${summary.recentWindowDays} дней передач клиентов не было`] : []),
+      ]
+    : [];
+  const shown = slices.filter((x) => !fold || x.count !== 0 || expanded.has(x.key)).map((x) => x.el);
+  /** Плитка ведёт к своему срезу; свёрнутый (ноль) сперва раскрывается — не в пустоту. */
+  const go = (key: string, id: string) => {
+    setExpanded((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+    window.setTimeout(() => scrollToSlice(id), 0);
+  };
 
   return (
     <ControlRoot royal={royal}>
@@ -1064,7 +1080,7 @@ export function Oversight() {
             value={summary?.overdueTasks ?? "—"}
             line="сроки обещаны клиентам"
             critical={overdueCritical}
-            onClick={() => scrollToSlice("slice-overdue-tasks")}
+            onClick={() => go("overdue", "slice-overdue-tasks")}
             title="Список просроченных задач ниже на этом экране"
           />
           <StatTile
@@ -1073,7 +1089,7 @@ export function Oversight() {
             value={summary?.noContactClients ?? "—"}
             line={summary && summary.noContactClients === 0 ? NO_CONTACT_TEXT.zero : "ни звонка, ни сообщения сотрудника"}
             critical={noContactCritical}
-            onClick={() => scrollToSlice("slice-no-contact-clients")}
+            onClick={() => go("nocontact", "slice-no-contact-clients")}
             title="Клиенты, с кем ни разу не связывались — список ниже на этом экране"
           />
           <StatTile
@@ -1081,7 +1097,7 @@ export function Oversight() {
             label="Пропали после показа"
             value={summary?.silentAfterShowing ?? "—"}
             line={summary ? `показ был больше ${summary.silentAfterShowingDays} дней назад` : ""}
-            onClick={() => scrollToSlice("slice-silent-after-showing")}
+            onClick={() => go("silent", "slice-silent-after-showing")}
             title="Список клиентов без контакта после показа ниже на этом экране"
           />
           {investigations && <StatTile
@@ -1089,7 +1105,7 @@ export function Oversight() {
             label="Отказ хорошего клиента"
             value={summary?.refusedHighScore ?? "—"}
             line={summary ? `за ${summary.recentWindowDays} дней, мимо службы безопасности` : ""}
-            onClick={() => scrollToSlice("slice-refused-high-score")}
+            onClick={() => go("refused", "slice-refused-high-score")}
             title="Список отказов при хорошем скоринге ниже на этом экране"
           />}
           {investigations && <StatTile
@@ -1097,11 +1113,11 @@ export function Oversight() {
             label="Продавец без объекта"
             value={sellerMissing ?? "—"}
             line={
-              summary
+              summary && sellerMissing !== undefined
                 ? `критично ${summary.sellerPropertyMissingCritical} (от ${summary.sellerPropertyMissingCriticalDays} дней, в службе безопасности), предупреждение ${summary.sellerPropertyMissingWarn} (от ${summary.sellerPropertyMissingWarnDays} дней)`
                 : ""
             }
-            onClick={() => scrollToSlice("slice-seller-property-missing")}
+            onClick={() => go("seller", "slice-seller-property-missing")}
             title="Список продавцов без карточки объекта ниже на этом экране"
           />}
           <StatTile
@@ -1109,7 +1125,7 @@ export function Oversight() {
             label="Переговоры по кругу"
             value={summary?.endlessNegotiations ?? "—"}
             line={summary ? `${summary.sellerNegotiationMaxRounds} раза подряд без решения` : ""}
-            onClick={() => scrollToSlice("slice-endless-negotiations")}
+            onClick={() => go("endless", "slice-endless-negotiations")}
             title="Список карточек с зацикленными переговорами ниже на этом экране"
           />
           {investigations && <StatTile
@@ -1117,7 +1133,7 @@ export function Oversight() {
             label="Теряют подряд"
             value={summary?.agentLossSeries ?? "—"}
             line={summary ? `${summary.agentLossSeriesThreshold} и больше за ${summary.agentLossSeriesWindowDays} дней` : ""}
-            onClick={() => scrollToSlice("slice-agent-loss-series")}
+            onClick={() => go("series", "slice-agent-loss-series")}
             title="Список агентов с серией потерь ниже на этом экране"
           />}
           <StatTile
@@ -1125,7 +1141,7 @@ export function Oversight() {
             label="Передачи клиентов"
             value={summary?.recentTransfers ?? "—"}
             line={summary ? `за ${summary.recentWindowDays} дней` : ""}
-            onClick={() => scrollToSlice("slice-transfers-log")}
+            onClick={() => go("transfers", "slice-transfers-log")}
             title="Журнал передач между агентами ниже на этом экране"
           />
         </div>
@@ -1146,18 +1162,19 @@ export function Oversight() {
           </div>
         )}
 
+        {shown}
+        {investigations && <ShowingSurveyCalls hideWhenEmpty={fold} />}
+
         {calmList.length > 0 && (
           <div className="card tight">
             <div className="quiet ok ry-calm-line">
               <span className="dot ok" />
-              <span className="txt">Всё спокойно: {calmList.join(", ")}.</span>
+              <span className="txt">Без замечаний: {calmList.join(", ")}.</span>
             </div>
           </div>
         )}
 
-        {shown(slices)}
-        {investigations && <ShowingSurveyCalls hideWhenEmpty={fold} />}
-        {shown(lateSlices)}
+        <TransfersLog />
         {investigations && <TransferPairs hideWhenEmpty={fold} />}
       </div>
     </ControlRoot>
