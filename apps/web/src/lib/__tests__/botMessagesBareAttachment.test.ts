@@ -9,8 +9,8 @@ import { humanizeAttachmentTags } from "../botMessages";
  */
 describe("humanizeAttachmentTags: пометка «вложение без текста»", () => {
   it("без файла рядом — спокойная фраза, без скобок", () => {
-    expect(humanizeAttachmentTags("[вложение без текста]")).toBe("Вложение не загрузилось");
-    expect(humanizeAttachmentTags("[сообщение без текста]", { outgoing: false })).toBe("Вложение не загрузилось");
+    expect(humanizeAttachmentTags("[вложение без текста]", { channel: "WHATSAPP" })).toBe("Клиент прислал файл — в CRM он не сохранился, посмотрите в WhatsApp");
+    expect(humanizeAttachmentTags("[сообщение без текста]", { outgoing: false })).toBe("Сообщение без текста (реакция или место)");
   });
 
   it("файл показан рядом — пометка пропадает целиком", () => {

@@ -68,6 +68,17 @@ describe("useScrollLock: --rh-vv-over", () => {
     close();
   });
 
+  it("в стиль <html> пишет только при изменении значения", () => {
+    let writes = 0;
+    (document.documentElement.style as { setProperty: (k: string, v: string) => void }).setProperty = (k, v) => { writes++; props.set(k, v); };
+    vv.height = 906;
+    const close = open();
+    const afterOpen = writes;
+    for (let i = 0; i < 5; i++) for (const cb of listeners.get("scroll") ?? []) cb();
+    expect(writes).toBe(afterOpen);
+    close();
+  });
+
   it("огромное расхождение (клавиатура и т. п.) шторкой не «лечится»", () => {
     vv.height = 1200;
     const close = open();

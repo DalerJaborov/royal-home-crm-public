@@ -48,7 +48,7 @@ describe("POST /transcribe: честные ответы", () => {
   });
 
   it("поставщик не ответил — 424 с причиной словами, не 5xx", async () => {
-    transcribe.result.mockResolvedValue({ text: null, failed: true, detail: "Gemini HTTP 503 (gemini-3.1-pro-preview): overloaded" });
+    transcribe.result.mockResolvedValue({ text: null, failed: true, detail: "Gemini HTTP 503 (gemini-3.1-pro-preview): overloaded", reason: "provider_failed" });
     const res = await send();
     expect(res.status).toBe(424);
     expect(res.status).toBeLessThan(500);
@@ -57,7 +57,7 @@ describe("POST /transcribe: честные ответы", () => {
   });
 
   it("ключ ИИ не задан — 424 и прямо об этом", async () => {
-    transcribe.result.mockResolvedValue({ text: null, failed: true, detail: "ключ Gemini не задан" });
+    transcribe.result.mockResolvedValue({ text: null, failed: true, detail: "ключ Gemini не задан", reason: "no_key" });
     const res = await send();
     expect(res.status).toBe(424);
     expect(res.body.error).toMatch(/не задан ключ/);

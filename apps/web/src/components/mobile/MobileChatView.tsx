@@ -207,6 +207,7 @@ const MobileMessageList = memo(function MobileMessageList({
         const content = humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, {
           outgoing: m.role !== "user",
           hasAttachments: !!m.attachments?.length,
+          channel: m.sourceChannel,
         });
         if (!content && !m.attachments?.length) return null;
         const prevAt = visibleMessages[i - 1]?.at;

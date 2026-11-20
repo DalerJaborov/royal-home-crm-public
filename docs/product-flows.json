@@ -135970,7 +135970,7 @@
           },
           {
            "k": "do",
-           "t": "const raw = clientOwnWords(input.text ?? \"\").replace(/\\s+/gu, \" \").trim() || \"[голосовое или вложение без тек…",
+           "t": "const raw = clientOwnWords(input.text ?? \"\").replace(/\\s+/gu, \" \").trim() || describeServiceMarker(BARE_ATTAC…",
            "a": [
             "зовёт clientOwnWords()"
            ],

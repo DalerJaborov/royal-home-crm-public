@@ -12,7 +12,7 @@
   "other": "Прочие экраны, открываются изнутри"
  },
  "totals": {
-  "screens": 49,
+  "screens": 50,
   "paths": 786,
   "cron": 143,
   "jobs": 34,
@@ -9042,6 +9042,16 @@
      "conf": "через часть экрана"
     }
    ]
+  },
+  {
+   "path": "/ui-check",
+   "title": "Ui проверка",
+   "group": "other",
+   "parent": null,
+   "file": "apps/web/src/pages/UiCheck.tsx",
+   "inMenu": false,
+   "redirect": null,
+   "eps": []
   },
   {
    "path": "/vacancies",

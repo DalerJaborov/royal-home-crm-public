@@ -62,7 +62,7 @@ transcribeRouter.post("/", requireAuth, transcribeLimiter, memoryUploadBudget, u
    * Подробности отказа (модель, код Google) остаются в журнале ошибок CRM, наружу не уходят.
    */
   if (result.failed) {
-    const notConfigured = /ключ Gemini не задан/i.test(result.detail ?? "");
+    const notConfigured = result.reason === "no_key";
     return res.status(424).json({
       error: notConfigured
         ? "Распознавание речи не настроено: не задан ключ ИИ. Напишите текстом, администратор подключит ключ в Настройках."

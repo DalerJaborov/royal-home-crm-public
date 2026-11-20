@@ -10,7 +10,7 @@
 
 | Что | Сколько |
 |---|---|
-| Экранов (адресов в интерфейсе) | 71 |
+| Экранов (адресов в интерфейсе) | 72 |
 | Из них видно в меню | 33 |
 | Модулей сервера | 88 |
 | Адресов сервера всего | 780 |
@@ -94,6 +94,7 @@
 | `/team` | Team | **Команда** | `apps/web/src/pages/Team.tsx` |
 | `/team/:id` | TeamMemberDetail | только по ссылке | `apps/web/src/pages/TeamMemberDetail.tsx` |
 | `/telephony` | Telephony | **Телефония** | `apps/web/src/pages/Telephony.tsx` |
+| `/ui-check` | UiCheck | только по ссылке | `apps/web/src/pages/UiCheck.tsx` |
 | `/vacancies` | Vacancies | **Вакансии** | `apps/web/src/pages/Vacancies.tsx` |
 | `/vacancies/:id` | VacancyDetail | только по ссылке | `apps/web/src/pages/VacancyDetail.tsx` |
 

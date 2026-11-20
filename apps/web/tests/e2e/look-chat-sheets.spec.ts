@@ -14,10 +14,18 @@ import path from "node:path";
 const now = Date.now();
 const ago = (min: number) => new Date(now - min * 60_000).toISOString();
 const SHOTS = process.env.SHOTS_DIR;
-const shot = async (page: Page, name: string, testInfo: { project: { name: string } }) => {
+const shot = async (page: Page, name: string, testInfo: { project: { name: string } }, clip?: { x: number; y: number; width: number; height: number }) => {
   if (!SHOTS) return;
   fs.mkdirSync(SHOTS, { recursive: true });
-  await page.screenshot({ path: path.join(SHOTS, `${name}-${testInfo.project.name}.png`) });
+  await page.screenshot({ path: path.join(SHOTS, `${name}-${testInfo.project.name}.png`), ...(clip ? { clip } : {}) });
+};
+/** Кадр вокруг элемента, а не всего экрана: чтобы «до/после» не были одним и тем же кадром. */
+const shotAround = async (page: Page, selector: string, name: string, testInfo: { project: { name: string } }, pad = 12) => {
+  const box = await page.locator(selector).first().boundingBox();
+  if (!box) return;
+  const vp = page.viewportSize()!;
+  const y = Math.max(0, box.y - pad);
+  await shot(page, name, testInfo, { x: 0, y, width: vp.width, height: Math.min(vp.height - y, box.height + pad * 2) });
 };
 
 const detail = {
@@ -66,7 +74,7 @@ test.describe("новый вид: переписка на телефоне", () 
     await openChat(page);
     const thread = page.locator(".clean-conversation");
     await expect(thread.getByText("[вложение без текста]", { exact: false })).toHaveCount(0);
-    await expect(thread.getByText("Вложение не загрузилось")).toBeVisible();
+    await expect(thread.getByText("Клиент прислал файл — в CRM он не сохранился, посмотрите в WhatsApp")).toBeVisible();
     await shot(page, "01-thread", testInfo);
   });
 
@@ -95,7 +103,9 @@ test.describe("новый вид: переписка на телефоне", () 
         }
       }
     }
-    await shot(page, "02-arrow", testInfo);
+    // Два первых пузыря крупно: стрелка рядом с текстом и со временем.
+    await shotAround(page, ".clean-conversation .bub >> nth=0", "02-arrow-short", testInfo, 40);
+    await shotAround(page, ".clean-conversation .bub >> nth=3", "02-arrow-long", testInfo, 20);
   });
 
   test("в открытой переписке нижнего меню нет, поле ввода прижато к низу @smoke", async ({ page }, testInfo) => {
@@ -104,7 +114,16 @@ test.describe("новый вид: переписка на телефоне", () 
     const box = await page.locator(".ry-chat-compose").boundingBox();
     const vh = page.viewportSize()!.height;
     expect(box!.y + box!.height).toBeGreaterThan(vh - 4);
-    await shot(page, "03-compose", testInfo);
+    await shotAround(page, ".ry-chat-compose", "03-compose-no-nav", testInfo, 60);
+  });
+
+  test("служебная пометка «сообщение без текста» — отдельная подпись, не про файл", async ({ page }) => {
+    const withReaction = { ...detail, messages: [{ role: "user", content: "[сообщение без текста]", at: ago(5) }] };
+    await stub(page);
+    await page.route((url) => url.pathname === "/api/v1/conversations/e2e-sheet-0" || url.pathname.startsWith("/api/v1/conversations/groups/"), (route) => route.fulfill({ json: withReaction }));
+    await page.goto("/messages?open=e2e-sheet-0");
+    await expect(page.locator(".clean-conversation").getByText("Сообщение без текста (реакция или место)")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".clean-conversation").getByText("Клиент прислал файл")).toHaveCount(0);
   });
 
   test("клавиатура: поле ввода у её верха, лента над ним, меню скрыто", async ({ page }, testInfo) => {
@@ -125,10 +144,13 @@ test.describe("новый вид: переписка на телефоне", () 
       };
     });
     await openChat(page);
-    await page.locator(".ry-chat-compose textarea").focus();
-    // 844 - клавиатура 336 - панель над ней 60 = 448; страница прокручена на 396.
-    await page.evaluate(() => (window as unknown as { __kb: (h: number, top: number) => void }).__kb(448, 396));
-    await expect(page.locator("html")).toHaveAttribute("data-clean-keyboard", "1");
+    // 844 - клавиатура 336 - панель над ней 60 = 448; страница прокручена на 396. Фокус и «клавиатуру» ставим
+    // вместе и повторяем: под нагрузкой экран ответа успевает перерисовать поле, и фокус слетает.
+    await expect(async () => {
+      await page.locator(".ry-chat-compose textarea").focus();
+      await page.evaluate(() => (window as unknown as { __kb: (h: number, top: number) => void }).__kb(448, 396));
+      await expect(page.locator("html")).toHaveAttribute("data-clean-keyboard", "1", { timeout: 1500 });
+    }).toPass({ timeout: 15_000 });
     await expect(page.locator("nav[data-bottomnav]")).toBeHidden();
     await expect.poll(async () => {
       const b = await page.locator(".ry-chat-compose").boundingBox();
@@ -179,6 +201,57 @@ test.describe("новый вид: переписка на телефоне", () 
     expect(bottoms.back).toBe(844 + 62);
     await shot(page, "07-overhang-62", testInfo);
   });
+});
+
+test.describe("кадры до/после (только когда задан SHOTS_DIR)", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  test("снять переписку, стрелку и низ экрана", async ({ page }, testInfo) => {
+    test.skip(!SHOTS || !["chromium", "webkit"].includes(testInfo.project.name), "кадры снимаются по SHOTS_DIR");
+    await openChat(page);
+    await page.waitForTimeout(600);
+    await shot(page, "01-thread", testInfo);
+    await shotAround(page, ".clean-conversation .bub >> nth=0", "02-arrow-short", testInfo, 40);
+    await shotAround(page, ".clean-conversation .bub >> nth=3", "02-arrow-long", testInfo, 20);
+    const vp = page.viewportSize()!;
+    await shot(page, "03-bottom", testInfo, { x: 0, y: vp.height - 300, width: vp.width, height: 300 });
+  });
+});
+
+test("«Проверка экрана» (/ui-check): цифры видны и пробная шторка открывается @smoke", async ({ page }, testInfo) => {
+  test.skip(!["chromium", "webkit"].includes(testInfo.project.name), "нужен проект chromium или webkit");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/ui-check");
+  await expect(page.getByRole("heading", { name: "Проверка экрана" })).toBeVisible({ timeout: 30_000 });
+  for (const label of ["Окно: ширина × высота (innerHeight)", "Видимая область: высота (visualViewport.height)", "Отступ safe-area: снизу", "Режим «на экране Домой» (standalone)", "--rh-vv-over (запас шторки)"]) {
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Открыть пробную шторку" }).click();
+  await expect(page.getByRole("dialog", { name: "Пробная шторка" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--rh-vv-over") !== "undefined")).toBe(true);
+  await shot(page, "08-ui-check", testInfo);
+});
+
+/**
+ * На 768-1023 нижнее меню — левая рейка, а с 820 переписку «?open=» открывает сам экран. Рейка/меню при
+ * открытой переписке остаются ровно такими же, как без неё: прячется только телефонная панель (< 820).
+ */
+test.describe("нижнее меню и открытая переписка на широких экранах", () => {
+  for (const width of [900, 1100]) {
+    test(`${width}px: меню при ?open= такое же, как в списке`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== "chromium", "ширины перебираются в десктопном проекте");
+      await page.setViewportSize({ width, height: 900 });
+      await stub(page);
+      await page.goto("/messages");
+      await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
+      await expect(page.locator(".ry-chats")).toBeVisible({ timeout: 30_000 });
+      const nav = page.locator("nav[data-bottomnav]");
+      const inList = await nav.isVisible();
+      await page.goto("/messages?open=e2e-sheet-0");
+      await expect(page.locator(".ry-chat-head")).toBeVisible({ timeout: 30_000 });
+      expect(await nav.isVisible(), `${width}px: видимость меню/рейки не должна меняться от ?open=`).toBe(inList);
+      if (width === 900) expect(inList, "на 900 px это боковая рейка").toBe(true);
+    });
+  }
 });
 
 /** Под шторкой не должно быть ни пикселя «чужого»: её нижний край = нижний край экрана. */

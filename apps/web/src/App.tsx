@@ -162,6 +162,7 @@ const RolesMatrix = lazyWithReload(() =>
 const FunctionStatus = lazyWithReload(() =>
   import("./pages/settings/FunctionStatus").then((m) => ({ default: m.FunctionStatus })),
 );
+const UiCheck = lazyWithReload(() => import("./pages/UiCheck").then((m) => ({ default: m.UiCheck })));
 const Profile = lazyWithReload(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
 const Finance = lazyWithReload(loadCleanFinance);
 const Archive = lazyWithReload(() => import("./pages/Archive").then((m) => ({ default: m.Archive })));
@@ -455,6 +456,8 @@ export default function App() {
             Только директор и администратор (проверка на самой странице и на сервере); вход — Настройки → Данные и система. */}
         <Route path="settings/functions" element={<FunctionStatus />} />
         <Route path="profile" element={<Profile />} />
+        {/* «Проверка экрана» — цифры окна и видимой области для разбора багов iPhone; любому вошедшему. */}
+        <Route path="ui-check" element={<UiCheck />} />
         <Route path="finance" element={<Finance />} />
         <Route path="ads" element={<Ads />} />
         {/* Студия запуска рекламы убрана 12.10.2026: старые закладки ведут на доску. */}

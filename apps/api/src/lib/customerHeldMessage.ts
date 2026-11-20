@@ -9,6 +9,7 @@
 // with the client's name and a link to the chat, at most once per chat per
 // window. Failing to write is transient (the webhook answers 503 and Meta
 // retries); a scope denial is permanent and is reported without the text.
+import { BARE_MESSAGE_MARKER, describeServiceMarker } from "@royal-home/shared";
 import { loadBotAnswersItself, staffSignalAllowed } from "./botAnswersItself.js";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
@@ -208,7 +209,7 @@ export async function notifyEscalatedCustomerTurn(input: { conversationId: strin
     if (!input.jobTopic && !staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal })) {
       return "skipped";
     }
-    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[сообщение без текста]";
+    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || describeServiceMarker(BARE_MESSAGE_MARKER)!;
     const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
     return await pushStaffAboutChat({ conversationId: input.conversationId, channel: input.channel,
       body: `«${excerpt}». Бот передал разговор человеку: ответьте клиенту сами.` });
@@ -345,7 +346,7 @@ export async function runUnrecordedCustomerSummary(): Promise<UnrecordedSummaryR
   // 198-5: a staff member without the phone permission sees the number masked, so time, account and text are the clues too.
   const who = (p: UnrecordedPending) => p.channel === "WHATSAPP" && /^\d{8,15}$/.test(p.peer) ? `номер +${p.peer}` : p.displayName?.trim() || "клиент";
   const first = people[0]!;
-  const line = (p: UnrecordedPending) => `${who(p)}, ${where(p)}, в ${DUSHANBE_TIME.format(new Date(p.at))}: «${p.excerpt || "[сообщение без текста]"}»`;
+  const line = (p: UnrecordedPending) => `${who(p)}, ${where(p)}, в ${DUSHANBE_TIME.format(new Date(p.at))}: «${describeServiceMarker(p.excerpt, { channel: p.channel }) ?? (p.excerpt || describeServiceMarker(BARE_MESSAGE_MARKER))}»`;
   const places = [...new Set(people.map(where))].join(", ");
   try {
     await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL",

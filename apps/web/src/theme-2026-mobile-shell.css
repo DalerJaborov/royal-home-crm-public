@@ -176,17 +176,25 @@ html[data-mobile-ux][data-theme^="royal-home-2026-"] nav[data-bottomnav] [data-t
 .rh2 .scr .sheet.bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+/* 0. Открыта переписка нового вида на ТЕЛЕФОНЕ: переписка на весь экран, нижнее меню не нужно (кадр 12, 20.11).
+   Только < 820 px: выше это боковая рейка / панель, а «?open=» там ставится сам. */
+@media (max-width: 819.98px) {
+  nav[data-bottomnav][data-chat-open],
+  html[data-shell="clean"][data-mobile-ux] nav[data-bottomnav][data-chat-open] { display: none; }
+}
+
 /* 3. СЕРАЯ ПОЛОСА ПОД ШТОРКОЙ НА iPhone (20.11.2026, три шторки на кадрах владельца).
    Низ layout viewport бывает выше низа экрана на ~60 px; хук useScrollLock считает это
    расхождение в `--rh-vv-over` (0, если расхождения нет). Подложка и шторка опускают низ на эту
-   величину, а у шторки ещё «юбка» — тень без размытия цвета самой шторки на 120 px вниз
+   величину, а у шторки ещё «юбка» — тени без размытия цвета самой шторки до 120 px вниз
    (box-shadow не режется её overflow:hidden), поэтому ни при каком сдвиге под ней не видна
    страница. На ширине без пальца переменная не задаётся и ничего не меняется. */
 html[data-mobile-ux] .rh2 .scr .sheet-back { bottom: calc(var(--rh-vv-over, 0px) * -1); }
 html[data-mobile-ux] .rh2 .scr .sheet.bottom {
   bottom: calc(var(--rh-vv-over, 0px) * -1);
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--rh-vv-over, 0px));
-  box-shadow: var(--shadow), 0 120px 0 0 var(--rh-ui-card, var(--card));
+  /* «Юбка» тремя копиями с шагом 40 px: у низкой шторки одна копия на 120 px оставила бы щель между ней и шторкой. */
+  box-shadow: var(--shadow), 0 40px 0 0 var(--rh-ui-card, var(--card)), 0 80px 0 0 var(--rh-ui-card, var(--card)), 0 120px 0 0 var(--rh-ui-card, var(--card));
 }
 .rh2 .scr .sheet.bottom > .grab {
   position: relative;
