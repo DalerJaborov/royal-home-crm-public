@@ -161,6 +161,10 @@ describe("20.11: блок в карточке — короткий статус,
   it("готовится: минуты от начала озвучки в ElevenLabs, а не от черновика; в очереди — без счётчика; долго — честная строка", () => {
     const queued = render({ versions: [version({ status: "DRAFT", hasAudio: false, generateAfter: new Date().toISOString(), createdAt: new Date(Date.now() - 3 * 3_600_000).toISOString() })] }, "card");
     expect(queued).toContain("в очереди"); expect(queued).not.toContain("Идёт");
+    // Отправка не LIVE — не обещать «через минуту».
+    const off = render({ sendsEnabled: false, versions: [version({ status: "DRAFT", hasAudio: false, generateAfter: new Date().toISOString() })] }, "card");
+    expect(off).toContain("Отправка озвучки на сервере сейчас выключена"); expect(off).not.toContain("через минуту");
+    expect(render({ sendsEnabled: true, versions: [version({ status: "DRAFT", hasAudio: false, generateAfter: new Date().toISOString() })] }, "card")).toContain("через минуту");
     const fresh = render({ versions: [version({ status: "GENERATING", hasAudio: false, createdAt: new Date(Date.now() - 3 * 3_600_000).toISOString(), generationStartedAt: new Date().toISOString() })] }, "card");
     expect(fresh).toContain("Готовим озвучку"); expect(fresh).toContain("Идёт 1 мин"); expect(fresh).not.toContain("w-1/2"); expect(fresh).not.toContain("дольше обычного");
     const slow = render({ versions: [version({ status: "GENERATING", hasAudio: false, generationStartedAt: new Date(Date.now() - 20 * 60_000).toISOString() })] }, "card");
@@ -178,11 +182,13 @@ describe("20.11: блок в карточке — короткий статус,
   });
   it("наложение упало: «Попробовать ещё раз» зовёт повтор; «длиннее ролика» — без повтора", async () => {
     postsReturn({ message: "CRM попробует наложить озвучку ещё раз в течение минуты." });
-    mount({ published: true, versions: [version({ approvedAt: "2026-11-19" })], mix: { hasMaster: true, error: null, problem: "FAILED" } });
+    mount({ published: true, versions: [version({ approvedAt: "2026-11-19" })], mix: { hasMaster: true, error: null, problem: "FAILED", canRetry: true } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Попробовать ещё раз" })); });
     expect(api).toHaveBeenCalledWith("/properties/p/narration/remix-retry", expect.objectContaining({ method: "POST" }));
     cleanup();
     expect(render({ published: true, versions: [version({ approvedAt: "2026-11-19" })], mix: { hasMaster: true, error: null, problem: "VOICE_LONGER" } }, "card")).not.toContain("Попробовать ещё раз");
+    // Отказ не сбоем (своя музыка — ролик ушёл монтажёру): сервер повтор не разрешил — кнопки нет.
+    expect(render({ published: true, versions: [version({ approvedAt: "2026-11-19" })], mix: { hasMaster: true, error: null, problem: "FAILED", canRetry: false } }, "card")).not.toContain("Попробовать ещё раз");
   });
   it("«Без озвучки»: только «Включить озвучку», никакого «Изменить»; во вкладке ролика «Без озвучки» есть и пока озвучка готовится или накладывается", () => {
     const off = render({ off: true, versions: [version({ approvedAt: "2026-11-19" })] }, "card");

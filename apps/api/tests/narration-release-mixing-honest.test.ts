@@ -18,7 +18,7 @@ vi.mock("../src/lib/narrationMaster.js", async (importOriginal) => ({
 const { prisma } = await import("../src/db.js");
 const { narrationReleaseView } = await import("../src/lib/narrationRelease.js");
 const { narrationFacts, narrationHash } = await import("../src/lib/propertyNarration.js");
-const { remixFromMaster, retryNarrationRemix } = await import("../src/lib/narrationAutoFlow.js");
+const { remixFromMaster, retryNarrationRemix, narrationRemixRetryable } = await import("../src/lib/narrationAutoFlow.js");
 
 const runId = `${Date.now()}`.slice(-8);
 let districtId = "";
@@ -100,6 +100,28 @@ describe("стадия «накладывает» в карточке", () => {
     const retried = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
     expect((await narrationReleaseView(retried, v))?.stage).toBe("MIXING");
     expect(await retryNarrationRemix(p.id, agentId)).toBe("NOTHING_TO_RETRY");
+  });
+  it("отказ сведения через fail (ffmpeg, своя музыка — ролик ушёл монтажёру) — без кнопки повтора и без повтора на сервере", async () => {
+    const { p, v } = await publishedWithApprovedVoice({ videoMasterStorageKey: `master7-${runId}.mp4`, videoMasterSource: "EDITOR" });
+    await prisma.property.update({ where: { id: p.id }, data: { videoMasterMixErrorVersionId: v.id, videoMasterMixError: "ffmpeg: не удалось собрать звук" } });
+    const fresh = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(narrationRemixRetryable(fresh, v.id)).toBe(false);
+    expect(await retryNarrationRemix(p.id, agentId)).toBe("NOTHING_TO_RETRY");
+  });
+  it("сбой отмечается на той версии, которую сводили, а не на появившейся следом", async () => {
+    const { p, v } = await publishedWithApprovedVoice({ videoMasterStorageKey: `master8-${runId}.mp4`, videoMasterSource: "EDITOR" });
+    const facts = narrationFacts(await prisma.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } }));
+    let newer = "";
+    // Пока «ffmpeg» работает, агент заказал новую версию (черновик): отметка сбоя не должна лечь на неё.
+    mix.fromStored.mockImplementationOnce(async () => {
+      newer = (await prisma.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: 2, script: "Квартира, новая цена.", factsSnapshot: facts, factsHash: narrationHash(facts),
+        voiceId: "voiceA", modelId: "eleven_v4", status: "DRAFT", createdById: agentId, requestKey: randomUUID(), source: "AGENT" } })).id;
+      throw new Error("диск недоступен");
+    });
+    expect(await remixFromMaster(p.id)).toBe("FAILED");
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(after.videoMasterMixErrorVersionId).toBe(v.id);
+    expect(after.videoMasterMixErrorVersionId).not.toBe(newer);
   });
   it("«голос длиннее ролика» повтором не снимается: у него свой путь (короче текст или монтажёр)", async () => {
     const { p, v } = await publishedWithApprovedVoice({ videoMasterStorageKey: `master5-${runId}.mp4`, videoMasterSource: "EDITOR" });

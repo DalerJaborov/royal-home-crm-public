@@ -375,7 +375,9 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
       case "hidden":
       case "none": return { title: "Озвучки пока нет", line: "Голос и текст можно выбрать заранее: монтажёр получит озвучку вместе с заданием на ролик." };
       case "pending": return { title: published ? "Готовим новую озвучку" : "Готовим озвучку",
-        line: latest?.status !== "GENERATING" ? "Озвучка в очереди, начнётся через минуту. Придёт сюда и в Шабнам."
+        line: latest?.status !== "GENERATING" ? (data.sendsEnabled === false
+            ? "Озвучка в очереди. Отправка озвучки на сервере сейчас выключена: начнётся, когда её включат."
+            : "Озвучка в очереди, начнётся через минуту. Придёт сюда и в Шабнам.")
           : generatingMin !== null && generatingMin >= SLOW_GENERATION_MIN ? "Это дольше обычного. Если через несколько минут не придёт, руководство увидит сбой в журнале."
           : "Обычно минута-две. Придёт сюда и в Шабнам." };
       case "uncertain": return { title: "Озвучку проверяют", line: "Результат озвучки уточняет руководство. Как только сверят, можно будет озвучить заново.", tone: "warn" };
@@ -460,7 +462,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
         <NarrationPlayer key={latest.id} load={loadAudio(latest.id)} knownSec={latest.audioSec} disabled={busy} />
       )}
 
-      {state === "mixFailed" && data.mix?.problem === "FAILED" && canEdit && !composerOpen && (
+      {state === "mixFailed" && data.mix?.canRetry && canEdit && !composerOpen && (
         <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={retryMix}>Попробовать ещё раз</button>
       )}
 

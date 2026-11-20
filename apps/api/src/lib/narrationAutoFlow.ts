@@ -16,7 +16,7 @@ import { localVideoFilePath } from "./localVideoStorage.js";
 import { loadMoneyContext } from "./money.js";
 import { priceInTjsOnly } from "./reelsCaptionTemplate.js";
 import os from "node:os";
-import { mixNarrationOntoMaster, narrationFitNote, NARRATION_VOICE_LONGER_MARK, planNarrationFit, type NarrationMixResult } from "./narrationMix.js";
+import { mixNarrationOntoMaster, narrationFitNote, planNarrationFit, type NarrationMixResult } from "./narrationMix.js";
 import { dropReplacedClipFiles, placeMixedClip, type PlacedMix } from "./narrationPreview.js";
 import { clipCountsAsPublished } from "./publishedClip.js";
 import { measuredNarrationCharsPerSec, narrationClipSec, narrationLengthCheckFor } from "./narrationLengthCalibration.js";
@@ -559,7 +559,8 @@ export async function remixFromMaster(propertyId: string, now: Date = new Date()
   if (mediaExecutionMode("NARRATION") !== "LIVE") return "SKIPPED";
   // Метку ставим, только когда сведение и правда нужно (повторное ревью): иначе каждый тик
   // трогал бы updatedAt всех объектов с роликом без голоса.
-  if (!(await remixWanted(propertyId))) return "SKIPPED";
+  const wanted = await remixWanted(propertyId);
+  if (!wanted) return "SKIPPED";
   // Замок на сам ролик (ревью 12.11.2026): ffmpeg идёт до 9 минут, а задача — раз в минуту с
   // пределом 170 с; следующий тик не запускает вторую копию сведения того же ролика.
   const claimedAt = now;
@@ -574,7 +575,7 @@ export async function remixFromMaster(propertyId: string, now: Date = new Date()
     // Сбой не через fail() (исключение: диск, база, сам ffmpeg) раньше не ставил отметку ошибки: обход брал ролик
     // каждую минуту заново, а карточка вечно писала «накладываем» (20.11.2026). Теперь — отметка на версии, одна
     // строка журнала и кнопка «Попробовать ещё раз» в карточке (retryNarrationRemix).
-    return markNarrationRemixCrashed(propertyId, err);
+    return markNarrationRemixCrashed(propertyId, wanted.latest.id, err);
   } finally {
     await prisma.property.updateMany({ where: { id: propertyId, videoMasterMixingAt: claimedAt }, data: { videoMasterMixingAt: null } }).catch(() => {});
   }
@@ -582,11 +583,13 @@ export async function remixFromMaster(propertyId: string, now: Date = new Date()
 
 /** Начало отметки сбоя наложения исключением: по ней карточка предлагает повтор (не «длиннее ролика»). */
 export const NARRATION_REMIX_CRASH_MARK = "Сбой при наложении озвучки";
-async function markNarrationRemixCrashed(propertyId: string, err: unknown): Promise<NarrationRemixOutcome> {
+/** Отметка ставится на ту версию, которую сводили (id из remixWanted), а не на последнюю по номеру: пока шло сведение,
+ *  могла появиться новая версия, и сбой старой не должен её закрыть (ревью #334). */
+async function markNarrationRemixCrashed(propertyId: string, versionId: string, err: unknown): Promise<NarrationRemixOutcome> {
   const reason = err instanceof Error ? err.message : String(err);
   const [p, latest] = await Promise.all([
     prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true } }),
-    prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true, revision: true } }),
+    prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { id: true, revision: true } }),
   ]);
   if (latest) {
     await prisma.property.updateMany({ // NULL «<> id» в SQL не проходит: ролик, на который CRM ещё ничего не накладывала, — отдельным условием.
@@ -599,16 +602,21 @@ async function markNarrationRemixCrashed(propertyId: string, err: unknown): Prom
 }
 
 export type NarrationRemixRetry = "QUEUED" | "NOTHING_TO_RETRY";
+/** Повтор доступен: на текущей версии стоит отметка именно сбоя наложения (не «длиннее ролика», не отказ своей музыки,
+ *  после которого ролик ушёл монтажёру). Одно правило для карточки (mix.canRetry) и двери повтора. */
+export function narrationRemixRetryable(p: { videoMasterMixError: string | null; videoMasterMixErrorVersionId: string | null }, latestId: string | undefined): boolean {
+  return !!latestId && p.videoMasterMixErrorVersionId === latestId && !!p.videoMasterMixError?.startsWith(NARRATION_REMIX_CRASH_MARK);
+}
 /**
- * «ПОПРОБОВАТЬ ЕЩЁ РАЗ» (20.11.2026): снять отметку неудачного наложения с текущей утверждённой версии — обход
- * перемикса возьмёт ролик в течение минуты. Только сбой наложения: «голос длиннее ролика» идёт своим путём
- * (короче текст или монтажёр), его повтор не снимает. Бесплатно: сводит ffmpeg на сервере, ElevenLabs не зовётся.
+ * «ПОПРОБОВАТЬ ЕЩЁ РАЗ» (20.11.2026): снять отметку сбоя наложения с текущей утверждённой версии — обход
+ * перемикса возьмёт ролик в течение минуты. Только сбой (метка NARRATION_REMIX_CRASH_MARK): «голос длиннее ролика»
+ * и отказ своей музыки идут своим путём (короче текст или монтажёр), их повтор не снимает. Бесплатно: сводит ffmpeg на сервере, ElevenLabs не зовётся.
  */
 export async function retryNarrationRemix(propertyId: string, actorId: string): Promise<NarrationRemixRetry> {
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true, status: true, approvedAt: true } });
   if (!latest || latest.status !== "READY" || !latest.approvedAt) return "NOTHING_TO_RETRY";
   const cleared = await prisma.property.updateMany({
-    where: { id: propertyId, videoMasterMixErrorVersionId: latest.id, NOT: { videoMasterMixError: { contains: NARRATION_VOICE_LONGER_MARK } } },
+    where: { id: propertyId, videoMasterMixErrorVersionId: latest.id, videoMasterMixError: { startsWith: NARRATION_REMIX_CRASH_MARK } },
     data: { videoMasterMixError: null, videoMasterMixErrorVersionId: null },
   });
   if (!cleared.count) return "NOTHING_TO_RETRY";
