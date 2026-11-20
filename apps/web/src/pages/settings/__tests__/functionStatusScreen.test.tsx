@@ -49,14 +49,15 @@ const { FunctionStatus } = await import("../FunctionStatus");
 const html = () => renderToString(<MemoryRouter><FunctionStatus /></MemoryRouter>).replace(/<!-- -->/g, "");
 
 describe("экран «Состояние функций»", () => {
-  it("директор видит состояние, причину, имя переменной, ссылку на вкладку и последний запуск", () => {
+  it("директор видит состояние, причину без имени переменной, ссылку на вкладку и последний запуск", () => {
     role = "DIRECTOR";
     const out = html();
     expect(out).toContain("Фото объектов в чате");
     expect(out).toContain("Выключено");
     expect(out).toContain("Обратите внимание");
     expect(out).toContain("сервер не разрешает");
-    expect(out).toContain("X_MODE");
+    expect(out).not.toContain("X_MODE"); // имя переменной — не для экрана (К17)
+    expect(out).toContain("настройка сервера");
     expect(out).toContain("/settings?tab=bot");
     expect(out).toContain("в порядке");
   });

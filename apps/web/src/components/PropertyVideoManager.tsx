@@ -270,7 +270,7 @@ export function PropertyVideoManager({
               disabled={archiving}
               title="Скачать все видео одним архивом"
             >
-              {archiving ? "Архивируем…" : "Скачать всё (.zip)"}
+              {archiving ? "Архивируем…" : "Скачать все видео"}
             </button>
           )}
           {readOnly && onStartEdit && (

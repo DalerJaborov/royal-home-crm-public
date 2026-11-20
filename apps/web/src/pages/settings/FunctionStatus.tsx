@@ -1,3 +1,4 @@
+import { plainFunctionText } from "../../lib/functionStatusText";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -84,11 +85,10 @@ function CronLine({ cron }: { cron: FunctionCron }) {
     <li className="fs-cron">
       <span className="fs-cron-name">
         {CRON_TITLES[cron.name] ?? cron.name}
-        {CRON_TITLES[cron.name] ? <code className="fs-code"> {cron.name}</code> : null}
       </span>
       <span className="fs-cron-when">последний запуск: {when(cron.lastRunAt)}</span>
       <span className={h.chip}>{h.label}</span>
-      {cron.lastError ? <span className="fs-err">Ошибка: {cron.lastError}</span> : null}
+      {cron.lastError ? <span className="fs-err">Ошибка: {plainFunctionText(cron.lastError)}</span> : null}
     </li>
   );
 }
@@ -108,8 +108,8 @@ function FunctionRow({ item, royal }: { item: FunctionStatusItem; royal: boolean
           {item.attention ? <span className="chip crit">Обратите внимание</span> : null}
         </div>
         <p className="fs-what">{item.what}</p>
-        <p className="fs-reason">{item.reason}</p>
-        {item.detail ? <p className="fs-detail">{item.detail}</p> : null}
+        <p className="fs-reason">{plainFunctionText(item.reason)}</p>
+        {item.detail ? <p className="fs-detail">{plainFunctionText(item.detail)}</p> : null}
         {item.crons.length > 0 ? (
           <ul className="fs-crons" aria-label={`Фоновые задачи: ${item.title}`}>
             {item.crons.map((c) => (
@@ -119,19 +119,10 @@ function FunctionRow({ item, royal }: { item: FunctionStatusItem; royal: boolean
         ) : null}
         {item.lastError ? (
           <p className="fs-err">
-            Последняя ошибка ({exactDateTime(item.lastError.at)}): {item.lastError.message}
+            Последняя ошибка ({exactDateTime(item.lastError.at)}): {plainFunctionText(item.lastError.message)}
           </p>
         ) : null}
         <div className="fs-foot">
-          {item.envNames.length > 0 ? (
-            <span className="fs-env">
-              Управляет сервер: {item.envNames.map((n) => (
-                <code className="fs-code" key={n}>
-                  {n}
-                </code>
-              ))}
-            </span>
-          ) : null}
           {item.settingsTab ? (
             <Link className="lnk" to={`/settings?tab=${item.settingsTab}`}>
               Открыть: Настройки, «{tabLabel(item.settingsTab)}»

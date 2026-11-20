@@ -1,3 +1,4 @@
+import { RuDateField, RuTimeField } from "./look/fields/RuFields";
 import { PropertyChoiceList } from "./PropertyChoiceList";
 import { useIsReadOnly } from "../lib/permissions";
 import { CleanRecordForm, ReadOnlyRecordFields, CleanInteractionContext } from "./clean/CleanRecordForm";
@@ -430,8 +431,7 @@ export function AddInteractionModal({
             <div className="fgrid" style={{ marginTop: "var(--s3)" }}>
               <label className="fld">
                 <span className="lab">Дата показа *</span>
-                <input
-                  type="date"
+                <RuDateField
                   required
                   value={nextActionDate}
                   /* Назначить показ задним числом нельзя: CRM тут же откроет по
@@ -442,7 +442,7 @@ export function AddInteractionModal({
               </label>
               <label className="fld">
                 <span className="lab">Время *</span>
-                <input type="time" required value={nextActionTime} onChange={(e) => setNextActionTime(e.target.value)} />
+                <RuTimeField required value={nextActionTime} onChange={(e) => setNextActionTime(e.target.value)} />
               </label>
             </div>
             <p className="quiet">
@@ -628,8 +628,7 @@ export function AddInteractionModal({
             <div className="fgrid" style={{ marginTop: "var(--s3)" }}>
               <label className="fld">
                 <span className="lab">{type === "SHOWING" ? "Дата показа *" : <>Дата следующего шага{outcome === "WAITING_SHOWING" && " *"}</>}</span>
-                <input
-                  type="date"
+                <RuDateField
                   required={type === "SHOWING" || outcome === "WAITING_SHOWING"}
                   value={nextActionDate}
                   onChange={(e) => setNextActionDate(e.target.value)}
@@ -637,8 +636,7 @@ export function AddInteractionModal({
               </label>
               <label className="fld">
                 <span className="lab">Время{(type === "SHOWING" || outcome === "WAITING_SHOWING") && " *"}</span>
-                <input
-                  type="time"
+                <RuTimeField
                   value={nextActionTime}
                   onChange={(e) => setNextActionTime(e.target.value)}
                   disabled={!nextActionDate}
