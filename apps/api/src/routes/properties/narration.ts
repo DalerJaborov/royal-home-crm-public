@@ -14,7 +14,7 @@ import { canManageProperty } from "./shared.js";
 import { narrationFacts, narrationFactsCurrent, narrationHash, narrationRate, suggestedNarration, narrationScriptError, withNarrationRate } from "../../lib/propertyNarration.js";
 import { localVideoFilePath } from "../../lib/localVideoStorage.js";
 import { generateNarrationVersion, generateVoiceSamples, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince, readyVoiceSamples } from "../../lib/narrationGeneration.js";
-import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
+import { NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT, NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
 import { NARRATION_VOICE_LONGER_MARK } from "../../lib/narrationMix.js";
 import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAwaitsHuman, narrationAutoEnabled, narrationMixNoteFor, narrationRemixRetryable, ownMusicRemixApplies, requestAutoNarration, retryNarrationRemix } from "../../lib/narrationAutoFlow.js";
 import { setPropertyNarrationOff } from "../../lib/narrationOptOut.js";
@@ -169,15 +169,20 @@ narrationRouter.put("/narration-settings", async (req, res) => {
   if (modelProblem) return res.status(400).json({ error: modelProblem });
   // Сторож шаблонов и концовок (16.11.2026): цифры, «Direct», «брон», скобки, тире — одна проверка на оба списка.
   // Новые правила (цифры, Direct, брон) только к новым и изменённым текстам: старый живой шаблон не мешает сохранить остальное.
-  const textRules = (item: { id: string; text: string; lang: "tg" | "ru" }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
+  const sameAsBefore = (item: { id: string; text: string; lang: string }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
     const old = before?.find((b) => b.id === item.id);
-    const unchanged = !!old && old.text === item.text && old.lang === item.lang;
+    return !!old && old.text === item.text && old.lang === item.lang;
+  };
+  const textRules = (item: { id: string; text: string; lang: "tg" | "ru" }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
+    const unchanged = sameAsBefore(item, before);
     return narrationTemplateStructureError(item.text) ?? (unchanged ? null : narrationTemplateRulesError(item.text, item.lang));
   };
   for (const template of parsed.data.templates ?? []) {
     // И вариант «цену сказать нельзя» (доллары без курса): шаблон не должен пустеть (ревью #348).
     const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS))
-      ?? (narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS_NO_PRICE)) ? "без цены (нет курса доллара) от шаблона не остаётся ни одного предложения — добавьте фразу без {цена}" : null);
+      // Только для нового или изменённого при этом сохранении шаблона: старый, не тронутый, сохранению не мешает.
+      ?? (!sameAsBefore(template, existing.templates) && narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS_NO_PRICE))
+        ? "без цены (нет курса доллара) от шаблона не остаётся ни одного предложения: добавьте фразу без {цена}" : null);
     if (problem) return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
   }
   for (const ending of parsed.data.endings ?? []) {
@@ -325,6 +330,7 @@ narrationRouter.post("/:id/narration/:versionId/approve", async (req, res) => {
   const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: access.agentId, isManager: access.isManager, actorRole: access.role });
   if (outcome === "FORBIDDEN") return res.status(403).json({ error: "Эту озвучку одобряет маркетинг, руководство или владелец" });
   if (outcome === "CONFLICT") return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
+  if (outcome === "PRICE_NOT_IN_TJS") return res.status(409).json({ error: NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT });
   const delivery = outcome === "AUDIO_APPROVED" ? await afterNarrationApproved(p.id, versionId.data) : undefined;
   // Ролик уже вышел — примерное время выхода нового (точное карточка покажет, когда голос наложен).
   const publishAt = delivery === "CRM_REMIX" ? await estimateNarrationPublishAt(p.id).catch(() => null) : null;

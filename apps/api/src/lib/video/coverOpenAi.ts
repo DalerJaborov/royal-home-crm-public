@@ -55,7 +55,7 @@ import {
   resolveOpenAiKey,
   type OpenAiImageQuality,
 } from "../../ai/openaiClient.js";
-import { buildCoverPosterValues, CoverPriceUnavailable, coverPriceTjs, renderCoverPosterImage, type CoverPosterValues } from "./coverPoster.js";
+import { buildCoverPosterValues, coverPriceProblem, renderCoverPosterImage, type CoverPosterValues } from "./coverPoster.js";
 import { listCoverTemplates, pickCoverTemplate } from "./coverRegistry.js";
 import { DEFAULT_LOCAL_RETOUCH_LEVEL, retouchCoverPhoto } from "./coverPhotoRetouch.js";
 import { redrawCoverPhoto } from "./coverPhotoRedraw.js";
@@ -1471,8 +1471,9 @@ export async function createPropertyCover(
 
   // Курс — только из Настроек (ревью #348): долларовая цена без курса — обложку не рисуем ни ChatGPT, ни шаблоном.
   const coverRate = property.currency === "USD" ? (await loadUsdRateInfo()).rate : null;
-  if (coverPriceTjs(property.price, property.currency, coverRate) === null) {
-    const reason = new CoverPriceUnavailable().message;
+  const priceProblem = coverPriceProblem(property.price, property.currency, coverRate);
+  if (priceProblem) {
+    const reason = priceProblem.message;
     void logSystemError("storage", `Обложка объекта ${property.id}: ${reason}`, { dedupKey: `cover-no-rate:${property.id}`, dedupWindowMs: 24 * 60 * 60_000 });
     return fail(reason, started);
   }

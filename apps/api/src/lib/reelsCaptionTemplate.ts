@@ -19,7 +19,7 @@ import { TYPE_RU, CONDITION_RU, formatPrice } from "../ai/seoGenerator.js";
 // MARKET_TYPE_LABELS — тот же словарь, что подписывает объект на карточке:
 // второго перевода «NEW_BUILD → Новостройка» в проекте быть не должно.
 import { MARKET_TYPE_LABELS, meaningfulPropertyAddress, propertyHasCondition, propertyPriceTjs, visiblePropertyFacts } from "@royal-home/shared";
-import { toTjs, type MoneyContext } from "./money.js";
+import type { MoneyContext } from "./money.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import {
   NEW_BUILD_PHASES,
@@ -352,38 +352,17 @@ export function fillReelsCaptionTemplate(template: string, values: ReelsCaptionV
 
 /** Цена в тексте для соцсетей — владелец, 17.09.2026: сделки всё равно только
  *  в сомони, значит цена в сомони обязана стоять первой строкой даже у
- *  объекта, заведённого в долларах, а сумма в долларах — рядом в скобках,
- *  а не единственным числом. Объект и так в сомони — ничего не меняется,
- *  добавлять скобки не с чем и незачем. `money` не передан (внутренние
- *  тексты вроде подписи монтажёру, где курс ни к чему) — прежнее поведение,
- *  одна валюта как есть. */
+ *  объекта, заведённого в долларах, а сумма в долларах — рядом в скобках
+ *  (решение владельца 23.09: в подписи ДВЕ валюты). Объект и так в сомони —
+ *  ничего не меняется. `money` не передан (внутренние тексты) — одна валюта как есть.
+ *  Сомони-часть — то же число, что говорит голос и пишет обложка (`propertyPriceTjs`, ревью #348):
+ *  до тысячи и только по курсу из Настроек; курса нет (`money.fallback`) — только доллары. */
 export function buildPriceDisplay(price: number | string | { toString(): string }, currency: string, money?: MoneyContext): string {
   const amount = Number(price.toString());
   const primary = formatPrice(amount, currency);
   if (currency !== "USD" || !money) return primary;
-  return `${priceInTjsOnly(price, currency, money)} (${primary})`;
-}
-
-/**
- * ТОЛЬКО СОМОНИ, БЕЗ СКОБОК (владелец 23.09.2026: «монтажёру пусть цена идёт
- * только в сомони, а в автопостинге и в сомони, и в $»).
- *
- * Отдельная функция, а не флаг у `buildPriceDisplay`, ровно затем, чтобы
- * пересчёт остался в ОДНОМ месте: `buildPriceDisplay` теперь зовёт её же.
- * Второй копии `toTjs` в проекте быть не должно — на этом уже расходились
- * (правка #752, «одно правило написано дважды»).
- *
- * Курса нет — отдаём цену как есть: соврать «сомони», показав доллары, хуже,
- * чем показать доллары долларами.
- */
-export function priceInTjsOnly(
-  price: number | string | { toString(): string },
-  currency: string,
-  money?: MoneyContext
-): string {
-  const amount = Number(price.toString());
-  if (currency !== "USD" || !money) return formatPrice(amount, currency);
-  return formatPrice(toTjs(amount, "USD", money), "TJS");
+  const tjs = propertyPriceTjs(amount, "USD", money.fallback ? null : money.usdToTjs);
+  return tjs === null ? primary : `${formatPrice(tjs, "TJS")} (${primary})`;
 }
 
 /**

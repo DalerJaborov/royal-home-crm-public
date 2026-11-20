@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4194,
+  "forks": 4195,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -48359,6 +48359,21 @@
        "t": "return res.status(409).json({ error: \"Факты или версия изменились. Подготовьте и проверьте новый текст.\" });",
        "a": [
         "ответ 409 — «Факты или версия изменились. Подготовьте и проверьте новый текст.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "outcome === \"PRICE_NOT_IN_TJS\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT });",
+       "a": [
+        "ответ 409"
        ],
        "c": []
       }

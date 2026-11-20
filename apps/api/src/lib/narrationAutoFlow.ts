@@ -207,7 +207,8 @@ export async function startNarrationForNewProperty(propertyId: string, actorId: 
   }
 }
 
-export type NarrationApproval = "FORBIDDEN" | "CONFLICT" | "TEXT_APPROVED" | "AUDIO_APPROVED";
+/** PRICE_NOT_IN_TJS (ревью #348): в тексте версии цена в долларах — не одобряется ни текст, ни голос. */
+export type NarrationApproval = "FORBIDDEN" | "CONFLICT" | "TEXT_APPROVED" | "AUDIO_APPROVED" | "PRICE_NOT_IN_TJS";
 /** Утверждение поставила сама CRM (самоодобрение пишет approvalNotifiedAt = approvedAt одной отметкой), а не человек. */
 export function autoApprovedOnly(v: { approvedAt: Date | null; approvalNotifiedAt?: Date | null }): boolean {
   return !!v.approvedAt && !!v.approvalNotifiedAt && v.approvedAt.getTime() === v.approvalNotifiedAt.getTime();
@@ -255,6 +256,9 @@ export async function approveNarrationVersion(input: { propertyId: string; versi
     const current = await tx.property.findUniqueOrThrow({ where: { id: input.propertyId }, include: { district: true } });
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: input.propertyId }, orderBy: { revision: "desc" } });
     if (current.deletedAt || !latest || latest.id !== input.versionId || latest.revision !== input.expectedRevision || !narrationFactsCurrent(latest, current)) return "CONFLICT";
+    // Голос или текст с ценой в долларах (собран до 21.11.2026) одобрить нельзя: одобренный, он молча никуда бы не ушёл.
+    // Сама CRM его не пересобирает — это новая платная озвучка, её запускает человек «Исправить и озвучить».
+    if (narrationCurrencyError(latest.script)) return "PRICE_NOT_IN_TJS";
     if (latest.status === "DRAFT") {
       if (!input.isManager) return "FORBIDDEN";
       return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "DRAFT" }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count ? "TEXT_APPROVED" : "CONFLICT";
@@ -1163,11 +1167,16 @@ async function notifyReadyNarrations(notify: NarrationApprovalNotifier): Promise
   // Только то, что агент правда может утвердить — фильтром в самом запросе (четвёртое ревью 18.11).
   const ready = await prisma.propertyNarrationVersion.findMany({ where: { status: "READY", approvedAt: null, approvalNotifiedAt: null, ...UNAPPROVED_AWAITS_HUMAN_WHERE,
     property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] } } },
-    orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true } });
+    orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true, script: true } });
   for (const row of ready) {
     // Отметка ДО отправки: два обхода подряд не пришлют агенту второе сообщение.
     const claimed = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalNotifiedAt: null }, data: { approvalNotifiedAt: new Date() } });
     if (!claimed.count) continue;
+    // С долларами «послушайте» не шлём (одобрить её нельзя); отметки — чтобы строка не держала голову очереди и напоминаний.
+    if (narrationCurrencyError(row.script)) {
+      await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalEscalatedAt: null }, data: { approvalEscalatedAt: new Date() } });
+      continue;
+    }
     const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
     if (latest?.id !== row.id) continue;
     try { await notify(row.id); notified++; }

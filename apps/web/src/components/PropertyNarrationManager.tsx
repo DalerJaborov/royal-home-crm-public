@@ -3,7 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  chooseNarration, narrationAudioLengthCheck, narrationCurrencyError, narrationChangesLine, narrationLengthCheck, narrationLengthLine, narrationRemovesOldPosts, pickNarrationVoice,
+  chooseNarration, narrationAudioLengthCheck, narrationCurrencyError, narrationPriceProblem, narrationChangesLine, narrationLengthCheck, narrationLengthLine, narrationRemovesOldPosts, pickNarrationVoice,
   type NarrationReleaseChannel, type PropertyNarrationView,
 } from "@royal-home/shared";
 import { api } from "../lib/api";
@@ -333,6 +333,10 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
   const templates = data.config.templates ?? [];
   const endings = data.config.endings ?? [];
   const facts = data.facts;
+  // Почему цена не звучит в голосе (ревью #348): агент видит причину, а не «цена куда-то пропала».
+  const priceProblem = facts && state !== "off" && state !== "usdPrice" ? narrationPriceProblem(facts) : null;
+  const pricePlainNote = priceProblem === "NO_RATE" ? "Цена в озвучке не звучит: в Настройках не задан курс доллара, а цену говорим только в сомони."
+    : priceProblem === "CURRENCY_SUSPECT" ? "Цена в озвучке не звучит: валюта цены похожа на перепутанную. Проверьте цену и валюту в карточке." : null;
   const canEdit = data.canDraft !== false;
   const published = data.published === true;
   const awaiting = state === "awaiting";
@@ -408,7 +412,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
       case "failed": return { title: "Озвучка не получилась", tone: "warn",
         line: latest?.errorCode === QUOTA_EXCEEDED ? "Закончились кредиты ElevenLabs. Руководство уже видит это." : "Попробуйте ещё раз: проверьте голос и текст и нажмите «Озвучить»." };
       case "usdPrice": return { title: "В озвучке цена в долларах", tone: "warn",
-        line: "Такой голос не озвучиваем и монтажёру не отправляем: цену говорим только в сомони. Нажмите «Другой шаблон» или уберите доллары из текста." };
+        line: "Такой голос не одобряем и монтажёру не отправляем: цену говорим только в сомони. Нажмите «Исправить и озвучить»: текст соберётся с ценой в сомони." };
       case "tooLong": return { title: "Текст длиннее ролика", line: "Озвучку не заказывали, кредиты не потрачены. Сократите текст и нажмите «Озвучить».", tone: "warn" };
       // Заголовок зовёт послушать, строка говорит, что будет после одобрения: два раза одно и то же не пишем (владелец 20.11).
       case "awaiting": return { title: "Послушайте новую озвучку", line: published ? "Если всё верно, утвердите: ролик с ней сразу выйдет." : "Если всё верно, одобрите: монтажёр получит её вместе с заданием на ролик." };
@@ -460,6 +464,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
           <div className="space-y-1" role="status">
             {head.line && <p className={`text-base ${head.tone === "warn" ? "rounded-xl bg-[var(--warn-bg)] p-3" : "text-[var(--muted)]"}`}>{head.line}</p>}
             {message && <p className="text-base">{message}</p>}
+            {pricePlainNote && <p className="text-[15px] text-[var(--muted)]" data-testid="narration-price-note">{pricePlainNote}</p>}
           </div>
           {changesLine && !composerOpen && (state === "pending" || awaiting) && <p className="text-base text-[var(--muted)]">{changesLine}</p>}
           {!composerOpen && (generatingMin !== null || mixingMin !== null) && <p className="text-[15px] text-[var(--muted)]" data-testid="narration-progress-note">

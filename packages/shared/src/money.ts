@@ -95,6 +95,16 @@ export function propertyPriceTjs(price: unknown, currency: Currency | string | n
   return Math.round(convertToTjs(amount, "USD", usdToTjs) / 1000) * 1000;
 }
 
+/** Почему цены в сомони нет (для журнала и для агента): NO_PRICE — у объекта не указана цена; NO_RATE — доллары, а курса нет. */
+export function propertyPriceTjsProblem(price: unknown, currency: Currency | string | null | undefined, usdToTjs: number | null | undefined): "NO_PRICE" | "NO_RATE" | null {
+  if (propertyPriceTjs(price, currency, usdToTjs) !== null) return null;
+  const amount = Number(price === null || price === undefined ? NaN : String(price));
+  return Number.isFinite(amount) && amount > 0 && currency === "USD" ? "NO_RATE" : "NO_PRICE";
+}
+export function propertyPriceTjsProblemText(problem: "NO_PRICE" | "NO_RATE"): string {
+  return problem === "NO_RATE" ? "цена объекта в долларах, а в Настройках не задан курс доллара" : "у объекта не указана цена";
+}
+
 /** Округление уже посчитанной суммы до копейки — для итогов, собранных сложением. */
 export function roundMoney(value: number): number {
   return Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;

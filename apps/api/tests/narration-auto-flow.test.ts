@@ -541,3 +541,34 @@ describe("старые версии с ценой в долларах", () => {
     expect(s.log).toHaveBeenCalledWith("api", expect.stringMatching(/цена в долларах/u), expect.objectContaining({ dedupKey: expect.stringContaining("PRICE_NOT_IN_TJS") }));
   });
 });
+
+/** Ревью #348, круг 2: готовая (READY), ещё не одобренная версия с долларами. Пересборка — новая платная озвучка, сама не идёт. */
+describe("готовая неодобренная версия с ценой в долларах", () => {
+  const PRICED = [{ id: "tg-short", name: "Кӯтоҳ", lang: "tg", text: "{вид} барои фурӯш. Нархаш {цена}." }];
+  async function readyDollarVersion() {
+    s.config = { ...baseConfig(), templates: PRICED };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "AGENT", debounceMs: 0, now });
+    await runNarrationAutoFlow({ now });
+    Object.assign(s.versions[0], { script: "Квартира барои фурӯш. Нархаш ҳаштоду панҷ ҳазор доллар.", approvedAt: null, approvalNotifiedAt: null });
+    return s.versions[0];
+  }
+
+  it("одобрить нельзя (Шабнам, кнопка, API — одна функция): честный отказ, версия не одобрена, пересборки нет", async () => {
+    const v = await readyDollarVersion();
+    const before = s.versions.length;
+    expect(await approveNarrationVersion({ propertyId, versionId: v.id, expectedRevision: v.revision, actorId: "agent", isManager: false })).toBe("PRICE_NOT_IN_TJS");
+    expect(s.versions[0].approvedAt).toBeNull();
+    expect(s.versions).toHaveLength(before);
+  });
+
+  it("«Послушайте озвучку» агенту не уходит, строка снимается с очереди и напоминаний", async () => {
+    const v = await readyDollarVersion();
+    const notifyAgent = vi.fn(async () => {});
+    s.audio.mockClear();
+    await runNarrationAutoFlow({ now: later(60_000), notifyAgent });
+    expect(notifyAgent).not.toHaveBeenCalled();
+    expect(s.versions.find((r) => r.id === v.id)).toMatchObject({ status: "READY", approvedAt: null });
+    expect(s.versions.find((r) => r.id === v.id)!.approvalEscalatedAt).toBeInstanceOf(Date);
+    expect(s.audio).not.toHaveBeenCalled();
+  });
+});

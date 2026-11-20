@@ -59,7 +59,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { meaningfulPropertyAddress, propertyFieldShown, propertyPriceTjs } from "@royal-home/shared";
+import { meaningfulPropertyAddress, propertyFieldShown, propertyPriceTjs, propertyPriceTjsProblem, propertyPriceTjsProblemText } from "@royal-home/shared";
 import sharp, { type OverlayOptions, type Sharp } from "sharp";
 import { prisma } from "../../db.js";
 import { uploadsDir } from "../../upload.js";
@@ -129,10 +129,16 @@ export interface CoverPosterValues {
  *  Второй валюты в скобках на постере, в отличие от подписи Reels (`buildPriceDisplay`),
  *  нет — постер должен читаться за одну секунду. */
 export class CoverPriceUnavailable extends Error {
-  constructor() {
-    super("Цена объекта в долларах, а курс доллара в Настройках не задан — обложку с ценой не рисую. Задайте курс в Настройках.");
+  constructor(problem: "NO_PRICE" | "NO_RATE" = "NO_RATE") {
+    const why = propertyPriceTjsProblemText(problem);
+    super(`Обложку с ценой не рисую: ${why}. ${problem === "NO_RATE" ? "Задайте курс в Настройках." : "Укажите цену в карточке объекта."}`);
     this.name = "CoverPriceUnavailable";
   }
+}
+/** Причина отказа обложки по цене (null — рисовать можно). */
+export function coverPriceProblem(price: unknown, currency: string, usdToTjs: number | null | undefined): CoverPriceUnavailable | null {
+  const problem = propertyPriceTjsProblem(price, currency, usdToTjs);
+  return problem ? new CoverPriceUnavailable(problem) : null;
 }
 /** Цена для обложки или null — рисовать нельзя (доллары без курса). Вызывающий проверяет до сборки. */
 export function coverPriceTjs(price: unknown, currency: string, usdToTjs: number | null | undefined): number | null {
@@ -152,7 +158,7 @@ export function buildCoverPosterValues(property: {
 }, money: { usdToTjs?: number | null }): CoverPosterValues {
   const withRooms = hasRoomsDigit(property.rooms);
   const amount = coverPriceTjs(property.price, property.currency, money.usdToTjs);
-  if (amount === null) throw new CoverPriceUnavailable();
+  if (amount === null) throw coverPriceProblem(property.price, property.currency, money.usdToTjs) ?? new CoverPriceUnavailable();
   // Дробная площадь — с запятой, как пишут в Таджикистане: «112,5 м²».
   const areaNumber = property.areaSqm.toString().replace(".", ",");
   const areaRounded = Math.round(Number(property.areaSqm.toString()));
@@ -284,8 +290,9 @@ export async function generateCoverPoster(
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { companyLogoUrl: true } });
   // Курс — только из Настроек (ревью #348): нет курса у долларовой цены — обложку не рисуем, причина в журнал.
   const money = { usdToTjs: property.currency === "USD" ? (await loadUsdRateInfo()).rate : null };
-  if (coverPriceTjs(property.price, property.currency, money.usdToTjs) === null) {
-    const error = new CoverPriceUnavailable().message;
+  const priceProblem = coverPriceProblem(property.price, property.currency, money.usdToTjs);
+  if (priceProblem) {
+    const error = priceProblem.message;
     void logSystemError("storage", `Обложка объекта ${property.id}: ${error}`, { dedupKey: `cover-poster-no-rate:${property.id}`, dedupWindowMs: 24 * 60 * 60_000 });
     return { ok: false, image: null, error, styleApplied: false };
   }
