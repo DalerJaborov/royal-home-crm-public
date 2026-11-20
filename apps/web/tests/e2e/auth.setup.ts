@@ -78,10 +78,9 @@ setup("вход в CRM", async ({ page, browser }, testInfo) => {
     // Живость решает ответ /auth/refresh, а не адрес сразу после загрузки — см.
     // pages/sessionProbe.ts (чужой chromium.json, Чат 3, 20.11.2026).
     //
-    // Сама проверка — уже поход на сервер: refresh-cookie одноразовый (ротация
-    // при каждом использовании). Если не сохранить состояние обратно, файл на
-    // диске останется со СТАРЫМ, уже использованным cookie, и реальные тесты
-    // улетят на /login — 100% падений при «зелёном» setup.
+    // Живую сессию сохраняем обратно: сервер на каждом refresh перевыпускает
+    // cookie с тем же номером сессии и новым сроком (routes/auth.ts, «скользящий
+    // срок»), старая годна до своего срока — так файл не стареет между прогонами.
     const stillValid = await sessionStillValid(context, { onValid: () => context.storageState({ path: authFile }).then(() => undefined) });
     await context.close();
     if (stillValid) return;

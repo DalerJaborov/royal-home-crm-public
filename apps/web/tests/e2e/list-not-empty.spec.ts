@@ -32,9 +32,10 @@ type ListScreen = {
 };
 
 const SCREENS: ListScreen[] = [
-  // Строками: в плитке (вид по умолчанию с 12.11.2026, #159) старая тема показывает
-  // только цену, без названия — сверять записи сервера с экраном там не по чему.
-  { path: "/properties?view=table", api: /\/api\/v1\/properties(\?|$)/, title: "Объекты" },
+  // Вид по умолчанию — плитка (#159). В старой теме на плитке видна только цена, название —
+  // в подписи ссылки «Открыть объект: …», её и ищем (getByLabel ниже); строками — отдельно.
+  { path: "/properties", api: /\/api\/v1\/properties(\?|$)/, title: "Объекты" },
+  { path: "/properties?view=table", api: /\/api\/v1\/properties(\?|$)/, title: "Объекты строками" },
   { path: "/clients", api: /\/api\/v1\/clients(\?|$)/, title: "Клиенты" },
   { path: "/sellers", api: /\/api\/v1\/clients(\?|$)/, title: "Продавцы" },
   { path: "/deals", api: /\/api\/v1\/deals(\?|$)/, title: "Сделки" },
@@ -128,7 +129,8 @@ for (const screen of SCREENS) {
     expect(probe, `в первой записи ${screen.title} нет подходящего текстового поля`).not.toBeNull();
 
     await expect(
-      page.getByText(probe!, { exact: false }).first(),
+      // Текстом на экране или подписью ссылки записи (плитка объекта в старой теме: видна одна цена).
+      page.getByText(probe!, { exact: false }).or(page.getByLabel(probe!, { exact: false })).first(),
       `сервер вернул ${items.length} записей для «${screen.title}», но «${probe}» на экране не видно — ` +
         `это класс «фильтр съел данные», из-за которого пропадал каталог`
     ).toBeVisible({ timeout: 15_000 });

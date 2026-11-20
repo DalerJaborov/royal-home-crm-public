@@ -805,7 +805,6 @@ export function Properties() {
                   key={p.id}
                   property={p}
                   health={health.get(p.id)}
-                  onClick={() => navigate(`/properties/${p.shortId}`)}
                 />
               ))}
             </div>
@@ -987,24 +986,29 @@ export function Properties() {
  * Плитка галереи. Вида «галерея» в прототипе нет (там только список), поэтому
  * плитка собрана из его же частей: ячейка `.pgrid .cell` со снимком, цена
  * `.money` и пилюля состояния под ней.
+ *
+ * НАСТОЯЩАЯ ССЫЛКА, А НЕ КНОПКА (20.11.2026). С 12.11 плитка — вид каталога по
+ * умолчанию (#159), а была `div role=button` с переходом по onClick: ни открыть
+ * объект в новой вкладке, ни вернуться к нему из истории ссылкой, а чтецу экрана
+ * доставалась одна цена без названия. Теперь `<Link>` с тем же адресом и подписью,
+ * что у строки (`PropertyRow`): «Открыть объект: <название>». Внутри плитки нет
+ * своих кнопок, так что ссылка ничего не перекрывает.
  */
 function PropertyCard({
   property: p,
   health,
-  onClick,
 }: {
   property: Property;
   health: PropertyHealthBrief | undefined;
-  onClick: () => void;
 }) {
+  const price = formatMoney(p.price, p.currency);
   return (
-    <div className="cell" onClick={onClick} data-property-row="" role="button" tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      }}
+    <Link
+      to={`/properties/${p.shortId}`}
+      className="cell"
+      data-property-row=""
+      aria-label={`Открыть объект: ${p.title}, ${price}`}
+      style={{ textDecoration: "none" }}
     >
       {p.photos[0] ? (
         <img
@@ -1013,13 +1017,13 @@ function PropertyCard({
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
         />
       ) : (
-        <svg className="i" viewBox="0 0 24 24">
+        <svg className="i" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M3 11 12 3l9 8v10H3z" />
           <path d="M9 21v-6h6v6" />
         </svg>
       )}
       <PropertyHealthDot health={health} />
-      <span className="lead">{formatMoney(p.price, p.currency)}</span>
-    </div>
+      <span className="lead">{price}</span>
+    </Link>
   );
 }

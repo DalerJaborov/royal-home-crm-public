@@ -26,9 +26,9 @@ export async function sessionStillValid(
       .catch(() => false);
     await probe.goto("/");
     const valid = (await refreshed) && !/\/login/.test(probe.url());
-    // Refresh-cookie одноразовая и только что сменилась: сохранять состояние
-    // нужно, пока страница пробы ещё открыта (onValid), иначе на диске
-    // останется уже использованная cookie.
+    // Сервер только что перевыпустил refresh-cookie (та же сессия, новый срок —
+    // routes/auth.ts): сохраняем её, пока страница пробы ещё открыта (onValid),
+    // чтобы срок в файле сдвигался вместе с сессией.
     if (valid && onValid) await onValid();
     return valid;
   } finally {

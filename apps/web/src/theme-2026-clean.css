@@ -1,7 +1,4 @@
 /* Royal Clean is opt-in. Existing routes, portals and theme preferences stay intact. */
-/* The generated .screens reset reverts .lnk positioning but retains its 44px
-   absolute ::after target. Re-anchor it so it cannot cover unrelated controls. */
-html[data-shell="clean"] .rh2.screens .lnk { position: relative; }
 html[data-shell="clean"] {
   --clean-radius-frame: 28px;
   --clean-radius-card: 20px;
