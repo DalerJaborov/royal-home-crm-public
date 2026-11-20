@@ -88,7 +88,9 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
       const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return !!hit && n.contains(hit);
     };
-    const navTop = nav && visible(nav) && getComputedStyle(nav).position === "fixed" && navOnTop(nav) ? nav.getBoundingClientRect().top : Infinity;
+    // Нижнее — только в нижней половине окна: на планшете (#329) то же меню стоит рейкой.
+    const navTop = nav && visible(nav) && getComputedStyle(nav).position === "fixed" && navOnTop(nav)
+      && nav.getBoundingClientRect().top > window.innerHeight / 2 ? nav.getBoundingClientRect().top : Infinity;
 
     // ---- overlap: текст одного соседа наезжает на текст другого ----
     // Сравниваются строки ТЕКСТА, а не коробки: коробка кнопки 44 px законно заходит
@@ -290,6 +292,8 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         return { text: (l.textContent ?? "").trim(), box: range.getBoundingClientRect() };
       }).sort((a, b) => a.box.left - b.box.left);
       for (let i = 1; i < boxes.length; i++) {
+        // Соседи только в одной строке: в рейке подписи стоят столбиком.
+        if (Math.abs(boxes[i].box.top - boxes[i - 1].box.top) > 4) continue;
         const gap = boxes[i].box.left - boxes[i - 1].box.right;
         if (gap < 6) out.push(`navCrowd: «${boxes[i - 1].text}» и «${boxes[i].text}» — зазор ${Math.round(gap)} px`);
       }
