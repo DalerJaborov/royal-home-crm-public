@@ -36,6 +36,7 @@ import { ReportPdfActions } from "../components/ReportPdfActions";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalMoneyTiles } from "../components/look/money/RoyalMoneyTiles";
+import { RoyalMoneyStrip } from "../components/look/money/RoyalMoneyStrip";
 
 /**
  * ФИНАНСЫ — экран /finance темы «Royal Home 2026», перенесённый из прототипа
@@ -224,7 +225,7 @@ function FinanceScreen({ royal }: { royal: boolean }) {
   // и нужны на обеих ширинах.
   const mhHeaderShown = mobile && !clean && current !== undefined;
 
-  if (clean) return <FinanceFrame clean royal={royal}><ClaudeMoneyPage month={month} onMonthChange={setSelectedMonth} workspace={workspace} onWorkspaceChange={setWorkspace} canManage={canManage} archiveAllowed={can("archive.view")} onExport={exportCsv} exporting={exporting} exportError={exportError} pdfMonths={rangeMonths} overview={<>
+  if (clean) return <FinanceFrame clean royal={royal}><ClaudeMoneyPage royal={royal} summary={royal && current && !error ? <RoyalMoneyStrip current={current} previous={previous} /> : undefined} month={month} onMonthChange={setSelectedMonth} workspace={workspace} onWorkspaceChange={setWorkspace} canManage={canManage} archiveAllowed={can("archive.view")} onExport={exportCsv} exporting={exporting} exportError={exportError} pdfMonths={rangeMonths} overview={<>
     {error ? <CleanLoadError title="Финансовая сводка" retry={refetch} /> : isLoading ? <p className="cef-muted" role="status">Загружаем финансовую сводку…</p> : <>
       <div className="cef-overview-period"><label>Графики за<select value={rangeMonths} onChange={(event) => setRangeMonths(Number(event.target.value))}>{RANGE_OPTIONS.map((option) => <option key={option.months} value={option.months}>{option.label}</option>)}</select></label></div>
       {current ? royal ? <RoyalMoneyTiles

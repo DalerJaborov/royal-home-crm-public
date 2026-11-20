@@ -14,7 +14,7 @@ import { backups, oversight, security, stuckWork } from "../../../../tests/e2e/h
  * дописать своё. Меняются только классы, метка раздела и значки (svg без текста).
  * Без признака вида — ни одного следа нового вида в разметке.
  */
-const state = vi.hoisted(() => ({ royal: false, investigations: true }));
+const state = vi.hoisted(() => ({ royal: false, investigations: true, summary: undefined as unknown, empty: false }));
 vi.mock("../../../hooks/useRoyalLook", () => ({ useRoyalLook: () => state.royal }));
 vi.mock("../../../lib/permissions", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../lib/permissions")>()),
@@ -31,17 +31,17 @@ vi.mock("../../TranscriptView", () => ({ TranscriptView: () => <div>Расшиф
 
 const ok = <T,>(data: T) => ({ data, isLoading: false, isError: false, refetch: vi.fn() });
 vi.mock("../../../hooks/useOversight", () => ({
-  useOversightSummary: () => ok(oversight.summary),
+  useOversightSummary: () => ok(state.summary === undefined ? oversight.summary : state.summary),
   useOverdueTasks: () => ok(oversight.overdueTasks),
   useNoContactClients: () => ok(oversight.noContactClients),
   useLeadTransfers: () => ok(oversight.leadTransfers),
   useSilentAfterShowing: () => ok(oversight.silentAfterShowing),
   useRefusedHighScore: () => ok(oversight.refusedHighScore),
-  useTransferPairs: () => ok(oversight.transferPairs),
+  useTransferPairs: () => ok(state.empty ? { ...oversight.transferPairs, pairs: [] } : oversight.transferPairs),
   useSellerPropertyMissing: () => ok(oversight.sellerPropertyMissing),
   useEndlessNegotiations: () => ok(oversight.endlessNegotiations),
   useAgentLossSeries: () => ok(oversight.agentLossSeries),
-  useShowingSurveyCalls: () => ok(oversight.showingSurveyCalls),
+  useShowingSurveyCalls: () => ok(state.empty ? { ...oversight.showingSurveyCalls, items: [], total: 0 } : oversight.showingSurveyCalls),
   useShowingSurveyCall: () => ({ data: undefined, isLoading: false }),
   useShowingSurveyRecordingUrl: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -98,7 +98,7 @@ const render = (url: string, el: ReactElement) => renderToStaticMarkup(<MemoryRo
 /** Что читает человек: текст без разметки (значки — svg без текста — сюда не попадают). */
 const text = (html: string) => html.replace(/<svg[\s\S]*?<\/svg>/g, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
 
-beforeEach(() => Object.assign(state, { royal: false, investigations: true }));
+beforeEach(() => Object.assign(state, { royal: false, investigations: true, summary: undefined, empty: false }));
 
 describe("экраны контроля в новом виде: тот же текст, другие классы", () => {
   it.each(SCREENS)("$name: весь текст прежнего вида на месте, лишнего нет", ({ url, el }) => {
@@ -116,8 +116,8 @@ describe("экраны контроля в новом виде: тот же те
   it("«Контроль руководителя»: все срезы антифрода на месте в обоих видах (проверено поломкой: без среза — красный)", () => {
     state.royal = true;
     const html = text(render("/oversight", <Oversight />));
-    for (const slice of ["Просроченные задачи", "Тишина после показа", "Продавец без объекта", "Вечные переговоры",
-      "Отказ при хорошем скоринге", "Звонки-опросы после показа", "Серия у одного агента", "Передачи между агентами", "Маршруты передач между агентами"]) {
+    for (const slice of ["Просроченные задачи", "Пропали после показа", "Продавец без объекта", "Переговоры по кругу",
+      "Отказались, хотя клиент был хороший", "Звонки-опросы после показа", "Агент теряет клиентов подряд", "Передачи между агентами", "Кто кому чаще передаёт клиентов"]) {
       expect(html, slice).toContain(slice);
     }
     // красные флаги звонка-опроса — подписью, не только цветом
@@ -178,5 +178,53 @@ describe("экраны контроля в новом виде: тот же те
     // поломка: условие записано дважды — сторож краснеет
     const dup = 'controlTile("clock", summary.overdue > 0)';
     expect(/^\w+$/.test(/controlTile\("[\w-]+", ([^)]+)\)/.exec(dup)![1])).toBe(false);
+  });
+
+  it("«Контроль руководителя» (разделы директора 20.11): пустые срезы — одной строкой «всё спокойно», нули — серые плитки", () => {
+    // Всё по нулям, кроме «не связывались»: в новом виде остаётся один срез и одна строка спокойствия.
+    state.summary = { ...oversight.summary, overdueTasks: 0, recentTransfers: 0, silentAfterShowing: 0, refusedHighScore: 0,
+      sellerPropertyMissingWarn: 0, sellerPropertyMissingCritical: 0, endlessNegotiations: 0, agentLossSeries: 0 };
+    state.empty = true;
+    state.royal = true;
+    const html = render("/oversight", <Oversight />);
+    const royalText = text(html);
+    expect(royalText).toContain("Без замечаний: просроченных задач нет, после показов никто не пропал");
+    // журнал передач — за всё время: не прячется, а окно названо прямо
+    expect(royalText).toContain("за 30 дней передач клиентов не было");
+    expect(royalText).toContain("Передачи между агентами");
+    // строка «без замечаний» стоит ПОД срезами с проблемами
+    expect(royalText.indexOf("Без замечаний")).toBeGreaterThan(royalText.indexOf("Не связывались С клиентом"));
+    expect(royalText).toContain("Не связывались");
+    for (const gone of ["Просроченные задачи Обещанный", "Переговоры по кругу С продавцом", "Звонки-опросы после показа", "Кто кому чаще передаёт клиентов"]) {
+      expect(royalText, gone).not.toContain(gone);
+    }
+    // семь нулевых плиток серые, срочная «не связывались» — красная
+    expect(html.match(/class="tile ry-tile-calm"/g)).toHaveLength(7);
+    expect(html.match(/class="tile ry-tile-crit"/g)).toHaveLength(1);
+    // дни без контакта у строки
+    expect(royalText).toMatch(/\d+ (день|дня|дней) без контакта|меньше дня без контакта/);
+    // прежний вид — все срезы на месте, строки «всё спокойно» нет
+    state.royal = false;
+    const legacy = text(render("/oversight", <Oversight />));
+    expect(legacy).not.toContain("Без замечаний");
+    expect(legacy).toContain("Звонки-опросы после показа");
+    // сводка не пришла — сворачивать нечем, сбой не выглядит спокойствием
+    state.royal = true;
+    state.summary = null;
+    expect(text(render("/oversight", <Oversight />))).not.toContain("Без замечаний");
+  });
+
+  it("нет числа у среза — «неизвестно», а не «спокойно»: срез показан, NaN на плитке нет (ревью PR 336)", () => {
+    const { sellerPropertyMissingWarn: _w, sellerPropertyMissingCritical: _c, ...rest } = oversight.summary;
+    void _w; void _c;
+    state.summary = { ...rest, overdueTasks: 0 };
+    state.royal = true;
+    const html = text(render("/oversight", <Oversight />));
+    expect(html).not.toContain("NaN");
+    expect(html).not.toContain("у всех продавцов есть объект");
+    expect(html).not.toContain("undefined");
+    expect(html).toContain("Продавец без объекта 2 карточки Принят");
+    // ноль — свёрнут в строку
+    expect(html).toContain("Без замечаний: просроченных задач нет");
   });
 });
