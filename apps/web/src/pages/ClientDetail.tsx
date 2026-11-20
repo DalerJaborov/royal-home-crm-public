@@ -65,7 +65,7 @@ import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTabs, cleanClientDetailScale, cleanClientPanelProps, cleanClientShowsPanel } from "../components/clean/CleanClientDetailLayout";
 import { MobileClientCard } from "../components/mobile/MobileClientCard";
 import { useRoyalLook } from "../hooks/useRoyalLook";
-import { RoyalClientFacts, RoyalClientTabs, type RoyalClientFact } from "../components/look/clients/RoyalClients";
+import { RoyalClientFacts, RoyalClientTabs, royalPhoneFact, type RoyalClientFact } from "../components/look/clients/RoyalClients";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
 import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
@@ -653,7 +653,10 @@ function ClientDetailCard() {
     client.assignedAgent ? `Агент ${client.assignedAgent.fullName}` : "Агент не назначен",
   ].join(". ");
   /** «Новый вид»: те же сведения короткими фактами со значками + источник (в строке списка на телефоне его нет). */
+  // Номер — первым фактом под именем (пачка D1): какой номер наберёт «Позвонить», видно
+  // до нажатия. Строку отдаёт сервер по правам: полный номер — директору, остальным маской.
   const headFacts: RoyalClientFact[] = [
+    ...royalPhoneFact(client.phone, locked),
     { icon: "calendar-days", text: dushanbeDate(client.createdAt, { day: "numeric", month: "long" }), label: `Пришёл ${dushanbeDate(client.createdAt, { day: "numeric", month: "long" })}` },
     { icon: "clock", text: relativeTime(client.lastContactAt), label: `Последний контакт ${relativeTime(client.lastContactAt)}` },
     { icon: "users", text: client.assignedAgent?.fullName ?? "Агент не назначен", label: client.assignedAgent ? `Агент ${client.assignedAgent.fullName}` : "Агент не назначен" },
@@ -1625,7 +1628,7 @@ function ClientDetailCard() {
                       title="Позвонить через CRM, разговор запишется и попадёт в хронологию"
                       className={clean ? "pill" : "pill ghost"}
                     />
-                    {!locked && (
+                    {!locked && !(royal && conversations.length === 0) && (
                       <button
                         className="pill ghost"
                         type="button"
@@ -1698,7 +1701,9 @@ function ClientDetailCard() {
             )}
             {!locked && (
               <>
-                <button
+                {/* «Новый вид»: бледная «Написать» без причины читалась поломкой (critic-agent-newbie) —
+                    нет переписки, нет и кнопки; написать первым можно блоком WhatsApp ниже. */}
+                {!(royal && conversations.length === 0) && <button
                   className="cd-act"
                   type="button"
                   disabled={conversations.length === 0}
@@ -1707,7 +1712,7 @@ function ClientDetailCard() {
                 >
                   <MessageSquare className="i" />
                   Написать
-                </button>
+                </button>}
                 <button className="cd-act" type="button" onClick={openOverviewProperties}>
                   <Home className="i" />
                   {sells && !buys ? "Объекты" : "Подбор"}
@@ -1727,6 +1732,10 @@ function ClientDetailCard() {
             )}
           </div>
         )}
+
+        {/* «Следующий шаг» — сразу под кнопками звонка (пачка D1): на телефоне он был в самом низу
+            «Обзора», на ПК — после подбора и площадок. Тот же узел, второй копии нет. */}
+        {royal && overviewNextStep}
 
         {commonMiddle}
 
@@ -1770,7 +1779,7 @@ function ClientDetailCard() {
                   «Телефоны» и «Что ИИ предлагал раньше» убраны — всё это ИИ
                   вплетает в сводку, а номер выбирается в кнопке «Позвонить». */}
               <ClientInsight client={client} />
-              {clean && !client.aiInsight && !(pending && locked) && <div className="clean-client-overview-empty" role="status">
+              {clean && !royal && !client.aiInsight && !(pending && locked) && <div className="clean-client-overview-empty" role="status">
                 <p>Краткая сводка по этому клиенту ещё не подготовлена.</p>
                 <p className="sub">Предыдущие действия и договорённости доступны в истории карточки.</p>
                 <button type="button" className="pill ghost" onClick={() => setTab("hist")}>Открыть историю</button>
@@ -1783,7 +1792,7 @@ function ClientDetailCard() {
               {buys && !(pending && locked) && (
                 <div className="client-overview-properties"><MarketBuyerListings key={`market:${client.id}`} clientId={client.id} /></div>
               )}
-              {overviewNextStep}
+              {!royal && overviewNextStep}
 
               {pending && locked ? (
                 <p className="state">Запрос клиента, бюджет и история откроются, когда вы примете лид.</p>

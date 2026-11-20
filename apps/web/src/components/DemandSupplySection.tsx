@@ -135,8 +135,8 @@ function Row({
 function CellRow({ cell }: { cell: DemandSupplyCell }) {
   const money =
     cell.demandMedianBudget != null || cell.supplyMedianPrice != null
-      ? ` · бюджет ищущих ${cell.demandMedianBudget != null ? `≈ ${nf(cell.demandMedianBudget)} с.` : "не назван"}, цена в продаже ${
-          cell.supplyMedianPrice != null ? `≈ ${nf(cell.supplyMedianPrice)} с.` : "—"
+      ? ` · бюджет ищущих ${cell.demandMedianBudget != null ? `≈ ${nf(cell.demandMedianBudget)}\u00a0с.` : "не назван"}, цена в продаже ${
+          cell.supplyMedianPrice != null ? `≈ ${nf(cell.supplyMedianPrice)}\u00a0с.` : "—"
         }`
       : "";
   return (
@@ -267,7 +267,7 @@ export function DemandSupplySection() {
                     </b>
                     <span>
                       {p.districtName ?? "Район не указан"}
-                      {p.rooms != null ? ` · ${p.rooms} комн.` : ""} · {nf(p.priceTjs)} с.
+                      {p.rooms != null ? ` · ${p.rooms} комн.` : ""} · {nf(p.priceTjs)}{"\u00a0"}с.
                     </span>
                   </span>
                   <span className="chip mute">{p.daysOnSale} дн. в продаже</span>

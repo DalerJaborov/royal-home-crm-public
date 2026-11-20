@@ -649,7 +649,7 @@ function PropertyViewCard({
       />
     ) : (
       <div className="card">
-        <PropertyOwnerCard property={property} showIntakeShare={can("finance.view")} />
+        <PropertyOwnerCard property={property} showIntakeShare={can("finance.view")} showOwner={!royal} />
         {canInlineEdit && <InlineEditLink label="Изменить" onClick={() => setEditingFields(true)} />}
       </div>
     );
@@ -767,6 +767,8 @@ function PropertyViewCard({
           title: "Кто ведёт объект и контакты",
           line: "Ответственный агент, телефон собственника, ссылка на ролик",
           onSelect: () => {
+            // «Новый вид»: блок живёт во вкладке «Обзор» — открыть её, иначе прокручивать некуда.
+            setTab("short");
             setEditingFields(true);
             jumpTo("rh-people");
           },
@@ -873,10 +875,40 @@ function PropertyViewCard({
   const narrationBlock = canEdit && !property.offSite ? <div id="rh-narration" className="scroll-mt-24"><PropertyNarrationManager propertyId={property.id} placement="card"
     factsKey={[property.type, property.rooms, property.areaSqm, property.floor, property.totalFloors, property.districtId, property.price, property.currency].join("|")} /></div> : null;
   // Блок ниже первого экрана — наверху короткая строка-ссылка к нему, только когда одобрить должен этот человек (ревью #334).
-  const narrationNudge = canEdit && !property.offSite ? <NarrationApprovalNudge propertyId={property.id} /> : null;
+  const narrationNudge = canEdit && !property.offSite ? <NarrationApprovalNudge propertyId={property.id} onOpen={() => setTab("short")} /> : null;
   const matchDialog = matchOpen && <MatchPanel mode="property" property={property} open={matchOpen} onClose={() => setMatchOpen(false)} />;
   const deleteDialog = !accountReadOnly && deleteOpen && <DeletePropertyDialog propertyId={property.id} onClose={() => setDeleteOpen(false)} />;
   const requestDeleteDialog = !accountReadOnly && requestDeleteOpen && <RequestDeletePropertyModal propertyId={property.id} propertyTitle={property.title} onClose={() => setRequestDeleteOpen(false)} />;
+
+  // Рабочие блоки карточки: описание, кто ведёт, ролик, «Решить сейчас», сделка, заявки на
+  // изменение. В прежней раскладке — правой колонкой рядом с ценой, в «Новом виде» — первыми
+  // во вкладке «Обзор»; озвучка — среди них, рядом со строкой «Ролик» (служебное ниже главного, пачка D1; 20.11.2026).
+  const workBlocks = (
+    <>
+      {clean && descriptionContent}
+
+      {/* Кто ведёт и собственник. Тем, кому собственник закрыт, его блока нет:
+          остаётся «кто ведёт» (PropertyPeople). */}
+      <CleanPropertySlot enabled={clean && !royal} area="people"><div id="rh-people">{fieldsBlock}</div></CleanPropertySlot>
+
+      <CleanPropertySlot enabled={clean && !royal} area="work">{videoLine && (
+        <Card tight title="Ролик" data-testid="property-video-stage">
+          <div className="quiet">
+            <span className={videoLine.tone === "neutral" ? "dot" : `dot ${videoLine.tone}`} />
+            <span className="txt">{videoLine.text}</span>
+          </div>
+        </Card>
+      )}</CleanPropertySlot>
+
+      {/* ОЗВУЧКА РОЛИКА (20.11.2026): рядом со строкой «Ролик», после фото, цены и «кто ведёт». Один адаптивный
+          блок для нового облика и прежней раскладки, ПК и телефона; спокойное состояние — короткая строка. */}
+      <CleanPropertySlot enabled={clean && !royal} area="work">{narrationBlock}</CleanPropertySlot>
+
+      <CleanPropertySlot enabled={clean && !royal} area="work">{showSolve && viewSolve}</CleanPropertySlot>
+      <CleanPropertySlot enabled={clean && !royal} area="work">{dealSlot}</CleanPropertySlot>
+      <CleanPropertySlot enabled={clean && !royal} area="work">{changeRequestBlock}</CleanPropertySlot>
+    </>
+  );
 
   if (legacyAgentMobile) {
     return <LegacyAgentPropertyView
@@ -909,6 +941,9 @@ function PropertyViewCard({
 
       {addressNotice}
       {lockedNotice}
+      {/* ОЗВУЧКА (20.11.2026): блок стоит среди рабочих блоков рядом со строкой «Ролик» (workBlocks) — в прежней
+          раскладке правой колонкой после цены, в «Новом виде» во вкладке «Обзор» (пачка D1). Наверху — только
+          строка-ссылка, когда озвучка ждёт одобрения именно этого человека. */}
       {narrationNudge}
 
       <CleanPropertyDetailLayout enabled={clean}>
@@ -918,7 +953,7 @@ function PropertyViewCard({
         </div>
 
         <div className="rh-pcard-side" style={clean ? { display: "contents" } : undefined}>
-          {royal ? <RoyalPropertySummary {...summaryProps} place={placeLine(property)}>{demandContent}</RoyalPropertySummary> : clean ? <CleanPropertySummary {...summaryProps}>{demandContent}</CleanPropertySummary> : <PropertyPriceCard
+          {royal ? <RoyalPropertySummary {...summaryProps} place={placeLine(property)} viewerRole={role} onAddSeller={canInlineEdit ? () => { setTab("short"); setEditingFields(true); jumpTo("rh-people"); } : null}>{demandContent}</RoyalPropertySummary> : clean ? <CleanPropertySummary {...summaryProps}>{demandContent}</CleanPropertySummary> : <PropertyPriceCard
             property={property}
             onSchedule={canSchedule ? () => setShowingOpen(true) : null}
             onEdit={canEnterEdit ? () => setEditMenuOpen(true) : null}
@@ -927,28 +962,7 @@ function PropertyViewCard({
             {demandContent}
           </PropertyPriceCard>}
 
-          {clean && descriptionContent}
-
-          {/* Кто ведёт и собственник. Тем, кому собственник закрыт, его блока нет:
-              остаётся «кто ведёт» (PropertyPeople). */}
-          <CleanPropertySlot enabled={clean} area="people"><div id="rh-people">{fieldsBlock}</div></CleanPropertySlot>
-
-          <CleanPropertySlot enabled={clean} area="work">{videoLine && (
-            <Card tight title="Ролик" data-testid="property-video-stage">
-              <div className="quiet">
-                <span className={videoLine.tone === "neutral" ? "dot" : `dot ${videoLine.tone}`} />
-                <span className="txt">{videoLine.text}</span>
-              </div>
-            </Card>
-          )}</CleanPropertySlot>
-
-          {/* ОЗВУЧКА РОЛИКА (20.11.2026): рядом со строкой «Ролик», после фото, цены и «кто ведёт». Один адаптивный
-              блок для нового облика и прежней раскладки, ПК и телефона; спокойное состояние — короткая строка. */}
-          <CleanPropertySlot enabled={clean} area="work">{narrationBlock}</CleanPropertySlot>
-
-          <CleanPropertySlot enabled={clean} area="work">{showSolve && viewSolve}</CleanPropertySlot>
-          <CleanPropertySlot enabled={clean} area="work">{dealSlot}</CleanPropertySlot>
-          <CleanPropertySlot enabled={clean} area="work">{changeRequestBlock}</CleanPropertySlot>
+          {!royal && workBlocks}
         </div>
       </CleanPropertyDetailLayout>
 
@@ -960,6 +974,7 @@ function PropertyViewCard({
         <div className="rh-pcard-tabbody">
           {tab === "short" && (
             <>
+              {royal && workBlocks}
               {/* Сведения, которым не место на первом экране: когда принят, номер,
                   сайт (review-mobile.md, п. 4 «Меньше информации: что под раскрытие»). */}
               <Card title="Сведения">

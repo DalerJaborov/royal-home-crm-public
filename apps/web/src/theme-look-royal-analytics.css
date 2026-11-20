@@ -422,3 +422,7 @@
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
   -webkit-line-clamp: none; line-clamp: none; max-height: none;
 }
+
+/* Отступ сверху у пояснения/пустого состояния — только под заголовком карточки. Первым в
+   карточке («За этот срок нет обращений», «Отчётов пока нет») он давал пустой верх (20.11). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card > :is(.note, p.state):first-child { margin-top: 0; }

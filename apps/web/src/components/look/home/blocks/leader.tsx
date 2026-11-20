@@ -42,7 +42,7 @@ export function MoneyHero({ commission, leadsToday, financeTo, settingsTo }: {
   const pipeline = commission.pipeline && commission.pipeline.deals > 0 && commission.pipeline.expectedTjs > 0 ? commission.pipeline : null;
   const yesterday = leadsToday ? leadsToday.count - leadsToday.deltaVsYesterday : null;
   const trendText = !trend ? null
-    : trend.pct === null ? `больше, чем за ${period.range}: тогда было 0 с.`
+    : trend.pct === null ? `больше, чем за ${period.range}: тогда было 0\u00a0с.`
     : trend.dir === "flat" ? `столько же, сколько за ${period.range}`
     : `${trend.dir === "up" ? "больше" : "меньше"} на ${trend.pct}%, чем за ${period.range} (${money(commission.previousMonthToDate ?? 0)})`;
   return (

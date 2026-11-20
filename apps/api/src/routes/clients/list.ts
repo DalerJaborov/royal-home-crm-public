@@ -4,7 +4,7 @@ import { Router } from "express";
 import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 import { Prisma } from "../../generated/prisma/client.js";
 import {
-  clientDisplayName,
+  clientDisplayName, clientNameParts,
   clientQuerySchema,
   type ClientSort,
   parseShortCode,
@@ -480,6 +480,10 @@ listRouter.get("/", requireAuth, async (req, res) => {
         // «Входящий +992…» и источник клиента мимо clients.viewPhone/viewOrigin
         // (аудит Codex 04.10.2026, ACCESS-01).
         displayName: clientDisplayName(presented, {
+          propertyAddress: rowAccess === "transferred" ? null : (sellerAddresses.get(c.id) ?? null),
+        }),
+        // То же имя порознь — строка «Нового вида» ставит якорь второй строкой (пачка D1).
+        displayNameParts: clientNameParts(presented, {
           propertyAddress: rowAccess === "transferred" ? null : (sellerAddresses.get(c.id) ?? null),
         }),
         // Ближайший шаг — свободный текст из хронологии: до приёма лида хронология

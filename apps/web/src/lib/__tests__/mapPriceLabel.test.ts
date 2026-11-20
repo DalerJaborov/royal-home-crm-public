@@ -10,7 +10,7 @@ describe("priceLabel — плашка цены в валюте объекта", 
   });
 
   it("сомони — со знаком «с.», как у formatMoney", () => {
-    expect(priceLabel(850_000, "TJS")).toBe("850 т. с.");
+    expect(priceLabel(850_000, "TJS")).toBe("850 т.\u00a0с.");
   });
 
   it("одна и та же цифра в разных валютах даёт разные подписи", () => {
@@ -18,7 +18,7 @@ describe("priceLabel — плашка цены в валюте объекта", 
   });
 
   it("без валюты — сомони (кластеры считаются сервером в сомони)", () => {
-    expect(priceLabel(58_000)).toBe("58 т. с.");
+    expect(priceLabel(58_000)).toBe("58 т.\u00a0с.");
   });
 
   it("меньше тысячи — число целиком, а не «0 т.»", () => {
@@ -26,7 +26,7 @@ describe("priceLabel — плашка цены в валюте объекта", 
   });
 
   it("миллионы — «млн» с одной цифрой после запятой", () => {
-    expect(priceLabel(1_250_000, "TJS")).toBe("1,3 млн с.");
+    expect(priceLabel(1_250_000, "TJS")).toBe("1,3 млн\u00a0с.");
     expect(priceLabel(2_000_000, "USD")).toBe("$2 млн");
   });
 });
@@ -34,6 +34,6 @@ describe("priceLabel — плашка цены в валюте объекта", 
 describe("clusterPlaque — плашка кластера в сомони", () => {
   it("минимум «от …» подписан сомони", () => {
     const c = { id: "c1", name: "82-й мкр", lat: 38.5, lng: 68.7, count: 14, minPrice: 58_000 } as MapCluster;
-    expect(clusterPlaque(c)).toBe("14 · от 58 т. с.");
+    expect(clusterPlaque(c)).toBe("14 · от 58 т.\u00a0с.");
   });
 });

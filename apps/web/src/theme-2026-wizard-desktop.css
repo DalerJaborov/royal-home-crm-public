@@ -9,7 +9,8 @@
 .rh2 .wiz.wizard-workspace :is(.wizard-secondary-action,.wizard-text-action) { min-height: 44px; font-size: 13px; font-weight: 600; text-align: left; }
 .rh2 .wiz.wizard-workspace .wizard-secondary-action { padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card); }
 .rh2 .wiz.wizard-workspace .wizard-text-action { color: var(--acc); padding: 8px 0; }
-.rh2 .wiz.wizard-workspace .wizard-delete-action { color: var(--muted); }
+.rh2 .wiz.wizard-workspace .wizard-delete-action { color: var(--crit, #b3261e); }
+.rh2 .wiz.wizard-workspace .wizard-danger-zone { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 .rh2 .wiz.wizard-workspace .wizard-draft-notice { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .rh2 .wiz.wizard-workspace .wizard-draft-copy { min-width: 0; overflow-wrap: anywhere; }
 .rh2 .wiz.wizard-workspace .wizard-draft-copy p { margin-top: 4px; }

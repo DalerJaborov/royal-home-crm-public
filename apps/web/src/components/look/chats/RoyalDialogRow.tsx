@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { MESSAGE_PHONE_MASK } from "@royal-home/shared";
 import { Bot, Flame } from "lucide-react";
 import type { ConversationListItem } from "../../../hooks/useConversations";
 import { exactDateTime, listTime } from "../../../lib/format";
@@ -39,6 +40,15 @@ function pauseWaitHours(c: ConversationListItem, now: number): number | null {
 }
 
 /**
+ * Текст последней реплики для превью: скрытый номер — словами «номер скрыт», а не «****»
+ * (тот же смысл, что в самой переписке; кадр владельца 20.11). Цифр здесь нет и не было.
+ * Отдельно от подписи отправителя, чтобы её можно было менять, не трогая текст.
+ */
+export function previewText(content: string): string {
+  return content.split(MESSAGE_PHONE_MASK).join("номер скрыт");
+}
+
+/**
  * СТРОКА РАЗГОВОРА НОВОГО ВИДА (18.11.2026): аватар с меткой канала в родном
  * цвете, имя, ОДНА строка текста, справа время ожидания (или время последнего
  * сообщения) и пометки. Данные — ровно те же, что у прежней строки
@@ -64,7 +74,7 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
   const accountLabel = showAccount ? c.accountTitle : null;
   const attention = !!c.agentAttentionRequestedAt;
   const last = c.lastMessage
-    ? `${c.lastMessage.role === "assistant" ? `${senderPrefix(c.lastMessage.by)}: ` : ""}${c.lastMessage.content}`
+    ? `${c.lastMessage.role === "assistant" ? `${senderPrefix(c.lastMessage.by)}: ` : ""}${previewText(c.lastMessage.content)}`
     : "";
   return (
     <button

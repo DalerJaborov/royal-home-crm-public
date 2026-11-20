@@ -36,7 +36,7 @@ export function prepareClaudeExpense(draft: ClaudeExpenseDraft, month: string): 
   if(draft.paymentDate&&!expenseDateSchema.safeParse(draft.paymentDate).success) return {field:"paymentDate",message:"Выберите корректную дату платежа."};
   if(draft.status==="PAID"&&draft.paymentDate>claudeToday()) return {field:"paymentDate",message:"Будущий платёж можно сохранить только как план."};
   if(draft.status==="PLANNED"&&!draft.paymentDate) return {field:"paymentDate",message:"Для плана нужна дата платежа."};
-  if(draft.exchangeRate&&(!/^\d+(?:[.,]\d{1,2})?$/.test(draft.exchangeRate)||Number(draft.exchangeRate.replace(",","."))<=0||Number(draft.exchangeRate.replace(",","."))>1000)) return {field:"exchangeRate",message:"Введите курс больше нуля, не больше 1000 с. за доллар."};
+  if(draft.exchangeRate&&(!/^\d+(?:[.,]\d{1,2})?$/.test(draft.exchangeRate)||Number(draft.exchangeRate.replace(",","."))<=0||Number(draft.exchangeRate.replace(",","."))>1000)) return {field:"exchangeRate",message:"Введите курс больше нуля, не больше 1000\u00a0с. за доллар."};
   const basic={amount,category:draft.category,month: draft.paymentDate?draft.paymentDate.slice(0,7):month,note:draft.note.trim()||null,source:draft.category==="ADVERTISING"?draft.source||null:null,agentId:draft.category==="SALARY"?draft.agentId||null:null};
   const parsed=expenseCreateSchema.safeParse(basic);
   if(!parsed.success) {const issue=parsed.error.issues[0]; return {field:issue.path[0] as keyof ClaudeExpenseDraft,message:issue.message};}

@@ -7,18 +7,28 @@ import { ObjIcon } from "./ObjIcon";
  * чистой оболочки: сколько найдено, «Ждут вашей проверки» (только модератору,
  * нажатие ставит тот же фильтр), черновик нового объекта и создание объекта.
  */
-export function RoyalObjectsHead({ total, pendingReview, onShowPending, canCreate, onCreate }: {
-  total?: number; pendingReview?: number; onShowPending: () => void; canCreate: boolean; onCreate: () => void;
+export function RoyalObjectsHead({ total, pendingReview, onShowPending, overdue, onShowOverdue, canCreate, onCreate }: {
+  total?: number; pendingReview?: number; onShowPending: () => void;
+  /** Объекты с задержкой подготовки — строкой в подзаголовке, а не отдельной карточкой над списком (пачка D1). */
+  overdue?: number; onShowOverdue?: () => void;
+  canCreate: boolean; onCreate: () => void;
 }) {
   return (
     <header className="ry-objects-head">
       <div className="ry-objects-head-text">
         <h1>Объекты</h1>
         <p>
-          {total !== undefined ? <>Найдено: <b className="ry-num">{total}</b></> : "Каталог агентства"}
+          {/* «Найдено: 117» — одна неразрывная пара: на iPhone 414–430 px она рвалась на две
+              строки и слипалась с «Продолжить черновик» (кадр владельца 20.11). */}
+          <span className="ry-objects-found">{total !== undefined ? <>Найдено: <b className="ry-num">{total}</b></> : "Каталог агентства"}</span>
           {!!pendingReview && (
             <button type="button" className="ry-objects-pending" onClick={onShowPending}>
               <ObjIcon name="circle-alert" size={18} />Ждут вашей проверки: {pendingReview}
+            </button>
+          )}
+          {!!overdue && onShowOverdue && (
+            <button type="button" className="ry-objects-pending" data-tone="crit" onClick={onShowOverdue}>
+              <ObjIcon name="flame" size={18} />Задержка подготовки: {overdue}
             </button>
           )}
         </p>

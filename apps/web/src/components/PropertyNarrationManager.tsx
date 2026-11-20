@@ -228,12 +228,14 @@ function useNarrationView(propertyId: string, enabled = true) {
  * ждущей одобрения озвучке сверху ничего не говорило. Короткая строка-ссылка к блоку — только когда одобрить
  * должен именно этот человек; остальным и в остальное время её нет.
  */
-export function NarrationApprovalNudge({ propertyId }: { propertyId: string }) {
+export function NarrationApprovalNudge({ propertyId, onOpen }: { propertyId: string;
+  /** Блок живёт во вкладке «Обзор» («Новый вид»): открыть её перед прокруткой, если человек на другой вкладке. */
+  onOpen?: () => void }) {
   const { data } = useNarrationView(propertyId);
   if (!narrationAwaitsMe(data)) return null;
   return (
     <a href={`#${NARRATION_ANCHOR}`} className="card flex min-h-12 items-center gap-3 px-4 py-3 text-base font-semibold no-underline"
-      onClick={(e) => { e.preventDefault(); scrollToNarration(); }}>
+      onClick={(e) => { e.preventDefault(); onOpen?.(); window.setTimeout(scrollToNarration, onOpen ? 60 : 0); }}>
       <span className="h-2.5 w-2.5 flex-none rounded-full bg-blue" aria-hidden />
       <span className="flex-1">Озвучка ждёт вашего одобрения</span>
       <span className="text-[var(--muted)]" aria-hidden>↓</span>
