@@ -55,7 +55,11 @@ function jsonResponse(data: unknown): Response {
 
 let instagram: CustomerMessengerFixture;
 
+let savedPhoneConversation: boolean | null = null;
 beforeAll(async () => {
+  // Разговор по номеру из комментария (личное + скрытие) — по умолчанию ВЫКЛ: этот файл проверяет прежнее поведение.
+  savedPhoneConversation = (await prisma.settings.findUnique({ where: { id: "singleton" }, select: { botCommentPhoneConversation: true } }))?.botCommentPhoneConversation ?? null;
+  await prisma.settings.update({ where: { id: "singleton" }, data: { botCommentPhoneConversation: false } });
   instagram = await createCustomerMessengerFixture("INSTAGRAM");
   districtId = (await prisma.district.create({ data: { name: `Тест-район-комменты-${runId}` } })).id;
   const property = await prisma.property.create({
@@ -80,6 +84,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (savedPhoneConversation !== null) await prisma.settings.update({ where: { id: "singleton" }, data: { botCommentPhoneConversation: savedPhoneConversation } });
   await prisma.instagramComment.deleteMany({ where: { commentId: { startsWith: `c-${runId}` } } });
   await instagram.dispose();
   await prisma.property.deleteMany({ where: { id: propertyId } });
@@ -1479,7 +1484,9 @@ describe("частное объявление под постом (24.09.2026)",
       text: "Нархаш чанд? 900123456 занг занед",
     });
     expect(await handleComment(row)).toBe("replied");
-    expect(decide).toHaveBeenCalledTimes(1);
+    // Решение по комментарию — один вызов модели. Номер в комментарии теперь ещё и карточка (messengers/commentPhoneLead.ts,
+    // тумблер разговора по умолчанию ВЫКЛ — ответ как раньше), а её заполняет та же модель в фоне: считаем вызовы комментатора.
+    expect(decide.mock.calls.filter(([p]) => p?.endpoint === "instagram-comment")).toHaveLength(1);
     expect(graphCalls.find((c) => c.body && "hide" in c.body)).toBeUndefined();
   });
 

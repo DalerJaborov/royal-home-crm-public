@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4139**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4148**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -9595,8 +9595,21 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const agent = await prisma.agent.update({ where: { id: req.agent!.id }, data: { preferences: parsed.data }, s…
+- const agent = await prisma.$transaction(async (tx)
+  · всё внутри — одной транзакцией
+  · читает в базе: agent
   · меняет в базе: agent
+  · проверяет данные схемой homePreferencesSchema
+  - если data.home === undefined
+    - const current = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { preferences: true } });
+      · читает в базе: agent
+    - const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);
+      · проверяет данные схемой homePreferencesSchema
+    - если kept.success && kept.data
+      - data = { ...data, home: kept.data };
+        · дословно из кода
+  - return tx.agent.update({ where: { id: req.agent!.id }, data: { preferences: data }, select: { preferences: tr…
+    · меняет в базе: agent
 - res.json(agent.preferences ?? {});
   · ответ 200
 
@@ -19726,13 +19739,15 @@
       · читает в базе: assistantTelegramGroup
     - для каждого: const { chatId } of groups
       - пробует
+        - const verdict = await inspectTelegramChat(chatId);
+          · зовёт inspectTelegramChat()
         - если verdict.kind === "migrated"
           - const outcome = await migrateAssistantGroupChat(chatId, verdict.newChatId);
             · зовёт migrateAssistantGroupChat()
           - console.log(`[assistant-group] группа стала супергруппой, регистрация перенесена (${outcome})`);
             · пишет строку в журнал сервера
         - иначе если verdict.kind === "absent"
-          - await logSystemError( "telegram", `Шабнам не состоит в подключённой группе «${await groupLabel(chatId)}» — ве…
+          - await logSystemError( "telegram", `Шабнам не состоит в подключённой группе «${await telegramChatLabel(chatId)…
             · запись в журнал ошибок
         - иначе если verdict.kind === "unknown"
           - console.warn(`[assistant-group] проверка группы не удалась, повтор в следующий обход: ${verdict.detail}`);
@@ -19743,6 +19758,9 @@
   - если сорвалось
     - await logSystemError("telegram", `Шабнам: обход подключённых групп не удался: ${describeError(err)}`, { dedup…
       · запись в журнал ошибок
+  - пробует
+    - result.settingsChats = await sweepSettingsTelegramChats();
+      · зовёт sweepSettingsTelegramChats()
   - в любом случае
     - sweeping = false;
       · дословно из кода
@@ -20609,13 +20627,15 @@
         · дословно из кода
     - const claim = (commentId: string)
       · обращается к базе своим SQL
+    - const selfAnswer = await loadBotAnswersItself();
+      · зовёт loadBotAnswersItself()
     - для каждого: const row of rows
       - const need = commentNeed(row.status, row.note);
         · зовёт commentNeed()
       - если need === "technical" && !technicalOn
         - continue;
           · переходит к следующему
-      - если need === "no"
+      - если need === "no" || (need === "human" && !staffSignalAllowed({ on: selfAnswer, kind: "bot_choice" }))
         - continue;
           · переходит к следующему
     - если !due.length
@@ -22076,6 +22096,34 @@
   - return;
     · дальше не идёт, ничего не меняя
 - пробует
+  - const held = await releaseCommentPhoneHolds();
+    · зовёт releaseCommentPhoneHolds()
+    - const held = await prisma.client.findMany({ where: { commentPhoneHoldUntil: { not: null }, deletedAt: null },…
+      · читает в базе: client
+    - для каждого: const card of held
+      - const conversations = await prisma.botConversation.findMany({ where: { clientId: card.id }, select: { message…
+        · читает в базе: botConversation
+      - const reply = conversations.map((c)
+        · зовёт commentPhoneReplyOf()
+      - если reply
+        - если await releaseCommentPhoneHold(card.id, `Номер из комментария: клиент ответил боту в личных — «${reply}»`, car…
+          - answered++;
+            · дословно из кода
+      - иначе если card.commentPhoneHoldUntil && card.commentPhoneHoldUntil.getTime() <= now.getTime()
+        - если await releaseCommentPhoneHold(card.id, "Номер из комментария, боту не ответил: позвоните и узнайте, что нужно…
+          - expired++;
+            · дословно из кода
+  - если held.answered + held.expired > 0
+    - console.log(`[cron] Номер из комментария → в раздачу: ответили ${held.answered}, молчат ${held.expired}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка снятия придержки номера из комментария", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+- пробует
   - const assigned = await assignPendingLeads();
     · зовёт assignPendingLeads()
     - const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
@@ -22218,47 +22266,12 @@
 - пробует
   - const { reminded: callReminders } = await remindDueFirstCalls();
     · зовёт remindDueFirstCalls()
-    - const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
-      · читает в базе: settings
-    - const recentOutageMs = telephonyOn ? outageOverlapMs(lookback, now, await outagesBetween(lookback, now)) : 0;
-      · зовёт outageOverlapMs()
-    - const windowStart = widenAfterNight( new Date(now.getTime() - minutes * 60_000 - recentOutageMs), leadHoursOf…
-      · зовёт widenAfterNight()
-    - const candidates = await prisma.client.findMany({ where: { acceptedAt: { gte: windowStart, lte: windowEnd }, …
-      · читает в базе: client
-    - если candidates.length === 0
-      - return { reminded: 0 };
-        · дословно из кода
-    - const status = await firstCallStatus(candidates, { leadCallMinutes: settings?.leadCallMinutes ?? null, leadCa…
-      · зовёт firstCallStatus()
-    - для каждого: const client of candidates
-      - если !s || s.done
-        - continue;
-          · переходит к следующему
-      - если leftMs > 5 * 60_000 || leftMs < 0
-        - continue;
-          · переходит к следующему
-      - const already = await prisma.interaction.findFirst({ where: { clientId: client.id, type: "SYSTEM", notes: { s…
-        · читает в базе: interaction
-      - если already
-        - continue;
-          · переходит к следующему
-      - const after = firstCallAfterDue(client, reassignOn).text;
-        · зовёт firstCallAfterDue()
-      - await logTimeline({ clientId: client.id, actor: { kind: "system", source: "first-call-reminder", subjectAgent…
-        · зовёт logTimeline()
-      - sendPushToAgents([agentId], { title: "⏱ Позвонить клиенту", body: `${client.fullName}: осталось ${minutesLeft…
-        · push-уведомление
   - если callReminders > 0
     - console.log(`[cron] Напоминаний о первом звонке отправлено: ${callReminders}`);
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка напоминания о первом звонке", err);
     · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
 - пробует
   - const { reminded: returnsReminded, escalated: returnsEscalated } = await reassignStaleReturns();
     · зовёт reassignStaleReturns()
@@ -25396,8 +25409,21 @@
   - const { replied, hidden, escalated } = await processDueTelegramComments();
     · зовёт processDueTelegramComments()
     - если !(await isTelegramGroupCommentsEnabled(settings)) || !settings.discussionGroupId
-      - const closed = await prisma.telegramGroupComment.updateMany({ where: { status: "PENDING", replyDueAt: { lte: …
-        · меняет в базе: telegramGroupComment
+      - для каждого: let batch = 0; batch < CLOSE_MAX_BATCHES; batch++
+        - const closing = await prisma.telegramGroupComment.findMany({ where: { status: "PENDING", replyDueAt: { lte: n…
+          · читает в базе: telegramGroupComment
+        - для каждого: const c of closing
+          - если !extractAllPhones(c.text).length
+            - continue;
+              · переходит к следующему
+          - await createLeadFromCommentPhone({ channel: "TELEGRAM", commentId: `${c.groupChatId ?? "legacy"}:${c.messageI…
+            · зовёт createLeadFromCommentPhone()
+        - если closing.length
+          - const closed = await prisma.telegramGroupComment.updateMany({ where: { id: { in: closing.map((c)
+            · меняет в базе: telegramGroupComment
+        - если closing.length < CLOSE_BATCH
+          - break;
+            · прекращает перебор
     - const due = (await prisma.telegramGroupComment.findMany({ where: { OR: [ { status: "PENDING", replyDueAt: { l…
       · читает в базе: telegramGroupComment
     - для каждого: const row of due
@@ -25413,8 +25439,14 @@
         - const outcome = await handleTelegramComment(row, settings.discussionGroupId);
           · зовёт handleTelegramComment()
       - если сорвалось
-        - await failComment(row, err);
-          · дословно из кода
+        - const movedTo = telegramMigratedChatId(err);
+          · зовёт telegramMigratedChatId()
+        - если movedTo
+          - continue;
+            · переходит к следующему
+    - если closedFromOldGroup > 0
+      - void logSystemError( "telegram", `Комментарии из прежней группы обсуждения Telegram-канала закрыты без ответа…
+        · запись в журнал ошибок
   - если replied || hidden || escalated
     - console.log(`[cron] Комментарии Telegram: ответов ${replied}, удалено ${hidden}, эскалаций ${escalated}`);
       · пишет строку в журнал сервера
@@ -29806,6 +29838,11 @@
         · читает в базе: telegramConversation
       - если !chat || chat.client?.deletedAt
         - return "excluded";
+          · дословно из кода
+      - const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId, phoneK…
+        · зовёт channelStaffSignalKind()
+      - если !staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...si…
+        - return "self";
           · дословно из кода
       - const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
         · зовёт findAgentsWithPermission()

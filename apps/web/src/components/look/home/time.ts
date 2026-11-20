@@ -4,10 +4,8 @@ import type { RhBrand } from "../ui";
 /**
  * Время суток, «сейчас» и логотип канала для главной «Нового вида» (ядро, пачка home).
  *
- * ДОЛГ (20.11.2026): pages/TodayRoyal.tsx пока держит свои копии этих трёх функций —
- * его правит другая ветка. При переводе TodayRoyal на ядро он импортирует их отсюда,
- * а копии удаляются (журнал docs/journal/2026-11-20-new-look-home.md). Здесь — своим
- * модулем, чтобы кусок ядра не тянул весь TodayRoyal со всеми его запросами.
+ * Одно место на все главные «Нового вида»: копии из pages/TodayRoyal.tsx удалены
+ * правкой home-core (20.11.2026), когда директор, РОП и агент переехали на ядро.
  */
 
 /** Приветствие по часу в Душанбе. */
@@ -16,6 +14,13 @@ export function greetingFor(hour: number): string {
   if (hour >= 12 && hour < 18) return "Добрый день";
   if (hour >= 18 && hour < 23) return "Добрый вечер";
   return "Доброй ночи";
+}
+
+/** Доля прошедшего месяца по Душанбе (метка темпа на полосе плана); ключ дня — `dushanbeDayKey`. */
+export function monthPace(dayKey: string): number {
+  const [year, month, day] = dayKey.split("-").map(Number);
+  const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return Math.min(1, Math.max(0, day / days));
 }
 
 /** «Сейчас», которое обновляется раз в минуту и при возврате на вкладку. */

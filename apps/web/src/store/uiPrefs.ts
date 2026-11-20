@@ -2,8 +2,11 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   LOOK_IDS,
+  homePreferencesSchema,
   migrateLegacyTheme,
+  type HomeBlocksLayout,
   type LookId,
+  type Role,
   type ThemeId,
   type UiPreferences,
 } from "@royal-home/shared";
@@ -49,6 +52,10 @@ interface UiPrefsValues {
   autoLogoutMinutes: number | null;
   /** Идентификаторы разово скрытых подсказок/баннеров (например, промо живой темы). */
   dismissedHints: string[];
+  /** Главная «Нового вида»: свой порядок и выключенные блоки по роли (Профиль → Оформление). */
+  homeBlocks: HomeBlocksByRole;
+  /** Чья раскладка главной лежит в `homeBlocks`: устройство общее, чужая раскладка не применяется. */
+  homeBlocksOwnerId: string | null;
   /** Звуки уведомлений (новый лид/сообщение/звонок/сохранение/ошибка) — только локальное
    *  устройство, не синкается в БД (как sidebarCollapsed): личная привычка конкретного
    *  компьютера/наушников. */
@@ -74,6 +81,8 @@ interface UiPrefsState extends UiPrefsValues {
   setAutoLogoutMinutes: (minutes: number | null) => void;
   setAiSoundsEnabled: (on: boolean) => void;
   toggleDashboardWidget: (id: string) => void;
+  /** Раскладка главной роли: null — вернуть как было (все блоки, порядок по умолчанию). */
+  setHomeBlocks: (role: Role, layout: HomeBlocksLayout | null) => void;
   dismissHint: (id: string) => void;
   /** Применить настройки из БД. force — при логине (мог войти другой пользователь). */
   hydrateFromServer: (prefs: UiPreferences | null | undefined, force?: boolean) => void;
@@ -113,6 +122,8 @@ const DEFAULT_PREFS: UiPrefsValues = {
   navigationOwnerId: null,
   autoLogoutMinutes: null,
   dismissedHints: [],
+  homeBlocks: {},
+  homeBlocksOwnerId: null,
   aiSoundsEnabled: true,
   updatedAt: 0,
   syncedAt: 0,
@@ -157,7 +168,35 @@ function buildPrefsBody(state: UiPrefsValues): UiPreferences {
       : {}),
     security: { autoLogoutMinutes: state.autoLogoutMinutes },
     dismissedHints: [...state.dismissedHints],
+    // Раскладки главной (`home`) здесь НЕТ намеренно (ревью #326): обычное сохранение
+    // (тема, подсказка) берёт её с сервера, а шлёт её только setHomeBlocks. Иначе
+    // старая вкладка на другом устройстве откатывала бы раскладку, выбранную на
+    // телефоне, а API до этой правки отвечал бы 400 на любое сохранение настроек.
   };
+}
+
+/** Сколько сохранений раскладки главной сейчас в пути: пока они идут, ответ /me её не перетирает. */
+let homeSavesInFlight = 0;
+
+/** Раскладки главной по роли (в preferences — `home.blocks`). */
+export type HomeBlocksByRole = Partial<Record<Role, HomeBlocksLayout>>;
+
+/** Раскладка главной с сервера (сырой JSON из /me): битое отбрасывается, а не роняет главную. */
+function readHomeBlocks(value: unknown): HomeBlocksByRole {
+  const parsed = homePreferencesSchema.shape.blocks.safeParse(value);
+  return parsed.success && parsed.data ? structuredCloneHome(parsed.data) : {};
+}
+
+function structuredCloneHome(blocks: HomeBlocksByRole): HomeBlocksByRole {
+  const out: HomeBlocksByRole = {};
+  for (const [role, layout] of Object.entries(blocks) as [Role, HomeBlocksLayout | undefined][]) {
+    if (!layout) continue;
+    out[role] = {
+      ...(layout.order ? { order: [...layout.order] } : {}),
+      ...(layout.hidden ? { hidden: [...layout.hidden] } : {}),
+    };
+  }
+  return out;
 }
 
 function ownsSession(agentId: string, sessionEpoch: number): boolean {
@@ -176,6 +215,9 @@ function persistPreferences(agentId: string, sessionEpoch: number, snapshot: () 
       if (!ownsSession(agentId, sessionEpoch)) throw new Error("Сессия сменилась. Войдите снова.");
       ({ preferences, changedAt } = snapshot());
       preferences = { ...preferences, navigation: profile.preferences?.navigation ?? { desktopOrder: [] } };
+      // Главная: обычное сохранение шлёт раскладку, сохранённую на сервере, а не местную;
+      // своя раскладка уходит только из setHomeBlocks (у неё `home` уже в теле).
+      if (!preferences.home && profile.preferences?.home) preferences = { ...preferences, home: profile.preferences.home };
     }
     const requestSequence = ++syncRequestSequence;
     await api("/me/preferences", { method: "PUT", body: preferences, expectAgentId: agentId });
@@ -184,7 +226,9 @@ function persistPreferences(agentId: string, sessionEpoch: number, snapshot: () 
     lastAcknowledgedRequest = requestSequence;
     afterAck?.();
     queryClient.setQueryData<MyProfile>(["me"], (profile) =>
-      profile?.id === agentId ? { ...profile, preferences } : profile
+      profile?.id === agentId
+        ? { ...profile, preferences: preferences.home || !profile.preferences?.home ? preferences : { ...preferences, home: profile.preferences.home } }
+        : profile
     );
     if (useUiPrefs.getState().syncedAt < changedAt) {
       useUiPrefs.setState((state) => state.updatedAt <= changedAt ? { syncedAt: changedAt } : state);
@@ -274,6 +318,29 @@ export const useUiPrefs = create<UiPrefsState>()(
           const hidden = get().dashboardHidden;
           commit({ dashboardHidden: hidden.includes(id) ? hidden.filter((w) => w !== id) : [...hidden, id] });
         },
+        setHomeBlocks: (role, layout) => {
+          const { agent, sessionEpoch } = useAuthStore.getState();
+          if (!agent) return;
+          // Раскладка чужого входа на этом устройстве не наследуется: начинаем со своей.
+          const before = get().homeBlocksOwnerId === agent.id ? get().homeBlocks : {};
+          const next: HomeBlocksByRole = { ...before };
+          if (layout && ((layout.order?.length ?? 0) > 0 || (layout.hidden?.length ?? 0) > 0)) next[role] = layout;
+          else delete next[role];
+          // Переключается сразу (optimistic); на сервер — ОТДЕЛЬНЫМ сохранением с `home`
+          // (обычная очередь темы её не шлёт). Отказ сервера — откат и сообщение.
+          set({ homeBlocks: next, homeBlocksOwnerId: agent.id });
+          homeSavesInFlight++;
+          void persistPreferences(agent.id, sessionEpoch, () => {
+            const state = get();
+            const own = state.homeBlocksOwnerId === agent.id ? state.homeBlocks : next;
+            return { preferences: { ...buildPrefsBody(state), home: { blocks: structuredCloneHome(own) } }, changedAt: state.updatedAt };
+          }).catch(async () => {
+            if (!ownsSession(agent.id, sessionEpoch)) return;
+            if (get().homeBlocks === next) set({ homeBlocks: before });
+            const { useToastStore } = await import("./toast");
+            useToastStore.getState().show("Раскладка главной не сохранилась. Повторите, когда будет связь.", "error");
+          }).finally(() => { homeSavesInFlight--; });
+        },
         dismissHint: (id) => {
           const hints = get().dismissedHints;
           if (hints.includes(id)) return;
@@ -285,11 +352,21 @@ export const useUiPrefs = create<UiPrefsState>()(
           if (force || !get().serverHydrated || get().navigationOwnerId !== actorId) {
             set({ desktopNavigationOrder: readCleanNavigationOrder(prefs?.navigation?.desktopOrder), navigationOwnerId: actorId });
           }
-          if (get().serverHydrated && !force) return;
+          // Раскладка главной — только с сервера и только своя (как автовыход ниже):
+          // устройство общее, чужая раскладка не должна прятать блоки следующему.
+          // Применяется ПОСЛЕ решения «местное новее» (ревью #326): своя несохранённая
+          // раскладка (сохранение ещё в пути) серверной не перетирается.
+          const applyServerHome = () => set({ homeBlocks: readHomeBlocks(prefs?.home?.blocks), homeBlocksOwnerId: actorId });
+          const ownHome = get().homeBlocksOwnerId === actorId;
+          if (get().serverHydrated && !force) {
+            if (!ownHome) applyServerHome();
+            return;
+          }
           // A late initial /me may arrive inside the theme-change debounce.
           // Keep the unsynced choice and schedule its PUT for this account/epoch.
           // Rescheduling also restores the queue lost during a full page reload.
           const localWins = !force && get().updatedAt > get().syncedAt;
+          if (force || !ownHome || (!localWins && homeSavesInFlight === 0)) applyServerHome();
           if (localWins) {
             set({ serverHydrated: true });
             applyToDom(get());
@@ -303,7 +380,7 @@ export const useUiPrefs = create<UiPrefsState>()(
             // В БД пусто. При логине (force) сбрасываем к дефолтам: локальный выбор мог
             // принадлежать предыдущему пользователю этого устройства. На сервер ничего
             // не пишем — настройки сохранятся при первом осознанном изменении.
-            if (force) set({ ...DEFAULT_PREFS, navigationOwnerId: actorId, serverHydrated: true, syncedAt: Date.now() });
+            if (force) set({ ...DEFAULT_PREFS, navigationOwnerId: actorId, homeBlocksOwnerId: actorId, serverHydrated: true, syncedAt: Date.now() });
             else set({ serverHydrated: true });
             applyToDom(get());
             return;
@@ -360,6 +437,8 @@ export const useUiPrefs = create<UiPrefsState>()(
         navigationOwnerId: s.navigationOwnerId,
         autoLogoutMinutes: s.autoLogoutMinutes,
         dismissedHints: s.dismissedHints,
+        homeBlocks: s.homeBlocks,
+        homeBlocksOwnerId: s.homeBlocksOwnerId,
         sidebarCollapsed: s.sidebarCollapsed,
         aiSoundsEnabled: s.aiSoundsEnabled,
         updatedAt: s.updatedAt,

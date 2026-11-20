@@ -137,6 +137,18 @@ export const meUpdateSchema = z
 /** Тумблер «модерация в Telegram» в профиле (22.09.2026) — PATCH /me/telegram-moderation. */
 export const meTelegramModerationSchema = z.object({ enabled: z.boolean() }).strict();
 
+const homeBlockIdSchema = z.string().trim().min(1).max(48);
+/** Раскладка главной одной роли: свой порядок id и выключенные id. */
+export const homeBlocksLayoutSchema = z.object({
+  order: z.array(homeBlockIdSchema).max(40).optional(),
+  hidden: z.array(homeBlockIdSchema).max(40).optional(),
+}).strict();
+export type HomeBlocksLayout = z.infer<typeof homeBlocksLayoutSchema>;
+export const homePreferencesSchema = z.object({
+  blocks: z.partialRecord(z.enum(ROLES), homeBlocksLayoutSchema).optional(),
+}).strict();
+export type HomePreferences = z.infer<typeof homePreferencesSchema>;
+
 /** Настройки оформления, хранятся в Agent.preferences (JSON). Сохраняются целиком (PUT-семантика). */
 export const uiPreferencesSchema = z
   .object({
@@ -178,6 +190,13 @@ export const uiPreferencesSchema = z
     onboardingCompletedAt: z.string().datetime().nullable().optional(),
     /** Идентификаторы разово скрытых подсказок/баннеров (например, промо живой темы). */
     dismissedHints: z.array(z.string().max(48)).max(50).optional(),
+    /**
+     * Главная «Нового вида» (20.11.2026): личный порядок и выключенные блоки — по роли,
+     * чтобы смена роли не тащила чужую раскладку. Только оформление: какие блоки роли
+     * вообще разрешены, решает реестр на клиенте (components/look/home/registry.tsx),
+     * сохранённый список прав не расширяет. Нет записи — все блоки роли включены.
+     */
+    home: homePreferencesSchema.optional(),
     security: z
       .object({
         /**

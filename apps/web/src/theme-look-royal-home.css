@@ -173,6 +173,75 @@
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br.alt { fill: color-mix(in srgb, var(--rh-ui-primary) 42%, var(--rh-ui-card)); }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br[data-negative] { fill: var(--rh-ui-crit); }
 
+/* ============================ анимация графиков ============================ */
+
+/* Появление графиков (home-core, 20.11.2026; владелец 20.11: «с анимацией графиков»): столбики
+   растут от оси, полосы — от левого края до СВОЕЙ доли (`--v` у Rh2Bars, ширина у ry-bar),
+   плита плана — слева направо. Только transform, один раз при появлении элемента (обновление
+   данных React делает на тех же узлах — анимация не повторяется).
+   Чистая оболочка гасит любое движение правилом `html[data-shell="clean"] * { animation: none
+   !important }` (theme-2026-clean-surface-integrity.css) — поэтому здесь `!important` и более
+   точный селектор, и только у графиков главной. Кто просил у системы меньше движения — не видит
+   его вовсе: правила только под no-preference, иначе действует то же гашение оболочки. */
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br {
+    transform-box: fill-box; transform-origin: 50% 100%;
+    animation: ry-home-grow-y 720ms cubic-bezier(.23, 1, .32, 1) both !important;
+  }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br.alt { animation-delay: 60ms !important; }
+  /* Отрицательный столбик (Rh2BarChart, `data-negative`) висит ВНИЗ от оси: растёт от верхнего края. */
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .chart .br[data-negative] { transform-origin: 50% 0; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b .tr i {
+    transform-origin: 0 50%; animation: ry-home-fill-v 720ms cubic-bezier(.23, 1, .32, 1) both !important;
+  }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-bar > span,
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-fill {
+    transform-origin: 0 50%; animation: ry-home-grow-x 720ms cubic-bezier(.23, 1, .32, 1) both !important;
+  }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b:nth-child(2) .tr i,
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-bar-row:nth-child(2) .ry-bar > span { animation-delay: 50ms !important; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b:nth-child(3) .tr i,
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-bar-row:nth-child(3) .ry-bar > span { animation-delay: 100ms !important; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-chart .bars .b:nth-child(n + 4) .tr i,
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-bar-row:nth-child(n + 4) .ry-bar > span { animation-delay: 150ms !important; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-hero-pace { animation: ry-home-rise 520ms 360ms cubic-bezier(.23, 1, .32, 1) both !important; }
+}
+@keyframes ry-home-grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes ry-home-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+/* Полоса Rh2Bars нарисована масштабом `scaleX(var(--v))` — конец анимации обязан быть её долей, а не полной шириной. */
+@keyframes ry-home-fill-v { from { transform: scaleX(0); } to { transform: scaleX(var(--v, 0)); } }
+@keyframes ry-home-rise { from { transform: translateY(6px) scaleY(.4); } to { transform: none; } }
+
+/* ============================ «Оформление» → «Главная» ============================ */
+
+/* Список блоков своей роли: имя, «выше/ниже», крупный переключатель. Строка ≥ 60, зоны 44. */
+:root[data-ui-look="royal"] [data-ry-section="home"].ry-home-set { display: grid; gap: 12px; min-width: 0; margin-top: 8px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-list { display: grid; gap: 0; min-width: 0; margin: 0; padding: 0; list-style: none; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 60px; min-width: 0; padding: 8px 0;
+  box-shadow: inset 0 -1px 0 var(--rh-ui-sep);
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-row:last-child { box-shadow: none; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-name {
+  flex: 1 1 120px; min-width: 0; font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere;
+}
+/* Выключенный блок — имя серым, но читаемым: это подпись, а не скрытые данные. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-row[data-on="false"] .ry-home-set-name { color: var(--rh-ui-hint); font-weight: 500; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-acts { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-move {
+  display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px;
+  background: transparent; color: var(--rh-ui-text); cursor: pointer;
+  transition: background-color 160ms cubic-bezier(.23, 1, .32, 1), transform 90ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-move:hover:not(:disabled) { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-move:active:not(:disabled) { transform: scale(.94); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-move:focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-move:disabled { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-acts .ry-switch { margin-left: 8px; }
+/* Последний включённый блок не выключается — переключатель приглушён и не нажимается. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-set-acts .ry-switch:disabled { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] [data-ry-section="home"].ry-home-set > .ry-btn { justify-self: start; }
+
 /* ============================ ширина ============================ */
 
 @container ry-today (min-width: 720px) {

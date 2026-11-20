@@ -1079,6 +1079,12 @@ const settingsUpdateSchema = z.object({
   botUseWhatsappNumber: z.boolean().optional(),
   botMaxPhoneAsks: z.number().int().min(1).max(3).optional(),
   botHotIntentHandover: z.boolean().optional(),
+  /** «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026, lib/botAnswersItself.ts): не зовёт руководство, отвечает сам. */
+  botAnswersItself: z.boolean().optional(),
+  /** Номер из комментария: личное с вопросом, ответ под постом, скрытие (18.11.2026). ВЫКЛ — карточка, ответ как раньше. */
+  botCommentPhoneConversation: z.boolean().optional(),
+  /** Номер из комментария становится заявкой агенту (рубильник ревью #283, 20.11.2026). ВЫКЛ — как до #283. */
+  botCommentPhoneLead: z.boolean().optional(),
   /** Робозвонок покупателю после показа (13.09.2026, см. lib/postShowingCalls.ts и
    *  docs/buyer-antifraud-funnel-13-09-2026.md). Работает только поверх включённого
    *  живого голоса выше: свой канал звонка он не заводит, а пользуется тем же мостом. */

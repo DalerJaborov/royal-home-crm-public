@@ -5,6 +5,8 @@ import {
   dushanbeDayKey as sharedDayKey,
   dushanbeHour as sharedHour,
   isDialableTajikNumber as sharedDialable,
+  monthShort as sharedMonthShort,
+  monthTitle as sharedMonthTitle,
   parseWktPolygonRing as sharedRing,
 } from "@royal-home/shared";
 
@@ -12,6 +14,7 @@ import { distanceMeters, parseWktPolygonRing } from "../src/lib/geo.js";
 import { dushanbeDayKey } from "../src/lib/aiDailyBudget.js";
 import { isDialableTajikNumber } from "../src/lib/telephony/ariClient.js";
 import { dushanbeHour } from "../src/lib/postStats.js";
+import { monthShort, monthTitle } from "../src/lib/reportPdf/theme.js";
 
 /**
  * ОДНО ПРАВИЛО — ОДНО МЕСТО: ГЕОМЕТРИЯ, СУТКИ, НАБИРАЕМОСТЬ НОМЕРА.
@@ -104,5 +107,14 @@ describe("общие правила зовутся из одного места"
     }
     expect(sharedHour(new Date("2026-09-24T18:59:59.999Z"))).toBe(23);
     expect(sharedHour(new Date("2026-09-24T19:00:00.000Z"))).toBe(0);
+  });
+
+  it("подписи месяца отчёта PDF — обёртки над общими (сайт зовёт те же, 20.11.2026)", () => {
+    for (const key of ["2026-01", "2026-11", "2025-12"]) {
+      expect(monthTitle(key)).toBe(sharedMonthTitle(key));
+      expect(monthShort(key)).toBe(sharedMonthShort(key));
+    }
+    expect(monthTitle("2026-11")).toBe("Ноябрь 2026");
+    expect(monthShort("2026-11")).toBe("ноя");
   });
 });

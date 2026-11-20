@@ -16,10 +16,10 @@
   "paths": 776,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4112,
-  "untranslatedUnique": 470,
-  "untranslatedTotal": 605,
-  "partialUnique": 1112,
+  "conditions": 4121,
+  "untranslatedUnique": 473,
+  "untranslatedTotal": 608,
+  "partialUnique": 1114,
   "translatedShare": 85
  },
  "untranslated": [
@@ -141,6 +141,7 @@
   "!settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))",
   "!settings?.asteriskAriUrl?.trim()",
   "!source || source.kind !== \"contact\" || source.status !== \"COMMITTED\" || source.supersededAt || !source.commi…",
+  "!staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...si…",
   "!state.contactKeyFingerprint || state.contactKeyFingerprint !== somonKeyFingerprint()",
   "!state?.enabled || state.sourceStopped || (state.blockedUntil && state.blockedUntil > new Date())",
   "!state?.sourceStopped || (state.requestLeaseUntil && state.requestLeaseUntil > new Date())",
@@ -246,6 +247,7 @@
   "buffer.subarray(0, 5).toString() !== \"%PDF-\"",
   "buffered[event.side] >= MAX_BUFFERED_SAMPLES",
   "buffers[side].length === 0",
+  "card.commentPhoneHoldUntil && card.commentPhoneHoldUntil.getTime() <= now.getTime()",
   "changedFields.includes(\"instagramUrl\") && agentReelLinkClosed(existing.status, can(req, \"properties.editForei…",
   "channel && !bot.toggles.channels[channel]",
   "channel === \"INSTAGRAM\" && body.token?.trim()",
@@ -341,6 +343,7 @@
   "found.length !== propertyIds.length",
   "from.id === actor.id",
   "hasLiveCall(req.agent!.id) || !beginOrigination(req.agent!.id)",
+  "held.answered + held.expired > 0",
   "history[history.length - 1]?.role === \"user\"",
   "id === BUILTIN_COVER_TEMPLATE_ID",
   "id === otherId",
@@ -358,7 +361,6 @@
   "lastRequestedAt !== undefined && Date.now() - lastRequestedAt < RETRANSCRIBE_LIMIT_MS",
   "latest && narrationFactsCurrent(latest, p) && latest.status !== \"FAILED\"",
   "latest?.approvedAt && !manager(req.agent)",
-  "leftMs > 5 * 60_000 || leftMs < 0",
   "legacyUrl?.startsWith(\"/uploads/\")",
   "link.expiresAt && link.expiresAt.getTime() < Date.now()",
   "lockedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))",
@@ -372,6 +374,7 @@
   "narration.some(version => version.status === \"GENERATING\")",
   "narrationHash(current.plan) !== parsed.data.planHash",
   "narrationPlannerOpen(config, key)",
+  "need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: \"bot_choice\" }))",
   "needsReadReceipt(bot)",
   "needsReadReceipt(tg)",
   "next.address && next.address !== base.address",
@@ -785,7 +788,7 @@
     {
      "i": 293,
      "direct": false,
-     "conf": "через общую часть"
+     "conf": "через часть экрана"
     },
     {
      "i": 332,
@@ -903,72 +906,12 @@
      "conf": "через общую часть"
     },
     {
-     "i": 420,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 427,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 435,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 454,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 457,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 458,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 459,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 460,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 461,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 462,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 467,
      "direct": false,
      "conf": "через общую часть"
     },
     {
      "i": 468,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 470,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 473,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -983,52 +926,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 477,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 492,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 494,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 495,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 500,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 503,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 504,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 505,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 506,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 507,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -1073,22 +971,12 @@
      "conf": "через общую часть"
     },
     {
-     "i": 528,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 529,
      "direct": false,
      "conf": "через общую часть"
     },
     {
      "i": 530,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 535,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -1108,17 +996,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 541,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 543,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 545,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -1134,11 +1012,6 @@
     },
     {
      "i": 548,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 549,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -36116,10 +35989,32 @@
      ]
     },
     {
-     "t": "меняет: сотрудник",
+     "t": "все изменения разом: либо всё, либо ничего",
      "k": "do",
-     "a": [],
-     "c": []
+     "a": [
+      "меняет: сотрудник"
+     ],
+     "c": [
+      {
+       "t": "если home не задан",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть success и есть kept",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "меняет: сотрудник",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -38191,7 +38086,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -38638,7 +38532,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -39093,7 +38986,6 @@
     "есть право: clients.viewAll"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -40664,7 +40556,6 @@
     "есть право: properties.purge"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41004,7 +40895,6 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41156,7 +41046,6 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41248,7 +41137,6 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41406,7 +41294,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41492,7 +41379,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41571,7 +41457,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -42446,7 +42331,6 @@
     "есть право: properties.aiListing"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -42590,7 +42474,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -42836,7 +42719,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -44062,7 +43944,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -44210,7 +44091,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -44302,7 +44182,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -45112,7 +44991,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -45464,7 +45342,6 @@
     "есть право: properties.delete"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -45602,7 +45479,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -46111,7 +45987,6 @@
     "есть право: properties.publish"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -46276,7 +46151,6 @@
     "есть право: properties.delete"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -47433,7 +47307,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -48253,7 +48126,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -48712,7 +48584,6 @@
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -48959,7 +48830,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -49305,7 +49175,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -64878,6 +64747,12 @@
          "c": []
         }
        ]
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": []
       }
      ]
     }
@@ -66718,10 +66593,11 @@
            "more": true
           },
           {
-           "t": "если need — «no»",
+           "t": "если need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: \"bot_choice\" }))",
            "k": "if",
            "a": [],
            "c": [],
+           "raw": "need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: \"bot_choice\" }))",
            "more": true
           }
          ]
@@ -69733,6 +69609,69 @@
        "a": [],
        "c": [
         {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть ответ",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "иначе если card.commentPhoneHoldUntil && card.commentPhoneHoldUntil.getTime() <= now.getTime()",
+           "k": "elseif",
+           "a": [],
+           "c": [],
+           "raw": "card.commentPhoneHoldUntil && card.commentPhoneHoldUntil.getTime() <= now.getTime()",
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если held.answered + held.expired > 0",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "held.answered + held.expired > 0"
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
          "t": "если (settings?.leadDistributionStrategy ?? \"fair\") === \"manual\"",
          "k": "if",
          "a": [],
@@ -69918,54 +69857,6 @@
      "a": [],
      "c": [
       {
-       "t": "внутри этого шага",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "если candidates количество — «0»",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "и так по каждому",
-         "k": "loop",
-         "a": [],
-         "c": [
-          {
-           "t": "если нет: s или есть готово",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если leftMs > 5 * 60_000 || leftMs < 0",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "leftMs > 5 * 60_000 || leftMs < 0",
-           "more": true
-          },
-          {
-           "t": "если есть already",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "push-уведомление",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
        "t": "если звонок reminders больше 0",
        "k": "if",
        "a": [],
@@ -69977,21 +69868,7 @@
      "t": "если не получилось",
      "k": "catch",
      "a": [],
-     "c": [
-      {
-       "t": "внутри этого шага",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "запись в журнал ошибок",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
+     "c": []
     },
     {
      "t": "пробует сделать",
@@ -75762,10 +75639,11 @@
          "a": [],
          "c": [
           {
-           "t": "меняет: Telegram группа комментарий",
-           "k": "do",
+           "t": "и так по каждому",
+           "k": "loop",
            "a": [],
-           "c": []
+           "c": [],
+           "more": true
           }
          ]
         },
@@ -75808,6 +75686,19 @@
            "a": [],
            "c": [],
            "more": true
+          }
+         ]
+        },
+        {
+         "t": "если закрыт from old группа больше 0",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
           }
          ]
         }
@@ -84597,6 +84488,14 @@
            "k": "if",
            "a": [],
            "c": [],
+           "more": true
+          },
+          {
+           "t": "если !staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...si…",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...si…",
            "more": true
           },
           {

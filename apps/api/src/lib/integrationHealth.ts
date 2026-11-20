@@ -5,6 +5,8 @@ import { resolveGeminiRuntime } from "../ai/geminiSettings.js";
 import { checkGeminiModel } from "../ai/geminiCheck.js";
 import { getChatTitle, getChatMemberStatus, isTelegramEnabled, canBotWriteToChat } from "../telegram/api.js";
 import { parseTelegramChatIds } from "./telegramChats.js";
+import { inspectTelegramChat, isBasicGroupChatId } from "./telegramChatInspect.js";
+import { migrateSettingsTelegramChat } from "./settingsTelegramChatMigration.js";
 import { loadCredentials, GRAPH_VERSION, instagramApiUrl, instagramRequest, fetchWithRetry, isFacebookLoginToken } from "../messengers/meta.js";
 import { facebookPageTokenFor, instagramRouteForToken } from "./metaEternalTokens.js";
 import { isMetaAuthFailure, isMetaAuthFailureText, raiseChannelKeyAlarm, raiseCriticalAlarm } from "./channelKeyAlarm.js";
@@ -117,6 +119,31 @@ async function probeTelegramChatWrite(
 }
 
 /**
+ * ОБЫЧНАЯ ГРУППА СТАЛА СУПЕРГРУППОЙ (20.11.2026, тот же класс, что #317). Писать в чат нельзя, а чат — обычная
+ * группа: Telegram мог выдать ей новый id. Тогда адрес в Настройках заменяется той же дверью, что у живого события
+ * и почасового сторожа, и проверка не кричит «бот не может писать» о беде, которая уже исправлена. Каналы и
+ * супергруппы не переезжают — для них ничего не спрашиваем.
+ */
+async function migratedChatHint(chatId: string): Promise<{ healed: boolean; text: string } | null> {
+  if (!isBasicGroupChatId(chatId)) return null;
+  try {
+    const verdict = await inspectTelegramChat(chatId);
+    if (verdict.kind !== "migrated") return null;
+    try {
+      const outcome = await migrateSettingsTelegramChat(chatId, verdict.newChatId);
+      if (outcome.kind === "done" && outcome.moved.length > 0) {
+        return { healed: true, text: `группа стала супергруппой, адрес в Настройках заменён на ${verdict.newChatId} автоматически` };
+      }
+    } catch (err) {
+      return { healed: false, text: `группа стала супергруппой (новый адрес ${verdict.newChatId}), но заменить его в Настройках не удалось: ${describeError(err)}. Впишите новый адрес в Настройки → Каналы вручную.` };
+    }
+    return { healed: false, text: `группа стала супергруппой (новый адрес ${verdict.newChatId}). Впишите новый адрес в Настройки → Каналы.` };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Кросспост в Telegram-канал. Бота могли исключить из канала или снять с него
  * права админа — публикация ролика тогда молча не доходит, а в CRM объект
  * помечен «опубликован». `getChat` ничего не отправляет в канал.
@@ -133,6 +160,12 @@ export async function checkTelegramChannelHealth(): Promise<IntegrationCheck> {
 
   const probe = await probeTelegramChatWrite(channelId);
   if (probe.ok) return { name, ok: true, detail: probe.title ?? channelId };
+  const moved = await migratedChatHint(channelId);
+  if (moved?.healed) return { name, ok: true, detail: moved.text };
+  if (moved) {
+    await report("telegram", `Telegram-канал ${channelId}: ${moved.text}`);
+    return { name, ok: false, detail: moved.text };
+  }
   await report(
     "telegram",
     `Бот не имеет доступа к Telegram-каналу ${channelId} — кросспост роликов не дойдёт: ${probe.detail}. ` +
@@ -163,8 +196,13 @@ export async function checkTelegramExtraChatsHealth(): Promise<IntegrationCheck[
     if (probe.ok) {
       results.push({ name, ok: true, detail: probe.title ?? chatId });
     } else {
-      await report("telegram", `Бот не может писать в чат ${chatId}: ${probe.detail}`);
-      results.push({ name, ok: false, detail: probe.detail });
+      const moved = await migratedChatHint(chatId);
+      if (moved?.healed) {
+        results.push({ name, ok: true, detail: moved.text });
+        continue;
+      }
+      await report("telegram", moved ? `Чат публикации роликов ${chatId}: ${moved.text}` : `Бот не может писать в чат ${chatId}: ${probe.detail}`);
+      results.push({ name, ok: false, detail: moved?.text ?? probe.detail });
     }
   }
   return results;

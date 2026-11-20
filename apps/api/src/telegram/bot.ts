@@ -114,6 +114,8 @@ import { contactProfileForPrompt, rememberContactTurn } from "../lib/contactProf
 import { collectSellerFacts } from "../ai/sellerIntake.js";
 import { ingestGroupComment, isTelegramGroupCommentsEnabled } from "../messengers/telegramGroupComments.js";
 import { handleTelegramDirectMessage } from "../messengers/telegramDirectMessages.js";
+import { migrateSettingsTelegramChat } from "../lib/settingsTelegramChatMigration.js";
+import { groupMigrationEvent } from "./assistantGroupParticipation.js";
 import { TG_PREFIX } from "../lib/conversationId.js";
 
 async function getConversation(chatId: string, username: string | undefined) {
@@ -399,6 +401,10 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
    * всё остальное молча пропускается.
    */
   if (msg.chat.type && msg.chat.type !== "private") {
+    // Группа стала супергруппой (20.11.2026): адреса в Настройках (группа комментариев канала, чаты публикации)
+    // переезжают на новый id ПЕРВЫМИ — ниже служебное сообщение забирает помощница (свою регистрацию она
+    // переносит сама и возвращает true), и до ветки группы комментариев оно не доходит.
+    await moveSettingsChatOnMigrationEvent(msg);
     await captureAssistantTelegramContext(msg, update.update_id);
     // Помощница сотрудников: участие разрешено только для подключённых рабочих групп.
     if (await handleAssistantGroupMessage(msg, update.update_id)) {
@@ -426,6 +432,26 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
     return;
   }
   return handleClientMessages([msg]);
+}
+
+/**
+ * Служебное сообщение «группа стала супергруппой» из чата, записанного в Настройках. Только адреса Настроек —
+ * дверью migrateSettingsTelegramChat (узко, со сравнением «значение всё ещё старое»); в чат ничего не пишем.
+ * Сбой записи не роняет разбор апдейта: адрес дотянет почасовой сторож (settingsTelegramChatWatchdog.ts).
+ */
+async function moveSettingsChatOnMigrationEvent(msg: TelegramIncomingMessage): Promise<void> {
+  const migration = groupMigrationEvent(msg.chat.id, msg.migrate_to_chat_id, msg.migrate_from_chat_id);
+  if (!migration) return;
+  try {
+    const outcome = await migrateSettingsTelegramChat(migration.oldChatId, migration.newChatId);
+    if (outcome.kind === "done" && outcome.moved.length > 0) {
+      console.log(`[settings-telegram-chat] группа стала супергруппой, адрес в Настройках заменён: ${outcome.moved.join(", ")}`);
+    }
+  } catch (err) {
+    await logSystemError("telegram", `Группа Telegram стала супергруппой, но адрес в Настройках заменить не удалось: ${describeError(err)}. Сторож повторит в течение часа.`, {
+      dedupKey: "settings-telegram-chat-migration-failed",
+    });
+  }
 }
 
 /** Сообщение из ЛЮБОЙ группы/супергруппы — не только настроенной группы-обсуждения:

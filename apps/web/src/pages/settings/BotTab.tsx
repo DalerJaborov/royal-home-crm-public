@@ -68,6 +68,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { StateWord, Switch, SwitchRow } from "../../components/Switch";
 import { SHOWING_CONFIRM_ON_TEXT, followUpBlockedBy, showingConfirmBlockedBy } from "../../lib/settingsDependencies";
 import { relativeTime } from "../../lib/format";
+import { CommentPhoneSwitches } from "./CommentPhoneSwitches";
 
 /**
  * Окно «Помощник» — всё про бота на одном экране.
@@ -918,6 +919,20 @@ function BotPowerSection() {
       </div>
 
       <LeadOnlyModeFields onToggle={toggle} />
+      {/* «Бот отвечает сам» (владелец 18.11.2026): поведение — apps/api/src/lib/botAnswersItself.ts. */}
+      <SwitchRow
+        title="Бот отвечает сам, не зовёт руководство"
+        on={settings?.botAnswersItself ?? false}
+        hint={
+          settings?.botAnswersItself
+            ? "На трудный вопрос бот сам отвечает коротко и просит номер, в переписке и под постами. Если номер уже известен, бот сразу заводит заявку агенту. Уведомлений «нужен человек» руководству нет, кроме жалоб и сбоев бота. Агенту по-прежнему приходят сообщения его клиентов."
+            : "Если бот не знает ответа, он пишет клиенту «передал сотруднику» и присылает уведомление руководству."
+        }
+        onToggle={() => toggle("botAnswersItself", !(settings?.botAnswersItself ?? false))}
+      />
+      {/* Номер под постом: заявка и разговор (CommentPhoneSwitches.tsx, ревью #283, 20.11.2026). */}
+      <CommentPhoneSwitches leadOn={settings?.botCommentPhoneLead ?? false} talkOn={settings?.botCommentPhoneConversation ?? false}
+        onToggle={toggle} />
 
       <div className="grp-lab">Что бот умеет</div>
       <div className="quiet">

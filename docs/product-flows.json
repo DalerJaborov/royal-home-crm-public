@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4139,
+  "forks": 4148,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -42966,11 +42966,61 @@
     },
     {
      "k": "do",
-     "t": "const agent = await prisma.agent.update({ where: { id: req.agent!.id }, data: { preferences: parsed.data }, s…",
+     "t": "const agent = await prisma.$transaction(async (tx)",
      "a": [
-      "меняет в базе: agent"
+      "всё внутри — одной транзакцией",
+      "читает в базе: agent",
+      "меняет в базе: agent",
+      "проверяет данные схемой homePreferencesSchema"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "if",
+       "t": "data.home === undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const current = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { preferences: true } });",
+         "a": [
+          "читает в базе: agent"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);",
+         "a": [
+          "проверяет данные схемой homePreferencesSchema"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "kept.success && kept.data",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "data = { ...data, home: kept.data };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return tx.agent.update({ where: { id: req.agent!.id }, data: { preferences: data }, select: { preferences: tr…",
+       "a": [
+        "меняет в базе: agent"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
@@ -87332,6 +87382,14 @@
            "a": [],
            "c": [
             {
+             "k": "do",
+             "t": "const verdict = await inspectTelegramChat(chatId);",
+             "a": [
+              "зовёт inspectTelegramChat()"
+             ],
+             "c": []
+            },
+            {
              "k": "if",
              "t": "verdict.kind === \"migrated\"",
              "a": [],
@@ -87361,7 +87419,7 @@
              "c": [
               {
                "k": "do",
-               "t": "await logSystemError( \"telegram\", `Шабнам не состоит в подключённой группе «${await groupLabel(chatId)}» — ве…",
+               "t": "await logSystemError( \"telegram\", `Шабнам не состоит в подключённой группе «${await telegramChatLabel(chatId)…",
                "a": [
                 "запись в журнал ошибок"
                ],
@@ -87415,6 +87473,21 @@
          "t": "await logSystemError(\"telegram\", `Шабнам: обход подключённых групп не удался: ${describeError(err)}`, { dedup…",
          "a": [
           "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "result.settingsChats = await sweepSettingsTelegramChats();",
+         "a": [
+          "зовёт sweepSettingsTelegramChats()"
          ],
          "c": []
         }
@@ -91483,6 +91556,14 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "const selfAnswer = await loadBotAnswersItself();",
+         "a": [
+          "зовёт loadBotAnswersItself()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
          "t": "для каждого: const row of rows",
          "a": [],
@@ -91512,7 +91593,7 @@
           },
           {
            "k": "if",
-           "t": "need === \"no\"",
+           "t": "need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: \"bot_choice\" }))",
            "a": [],
            "c": [
             {
@@ -98362,6 +98443,146 @@
      "c": [
       {
        "k": "do",
+       "t": "const held = await releaseCommentPhoneHolds();",
+       "a": [
+        "зовёт releaseCommentPhoneHolds()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const held = await prisma.client.findMany({ where: { commentPhoneHoldUntil: { not: null }, deletedAt: null },…",
+         "a": [
+          "читает в базе: client"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const card of held",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const conversations = await prisma.botConversation.findMany({ where: { clientId: card.id }, select: { message…",
+           "a": [
+            "читает в базе: botConversation"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const reply = conversations.map((c)",
+           "a": [
+            "зовёт commentPhoneReplyOf()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "reply",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "await releaseCommentPhoneHold(card.id, `Номер из комментария: клиент ответил боту в личных — «${reply}»`, car…",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "answered++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "elseif",
+           "t": "card.commentPhoneHoldUntil && card.commentPhoneHoldUntil.getTime() <= now.getTime()",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "await releaseCommentPhoneHold(card.id, \"Номер из комментария, боту не ответил: позвоните и узнайте, что нужно…",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "expired++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "releaseCommentPhoneHolds() — apps/api/src/lib/commentPhoneHold.ts"
+      },
+      {
+       "k": "if",
+       "t": "held.answered + held.expired > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Номер из комментария → в раздачу: ответили ${held.answered}, молчат ${held.expired}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка снятия придержки номера из комментария\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
        "t": "const assigned = await assignPendingLeads();",
        "a": [
         "зовёт assignPendingLeads()"
@@ -99020,148 +99241,7 @@
        "a": [
         "зовёт remindDueFirstCalls()"
        ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" } });",
-         "a": [
-          "читает в базе: settings"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const recentOutageMs = telephonyOn ? outageOverlapMs(lookback, now, await outagesBetween(lookback, now)) : 0;",
-         "a": [
-          "зовёт outageOverlapMs()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const windowStart = widenAfterNight( new Date(now.getTime() - minutes * 60_000 - recentOutageMs), leadHoursOf…",
-         "a": [
-          "зовёт widenAfterNight()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const candidates = await prisma.client.findMany({ where: { acceptedAt: { gte: windowStart, lte: windowEnd }, …",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "candidates.length === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return { reminded: 0 };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const status = await firstCallStatus(candidates, { leadCallMinutes: settings?.leadCallMinutes ?? null, leadCa…",
-         "a": [
-          "зовёт firstCallStatus()"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const client of candidates",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "!s || s.done",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "leftMs > 5 * 60_000 || leftMs < 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const already = await prisma.interaction.findFirst({ where: { clientId: client.id, type: \"SYSTEM\", notes: { s…",
-           "a": [
-            "читает в базе: interaction"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "already",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const after = firstCallAfterDue(client, reassignOn).text;",
-           "a": [
-            "зовёт firstCallAfterDue()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await logTimeline({ clientId: client.id, actor: { kind: \"system\", source: \"first-call-reminder\", subjectAgent…",
-           "a": [
-            "зовёт logTimeline()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "sendPushToAgents([agentId], { title: \"⏱ Позвонить клиенту\", body: `${client.fullName}: осталось ${minutesLeft…",
-           "a": [
-            "push-уведомление"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ],
-       "from": "remindDueFirstCalls() — apps/api/src/services/leads/firstCall.ts"
+       "c": []
       },
       {
        "k": "if",
@@ -99191,25 +99271,7 @@
        "a": [
         "зовёт reportCronTickError()"
        ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+       "c": []
       }
      ]
     },
@@ -113870,12 +113932,79 @@
          "a": [],
          "c": [
           {
-           "k": "do",
-           "t": "const closed = await prisma.telegramGroupComment.updateMany({ where: { status: \"PENDING\", replyDueAt: { lte: …",
-           "a": [
-            "меняет в базе: telegramGroupComment"
-           ],
-           "c": []
+           "k": "loop",
+           "t": "для каждого: let batch = 0; batch < CLOSE_MAX_BATCHES; batch++",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const closing = await prisma.telegramGroupComment.findMany({ where: { status: \"PENDING\", replyDueAt: { lte: n…",
+             "a": [
+              "читает в базе: telegramGroupComment"
+             ],
+             "c": []
+            },
+            {
+             "k": "loop",
+             "t": "для каждого: const c of closing",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "!extractAllPhones(c.text).length",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "await createLeadFromCommentPhone({ channel: \"TELEGRAM\", commentId: `${c.groupChatId ?? \"legacy\"}:${c.messageI…",
+               "a": [
+                "зовёт createLeadFromCommentPhone()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "closing.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const closed = await prisma.telegramGroupComment.updateMany({ where: { id: { in: closing.map((c)",
+               "a": [
+                "меняет в базе: telegramGroupComment"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "closing.length < CLOSE_BATCH",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
           }
          ]
         },
@@ -113952,13 +114081,43 @@
            "c": [
             {
              "k": "do",
-             "t": "await failComment(row, err);",
+             "t": "const movedTo = telegramMigratedChatId(err);",
              "a": [
-              "дословно из кода"
+              "зовёт telegramMigratedChatId()"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "movedTo",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "closedFromOldGroup > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError( \"telegram\", `Комментарии из прежней группы обсуждения Telegram-канала закрыты без ответа…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
           }
          ]
         }
@@ -134426,6 +134585,29 @@
             {
              "k": "do",
              "t": "return \"excluded\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId, phoneK…",
+           "a": [
+            "зовёт channelStaffSignalKind()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...si…",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"self\";",
              "a": [
               "дословно из кода"
              ],

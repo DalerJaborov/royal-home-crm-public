@@ -56,6 +56,8 @@ import {
   topicStateUpdate,
 } from "../ai/topicLock.js";
 import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
+import { handOverChannelOffTurn, isCustomerAgentTurnOff } from "../lib/customerAgentChannelOff.js";
+import { customerAgentHandoverLine } from "../ai/customerAgentRenderer.js";
 import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadablePhoneAttempt, type UnreadablePhone } from "../lib/shared/phoneText.js";
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
@@ -64,7 +66,6 @@ import { leadOnlyAppliesTo, leadOnlyEscalateLine, leadOnlyFilterReply, leadOnlyO
 import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, noteLeadOnlyOnCard } from "../lib/leadOnlyHandover.js";
 import { leadOnlyQuietBeforeLead } from "../lib/leadOnlyConfig.js";
 import { runOperatorTurn, type OperatorTurnInput } from "../ai/operator/index.js";
-import { isCustomerAgentTurnOff } from "../lib/customerAgentChannelOff.js";
 import { saveOperatorStateTx } from "../ai/operator/state.js";
 import { loadOperatorTurnSetup, operatorLeadDraft } from "../lib/operatorTurn.js";
 import { adPropertyForLead } from "../lib/adPropertyRule.js";
@@ -84,6 +85,7 @@ import { extractPostAcceptFacts } from "../ai/postAcceptFacts.js";
 import { countNoContactComplaints, looksLikeNoContactComplaint, looksLikeWantsHumanAgent } from "../ai/complaintGuard.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
+import { loadBotAnswersItself, staffSignalAllowed } from "../lib/botAnswersItself.js";
 import { requestAgentAttention } from "../lib/agentAttention.js";
 import { newerClientMessagePending } from "./turnSupersede.js";
 import { detectAgencyPitch } from "../ai/agencyPitchGuard.js";
@@ -862,6 +864,8 @@ export async function acceptLead(
      * (ai/leadOnlyMode.ts) вместо закрывающей реплики модели. Модель не зовётся.
      */
     fixedReply?: string;
+    /** Номер из комментария (18.11.2026): новая карточка ждёт ответа клиента в личных до этого срока (intake.ts). */
+    commentPhoneHoldUntil?: Date;
   }
 ): Promise<MessengerTurnResult> {
   // Без учёта регистра, общим правилом на все каналы (ночная проверка
@@ -1393,6 +1397,7 @@ export async function acceptLead(
     requirementsNotes,
     // An agent already replying is available, including outside office hours.
     deferAssignment: handledPropertyId ? false : options?.deferAssignment,
+    commentPhoneHoldUntil: handledPropertyId ? undefined : options?.commentPhoneHoldUntil,
     /**
      * «МНЕ НУЖЕН УМЕД» — клиент сам назвал сотрудника, и лид идёт прямо к нему,
      * мимо очереди по KPI (решение владельца 18.08.2026). Имя распознал код на
@@ -1863,6 +1868,13 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * (см. lib/dealReviewIntake.ts).
    */
   if (inboundEffects.status === "applied" && inboundEffects.dealReview) {
+    // Аварийный рубильник канала (второе ревью 1b, №5): ответ на отзыв — тоже голос бота. Отзыв уже записан
+    // (applyInboundSideEffects), реплика клиента — в переписку, а ответа клиенту нет. Блокировка Meta здесь не проверяется
+    // (как в main, #273): ответ остановит дверь отправки и передаст переписку человеку (HANDOFF #283, 20.11).
+    if (await isCustomerAgentTurnOff({ channel, accountId: account.id, conversationId: resolved.id })) {
+      await appendConversationMessages(resolved.id, [{ role: "user", content: text }]).catch(() => {});
+      return { reply: "", ready: true, accepted: true, shouldReply: false };
+    }
     // Записываем ход в историю сам — обычный путь ниже (debounceAndMerge/AI)
     // здесь не выполняется, и без этого реплика клиента и наш ответ выпали
     // бы из переписки, видимой в CRM. processMessengerTurn всегда работает с
@@ -2467,6 +2479,19 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * `save` — надо ли записать реплику клиента здесь. В ветке принятой заявки она уже
    * сохранена выше, и второй раз писать её нельзя.
    */
+  /**
+   * АВАРИЙНЫЙ РУБИЛЬНИК КАНАЛА (CUSTOMER_AGENT_CHANNEL_OFF, остаток #266, 18.11.2026): готовые ответы этого файла ДО
+   * двери старого бота — «номер получил», «не разобрал голосовое», уведомление о пределе ИИ, режим «только заявки», факты
+   * объекта, приветствие, «не разобрал номер» — тоже голос бота. Здесь их нет: номер и заявка сохраняются молча
+   * (acceptLead `silent`), выключенный канал доходит до двери (ai/legacyQualifyDoor.ts: одна строка передачи, человеку
+   * сигнал). Пустой рубильник — ни одного лишнего запроса.
+   * Блокировка Meta (#273) сюда НЕ входит (HANDOFF #283, 20.11): ход идёт как в main — оператор заводит заявку по номеру,
+   * ответ останавливает дверь отправки (lib/metaSendBlock.ts) и сразу передаёт переписку человеку. Тихий выход здесь
+   * терял этот мгновенный сигнал.
+   */
+  const channelOff = await isCustomerAgentTurnOff({ channel, accountId: account.id, conversationId: conversation.id });
+  const botQuiet = channelOff;
+
   const aiBudgetHandover = async (clientText: string, save: boolean): Promise<MessengerTurnResult> => {
     // Ступень 2: предел ИИ — про платные ходы модели, а не про номер клиента.
     // Тихий приём модель не зовёт и в бюджет не упирается.
@@ -2475,6 +2500,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     // Пометка в переписке — для СОТРУДНИКА: он должен видеть, что бот замолчал не
     // случайно (тот же приём, что у отсечки не по теме выше).
     if (save) await saveIncoming(`${clientText}\n[⛔ суточный предел ходов ИИ — бот передал диалог агенту]`.trim());
+    // Рубильник канала: ни строки клиенту, ни пуша об исчерпанном пределе.
+    if (botQuiet) return { reply: "", ready: false, accepted: !!conversation.clientId, shouldReply: false };
     const notice = await noticeAiBudgetHandover(
       conversation,
       channel,
@@ -2755,7 +2782,10 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * заявки (решение владельца 13.11.2026, пятое ревью №5). Бот не снимается с диалога (иначе молчал бы и на
      * следующее сообщение по делу, а позвать человека нельзя), счётчик растёт как при обычной отсечке.
      */
-    const offTopicQuiet = !conversation.clientId && (await leadOnlyQuietBeforeLead(channel));
+    // «Бот отвечает сам» (владелец 18.11.2026, lib/botAnswersItself.ts): тот же тихий путь — не снимаем бота и не зовём людей.
+    const offTopicQuiet = (!conversation.clientId && (await leadOnlyQuietBeforeLead(channel))) ||
+      // Карточка есть (значит, и свой агент, если назначен) — агенту/назначающим, как раньше (ревью 1b, №7).
+      !staffSignalAllowed({ on: await loadBotAnswersItself(), kind: "bot_choice", hasCard: !!conversation.clientId });
     if (hitCount >= OFF_TOPIC_HANDOVER_AFTER && !offTopicQuiet) {
       await prisma.botConversation
         .update({
@@ -3151,8 +3181,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         await Promise.resolve(noted).catch((err) => console.error("[messenger] оператор заявок → карточка:", err));
       } else {
         // Грубость, жалоба или пометка в карточку без живого агента: одна дверь «клиент ждёт» (кому — решает она сама).
+        // «Бот отвечает сам» решение оператора не отменяет (SPEC, случаи 22 и 26; сведение #283 с #311).
         void import("../lib/clientWaitingAlert.js").then(({ alertClientWaiting }) =>
-          alertClientWaiting({ conversationId: conversation.id, trigger: "follow_up", since: new Date() }))
+          alertClientWaiting({ conversationId: conversation.id, trigger: "follow_up", since: new Date(), staffRequired: true }))
           .catch((err) => console.error("[messenger] оператор заявок → сигнал:", err instanceof Error ? err.message : err));
       }
     }
@@ -3201,8 +3232,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   // номер, названный тем же клиентом, заводил бы ему ВТОРОГО клиента-двойника.
   // Такой номер — не новая заявка, а «доп. номер» (см. блок выше, до debounce).
   // Режим «только заявки»: номер ведёт оператор (ниже, после окна склейки) — одна дверь заявок режима. Чат о вакансии —
-  // прежним путём рекрутёра, и номер кандидата тоже (ревью 19.11, Р6).
-  const phoneForLead = conversation.clientId || (leadOnlyChannel && !vacancyTopic && draft.intent !== "job") ? null : typedPhone;
+  // прежним путём рекрутёра, и номер кандидата тоже (ревью 19.11, Р6). Рубильник канала (botQuiet):
+  // оператор не говорит, поэтому номер принимается здесь же, тихо (#283) — иначе он потерялся бы.
+  const phoneForLead = conversation.clientId || (leadOnlyChannel && !botQuiet && !vacancyTopic && draft.intent !== "job") ? null : typedPhone;
   if (phoneForLead) {
     /**
      * ЗАБИРАЕМ БУФЕР ПЕРЕД ПРИЁМОМ ЗАЯВКИ — иначе предыдущее сообщение исчезает.
@@ -3235,6 +3267,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       // Режим «только заявки»: тема и объект ЭТОГО сообщения сильнее памяти просьбы (третье ревью 13.11, №1); голый номер —
       // то, о чём бот просил номер (lib/leadOnlyPending.ts), иначе прежние слова клиента.
       return await acceptLead(conversation.id, channel, conversation.name ?? name, phoneForLead, draft, history, {
+        // Рубильник канала: заявка и номер сохраняются, «номер получил» клиенту не уходит.
+        ...(botQuiet ? { silent: true } : {}),
         deferAssignment: !(await isWithinWorkingHours()),
         whatsappPhone: waIdentity?.waPhone,
         attachments: saved,
@@ -3245,6 +3279,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       });
     } catch (err) {
       console.error("[messenger] acceptLead", err instanceof Error ? err.message : err);
+      if (botQuiet) return { reply: "", ready: false, accepted: false, shouldReply: false };
       return {
         reply: inClientLanguage(FALLBACK_ACCEPT_ERROR, saidWithPhone, text, lastClientWords(history)),
         ready: false,
@@ -3260,6 +3295,13 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     // То же, что веткой выше: ответить нечем, но вложение клиента обязано попасть
     // в переписку CRM.
     await saveIncoming(historyText);
+    if (channelOff) {
+      // Выключенный канал: та же одна строка передачи за эпизод и сигнал человеку, что у двери старого бота.
+      const lines = [customerAgentHandoverLine("ru"), customerAgentHandoverLine("tg")];
+      const verdict = await handOverChannelOffTurn({ channel, conversationId: conversation.id, handoverLines: lines });
+      if (verdict === "silent") return { reply: "", ready: false, accepted: !!conversation.clientId, shouldReply: false };
+      return { reply: customerAgentHandoverLine(lastClientLanguage(history) === "ru" ? "ru" : "tg"), ready: false, accepted: !!conversation.clientId };
+    }
     if (leadOnlyChannel) {
       const handled = await runLeadOnlyOperator("", { voice: voiceNotUnderstood ? "failed" : "none", ownPost: !!input.sharedPropertyId,
         media: saved.some((file) => file.kind === "image" || file.kind === "video") || images.length > 0 });
@@ -3404,13 +3446,13 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
 
   // Режим «только заявки»: ход целиком у оператора (runLeadOnlyOperator выше). Свободный путь ниже в режиме не отвечает.
   // Вакансия — исключение: оператор отдаёт ход прежнему пути рекрутёра (null) и ход идёт дальше обычным путём (ревью 19.11, Р6).
-  if (leadOnlyChannel) {
+  if (leadOnlyChannel && !botQuiet) {
     const handled = await runLeadOnlyOperator(merged, { voice: voiceNotUnderstood ? "failed" : "none", ownPost: !!input.sharedPropertyId,
       media: saved.some((file) => file.kind === "image" || file.kind === "video") || images.length > 0 });
     if (handled) return handled;
   }
 
-  if (propertyAdmission && customerPropertyContextEnabled()) {
+  if (propertyAdmission && customerPropertyContextEnabled() && !botQuiet) {
     const propertyContext = await resolveCustomerPropertyTurnContext(propertyAdmission, propertyTickets);
     const factKinds = classifyCustomerPropertyFactIntent(merged, { hasPropertyContext: !!propertyContext &&
       ["resolved", "ambiguous"].includes(propertyContext.snapshot.focus.status) });
@@ -3484,7 +3526,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   // Короткое окно приветствия истекло, и в пачке по-прежнему только оно — никто
   // ничего не дописал за 3-8 секунд. Отвечаем заготовленной фразой без обращения
   // к модели: быстрее и дешевле, а разговор дальше идёт обычным путём.
-  if (greetingFast && isPureGreeting(merged)) {
+  if (greetingFast && isPureGreeting(merged) && !botQuiet) {
     await appendConversationMessages(conversation.id, [
       {
         role: "assistant",
@@ -3516,7 +3558,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   const unreadablePhone = conversation.clientId ? null : unreadablePhoneAttempt(merged);
   // Предел переспросов считает claimUnreadablePhoneAsk — атомарно и по свежему
   // значению в базе; разбор прежней поломки в её докстринге.
-  if (unreadablePhone && (await claimUnreadablePhoneAsk(conversation.id, MAX_PHONE_RETRY_ASKS))) {
+  if (unreadablePhone && !botQuiet && (await claimUnreadablePhoneAsk(conversation.id, MAX_PHONE_RETRY_ASKS))) {
     const mergedLanguage = detectClientLanguage(merged);
     const reply = unreadablePhoneReply(
       unreadablePhone,
