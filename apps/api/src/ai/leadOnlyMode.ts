@@ -45,11 +45,17 @@ export interface LeadOnlyConfig {
   hotIntentHandover: boolean;
   workHoursStart: string;
   workHoursEnd: string;
+  /** «Бот отвечает и после заявки» (владелец 20.11.2026, реестр выключателей). Старые вызовы без поля — ВКЛ. */
+  repliesAfterLead?: boolean;
+  /** После заявки: сотрудник писал в переписке за последние N минут — бот молчит (владелец 20.11.2026). */
+  staffQuietMinutes?: number;
+  /** «Бот пишет своими словами» (SPEC, этап 1.4): ВЫКЛ по умолчанию. */
+  ownWords?: boolean;
 }
 
 export const LEAD_ONLY_DEFAULTS: LeadOnlyConfig = Object.freeze({
   enabled: false, useWhatsappNumber: true, maxPhoneAsks: 2, hotIntentHandover: true,
-  workHoursStart: "09:30", workHoursEnd: "18:00",
+  workHoursStart: "09:30", workHoursEnd: "18:00", repliesAfterLead: true, staffQuietMinutes: 180, ownWords: false,
 });
 
 /**
@@ -289,10 +295,19 @@ export function leadOnlyAgencyFeeQuestion(text: string): boolean {
 // ── Время звонка и короткие строки, которые остались у режима ───────────────
 
 /** Когда агент позвонит — честно: в рабочее время «скоро», вне его — со времени начала. */
+/** Сколько минут до конца рабочего дня бот уже не обещает «в ближайшее время». */
+export const LEAD_ONLY_LATE_MINUTES = 60;
+const minutesOf = (hhmm: string): number => { const [h, m] = hhmm.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
+
 export function leadOnlyCallbackWhen(input: { now: string; workHoursStart: string; workHoursEnd: string }):
   { kind: "soon" } | { kind: "today_from" | "tomorrow_from"; from: string } {
   const { now, workHoursStart: start, workHoursEnd: end } = input;
   const inside = start <= end ? now >= start && now < end : now >= start || now < end;
+  // Последний час рабочего дня — уже не «в ближайшее время» (разбор 20.11.2026: вечерние заявки ждут агента 4,5–18 часов):
+  // честно «завтра с <начало>», раньше позвонят — тем лучше.
+  // Круглосуточное окно (00:00–24:00 или начало = концу) — всегда «в ближайшее время» (ревью #333).
+  const roundTheClock = start === end || (minutesOf(start) === 0 && minutesOf(end) >= 23 * 60 + 59);
+  if (inside && !roundTheClock && start <= end && minutesOf(end) - minutesOf(now) <= LEAD_ONLY_LATE_MINUTES) return { kind: "tomorrow_from", from: start };
   if (inside) return { kind: "soon" };
   // До начала окна (раннее утро) — «сегодня с 09:30», после конца — «завтра утром».
   return start <= end && now < start ? { kind: "today_from", from: start } : { kind: "tomorrow_from", from: start };

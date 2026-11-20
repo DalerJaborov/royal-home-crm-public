@@ -1343,6 +1343,23 @@ conversationsRouter.post("/:id/link-client", requirePermission("messages.view"),
     }
   });
 
+/**
+ * ОТСЕЯНО КАК СПАМ (владелец 20.11.2026; ревью #333): разговоры, где бот не ответил, потому что код счёл ход спамом
+ * (lib/spamFilter.ts). Только руководство (`clients.assign` — РОП, директор, админ). До 100 последних за 30 дней.
+ */
+conversationsRouter.get("/spam-filtered", requireAuth, requirePermission("clients.assign"), async (_req, res) => {
+  const since = new Date(Date.now() - 30 * 86_400_000);
+  const rows = await prisma.$queryRaw<Array<{ id: string; channel: string; name: string | null; lastMessageAt: Date | null; turns: number; mutedUntil: string | null }>>`
+    SELECT c."id", c."channel", c."name", c."lastMessageAt",
+      jsonb_array_length(COALESCE(c."leadDraft"->'spamMute'->'turns','[]'::jsonb))::int AS "turns", c."leadDraft"->'spamMute'->>'mutedUntil' AS "mutedUntil"
+    FROM "BotConversation" c
+    WHERE c."clientId" IS NULL AND c."lastMessageAt" > ${since}
+      AND jsonb_array_length(COALESCE(c."leadDraft"->'spamMute'->'turns','[]'::jsonb)) > 0
+      AND COALESCE((c."leadDraft"->'spamMute'->>'exempt')::boolean, false) = false
+    ORDER BY c."lastMessageAt" DESC NULLS LAST LIMIT 100`;
+  res.json({ items: rows.map(row => ({ ...row, lastMessageAt: row.lastMessageAt?.toISOString() ?? null })) });
+});
+
 conversationsRouter.get("/:id", requireAuth, async (req, res) => {
   const rawId = req.params.id;
   let conversation: UnifiedConversation | null = null;
@@ -1768,6 +1785,17 @@ conversationsRouter.post("/:id/pause", requireAuth, requirePermission("messages.
     return res.status(404).json({ error: "Диалог не найден" });
   }
   res.json({ ok: true, pausedUntil });
+});
+
+/** «Вернуть боту» для отсеянного как спам: отметка снята, разговор больше не отсеивается. */
+conversationsRouter.post("/:id/spam-restore", requireAuth, requirePermission("clients.assign"), async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) return res.status(400).json({ error: "Неверный идентификатор переписки" });
+  const { exemptCustomerSpam } = await import("../lib/customerSpamMuteStore.js");
+  if (!(await exemptCustomerSpam(id.data))) return res.status(404).json({ error: "Диалог не найден" });
+  // Кто и когда вернул разговор боту — в журнале действий.
+  logAudit(req, "BOT_SPAM_RESTORED", "BotConversation", id.data);
+  res.json({ ok: true });
 });
 
 /** «Вернуть боту» прямо из инбокса — снимает паузу, ИИ снова отвечает сам.

@@ -16,6 +16,7 @@ import {
   TrendingDown,
 } from "lucide-react";
 import {
+  channelLabel,
   ELEVENLABS_CREDITS_PER_MINUTE_ESTIMATE,
   LIVE_VOICE_DAILY_MINUTES_CAP_DEFAULT,
   LIVE_VOICE_INBOUND_WAIT_SECONDS,
@@ -1091,7 +1092,164 @@ function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: bool
               {askError}
             </p>
           )}
+          <BotHumanFields onToggle={onToggle} />
+          <SpamFilteredList />
         </>
+      )}
+    </>
+  );
+}
+
+interface SpamFilteredItem { id: string; channel: string; name: string | null; lastMessageAt: string | null; turns: number }
+
+/**
+ * ОТСЕЯНО КАК СПАМ (владелец 20.11.2026: «таким спамерам как то не отвечать»; ревью #333: отсев не должен быть невидимым).
+ * Простой список для РОПа, директора, админа: разговор открыть и «Вернуть боту». Без права список не показывается (403).
+ * Одна адаптивная карточка: строки сами складываются на телефоне.
+ */
+function SpamFilteredList() {
+  const [items, setItems] = useState<SpamFilteredItem[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [hidden, setHidden] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setLoadError(null);
+    api<{ items: SpamFilteredItem[] }>("/conversations/spam-filtered")
+      .then((data) => { if (alive) setItems(data.items); })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        // Нет права (агент) — блока нет вовсе; любая другая ошибка — честно, с кнопкой повтора.
+        if (err instanceof ApiError && err.status === 403) { setHidden(true); return; }
+        setLoadError(err instanceof Error ? err.message : "Не удалось загрузить список");
+      });
+    return () => { alive = false; };
+  }, [attempt]);
+  if (hidden) return null;
+  return (
+    <div className="mod" id="spam-filtered">
+      <div className="t" style={{ minWidth: 0 }}>
+        <b>Отсеяно как спам</b>
+        {loadError ? (
+          <>
+            <p className="msg" role="alert">Список не загрузился: {loadError}</p>
+            <button type="button" className="pill" onClick={() => setAttempt((n) => n + 1)}>Повторить</button>
+          </>
+        ) : !items ? (
+          <span className="quiet">Загружаю…</span>
+        ) : (
+          <span style={{ whiteSpace: "normal" }}>
+            {items.length ? "Бот не ответил этим людям. Если это живой клиент — верните его боту." : "За 30 дней никого не отсеяли."}
+          </span>
+        )}
+        {items?.map((item) => (
+          <div key={item.id} style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", minWidth: 0, padding: "8px 0" }}>
+            <Link to={`/messages?open=${item.id}`} style={{ overflowWrap: "anywhere", fontWeight: 600 }}>{item.name || "Без имени"}</Link>
+            <span className="note" style={{ whiteSpace: "nowrap" }}>
+              {channelLabel(item.channel)} · {item.turns} {pluralizeRu(item.turns, ["раз", "раза", "раз"])}
+            </span>
+            <button
+              type="button"
+              className="pill"
+              style={{ whiteSpace: "nowrap" }}
+              onClick={() => {
+                setError(null);
+                api(`/conversations/${item.id}/spam-restore`, { method: "POST" })
+                  .then(() => setItems((list) => (list ?? []).filter((row) => row.id !== item.id)))
+                  .catch((err: unknown) => setError(err instanceof Error ? err.message : "Не удалось вернуть боту"));
+              }}
+            >
+              Вернуть боту
+            </button>
+          </div>
+        ))}
+        {error && <p className="msg" role="alert">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * БОТ ПО-ЧЕЛОВЕЧЕСКИ (владелец 20.11.2026). «Бот отвечает и после заявки» — в «Автоматике ИИ и напоминаниях» (реестр
+ * выключателей); здесь — то, что нужно только режиму «только заявки»: сколько бот уступает сотруднику, живые слова модели
+ * и номера проверяющих. Тумблер переключается сразу (optimistic в useUpdateSettings).
+ */
+function BotHumanFields({ onToggle }: { onToggle: (field: string, next: boolean) => void }) {
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const ownWords = settings?.botOwnWords ?? false;
+  const quiet = settings?.botStaffQuietMinutes ?? 180;
+  const savedReviewers = (settings?.botReviewerPhones ?? []).join(", ");
+  const [reviewers, setReviewers] = useState(savedReviewers);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setReviewers(savedReviewers), [savedReviewers]);
+  const onError = (err: unknown) => setError(err instanceof Error ? err.message : "Не удалось сохранить настройку");
+  return (
+    <>
+      <SwitchRow
+        title="Бот пишет своими словами"
+        on={ownWords}
+        hint={
+          ownWords
+            ? "Что сказать, решает код, а слова подбирает ИИ. Если ответ ИИ не прошёл проверку, уходит готовая фраза."
+            : "Бот отвечает готовыми фразами. Включать после проверки на живых диалогах."
+        }
+        onToggle={() => onToggle("botOwnWords", !ownWords)}
+      />
+      <div className="mod">
+        <div className="t">
+          <b>Сотрудник ответил — бот молчит</b>
+          <span style={{ whiteSpace: "normal" }}>
+            Столько бот не вмешивается после сообщения сотрудника. Потом отвечает коротко, если клиент пишет. Кнопка «Пауза» в переписке — бессрочно.
+          </span>
+        </div>
+        <div className="acts">
+          <div className="seg" role="group" aria-label="Сколько минут бот молчит после сотрудника">
+            {[60, 180, 360].map((n) => (
+              <button
+                key={n}
+                type="button"
+                aria-pressed={quiet === n}
+                aria-selected={quiet === n}
+                onClick={() => {
+                  setError(null);
+                  updateSettings.mutate({ botStaffQuietMinutes: n }, { onError });
+                }}
+              >
+                {n / 60} ч
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="mod">
+        <div className="t">
+          <b>Номера проверяющих</b>
+          <span style={{ whiteSpace: "normal" }}>
+            С этих номеров бот говорит как с клиентом, заявка в CRM не заводится. Слово «сброс» начинает разговор заново.
+          </span>
+        </div>
+        <div className="acts">
+          <input
+            className="inp"
+            aria-label="Номера проверяющих через запятую"
+            placeholder="+992 …, +992 …"
+            value={reviewers}
+            onChange={(event) => setReviewers(event.target.value)}
+            onBlur={() => {
+              if (reviewers === savedReviewers) return;
+              setError(null);
+              const list = reviewers.split(/[,;\n]/u).map((phone) => phone.trim()).filter(Boolean);
+              updateSettings.mutate({ botReviewerPhones: list }, { onError });
+            }}
+          />
+        </div>
+      </div>
+      {error && (
+        <p className="msg" role="alert">
+          {error}
+        </p>
       )}
     </>
   );
