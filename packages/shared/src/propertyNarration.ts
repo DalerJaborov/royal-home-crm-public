@@ -626,6 +626,8 @@ export type PropertyNarrationItem = {
   audioSec?: number | null;
   /** Только у последней версии: ждёт утверждения человеком (не утверждена или утверждена самой CRM на вышедшем ролике). */
   awaitsHuman?: boolean;
+  /** Когда ElevenLabs начал озвучивать эту версию (20.11.2026): «идёт N мин» в карточке считается от него. */
+  generationStartedAt?: string | null;
 };
 /** Что видит мастер: шаблоны и голоса без ключей и моделей. */
 export type NarrationOptionsView = {
@@ -677,6 +679,8 @@ export type NarrationReleaseView = {
   /** MIXING — CRM накладывает голос; SCHEDULED — ждёт своего времени (at); PUBLISHING — уходит в сети; DONE — вышло. */
   stage: "MIXING" | "SCHEDULED" | "PUBLISHING" | "DONE";
   versionId: string; at: string | null; reason: string | null; channels: NarrationReleaseChannel[];
+  /** MIXING (20.11.2026): когда CRM взяла ролик в работу (метка сведения); null — ролик ждёт очереди наложения. */
+  since?: string | null;
 };
 /** Настройки CRM → «Озвучка роликов» (14.11.2026): вся техника, которую агент в карточке не видит. */
 export type NarrationSettingsView = {

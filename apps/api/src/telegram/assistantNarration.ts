@@ -106,7 +106,8 @@ async function sendVersionAudioFile(chatId: string, path: string, code: string, 
 /** Что произошло после одобрения, бытовыми словами (та же фраза, что под кнопкой «Одобрить»). */
 export const narrationApprovedText = (delivery: NarrationDeliveryStart, lang: Lang = "ru"): string => copy[lang].approved(delivery);
 
-const crmUrl = (propertyId: string) => `${process.env.CRM_PUBLIC_URL?.trim().replace(/\/+$/, "") || "https://crm.royalhome.tj"}/properties/${propertyId}`;
+// Сразу к блоку озвучки (#rh-narration, 20.11.2026): блок стоит ниже фото и цены, карточка прокручивает к нему сама.
+const crmUrl = (propertyId: string) => `${process.env.CRM_PUBLIC_URL?.trim().replace(/\/+$/, "") || "https://crm.royalhome.tj"}/properties/${propertyId}#rh-narration`;
 const approvalButtons = (versionId: string, lang: Lang): TelegramInlineButton[][] => [
   [{ text: copy[lang].b.approve, callback_data: `nar:a:${versionId}` }, { text: copy[lang].b.edit, callback_data: `nar:e:${versionId}` }],
   [{ text: copy[lang].b.voice, callback_data: `nar:v:${versionId}` }, { text: copy[lang].b.template, callback_data: `nar:t:${versionId}` }],
@@ -160,7 +161,7 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
     kind: "task" as const, level: "APPROVAL" as const, title: "Озвучка ролика готова",
     body: `${code}: прослушайте и одобрите озвучку.${remade ? (crmVoice ? " После одобрения CRM сама заменит звук в вышедшем ролике." : " После одобрения монтажёр заменит звук в вышедшем ролике.") : ""}`,
     // Один тег на объект: новая версия обновляет ту же строку, а не добавляет вторую.
-    url: `/properties/${p.id}`, tag: `narration-approval:${p.id}`,
+    url: `/properties/${p.id}#rh-narration`, tag: `narration-approval:${p.id}`,
   };
   const path = localVideoFilePath(version.storageKey);
   if (!agent.telegramChatId || !isTelegramEnabled() || !path) {

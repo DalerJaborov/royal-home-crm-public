@@ -13,7 +13,7 @@ import { isHandoffPublishRunning } from "./videoHandoff.js";
  * голос вклеил монтажёр по передаче, своя музыка не включена для этой версии, отправка не LIVE. Объект №209 висел
  * с полосой «обычно пару минут» больше суток.
  */
-export async function narrationReleaseView(p: { id: string; videoMasterNarrationVersionId: string | null; scheduledPublishAt: Date | null; scheduledPublishReason: string | null },
+export async function narrationReleaseView(p: { id: string; videoMasterNarrationVersionId: string | null; videoMasterMixingAt?: Date | null; scheduledPublishAt: Date | null; scheduledPublishReason: string | null },
   latest: { id: string; status: string; approvedAt: Date | null } | undefined): Promise<NarrationReleaseView | null> {
   if (!latest || latest.status !== "READY" || !latest.approvedAt) return null;
   // Заявка этой версии (третье ревью 18.11): переиспользованная заявка старше утверждения, поэтому по ссылке на версию;
@@ -25,7 +25,8 @@ export async function narrationReleaseView(p: { id: string; videoMasterNarration
   const base = { versionId: latest.id, at: p.scheduledPublishAt?.toISOString() ?? null, reason: p.scheduledPublishReason, channels };
   if (p.videoMasterNarrationVersionId !== latest.id) {
     // Ещё не наложена: «накладывает» — только если обход перемикса возьмёт объект (то же решение remixWanted).
-    if (!request && await narrationRemixPending(p.id)) return { ...base, stage: "MIXING", at: null, reason: null };
+    // since — метка «CRM взяла ролик в работу» (videoMasterMixingAt): счётчик в карточке идёт от неё, без неё ролик в очереди.
+    if (!request && await narrationRemixPending(p.id)) return { ...base, stage: "MIXING", at: null, reason: null, since: p.videoMasterMixingAt?.toISOString() ?? null };
     return null;
   }
   if (!request) return null;

@@ -1,5 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
+
+// Сведение подменено: «ffmpeg» падает исключением (не через fail) — так на проде ломался диск или база посреди сведения.
+const mix = vi.hoisted(() => ({ fromStored: vi.fn(async () => { throw new Error("диск недоступен"); }) }));
+vi.mock("../src/lib/narrationMaster.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/narrationMaster.js")>()),
+  mixFromStoredMaster: mix.fromStored,
+}));
 
 /**
  * «CRM НАКЛАДЫВАЕТ ОЗВУЧКУ» — ТОЛЬКО КОГДА ПРАВДА НАКЛАДЫВАЕТ (20.11.2026, разбор владельца по объекту №209).
@@ -11,6 +18,7 @@ import { randomUUID } from "node:crypto";
 const { prisma } = await import("../src/db.js");
 const { narrationReleaseView } = await import("../src/lib/narrationRelease.js");
 const { narrationFacts, narrationHash } = await import("../src/lib/propertyNarration.js");
+const { remixFromMaster, retryNarrationRemix } = await import("../src/lib/narrationAutoFlow.js");
 
 const runId = `${Date.now()}`.slice(-8);
 let districtId = "";
@@ -73,5 +81,35 @@ describe("стадия «накладывает» в карточке", () => {
     await prisma.property.update({ where: { id: p.id }, data: { videoMasterMixErrorVersionId: v.id, videoMasterMixError: "ffmpeg упал" } });
     const fresh = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
     expect(await narrationReleaseView(fresh, v)).toBeNull();
+  });
+  it("сведение упало исключением: отметка ошибки на версии, «накладывает» гаснет, обход не крутит вечно; «Попробовать ещё раз» возвращает в очередь", async () => {
+    const { p, v } = await publishedWithApprovedVoice({ videoMasterStorageKey: `master4-${runId}.mp4`, videoMasterSource: "EDITOR" });
+    expect((await narrationReleaseView(p, v))?.stage).toBe("MIXING");
+    expect(await remixFromMaster(p.id)).toBe("FAILED");
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(after.videoMasterMixErrorVersionId).toBe(v.id);
+    expect(after.videoMasterMixError).toContain("Сбой при наложении озвучки");
+    expect(after.videoMasterMixingAt).toBeNull();
+    expect(await narrationReleaseView(after, v)).toBeNull();
+    // Следующий тик не берёт ролик снова (иначе «накладываем» горело бы вечно).
+    mix.fromStored.mockClear();
+    expect(await remixFromMaster(p.id)).toBe("SKIPPED");
+    expect(mix.fromStored).not.toHaveBeenCalled();
+    // Повтор человеком: отметка снята, ролик снова в очереди наложения.
+    expect(await retryNarrationRemix(p.id, agentId)).toBe("QUEUED");
+    const retried = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect((await narrationReleaseView(retried, v))?.stage).toBe("MIXING");
+    expect(await retryNarrationRemix(p.id, agentId)).toBe("NOTHING_TO_RETRY");
+  });
+  it("«голос длиннее ролика» повтором не снимается: у него свой путь (короче текст или монтажёр)", async () => {
+    const { p, v } = await publishedWithApprovedVoice({ videoMasterStorageKey: `master5-${runId}.mp4`, videoMasterSource: "EDITOR" });
+    await prisma.property.update({ where: { id: p.id }, data: { videoMasterMixErrorVersionId: v.id, videoMasterMixError: "Новая озвучка длиннее ролика на 4 с" } });
+    expect(await retryNarrationRemix(p.id, agentId)).toBe("NOTHING_TO_RETRY");
+  });
+  it("метка «CRM взяла ролик» уходит в карточку: счётчик идёт от неё, без неё ролик ждёт очереди", async () => {
+    const { p, v } = await publishedWithApprovedVoice({ videoMasterStorageKey: `master6-${runId}.mp4`, videoMasterSource: "EDITOR" });
+    expect((await narrationReleaseView(p, v))?.since).toBeNull();
+    const at = new Date(Date.now() - 20 * 60_000);
+    expect((await narrationReleaseView({ ...p, videoMasterMixingAt: at }, v))?.since).toBe(at.toISOString());
   });
 });

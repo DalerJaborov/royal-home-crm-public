@@ -16,7 +16,7 @@ import { localVideoFilePath } from "../../lib/localVideoStorage.js";
 import { generateNarrationVersion, generateVoiceSamples, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince, readyVoiceSamples } from "../../lib/narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
 import { NARRATION_VOICE_LONGER_MARK } from "../../lib/narrationMix.js";
-import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAwaitsHuman, narrationAutoEnabled, narrationMixNoteFor, ownMusicRemixApplies, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
+import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAwaitsHuman, narrationAutoEnabled, narrationMixNoteFor, ownMusicRemixApplies, requestAutoNarration, retryNarrationRemix } from "../../lib/narrationAutoFlow.js";
 import { setPropertyNarrationOff } from "../../lib/narrationOptOut.js";
 import { pronunciationDictionaryStale, syncPronunciationDictionary } from "../../lib/narrationPronunciation.js";
 import { narrationLastChoiceFor } from "../../lib/narrationLastChoice.js";
@@ -238,7 +238,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     audioSec: v.audioSec ?? (v.id === versions[0]?.id ? latestAudioSec : null),
     ...(v.id === versions[0]?.id ? { awaitsHuman: latestAwaitsHuman } : {}),
     canReconcile: v.status === "UNKNOWN" || (v.status === "GENERATING" && !!v.generationStartedAt && Date.now() - v.generationStartedAt.getTime() > 120_000),
-    source: v.source, templateId: v.templateId, endingId: v.endingId, language: v.language, generateAfter: v.generateAfter })),
+    source: v.source, templateId: v.templateId, endingId: v.endingId, language: v.language, generateAfter: v.generateAfter, generationStartedAt: v.generationStartedAt })),
     suggestedScript: suggestedNarration(facts), facts, config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
     deliveries: deliveries.map(d => ({ id: d.id, status: d.status, mode: d.mode, versionId: d.versionId, createdAt: d.createdAt, lastError: d.lastError, planHash: d.plan ? narrationHash(d.plan) : null })),
     ownerReportsEnabled: mediaExecutionMode("OWNER_REPORT") === "LIVE",
@@ -322,6 +322,16 @@ narrationRouter.post("/:id/narration/:versionId/approve", async (req, res) => {
   // Ролик уже вышел — примерное время выхода нового (точное карточка покажет, когда голос наложен).
   const publishAt = delivery === "CRM_REMIX" ? await estimateNarrationPublishAt(p.id).catch(() => null) : null;
   res.json({ ok: true, ...(delivery ? { delivery } : {}), ...(publishAt ? { publishAt: publishAt.toISOString() } : {}) });
+});
+
+/** «Попробовать ещё раз» (20.11.2026): наложение утверждённой озвучки упало — снять отметку, обход сведёт заново. */
+narrationRouter.post("/:id/narration/remix-retry", async (req, res) => {
+  const p = res.locals.narrationProperty;
+  const access = await narrationAccessForAgent(req.agent!.id, p.id);
+  if (!access) return res.status(403).json({ error: "Повторить может тот, кто ведёт объект, или руководство" });
+  const outcome = await retryNarrationRemix(p.id, access.agentId);
+  if (outcome === "NOTHING_TO_RETRY") return res.status(409).json({ error: "Повторять нечего: озвучка уже наложена или ошибка другая. Обновите карточку." });
+  res.json({ ok: true, message: "CRM попробует наложить озвучку ещё раз в течение минуты." });
 });
 
 /**

@@ -16,7 +16,7 @@ import { localVideoFilePath } from "./localVideoStorage.js";
 import { loadMoneyContext } from "./money.js";
 import { priceInTjsOnly } from "./reelsCaptionTemplate.js";
 import os from "node:os";
-import { mixNarrationOntoMaster, narrationFitNote, planNarrationFit, type NarrationMixResult } from "./narrationMix.js";
+import { mixNarrationOntoMaster, narrationFitNote, NARRATION_VOICE_LONGER_MARK, planNarrationFit, type NarrationMixResult } from "./narrationMix.js";
 import { dropReplacedClipFiles, placeMixedClip, type PlacedMix } from "./narrationPreview.js";
 import { clipCountsAsPublished } from "./publishedClip.js";
 import { measuredNarrationCharsPerSec, narrationClipSec, narrationLengthCheckFor } from "./narrationLengthCalibration.js";
@@ -570,9 +570,50 @@ export async function remixFromMaster(propertyId: string, now: Date = new Date()
   if (!claim.count) return "SKIPPED";
   try {
     return await remixFromMasterClaimed(propertyId);
+  } catch (err) {
+    // Сбой не через fail() (исключение: диск, база, сам ffmpeg) раньше не ставил отметку ошибки: обход брал ролик
+    // каждую минуту заново, а карточка вечно писала «накладываем» (20.11.2026). Теперь — отметка на версии, одна
+    // строка журнала и кнопка «Попробовать ещё раз» в карточке (retryNarrationRemix).
+    return markNarrationRemixCrashed(propertyId, err);
   } finally {
     await prisma.property.updateMany({ where: { id: propertyId, videoMasterMixingAt: claimedAt }, data: { videoMasterMixingAt: null } }).catch(() => {});
   }
+}
+
+/** Начало отметки сбоя наложения исключением: по ней карточка предлагает повтор (не «длиннее ролика»). */
+export const NARRATION_REMIX_CRASH_MARK = "Сбой при наложении озвучки";
+async function markNarrationRemixCrashed(propertyId: string, err: unknown): Promise<NarrationRemixOutcome> {
+  const reason = err instanceof Error ? err.message : String(err);
+  const [p, latest] = await Promise.all([
+    prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true } }),
+    prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true, revision: true } }),
+  ]);
+  if (latest) {
+    await prisma.property.updateMany({ // NULL «<> id» в SQL не проходит: ролик, на который CRM ещё ничего не накладывала, — отдельным условием.
+      where: { id: propertyId, OR: [{ videoMasterNarrationVersionId: null }, { videoMasterNarrationVersionId: { not: latest.id } }] },
+      data: { videoMasterMixError: `${NARRATION_REMIX_CRASH_MARK}: ${reason}`.slice(0, 500), videoMasterMixErrorVersionId: latest.id } });
+  }
+  void logSystemError("video-handoff", `Объект №${p?.shortId ?? "?"}: новая озвучка${latest ? ` (версия ${latest.revision})` : ""} не наложена на ролик, сбой: ${reason}. Вышедший ролик остался прежним; повтор — кнопкой в карточке объекта.`,
+    { dedupKey: `narration-remix-crash:${latest?.id ?? propertyId}` });
+  return "FAILED";
+}
+
+export type NarrationRemixRetry = "QUEUED" | "NOTHING_TO_RETRY";
+/**
+ * «ПОПРОБОВАТЬ ЕЩЁ РАЗ» (20.11.2026): снять отметку неудачного наложения с текущей утверждённой версии — обход
+ * перемикса возьмёт ролик в течение минуты. Только сбой наложения: «голос длиннее ролика» идёт своим путём
+ * (короче текст или монтажёр), его повтор не снимает. Бесплатно: сводит ffmpeg на сервере, ElevenLabs не зовётся.
+ */
+export async function retryNarrationRemix(propertyId: string, actorId: string): Promise<NarrationRemixRetry> {
+  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true, status: true, approvedAt: true } });
+  if (!latest || latest.status !== "READY" || !latest.approvedAt) return "NOTHING_TO_RETRY";
+  const cleared = await prisma.property.updateMany({
+    where: { id: propertyId, videoMasterMixErrorVersionId: latest.id, NOT: { videoMasterMixError: { contains: NARRATION_VOICE_LONGER_MARK } } },
+    data: { videoMasterMixError: null, videoMasterMixErrorVersionId: null },
+  });
+  if (!cleared.count) return "NOTHING_TO_RETRY";
+  logAgentAudit(actorId, "PROPERTY_NARRATION_REMIX_RETRY", "Property", propertyId, { narrationVersionId: latest.id });
+  return "QUEUED";
 }
 
 /**

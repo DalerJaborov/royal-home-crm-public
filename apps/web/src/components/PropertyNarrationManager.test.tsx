@@ -7,7 +7,7 @@ import type { PropertyNarrationItem, PropertyNarrationView } from "@royal-home/s
 const api = vi.hoisted(() => vi.fn());
 vi.mock("../lib/api", () => ({ api }));
 import { narrationChangesLine, narrationFactsChanges, narrationLengthCheck } from "@royal-home/shared";
-import { PropertyNarrationManager, narrationCardState, narrationClock, narrationIsPending, narrationReleaseMoving } from "./PropertyNarrationManager";
+import { NarrationApprovalNudge, PropertyNarrationManager, narrationAwaitsMe, narrationCardState, narrationClock, narrationIsPending, narrationReleaseMoving } from "./PropertyNarrationManager";
 import { NarrationComposer } from "./NarrationComposer";
 
 /**
@@ -43,6 +43,10 @@ function mount(overrides: Partial<PropertyNarrationView> = {}, placement: "card"
 }
 const TECH = ["Модель озвучки", "Символов в сутки", "Словарь произношения", "Настройки голосов", "Служебное", "Сгенерировать в ElevenLabs", "Подготовить образцы"];
 afterEach(() => { cleanup(); api.mockReset(); });
+/** POST отвечает ответом; повторный запрос блока (после действия) висит — на экране остаются прежние данные. */
+function postsReturn(answer: unknown) {
+  api.mockImplementation((_url: string, opts?: { method?: string }) => opts?.method === "POST" ? Promise.resolve(answer) : new Promise(() => {}));
+}
 
 describe("связь моргнула во время опроса", () => {
   it("ошибка ПОВТОРНОГО запроса не прячет уже показанный блок в карточке", () => {
@@ -55,7 +59,7 @@ describe("связь моргнула во время опроса", () => {
 });
 
 describe("20.11: блок в карточке — короткий статус, не форма на весь экран", () => {
-  it("состояния блока — одно правило на ПК и телефон", () => {
+  it("состояния блока — одно правило на ПК и телефон; непредвиденное — нейтрально, не «утверждена»", () => {
     expect(narrationCardState(view({ off: true }))).toBe("off");
     expect(narrationCardState(view({ published: true }))).toBe("hidden");
     expect(narrationCardState(view({ published: false }))).toBe("none");
@@ -65,6 +69,11 @@ describe("20.11: блок в карточке — короткий статус,
     expect(narrationCardState(view({ versions: [version({ approvedAt: "2026-11-19" })], release: { stage: "MIXING", versionId: "v", at: null, reason: null, channels: [] } }))).toBe("mixing");
     expect(narrationCardState(view({ versions: [version({ approvedAt: "2026-11-19" })] }))).toBe("approved");
     expect(narrationCardState(view({ versions: [version({ approvedAt: "2026-11-19" })], mix: { hasMaster: true, error: null, problem: "FAILED" } }))).toBe("mixFailed");
+    // Ревью #334: READY без файла и без одобрения — не «✓ утверждена».
+    expect(narrationCardState(view({ versions: [version({ hasAudio: false, awaitsHuman: false })] }))).toBe("noAudio");
+    expect(narrationCardState(view({ versions: [version({ awaitsHuman: false, source: "AUTO" })] }))).toBe("unknown");
+    expect(render({ versions: [version({ hasAudio: false })] }, "card")).not.toContain("утверждена");
+    expect(render({ versions: [version({ awaitsHuman: false, source: "AUTO" })] }, "card")).not.toContain("утверждена");
   });
   it("старый объект без озвучки, ролик давно вышел: в карточке блока нет («в любом объекте выходит такое»)", () => {
     expect(render({ published: true }, "card")).toBe("");
@@ -80,31 +89,57 @@ describe("20.11: блок в карточке — короткий статус,
   it("готова: «Одобрить» сразу под плеером, голос и текст НЕ открыты; «Изменить голос или текст» — отдельной кнопкой ниже", () => {
     const html = render({ versions: [version({ audioSec: 27 })] }, "card");
     expect(html).toContain("Новая озвучка готова"); expect(html).toContain("▶ Послушать"); expect(html).toContain("0:27");
+    expect(html).toContain('aria-label="Перемотать запись"');
     expect(html).toContain("✓ Одобрить"); expect(html).not.toContain("Утвердить и выпустить");
     expect(html.indexOf("✓ Одобрить")).toBeLessThan(html.indexOf("Изменить голос или текст"));
     expect(html).not.toContain("Текст озвучки"); expect(html).not.toContain("Женские");
+    // Одна живая строка на блок.
+    expect(html.match(/role="status"/g)).toHaveLength(1);
   });
-  it("нажали «Изменить голос или текст»: форма, «Одобрить» спрятан; без правки «Озвучить заново» закрыта (тот же текст сервер не примет)", () => {
+  it("правка: свой заголовок и «Назад к прослушиванию»; поменяли текст — «Озвучить заново» без вопросов", async () => {
+    postsReturn({ id: "v2", revision: 2, queued: true });
     mount({ versions: [version()] });
     fireEvent.click(screen.getByRole("button", { name: "Изменить голос или текст" }));
+    expect(screen.getByRole("heading", { name: "Изменить голос или текст" })).toBeTruthy();
+    expect(screen.queryByText("Новая озвучка готова")).toBeNull();
     expect(screen.queryByRole("button", { name: "✓ Одобрить" })).toBeNull();
     expect(screen.getByLabelText("Текст озвучки")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Озвучить заново" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Текст озвучки"), { target: { value: "Квартира барои фурӯш, нархаш хуб. Масоҳаташ шасту ду метри мураббаъ." } });
-    expect((screen.getByRole("button", { name: "Озвучить заново" }) as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Озвучить заново" })); });
+    expect(api.mock.calls.filter(([, opts]) => (opts as { body?: { generate?: boolean } })?.body?.generate)).toHaveLength(1);
+  });
+  it("«Назад к прослушиванию» возвращает плеер и «Одобрить»", () => {
+    mount({ versions: [version()] });
+    fireEvent.click(screen.getByRole("button", { name: "Изменить голос или текст" }));
+    fireEvent.click(screen.getByRole("button", { name: "← Назад к прослушиванию" }));
     expect(screen.getByRole("button", { name: "✓ Одобрить" })).toBeTruthy();
+  });
+  it("ревью #334: переделать тем же текстом и голосом можно (интонация), но только после явного «это новая платная озвучка»", async () => {
+    postsReturn({ id: "v2", revision: 2, queued: true });
+    mount({ versions: [version()] });
+    fireEvent.click(screen.getByRole("button", { name: "Изменить голос или текст" }));
+    const redo = screen.getByRole("button", { name: "Озвучить заново" }) as HTMLButtonElement;
+    expect(redo.disabled).toBe(false);
+    fireEvent.click(redo);
+    expect(api.mock.calls.filter(([, opts]) => (opts as { body?: { generate?: boolean } })?.body?.generate)).toHaveLength(0);
+    expect(screen.getByText("Переделать с тем же текстом и голосом? Это новая платная озвучка.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Нет" }));
+    fireEvent.click(screen.getByRole("button", { name: "Озвучить заново" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Да, переделать" })); });
+    const sent = api.mock.calls.filter(([, opts]) => (opts as { body?: { generate?: boolean } })?.body?.generate);
+    expect(sent).toHaveLength(1);
+    expect((sent[0][1] as { body: { script: string } }).body.script).toBe(version().script);
   });
   it("двойной тап «Одобрить» шлёт одно утверждение", async () => {
     let finish!: (v: unknown) => void;
-    api.mockImplementation(() => new Promise((r) => { finish = r; }));
+    api.mockImplementation((url: string) => String(url).endsWith("/approve") ? new Promise((r) => { finish = r; }) : new Promise(() => {}));
     mount({ versions: [version()] });
     const button = screen.getByRole("button", { name: "✓ Одобрить" });
     await act(async () => { fireEvent.click(button); fireEvent.click(button); });
     expect(api.mock.calls.filter(([url]) => String(url).endsWith("/approve"))).toHaveLength(1);
     await act(async () => { finish({ delivery: "QUEUED" }); });
   });
-  it("двойной тап «Озвучить заново» шлёт одну платную озвучку", async () => {
+  it("двойной тап «Озвучить» шлёт одну платную озвучку", async () => {
     let finish!: (v: unknown) => void;
     api.mockImplementation(() => new Promise((r) => { finish = r; }));
     mount({ versions: [version({ status: "FAILED", hasAudio: false })] });
@@ -114,17 +149,55 @@ describe("20.11: блок в карточке — короткий статус,
     expect(api.mock.calls.filter(([, opts]) => (opts as { body?: { generate?: boolean } })?.body?.generate)).toHaveLength(1);
     await act(async () => { finish({ id: "v2", revision: 2, queued: true }); });
   });
-  it("готовится: значок хода без выдуманной половины полосы и сколько минут идёт; долго — честная строка", () => {
-    const fresh = render({ versions: [version({ status: "GENERATING", hasAudio: false, createdAt: new Date().toISOString() })] }, "card");
-    expect(fresh).toContain("Готовим озвучку"); expect(fresh).toContain("Идёт 1 мин"); expect(fresh).not.toContain("w-1/2");
-    const slow = render({ versions: [version({ status: "GENERATING", hasAudio: false, createdAt: new Date(Date.now() - 20 * 60_000).toISOString() })] }, "card");
+  it("ревью #334: сохранённый текст без аудио при автоозвучке — не тупик: «Открыть текст» и «Озвучить»", () => {
+    const draft = [version({ status: "DRAFT", hasAudio: false, generateAfter: null })];
+    expect(render({ versions: draft }, "card")).not.toContain("Автоозвучка выключена");
+    mount({ versions: draft });
+    fireEvent.click(screen.getByRole("button", { name: "Открыть текст" }));
+    expect((screen.getByRole("button", { name: "Озвучить" }) as HTMLButtonElement).disabled).toBe(false);
+    cleanup();
+    expect(render({ versions: draft, autoGenerate: false }, "card")).toContain("Автоозвучка выключена");
+  });
+  it("готовится: минуты от начала озвучки в ElevenLabs, а не от черновика; в очереди — без счётчика; долго — честная строка", () => {
+    const queued = render({ versions: [version({ status: "DRAFT", hasAudio: false, generateAfter: new Date().toISOString(), createdAt: new Date(Date.now() - 3 * 3_600_000).toISOString() })] }, "card");
+    expect(queued).toContain("в очереди"); expect(queued).not.toContain("Идёт");
+    const fresh = render({ versions: [version({ status: "GENERATING", hasAudio: false, createdAt: new Date(Date.now() - 3 * 3_600_000).toISOString(), generationStartedAt: new Date().toISOString() })] }, "card");
+    expect(fresh).toContain("Готовим озвучку"); expect(fresh).toContain("Идёт 1 мин"); expect(fresh).not.toContain("w-1/2"); expect(fresh).not.toContain("дольше обычного");
+    const slow = render({ versions: [version({ status: "GENERATING", hasAudio: false, generationStartedAt: new Date(Date.now() - 20 * 60_000).toISOString() })] }, "card");
     expect(slow).toContain("дольше обычного");
   });
-  it("накладывается: свежее — «обычно пара минут», висит больше получаса — «дольше обычного», а не вечная полоса", () => {
-    const mixing = { stage: "MIXING" as const, versionId: "v", at: null, reason: null, channels: [] };
-    expect(render({ published: true, versions: [version({ approvedAt: new Date().toISOString() })], release: mixing }, "card")).toContain("Обычно пара минут");
-    const stuck = render({ published: true, versions: [version({ approvedAt: new Date(Date.now() - 26 * 3_600_000).toISOString() })], release: mixing }, "card");
+  it("накладывается: счёт от момента, когда CRM взяла ролик; нет метки — «в очереди»; долго — «дольше обычного»", () => {
+    const approved = [version({ approvedAt: new Date(Date.now() - 26 * 3_600_000).toISOString() })];
+    const mixing = (since: string | null) => ({ stage: "MIXING" as const, versionId: "v", at: null, reason: null, channels: [], since });
+    const waiting = render({ published: true, versions: approved, release: mixing(null) }, "card");
+    expect(waiting).toContain("в очереди на наложение"); expect(waiting).not.toContain("дольше обычного");
+    const fresh = render({ published: true, versions: approved, release: mixing(new Date().toISOString()) }, "card");
+    expect(fresh).toContain("Обычно пара минут"); expect(fresh).toContain("Идёт 1 мин");
+    const stuck = render({ published: true, versions: approved, release: mixing(new Date(Date.now() - 20 * 60_000).toISOString()) }, "card");
     expect(stuck).toContain("дольше обычного"); expect(stuck).not.toContain("Обычно пара минут");
+  });
+  it("наложение упало: «Попробовать ещё раз» зовёт повтор; «длиннее ролика» — без повтора", async () => {
+    postsReturn({ message: "CRM попробует наложить озвучку ещё раз в течение минуты." });
+    mount({ published: true, versions: [version({ approvedAt: "2026-11-19" })], mix: { hasMaster: true, error: null, problem: "FAILED" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Попробовать ещё раз" })); });
+    expect(api).toHaveBeenCalledWith("/properties/p/narration/remix-retry", expect.objectContaining({ method: "POST" }));
+    cleanup();
+    expect(render({ published: true, versions: [version({ approvedAt: "2026-11-19" })], mix: { hasMaster: true, error: null, problem: "VOICE_LONGER" } }, "card")).not.toContain("Попробовать ещё раз");
+  });
+  it("«Без озвучки»: только «Включить озвучку», никакого «Изменить»; во вкладке ролика «Без озвучки» есть и пока озвучка готовится или накладывается", () => {
+    const off = render({ off: true, versions: [version({ approvedAt: "2026-11-19" })] }, "card");
+    expect(off).toContain("Включить озвучку"); expect(off).not.toContain("Изменить");
+    expect(render({ versions: [version({ status: "GENERATING", hasAudio: false })] }, "media")).toContain(">Без озвучки<");
+    expect(render({ versions: [version({ approvedAt: "2026-11-19" })], release: { stage: "MIXING", versionId: "v", at: null, reason: null, channels: [] } }, "media")).toContain(">Без озвучки<");
+    expect(render({ versions: [version({ status: "GENERATING", hasAudio: false })] }, "card")).not.toContain(">Без озвучки<");
+  });
+  it("строка «Озвучка ждёт вашего одобрения» наверху — только когда одобрить должен этот человек", () => {
+    const nudge = (o: Partial<PropertyNarrationView>) => renderToStaticMarkup(<QueryClientProvider client={client(o)}><NarrationApprovalNudge propertyId="p" /></QueryClientProvider>);
+    expect(nudge({ versions: [version()] })).toContain("Озвучка ждёт вашего одобрения");
+    expect(nudge({ versions: [version()] })).toContain('href="#rh-narration"');
+    expect(nudge({ versions: [version()], canApproveAudio: false })).toBe("");
+    expect(nudge({ versions: [version({ approvedAt: "2026-11-19" })] })).toBe("");
+    expect(narrationAwaitsMe(view({ versions: [version()] }))).toBe(true);
   });
   it("вышел: одна строка, сети свёрнуты; есть что сделать руками (TikTok) — сети открыты", () => {
     const ok = render({ published: true, versions: [version({ approvedAt: "2026-11-18" })], release: { stage: "DONE", versionId: "v", at: null, reason: null, channels: [{ channel: "INSTAGRAM", state: "OLD_REMOVED" }] } }, "card");

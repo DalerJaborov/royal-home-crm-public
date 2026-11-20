@@ -28,20 +28,25 @@ const approved = (over: Partial<PropertyNarrationItem> = {}) => [v({ approvedAt:
 const STATES: Array<[string, Partial<PropertyNarrationView>]> = [
   ["0. Озвучки нет, ролика ещё нет", { versions: [], published: false, changed: [] }],
   ["0б. Озвучки нет, ролик давно вышел (старый объект)", { versions: [], published: true, changed: [] }],
-  ["1. Готовится", { versions: [v({ status: "GENERATING", hasAudio: false, createdAt: agoMin(1) })] }],
+  ["1. Готовится (в очереди)", { versions: [v({ status: "DRAFT", hasAudio: false, generateAfter: new Date().toISOString() })] }],
+  ["1б. Готовится (ElevenLabs начал минуту назад)", { versions: [v({ status: "GENERATING", hasAudio: false, generationStartedAt: agoMin(1) })] }],
   ["2. Готова, ролика ещё нет: послушайте и одобрите", { published: false, changed: [] }],
   ["3. Готова, ролик вышел: утвердите и выпустите", {}],
   ["4. Текст длиннее ролика", { clipSec: 9, versions: [v({ audioSec: null })] }],
-  ["5. Накладывается на ролик (только что)", { versions: approved(), release: { stage: "MIXING", versionId: "v2", at: null, reason: null, channels: [] } }],
-  ["5б. Накладывается дольше обычного", { versions: [v({ approvedAt: agoMin(90) })], release: { stage: "MIXING", versionId: "v2", at: null, reason: null, channels: [] } }],
+  ["5. Накладывается: в очереди", { versions: approved(), release: { stage: "MIXING", versionId: "v2", at: null, reason: null, channels: [], since: null } }],
+  ["5а. Накладывается: CRM взяла ролик", { versions: approved(), release: { stage: "MIXING", versionId: "v2", at: null, reason: null, channels: [], since: agoMin(1) } }],
+  ["5б. Накладывается дольше обычного", { versions: [v({ approvedAt: agoMin(90) })], release: { stage: "MIXING", versionId: "v2", at: null, reason: null, channels: [], since: agoMin(20) } }],
   ["6. Не получилась", { versions: [v({ status: "FAILED", hasAudio: false, errorCode: "TTS_FAILED" })] }],
-  ["7. На ролик не легла", { versions: approved(), mix: { hasMaster: true, error: null, problem: "FAILED" } }],
+  ["7. На ролик не легла: попробовать ещё раз", { versions: approved(), mix: { hasMaster: true, error: null, problem: "FAILED" } }],
   ["8. Выйдет по очереди", { versions: approved(), release: { stage: "SCHEDULED", versionId: "v2", at: soon, reason: "Перед ним в очереди другие ролики, выйдет через 15 минут.", channels: [] } }],
   ["9. Выпущено", { versions: approved(), release: { stage: "DONE", versionId: "v2", at: null, reason: null, channels: [
     { channel: "INSTAGRAM", state: "OLD_REMOVED" }, { channel: "FACEBOOK", state: "OLD_REMOVED" }, { channel: "YOUTUBE", state: "OLD_REMOVED" },
     { channel: "TELEGRAM", state: "OLD_REMOVED" }, { channel: "TIKTOK", state: "OLD_MANUAL", url: "https://www.tiktok.com/@royalhome/video/1" }] } }],
   ["10. Всё спокойно: утверждена", { versions: approved(), changed: [] }],
   ["11. Данные изменились, озвучка устарела", { versions: [v({ approvedAt: agoMin(600), stale: true })], autoGenerate: false }],
+  ["12. Текст сохранён, аудио ещё нет", { versions: [v({ status: "DRAFT", hasAudio: false, generateAfter: null })] }],
+  ["13. Файл озвучки не найден", { versions: [v({ hasAudio: false, awaitsHuman: false })] }],
+  ["14. Без озвучки", { off: true, versions: approved() }],
 ];
 
 function State({ label, data }: { label: string; data: Partial<PropertyNarrationView> }) {
