@@ -16,6 +16,7 @@ import {
   TrendingDown,
 } from "lucide-react";
 import {
+  channelLabel,
   ELEVENLABS_CREDITS_PER_MINUTE_ESTIMATE,
   LIVE_VOICE_DAILY_MINUTES_CAP_DEFAULT,
   LIVE_VOICE_INBOUND_WAIT_SECONDS,
@@ -1108,29 +1109,48 @@ interface SpamFilteredItem { id: string; channel: string; name: string | null; l
  */
 function SpamFilteredList() {
   const [items, setItems] = useState<SpamFilteredItem[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [hidden, setHidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let alive = true;
+    setLoadError(null);
     api<{ items: SpamFilteredItem[] }>("/conversations/spam-filtered")
       .then((data) => { if (alive) setItems(data.items); })
-      .catch(() => { if (alive) setItems(null); });
+      .catch((err: unknown) => {
+        if (!alive) return;
+        // Нет права (агент) — блока нет вовсе; любая другая ошибка — честно, с кнопкой повтора.
+        if (err instanceof ApiError && err.status === 403) { setHidden(true); return; }
+        setLoadError(err instanceof Error ? err.message : "Не удалось загрузить список");
+      });
     return () => { alive = false; };
-  }, []);
-  if (!items) return null;
+  }, [attempt]);
+  if (hidden) return null;
   return (
     <div className="mod" id="spam-filtered">
-      <div className="t">
+      <div className="t" style={{ minWidth: 0 }}>
         <b>Отсеяно как спам</b>
-        <span style={{ whiteSpace: "normal" }}>
-          {items.length ? "Бот не ответил этим людям. Если это живой клиент — верните его боту." : "За 30 дней никого не отсеяли."}
-        </span>
-        {items.map((item) => (
-          <div key={item.id} className="row" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <Link to={`/messages?open=${item.id}`}>{item.name || "Без имени"}</Link>
-            <span className="quiet">{item.channel} · {item.turns} раз</span>
+        {loadError ? (
+          <>
+            <p className="msg" role="alert">Список не загрузился: {loadError}</p>
+            <button type="button" className="pill" onClick={() => setAttempt((n) => n + 1)}>Повторить</button>
+          </>
+        ) : !items ? (
+          <span className="quiet">Загружаю…</span>
+        ) : (
+          <span style={{ whiteSpace: "normal" }}>
+            {items.length ? "Бот не ответил этим людям. Если это живой клиент — верните его боту." : "За 30 дней никого не отсеяли."}
+          </span>
+        )}
+        {items?.map((item) => (
+          <div key={item.id} className="row" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
+            <Link to={`/messages?open=${item.id}`} style={{ overflowWrap: "anywhere" }}>{item.name || "Без имени"}</Link>
+            <span className="quiet" style={{ whiteSpace: "nowrap" }}>{channelLabel(item.channel)} · {item.turns} раз</span>
             <button
               type="button"
               className="pill"
+              style={{ whiteSpace: "nowrap" }}
               onClick={() => {
                 setError(null);
                 api(`/conversations/${item.id}/spam-restore`, { method: "POST" })

@@ -131,7 +131,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     if (repeated.length) {
       for (const item of repeated) answers.splice(answers.indexOf(item), 1);
       if (!answers.length && !flow.length && !u.ackOnly && !u.thanksOnly &&
-        !actions.some(action => action.type === "call_staff" || action.type === "follow_up")) actions.push({ type: "call_staff", reason: "unclear" });
+        !actions.some(action => action.type === "call_staff" || action.type === "follow_up")) actions.push({ type: "call_staff", reason: "repeat_question" });
     }
     const decision = compose(s, language, answers, flow, actions);
     // ИНВАРИАНТ (ревью #333): после заявки карточка без живого агента, бот молчит не на «ок» и человека в этом ходе не
@@ -170,7 +170,8 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     // человек узнаёт и о новом сообщении (один сигнал на эпизод, держит дверь).
     if (u.phone && !s.leadAccepted) acceptLeadSilently(s, u, ctx, actions);
     else if (s.leadAccepted && (u.phone || u.hasDetails)) actions.push({ type: "append_note", note: operatorLeadNote(s, u, ctx), phone: u.phone });
-    if (!u.ackOnly && !u.thanksOnly) actions.push({ type: "call_staff", reason: s.flags.closedBy ?? "complaint" });
+    // Повтор — не новая жалоба: агенту (копия руководству была один раз, при самой жалобе) (ревью #333, четвёртый круг).
+    if (!u.ackOnly && !u.thanksOnly) actions.push({ type: "call_staff", reason: "closed_followup" });
     return finish();
   }
   // Грубость и жалоба — одна спокойная фраза и человек, дальше бот молчит (SPEC «Тон», случаи 22 и 26). Заявку не заводим.

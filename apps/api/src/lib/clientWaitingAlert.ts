@@ -388,6 +388,10 @@ export async function alertClientWaiting(input: {
       ? `${name}: бот дважды не понял, что нужно клиенту, и замолчал. ${answerHint}`
       : staffReason === "attachments"
       ? `${name}: клиент присылает вложения без слов, бот ответил один раз и дальше молчит. ${answerHint}`
+      : staffReason === "closed_followup"
+      ? `${name}: клиент снова пишет после жалобы или грубости; бот молчит. ${answerHint}`
+      : staffReason === "repeat_question"
+      ? `${name}: клиент повторяет тот же вопрос (где работаем, часы, кто мы); бот второй раз отвечать не стал. ${answerHint}`
       : staffReason === "no_phone"
       ? `${name}: клиент пишет, но номер не оставил; бот дал номер офиса и больше не просит. ${answerHint}`
       : input.trigger === "follow_up"

@@ -81,6 +81,8 @@ export function customerSpamTurn(input: { inputText: string; attachmentInput?: C
 
 /** The state after one more spam turn: remembers the turn once, forgets turns older than the window, sets the mark at the threshold. */
 export function customerSpamMuteRecord(state: CustomerSpamMute, turn: { key: string; now: Date }): CustomerSpamMute {
+  // «Вернуть боту» (руководство, ревью #333): возвращённый разговор в спам больше не записывается — признак не теряется.
+  if (state.exempt) return state;
   const since = turn.now.getTime() - SPAM_WINDOW_MS;
   const kept = state.turns.filter(item => Date.parse(item.at) >= since && item.key !== turn.key);
   const turns = [...kept, { key: turn.key, at: turn.now.toISOString() }].slice(-MAX_REMEMBERED_TURNS);
@@ -94,7 +96,7 @@ export const SPAM_FILTERED_NO_REPLY = "spam_filtered_no_reply";
 
 /** Decision for a turn that arrives while the mark may be set. */
 export function customerSpamMuteGate(state: CustomerSpamMute, input: { inputText: string; now: Date }): "muted" | "released" | "open" {
-  if (!customerSpamMuteActive(state, input.now)) return "open";
+  if (state.exempt || !customerSpamMuteActive(state, input.now)) return "open";
   return customerSpamInterest(input.inputText) ? "released" : "muted";
 }
 

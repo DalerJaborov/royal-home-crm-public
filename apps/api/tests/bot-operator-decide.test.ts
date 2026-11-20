@@ -594,7 +594,7 @@ describe("сторож-перебор: инварианты на случайн�
         if (c.phoneKnown) expect(d.steps.map(step => step.key), where).not.toContain("ask_phone");
         accepted += d.actions.filter(a => a.type === "accept_lead").length;
         // Людей зовём только при грубости и жалобе (решение владельца 13.11: до заявки никого не беспокоим).
-        for (const a of d.actions) if (a.type === "call_staff") expect(["rude", "complaint", "unclear", "attachments", "staff_thread", "no_phone"], where).toContain(a.reason);
+        for (const a of d.actions) if (a.type === "call_staff") expect(["rude", "complaint", "unclear", "attachments", "staff_thread", "no_phone", "closed_followup", "repeat_question"], where).toContain(a.reason);
         expect(d.silent, where).toBe(d.steps.length === 0);
         state = d.state;
       }

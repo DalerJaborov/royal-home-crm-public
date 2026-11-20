@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerSpamTurn } from "../src/ai/customerSpamMute.js";
+import { customerSpamMuteGate, customerSpamMuteRecord, customerSpamTurn } from "../src/ai/customerSpamMute.js";
 
 /**
  * СПАМ — БЕЗ ОТВЕТА И БЕЗ МОДЕЛИ (владелец 20.11.2026: «таким спамерам как то не отвечать… сэкономить токены»).
@@ -32,6 +32,19 @@ describe("настоящие клиенты, похожие на спам, — �
       // Ревью #333: просьба о помощи с жильём — не просьба денег.
       "Кумак кунед, фарзандам калон шуд, ҷой лозим", "Yordam bering, hovli kerak", "Помогите найти манзил в Сино"]) {
       expect(spam(text), text).toBe(false);
+    }
+  });
+});
+
+describe("«Вернуть боту» не отменяется молча (ревью #333, четвёртый круг)", () => {
+  it("вернули → спам-похожее → ещё спам-похожее: отметка не пишется, разговор не глушится, признак сохраняется", () => {
+    const now = new Date("2026-11-20T10:00:00.000Z");
+    let state = { turns: [], exempt: true } as Parameters<typeof customerSpamMuteRecord>[0];
+    for (const [i, text] of ["Лайк камент паделится", "лайк за лайк"].entries()) {
+      expect(spam(text)).toBe(true);
+      state = customerSpamMuteRecord(state, { key: `k${i}`, now: new Date(now.getTime() + i * 60_000) });
+      expect(state).toEqual({ turns: [], exempt: true });
+      expect(customerSpamMuteGate(state, { inputText: text, now })).toBe("open");
     }
   });
 });

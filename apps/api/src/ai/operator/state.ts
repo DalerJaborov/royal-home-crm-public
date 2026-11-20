@@ -48,7 +48,7 @@ const storedSchema = z.object({
     sellerByWords: z.boolean().default(false),
     signaled: z.array(z.string()).default([]).transform(list => list.filter((item): item is "unclear" | "attachments" | "no_phone" | "staff_thread" =>
       item === "unclear" || item === "attachments" || item === "no_phone" || item === "staff_thread")),
-    closedBy: z.enum(["rude", "complaint", "staff_thread", "unclear", "attachments", "no_phone"]).nullable().default(null) }),
+    closedBy: z.enum(["rude", "complaint", "staff_thread", "unclear", "attachments", "no_phone", "closed_followup", "repeat_question"]).nullable().default(null) }),
   leadAccepted: z.boolean(),
   staffCalled: z.boolean(),
   closed: z.boolean().default(false),
@@ -71,6 +71,8 @@ export function readOperatorState(raw: unknown, now: Date = new Date()): Operato
     // Через сутки «Передал агенту» снова можно сказать один раз (ревью 19.11, Р5).
     if (age > OPERATOR_HANDOFF_RESET_MS) {
       delete state.spoken.note_added; delete state.spoken.no_agent_noted; delete state.spoken.welcome; delete state.spoken.lead_reminder;
+      // Справочные ответы («где работаем», часы, «вы бот?»…) после суток тишины можно сказать снова (ревью #333).
+      for (const key of ["where_work", "work_hours", "identity", "bot_identity", "buyer_free"] as const) delete state.spoken[key];
       // Новый эпизод: сигналы «не понял» и «вложения» снова возможны (ревью #333).
       state.flags = { ...state.flags, signaled: [] };
     }

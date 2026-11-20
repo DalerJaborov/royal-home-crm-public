@@ -335,7 +335,9 @@ describe("ИНВАРИАНТ (ревью #333): нет пути «ни отве�
         // молчания видит эту тишину); карточка есть и у неё живой агент (ему — штатный пуш о каждом сообщении); человека в
         // ЭТОМ эпизоде уже звали; повтор уже отвеченных аренды или вакансии.
         const repeatAnswered = (d.state.role === "rent" && (before.spoken.rent_refusal ?? 0) > 0) || (d.state.role === "job" && before.jobAnswered !== null);
-        const excused = turnU.ackOnly || turnU.thanksOnly || (turnU.offTopic && (before.spoken.off_topic ?? 0) > 0) || d.yielded === true ||
+        // «Уступил сотруднику» засчитывается, только если сотрудник правда писал в пределах срока — флагу решения не верим.
+        const excused = turnU.ackOnly || turnU.thanksOnly || (turnU.offTopic && (before.spoken.off_topic ?? 0) > 0) ||
+          (d.yielded === true && c.staffThread === true && c.staffActive === true) ||
           (leadExists && d.state.leadAccepted && cardAgentActive) || episodeSignalled || repeatAnswered;
         if (!excused) stats.violations.push(`разговор ${n}, ход ${turn}: ${JSON.stringify({ leadExists, cardAgentActive, staffThread, role: turnU.role, q: turnU.question })}`);
       }
@@ -367,5 +369,22 @@ describe("город Душанбе: ответ клиента закрывае�
     const lead = run(ctx({ leadExists: true }), [ru({ question: "area" }), ru({ question: "area" })], afterLead());
     expect(lead[1]!.keys).not.toContain("where_work");
     expect(lead.flatMap(t => t.keys).filter(k => k === "ask_role")).toEqual([]);
+  });
+});
+
+describe("ревью #333, четвёртый круг", () => {
+  it("повтор после жалобы — сигнал «снова пишет» агенту, а не новая «Жалоба клиента» руководству", () => {
+    const turns = run(FB(), [ru({ complaint: true }), ru({ question: "other", quote: "Есть другие номера?" })]);
+    expect(turns[0]!.actions).toEqual([{ type: "call_staff", reason: "complaint" }]);
+    expect(turns[1]!.actions).toEqual([{ type: "call_staff", reason: "closed_followup" }]);
+  });
+  it("справочный вопрос: повтор в те же сутки — сигнал «повторяет вопрос»; после суток тишины — короткий ответ снова", () => {
+    const c = ctx({ leadExists: true });
+    const [first, second] = run(c, [ru({ question: "area" }), ru({ question: "area" })], afterLead());
+    expect(first!.keys).toContain("where_work");
+    expect(second!.silent).toBe(true);
+    expect(second!.actions).toContainEqual({ type: "call_staff", reason: "repeat_question" });
+    const later = readOperatorState(serializeOperatorState(second!.state, new Date("2026-11-20T10:00:00.000Z")), new Date("2026-11-22T10:00:00.000Z"));
+    expect(run(c, [ru({ question: "area" })], later)[0]!.keys).toContain("where_work");
   });
 });

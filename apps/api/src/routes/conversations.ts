@@ -1789,8 +1789,12 @@ conversationsRouter.post("/:id/pause", requireAuth, requirePermission("messages.
 
 /** «Вернуть боту» для отсеянного как спам: отметка снята, разговор больше не отсеивается. */
 conversationsRouter.post("/:id/spam-restore", requireAuth, requirePermission("clients.assign"), async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) return res.status(400).json({ error: "Неверный идентификатор переписки" });
   const { exemptCustomerSpam } = await import("../lib/customerSpamMuteStore.js");
-  if (!(await exemptCustomerSpam(req.params.id))) return res.status(404).json({ error: "Диалог не найден" });
+  if (!(await exemptCustomerSpam(id.data))) return res.status(404).json({ error: "Диалог не найден" });
+  // Кто и когда вернул разговор боту — в журнале действий.
+  logAudit(req, "BOT_SPAM_RESTORED", "BotConversation", id.data);
   res.json({ ok: true });
 });
 

@@ -30,9 +30,11 @@ export async function spamFilterApplies(conversationId: string, channel: string)
 /** Сколько ходов отсеяно сегодня (по отметкам spamMute.turns с датой Душанбе). */
 export async function spamFilteredToday(now: Date = new Date()): Promise<number> {
   const day = dushanbeDayKey(now);
+  // Только переписки, где сегодня было сообщение (lastMessageAt — индексированное поле), и только с отметкой спама.
   const rows = await prisma.$queryRaw<Array<{ at: string }>>`SELECT t->>'at' AS "at" FROM "BotConversation" c,
       jsonb_array_elements(COALESCE(c."leadDraft"->'spamMute'->'turns', '[]'::jsonb)) t
-    WHERE c."lastMessageAt" > ${new Date(now.getTime() - 2 * 86_400_000)}`;
+    WHERE c."lastMessageAt" > ${new Date(now.getTime() - 86_400_000)} AND jsonb_typeof(c."leadDraft") = 'object'
+      AND c."leadDraft" ? 'spamMute'`;
   return rows.filter(row => row.at && dushanbeDayKey(new Date(row.at)) === day).length;
 }
 
