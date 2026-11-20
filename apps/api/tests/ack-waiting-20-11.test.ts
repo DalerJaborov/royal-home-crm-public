@@ -22,9 +22,9 @@ describe("согласие с ожиданием", () => {
 });
 
 describe("эхо Messenger: автоответ не считается ответом сотрудника", () => {
-  it("чужое приложение — автоответ; входящие Страницы и эхо без app_id — человек (даже через секунды после клиента)", () => {
+  it("безопасное умолчание: неизвестное приложение, входящие Страницы и эхо без app_id — человек (автомат только по явному списку)", () => {
     const now = Date.now();
-    expect(echoIsAutomatic({ appId: "1234567890", at: now, lastClientAt: now - 60_000 })).toBe(true);
+    expect(echoIsAutomatic({ appId: "1234567890", at: now, lastClientAt: now - 60_000 })).toBe(false);
     expect(echoIsAutomatic({ appId: META_PAGE_INBOX_APP_ID, at: now, lastClientAt: now - 60_000 })).toBe(false);
     expect(echoIsAutomatic({ at: now, lastClientAt: now - 2_000 })).toBe(false);
   });

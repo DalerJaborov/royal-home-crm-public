@@ -67,6 +67,9 @@ import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, not
 import { leadOnlyQuietBeforeLead } from "../lib/leadOnlyConfig.js";
 import { runOperatorTurn, type OperatorTurnInput } from "../ai/operator/index.js";
 import { isReviewerPhone } from "../lib/botReviewers.js";
+import { spamFilterApplies } from "../lib/spamFilter.js";
+import { customerSpamTurn } from "../ai/customerSpamMute.js";
+import { recordCustomerSpamTurn } from "../lib/customerSpamMuteStore.js";
 import { saveOperatorStateTx } from "../ai/operator/state.js";
 import { loadOperatorTurnSetup, operatorLeadDraft } from "../lib/operatorTurn.js";
 import { adPropertyForLead } from "../lib/adPropertyRule.js";
@@ -3136,6 +3139,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   /** null — ход отдан прежнему пути рекрутёра (вакансия): вызывающий идёт дальше обычным путём. */
   const runLeadOnlyOperator = async (said: string, attachments: OperatorTurnInput["attachments"]): Promise<MessengerTurnResult | null> => {
+    // Спам — без ответа и без модели (владелец 20.11.2026), та же дверь, что у ядра (lib/spamFilter.ts).
+    if (said && customerSpamTurn({ inputText: said }) && await spamFilterApplies(conversation.id, channel)) {
+      await recordCustomerSpamTurn(conversation.id, { eventKey: `legacy:${conversation.id}:${contactReceivedAt.getTime()}` }).catch(() => undefined);
+      return { reply: "", ready: false, accepted: !!conversation.clientId, shouldReply: false };
+    }
     // Объект ЭТОГО сообщения (пост, реклама, ссылка), иначе фокус разговора, иначе объект чата агента; объект рекламы
     // разговора (adPropertyId) оператор берёт сам запасным фокусом.
     let focusPropertyId: string | null = input.sharedPropertyId ?? input.adPropertyId ?? null;

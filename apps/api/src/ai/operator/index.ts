@@ -59,6 +59,8 @@ export interface OperatorTurnResult {
   handoff?: "recruiter";
   /** Ход собран запасным путём после сбоя (ошибка в журнале). */
   degraded?: true;
+  /** Бот молчит, потому что переписку ведёт сотрудник (не намеренная тишина для сторожа молчания). */
+  yielded?: true;
 }
 
 /**
@@ -117,7 +119,8 @@ export async function runOperatorTurn(request: OperatorTurnRequest): Promise<Ope
     }
     const facts = Object.assign({}, ...decision.steps.map(step => step.vars)) as OperatorTurnResult["facts"];
     return { text, parts, language: decision.language, steps: decision.steps, facts, actions: decision.actions, state: decision.state,
-      stored: serializeOperatorState(decision.state, now), understanding, ...(decision.handoff ? { handoff: decision.handoff } : {}) };
+      stored: serializeOperatorState(decision.state, now), understanding, ...(decision.handoff ? { handoff: decision.handoff } : {}),
+      ...(decision.yielded ? { yielded: true as const } : {}) };
   } catch (error) {
     // Ход не собрался (фраза, память): не молчим — запасной шаг «контакт», ошибка в журнал.
     void logSystemError("ai", `[alarm] Оператор заявок: ход не собран (диалог ${request.input.conversationId ?? "?"}): ` +

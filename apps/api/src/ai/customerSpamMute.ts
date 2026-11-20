@@ -3,6 +3,7 @@ import { customerAgentForeignShareOnly, type CustomerAgentAttachmentInput } from
 import { customerDmAbuseKind, customerDmForeignShareNoise } from "./customerAgentAbuse.js";
 import { foldCustomerText } from "./customerAgentRole.js";
 import { clientOwnWords } from "./untrustedContent.js";
+import { looksLikeMoneyRequest } from "./moneyRequestGuard.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 
 /**
@@ -47,7 +48,7 @@ const INTEREST = new RegExp([
   `${BW}(?:цен[аыуе]|ценой|стоимост|стоит|почем|сколько|нарх|чанд\\s+(?:пул|аст|мешавад|сомони|доллар))${TAIL}`,
   `${BW}(?:адрес|сурога|локаци|район|ноих|микрорайон|ориентир)${TAIL}`,
   `${BW}(?:продам|продаю|продаем|продать|продается|мефурушам|мефурушем|фуруш|куплю|купить|покупк|покупа|харидан|харидорам|мехарам|мехарем|харид|снять|сниму|сдам|сдаю|сдается|аренд|ичора|ичорагир)${TAIL}`,
-  `${BW}(?:обект|обявлени|элон|риелтор|риэлтор|рассрочк|кредит|задаток|просмотр)${TAIL}`,
+  `${BW}(?:обект|обявлени|элон|риелтор|риэлтор|рассрочк|кредит|задаток|просмотр|ваканс|резюме)${TAIL}`,
   `${BW}(?:об|ob)\\s*[-№#]?\\s*\\d{1,6}${EW}`, `№\\s*\\d{1,6}${EW}`,
   `${BW}(?:narx|price|cena|tsena|skolko|kvartira|xona|hona|dom|adres|address|nomer|telefon|vacancy|rabota)${TAIL}`,
   `${BW}royal\\s*home${TAIL}`,
@@ -69,6 +70,8 @@ export function customerSpamInterest(text: string): boolean {
 export function customerSpamTurn(input: { inputText: string; attachmentInput?: CustomerAgentAttachmentInput }): boolean {
   if (customerSpamInterest(input.inputText)) return false;
   if (customerDmAbuseKind(input.inputText) === "spam") return true;
+  // Просьба денег, помощи, в долг (владелец 20.11.2026: «деньги спрашивают у нас»): та же дверь, что у бота (ai/moneyRequestGuard.ts).
+  if (looksLikeMoneyRequest(input.inputText)) return true;
   return customerAgentForeignShareOnly(input.attachmentInput) && customerDmForeignShareNoise(input.inputText);
 }
 
@@ -81,6 +84,9 @@ export function customerSpamMuteRecord(state: CustomerSpamMute, turn: { key: str
   return { turns, ...(alreadyMuted ? { mutedUntil: state.mutedUntil } :
     turns.length >= SPAM_TURNS_TO_MUTE ? { mutedUntil: new Date(turn.now.getTime() + SPAM_MUTE_MS).toISOString() } : {}) };
 }
+
+/** Лента режима «только заявки»: такой ход — без ответа, модели, заявки и сигнала (владелец 20.11.2026). */
+export const SPAM_FILTERED_NO_REPLY = "spam_filtered_no_reply";
 
 /** Decision for a turn that arrives while the mark may be set. */
 export function customerSpamMuteGate(state: CustomerSpamMute, input: { inputText: string; now: Date }): "muted" | "released" | "open" {

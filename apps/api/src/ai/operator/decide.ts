@@ -96,7 +96,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     actions.push({ type: "call_staff", reason });
   };
   /** «Не понял», «вложения без слов» — один сигнал человеку на разговор (кому — решает дверь «клиент ждёт»). */
-  const signalOnce = (reason: "unclear" | "attachments") => {
+  const signalOnce = (reason: "unclear" | "attachments" | "no_phone") => {
     if (s.flags.signaled.includes(reason)) return;
     s.flags.signaled = [...s.flags.signaled, reason];
     actions.push({ type: "call_staff", reason });
@@ -111,7 +111,15 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   else if (!s.language && u.languageHint) s.language = u.languageHint;
   // Чужой пост при неизвестном языке — таджикский (SPEC, случай 20); язык разговора от этого не меняется.
   const language: OperatorLanguage = s.language ?? (u.attachments.foreignPost ? "tg" : "ru");
-  const finish = () => ({ ...compose(s, language, answers, flow, actions), ...(handoff ? { handoff } : {}) });
+  let yielded = false;
+  const finish = () => {
+    const decision = compose(s, language, answers, flow, actions);
+    // ИНВАРИАНТ (ревью #333): после заявки карточка без живого агента, бот молчит не на «ок» и человека в этом ходе не
+    // звали — руководство узнаёт дверью «клиент ждёт». С живым агентом сигнал — его штатный пуш о каждом сообщении.
+    if (decision.silent && !handoff && s.leadAccepted && !ctx.cardAgentActive && !u.ackOnly && !u.thanksOnly &&
+      !decision.actions.some(action => action.type === "call_staff" || action.type === "follow_up")) decision.actions.push({ type: "follow_up" });
+    return { ...decision, ...(handoff ? { handoff } : {}), ...(yielded ? { yielded: true as const } : {}) };
+  };
 
   // ── факты хода в память ────────────────────────────────────────────────────
   if (ctx.leadExists && !s.leadAccepted) { s.leadAccepted = true; s.step = "done"; }
@@ -150,12 +158,21 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
 
   // ── переписку ведёт сотрудник, заявки ещё нет (эстафета 20.11.2026, запасной вариант): бот не спрашивает ни роль, ни номер,
   // клиенту не отвечает, сотрудник получает сигнал; номер клиента — всё равно заявка.
-  if (!s.leadAccepted && ctx.staffThread) {
+  // Сотрудник писал здесь НЕДАВНО (в пределах срока из Настроек): бот молчит и зовёт его (ревью #333, второй круг: не
+  // навсегда — после срока ход обычный, без повторного приветствия, и сигнал). Номер в словах, или WhatsApp с ясной ролью —
+  // заявка всё равно; вакансия — путь рекрутёра.
+  if (!s.leadAccepted && ctx.staffThread && ctx.staffActive) {
+    const wordsRole = u.role === "seller" || u.role === "buyer" ? u.role : s.role === "seller" || s.role === "buyer" || s.role === "buyer_property" ? s.role : null;
+    if (u.role === "job" && ctx.recruiterPath) { s.role = "job"; handoff = "recruiter"; return finish(); }
     const notCandidate = s.role !== "job" && s.role !== "rent" && u.role !== "job" && u.role !== "rent";
-    if (u.phone && notCandidate) acceptLeadSilently(s, u, ctx, actions);
+    if (u.role === "seller") s.role = "seller"; else if (u.role === "buyer" && s.role === "unknown") s.role = "buyer";
+    if (notCandidate && (u.phone || (ctx.phoneKnown && wordsRole))) acceptLeadSilently(s, u, ctx, actions);
     actions.push({ type: "call_staff", reason: "staff_thread" });
+    yielded = true;
     return finish();
   }
+  // Сотрудник писал раньше срока: бот снова ведёт разговор, но человеку — сигнал «клиент пишет в вашу переписку».
+  if (!s.leadAccepted && ctx.staffThread) actions.push({ type: "call_staff", reason: "staff_thread" });
 
   // ── вложение без своих слов: один короткий ответ, повтор — тишина и один сигнал человеку (20.11.2026) ─────────
   if (!u.hasText && !u.attachments.ownPost) {
@@ -267,8 +284,14 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       }
     } else if (u.thanksOnly && !said("welcome")) flow.push(draft("welcome"));
     if (noAgent && actions.some(action => action.type === "append_note")) actions.push({ type: "follow_up" });
+    // Инвариант (ревью #333): карточка без живого агента, бот молчит не на «ок» — руководство узнаёт.
+    else if (noAgent && !answers.length && !flow.length && !u.ackOnly && !u.thanksOnly) actions.push({ type: "follow_up" });
     // Сотрудник сам ведёт переписку прямо сейчас: бот молчит, заметки агенту остаются (агенту — штатный пуш о сообщении).
-    if (ctx.staffActive) { answers.length = 0; flow.length = 0; }
+    if (ctx.staffActive) {
+      answers.length = 0; flow.length = 0; yielded = true;
+      // Карточка без живого агента: о сообщении клиента узнаёт руководство (дверь «клиент ждёт»).
+      if (noAgent && !actions.some(action => action.type === "follow_up")) actions.push({ type: "follow_up" });
+    }
     return finish();
   }
 
@@ -351,7 +374,9 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       flow.push(leadMessage());
       return;
     }
-    if (s.noCall) return;
+    // «Не звоните» без номера: бот номер больше не просит, а человек узнаёт один раз (инвариант ревью #333: клиент не
+    // остаётся и без ответа, и без человека).
+    if (s.noCall) { if (!flow.length && !answers.length && !u.ackOnly && !u.thanksOnly) signalOnce("no_phone"); return; }
     if (s.asked.phone < ctx.maxPhoneAsks) {
       flow.push(draft("ask_phone")); s.asked.phone += 1; s.step = "contact";
       return;
@@ -359,6 +384,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     // Номер не дали после всех просьб: один раз номер офиса, дальше тишина. Людей до заявки не зовём (решение владельца
     // 13.11.2026: «никаких уведомлений не надо никому высылать, пока он не станет лидом»).
     if (!said("office_phone")) flow.push(draft("office_phone", { phone: ctx.officePhone }));
+    else if (!u.ackOnly && !u.thanksOnly) signalOnce("no_phone");
     s.step = "handoff";
   };
   // Клиент сам дал номер, просит человека, спрашивает «вы бот?» или торгуется — сразу шаг «контакт».
@@ -374,7 +400,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       return finish();
     }
     // Приветствие в ответ на приветствие (SPEC «Тон») — всегда первым, даже рядом с ответом на вопрос (перенесено из 19.11).
-    if (u.greeting && !said("greet") && !said("greet_assalom")) {
+    if (u.greeting && !said("greet") && !said("greet_assalom") && !ctx.staffThread) {
       flow.push(draft(u.greeting === "assalom" ? "greet_assalom" : "greet"));
     }
     flow.push(draft("ask_role")); s.asked.role += 1; s.step = "role";

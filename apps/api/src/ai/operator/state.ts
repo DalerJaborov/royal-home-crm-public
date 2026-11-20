@@ -46,8 +46,8 @@ const storedSchema = z.object({
   flags: z.object({ bargainAsked: z.boolean().default(false), adPriceAsked: z.boolean().default(false),
     propertyLineFor: z.string().uuid().nullable().default(null), lastAck: z.boolean().default(false),
     sellerByWords: z.boolean().default(false),
-    signaled: z.array(z.string()).default([]).transform(list => list.filter((item): item is "unclear" | "attachments" =>
-      item === "unclear" || item === "attachments")) }),
+    signaled: z.array(z.string()).default([]).transform(list => list.filter((item): item is "unclear" | "attachments" | "no_phone" =>
+      item === "unclear" || item === "attachments" || item === "no_phone")) }),
   leadAccepted: z.boolean(),
   staffCalled: z.boolean(),
   closed: z.boolean().default(false),
@@ -70,6 +70,8 @@ export function readOperatorState(raw: unknown, now: Date = new Date()): Operato
     // Через сутки «Передал агенту» снова можно сказать один раз (ревью 19.11, Р5).
     if (age > OPERATOR_HANDOFF_RESET_MS) {
       delete state.spoken.note_added; delete state.spoken.no_agent_noted; delete state.spoken.welcome; delete state.spoken.lead_reminder;
+      // Новый эпизод: сигналы «не понял» и «вложения» снова возможны (ревью #333).
+      state.flags = { ...state.flags, signaled: [] };
     }
     if ((state.closed || state.step === "handoff") && age > OPERATOR_HANDOFF_RESET_MS) {
       state.closed = false; state.staffCalled = false;

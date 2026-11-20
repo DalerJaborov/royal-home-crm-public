@@ -229,13 +229,22 @@ describe("память старых разговоров переживает в
 });
 
 describe("ревью #333", () => {
-  it("эстафета, запасной вариант: до заявки в переписке сотрудника бот не спрашивает, зовёт этого сотрудника; номер — заявка", () => {
-    const quiet = run(FB({ staffThread: true }), [ru({ greetingOnly: true, greeting: "ru" })])[0]!;
+  it("эстафета: сотрудник писал недавно — бот молчит и зовёт его; номер, а в WhatsApp ясная роль — заявка; вакансия — рекрутёр", () => {
+    const quiet = run(FB({ staffThread: true, staffActive: true }), [ru({ greetingOnly: true, greeting: "ru" })])[0]!;
     expect(quiet.silent).toBe(true);
+    expect(quiet.yielded).toBe(true);
     expect(quiet.actions).toEqual([{ type: "call_staff", reason: "staff_thread" }]);
-    const phone = run(FB({ staffThread: true }), [ru({ phone: "+992900000001" })])[0]!;
-    expect(phone.silent).toBe(true);
+    const phone = run(FB({ staffThread: true, staffActive: true }), [ru({ phone: "+992900000001" })])[0]!;
     expect(phone.actions.map(a => a.type)).toEqual(["accept_lead", "call_staff"]);
+    const wa = run(ctx({ staffThread: true, staffActive: true }), [ru({ role: "buyer", quote: "Хочу купить квартиру" })])[0]!;
+    expect(wa.actions.map(a => a.type)).toEqual(["accept_lead", "call_staff"]);
+    const job = run(ctx({ staffThread: true, staffActive: true, recruiterPath: true }), [ru({ role: "job" })])[0]!;
+    expect(job.handoff).toBe("recruiter");
+  });
+  it("эстафета не вечна: сотрудник молчит дольше срока — обычный шаг без повторного приветствия и сигнал ему", () => {
+    const t = run(FB({ staffThread: true, staffActive: false }), [ru({ greetingOnly: true, greeting: "ru" })])[0]!;
+    expect(t.keys).toEqual(["ask_role"]);
+    expect(t.actions).toEqual([{ type: "call_staff", reason: "staff_thread" }]);
   });
   it("вложение без слов: один короткий ответ на языке разговора и вопрос о роли; повтор — тишина и один сигнал", () => {
     const media = u({ hasText: false, attachments: { voice: "none", ownPost: false, foreignPost: false, media: true } });
@@ -273,5 +282,40 @@ describe("ревью #333", () => {
     expect(checkComposedReply("Ташаккур, дархостат ба агент расид.", "Ба агент расондам.", "tg")).toBe("informal");
     expect(checkComposedReply("Для вас бесплатно, платит продавец.", "Для покупателя наши услуги бесплатны.", "ru")).toBe("money");
     expect(checkComposedReply("Спасибо, передал агенту, он позвонит вам завтра с 10:00.", template, "ru")).toBeNull();
+  });
+});
+
+describe("ИНВАРИАНТ (ревью #333, второй круг): нет пути «ни ответа бота, ни сигнала живому человеку»", () => {
+  function rng(seed: number) { let x = seed >>> 0 || 1; return () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 4294967296; }; }
+  const pick = <T,>(r: () => number, items: readonly T[]): T => items[Math.floor(r() * items.length)]!;
+  it("3000 разговоров × карточка/агент/переписка сотрудника: каждая тишина — либо сигнал, либо оправданное исключение", () => {
+    for (let n = 1; n <= 3000; n++) {
+      const r = rng(n);
+      const leadExists = r() < 0.3, cardAgentActive = r() < 0.6, staffThread = r() < 0.3;
+      const c = ctx({ channel: pick(r, ["WHATSAPP", "INSTAGRAM", "FACEBOOK"] as const), phoneKnown: r() < 0.5, leadExists, cardAgentActive,
+        staffThread, staffActive: staffThread && r() < 0.5, recruiterPath: r() < 0.5, leadPending: true, maxPhoneAsks: 1 + Math.floor(r() * 2),
+        recentTurn: r() < 0.3, afterLeadReplies: r() < 0.8 });
+      let state = initialOperatorState();
+      for (let turn = 0; turn < 8; turn++) {
+        const chance = (p: number) => r() < p;
+        const turnU = u({ role: pick(r, [null, null, null, "buyer", "seller", "rent", "job"] as const),
+          question: pick(r, ["none", "none", "fee", "other", "status", "staff", "area"] as const), hasDetails: chance(0.2),
+          details: chance(0.2) ? { rooms: "2" } : {}, phone: chance(0.1) ? "+992900000001" : null, language: pick(r, [null, "ru", "tg"] as const),
+          greeting: pick(r, [null, "ru", "assalom"] as const), greetingOnly: chance(0.1), ackOnly: chance(0.15), thanksOnly: chance(0.05),
+          rude: chance(0.03), complaint: chance(0.03), offTopic: chance(0.05), hasText: chance(0.85), quote: chance(0.5) ? "Скажите, пожалуйста" : "",
+          callback: { when: null, textOnly: false, noCall: chance(0.05) },
+          attachments: { voice: "none", ownPost: false, foreignPost: chance(0.05), media: chance(0.15) } });
+        const before = state;
+        const d = decide(before, turnU, c);
+        state = d.state;
+        if (!d.silent || d.handoff) continue;
+        const signalled = d.actions.some(a => a.type === "call_staff" || a.type === "follow_up");
+        // Оправданные исключения: карточка с живым агентом (агенту штатный пуш о каждом сообщении); «ок», «спасибо»;
+        // спам «не по теме»; человека по этому эпизоду уже звали; аренда и вакансия, на которые уже ответили.
+        const excused = (d.state.leadAccepted && c.cardAgentActive) || turnU.ackOnly || turnU.thanksOnly || turnU.offTopic ||
+          before.staffCalled || before.closed || before.flags.signaled.length > 0 || ["rent", "job"].includes(d.state.role);
+        expect(signalled || excused, `разговор ${n}, ход ${turn}: ${JSON.stringify({ leadExists, cardAgentActive, staffThread, role: turnU.role })}`).toBe(true);
+      }
+    }
   });
 });

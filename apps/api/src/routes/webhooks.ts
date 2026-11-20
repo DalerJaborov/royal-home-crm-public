@@ -1477,15 +1477,17 @@ export const META_PAGE_INBOX_APP_ID = "263902037430900";
 const META_PAGE_INBOX_APP_IDS: ReadonlySet<string> = new Set([META_PAGE_INBOX_APP_ID, "26390203743090"]);
 
 /**
- * Эхо — НЕ ответ сотрудника (ревью #333, 20.11.2026): у него `app_id` чужого приложения (не входящие Страницы — значит
- * автоответ, «нет на месте», чат-бот Meta или другое подключённое приложение). Неясно по документации Meta: какой
- * `app_id` у мгновенного ответа и «нет на месте» из Business Suite (если тот же, что у входящих, — не отличить).
+ * Эхо — НЕ ответ сотрудника, только если его `app_id` в явном списке автоматов (ревью #333). Неясно по документации Meta:
+ * какой `app_id` у мгновенного ответа и «нет на месте» из Business Suite — список пополняется по журналу.
  */
 export function echoIsAutomatic(input: { appId?: string; at: number; lastClientAt: number | null }): boolean {
-  // Только `app_id`: признак «через секунды после клиента» отброшен — живой сотрудник тоже отвечает быстро, а ошибка в
-  // эту сторону пускает бота поверх человека (ревью #333, тест manual-reply-pauses-bot). Без `app_id` — как раньше, человек.
-  return !!input.appId && !META_PAGE_INBOX_APP_IDS.has(input.appId);
+  // Безопасное умолчание (ревью #333, второй круг): автоответ — ТОЛЬКО по явному списку известных автоматов (пока пуст);
+  // всё неизвестное — человек, бот на паузе. Ошибка в другую сторону пустила бы бота поверх живого сотрудника.
+  // `app_id` каждого ручного эха пишется в журнал — по замеру список пополняется.
+  return !!input.appId && KNOWN_AUTOMATION_APP_IDS.has(input.appId) && !META_PAGE_INBOX_APP_IDS.has(input.appId);
 }
+/** Приложения-автоматы Meta (мгновенный ответ, «нет на месте»), чьё эхо — не человек. Пополнять только по замеру. */
+export const KNOWN_AUTOMATION_APP_IDS: ReadonlySet<string> = new Set<string>();
 
 export async function handleOutgoingEcho(msg: {
   channel: MessengerChannel;

@@ -6,3 +6,5 @@ ALTER TABLE "Settings" ADD COLUMN "botRepliesAfterLeadEnabled" BOOLEAN NOT NULL 
 ALTER TABLE "Settings" ADD COLUMN "botStaffQuietMinutes" INTEGER NOT NULL DEFAULT 180;
 ALTER TABLE "Settings" ADD COLUMN "botOwnWords" BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE "Settings" ADD COLUMN "botReviewerPhones" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+-- «Спам — без ответа и без модели» (владелец 20.11.2026), реестр «Автоматика ИИ и напоминания», ВКЛ.
+ALTER TABLE "Settings" ADD COLUMN "botSpamFilterEnabled" BOOLEAN NOT NULL DEFAULT true;

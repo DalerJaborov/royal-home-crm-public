@@ -43,10 +43,12 @@ const ACK_WORDS = new Set([
  * слово из ACK_WORDS рядом.
  */
 const WAITING_WORDS = new Set([
-  "жду", "ждем", "ждём", "ждать", "подожду", "подождем", "буду", "будем", "вашего", "звонка", "звонок", "звоночка",
+  "жду", "ждем", "ждём", "ждать", "подожду", "подождем", "вашего", "звонка", "звоночка",
   "интизор", "интизорам", "интизорем", "мешавам", "мешавем", "мунтазир", "мунтазирам", "мунтазирем", "мемонам", "мемонем",
-  "зангатон", "занги", "ман", "мо", "мы", "я",
+  "зангатон", "занги",
 ]);
+/** Слова-спутники ожидания: «Ладно, буду ждать», «Мы ждём» — «ок» только рядом с глаголом ожидания («Да, звонок» — не «ок»). */
+const WAITING_COMPANIONS = new Set(["буду", "будем", "я", "мы", "ман", "мо", "звонок"]);
 
 /** Слова, которые сами по себе ничего не значат, но стоят рядом с «ок»/«рахмат». */
 const FILLER_WORDS = new Set([
@@ -76,12 +78,14 @@ export function isAckOnlyMessage(text: string | null | undefined): boolean {
     return /\p{Extended_Pictographic}/u.test(raw);
   }
   if (words.length > MAX_WORDS) return false;
-  let hasAck = false;
+  let hasAck = false, waiting = false, companion = false;
   for (const w of words) {
     if (ACK_WORDS.has(w)) hasAck = true;
-    else if (!FILLER_WORDS.has(w) && !WAITING_WORDS.has(w)) return false;
+    else if (WAITING_WORDS.has(w)) waiting = true;
+    else if (WAITING_COMPANIONS.has(w)) companion = true;
+    else if (!FILLER_WORDS.has(w)) return false;
   }
-  return hasAck;
+  return hasAck && (!companion || waiting);
 }
 
 /** Слова благодарности: «спасибо» — это не ответ «да» на вопрос бота. */

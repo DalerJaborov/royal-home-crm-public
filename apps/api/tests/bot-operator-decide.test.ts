@@ -306,7 +306,8 @@ describe("таблица случаев SPEC.md (1–26)", () => {
     expect(turns[0]!.keys).toEqual(["ask_phone"]);
     expect(turns[1]!.text).toBe("Напишите, когда будет удобно.");
     expect(turns.slice(1).flatMap(t => t.keys)).not.toContain("ask_phone");
-    expect(turns.flatMap(t => t.actions).filter(a => a.type === "call_staff")).toHaveLength(0);
+    // Ревью #333: «ок» сигнала не даёт; сообщение по делу без номера — один сигнал человеку «номер не дали».
+    expect(turns.flatMap(t => t.actions).filter(a => a.type === "call_staff")).toEqual([{ type: "call_staff", reason: "no_phone" }]);
   });
 
   it("26. жалоба на агента → «Ваше сообщение увидит руководитель.» (без обещания контакта), сотрудник, заявку не заводим", () => {
@@ -593,7 +594,7 @@ describe("сторож-перебор: инварианты на случайн�
         if (c.phoneKnown) expect(d.steps.map(step => step.key), where).not.toContain("ask_phone");
         accepted += d.actions.filter(a => a.type === "accept_lead").length;
         // Людей зовём только при грубости и жалобе (решение владельца 13.11: до заявки никого не беспокоим).
-        for (const a of d.actions) if (a.type === "call_staff") expect(["rude", "complaint", "unclear", "attachments", "staff_thread"], where).toContain(a.reason);
+        for (const a of d.actions) if (a.type === "call_staff") expect(["rude", "complaint", "unclear", "attachments", "staff_thread", "no_phone"], where).toContain(a.reason);
         expect(d.silent, where).toBe(d.steps.length === 0);
         state = d.state;
       }
