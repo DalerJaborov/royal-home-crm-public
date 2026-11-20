@@ -66,6 +66,10 @@ import { leadOnlyAppliesTo, leadOnlyEscalateLine, leadOnlyFilterReply, leadOnlyO
 import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, noteLeadOnlyOnCard } from "../lib/leadOnlyHandover.js";
 import { leadOnlyQuietBeforeLead } from "../lib/leadOnlyConfig.js";
 import { runOperatorTurn, type OperatorTurnInput } from "../ai/operator/index.js";
+import { isReviewerPhone } from "../lib/botReviewers.js";
+import { noteSpamFiltered, spamFilterApplies } from "../lib/spamFilter.js";
+import { customerSpamTurn } from "../ai/customerSpamMute.js";
+import { recordCustomerSpamTurn } from "../lib/customerSpamMuteStore.js";
 import { saveOperatorStateTx } from "../ai/operator/state.js";
 import { loadOperatorTurnSetup, operatorLeadDraft } from "../lib/operatorTurn.js";
 import { adPropertyForLead } from "../lib/adPropertyRule.js";
@@ -868,6 +872,12 @@ export async function acceptLead(
     commentPhoneHoldUntil?: Date;
   }
 ): Promise<MessengerTurnResult> {
+  // ПРОВЕРЯЮЩИЙ ИЗ НАСТРОЕК (20.11.2026, lib/botReviewers.ts) — одна дверь для всех путей приёма: живой ход, ядро, сторож
+  // лидов. Тестовая заявка карточкой не становится и агентам не уходит; номер сотрудника по-прежнему отсекает приём ниже.
+  if (await isReviewerPhone(phone, options?.whatsappPhone)) {
+    console.log(`[lead] проверяющий: заявка не заводится (диалог ${conversationId})`);
+    return { reply: "", ready: false, accepted: false, shouldReply: false, reviewer: true };
+  }
   // Без учёта регистра, общим правилом на все каналы (ночная проверка
   // 24.09.2026): раньше здесь стояло точное сравнение, и «сино» из разговора
   // не находило «Сино» в справочнике — район молча не попадал в карточку.
@@ -3129,6 +3139,12 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   /** null — ход отдан прежнему пути рекрутёра (вакансия): вызывающий идёт дальше обычным путём. */
   const runLeadOnlyOperator = async (said: string, attachments: OperatorTurnInput["attachments"]): Promise<MessengerTurnResult | null> => {
+    // Спам — без ответа и без модели (владелец 20.11.2026), та же дверь, что у ядра (lib/spamFilter.ts).
+    if (said && customerSpamTurn({ inputText: said }) && await spamFilterApplies(conversation.id, channel)) {
+      await recordCustomerSpamTurn(conversation.id, { eventKey: `legacy:${conversation.id}:${contactReceivedAt.getTime()}` }).catch(() => undefined);
+      void noteSpamFiltered().catch(() => undefined);
+      return { reply: "", ready: false, accepted: !!conversation.clientId, shouldReply: false };
+    }
     // Объект ЭТОГО сообщения (пост, реклама, ссылка), иначе фокус разговора, иначе объект чата агента; объект рекламы
     // разговора (adPropertyId) оператор берёт сам запасным фокусом.
     let focusPropertyId: string | null = input.sharedPropertyId ?? input.adPropertyId ?? null;
@@ -3139,9 +3155,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     focusPropertyId = focusPropertyId ?? draft.requestedPropertyId ?? (await propertyChatLeadPropertyId(conversation.id)) ?? null;
     const wa = channel === "WHATSAPP" && leadOnlyConfig.useWhatsappNumber ? await resolveWhatsAppLeadIdentity(channel, subscriberId) : null;
     const setup = await loadOperatorTurnSetup({ channel, conversationId: conversation.id, config: leadOnlyConfig, focusPropertyId,
-      phoneKnownByChannel: !!wa?.leadPhone });
+      phoneKnownByChannel: !!wa?.leadPhone, peerPhone: channel === "WHATSAPP" ? subscriberId : null });
     const recent = history.slice(-8).map((m) => ({ role: m.role === "user" ? "user" as const : "assistant" as const, text: String(m.content ?? "") }));
-    const operator = await runOperatorTurn({ storedState: setup.stored, ctx: setup.ctx,
+    const operator = await runOperatorTurn({ storedState: setup.stored, ctx: setup.ctx, ownWords: { enabled: leadOnlyConfig.ownWords === true },
       input: { current: said, recent, conversationId: conversation.id, ...(attachments ? { attachments } : {}) } });
     for (const action of operator.actions) {
       if (action.type === "accept_lead") {
@@ -3155,6 +3171,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
             ...(wa?.waPhone ? { whatsappPhone: wa.waPhone } : {}),
             attachments: saved, clientText: said, extraPhones: extractAllPhones(said), silent: true, fromHistory: true,
           });
+          if (accepted.reviewer) continue;
           if (!accepted.accepted) failure = "приём отказал";
         } catch (err) {
           console.error("[messenger] оператор заявок: приём заявки", err instanceof Error ? err.message : err);

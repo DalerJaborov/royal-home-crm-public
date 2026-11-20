@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4150**. Модулей: **87**.
+Путей: **786**. Развилок в самих путях: **2495**; вместе с задачами по расписанию и фоновыми заданиями — **4186**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4732,6 +4732,130 @@
 - res.status(201).json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), inv…
   · ответ 201
 
+## /api/v1/construction-registry
+
+### GET /api/v1/construction-registry/map
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const { enabled } = await loadRegistrySettings();
+  · зовёт loadRegistrySettings()
+- const updatedAt = (await lastRegistryUpdate())?.toISOString() ?? null;
+  · зовёт lastRegistryUpdate()
+- если !enabled
+  - return res.json(off);
+    · ответ 200
+- const [projects, links] = await Promise.all([ prisma.constructionProject.findMany({ where: { removedAt: null …
+  · читает в базе: constructionProject
+  · читает в базе: constructionPropertyLink
+- для каждого: const p of projects
+  - const list = byDeveloper.get(p.developerId) ?? [];
+    · дословно из кода
+  - list.push({ color: COLOR_OUT[p.colorStatus], decisionYear: decisionYearFromQaror(p.qaror) });
+    · дословно из кода
+- для каждого: const [id, list] of byDeveloper
+  - letters.set(id, rateDeveloper(list).letter);
+    · дословно из кода
+- res.json(body);
+  · ответ 200
+
+### DELETE /api/v1/construction-registry/property/:id/link
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !property
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если !canEditLink(req, property)
+  - return res.status(403).json({ error: "Менять привязку может ответственный агент или руководитель" });
+    · ответ 403 — «Менять привязку может ответственный агент или руководитель»
+- await unlinkProperty(property.id, req.agent!.id);
+  · зовёт unlinkProperty()
+- res.json(await buildPropertyResponse(toMatchInput(property), true));
+  · ответ 200
+
+### POST /api/v1/construction-registry/property/:id/link
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = projectBodySchema.safeParse(req.body);
+  · проверяет данные схемой projectBodySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- если !property
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если !canEditLink(req, property)
+  - return res.status(403).json({ error: "Менять привязку может ответственный агент или руководитель" });
+    · ответ 403 — «Менять привязку может ответственный агент или руководитель»
+- const project = await prisma.constructionProject.findUnique({ where: { id: parsed.data.projectId }, select: {…
+  · читает в базе: constructionProject
+- если !project
+  - return res.status(404).json({ error: "Проект реестра не найден" });
+    · ответ 404 — «Проект реестра не найден»
+- await linkPropertyManually(property.id, project.id, req.agent!.id);
+  · зовёт linkPropertyManually()
+- res.json(await buildPropertyResponse(toMatchInput(property), true));
+  · ответ 200
+
+### POST /api/v1/construction-registry/property/:id/reject
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = projectBodySchema.safeParse(req.body);
+  · проверяет данные схемой projectBodySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- если !property
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если !canEditLink(req, property)
+  - return res.status(403).json({ error: "Менять привязку может ответственный агент или руководитель" });
+    · ответ 403 — «Менять привязку может ответственный агент или руководитель»
+- const exists = await prisma.constructionProject.findUnique({ where: { id: parsed.data.projectId }, select: { …
+  · читает в базе: constructionProject
+- если !exists
+  - return res.status(404).json({ error: "Проект реестра не найден" });
+    · ответ 404 — «Проект реестра не найден»
+- await rejectSuggestion(property.id, parsed.data.projectId, req.agent!.id);
+  · зовёт rejectSuggestion()
+- res.json(await buildPropertyResponse(toMatchInput(property), true));
+  · ответ 200
+
+### GET /api/v1/construction-registry/property/:id
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !property
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- const { enabled } = await loadRegistrySettings();
+  · зовёт loadRegistrySettings()
+- res.json(await buildPropertyResponse(toMatchInput(property), enabled));
+  · ответ 200
+
+### GET /api/v1/construction-registry/status
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const [settings, runs, active, linked] = await Promise.all([ loadRegistrySettings(), prisma.constructionSyncR…
+  · читает в базе: constructionSyncRun
+  · считает в базе: constructionProject
+  · считает в базе: constructionPropertyLink
+- res.json({ ...settings, activeProjects: active, linkedProperties: linked, runs });
+  · ответ 200
+
+### POST /api/v1/construction-registry/sync
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- void runConstructionRegistrySync({ trigger: "manual" });
+  · зовёт runConstructionRegistrySync()
+- res.status(202).json({ started: true });
+  · ответ 202
+
 ## /api/v1/contacts
 
 ### GET /api/v1/contacts/:id
@@ -4983,6 +5107,21 @@
 - res.json({ ok: true });
   · ответ 200
 
+### POST /api/v1/conversations/:id/spam-restore
+
+`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: clients.assign
+
+- если !id.success
+  - return res.status(400).json({ error: "Неверный идентификатор переписки" });
+    · ответ 400 — «Неверный идентификатор переписки»
+- если !(await exemptCustomerSpam(id.data))
+  - return res.status(404).json({ error: "Диалог не найден" });
+    · ответ 404 — «Диалог не найден»
+- logAudit(req, "BOT_SPAM_RESTORED", "BotConversation", id.data);
+  · зовёт logAudit()
+- res.json({ ok: true });
+  · ответ 200
+
 ### POST /api/v1/conversations/:id/translate
 
 `apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
@@ -5110,6 +5249,15 @@
       - continue;
         · переходит к следующему
 - res.json({ id: key, channel: canSeeOrigin ? (channelNames.length === 1 ? channelNames[0] : "MULTI") : null, n…
+  · ответ 200
+
+### GET /api/v1/conversations/spam-filtered
+
+`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: clients.assign
+
+- const rows = await prisma.$queryRaw<Array<{ id: string; channel: string; name: string | null; lastMessageAt: …
+  · обращается к базе своим SQL
+- res.json({ items: rows.map(row
   · ответ 200
 
 ### GET /api/v1/conversations
@@ -20690,6 +20838,129 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### construction-registry-sync — 30 4 * * 1
+
+- пробует
+  - const r = await runConstructionRegistrySync({ trigger: "cron" });
+    · зовёт runConstructionRegistrySync()
+    - const settings = await loadRegistrySettings();
+      · зовёт loadRegistrySettings()
+    - если !settings.enabled
+      - return empty({ ok: true, skipped: "disabled" });
+        · дословно из кода
+    - если running
+      - return empty({ ok: true, skipped: "already-running" });
+        · дословно из кода
+    - пробует
+      - const busy = await prisma.constructionSyncRun.count({ where: { finishedAt: null, startedAt: { gt: new Date(no…
+        · считает в базе: constructionSyncRun
+      - если busy > 0
+        - return empty({ ok: true, skipped: "already-running" });
+          · дословно из кода
+      - const run = await prisma.constructionSyncRun.create({ data: { trigger, startedAt: now }, select: { id: true }…
+        · создаёт в базе: constructionSyncRun
+      - const parsed = parseRegistryList(await source.fetchList());
+        · зовёт parseRegistryList()
+      - const previousActive = await prisma.constructionProject.count({ where: { removedAt: null } });
+        · считает в базе: constructionProject
+      - const refusal = sanityRefusal(parsed, previousActive);
+        · зовёт sanityRefusal()
+      - если refusal
+        - throw new Error(refusal);
+          · ошибка Error — «refusal»
+      - если parsed.skipped > 0
+        - void logSystemError("cron", `Реестр строек: не разобрано строк списка: ${parsed.skipped} из ${parsed.skipped …
+          · запись в журнал ошибок
+      - const existing = await prisma.constructionProject.findMany({ select: { id: true, sourceId: true, listHash: tr…
+        · читает в базе: constructionProject
+      - для каждого: const item of parsed.items
+        - пробует
+          - url = registryProjectUrl(item.url || `${item.sourceId}/`);
+            · зовёт registryProjectUrl()
+        - если сорвалось
+          - continue;
+            · переходит к следующему
+        - если !developerId
+          - const dev = await prisma.constructionDeveloper.upsert({ where: { nameNormalized: devKey }, create: { nameNorm…
+            · создаёт или меняет в базе: constructionDeveloper
+        - если !prev
+          - const created = await prisma.constructionProject.create({ data: { sourceId: item.sourceId, ...baseData, first…
+            · создаёт в базе: constructionProject
+          - await prisma.constructionStatusChange.create({ data: { projectId: created.id, fromColor: null, toColor: color…
+            · создаёт в базе: constructionStatusChange
+          - если item.category === "residential"
+            - needPage.push({ sourceId: item.sourceId, projectId: created.id, url, hash: item.hash });
+              · дословно из кода
+          - continue;
+            · переходит к следующему
+        - если hashChanged
+          - await prisma.constructionProject.update({ where: { id: prev.id }, data: { ...(item.category === "residential"…
+            · меняет в базе: constructionProject
+          - если colorChanged
+            - await prisma.constructionStatusChange.create({ data: { projectId: prev.id, fromColor: prev.colorStatus, toCol…
+              · создаёт в базе: constructionStatusChange
+        - иначе
+          - await prisma.constructionProject.update({ where: { id: prev.id }, data: { lastSeenAt: now } });
+            · меняет в базе: constructionProject
+        - если item.category === "residential" && (hashChanged || !prev.detailFetchedAt)
+          - needPage.push({ sourceId: item.sourceId, projectId: prev.id, url, hash: item.hash });
+            · дословно из кода
+      - если previousActive >= 20 && goneIds.length > previousActive * MAX_GONE_RATIO
+        - throw new Error(`Из реестра исчезло ${goneIds.length} проектов из ${previousActive} за один забор: сбой источ…
+          · ошибка Error — «Из реестра исчезло ${goneIds.length} проектов из ${previousActive} за»
+      - если goneIds.length > 0
+        - await prisma.constructionProject.updateMany({ where: { id: { in: goneIds } }, data: { removedAt: now } });
+          · меняет в базе: constructionProject
+      - для каждого: const target of needPage.slice(0, DETAILS_PER_RUN_CAP)
+        - пробует
+          - const page: ParsedProjectPage = parseRegistryProjectPage(html);
+            · зовёт parseRegistryProjectPage()
+          - если !page.address && !page.description && page.blocks.length === 0 && page.documents.length === 0
+            - throw new Error("страница без узнаваемых данных");
+              · ошибка Error — «страница без узнаваемых данных»
+          - await prisma.constructionProject.update({ where: { id: target.projectId }, data: { address: page.address, des…
+            · меняет в базе: constructionProject
+        - если сорвалось
+          - если pageFailures <= 3
+            - void logSystemError("cron", `Реестр строек: страница ${target.sourceId} не прочитана: ${err instanceof Error …
+              · запись в журнал ошибок
+        - await source.sleep(PAGE_PAUSE_MS);
+          · зовёт sleep()
+      - result.linked = await autoLinkAllProperties();
+        · зовёт autoLinkAllProperties()
+      - если settings.notify
+        - result.notified = await notifyStatusChanges();
+          · зовёт notifyStatusChanges()
+      - await prisma.constructionSyncRun.update({ where: { id: run.id }, data: { ok: true, finishedAt: new Date(), fe…
+        · меняет в базе: constructionSyncRun
+    - если сорвалось
+      - если runIdForCatch
+        - await prisma.constructionSyncRun.update({ where: { id: runIdForCatch }, data: { ok: false, finishedAt: new Da…
+          · меняет в базе: constructionSyncRun
+      - void logSystemError("cron", `Реестр разрешённых строек: забор не удался: ${message}`);
+        · запись в журнал ошибок
+    - в любом случае
+      - running = false;
+        · дословно из кода
+  - если !r.ok && !r.skipped
+    - markCronTickFailed("Реестр строек: забор не удался", new Error(r.error ?? "неизвестная ошибка"));
+      · зовёт markCronTickFailed()
+      - console.error(`[cron] ${label}:`, reason);
+        · пишет строку в журнал сервера
+      - если tick
+        - tick.failure = `${label}: ${reason}`.slice(0, 500);
+          · дословно из кода
+  - иначе если r.ok && !r.skipped
+    - console.log(`[cron] Реестр строек: в списке ${r.fetched}, новых ${r.created}, изменённых ${r.changed}, исчезл…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка еженедельного забора реестра строек", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### contact-link-sweep — 10 3 * * *
 
 - пробует
@@ -28274,6 +28545,9 @@
       · дословно из кода
   - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
     · зовёт acceptLead()
+  - если result.reviewer
+    - return { status: "skipped", reason: "reviewer" };
+      · дословно из кода
   - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …
     · читает в базе: botConversation
   - если !linked?.client
@@ -28347,6 +28621,9 @@
           · дословно из кода
       - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
         · зовёт acceptLead()
+      - если result.reviewer
+        - return { status: "skipped", reason: "reviewer" };
+          · дословно из кода
       - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …
         · читает в базе: botConversation
       - если !linked?.client
