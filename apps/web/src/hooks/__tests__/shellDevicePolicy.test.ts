@@ -18,6 +18,9 @@ describe("local agent phone preview policy", () => {
     for (const role of ["DIRECTOR", "ADMIN", "MANAGER", "SHAREHOLDER"]) expect(cleanShellAllowedOnDevice(true, role)).toBe(true);
     expect(cleanShellAllowedOnDevice(true, "AGENT", true)).toBe(true);
     expect(cleanShellAllowedOnDevice(false, "AGENT")).toBe(true);
+    // «Новый вид» снимает запрет с телефона агента (одна оболочка, 20.11.2026).
+    expect(cleanShellAllowedOnDevice(true, "AGENT", false, true)).toBe(true);
+    expect(cleanShellAllowedOnDevice(true, undefined, false, true)).toBe(false);
   });
   it("keeps preview across routes in actor-scoped session storage and supports explicit off", () => {
     const data = new Map<string, string>();

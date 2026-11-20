@@ -16,8 +16,27 @@ export function agentMobilePreviewOverride(search: string): boolean | undefined 
   return undefined;
 }
 
-export function cleanShellAllowedOnDevice(mobile: boolean, role: string | undefined, agentPreview = false): boolean {
-  return !mobile || (!!role && (role !== "AGENT" || agentPreview));
+/**
+ * ОДИН ПРИЗНАК НОВОГО ВИДА (пачка B, 20.11.2026). Телефон агента держал прежний
+ * интерфейс (MobileAgentHome и components/mobile/*), пока чистая оболочка
+ * проверялась на ПК, — и держал его даже тем агентам, которым сервер уже выдал
+ * «Новый вид»: два независимых рубильника («чистая оболочка» и список
+ * royalLookAgentIds) давали агенту новый вид на ПК и старый на телефоне.
+ * Теперь выданный сервером «Новый вид» (`royalLook`: ответ `/ui-shell` с
+ * `look: "royal"` и без личного отказа `?look=legacy`) снимает этот запрет:
+ * у человека одна оболочка на всех устройствах. Без вида запрет прежний.
+ */
+export function cleanShellAllowedOnDevice(mobile: boolean, role: string | undefined, agentPreview = false, royalLook = false): boolean {
+  return !mobile || (!!role && (role !== "AGENT" || agentPreview || royalLook));
+}
+
+/**
+ * Спрашивать ли сервер о чистой оболочке и виде. Телефон агента тоже спрашивает:
+ * только ответ сервера говорит, выдан ли ему «Новый вид». Без роли (сессия ещё
+ * восстанавливается) — не спрашиваем.
+ */
+export function shellPolicyAsked(role: string | undefined): boolean {
+  return !!role;
 }
 
 export function localAgentPreviewAllowed(): boolean {
