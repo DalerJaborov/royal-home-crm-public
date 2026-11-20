@@ -1,5 +1,7 @@
 import { prisma } from "../db.js";
 import { logSystemError } from "./systemError.js";
+import { findScopedBotConversation } from "./customerConversationScope.js";
+import { applyDeliveryPause, staffRelayPauseMs, OPERATOR_ECHO_PAUSE_MS } from "./deliveryPause.js";
 
 /**
  * «ПЕРЕПИСКУ ВЕДЁТ ДРУГОЕ ПРИЛОЖЕНИЕ» (ревью #344, третий круг). Meta отвечает на отправку
@@ -21,9 +23,6 @@ export async function pauseBotForOtherThreadOwner(input: {
     if (!input.accountId || !input.peer) return { paused: false };
     const account = await prisma.messengerAccount.findUnique({ where: { id: input.accountId }, select: { channel: true, externalId: true, title: true } });
     if (!account) return { paused: false };
-    // Динамически: conversationDelivery тянет за собой отправку (meta.ts), статический импорт дал бы цикл.
-    const { findScopedBotConversation } = await import("./customerConversationScope.js");
-    const { applyDeliveryPause, staffRelayPauseMs, OPERATOR_ECHO_PAUSE_MS } = await import("./conversationDelivery.js");
     const conv = await findScopedBotConversation({ channel: account.channel, subscriberId: input.peer, accountExternalId: account.externalId })
       .catch(() => null);
     if (!conv) return { paused: false };

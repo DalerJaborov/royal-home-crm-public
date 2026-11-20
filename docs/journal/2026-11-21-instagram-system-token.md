@@ -154,3 +154,7 @@ Messenger 15.11 — наоборот, доходили только сообще
 - **Сверка: только ответы, отправленные CRM** (`ownRepliesInCrm`): ручные ответы сотрудников из Instagram
   (в CRM без mid и «вручную») не считаются; глушим пуши, только если в выборке есть ответы CRM (по mid или
   по тексту не-ручной реплики этому же человеку) и ни один не найден по mid.
+- **Цикл импортов** (сторож зависимостей): пауза бота вынесена из `lib/conversationDelivery.ts` в
+  `lib/deliveryPause.ts` (`applyDeliveryPause`, `staffRelayPauseMs`, `OPERATOR_ECHO_PAUSE_MS`) — модуль без
+  отправки; conversationDelivery переизлучает их, прежние вызовы не тронуты. `threadOwnerPause.ts` берёт
+  паузу оттуда, круга `meta.ts → … → conversationDelivery.ts → meta.ts` нет.
