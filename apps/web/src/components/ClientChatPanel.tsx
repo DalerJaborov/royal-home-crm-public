@@ -245,6 +245,8 @@ const ChatMessageList = memo(function ChatMessageList({
       // именно здесь: панель на карточке жила отдельным путём от инбокса).
       const content = humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, {
           outgoing: m.role !== "user",
+          hasAttachments: !!m.attachments?.length,
+          channel: m.sourceChannel,
         });
       // Разделитель дня — та же логика, что в инбоксе (Messages.tsx,
       // MobileChatView.tsx): сравниваем с ПРЕДЫДУЩИМ сообщением полного
@@ -730,7 +732,7 @@ export function ClientChatCard({
           <div className="row">
             <span className="av">{last.role === "user" ? "К" : "RH"}</span>
             <div className="t">
-              <b>{last.content?.trim() || "вложение без текста"}</b>
+              <b>{humanizeAttachmentTags(last.content?.trim() ?? "", { hasAttachments: !!last.attachments?.length, channel: last.sourceChannel }) || "Вложение"}</b>
               <span>
                 {last.role === "user" ? "Клиент" : senderPrefix(last.by)}
                 {last.at ? `, ${relativeTime(last.at)}` : ""}

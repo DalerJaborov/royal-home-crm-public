@@ -17989,14 +17989,14 @@
     · ответ 400 — «Аудио не передано»
 - const mediaType = normalizeDictationMime(req.file.mimetype) ?? "audio/webm";
   · зовёт normalizeDictationMime()
-- const text = await transcribeAudio(req.file.buffer, req.file.originalname || "voice.webm", mediaType);
-  · зовёт transcribeAudio()
-- если text === null
-  - return res.status(502).json({ error: "Не удалось распознать речь" });
-    · ответ 502 — «Не удалось распознать речь»
-- если !text.trim()
-  - return res.status(422).json({ error: "Речь не распознана — похоже, запись пустая" });
-    · ответ 422 — «Речь не распознана — похоже, запись пустая»
+- const result = await traceMeasured("asr", ()
+  · зовёт traceMeasured()
+- если result.failed
+  - return res.status(424).json({ error: notConfigured ? "Распознавание речи не настроено: не задан ключ ИИ. Напи…
+    · ответ 424
+- если !text || !text.trim()
+  - return res.status(422).json({ error: "Речь не распознана. Скажите ещё раз, чуть громче и ближе к микрофону." …
+    · ответ 422 — «Речь не распознана. Скажите ещё раз, чуть громче и ближе к микрофону.»
 - res.json({ text: text.trim() });
   · ответ 200
 
@@ -30166,7 +30166,7 @@
       - если claimed !== 1
         - return "already";
           · дословно из кода
-      - const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[голосовое или вложение без тек…
+      - const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || NO_TEXT_NOTE;
         · зовёт clientOwnWords()
       - const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
         · зовёт scrubMentionedClientPhonesInText()
