@@ -265,7 +265,10 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         if (r.height > 220 || r.height < 40) continue;
         // Фото и обложки: подписи поверх снимка прижаты к углам нарочно.
         if (/photo|thumb|gallery|cover|avatar|media/i.test(String(card.className)) || s.backgroundImage !== "none" || card.querySelector("img, video, picture, canvas")) continue;
-        const kids = [...card.querySelectorAll("*")].filter((k) => k.children.length === 0 && visible(k) && getComputedStyle(k).position !== "absolute");
+        // Видимое содержимое: листья и то, у чего есть своя заливка (кружок значка пустого
+        // состояния виден целиком, а не только контур внутри него).
+        const kids = [...card.querySelectorAll("*")].filter((k) => visible(k) && getComputedStyle(k).position !== "absolute"
+          && (k.children.length === 0 || getComputedStyle(k).backgroundColor !== "rgba(0, 0, 0, 0)"));
         if (!kids.length) continue;
         const top = Math.min(...kids.map((k) => k.getBoundingClientRect().top)) - r.top;
         const bottom = r.bottom - Math.max(...kids.map((k) => k.getBoundingClientRect().bottom));
