@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4191,
+  "forks": 4192,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -15970,6 +15970,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "seen !== suggestionFingerprint(suggestion)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Предложение обновилось, посмотрите ещё раз\" });",
+       "a": [
+        "ответ 409 — «Предложение обновилось, посмотрите ещё раз»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const input = clientBuyerRequirementsSchema.safeParse({ ...suggestion.fields, ...(merged !== null ? { require…",
      "a": [
@@ -16065,7 +16080,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ available: true, labels: suggestion.labels.map((label)",
+     "t": "res.json({ available: true, fingerprint: suggestionFingerprint(suggestion), labels: suggestion.labels.map((la…",
      "a": [
       "ответ 200"
      ],
@@ -20725,7 +20740,7 @@
      "c": [
       {
        "k": "do",
-       "t": "sendLeadPush(assignedAgentId, client.id, { title: \"🔔 Новый лид\", body: `${client.fullName} — примите заявку,…",
+       "t": "sendLeadPush(assignedAgentId, client.id, { title: \"🔔 Новая заявка\", body: `${client.fullName} — примите заяв…",
        "a": [
         "зовёт sendLeadPush()"
        ],
@@ -100090,7 +100105,7 @@
             },
             {
              "k": "do",
-             "t": "sendLeadPush(agentId, lead.id, { title: \"🔔 Новый лид с ночи\", body: `${lead.fullName} — примите заявку`, url…",
+             "t": "sendLeadPush(agentId, lead.id, { title: \"🔔 Новая заявка с ночи\", body: `${lead.fullName} — примите заявку`, …",
              "a": [
               "зовёт sendLeadPush()"
              ],
@@ -100526,7 +100541,7 @@
            "c": [
             {
              "k": "do",
-             "t": "sendLeadPush(nextAgentId, client.id, { title: \"🔔 Новый лид\", body: `${client.fullName} — передан вам`, url: …",
+             "t": "sendLeadPush(nextAgentId, client.id, { title: \"🔔 Новая заявка\", body: `${client.fullName} — передан вам`, ur…",
              "a": [
               "зовёт sendLeadPush()"
              ],
@@ -126674,7 +126689,7 @@
       },
       {
        "k": "do",
-       "t": "await sendLeadPush(outcome.agentId, client.id, { title: \"🔔 Новый лид\", body: `${client.fullName} — примите з…",
+       "t": "await sendLeadPush(outcome.agentId, client.id, { title: \"🔔 Новая заявка\", body: `${client.fullName} — примит…",
        "a": [
         "зовёт sendLeadPush()"
        ],
@@ -126866,7 +126881,7 @@
       },
       {
        "k": "do",
-       "t": "await sendPushToAgents(recipients, { title: \"⏳ Лид ждёт назначения\", body: `${client.fullName} — назначьте аг…",
+       "t": "await sendPushToAgents(recipients, { title: \"⏳ Заявка ждёт назначения\", body: `${client.fullName} — назначьте…",
        "a": [
         "push-уведомление"
        ],

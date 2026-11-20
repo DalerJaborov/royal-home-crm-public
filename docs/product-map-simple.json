@@ -16,9 +16,9 @@
   "paths": 788,
   "cron": 143,
   "jobs": 34,
-  "conditions": 4164,
-  "untranslatedUnique": 475,
-  "untranslatedTotal": 611,
+  "conditions": 4165,
+  "untranslatedUnique": 476,
+  "untranslatedTotal": 612,
   "partialUnique": 1124,
   "translatedShare": 85
  },
@@ -456,6 +456,7 @@
   "scheduledAt.getTime() > now.getTime()",
   "scopeAgentId && !(await contactProfileBelongsTo(req.params.id, scopeAgentId))",
   "scopeToOwnAgent(req) && !client.acceptedAt",
+  "seen !== suggestionFingerprint(suggestion)",
   "session && !(await mayReadLiveVoiceSession(investigationViewerRole(req), session))",
   "settings?.metaIgToken && Date.now() - last >= REFRESH_EVERY_MS",
   "shootingDate > new Date(cutoff.getTime() - downMs)",
@@ -19205,6 +19206,20 @@
        "c": []
       }
      ]
+    },
+    {
+     "t": "если seen !== suggestionFingerprint(suggestion)",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: такое уже есть: «Предложение обновилось, посмотрите ещё раз»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "seen !== suggestionFingerprint(suggestion)"
     },
     {
      "t": "если нет: success",

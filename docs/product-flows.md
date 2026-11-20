@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2500**; вместе с задачами по расписанию и фоновыми заданиями — **4191**. Модулей: **88**.
+Путей: **788**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **4192**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3659,6 +3659,9 @@
 - если !suggestion
   - return res.status(409).json({ error: "Из разговора больше нечего взять: поля уже заполнены или сводка изменил…
     · ответ 409 — «Из разговора больше нечего взять: поля уже заполнены или сводка…»
+- если seen !== suggestionFingerprint(suggestion)
+  - return res.status(409).json({ error: "Предложение обновилось, посмотрите ещё раз" });
+    · ответ 409 — «Предложение обновилось, посмотрите ещё раз»
 - const input = clientBuyerRequirementsSchema.safeParse({ ...suggestion.fields, ...(merged !== null ? { require…
   · проверяет данные схемой clientBuyerRequirementsSchema
 - если !input.success
@@ -3680,7 +3683,7 @@
 - если !suggestion
   - return res.json({ available: false, labels: [] as string[] });
     · ответ 200
-- res.json({ available: true, labels: suggestion.labels.map((label)
+- res.json({ available: true, fingerprint: suggestionFingerprint(suggestion), labels: suggestion.labels.map((la…
   · ответ 200
 
 ### POST /api/v1/clients/:id/restore
@@ -4740,7 +4743,7 @@
 - logAudit(req, "CLIENT_AGENT_CHANGE", "Client", client.id, { source: "client.create", from: null, to: assigned…
   · зовёт logAudit()
 - если !acceptedAt
-  - sendLeadPush(assignedAgentId, client.id, { title: "🔔 Новый лид", body: `${client.fullName} — примите заявку,…
+  - sendLeadPush(assignedAgentId, client.id, { title: "🔔 Новая заявка", body: `${client.fullName} — примите заяв…
     · зовёт sendLeadPush()
 - res.status(201).json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), inv…
   · ответ 201
@@ -22460,7 +22463,7 @@
             · переходит к следующему
         - await recordAssignReason(lead.id, agentId, assignment);
           · зовёт recordAssignReason()
-        - sendLeadPush(agentId, lead.id, { title: "🔔 Новый лид с ночи", body: `${lead.fullName} — примите заявку`, url…
+        - sendLeadPush(agentId, lead.id, { title: "🔔 Новая заявка с ночи", body: `${lead.fullName} — примите заявку`, …
           · зовёт sendLeadPush()
       - если сорвалось
         - reportCronRowError("Утренняя раздача заявки", lead.shortId, err);
@@ -22554,7 +22557,7 @@
           - await logTimeline({ clientId: client.id, actor: { kind: "system", source: "first-call-reassign", subjectAgent…
             · зовёт logTimeline()
       - если reassignResult.ok
-        - sendLeadPush(nextAgentId, client.id, { title: "🔔 Новый лид", body: `${client.fullName} — передан вам`, url: …
+        - sendLeadPush(nextAgentId, client.id, { title: "🔔 Новая заявка", body: `${client.fullName} — передан вам`, ur…
           · зовёт sendLeadPush()
   - если handled > 0
     - console.log(`[cron] Первый звонок сорван: ${handled}`);
@@ -28142,7 +28145,7 @@
   - если !outcome.agentId || client.assignedAgentId !== outcome.agentId
     - return;
       · дальше не идёт, ничего не меняя
-  - await sendLeadPush(outcome.agentId, client.id, { title: "🔔 Новый лид", body: `${client.fullName} — примите з…
+  - await sendLeadPush(outcome.agentId, client.id, { title: "🔔 Новая заявка", body: `${client.fullName} — примит…
     · зовёт sendLeadPush()
     - publishLeadPending(clientId, agentId);
       · зовёт publishLeadPending()
@@ -28182,7 +28185,7 @@
   - если !recipients.length
     - throw new Error("Customer unassigned intake has no supervisors");
       · ошибка Error — «Customer unassigned intake has no supervisors»
-  - await sendPushToAgents(recipients, { title: "⏳ Лид ждёт назначения", body: `${client.fullName} — назначьте аг…
+  - await sendPushToAgents(recipients, { title: "⏳ Заявка ждёт назначения", body: `${client.fullName} — назначьте…
     · push-уведомление
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление о сохранённой новой заявке не подтверждено; карточка ост…
