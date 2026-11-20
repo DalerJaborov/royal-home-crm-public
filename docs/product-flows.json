@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4195,
+  "forks": 4196,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -104972,30 +104972,61 @@
             },
             {
              "k": "if",
-             "t": "channel === \"INSTAGRAM\" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length &…",
+             "t": "channel === \"INSTAGRAM\" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length",
              "a": [],
              "c": [
               {
                "k": "do",
-               "t": "void logSystemError(\"meta\", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.l…",
+               "t": "const ours = await ownRepliesInCrm(page.ownIds?.length ? page.ownIds : [page.pageId], body);",
                "a": [
-                "запись в журнал ошибок"
+                "зовёт ownRepliesInCrm()"
                ],
                "c": []
               },
               {
                "k": "do",
-               "t": "await raiseCriticalAlarm({ tag: `meta-inbox-mass-missed:${page.pageId}`, title: \"Сверка Instagram: проверьте …",
+               "t": "const viaPage = (await instagramRouteForToken(page.token)).kind === \"page\";",
+               "a": [
+                "зовёт instagramRouteForToken()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "viaPage && ours.total > 0 && ours.known === 0",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "void logSystemError(\"meta\", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.l…",
+                 "a": [
+                  "запись в журнал ошибок"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "await raiseCriticalAlarm({ tag: `meta-inbox-mass-missed:${page.pageId}`, title: \"Сверка Instagram: проверьте …",
+                 "a": [
+                  "зовёт raiseCriticalAlarm()"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "await raiseCriticalAlarm({ tag: `meta-inbox-ig-not-delivered:${page.pageId}`, title: \"Входящие Instagram не д…",
                "a": [
                 "зовёт raiseCriticalAlarm()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
                ],
                "c": []
               }

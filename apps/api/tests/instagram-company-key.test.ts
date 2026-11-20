@@ -39,7 +39,7 @@ let accountId = "";
 let lockedId = "";
 let before: Record<string, unknown> | null = null;
 
-const meta = { linkedIg: IG_ID, personalMeOk: false, lockedMeOk: false, pageSendError: null as null | { status: number; code: number; subcode?: number }, personalSendError: null as null | { status: number; code: number; subcode?: number } };
+const meta = { linkedIg: IG_ID, personalMeOk: false, lockedMeOk: false, pageSendError: null as null | { status: number; code: number; subcode?: number }, personalSendError: null as null | { status: number; code: number; subcode?: number; message?: string } };
 const pageSends: string[] = [];
 const personalSends: string[] = [];
 const fetchMock = vi.fn();
@@ -125,7 +125,7 @@ beforeEach(async () => {
       if (carries(LOCKED_TOKEN)) return json({ error: { code: 190, message: LOCKED_TEXT } }, 401);
       personalSends.push(String(init?.body ?? ""));
       const e = meta.personalSendError;
-      if (e) return json({ error: { code: e.code, error_subcode: e.subcode, message: "personal refused" } }, e.status);
+      if (e) return json({ error: { code: e.code, error_subcode: e.subcode, message: e.message ?? "personal refused" } }, e.status);
       return json({ recipient_id: "x", message_id: `mid-${randomUUID()}` });
     }
     return json({ error: { message: `unexpected ${url}` } }, 404);
@@ -252,10 +252,9 @@ describe("ревью #344: путь Страницы и запасной лич�
   });
 
   it.each([
-    { code: 551, subcode: 1545041, what: "человек недоступен" },
     { code: 10, subcode: 2018278, what: "вне окна 24 часов" },
     { code: 10, subcode: 2534022, what: "вне окна (Instagram)" },
-  ])("отказ про одного собеседника ($what) — не отказ пути: без повтора, скамейки и тревоги", async ({ code, subcode }) => {
+  ])("окно 24 часов ($what) — не отказ пути: без повтора, паузы и тревоги", async ({ code, subcode }) => {
     await routed();
     meta.pageSendError = { status: 400, code, subcode };
     await expect(send()).rejects.toThrow();
@@ -265,12 +264,44 @@ describe("ревью #344: путь Страницы и запасной лич�
     expect(alarm).toBe(0);
   });
 
-  it("«нет такого собеседника» на пути Страницы — один повтор личным ключом, без тревоги", async () => {
+  it.each([
+    { code: 551, subcode: 1545041, what: "человек недоступен" },
+    { code: 100, subcode: 2534014, what: "нет такого собеседника" },
+    { code: 10, subcode: 2018300, what: "переписку ведёт другое приложение" },
+  ])("отказ про собеседника ($what) — один повтор личным ключом, Страница без паузы, без тревоги", async ({ code, subcode }) => {
     await routed();
-    meta.pageSendError = { status: 400, code: 100, subcode: 2534014 };
+    meta.pageSendError = { status: 400, code, subcode };
     await send();
     expect(personalSends).toHaveLength(1);
     expect((await eternal.instagramRouteForToken(PERSONAL)).kind).toBe("page");
+    const alarm = await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}page-route:${PAGE_ID}` } }));
+    expect(alarm).toBe(0);
+  });
+
+  it("лимит частоты (613) — про приложение и Страницу: пауза Страницы, повтор личным, без тревоги о ключе", async () => {
+    await routed();
+    meta.pageSendError = { status: 400, code: 613, subcode: 2534040 };
+    await send();
+    expect(personalSends).toHaveLength(1);
+    expect((await eternal.instagramRouteForToken(PERSONAL)).kind).toBe("instagram_login");
+    const alarm = await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}page-route:${PAGE_ID}` } }));
+    expect(alarm).toBe(0);
+  });
+
+  it("путь Страницы отказал, повтор личным ключом — «проверка безопасности»: не «закрыт», а «запасной ключ» (через callGraph)", async () => {
+    await routed();
+    meta.pageSendError = { status: 400, code: 200 };
+    meta.personalSendError = { status: 401, code: 190, message: LOCKED_TEXT };
+    await expect(send()).rejects.toThrow(/401/);
+    expect(personalSends).toHaveLength(1);
+    await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: `ig-backup-key-dead:${accountId}` } }));
+    const lost = await waitForSettled(() => prisma.messengerAccount.count({ where: { id: accountId, accessLostAt: { not: null } } }));
+    expect(lost).toBe(0);
+    expect(await prisma.pendingDirectorAlert.count({ where: { tag: { startsWith: `ig-account-locked:${accountId}` } } })).toBe(0);
+    // Страница ещё на паузе: сейчас отвечает личный путь, но путь Страницы у аккаунта настроен — «закрыт» не ставится.
+    expect((await eternal.instagramRouteForToken(PERSONAL)).kind).toBe("instagram_login");
+    expect(await access.instagramAccountPageRouted(accountId)).toBe(true);
+    expect(await access.noteInstagramAccountLocked(accountId, `HTTP 401: ${LOCKED_TEXT}`)).toEqual({ marked: false, backupOnly: true });
   });
 
   it("200 без подкода (нет App Review) — отказ пути: повтор личным, Страница на скамейке, тревога", async () => {

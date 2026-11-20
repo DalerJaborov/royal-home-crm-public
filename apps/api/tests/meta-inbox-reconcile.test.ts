@@ -266,38 +266,78 @@ describe("В4: Instagram и автоответы (15.11.2026)", () => {
     // Свои реплики аккаунта не стали «входящими»: missed ровно 1.
   });
 
-  describe("предохранитель: Instagram через Страницу, «потеряно» больше половины (ревью #344)", () => {
+  describe("массовая «потеря» Instagram: поломка сверки или настоящая потеря (ревью #344)", () => {
     const valveTag = `meta-inbox-mass-missed:${igUserId}`;
-    const igOf = (tag: string, n: number) => ({ data: [{ messages: { data: Array.from({ length: n }, (_, i) => (
-      { id: `m_${runId}_${tag}_${i}`, created_time: ago(30 + i), message: `вопрос ${i}`, from: { id: `igsid-${runId}-${tag}-${i}` } })) } }] });
+    const lostTag = `meta-inbox-ig-not-delivered:${igUserId}`;
+    /** n входящих от людей; ours — наши ответы раньше их (старые, вне окна сверки). */
+    const igOf = (tag: string, n: number, ours = 0) => ({ data: [{ messages: { data: [
+      ...Array.from({ length: n }, (_, i) => (
+        { id: `m_${runId}_${tag}_${i}`, created_time: ago(30 + i), message: `вопрос ${i}`, from: { id: `igsid-${runId}-${tag}` } })),
+      ...Array.from({ length: ours }, (_, i) => (
+        { id: `m_${runId}_${tag}_our_${i}`, created_time: ago(60 * 30 + i), message: `ответ ${i}`, from: { id: igUserId } })),
+    ] } }] });
     const igPushes = () => sendPushToAgents.mock.calls.filter((c) => String(((c as unknown[])[1] as { title?: string }).title).includes("Instagram «arvan.estate»"));
-    afterAll(async () => { await prisma.pendingDirectorAlert.deleteMany({ where: { tag: valveTag } }); });
+    const alert = (tag: string) => prisma.pendingDirectorAlert.findFirst({ where: { tag } });
+    beforeEach(async () => { await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { in: [valveTag, lostTag] } } }); });
+    afterAll(async () => { await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { in: [valveTag, lostTag] } } }); });
 
-    it("путь Страницы и все 4 входящих «не дошли» — без пушей сотрудникам, одна несрочная тревога руководству", async () => {
+    it("путь Страницы, все 4 входящих и все наши ответы не найдены — поломка сверки: без пушей, тревога руководству", async () => {
       routeOverride.page = true;
-      await prisma.pendingDirectorAlert.deleteMany({ where: { tag: valveTag } });
-      const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, igOf("valve", 4)).impl, STARTED_LONG_AGO);
+      const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, igOf("valve", 4, 2)).impl, STARTED_LONG_AGO);
       expect(result.massMissedPages).toBeGreaterThanOrEqual(1);
       expect(igPushes()).toHaveLength(0);
-      const alert = await prisma.pendingDirectorAlert.findFirst({ where: { tag: valveTag } });
-      expect(alert?.recipientRoles.slice().sort()).toEqual(["ADMIN", "DIRECTOR", "HEAD_OF_SALES"]);
-      // Отметок «уже сказали» нет: если это не поломка сверки, люди узнают, когда путь починят.
+      expect((await alert(valveTag))?.recipientRoles.slice().sort()).toEqual(["ADMIN", "DIRECTOR", "HEAD_OF_SALES"]);
+      expect(await alert(lostTag)).toBeNull();
+      // Отметок «уже сказали» нет: если это не поломка сверки, люди узнают, когда её починят.
       expect(await prisma.processedMessage.count({ where: { channel: "meta-inbox-missed", messageId: { startsWith: `m_${runId}_valve_` } } })).toBe(0);
     });
 
-    it("путь Страницы, «не дошло» 1 из 4 — обычный срочный пуш", async () => {
+    it("путь Страницы, входящих нет в CRM, а наш ответ есть — потеря настоящая (подписку выключили): пуши и тревога «проверьте подписку»", async () => {
       routeOverride.page = true;
-      const body = igOf("one", 4);
-      for (const m of body.data[0]!.messages.data.slice(1)) {
+      await prisma.processedMessage.create({ data: { channel: "out:meta", messageId: `m_${runId}_real_our_0`, completedAt: new Date() } });
+      const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, igOf("real", 4, 2)).impl, STARTED_LONG_AGO);
+      expect(result.massMissedPages).toBe(0);
+      expect(igPushes().length).toBeGreaterThanOrEqual(1);
+      expect((await alert(lostTag))?.body).toContain("Подписка на Webhooks");
+      expect(await alert(valveTag)).toBeNull();
+    });
+
+    it("наш ответ найден в ленте переписки CRM (mid реплики бота) — тоже «пути совпадают»", async () => {
+      routeOverride.page = true;
+      const conv = await prisma.botConversation.create({ data: { channel: "INSTAGRAM", subscriberId: `igsid-${runId}-chat`,
+        messages: [{ role: "assistant", content: "ответ 0", mid: `m_${runId}_chat_our_0` }] as never } });
+      try {
+        const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, igOf("chat", 4, 1)).impl, STARTED_LONG_AGO);
+        expect(result.massMissedPages).toBe(0);
+        expect(igPushes().length).toBeGreaterThanOrEqual(1);
+      } finally {
+        await prisma.botConversation.delete({ where: { id: conv.id } });
+      }
+    });
+
+    it("наших ответов в выборке нет — доказать поломку нечем: пуши как раньше", async () => {
+      routeOverride.page = true;
+      const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, igOf("noours", 4)).impl, STARTED_LONG_AGO);
+      expect(result.massMissedPages).toBe(0);
+      expect(igPushes().length).toBeGreaterThanOrEqual(1);
+      expect(await alert(lostTag)).not.toBeNull();
+    });
+
+    it("«не дошло» 1 из 4 — обычный срочный пуш, без тревог руководству", async () => {
+      routeOverride.page = true;
+      const body = igOf("one", 4, 1);
+      for (const m of body.data[0]!.messages.data.slice(1, 4)) {
         await prisma.processedMessage.create({ data: { channel: "INSTAGRAM", messageId: m.id, completedAt: new Date() } });
       }
       const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, body).impl, STARTED_LONG_AGO);
-      expect(result.massMissedPages).toBe(0);
+      expect(result).toMatchObject({ massMissedPages: 0 });
       expect(igPushes().length).toBeGreaterThanOrEqual(1);
+      expect(await alert(lostTag)).toBeNull();
+      expect(await alert(valveTag)).toBeNull();
     });
 
-    it("личный путь (не Страница) — предохранитель не срабатывает, пуши как раньше", async () => {
-      const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, igOf("personal", 4)).impl, STARTED_LONG_AGO);
+    it("личный путь (не Страница), наших ответов в CRM нет — предохранитель не глушит", async () => {
+      const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, igOf("personal", 4, 2)).impl, STARTED_LONG_AGO);
       expect(result.massMissedPages).toBe(0);
       expect(igPushes().length).toBeGreaterThanOrEqual(1);
     });

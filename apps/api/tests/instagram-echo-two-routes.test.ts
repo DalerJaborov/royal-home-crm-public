@@ -100,6 +100,16 @@ describe("эхо без app_id — сверка по тексту и време�
     expect(await state(id)).toEqual({ count: 2, paused: true });
   });
 
+  it.each([
+    { what: "тот же текст", text: "Здравствуйте!", attachmentType: undefined, content: "Здравствуйте!" },
+    { what: "фото", text: "", attachmentType: "image", content: "[вложение:image]" },
+  ])("чужое приложение (телефон сотрудника), $what через минуту после бота — ручной ответ, пауза", async ({ text, attachmentType, content }) => {
+    const id = await makeConversation();
+    await rememberOutgoingText({ channel: "INSTAGRAM", peer: PEER, content });
+    await echo({ text, attachmentType, echoAppId: "124024574287414" });
+    expect(await state(id)).toEqual({ count: 2, paused: true });
+  });
+
   it("тот же текст ДРУГОМУ человеку — не считается", async () => {
     const id = await makeConversation();
     await rememberOutgoingText({ channel: "INSTAGRAM", peer: `${PEER}-other`, content: "Одинаковый текст" });

@@ -102,6 +102,13 @@ type Grant =
   | { ok: true; at: number; token: string; pageName?: string; igId?: string }
   | { ok: false; at: number; reason: string; auth: boolean };
 const grants = new Map<string, Grant>();
+/**
+ * Скамейка Страницы — ОТДЕЛЬНО от выдачи (ревью #344, второй круг): временная пауза после отказа
+ * Meta не должна выглядеть как «у аккаунта нет пути через Страницу». Иначе повтор личным ключом,
+ * получивший «проверку безопасности», ставил аккаунту ложную отметку «Meta закрыла доступ».
+ */
+const benchedUntil = new Map<string, number>();
+const isBenched = (pageId: string) => (benchedUntil.get(pageId) ?? 0) > Date.now();
 /** Маркер Страницы → id Страницы: узнать уже подменённый маркер (повторный вход, тревога). */
 const pageTokenOwner = new Map<string, string>();
 
@@ -126,6 +133,7 @@ const sentMarks = new Map<string, number>();
 export function resetMetaEternalCache(): void {
   snapshot = null;
   grants.clear();
+  benchedUntil.clear();
   pageTokenOwner.clear();
   scopesMemo.clear();
   adsMemo.clear();
@@ -262,10 +270,12 @@ async function systemPageGrant(pageId: string, systemToken: string): Promise<Gra
 }
 
 /** Выдачу Страницы забыть и 5 минут не пробовать (отказ Meta, 190 на маркере Страницы). */
-function benchPage(pageId: string, reason: string, systemToken?: string): void {
+function benchPage(pageId: string, reason: string): void {
   for (const [token, owner] of pageTokenOwner) if (owner === pageId) pageTokenOwner.delete(token);
-  const keys = systemToken ? [grantKey(pageId, systemToken)] : [...grants.keys()].filter((k) => k.startsWith(`${pageId}:`));
-  for (const key of keys) grants.set(key, { ok: false, at: Date.now(), auth: false, reason });
+  // Выдачу забываем (после паузы маркер Страницы запросим заново), паузу держим отдельно.
+  for (const key of [...grants.keys()]) if (key.startsWith(`${pageId}:`)) grants.delete(key);
+  benchedUntil.set(pageId, Date.now() + FAIL_TTL_MS);
+  console.warn(`[вечные ключи] Страница ${pageId} на паузе ${FAIL_TTL_MS / 60_000} мин: ${reason}`);
 }
 
 export type InstagramRoute =
@@ -290,7 +300,7 @@ function pageOnlyRoute(s: Snapshot, token: string): InstagramRoute | null {
  * Каким путём говорить с Instagram, если в руках — маркер аккаунта. Никогда не
  * бросает: худший исход — прежний личный путь.
  */
-export async function instagramRouteForToken(token: string): Promise<InstagramRoute> {
+export async function instagramRouteForToken(token: string, opts: { ignoreBench?: boolean } = {}): Promise<InstagramRoute> {
   const fallback: InstagramRoute = { kind: "instagram_login", token };
   try {
     const knownPage = pageTokenOwner.get(token);
@@ -301,6 +311,7 @@ export async function instagramRouteForToken(token: string): Promise<InstagramRo
     if (!instagramAllowed(s)) return fallback;
     const account = s.accounts.find((a) => a.channel === "INSTAGRAM" && a.token === token && a.pageId);
     if (!account?.pageId) return fallback;
+    if (!opts.ignoreBench && isBenched(account.pageId)) return fallback;
     const missing = await missingScopes(s.systemToken!, IG_PAGE_SCOPES);
     if (!missing || missing.length) return fallback;
     const grant = await systemPageGrant(account.pageId, s.systemToken!);
@@ -340,6 +351,7 @@ async function facebookRoute(token: string, urlPageId?: string): Promise<{ token
   if (urlPageId && urlPageId !== "me" && urlPageId !== owner.pageId) return null;
   const missing = await missingScopes(s.systemToken!, FB_PAGE_SCOPES);
   if (!missing || missing.length) return null;
+  if (isBenched(owner.pageId)) return null;
   const grant = await systemPageGrant(owner.pageId, s.systemToken!);
   return grant.ok ? { token: grant.token, ...owner } : null;
 }
@@ -426,18 +438,23 @@ export function pageRouteFailed(routed: RoutedCall, status: number, text: string
   try { error = (JSON.parse(text) as { error?: { code?: number; error_subcode?: number; message?: string } }).error; } catch { error = undefined; }
   if (status < 400 || status >= 500 || !error) return false;
   /**
-   * ОТКАЗ ПРО ОДНОГО СОБЕСЕДНИКА — НЕ ОТКАЗ ПУТИ (21.11.2026). «Человек недоступен», «вне окна
-   * 24 часов», лимит частоты: Страница исправна, личный путь ответит тем же. Не скамейка, не
-   * тревога «ключ перестал работать»; ошибка идёт обычным путём (окно, недоступен — как раньше).
-   * «Нет такого собеседника» — один повтор личным ключом (вдруг id не тот на этом пути), без тревоги.
+   * ОТКАЗ ПРО ОДНОГО СОБЕСЕДНИКА — НЕ ОТКАЗ ПУТИ (ревью #344). Страница исправна: без паузы и без
+   * тревоги «ключ перестал работать». Окно 24 часов — без повтора (личный путь ответит тем же, ошибка
+   * идёт обычным путём). Остальное «про клиента» — один повтор личным ключом на всякий случай
+   * (вдруг на этом пути другой id или владелец переписки). Лимит частоты (613) — про приложение и
+   * Страницу: пауза Страницы и повтор личным, но без тревоги о ключе.
    */
-  const recipient = recipientLevelError(error.code, error.error_subcode);
-  if (recipient === "user_not_found") {
-    void logSystemError("meta", `Путь Страницы ${routed.pageId}: Meta не нашла собеседника (код ${error.code}/${error.error_subcode ?? "-"}), ответ ушёл личным ключом аккаунта.`,
-      { dedupKey: `page-route-no-user:${routed.pageId}`, dedupWindowMs: 24 * 60 * 60_000, silent: true });
+  const kind = sendErrorKind(error.code, error.error_subcode);
+  if (kind === "window") return false;
+  if (kind === "recipient") {
+    void logSystemError("meta", `Путь Страницы ${routed.pageId}: отказ про собеседника (код ${error.code}/${error.error_subcode ?? "-"}), ответ повторён личным ключом аккаунта.`,
+      { dedupKey: `page-route-recipient:${routed.pageId}:${error.code}`, dedupWindowMs: 24 * 60 * 60_000, silent: true });
     return true;
   }
-  if (recipient) return false;
+  if (kind === "rate") {
+    benchPage(routed.pageId, `лимит частоты Meta на пути Страницы: код ${error.code}/${error.error_subcode ?? "-"}`);
+    return true;
+  }
   benchPage(routed.pageId, `отказ Meta на пути Страницы: HTTP ${status}${error.code ? ` код ${error.code}` : ""}`);
   if (isPermissionCode(error.code) || isMetaAuthFailure(status, text)) {
     const instagram = routed.route === "instagram_page";
@@ -455,23 +472,29 @@ export function pageRouteFailed(routed: RoutedCall, status: number, text: string
 }
 
 /**
- * Коды Send API «про этого собеседника», а не про путь (первоисточник: Messenger Platform →
- * Error codes, developers.facebook.com/docs/messenger-platform/error-codes, сверено 21.11.2026):
- *  551 (любой подкод), 200/1545041 — «This person isn't available right now»;
- *  10/2018278, 10/2534022, 10/2018065 — «sent outside of allowed window»;
- *  10/2018108 — «They can't receive your messages right now»; 10/1893015 — человек отписался от темы;
- *  10/2018300, 100/2534037 — переписку ведёт другое приложение; 613 — лимиты частоты;
- *  100/2018001, 100/2534014 — «No matching (Instagram) user».
- * НЕ здесь (это отказ пути): 200 без подкода и 200/2018028 — «Cannot message users who are not
- * admins, developers or testers» (нет App Review), 100/2534013 — Страница не связана с Instagram,
- * 10/2534077 — связь Страницы и Instagram, 200/2534041 — владелец закрыл доступ к Direct, 190 — ключ.
+ * Вид отказа Send API (первоисточник: Meta for Developers → Messenger Platform → «Common Error
+ * Codes», developers.facebook.com/docs/messenger-platform/error-codes, страница покрывает и
+ * ошибки Instagram; сверено 21.11.2026, цитаты из таблицы):
+ *  window — 10/2018278 и 10/2534022 «This message is sent outside of allowed window», 10/2018065 то
+ *    же «You need News Messaging permission»: повтор бессмыслен;
+ *  recipient — 551 «This person isn't receiving messages from you right now» (551/1545041 и
+ *    200/1545041 «This person isn't available right now»), 10/2018108 «They can't receive your
+ *    messages right now», 10/1893015 «This user has currently stopped notification messages for
+ *    this topic», 10/2018300 «another app controls the conversation», 100/2534037 «your app is not
+ *    the thread owner», 100/2018001 «No matching user found», 100/2534014 «No matching Instagram user»;
+ *  rate — 613 (613/2534040 «Calls to this api have exceeded the rate limit», 613/1893016; 613/2018338
+ *    — предупреждение по правилам, его раньше разбирает lib/metaSendBlock.ts).
+ * null — отказ пути: 200 без подкода и 200/2018028 «Cannot message users who are not admins,
+ * developers or testers» (нет App Review), 100/2534013 Страница не связана с Instagram, 10/2534077
+ * связь Страницы и Instagram, 200/2534041 владелец закрыл доступ к Direct, 190 — ключ.
  */
-export function recipientLevelError(code: number | null | undefined, subcode: number | null | undefined): "user_not_found" | "recipient" | null {
-  if (code === 100 && (subcode === 2018001 || subcode === 2534014)) return "user_not_found";
-  if (code === 551 || code === 613) return "recipient";
+export function sendErrorKind(code: number | null | undefined, subcode: number | null | undefined): "window" | "recipient" | "rate" | null {
+  if (code === 10 && (subcode === 2018278 || subcode === 2534022 || subcode === 2018065)) return "window";
+  if (code === 613) return "rate";
+  if (code === 551) return "recipient";
   if (code === 200 && subcode === 1545041) return "recipient";
-  if (code === 10 && subcode != null && [2018278, 2534022, 2018065, 2018108, 1893015, 2018300].includes(subcode)) return "recipient";
-  if (code === 100 && subcode === 2534037) return "recipient";
+  if (code === 10 && (subcode === 2018108 || subcode === 1893015 || subcode === 2018300)) return "recipient";
+  if (code === 100 && (subcode === 2534037 || subcode === 2018001 || subcode === 2534014)) return "recipient";
   return null;
 }
 

@@ -2074,6 +2074,8 @@ export async function callGraph<T = unknown>(
     });
   }
   let req = instagramRequest(routed.url, routed.token);
+  /** Повтор личным ключом после отказа пути Страницы: отказ личного — это «запасной ключ», а не «аккаунт закрыт». */
+  let fellBackFromPage = false;
   for (let attempt = 0; ; attempt++) {
     const res = await fetchWithRetry(req.url, {
       method,
@@ -2091,6 +2093,7 @@ export async function callGraph<T = unknown>(
        * ставится ниже, только если откажет и личный путь. Предупреждение (не запрет) идёт как было.
        */
       if (policy && !policy.warning && pageRoutePolicyRefused(routed, res.status, graphError)) {
+        fellBackFromPage = true;
         routed = personal;
         traceKnownSecrets([routed.token]);
         req = instagramRequest(routed.url, routed.token);
@@ -2120,6 +2123,7 @@ export async function callGraph<T = unknown>(
        */
       if (!policyBlock && !policyWarning && routed.route !== "unchanged" && pageRouteFailed(routed, res.status, text)) {
         if (isMetaAuthFailure(res.status, text)) forgetPageToken(routed.token);
+        fellBackFromPage = true;
         routed = personal;
         traceKnownSecrets([routed.token]);
         req = instagramRequest(routed.url, routed.token);
@@ -2129,7 +2133,14 @@ export async function callGraph<T = unknown>(
       if (isMetaAuthFailure(res.status, text)) {
         const failedToken = routed.token;
         forgetPageToken(failedToken);
+        const afterPage = fellBackFromPage;
         void describeMetaToken(failedToken).then(async (who) => {
+          // Повтор личным после отказа Страницы (ревью #344, второй круг): Страница на паузе, но путь
+          // у аккаунта есть — «Meta закрыла доступ» здесь была бы ложной. Запасной ключ, раз в сутки.
+          if (who.instagramAccountId && afterPage) {
+            await noteInstagramBackupKeyDead(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 160)}`);
+            return;
+          }
           // Meta закрыла сам аккаунт Instagram (21.11.2026, Arvan): одна отметка и одна
           // тревога на случай (lib/instagramAccountAccess.ts), а не тревога на каждый вызов.
           if (who.instagramAccountId && isInstagramAccountLockedText(text)) {

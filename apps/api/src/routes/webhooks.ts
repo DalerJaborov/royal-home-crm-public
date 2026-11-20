@@ -1487,8 +1487,12 @@ export function echoIsAutomatic(input: { appId?: string; at: number; lastClientA
   return !!input.appId && KNOWN_AUTOMATION_APP_IDS.has(input.appId) && !META_PAGE_INBOX_APP_IDS.has(input.appId);
 }
 /**
- * Наши приложения Meta: Royal Home Reels (ключ компании, путь через Страницу) и приложение входа
- * через Instagram. Их эхо отправила CRM, а не сотрудник руками (21.11.2026).
+ * Наши приложения Meta, их эхо отправила CRM, а не сотрудник руками (21.11.2026):
+ *  1684679092586215 — Royal Home Reels (ключ компании, путь через Страницу): ФАКТ, прод 21.11 —
+ *    `debug_token` ключа системного пользователя royalhome-crm называет это приложение;
+ *  1353986909508972 — «ID приложения Instagram» у Royal Home Reels (кабинет Meta → Instagram →
+ *    «Настройка API для входа в Instagram»; записано при подключении 31.07.2026 и видно на экране
+ *    кабинета 21.11.2026, координатор). Это приложение входа через Instagram, нынешний путь ответов.
  */
 export const OWN_META_APP_IDS: ReadonlySet<string> = new Set(["1684679092586215", "1353986909508972"]);
 /** Приложения-автоматы Meta (мгновенный ответ, «нет на месте»), чьё эхо — не человек. Пополнять только по замеру. */
@@ -1526,7 +1530,9 @@ export async function handleOutgoingEcho(msg: {
     console.log(`[вебхук] ${msg.channel}: эхо нашего приложения (app ${msg.echoAppId}) с незнакомым mid — не ручной ответ`);
     return;
   }
-  if (await wasRecentlySentText({ channel: msg.channel, peer: msg.senderId,
+  // По тексту — ТОЛЬКО когда app_id нет (ревью #344, второй круг): эхо чужого приложения — это
+  // человек с телефона, и его «Здравствуйте!» или фото через минуту после бота обязано ставить паузу.
+  if (!msg.echoAppId && await wasRecentlySentText({ channel: msg.channel, peer: msg.senderId,
     content: outgoingContentKey({ text: msg.text, attachmentType: msg.attachmentType }) })) {
     traceEchoReason("known_mid");
     console.log(`[вебхук] ${msg.channel}: эхо совпало с нашей отправкой по тексту и времени — не ручной ответ`);

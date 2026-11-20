@@ -50,7 +50,9 @@ export async function instagramAccountPageRouted(accountId: string): Promise<boo
     const row = await prisma.messengerAccount.findUnique({ where: { id: accountId }, select: { token: true } });
     const token = decryptSecretSafe(row?.token ?? null);
     if (!token) return false;
-    const route = await instagramRouteForToken(token);
+    // Настройка пути, а не текущее состояние: временная пауза Страницы после отказа Meta (5 мин)
+    // не делает аккаунт «без пути» (ревью #344, второй круг).
+    const route = await instagramRouteForToken(token, { ignoreBench: true });
     return route.kind === "page" && !route.pageOnly;
   } catch {
     return false;
