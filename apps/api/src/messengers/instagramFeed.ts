@@ -1,7 +1,8 @@
 import { prisma } from "../db.js";
 import { decryptSecretSafe, encryptSecret } from "../crypto.js";
 import { logSystemError } from "../lib/systemError.js";
-import { fetchWithRetry, GRAPH_VERSION, instagramApiUrl, instagramRequest, loadCredentials } from "./meta.js";
+import { fetchWithRetry, instagramApiUrl, loadCredentials } from "./meta.js";
+import { instagramMediaRequest } from "../lib/metaEternalTokens.js";
 import { instagramQueryTokenRequest, isFacebookLoginToken } from "./metaGraph.js";
 import { describeError } from "../lib/describeError.js";
 
@@ -63,7 +64,8 @@ export async function getInstagramMedia(maxAgeMs = CACHE_MS): Promise<InstagramM
   try {
     // С версией, как велит правило самого meta.ts: без неё Graph подставляет
     // «текущую», и поведение меняется молча при её смене на стороне Meta.
-    const req = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me/media?fields=${fields}&limit=${MEDIA_LIMIT}`), igToken);
+    // 21.11.2026: аккаунт на постоянном ключе читает ленту через Страницу (metaEternalTokens.ts).
+    const req = await instagramMediaRequest(igToken, `fields=${fields}&limit=${MEDIA_LIMIT}`);
     const res = await fetchWithRetry(req.url, { headers: req.headers });
     if (!res.ok) {
       throw new Error(`Graph API HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
@@ -134,7 +136,9 @@ const allCache = new Map<number, { items: InstagramMediaItem[]; fetchedAt: numbe
 async function instagramAccountTokens(): Promise<string[]> {
   try {
     const rows = await prisma.messengerAccount.findMany({
-      where: { channel: "INSTAGRAM" },
+      // Аккаунт, к которому Meta закрыла доступ (lib/instagramAccountAccess.ts), ленту не
+      // отдаст: каждые 15 минут строка 401 в журнале — шум о том, что уже известно.
+      where: { channel: "INSTAGRAM", accessLostAt: null },
       select: { token: true },
     });
     const tokens = rows.map((r) => decryptSecretSafe(r.token)).filter((t): t is string => !!t);
@@ -180,11 +184,14 @@ export async function getAllOwnMedia(
   const collected: InstagramMediaItem[] = [];
   let complete = true;
   for (const token of tokens) {
-    let url: string | null = instagramApiUrl(`/${GRAPH_VERSION}/me/media?fields=${fields}&limit=${PAGE_SIZE}`);
+    let next: string | undefined;
+    let first = true;
     let taken = 0;
-    while (url && taken < limit) {
+    while ((first || next) && taken < limit) {
       // Вне try: нужен в catch для диагностики (какой адрес реально фетчили).
-      const req = instagramRequest(url, token);
+      // Через Страницу или личным маркером — решает metaEternalTokens.ts (21.11.2026).
+      const req = await instagramMediaRequest(token, `fields=${fields}&limit=${PAGE_SIZE}`, first ? undefined : next);
+      first = false;
       try {
         const res = await fetchWithRetry(req.url, { headers: req.headers });
         if (!res.ok) {
@@ -217,7 +224,7 @@ export async function getAllOwnMedia(
         }
         // Следующая страница приходит готовой ссылкой; через прокси её надо
         // пересобрать тем же способом, что и первую (см. instagramRequest).
-        url = data.paging?.next ?? null;
+        next = data.paging?.next ?? undefined;
       } catch (err) {
         void logSystemError(
           "meta",
@@ -337,7 +344,7 @@ export async function refreshInstagramTokenIfDue(): Promise<{ refreshed: number;
   let rows: Array<{ id: string; title: string; token: string; tokenRefreshedAt: Date | null; updatedAt: Date }> = [];
   try {
     rows = await prisma.messengerAccount.findMany({
-      where: { channel: "INSTAGRAM" },
+      where: { channel: "INSTAGRAM", accessLostAt: null }, // закрытый Meta аккаунт продлевать нечем (instagramAccountAccess.ts)
       select: { id: true, title: true, token: true, tokenRefreshedAt: true, updatedAt: true },
     });
   } catch (err) {

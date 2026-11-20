@@ -55,7 +55,20 @@ export interface ChannelKeyAlarmInput {
   fix?: string;
   source?: SystemErrorSource;
   now?: Date;
+  /**
+   * Кому и как (21.11.2026, владелец: «тревога руководству — РОП, директор, несрочно,
+   * одна на сутки на аккаунт»). "director" (по умолчанию) — прежнее: срочно директору и
+   * администратору раз в 12 ч. "management" — каналы клиентов Instagram: директору, РОПу
+   * и администратору, «к сведению» (без звонка ночью), не чаще раза в сутки.
+   */
+  audience?: ChannelKeyAudience;
 }
+
+export type ChannelKeyAudience = "director" | "management";
+/** Руководство для тревог каналов клиентов: директор, РОП и администратор. */
+export const MANAGEMENT_ALARM_ROLES = ["DIRECTOR", "HEAD_OF_SALES", "ADMIN"] as const;
+/** «Раз в сутки на аккаунт» для тревог руководству. */
+export const MANAGEMENT_ALERT_EVERY_MS = 24 * 60 * 60_000;
 
 /**
  * ОБЩАЯ ДВЕРЬ СРОЧНОЙ ТРЕВОГИ ДИРЕКТОРУ (14.11.2026, охота на «внезапно и молча», №3).
@@ -84,6 +97,8 @@ export interface CriticalAlarmInput {
   everyMs?: number;
   /** «К сведению»: колокольчик сразу, звонок телефона только в часы алармов (не срочно). */
   quiet?: boolean;
+  /** Кому; по умолчанию директор и администратор. */
+  recipientRoles?: ReadonlyArray<"DIRECTOR" | "ADMIN" | "HEAD_OF_SALES">;
   now?: Date;
 }
 
@@ -115,7 +130,7 @@ export async function raiseCriticalAlarm(input: CriticalAlarmInput): Promise<{ a
         level: "CRITICAL" as const,
         severity: "critical" as const,
         tag,
-        recipientRoles: ["DIRECTOR" as const, "ADMIN" as const],
+        recipientRoles: input.recipientRoles ? [...input.recipientRoles] : ["DIRECTOR" as const, "ADMIN" as const],
       };
       return enqueueDirectorAlert(input.quiet ? { ...params, level: undefined, severity: "info" as const } : params, tx);
     });
@@ -138,12 +153,14 @@ export async function raiseChannelKeyAlarm(input: ChannelKeyAlarmInput): Promise
       // Директору уходит своя тревога ниже — пуш «Новая проблема» был бы дублем.
       silent: true,
     });
+    const management = input.audience === "management";
     return await raiseCriticalAlarm({
       tag,
       title: "Ключ канала перестал работать",
       body: `${input.label}: ${detail.slice(0, 160)}. ${fix}`,
       url: "/settings?tab=channels",
       now,
+      ...(management ? { recipientRoles: MANAGEMENT_ALARM_ROLES, quiet: true, everyMs: MANAGEMENT_ALERT_EVERY_MS } : {}),
     });
   } catch (err) {
     console.error("[channelKeyAlarm] тревога о ключе не поставлена:", err instanceof Error ? err.message : String(err));

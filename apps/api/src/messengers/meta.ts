@@ -54,6 +54,7 @@ import {
   type RoutedCall,
 } from "../lib/metaEternalTokens.js";
 import { isMetaAuthFailure, raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
+import { isInstagramAccountLockedText, noteInstagramAccountLocked } from "../lib/instagramAccountAccess.js";
 export type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 export { verifyAndRegisterMetaCustomerIssuer as verifyCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
 export { verifyAndRegisterPublicMetaCustomerIssuer as verifyPublicCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
@@ -2099,9 +2100,21 @@ export async function callGraph<T = unknown>(
       if (isMetaAuthFailure(res.status, text)) {
         const failedToken = routed.token;
         forgetPageToken(failedToken);
-        void describeMetaToken(failedToken).then((who) =>
-          raiseChannelKeyAlarm({ ...who, detail: `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 200)}` })
-        );
+        void describeMetaToken(failedToken).then(async (who) => {
+          // Meta закрыла сам аккаунт Instagram (21.11.2026, Arvan): одна отметка и одна
+          // тревога на случай (lib/instagramAccountAccess.ts), а не тревога на каждый вызов.
+          if (who.instagramAccountId && isInstagramAccountLockedText(text)) {
+            await noteInstagramAccountLocked(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 200)}`);
+            return;
+          }
+          if (who.accessLost) return;
+          await raiseChannelKeyAlarm({
+            key: who.key,
+            label: who.label,
+            audience: who.audience,
+            detail: `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 200)}`,
+          });
+        });
       }
       const durable = currentCustomerDeliveryTransport();
       if (durable && method === "POST") {

@@ -32,6 +32,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "notifyPropertyReviewOverdueEnabled",
   "botRepliesAfterLeadEnabled",
   "botSpamFilterEnabled",
+  "instagramCompanyKeyEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -119,10 +120,16 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Клиент пишет после заявки: бот коротко отвечает, новое передаёт агенту заметкой. Молчит, пока сотрудник сам ведёт переписку.",
     off: "После заявки бот отвечает только на новую деталь и простые вопросы (условия, где работаем, часы), на остальное молчит и ждёт агента.",
   },
+  // Владелец 21.11.2026: «Да, переводи» — Instagram на постоянный ключ компании (смена пароля не глушит бота).
+  instagramCompanyKeyEnabled: {
+    title: "Instagram через постоянный ключ Meta",
+    on: "Аккаунт Instagram, у которого проверка прошла (Страница Facebook с этим Instagram выдана ключу компании), отвечает через Страницу. Смена пароля Instagram бота не глушит. Если Meta откажет, ответ уйдёт личным маркером аккаунта.",
+    off: "Все аккаунты Instagram отвечают личными маркерами, как раньше. После смены пароля Instagram аккаунт нужно подключить заново.",
+  },
 };
 
 export interface AutomationSwitchGroup {
-  id: "ai" | "tasks" | "notifications" | "bot";
+  id: "ai" | "tasks" | "notifications" | "bot" | "channels";
   title: string;
   /** Ключи группы: свои и уже существовавшие (`dealStaleSellersEnabled`). */
   keys: ReadonlyArray<AutomationSwitchKey | "dealStaleSellersEnabled">;
@@ -138,6 +145,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled"] },
+  { id: "channels", title: "Каналы связи", keys: ["instagramCompanyKeyEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

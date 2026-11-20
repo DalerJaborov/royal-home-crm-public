@@ -26,6 +26,7 @@ const IG_B = "17841400000302";
 async function clear() {
   await prisma.errorLog.deleteMany({ where: { source: "meta", dedupKey: "ig-subscription-app-mismatch", message: { contains: "app-aaa" } } });
   await prisma.botConversation.deleteMany({ where: { subscriberId: { startsWith: "test-igsub-" } } });
+  await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: "ig-account-silent:" } } });
   await prisma.messengerAccount.deleteMany({ where: { externalId: { in: [IG_A, IG_B] } } });
   resetAccountsCache();
 }
@@ -202,6 +203,51 @@ describe("сторож тишины", () => {
     expect(row?.message).toContain("диалоги в CRM не обновлялись");
     expect(row?.message).toContain("Причина паузы неизвестна");
     expect(row?.message).not.toContain("Meta перестала присылать");
+  });
+
+  it("21.11: тишина — ещё и тревога руководству (РОП тоже), «к сведению», одна на эпизод", async () => {
+    const { a, b } = await accounts();
+    await seed(a, "active", 3, daysAgo(0.5));
+    await seed(b, "silent", 12, daysAgo(11));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "same-subscription", subscribed_fields: [...REQUIRED_INSTAGRAM_FIELDS] }] }), { status: 200 })));
+    await runInstagramSubscriptionWatch();
+    await runInstagramSubscriptionWatch();
+    const alerts = await prisma.pendingDirectorAlert.findMany({ where: { tag: { startsWith: `ig-account-silent:${b}:` } } });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].recipientRoles.slice().sort()).toEqual(["ADMIN", "DIRECTOR", "HEAD_OF_SALES"]);
+    expect(alerts[0].body).toContain("Подписка на Webhooks");
+  });
+
+  it("21.11: живой аккаунт (10+ переписок за неделю) замолчал на сутки с лишним — уже тишина (Arvan: ждали трое суток)", async () => {
+    const { a, b } = await accounts();
+    await seed(a, "active", 3, daysAgo(0.2));
+    await seed(b, "busy", 12, daysAgo(1.5));
+    const silent = (await findSilentInstagramAccounts(now)).filter((s) => [a, b].includes(s.id));
+    expect(silent.map((s) => s.title)).toEqual(["Тест Б"]);
+  });
+
+  it("21.11: тот же перерыв у тихого аккаунта (меньше 10 за неделю) — ещё не тишина", async () => {
+    const { a, b } = await accounts();
+    await seed(a, "active", 3, daysAgo(0.2));
+    await seed(b, "calm", 9, daysAgo(1.5));
+    await seed(b, "calm-old", 3, daysAgo(20));
+    const silent = (await findSilentInstagramAccounts(now)).filter((s) => [a, b].includes(s.id));
+    expect(silent).toEqual([]);
+  });
+
+  it("21.11: аккаунт, к которому Meta закрыла доступ, — не «молчит» и подписку не дёргаем", async () => {
+    const { a, b } = await accounts();
+    await seed(a, "active", 3, daysAgo(0.5));
+    await seed(b, "locked", 12, daysAgo(11));
+    await prisma.messengerAccount.update({ where: { id: b }, data: { accessLostAt: new Date(), accessLostReason: "HTTP 401" } });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "same-subscription", subscribed_fields: [...REQUIRED_INSTAGRAM_FIELDS] }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const silent = (await findSilentInstagramAccounts(now)).filter((s) => [a, b].includes(s.id));
+    expect(silent).toEqual([]);
+    expect(await checkInstagramSubscriptions()).toMatchObject({ failed: 0 });
+    // Маркер закрытого аккаунта («t-b») в запросах не встречается вовсе.
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toMatch(/Bearer t-b"|access_token=t-b/);
+    expect(JSON.stringify(fetchMock.mock.calls)).toMatch(/t-a/);
   });
 
   it("тихо у всех — не тревога (выходные, а не поломка)", async () => {

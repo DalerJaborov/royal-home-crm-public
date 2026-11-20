@@ -22339,6 +22339,8 @@
 - пробует
   - const { restored, failed, silent } = await runInstagramSubscriptionWatch();
     · зовёт runInstagramSubscriptionWatch()
+    - await autoLinkInstagramPages().catch((err)
+      · зовёт autoLinkInstagramPages()
     - const totals = await checkInstagramSubscriptions();
       · зовёт checkInstagramSubscriptions()
     - const silent = await findSilentInstagramAccounts();
@@ -22346,6 +22348,8 @@
     - для каждого: const s of silent
       - await logSystemError( "meta", `Instagram «${s.title}»: диалоги в CRM не обновлялись с ${last}, хотя у другого…
         · запись в журнал ошибок
+      - await raiseCriticalAlarm({ tag: `ig-account-silent:${s.id}:${last}`, title: "Instagram: в аккаунт не приходят…
+        · зовёт raiseCriticalAlarm()
   - если restored || failed || silent
     - console.log( `[cron] Подписка Instagram: восстановлено ${restored}, не проверено ${failed}, замолчавших аккау…
       · пишет строку в журнал сервера
@@ -25906,7 +25910,7 @@
         - void logSystemError("meta", `Маркер Instagram (копия в Настройках) не продлён: ${describeError(err)}`);
           · запись в журнал ошибок
     - пробует
-      - rows = await prisma.messengerAccount.findMany({ where: { channel: "INSTAGRAM" }, select: { id: true, title: t…
+      - rows = await prisma.messengerAccount.findMany({ where: { channel: "INSTAGRAM", accessLostAt: null }, select: …
         · читает в базе: messengerAccount
     - если сорвалось
       - void logSystemError( "meta", `Список аккаунтов Instagram не прочитан — продление маркеров пропущено в этом ти…

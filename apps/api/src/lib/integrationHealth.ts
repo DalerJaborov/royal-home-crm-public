@@ -9,7 +9,8 @@ import { inspectTelegramChat, isBasicGroupChatId } from "./telegramChatInspect.j
 import { migrateSettingsTelegramChat } from "./settingsTelegramChatMigration.js";
 import { loadCredentials, GRAPH_VERSION, instagramApiUrl, instagramRequest, fetchWithRetry, isFacebookLoginToken } from "../messengers/meta.js";
 import { facebookPageTokenFor, instagramRouteForToken } from "./metaEternalTokens.js";
-import { isMetaAuthFailure, isMetaAuthFailureText, raiseChannelKeyAlarm, raiseCriticalAlarm } from "./channelKeyAlarm.js";
+import { isMetaAuthFailure, isMetaAuthFailureText, MANAGEMENT_ALARM_ROLES, raiseChannelKeyAlarm, raiseCriticalAlarm } from "./channelKeyAlarm.js";
+import { clearInstagramAccountLocked, isInstagramAccountLockedText, noteInstagramAccountLocked } from "./instagramAccountAccess.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { listAccounts, accountTokenById } from "../messengers/accounts.js";
 import { r2HealthCheck } from "./r2Client.js";
@@ -385,7 +386,7 @@ export async function checkInstagramAccountsHealth(
 ): Promise<IntegrationCheck[]> {
   const rows = await prisma.messengerAccount.findMany({
     where: { channel: "INSTAGRAM", ...(onlyIds ? { id: { in: onlyIds } } : {}) },
-    select: { id: true, title: true, token: true, tokenRefreshedAt: true, updatedAt: true },
+    select: { id: true, title: true, token: true, tokenRefreshedAt: true, updatedAt: true, accessLostAt: true },
   });
   if (rows.length === 0) return [{ name: "Instagram", ok: null, detail: "не настроен" }];
 
@@ -413,7 +414,7 @@ export async function checkInstagramAccountsHealth(
         } else {
           await report("meta", `Ключ Страницы у Instagram «${row.title}» не работает — аккаунт не сможет отвечать клиентам: ${r.detail}. Войдите через Facebook заново в Настройках → Каналы.`);
           if (isMetaAuthFailureText(r.detail)) {
-            await raiseChannelKeyAlarm({ key: `account:${row.id}`, label: `Instagram «${row.title}» (ключ Страницы)`, detail: r.detail });
+            await raiseChannelKeyAlarm({ key: `account:${row.id}`, label: `Instagram «${row.title}» (ключ Страницы)`, detail: r.detail, audience: "management" });
           }
           out.push({ name, ok: false, detail: r.detail });
         }
@@ -441,6 +442,23 @@ export async function checkInstagramAccountsHealth(
             `Переписка идёт ключом компании через Страницу; если она откажет, отвечать будет нечем.`,
           { dedupKey: `ig-backup-key-dead:${row.id}`, dedupWindowMs: DAY_MS, silent: true }
         );
+        /**
+         * Руководству «к сведению», раз в сутки (21.11.2026): ответы идут, но входящие этого
+         * аккаунта приходят по подписке входа через Instagram, а она держится на личном
+         * маркере — без переподключения их можно потерять. Не «ключ канала умер»: бот отвечает.
+         * Закрытый Meta аккаунт сюда не доходит (accessLostAt, отдельная тревога).
+         */
+        if (!row.accessLostAt) {
+          await raiseCriticalAlarm({
+            tag: `ig-backup-key-dead:${row.id}`,
+            title: "Instagram: переподключите аккаунт",
+            body: `«${row.title}»: бот отвечает через Страницу, но личный маркер не работает (${backup.detail.slice(0, 80)}). Переподключите аккаунт в Настройках → Каналы, чтобы не пропали входящие.`,
+            url: "/settings?tab=channels",
+            quiet: true,
+            recipientRoles: MANAGEMENT_ALARM_ROLES,
+            everyMs: DAY_MS,
+          });
+        }
         out.push({ name, ok: true, detail: `вечный ключ через Страницу ${route.pageId}; предупреждение: запасной личный не работает` });
       }
       continue;
@@ -453,7 +471,15 @@ export async function checkInstagramAccountsHealth(
       let body: { username?: string; error?: { message?: string } } = {};
       try { body = JSON.parse(raw); } catch { body = {}; }
       if (res.ok) {
+        if (row.accessLostAt) await clearInstagramAccountLocked(row.id, "probe_ok");
         out.push({ name, ok: true, detail: body.username ? `@${body.username}` : `HTTP ${res.status}` });
+      } else if (row.accessLostAt || isInstagramAccountLockedText(raw)) {
+        // Meta закрыла сам аккаунт (21.11.2026, lib/instagramAccountAccess.ts): одна отметка
+        // и одна тревога на случай; ежедневная проверка дальше молчит, пока доступ не вернётся.
+        const detail = `HTTP ${res.status}: ${body.error?.message ?? "без пояснения"}`;
+        if (!row.accessLostAt) await noteInstagramAccountLocked(row.id, detail);
+        out.push({ name, ok: null, detail: `Meta закрыла доступ к аккаунту с ${(row.accessLostAt ?? new Date()).toISOString().slice(0, 10)}` });
+        continue;
       } else {
         const detail = `HTTP ${res.status}: ${body.error?.message ?? "без пояснения"}`;
         await report(
@@ -462,7 +488,7 @@ export async function checkInstagramAccountsHealth(
             `Проверить в Настройках → Каналы.`
         );
         if (isMetaAuthFailure(res.status, raw)) {
-          await raiseChannelKeyAlarm({ key: `account:${row.id}`, label: `Instagram «${row.title}» (личный маркер)`, detail });
+          await raiseChannelKeyAlarm({ key: `account:${row.id}`, label: `Instagram «${row.title}» (личный маркер)`, detail, audience: "management" });
         }
         out.push({ name, ok: false, detail });
       }

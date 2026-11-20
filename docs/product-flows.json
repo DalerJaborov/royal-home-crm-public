@@ -99534,6 +99534,14 @@
        "c": [
         {
          "k": "do",
+         "t": "await autoLinkInstagramPages().catch((err)",
+         "a": [
+          "зовёт autoLinkInstagramPages()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const totals = await checkInstagramSubscriptions();",
          "a": [
           "зовёт checkInstagramSubscriptions()"
@@ -99558,6 +99566,14 @@
            "t": "await logSystemError( \"meta\", `Instagram «${s.title}»: диалоги в CRM не обновлялись с ${last}, хотя у другого…",
            "a": [
             "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await raiseCriticalAlarm({ tag: `ig-account-silent:${s.id}:${last}`, title: \"Instagram: в аккаунт не приходят…",
+           "a": [
+            "зовёт raiseCriticalAlarm()"
            ],
            "c": []
           }
@@ -116229,7 +116245,7 @@
          "c": [
           {
            "k": "do",
-           "t": "rows = await prisma.messengerAccount.findMany({ where: { channel: \"INSTAGRAM\" }, select: { id: true, title: t…",
+           "t": "rows = await prisma.messengerAccount.findMany({ where: { channel: \"INSTAGRAM\", accessLostAt: null }, select: …",
            "a": [
             "читает в базе: messengerAccount"
            ],

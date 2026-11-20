@@ -51,6 +51,7 @@ import { isMetaChannelEnabled, isMetaEnabled } from "../messengers/meta.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { logSystemError } from "./systemError.js";
+import { instagramRouteForToken } from "./metaEternalTokens.js";
 
 /** Пока вебхук мог ещё не дойти, Meta повторяет доставку после сбоя или бот ждёт склейки — не тревожим. */
 export const GRACE_MS = 15 * 60_000;
@@ -188,7 +189,7 @@ export async function listFacebookPageInboxes(): Promise<PageInbox[]> {
 /** Все аккаунты Instagram из «Каналов» с ключом (переписка ходит маркером аккаунта, вход через Instagram). */
 export async function listInstagramInboxes(): Promise<PageInbox[]> {
   const accounts = await prisma.messengerAccount.findMany({
-    where: { channel: "INSTAGRAM", enabled: true },
+    where: { channel: "INSTAGRAM", enabled: true, accessLostAt: null },
     select: { externalId: true, messagingId: true, extraExternalIds: true, username: true, title: true, token: true },
   });
   const out: PageInbox[] = [];
@@ -226,8 +227,13 @@ export async function fetchPageInbox(page: PageInbox, fetchImpl: GraphFetch = de
   const fields = `messages.limit(${MESSAGES_PER_CONVERSATION}){id,created_time,message,from}`;
   if (page.channel === "INSTAGRAM") {
     // Instagram — graph.instagram.com маркером аккаунта; с нашего сервера — через прокси, если он задан.
-    const req = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me/conversations?platform=instagram&limit=${CONVERSATIONS_PER_PAGE}` +
-      `&fields=${encodeURIComponent(fields)}`), page.token);
+    // Аккаунт на постоянном ключе (21.11.2026) — через свою Страницу: сверка не слепнет,
+    // когда личный маркер умер (а именно тогда она нужнее всего). IGSID у путей одни.
+    const query = `platform=instagram&limit=${CONVERSATIONS_PER_PAGE}&fields=${encodeURIComponent(fields)}`;
+    const route = await instagramRouteForToken(page.token);
+    const req = route.kind === "page"
+      ? { url: `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(route.pageId)}/conversations?${query}`, headers: { Authorization: `Bearer ${route.token}` } }
+      : instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me/conversations?${query}`), page.token);
     const body = (await (await fetchImpl(req.url, req.headers)).json()) as GraphConversations;
     // Своя реплика по нику — приводим к основному id, дальше правила общие (ревью 199-2).
     if (page.ownUsername) {
