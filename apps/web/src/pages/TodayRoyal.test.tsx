@@ -30,7 +30,8 @@ vi.mock("../hooks/useTeamLive", async (importOriginal) => ({ ...await importOrig
 vi.mock("../hooks/useDashboard", async (importOriginal) => ({ ...await importOriginal<typeof import("../hooks/useDashboard")>(), useDashboardSummary: () => ({ data: undefined, isPending: false, isError: false }) }));
 vi.mock("../hooks/useClients", async (importOriginal) => ({ ...await importOriginal<typeof import("../hooks/useClients")>(), useClients: () => ({ data: { items: [], total: 0 }, isPending: false, isError: false }) }));
 
-import { TodayRoyal, channelBrand, greetingFor, monthPace } from "./TodayRoyal";
+import { TodayRoyal } from "./TodayRoyal";
+import { channelBrand, greetingFor, monthPace } from "../components/look/home/time";
 
 const render = () => renderToString(
   <QueryClientProvider client={new QueryClient()}><MemoryRouter><TodayRoyal /></MemoryRouter></QueryClientProvider>,
@@ -103,5 +104,15 @@ describe("«Сегодня» в новом виде", () => {
   it("админ без права на аналитику видит прежний текст", () => {
     state.analytics = false;
     expect(render()).toContain("Раздел доступен только руководству.");
+  });
+
+  it("подпись графика комиссии для чтеца — целые сомони, без копеек (ревью PR 326)", () => {
+    state.mc = { data: { ...emptySnapshot, commission12: { reason: null, months: [{ month: "2026-10", amountTjs: 999.4, deals: 1 }, { month: "2026-11", amountTjs: 1234.6, deals: 2 }], totalTjs: 2234, bestMonth: null, expensesMonthTjs: 0 } }, isLoading: false, isError: false };
+    state.rows = [];
+    const html = render();
+    expect(html).toContain("Комиссия по месяцам");
+    expect(html).toContain(`Ноябрь 2026 ${(1235).toLocaleString("ru-RU")}`);
+    expect(html).toMatch(/Октябрь 2026 999[,\s]/);
+    expect(html).not.toMatch(/234,6|999,4/);
   });
 });

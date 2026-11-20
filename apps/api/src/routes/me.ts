@@ -9,6 +9,7 @@ import {
   ownerAnswerSchema,
   customerRequestTransitionSchema, customerRequestCloseSchema,
   uiPreferencesSchema,
+  homePreferencesSchema,
   montageCopiesUpdateSchema,
   migrateLegacyTheme,
   type ActiveCallView,
@@ -354,10 +355,23 @@ meRouter.put("/preferences", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
-  const agent = await prisma.agent.update({
-    where: { id: req.agent!.id },
-    data: { preferences: parsed.data },
-    select: { preferences: true },
+  // Раскладка главной «Нового вида» (`home`) — своё поле с отдельным сохранением
+  // (ревью #326): тело БЕЗ неё (старая вкладка, обычное сохранение темы) её не
+  // стирает, а сохранённая остаётся. Сброс «Вернуть как было» шлёт `home: { blocks: {} }`.
+  // Чтение и запись — в одной транзакции, чтобы параллельное сохранение раскладки
+  // не потерялось между ними.
+  const agent = await prisma.$transaction(async (tx) => {
+    let data: typeof parsed.data = parsed.data;
+    if (data.home === undefined) {
+      const current = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { preferences: true } });
+      const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);
+      if (kept.success && kept.data) data = { ...data, home: kept.data };
+    }
+    return tx.agent.update({
+      where: { id: req.agent!.id },
+      data: { preferences: data },
+      select: { preferences: true },
+    });
   });
   res.json(agent.preferences ?? {});
 });

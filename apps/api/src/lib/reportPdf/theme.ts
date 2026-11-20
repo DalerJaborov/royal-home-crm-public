@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Font } from "@react-pdf/renderer";
+import { monthShort as sharedMonthShort, monthTitle as sharedMonthTitle } from "@royal-home/shared";
 import { dushanbeWallClock } from "../dushanbeTime.js";
 
 /**
@@ -90,21 +91,16 @@ export function percent(value: number | null | undefined): string {
   return `${Math.round(value)} %`;
 }
 
-const MONTHS_NOM = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
-const MONTHS_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 
-/** «2026-11» → «Ноябрь 2026». */
+/** «2026-11» → «Ноябрь 2026». Правило одно на сервер и сайт — packages/shared/src/monthLabels.ts. */
 export function monthTitle(key: string): string {
-  const [y, m] = key.split("-").map(Number);
-  const name = MONTHS_NOM[(m ?? 1) - 1] ?? key;
-  return `${name[0]!.toUpperCase()}${name.slice(1)} ${y}`;
+  return sharedMonthTitle(key);
 }
 
-/** «2026-11» → «ноя». */
+/** «2026-11» → «ноя». Правило одно на сервер и сайт — packages/shared/src/monthLabels.ts. */
 export function monthShort(key: string): string {
-  const m = Number(key.split("-")[1]);
-  return MONTHS_SHORT[m - 1] ?? key;
+  return sharedMonthShort(key);
 }
 
 /** «2026-11-03» → «3 ноября 2026». */

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ClientSource } from "@royal-home/shared";
+import { monthShort, monthTitle, type ClientSource } from "@royal-home/shared";
 import { useCan } from "../../lib/permissions";
 import { useDashboardCharts } from "../../hooks/useCharts";
 import { useDashboardInsights } from "../../hooks/useDashboard";
@@ -35,23 +35,7 @@ import { RhBlockState, RhCircle, RhGroup, RhRow, RhSection } from "../look/ui";
 /** `royal` — главная «Нового вида» (components/look/home, 20.11.2026): разделы и строки нового вида. */
 type Host = "screen" | "pult" | "phone" | "royal";
 
-const MONTH_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-const MONTH_NOM = [
-  "Январь",
-  "Февраль",
-  "Март",
-  "Апрель",
-  "Май",
-  "Июнь",
-  "Июль",
-  "Август",
-  "Сентябрь",
-  "Октябрь",
-  "Ноябрь",
-  "Декабрь",
-];
-const monthIdx = (ym: string) => Math.max(0, Math.min(11, Number(ym.slice(5, 7)) - 1));
-const monthTitle = (ym: string) => `${MONTH_NOM[monthIdx(ym)]} ${ym.slice(0, 4)}`;
+// Подписи месяца — одно правило на сервер и сайт (packages/shared/src/monthLabels.ts).
 const num = (n: number) => n.toLocaleString("ru-RU");
 
 interface Block {
@@ -105,7 +89,7 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
           lastValueLabel={num(last.commission ?? 0)}
           items={commission.map((m) => ({
             key: m.month,
-            label: MONTH_SHORT[monthIdx(m.month)],
+            label: monthShort(m.month),
             value: m.commission ?? 0,
             tip: `${monthTitle(m.month)}|${num(m.commission ?? 0)} сомони · ${m.deals} ${pluralizeRu(m.deals, ["сделка", "сделки", "сделок"])}`,
           }))}
@@ -129,7 +113,7 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
           lastValueLabel={num(props[props.length - 1]?.added ?? 0)}
           items={props.map((m) => ({
             key: m.month,
-            label: MONTH_SHORT[monthIdx(m.month)],
+            label: monthShort(m.month),
             value: m.added,
             tip: `${monthTitle(m.month)}|добавлено ${num(m.added)} · продано ${num(m.sold)}`,
           }))}

@@ -10,6 +10,7 @@ export * from "./money.js";
 export * from "./geo.js";
 export * from "./geoText.js";
 export * from "./dushanbeDay.js";
+export * from "./monthLabels.js";
 export * from "./daysOff.js";
 export * from "./tajikPhone.js";
 export * from "./maskContacts.js";

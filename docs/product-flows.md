@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4146**. Модулей: **87**.
+Путей: **776**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4148**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -9595,8 +9595,21 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const agent = await prisma.agent.update({ where: { id: req.agent!.id }, data: { preferences: parsed.data }, s…
+- const agent = await prisma.$transaction(async (tx)
+  · всё внутри — одной транзакцией
+  · читает в базе: agent
   · меняет в базе: agent
+  · проверяет данные схемой homePreferencesSchema
+  - если data.home === undefined
+    - const current = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { preferences: true } });
+      · читает в базе: agent
+    - const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);
+      · проверяет данные схемой homePreferencesSchema
+    - если kept.success && kept.data
+      - data = { ...data, home: kept.data };
+        · дословно из кода
+  - return tx.agent.update({ where: { id: req.agent!.id }, data: { preferences: data }, select: { preferences: tr…
+    · меняет в базе: agent
 - res.json(agent.preferences ?? {});
   · ответ 200
 
