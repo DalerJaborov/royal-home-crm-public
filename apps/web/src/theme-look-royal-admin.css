@@ -384,7 +384,8 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button:hover:not(:disabled) { background: var(--rh-ui-hover); }
 /* Здесь .seg — набор отдельных меток с переносом (много вариантов), а не капсула: выбранная —
    как выбранная вкладка, мягкий синий (белая на белых метках была бы не видна). */
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg:not(.rh-tabs) > button[aria-selected="true"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg:not(.rh-tabs) > button:is([aria-selected="true"], [aria-pressed="true"]) { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg:not(.rh-tabs) > button:is([aria-selected="true"], [aria-pressed="true"]):is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg.rh-tabs { flex-wrap: wrap; overflow: visible; background: transparent; box-shadow: none; }
 /* Разделы профиля и настроек — вкладки (Tabs), а не переключатель: без трека, выбранная — мягкий синий. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg.rh-tabs > button[aria-selected="true"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
