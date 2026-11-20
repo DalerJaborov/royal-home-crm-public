@@ -16,7 +16,7 @@ function release(p: Player) {
   p.el = null; p.url = null;
 }
 
-export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disabled, name, lastPickedId }: {
+export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disabled, name, lastPickedId, recommendedId }: {
   voices: Voice[];
   value: string | null;
   onChange: (voiceId: string) => void;
@@ -27,6 +27,8 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
   name: string;
   /** Голос, который этот сотрудник выбрал в прошлый раз (12.11.2026): подпись рядом с именем. */
   lastPickedId?: string | null;
+  /** Голос по умолчанию из Настроек (20.11.2026): подпись «по умолчанию». */
+  recommendedId?: string | null;
 }) {
   const [playing, setPlaying] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -73,11 +75,13 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
                 <div key={voice.id} className={`flex min-w-0 flex-col gap-2 rounded-2xl border-2 p-3 ${on ? "border-blue bg-blue/10" : "border-line"}`}>
                   <label className="flex min-h-12! min-w-0 cursor-pointer items-center gap-2 text-[17px]">
                     <input type="radio" name={name} value={voice.id} checked={on} onChange={() => onChange(voice.id)} />
-                    <span className="truncate font-medium">{voice.name}</span>
+                    {/* Имя целиком, переносом, а не «Nataly Vershini…» (20.11.2026, кадр владельца с телефона). */}
+                    <span className="min-w-0 break-words font-medium">{voice.name}</span>
                   </label>
-                  {lastPickedId === voice.id && <span className="text-[15px] text-[var(--muted)]">последний раз выбран</span>}
+                  {(recommendedId === voice.id || lastPickedId === voice.id) && <span className="text-[15px] text-[var(--muted)]">
+                    {[recommendedId === voice.id ? "по умолчанию" : null, lastPickedId === voice.id ? "вы выбирали в прошлый раз" : null].filter(Boolean).join(", ")}</span>}
                   {has.has(voice.id) && (
-                    <button type="button" className="pill min-h-12! text-base!" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
+                    <button type="button" className="pill ghost min-h-12! text-base!" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
                       onClick={() => void play(voice)}>
                       {playing === voice.id ? "■ Стоп" : "▶ Прослушать"}
                     </button>

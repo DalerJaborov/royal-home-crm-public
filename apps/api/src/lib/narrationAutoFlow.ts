@@ -473,6 +473,17 @@ export async function ownMusicRemixApplies(propertyId: string): Promise<boolean>
   return (await remixWanted(propertyId))?.mode === "MUSIC";
 }
 
+/**
+ * CRM САМА НАЛОЖИТ ОЗВУЧКУ НА РОЛИК (20.11.2026): то же решение, что у обхода remixFromMasters (отправка включена
+ * и remixWanted видит, что сводить). Карточка показывает «CRM накладывает» только по нему: раньше строка ставилась
+ * по признакам «ролик вышел, наложенной версии нет», и на объекте, где голос вклеил монтажёр (№209, 19.11), висела
+ * сутками, хотя накладывать было нечего.
+ */
+export async function narrationRemixPending(propertyId: string): Promise<boolean> {
+  if (mediaExecutionMode("NARRATION") !== "LIVE") return false;
+  return !!(await remixWanted(propertyId));
+}
+
 /** Перемикс из мастера возможен: отправка включена, у объекта есть ролик без голоса, он не у монтажёра. */
 async function crmRemixApplies(propertyId: string): Promise<boolean> {
   if (mediaExecutionMode("NARRATION") !== "LIVE") return false;
@@ -548,7 +559,8 @@ export async function remixFromMaster(propertyId: string, now: Date = new Date()
   if (mediaExecutionMode("NARRATION") !== "LIVE") return "SKIPPED";
   // Метку ставим, только когда сведение и правда нужно (повторное ревью): иначе каждый тик
   // трогал бы updatedAt всех объектов с роликом без голоса.
-  if (!(await remixWanted(propertyId))) return "SKIPPED";
+  const wanted = await remixWanted(propertyId);
+  if (!wanted) return "SKIPPED";
   // Замок на сам ролик (ревью 12.11.2026): ffmpeg идёт до 9 минут, а задача — раз в минуту с
   // пределом 170 с; следующий тик не запускает вторую копию сведения того же ролика.
   const claimedAt = now;
@@ -559,9 +571,57 @@ export async function remixFromMaster(propertyId: string, now: Date = new Date()
   if (!claim.count) return "SKIPPED";
   try {
     return await remixFromMasterClaimed(propertyId);
+  } catch (err) {
+    // Сбой не через fail() (исключение: диск, база, сам ffmpeg) раньше не ставил отметку ошибки: обход брал ролик
+    // каждую минуту заново, а карточка вечно писала «накладываем» (20.11.2026). Теперь — отметка на версии, одна
+    // строка журнала и кнопка «Попробовать ещё раз» в карточке (retryNarrationRemix).
+    return markNarrationRemixCrashed(propertyId, wanted.latest.id, err);
   } finally {
     await prisma.property.updateMany({ where: { id: propertyId, videoMasterMixingAt: claimedAt }, data: { videoMasterMixingAt: null } }).catch(() => {});
   }
+}
+
+/** Начало отметки сбоя наложения исключением: по ней карточка предлагает повтор (не «длиннее ролика»). */
+export const NARRATION_REMIX_CRASH_MARK = "Сбой при наложении озвучки";
+/** Отметка ставится на ту версию, которую сводили (id из remixWanted), а не на последнюю по номеру: пока шло сведение,
+ *  могла появиться новая версия, и сбой старой не должен её закрыть (ревью #334). */
+async function markNarrationRemixCrashed(propertyId: string, versionId: string, err: unknown): Promise<NarrationRemixOutcome> {
+  const reason = err instanceof Error ? err.message : String(err);
+  const [p, latest] = await Promise.all([
+    prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true } }),
+    prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { id: true, revision: true } }),
+  ]);
+  if (latest) {
+    await prisma.property.updateMany({ // NULL «<> id» в SQL не проходит: ролик, на который CRM ещё ничего не накладывала, — отдельным условием.
+      where: { id: propertyId, OR: [{ videoMasterNarrationVersionId: null }, { videoMasterNarrationVersionId: { not: latest.id } }] },
+      data: { videoMasterMixError: `${NARRATION_REMIX_CRASH_MARK}: ${reason}`.slice(0, 500), videoMasterMixErrorVersionId: latest.id } });
+  }
+  void logSystemError("video-handoff", `Объект №${p?.shortId ?? "?"}: новая озвучка${latest ? ` (версия ${latest.revision})` : ""} не наложена на ролик, сбой: ${reason}. Вышедший ролик остался прежним; повтор — кнопкой в карточке объекта.`,
+    { dedupKey: `narration-remix-crash:${latest?.id ?? propertyId}` });
+  return "FAILED";
+}
+
+export type NarrationRemixRetry = "QUEUED" | "NOTHING_TO_RETRY";
+/** Повтор доступен: на текущей версии стоит отметка именно сбоя наложения (не «длиннее ролика», не отказ своей музыки,
+ *  после которого ролик ушёл монтажёру). Одно правило для карточки (mix.canRetry) и двери повтора. */
+export function narrationRemixRetryable(p: { videoMasterMixError: string | null; videoMasterMixErrorVersionId: string | null }, latestId: string | undefined): boolean {
+  return !!latestId && p.videoMasterMixErrorVersionId === latestId && !!p.videoMasterMixError?.startsWith(NARRATION_REMIX_CRASH_MARK);
+}
+/**
+ * «ПОПРОБОВАТЬ ЕЩЁ РАЗ» (20.11.2026): снять отметку сбоя наложения с текущей утверждённой версии — обход
+ * перемикса возьмёт ролик в течение минуты. Только сбой (метка NARRATION_REMIX_CRASH_MARK): «голос длиннее ролика»
+ * и отказ своей музыки идут своим путём (короче текст или монтажёр), их повтор не снимает. Бесплатно: сводит ffmpeg на сервере, ElevenLabs не зовётся.
+ */
+export async function retryNarrationRemix(propertyId: string, actorId: string): Promise<NarrationRemixRetry> {
+  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true, status: true, approvedAt: true } });
+  if (!latest || latest.status !== "READY" || !latest.approvedAt) return "NOTHING_TO_RETRY";
+  const cleared = await prisma.property.updateMany({
+    where: { id: propertyId, videoMasterMixErrorVersionId: latest.id, videoMasterMixError: { startsWith: NARRATION_REMIX_CRASH_MARK } },
+    data: { videoMasterMixError: null, videoMasterMixErrorVersionId: null },
+  });
+  if (!cleared.count) return "NOTHING_TO_RETRY";
+  logAgentAudit(actorId, "PROPERTY_NARRATION_REMIX_RETRY", "Property", propertyId, { narrationVersionId: latest.id });
+  return "QUEUED";
 }
 
 /**
