@@ -416,7 +416,7 @@
 
 /* ================================ телефон ================================ */
 
-@media (max-width: 1023.98px) {
+@media (max-width: 1099.98px) {
   :root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 819.98px) {

@@ -137,7 +137,9 @@ const TEXT_SCREENS: Screen[] = [
   { url: "/clients", ready: '[data-ry-section="clients"]' },
   { url: "/properties", ready: ".ry-objects-head" },
   { url: `/messages?open=${LOOK_CONVERSATION_ID}`, ready: ".bub", kinds: ["ghostCall", "blur", "smallText", "fieldFrame"] },
-  { url: "/finance", ready: "main#main" },
+  // «Деньги» — раздел директора параллельной ветки: пустая область «note» у карточки трат есть и при
+  // обычном тексте (данных для строки нет) — её проверит та ветка.
+  { url: "/finance", ready: "main#main", kinds: GEOMETRY_KINDS.filter((k) => k !== "emptyArea") },
 ];
 for (const textSize of ["large", "xlarge"] as const) {
   for (const theme of ["light", "dark"] as const) {
@@ -150,7 +152,8 @@ for (const textSize of ["large", "xlarge"] as const) {
           const context = await contextForRole(browser, role, phone(IPHONE_UA, theme)(width));
           const page = await context.newPage();
           await stubLookVisualData(page, { textSize });
-          for (const screen of TEXT_SCREENS) {
+          // Главная агента на телефоне — по настройке сервера (#329), подмена /ui-shell новый вид не включает.
+          for (const screen of TEXT_SCREENS.filter((sc) => !(role === "AGENT" && sc.url === "/"))) {
             await open(page, screen);
             await page.evaluate(() => document.fonts.ready.then(() => true));
             for (const f of await geometryFindings(page, { skip: screen.skip, kinds: kindsAt(width, screen.kinds) })) problems.push(`${role} ${screen.url} @${width} ${textSize}: ${f}`);

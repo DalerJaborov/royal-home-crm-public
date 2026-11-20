@@ -46,8 +46,12 @@ const BASELINE = join(ROOT, ".look-audit-baseline.json");
 export const TOKEN_FILE = "theme-look-royal.css";
 const LOOK_FILE = /^theme-look-royal(-[\w-]+)?\.css$/;
 
-/** Точки перелома: 360, 390 узкий телефон, 768 планшет, 820 граница разметки useMobileUx, 1024 ПК, 1440 широкий. */
-export const BREAKPOINTS = [360, 390, 768, 820, 1024, 1440];
+/**
+ * Точки перелома: 360, 390 узкий телефон, 768 планшет, 820 граница разметки useMobileUx, 1024 ПК,
+ * 1100 — ПК с боковым меню, где содержимому меньше ~850 px (плитки «Телефонии» 2×2, узкий список
+ * чатов; на 1024–1099 четыре плитки в ряд сжаты — кадры повторного ревью #337), 1440 широкий.
+ */
+export const BREAKPOINTS = [360, 390, 768, 820, 1024, 1100, 1440];
 const MAX_OK = new Set(BREAKPOINTS.map((b) => `${(b - 0.02).toFixed(2)}`));
 const MIN_OK = new Set(BREAKPOINTS.map(String));
 
