@@ -225,8 +225,8 @@ describe("оператор приёма заявок на настоящем п�
 
   it("случай 3, WhatsApp: заявка в этот же ход и вопрос о деталях; ответ — заметка; модель ядра не звалась; память v2 переживает приём", async () => {
     const f = await coreFixture("Хочу продать квартиру", "WHATSAPP");
-    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Агент позвонит вам на этот номер в ближайшее время, " +
-      "а пока опишите одним сообщением: район, комнаты, площадь, этаж, ремонт и цену.");
+    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передал агенту, он позвонит вам в ближайшее время, " +
+      "а пока можете рассказать о квартире: район, сколько комнат и цену.");
     const lead = await intakeJob(f.eventKey);
     expect(lead?.payload).toMatchObject({ scenario: "seller", propertyId: null });
     const sealed = JSON.parse(decryptSecret((lead!.payload as { sealed: string }).sealed)) as { phone: string; note: string };
@@ -257,7 +257,7 @@ describe("оператор приёма заявок на настоящем п�
 
   it("случай 4, WhatsApp: «С 11 до 2.30 удобно» после заявки — время повторяем и пишем агенту заметкой", async () => {
     const f = await coreFixture("Продать недвижимость", "WHATSAPP");
-    expect(await plannedText(f.eventKey)).toContain("а пока опишите одним сообщением");
+    expect(await plannedText(f.eventKey)).toContain("а пока можете рассказать");
     await settle(f.eventKey);
     const second = await f.receive("С 11 до 2.30 удобно");
     expect(await plannedText(second)).toBe("Передам агенту: звонить с 11:00 до 14:30.");
@@ -272,7 +272,7 @@ describe("оператор приёма заявок на настоящем п�
     });
     const f = await coreFixture("Хона мехарам", "WHATSAPP");
     const first = await plannedText(f.eventKey);
-    expect(first).toContain("ба ҳамин рақам занг мезанад");
+    expect(first).toContain("ба агент расондам");
     expect(first).toContain("чанд ҳуҷра, кадом ноҳия ва то чанд пул");
     expect((await intakeJob(f.eventKey))?.payload).toMatchObject({ scenario: "buyer", propertyId: null });
     await settle(f.eventKey);
@@ -307,13 +307,14 @@ describe("оператор приёма заявок на настоящем п�
     coreModelUntouched(f);
   });
 
-  it("случай 15, WhatsApp: «Мефурушам» → продавец; «Я хочу продоват свою квартиру» — роль не теряется, вопроса покупателю нет", async () => {
+  it("случай 15, WhatsApp: «Мефурушам» → продавец; «Я хочу продоват свою квартиру» — роль не теряется, вопроса покупателю нет, «заявка у агента»", async () => {
     const f = await coreFixture("Мефурушам", "WHATSAPP");
     const first = await plannedText(f.eventKey);
     expect(first).toContain("комиссияи агентӣ 2%");
     await settle(f.eventKey);
     const second = await f.receive("Я хочу продоват свою квартиру");
-    await silent(second);
+    // 20.11.2026: после заявки не тишина — «Ваша заявка у агента…» (язык разговора — по последним словам клиента).
+    expect(await plannedText(second)).toMatch(/^(?:Ваша заявка у агента, он с вами свяжется\.|Дархостатон назди агент аст, ӯ бо шумо тамос мегирад\.)$/u);
     expect(await operatorStateOf(await conversationOf(f.eventKey))).toMatchObject({ version: 2, role: "seller", leadAccepted: true });
     coreModelUntouched(f);
   });
@@ -339,14 +340,14 @@ describe("ревью 19.11: недостающие тесты подключен
     expect(await intakeJob(f.eventKey)).toBeNull();
   });
 
-  it("Т2: Instagram — детали и номер одним сообщением, номер следующим ходом, заявка продавца", async () => {
+  it("Т2: Instagram — условия и просьба номера (без «одним сообщением»), номер следующим ходом, заявка продавца и мягкий вопрос о деталях", async () => {
     const f = await coreFixture("Хочу продать квартиру", "INSTAGRAM");
-    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. " +
-      "Напишите одним сообщением: район, комнаты, площадь, этаж, ремонт, цену и ваш номер телефона, агент перезвонит.");
+    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, ваш номер телефона, агент перезвонит.");
     expect(await intakeJob(f.eventKey)).toBeNull();
     await settle(f.eventKey);
     const second = await f.receive("918 22 33 49");
-    expect(await plannedText(second)).toBe("Спасибо, номер получил, агент позвонит в ближайшее время.");
+    expect(await plannedText(second)).toBe("Спасибо, передал агенту, он позвонит вам в ближайшее время, " +
+      "а пока можете рассказать о квартире: район, сколько комнат и цену.");
     expect((await intakeJob(second))?.payload).toMatchObject({ scenario: "seller", propertyId: null });
     coreModelUntouched(f);
   });

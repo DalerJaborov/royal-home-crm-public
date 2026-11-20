@@ -711,8 +711,15 @@ export async function verifyInstagramPage(pageId: string, externalId: string): P
   return { ok: true, pageName: grant.pageName };
 }
 
-/** Поля, на которые подписываем Страницу. Чужие поля нашего приложения сохраняем. */
-export const PAGE_MESSAGING_FIELDS = ["messages", "messaging_postbacks"];
+/**
+ * Поля, на которые подписываем Страницу. Чужие поля нашего приложения сохраняем.
+ * `message_echoes` и `messaging_referrals` (20.11.2026, первоисточник developers.facebook.com/docs/messenger-platform/webhooks):
+ * эхо исходящих в Messenger приходит ТОЛЬКО по `message_echoes` (у Instagram — внутри `messages`), поэтому ответы
+ * сотрудников из Meta Business Suite до CRM не доходили (0 за 60 дней против 292 в Instagram) и бот не знал, что человек
+ * уже ответил; `messaging_referrals` — клик по рекламе и m.me-ссылке в уже начатом разговоре (55 диалогов Messenger без
+ * метки рекламы). Применяется только кнопкой «Подписать Страницу» в Настройках — сам выкат подписку не меняет.
+ */
+export const PAGE_MESSAGING_FIELDS = ["messages", "messaging_postbacks", "message_echoes", "messaging_referrals"];
 
 /**
  * «Подписать Страницу»: POST /{page}/subscribed_apps маркером Страницы от

@@ -30,6 +30,8 @@ export const AUTOMATION_SWITCH_KEYS = [
   "notifyRobotTookCallEnabled",
   "notifyTrashAnomalyEnabled",
   "notifyPropertyReviewOverdueEnabled",
+  "botRepliesAfterLeadEnabled",
+  "botSpamFilterEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -105,10 +107,22 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Если объект завис на проверке дольше срока, проверяющему или руководству приходит уведомление.",
     off: "Уведомления нет. Срок по-прежнему красится на карточке объекта.",
   },
+  // Владелец 20.11.2026: «таким спамерам как то не отвечать или как то сэкономить токены».
+  botSpamFilterEnabled: {
+    title: "Спам — без ответа",
+    on: "Просьбы денег, «лайк, коммент, подпишитесь», реклама чужих услуг: бот не отвечает и не тратит ИИ. Номер или слова о квартире, цене, вакансии — всегда обычный ответ.",
+    off: "Бот отвечает и на такие сообщения, как на обычные.",
+  },
+  // Владелец 20.11.2026: «если после передачи агенту клиент опять что-то написал, бот не должен же молчать».
+  botRepliesAfterLeadEnabled: {
+    title: "Бот отвечает и после заявки",
+    on: "Клиент пишет после заявки: бот коротко отвечает, новое передаёт агенту заметкой. Молчит, пока сотрудник сам ведёт переписку.",
+    off: "После заявки бот отвечает только на новую деталь и простые вопросы (условия, где работаем, часы), на остальное молчит и ждёт агента.",
+  },
 };
 
 export interface AutomationSwitchGroup {
-  id: "ai" | "tasks" | "notifications";
+  id: "ai" | "tasks" | "notifications" | "bot";
   title: string;
   /** Ключи группы: свои и уже существовавшие (`dealStaleSellersEnabled`). */
   keys: ReadonlyArray<AutomationSwitchKey | "dealStaleSellersEnabled">;
@@ -123,6 +137,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     title: "Уведомления",
     keys: ["notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

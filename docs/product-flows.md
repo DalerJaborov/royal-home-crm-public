@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **785**. Развилок в самих путях: **2496**; вместе с задачами по расписанию и фоновыми заданиями — **4185**. Модулей: **88**.
+Путей: **787**. Развилок в самих путях: **2498**; вместе с задачами по расписанию и фоновыми заданиями — **4189**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5128,6 +5128,21 @@
 - res.json({ ok: true });
   · ответ 200
 
+### POST /api/v1/conversations/:id/spam-restore
+
+`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: clients.assign
+
+- если !id.success
+  - return res.status(400).json({ error: "Неверный идентификатор переписки" });
+    · ответ 400 — «Неверный идентификатор переписки»
+- если !(await exemptCustomerSpam(id.data))
+  - return res.status(404).json({ error: "Диалог не найден" });
+    · ответ 404 — «Диалог не найден»
+- logAudit(req, "BOT_SPAM_RESTORED", "BotConversation", id.data);
+  · зовёт logAudit()
+- res.json({ ok: true });
+  · ответ 200
+
 ### POST /api/v1/conversations/:id/translate
 
 `apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
@@ -5255,6 +5270,15 @@
       - continue;
         · переходит к следующему
 - res.json({ id: key, channel: canSeeOrigin ? (channelNames.length === 1 ? channelNames[0] : "MULTI") : null, n…
+  · ответ 200
+
+### GET /api/v1/conversations/spam-filtered
+
+`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: clients.assign
+
+- const rows = await prisma.$queryRaw<Array<{ id: string; channel: string; name: string | null; lastMessageAt: …
+  · обращается к базе своим SQL
+- res.json({ items: rows.map(row
   · ответ 200
 
 ### GET /api/v1/conversations
@@ -28540,6 +28564,9 @@
       · дословно из кода
   - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
     · зовёт acceptLead()
+  - если result.reviewer
+    - return { status: "skipped", reason: "reviewer" };
+      · дословно из кода
   - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …
     · читает в базе: botConversation
   - если !linked?.client
@@ -28613,6 +28640,9 @@
           · дословно из кода
       - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
         · зовёт acceptLead()
+      - если result.reviewer
+        - return { status: "skipped", reason: "reviewer" };
+          · дословно из кода
       - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …
         · читает в базе: botConversation
       - если !linked?.client

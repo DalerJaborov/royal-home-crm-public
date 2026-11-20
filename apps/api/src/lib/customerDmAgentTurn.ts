@@ -42,7 +42,8 @@ import { loadCustomerAdjacentVisualObservation } from "./customerAdjacentVisualO
 import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult, traceCustomerCoreDisposition, traceMediaKinds } from "./botTurnTrace.js";
 import { customerPropertyUnresolvedReason } from "./customerPropertyUnresolvedReason.js";
 import { customerAgentMarkForeignShare } from "../ai/customerAgentAttachmentInput.js";
-import { customerSpamMuteGate, customerSpamTurn, SPAM_MUTED_NO_REPLY } from "../ai/customerSpamMute.js";
+import { customerSpamMuteGate, customerSpamTurn, SPAM_FILTERED_NO_REPLY, SPAM_MUTED_NO_REPLY } from "../ai/customerSpamMute.js";
+import { noteSpamFiltered, spamFilterApplies } from "./spamFilter.js";
 import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
 import { logSystemError } from "./systemError.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
@@ -197,6 +198,18 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const spamGate = customerSpamMuteGate(await readCustomerSpamMute(lane.ticket.conversationId), { inputText: fullInput(), now: new Date() });
     if (spamGate === "muted") { await releaseHeldClaim(claim, SPAM_MUTED_NO_REPLY); return { status: "held", reason: SPAM_MUTED_NO_REPLY }; }
     if (spamGate === "released") await clearCustomerSpamMute(lane.ticket.conversationId);
+    // СПАМ — БЕЗ ОТВЕТА И БЕЗ МОДЕЛИ (владелец 20.11.2026: «таким спамерам как то не отвечать… сэкономить токены»). Код, ноль
+    // токенов, до скачивания медиа и до оператора: лайки, подписки, просьбы денег, чужая реклама, пересланный чужой пост без
+    // слов. Номер или слова о жилье, цене, вакансии — никогда не спам (customerSpamInterest); клиент с карточкой — не спам.
+    // Ход отмечается (leadDraft.spamMute: два таких хода за неделю — месяц тишины, правило 30.10). Выключатель — реестр.
+    if (customerSpamTurn({ inputText: fullInput(), attachmentInput: prepared.attachmentInput }) &&
+      await spamFilterApplies(lane.ticket.conversationId, planningPrincipal.scope.channel)) {
+      await recordCustomerSpamTurn(lane.ticket.conversationId, { eventKey: claim.eventKey }).catch(error =>
+        console.error("[spam-filter]", error instanceof Error ? error.message : error));
+      void noteSpamFiltered().catch(error => console.error("[spam-filter] колокольчик", error instanceof Error ? error.message : error));
+      await releaseHeldClaim(claim, SPAM_FILTERED_NO_REPLY);
+      return { status: "held", reason: SPAM_FILTERED_NO_REPLY };
+    }
     // Short answers, names, bare links and greetings carry no decisive language evidence. Keep this
     // customer's last decisive USER turn (never the bot's prose or another inquiry's language); a full
     // sentence in another language, or an explicit request, switches the dialogue. The deferred block
@@ -325,8 +338,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       if (plan.signal) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn, false, true, plan.signal.reason);
       if (!plan.text) {
         // Оператор решил молчать (ок после заявки, третий вопрос о роли, повтор вложения): намеренная тишина, не сбой.
-        await releaseHeldClaim(claim, LEAD_ONLY_OPERATOR_SILENT);
-        return { status: "held", reason: LEAD_ONLY_OPERATOR_SILENT };
+        // Бот уступил сотруднику — это НЕ намеренная тишина для сторожа молчания (ревью #333): он обязан её видеть.
+        const reason = plan.operator.yielded ? "lead_only_operator_yields" : LEAD_ONLY_OPERATOR_SILENT;
+        await releaseHeldClaim(claim, reason);
+        return { status: "held", reason };
       }
       return { status: "planned", partIds };
     };
@@ -874,6 +889,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     return { status: "planned", partIds };
   } catch (error) {
     heldCause = safeCauseCode(error);
+    // 17.11 и 20.11 ход падал «RangeError» без места: в журнал — первая строка стека из нашего кода (файл:строка, без слов
+    // клиента), иначе причину не найти (разбор каналов 20.11.2026).
+    const frame = error instanceof Error ? (error.stack ?? "").split("\n")
+      .find(line => /apps[\\/]api[\\/](?:src|dist)|\/app\/(?:src|dist)\//u.test(line))?.trim().slice(0, 200) : undefined;
+    if (frame) void logSystemError("ai", `Ход бота клиента: ${heldCause} в ${frame.replace(/^at\s+/u, "")}`, { dedupKey: `customer-core-frame:${heldCause}:${frame}`, quietPult: true });
     await releaseHeldClaim(claim, "customer_core_unavailable");
     return { status: "held", reason: "customer_core_unavailable" };
   } finally {

@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 785,
-  "forks": 4185,
+  "endpoints": 787,
+  "forks": 4189,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -22364,6 +22364,74 @@
   },
   {
    "method": "POST",
+   "path": "/:id/spam-restore",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/:id/spam-restore",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен",
+    "есть право: clients.assign"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный идентификатор переписки\" });",
+       "a": [
+        "ответ 400 — «Неверный идентификатор переписки»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!(await exemptCustomerSpam(id.data))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Диалог не найден\" });",
+       "a": [
+        "ответ 404 — «Диалог не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"BOT_SPAM_RESTORED\", \"BotConversation\", id.data);",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/:id/translate",
    "mount": "/api/v1/conversations",
    "full": "/api/v1/conversations/:id/translate",
@@ -22947,6 +23015,44 @@
     {
      "k": "do",
      "t": "res.json({ id: key, channel: canSeeOrigin ? (channelNames.length === 1 ? channelNames[0] : \"MULTI\") : null, n…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/spam-filtered",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/spam-filtered",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен",
+    "есть право: clients.assign"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const rows = await prisma.$queryRaw<Array<{ id: string; channel: string; name: string | null; lastMessageAt: …",
+     "a": [
+      "обращается к базе своим SQL"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: rows.map(row",
      "a": [
       "ответ 200"
      ],
@@ -128504,6 +128610,21 @@
        "c": []
       },
       {
+       "k": "if",
+       "t": "result.reviewer",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { status: \"skipped\", reason: \"reviewer\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
        "t": "const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …",
        "a": [
@@ -128849,6 +128970,21 @@
             "зовёт acceptLead()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "result.reviewer",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { status: \"skipped\", reason: \"reviewer\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "do",

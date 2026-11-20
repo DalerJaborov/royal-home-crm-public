@@ -155,6 +155,39 @@ export const OPERATOR_ECHO_PAUSE_MS = 12 * 60 * 60 * 1000;
  * сверять с assignedAgentId, значит это не «передача диалога агенту».
  */
 export async function defaultPauseForSender(target: DeliveryTarget, sender?: MessageSender): Promise<number> {
+  const base = await basePauseForSender(target, sender);
+  return (await staffRelayPauseMs(target)) ?? base;
+}
+
+/**
+ * ЭСТАФЕТА ВМЕСТО ВЕЧНОЙ ПАУЗЫ (владелец 20.11.2026: «бот не должен же молчать»). В режиме «только заявки» (WhatsApp,
+ * Instagram, Facebook) бот после заявки отвечает коротко и не продаёт «вторым голосом» (ai/operator/decide.ts), поэтому
+ * ответ сотрудника больше не глушит его на 10 лет: бот уступает человеку на N минут (Настройки → Бот, botStaffQuietMinutes,
+ * по умолчанию 180 — запасной вариант эстафеты ревью #333: отложенного ответа «по неотвеченному сообщению» на нынешнем
+ * конвейере ядра надёжно не сделать). До заявки в переписке, где писал сотрудник, бот и после срока не задаёт вопросов —
+ * только сигнал человеку (ai/operator/decide.ts, staffThread). После заявки — короткий ответ и заметка агенту.
+ * Ручная кнопка «Пауза» в переписке ставит свой явный срок и этим правилом не меняется; вне режима (сайт, Telegram) — как
+ * было. Уже стоящие вечные паузы НЕ укорачиваются (applyDeliveryPause не укорачивает действующую паузу): отличить
+ * автоматическую от поставленной кнопкой «Бессрочно» по данным нельзя (journal 2026-11-20-bot-human-replies.md).
+ * null — правило к этому разговору не относится. Сбой чтения — прежняя пауза (null): безопаснее промолчать, чем перебить.
+ */
+export async function staffRelayPauseMs(target: Pick<DeliveryTarget, "kind" | "id">): Promise<number | null> {
+  if (target.kind !== "bot") return null;
+  try {
+    const row = await prisma.botConversation.findUnique({ where: { id: target.id }, select: { channel: true } });
+    if (!row) return null;
+    const { loadLeadOnlyConfig } = await import("./leadOnlyConfig.js");
+    const { leadOnlyAppliesTo } = await import("../ai/leadOnlyMode.js");
+    const config = await loadLeadOnlyConfig();
+    // Эстафета — отдельный смысл от «Бот отвечает и после заявки» (ревью #333): её держит только режим и срок из Настроек.
+    if (!config.enabled || !leadOnlyAppliesTo(row.channel)) return null;
+    return Math.max(5, config.staffQuietMinutes ?? 180) * 60_000;
+  } catch {
+    return null;
+  }
+}
+
+async function basePauseForSender(target: DeliveryTarget, sender?: MessageSender): Promise<number> {
   if (!sender || sender.kind !== "agent") return OPERATOR_REPLY_PAUSE_MS_SHORT;
   try {
     const clientId =

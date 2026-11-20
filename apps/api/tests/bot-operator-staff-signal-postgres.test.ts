@@ -69,7 +69,8 @@ describe("дверь «клиент ждёт»: решение оператор�
     expect(await alertClientWaiting({ conversationId: complaint, trigger: "follow_up", staffRequired: true, staffReason: "complaint" })).toBe("director");
     const [alert] = await leadershipAlerts(complaint);
     // urgent=false: колокольчик сразу, пуш — в часы тревог; ночью не будит (lib/directorAlertQueue.ts).
-    expect(alert).toMatchObject({ title: "💬 Жалоба клиента", recipientRoles: ["DIRECTOR", "ADMIN"], urgent: false });
+    // Владелец 20.11.2026: «лучше такие уведомления отправлять ропу тоже» — РОП (HEAD_OF_SALES), директор, админ.
+    expect(alert).toMatchObject({ title: "💬 Жалоба клиента", recipientRoles: ["HEAD_OF_SALES", "DIRECTOR", "ADMIN"], urgent: false });
     expect(alert!.body).toContain("клиент жалуется. Бот ответил «Ваше сообщение увидит руководитель.» и дальше молчит.");
   });
 
@@ -80,12 +81,15 @@ describe("дверь «клиент ждёт»: решение оператор�
     expect(await leadershipAlerts(id)).toMatchObject([{ title: "💬 Жалоба клиента", urgent: false, excludeAgentId: agentId }]);
   });
 
-  it("грубость: без карточки — руководству (обычной срочностью); с агентом — только агенту, как раньше", async () => {
+  it("грубость без агента — РОПу, директору, админу несрочно (клиенту обещан сотрудник; инвариант ревью #333); с агентом — агенту", async () => {
     const noCard = await chat();
     expect(await alertClientWaiting({ conversationId: noCard, trigger: "follow_up", staffReason: "rude" })).toBe("director");
     const [alert] = await leadershipAlerts(noCard);
-    expect(alert).toMatchObject({ urgent: false });
-    expect(alert!.body).toContain("клиент написал грубо. Бот ответил «Понимаю вас, дальше с вами продолжит наш сотрудник.»");
+    expect(alert).toMatchObject({ urgent: false, recipientRoles: ["HEAD_OF_SALES", "DIRECTOR", "ADMIN"] });
+    // «Не понял» без агента — не поштучный пуш, а строка в колокольчике руководства (общий список «ждут человека»).
+    const unclear = await chat();
+    expect(await alertClientWaiting({ conversationId: unclear, trigger: "follow_up", staffReason: "unclear" })).toBe("director");
+    expect(await leadershipAlerts(unclear)).toHaveLength(0);
     const withAgent = await chat({ card: "agent" });
     expect(await alertClientWaiting({ conversationId: withAgent, trigger: "follow_up", staffReason: "rude" })).toBe("agent");
     expect(await leadershipAlerts(withAgent)).toHaveLength(0);
@@ -118,5 +122,14 @@ describe("тема рекламы: реклама самого агентств�
     expect(await resolveAdTopic({ adId: listing.externalId, adRef: "3 комнаты, Сино" })).toBe("property");
     expect(await resolveAdTopic({ adId: listing.externalId })).toBe("property");
     expect(await resolveAdTopic({ adId: vacancy.externalId })).toBe("job");
+  });
+  it("ключ эпизода — начало неотвеченной серии: пять сообщений подряд — один сигнал, а не пять (ревью #333)", async () => {
+    const id = await chat({ card: "agent" });
+    const base = Date.now() - 60_000;
+    const messages = [0, 1, 2, 3, 4].map(i => ({ role: "user", content: `сообщение ${i}`, at: new Date(base + i * 5_000).toISOString() }));
+    await prisma.botConversation.update({ where: { id }, data: { messages } });
+    const outcomes = [];
+    for (const m of messages) outcomes.push(await alertClientWaiting({ conversationId: id, trigger: "follow_up", staffReason: "unclear", since: new Date(m.at) }));
+    expect(outcomes.filter(outcome => outcome === "agent")).toHaveLength(1);
   });
 });
