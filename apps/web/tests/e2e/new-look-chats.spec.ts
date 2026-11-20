@@ -57,6 +57,9 @@ async function noOverflow(page: Page, width: number, selectors: string) {
 
 test("новый вид, чаты: список без горизонтальной прокрутки на всех ширинах @smoke", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "ширины перебираются в десктопном проекте");
+  // Девять полных заходов подряд: на занятом dev-сервере 30 секунд на всё не хватало
+  // (стенд 20.11.2026 — шестая ширина ещё грузилась), а это таймаут, не поломка.
+  test.setTimeout(120_000);
   await stub(page, true);
   for (const width of WIDTHS) {
     // Каждая ширина — свой заход: на широком экране инбокс сам открывает первый
@@ -79,6 +82,37 @@ test("новый вид, чаты: открытая переписка без г
     await page.setViewportSize({ width, height: 900 });
     await expect(page.locator(".ry-chat-compose textarea")).toBeVisible();
     await noOverflow(page, width, ".ry-chat-head, .ry-chat-compose, .ry-chat-quick, .clean-conversation .bub");
+  }
+});
+
+test("новый вид, чаты: окно как в мессенджере — написать и отправить на 390 и 1440 @smoke", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "ширины перебираются в десктопном проекте");
+  await stub(page, true);
+  const bodies: unknown[] = [];
+  await page.route((url) => url.pathname === "/api/v1/conversations/e2e-chat-0/reply", (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({ json: { ok: true, pausedUntil: null, masked: false } });
+  });
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 860 });
+    await page.goto("/messages?open=e2e-chat-0");
+    const thread = page.locator(".clean-conversation");
+    await expect(page.locator(".ry-chat-head")).toBeVisible({ timeout: 20_000 });
+    // Лишнего в окне нет (владелец 20.11.2026): ни состояния и паузы бота, ни
+    // срока паузы, ни оценки под ответами, ни выбора канала строкой.
+    for (const gone of ["Бот на паузе", "Отвечает бот", "Ответ ставит бота на паузу", "Верно", "Выберите канал", "Время сообщения неизвестно"]) {
+      await expect(thread.getByText(gone, { exact: false }), gone).toHaveCount(0);
+    }
+    // Одна круглая кнопка: микрофон, пока поле пустое; «Отправить» — когда есть текст.
+    const compose = page.locator(".ry-chat-compose");
+    await expect(compose.locator('button[title="Записать голосовое"]')).toBeVisible();
+    await expect(compose.getByRole("button", { name: "Отправить" })).toHaveCount(0);
+    await compose.getByLabel("Текст ответа").fill(`Добрый день ${width}`);
+    await compose.getByRole("button", { name: "Отправить" }).click();
+    await expect.poll(() => bodies.length).toBeGreaterThan(0);
+    // Срок паузы бота из окна не уходит: паузу ставит сервер своим правилом.
+    expect(bodies.pop()).toEqual({ text: `Добрый день ${width}` });
+    await noOverflow(page, width, ".ry-chat-head, .ry-chat-compose, .clean-conversation .bub");
   }
 });
 

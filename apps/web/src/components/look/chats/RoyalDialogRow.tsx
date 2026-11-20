@@ -2,7 +2,6 @@ import { memo } from "react";
 import { Bot, Flame } from "lucide-react";
 import type { ConversationListItem } from "../../../hooks/useConversations";
 import { exactDateTime, listTime } from "../../../lib/format";
-import { senderPrefix } from "../../MessageSenderBadge";
 import { RhAvatar } from "../ui";
 import { RoyalChannelBadge } from "./RoyalChannelBadge";
 
@@ -49,7 +48,7 @@ function pauseWaitHours(c: ConversationListItem, now: number): number | null {
  * memo: строка перерисовывается, только когда пришли новые данные этого
  * разговора или сменился выбор, а не при каждом вводе в поиск/ответ.
  */
-export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, selected, showAccount, onSelect, now }: {
+export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, selected, showAccount, onSelect, now, showBotState = true }: {
   conversation: ConversationListItem;
   selected: boolean;
   showAccount: boolean;
@@ -57,6 +56,9 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
   /** Текущая минута от списка (useMinuteClock): строка в memo, и без этого пропа
    *  время ожидания и «вчера» застывали бы до прихода новых данных. */
   now: number;
+  /** Значок «бот на паузе» — только руководству (право messages.view): агенту про
+   *  бота в чатах ничего не показываем (владелец 20.11.2026, «Эстафета»). */
+  showBotState?: boolean;
 }) {
   const waiting = rowWaiting(c, now);
   const pauseHours = pauseWaitHours(c, now);
@@ -64,7 +66,9 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
   const accountLabel = showAccount ? c.accountTitle : null;
   const attention = !!c.agentAttentionRequestedAt;
   const last = c.lastMessage
-    ? `${c.lastMessage.role === "assistant" ? `${senderPrefix(c.lastMessage.by)}: ` : ""}${c.lastMessage.content}`
+    // Наш ответ — «Вы:», будь то бот или сотрудник: как у бизнес-аккаунта WhatsApp
+    // (владелец 20.11.2026). Кто именно — в «Сведениях о сообщении» в переписке.
+    ? `${c.lastMessage.role === "assistant" ? "Вы: " : ""}${c.lastMessage.content}`
     : "";
   return (
     <button
@@ -93,7 +97,7 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
           ? <b className="ry-chat-wait" data-tone={waiting.tone} aria-label={`Ждёт ответа ${waiting.label}`}>{waiting.label}</b>
           : <span className="ry-chat-time">{listTime(c.lastMessageAt)}</span>}
         <span className="ry-chat-marks">
-          {c.paused && (
+          {c.paused && showBotState && (
             <span
               className="ry-chat-paused"
               data-tone={pauseHours !== null && pauseHours >= 24 ? "crit" : undefined}

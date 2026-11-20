@@ -555,6 +555,9 @@ export const HIDING_ALLOWED = new Set<string>([
   `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-label`,
   `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-clist-head`,
   `${R} .ry-chats[data-ry-section="chats"] .clean-conversation .bub:not(.me) > .who`,
+  // Стрелка «Сведения о сообщении» — проявляется при наведении и с клавиатуры, как в
+  // WhatsApp Web; на касание её заменяет долгое нажатие (чаты, 20.11.2026).
+  `${R} .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more`,
   `${R} [data-ry-section="objects"] .ry-obj-state`,
   `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo > .ry-obj-pill`,
   `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo > .ry-obj-pill`,

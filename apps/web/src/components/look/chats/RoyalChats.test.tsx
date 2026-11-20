@@ -22,8 +22,8 @@ function item(over: Partial<ConversationListItem> = {}): ConversationListItem {
     accountId: null, accountTitle: null, agentAttentionRequestedAt: null, ...over,
   };
 }
-const row = (over: Partial<ConversationListItem> = {}, extra: { showAccount?: boolean; now?: number } = {}) =>
-  renderToStaticMarkup(createElement(RoyalDialogRow, { conversation: item(over), selected: false, showAccount: extra.showAccount ?? false, onSelect: () => {}, now: extra.now ?? Date.now() }));
+const row = (over: Partial<ConversationListItem> = {}, extra: { showAccount?: boolean; now?: number; showBotState?: boolean } = {}) =>
+  renderToStaticMarkup(createElement(RoyalDialogRow, { conversation: item(over), selected: false, showAccount: extra.showAccount ?? false, onSelect: () => {}, now: extra.now ?? Date.now(), showBotState: extra.showBotState }));
 
 describe("chatWaiting — сколько ждёт человек и насколько срочно", () => {
   it("follows the mockup thresholds: >15 min attention, from an hour urgent", () => {
@@ -79,7 +79,9 @@ describe("RoyalDialogRow — строка нового вида не теряе�
   it("name, one line of text, channel named in words", () => {
     const html = row({ lastMessage: { role: "assistant", content: "Отправляю адрес", by: { kind: "bot" } } });
     expect(html).toContain("Ситора Ахмедова");
-    expect(html).toContain("Бот: Отправляю адрес");
+    // Наш ответ — «Вы:», бот это или сотрудник (владелец 20.11.2026).
+    expect(html).toContain("Вы: Отправляю адрес");
+    expect(row({ lastMessage: { role: "assistant", content: "Здравствуйте", by: { kind: "agent", agentId: "a", agentName: "Азиз" } } })).toContain("Вы: Здравствуйте");
     expect(html).toContain("Канал: WhatsApp");
     expect(html).toContain('data-channel="WHATSAPP"');
   });
@@ -98,6 +100,8 @@ describe("RoyalDialogRow — строка нового вида не теряе�
     expect(html).toContain("Непрочитанных сообщений: 4");
     expect(html).toContain("Бот на паузе · 30 ч");
     expect(html).toContain("Royal Home Info");
+    // Агенту значок паузы бота не показываем — только руководству.
+    expect(row({ paused: true }, { showBotState: false })).not.toContain("Бот на паузе");
   });
   it("unread without a count falls back to a dot, like the previous row", () => {
     expect(row({ unread: true, unreadCount: undefined })).toContain("Есть непрочитанное сообщение");
