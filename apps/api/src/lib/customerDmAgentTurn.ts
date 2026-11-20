@@ -866,8 +866,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     }
     // «Это скажет агент» / «агент позвонит» is only true if the responsible person learns about it now (15.11.2026): the one
     // door alertClientWaiting (assigned agent, else management), keyed by THIS customer message, not a 6 h window.
-    // The reply is already planned; the signal never blocks it.
-    if (callsStaff) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn,
+    // The reply is already planned; the signal never blocks it. The condition is the same pure check of the same sealed text
+    // as `callsStaff` above, written as in main on purpose: tests/customer-bot-8-chats-15-11.test.ts pins this exact door call.
+    if (customerReplyCallsStaff(sealed.text)) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt, jobTopicTurn,
       lane.context.knownPhoneSource !== "none", staffRequired);
     return { status: "planned", partIds };
   } catch (error) {

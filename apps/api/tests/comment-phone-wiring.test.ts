@@ -72,9 +72,9 @@ beforeAll(async () => {
   savedSettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { workHoursStart: true, workHoursEnd: true, botAnswersItself: true,
     botCommentPhoneConversation: true, botCommentPhoneLead: true } });
   // Заявка и разговор по номеру из комментария — ВКЛ для этого файла (оба по умолчанию ВЫКЛ; «все три ВЫКЛ» — закрепление ниже).
-  await prisma.settings.upsert({ where: { id: "singleton" }, update: { workHoursStart: "00:00", workHoursEnd: "23:59", botAnswersItself: false,
+  await prisma.settings.upsert({ where: { id: "singleton" }, update: { workHoursStart: "00:00", workHoursEnd: "24:00", botAnswersItself: false,
     botCommentPhoneConversation: true, botCommentPhoneLead: true },
-    create: { id: "singleton", workHoursStart: "00:00", workHoursEnd: "23:59", botCommentPhoneConversation: true, botCommentPhoneLead: true } });
+    create: { id: "singleton", workHoursStart: "00:00", workHoursEnd: "24:00", botCommentPhoneConversation: true, botCommentPhoneLead: true } });
   fbAccountId = (await prisma.messengerAccount.create({ data: { channel: "FACEBOOK", externalId: fbAccountExternalId, title: "cphone fb synthetic",
     token: encryptSecret("fake-no-provider-access") } })).id;
   accountExternalId = `${tag}-INSTAGRAM`;
