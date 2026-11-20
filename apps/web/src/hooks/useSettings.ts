@@ -491,6 +491,9 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
   /** Номер из комментария: личное с вопросом, ответ под постом, скрытие (18.11.2026). По умолчанию false. */
   botCommentPhoneConversation: boolean;
   botCommentPhoneLead: boolean;
+  /** Реестр разрешённых строек memor.pro: еженедельный забор и показ сотрудникам. */
+  constructionRegistryEnabled: boolean;
+  constructionRegistryNotify: boolean;
   /* Поля браузерного софтфона (asteriskWebrtc*) и список операторов входящих
    * (incomingOperatorIds) убраны 18.08.2026 вместе с самим механизмом: роль
    * оператора отменена, звонки идут прямо агентам. Сервер их пока отдаёт —

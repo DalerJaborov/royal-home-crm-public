@@ -2208,6 +2208,7 @@ model GeoAlias {
 
 model Property {
   investigationCases InvestigationCase[]
+  constructionLinks ConstructionPropertyLink[]
   narrationVersions PropertyNarrationVersion[]
   narrationDeliveries PropertyNarrationDelivery[]
   metadataSyncDrafts PublicationMetadataSync[]
@@ -7479,6 +7480,11 @@ model Settings {
   /// не становится. Разговор по номеру (botCommentPhoneConversation) действует только при ВКЛ этой настройки.
   /// ВЫКЛЮЧЕН по умолчанию. Читает только lib/botAnswersItself.ts.
   botCommentPhoneLead               Boolean   @default(false)
+  /// РЕЕСТР РАЗРЕШЁННЫХ СТРОЕК memor.pro (20.11.2026, решение владельца): раз в неделю забирать открытый файл и показывать
+  /// статус разрешения у объектов и на карте. ТОЛЬКО для сотрудников. ВКЛ по умолчанию. Читает lib/constructionRegistry/sync.ts (loadRegistrySettings).
+  constructionRegistryEnabled       Boolean   @default(true)
+  /// Уведомление ответственному агенту, когда у привязанного объекта сменился цвет в реестре. ВКЛ по умолчанию; первый забор ничего не шлёт.
+  constructionRegistryNotify        Boolean   @default(true)
   /// Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026). По умолчанию ВЫКЛ.
   marketBuyerAlertsEnabled          Boolean   @default(false)
   /// Когда рубильник пуша «объявление под покупателя» включили (ставит первый прогон; null при выключенном). «Новое» считается от неё.
@@ -11989,4 +11995,125 @@ model SomonPhoneSighting {
 
   @@id([phoneHash, advertId])
   @@index([seenAt])
+}
+
+// ───────────── Реестр разрешённых строек Душанбе (memor.pro, 20.11.2026) ─────────────
+// ТОЛЬКО ДЛЯ СОТРУДНИКОВ: отдельные таблицы нарочно, чтобы публичные ответы (сайт, бот, реклама), собирающие поля
+// Property, не могли подхватить их случайно. Контактов застройщиков не берём и не храним.
+
+enum ConstructionColor {
+  GREEN
+  YELLOW
+  RED
+}
+
+enum ConstructionLinkState {
+  LINKED
+  REJECTED
+}
+
+enum ConstructionLinkMethod {
+  AUTO
+  MANUAL
+}
+
+/// Застройщик (заказчик строительства): нормализованное имя без «ҶДММ «…»», кавычек и регистра. Рейтинг считается на лету.
+model ConstructionDeveloper {
+  id             String                @id @default(uuid())
+  nameNormalized String                @unique
+  displayName    String
+  createdAt      DateTime              @default(now())
+  projects       ConstructionProject[]
+}
+
+/// Проект из реестра. Ключ источника — sourceId (поле id реестра; qaror НЕ уникален: у садика тот же номер, что у дома).
+model ConstructionProject {
+  id              String                @id @default(uuid())
+  sourceId        String                @unique
+  qaror           String
+  title           String
+  customer        String
+  developerId     String
+  developer       ConstructionDeveloper @relation(fields: [developerId], references: [id])
+  lat             Float
+  lng             Float
+  category        String
+  eduType         String?
+  colorStatus     ConstructionColor
+  isComplete      Boolean               @default(false)
+  hasCommission   Boolean               @default(false)
+  sourceUrl       String
+  /// Хэш строки списка: поменялся — перечитываем страницу объекта.
+  listHash        String
+  address         String?
+  description     String?
+  floors          Int?
+  blocks          String[]
+  /// [{ name, ready }] — документы проекта и готовность каждого.
+  documents       Json                  @default("[]")
+  warning         String?
+  detailFetchedAt DateTime?
+  firstSeenAt     DateTime              @default(now())
+  lastSeenAt      DateTime              @default(now())
+  statusChangedAt DateTime?
+  /// Пропал из списка реестра (сторож не дал ложной тревоги): не удаляем, помечаем.
+  removedAt       DateTime?
+  statusChanges   ConstructionStatusChange[]
+  links           ConstructionPropertyLink[]
+
+  @@index([developerId])
+  @@index([colorStatus, category])
+  @@index([removedAt])
+}
+
+model ConstructionStatusChange {
+  id        String               @id @default(uuid())
+  projectId String
+  project   ConstructionProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fromColor ConstructionColor?
+  toColor   ConstructionColor
+  changedAt DateTime             @default(now())
+  /// Когда агенту отправлено уведомление об этой смене (null — ещё нет). Уведомляем по таблице, а не по памяти процесса.
+  notifiedAt DateTime?
+
+  @@index([projectId, changedAt])
+}
+
+/// Связь нашего объекта с проектом реестра. Предложения НЕ хранятся (считаются на лету); хранится выбранное и отвергнутое.
+model ConstructionPropertyLink {
+  id          String                 @id @default(uuid())
+  propertyId  String
+  property    Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     ConstructionProject    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  state       ConstructionLinkState
+  method      ConstructionLinkMethod
+  confidence  Int                    @default(0)
+  distanceM   Int?
+  reasons     String[]
+  createdById String?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  @@unique([propertyId, projectId])
+  @@index([propertyId, state])
+  @@index([projectId])
+}
+
+/// Журнал заборов реестра: свежесть данных и сбои видны владельцу.
+model ConstructionSyncRun {
+  id             String    @id @default(uuid())
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  ok             Boolean   @default(false)
+  trigger        String
+  fetched        Int       @default(0)
+  created        Int       @default(0)
+  changed        Int       @default(0)
+  removed        Int       @default(0)
+  detailsFetched Int       @default(0)
+  linked         Int       @default(0)
+  error          String?
+
+  @@index([startedAt])
 }

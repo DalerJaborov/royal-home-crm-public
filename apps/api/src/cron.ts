@@ -2070,6 +2070,27 @@ export function startCronJobs() {
   );
 
   /**
+   * РЕЕСТР РАЗРЕШЁННЫХ СТРОЕК memor.pro (20.11.2026, владелец: раз в неделю, 4 раза в месяц) — понедельник, 04:30 по
+   * Душанбе, пока никто не работает: один запрос списка и страницы новых/изменившихся объектов с паузой (lib/
+   * constructionRegistry/sync.ts). Рубильник — Настройки → Каналы, выключенный останавливает и этот тик.
+   */
+  scheduleTracked(
+    "construction-registry-sync",
+    "30 4 * * 1",
+    async () => {
+      try {
+        const { runConstructionRegistrySync } = await import("./lib/constructionRegistry/sync.js");
+        const r = await runConstructionRegistrySync({ trigger: "cron" });
+        if (!r.ok && !r.skipped) markCronTickFailed("Реестр строек: забор не удался", new Error(r.error ?? "неизвестная ошибка"));
+        else if (r.ok && !r.skipped) console.log(`[cron] Реестр строек: в списке ${r.fetched}, новых ${r.created}, изменённых ${r.changed}, исчезло ${r.removed}, страниц ${r.detailsFetched}, связано объектов ${r.linked}`);
+      } catch (err) {
+        reportCronTickError("Ошибка еженедельного забора реестра строек", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
    * ЕЖЕНЕДЕЛЬНОЕ НАПОМИНАНИЕ О ВЕРОЯТНЫХ ДУБЛИКАТАХ (владелец 06.09.2026, разбор
    * слепых зон п.3) — тот же понедельник, что у «Разбора недели» выше, но на
    * 10 минут позже (та же причина: не складывать тяжёлые задачи в одну минуту)
