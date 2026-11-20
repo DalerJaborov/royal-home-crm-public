@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import type { UiShellEffective } from "@royal-home/shared";
 import { agentMobilePreviewOverride, cleanShellAllowedOnDevice, localAgentPreviewAllowed, savedAgentMobilePreview, saveAgentMobilePreview, shellPolicyAsked } from "./shellDevicePolicy";
-import { useRoyalLookChoice } from "./royalLookChoice";
+import { rememberLookGrant, rememberedLookGrant, useRoyalLookChoice } from "./royalLookChoice";
 
 const KEY = "rh-shell";
 const EVENT = "rh-shell-change";
@@ -38,6 +38,20 @@ function subscribe(notify: () => void) {
     window.removeEventListener(EVENT, notify);
   };
 }
+
+/**
+ * РЕШЕНИЕ О ВИДЕ НА ТЕЛЕФОНЕ — НА СЕССИЮ (ревью #329, 20.11.2026).
+ *
+ * «Новый вид» и прежний интерфейс — разные деревья экранов: смена вида посреди работы
+ * перестраивает экран и теряет черновик формы, а ответ `/ui-shell` перечитывается и
+ * опросом раз в 30 секунд, и при монтировании каждой страницы. На телефоне вид
+ * поэтому решается один раз за запуск (до перезагрузки страницы) — первым удачным
+ * ответом, а у агента без запомненного вида сразу: прежний интерфейс. Мгновенно
+ * действует только аварийное `enabled: false` — оно выключает оболочку целиком.
+ * На ПК поведение прежнее: вид следует за ответом сервера.
+ */
+const phoneLookSession = new Map<string, boolean>();
+export function resetPhoneLookSessionForTests(): void { phoneLookSession.clear(); }
 
 /** Role-aware shell selection per account. Explicit legacy remains an escape hatch. */
 export function useCleanShellSelection(poll = false) {
@@ -99,27 +113,42 @@ export function useCleanShellSelection(poll = false) {
   // successful server off responses always remain legacy.
   const requested = agentPreview || (override ?? saved ?? true);
   const serverEnabled = policy.data?.enabled === true && (!agentPreview || !policy.isError);
+  const serverLook = serverEnabled && policy.data?.look === "royal";
+  // Телефон агента без превью: чистая оболочка у него только вместе с видом.
+  const agentPhone = mobile && role === "AGENT" && !agentPreview;
+  let latched = agentId ? phoneLookSession.get(agentId) : undefined;
+  if (mobile && agentId && latched === undefined) {
+    // Агент без запомненного вида: решение сразу, без ожидания сервера.
+    if (agentPhone && !rememberedLookGrant(agentId)) latched = false;
+    // Остальные — первым удачным ответом сервера (ошибка решением не считается).
+    else if (policy.data !== undefined) latched = serverLook;
+    if (latched !== undefined) phoneLookSession.set(agentId, latched);
+  }
+  useEffect(() => {
+    // Каждый удачный ответ обновляет память устройства — для следующего запуска.
+    if (agentId && policy.data !== undefined && !policy.isError) rememberLookGrant(agentId, serverLook);
+  }, [agentId, policy.data, policy.isError, serverLook]);
   // Вид, выданный сервером и не отклонённый лично (`?look=legacy`), — тот же
   // признак, что потом красит экран (useRoyalLook), а не второй рубильник.
-  const royalLook = useRoyalLookChoice(serverEnabled && policy.data?.look === "royal");
+  const royalLook = useRoyalLookChoice(mobile ? latched === true : serverLook);
   const clean = cleanShellEnabled(requested, mobile, agentId, serverEnabled, role, agentPreview, royalLook);
-  // Телефон агента без выданного вида ждёт ответа так же, как остальные: иначе
-  // прежний интерфейс смонтировался бы и через миг сменился новым, теряя черновики.
-  const waits = asked && requested;
+  // Ждём ответа, только пока решение не принято: телефон агента без запомненного
+  // вида не ждёт вовсе, остальные — до первого ответа, как раньше.
+  const waits = asked && requested && !(mobile && latched !== undefined);
   return {
     clean,
     // «Новый вид» follows the last SUCCESSFUL policy answer, like the shell
     // itself: a failed periodic check must not flicker it off. It is absent
     // until a first success, and a successful answer without `look` (the
     // emergency OFF) removes it at once (hooks/useRoyalLook.ts).
-    ...(clean && policy.data?.look ? { look: policy.data.look } : {}),
+    ...(clean && (mobile ? latched === true : serverLook) ? { look: "royal" as const } : {}),
     // Do not mount working legacy controls only to discard them milliseconds
     // later when the first policy response chooses Clean.
     pending: waits && policy.isPending,
     // Предложение «вернуть вид» — только тем, у кого чистая оболочка на этом
     // устройстве была бы и без «Нового вида»: агенту с телефона прежний
     // интерфейс — штатный, а не аварийный.
-    ...(waits && deviceAllowed && policy.isError && !clean ? { unavailable: true } : {}),
+    ...(asked && requested && deviceAllowed && policy.isError && !clean ? { unavailable: true } : {}),
   };
 }
 

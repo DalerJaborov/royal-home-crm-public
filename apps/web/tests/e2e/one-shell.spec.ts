@@ -34,19 +34,36 @@ test.describe.configure({ mode: "serial" });
 
 const PHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
-async function royalPage(browser: Browser, role: RoleName, w: (typeof WIDTHS)[number]) {
+type ShellAnswer = { delayMs?: number; abort?: boolean };
+
+/**
+ * Страница роли с подменённым ответом `/ui-shell` («Новый вид»).
+ * `rememberGrant` — устройство помнит выданный вид (так телефон агента ждёт ответа
+ * и включает вид сразу, а не со следующего запуска: ревью #329).
+ */
+async function royalPage(browser: Browser, role: RoleName, w: (typeof WIDTHS)[number], { rememberGrant = true, answer = {} as ShellAnswer } = {}) {
   const context = await contextForRole(browser, role, {
     viewport: { width: w.width, height: w.height }, hasTouch: w.touch, isMobile: w.touch,
     ...(w.touch ? { userAgent: PHONE_UA } : {}), serviceWorkers: "block",
   });
-  await context.addInitScript(() => {
+  await context.addInitScript((remember) => {
     // Плавающая подсказка «Поставьте CRM на экран» — не предмет этого сторожа.
     try { localStorage.setItem("rh-install-hint-dismissed", String(Date.now())); } catch { /* нет хранилища */ }
-  });
+    try {
+      const id = (JSON.parse(localStorage.getItem("royal-home-auth") ?? "{}") as { state?: { agent?: { id?: string } } }).state?.agent?.id;
+      if (id && remember && !sessionStorage.getItem("e2e-grant-set")) {
+        localStorage.setItem(`rh-look-granted:${id}`, "1");
+        sessionStorage.setItem("e2e-grant-set", "1");
+      }
+    } catch { /* нет хранилища */ }
+  }, rememberGrant);
   const page = await context.newPage();
-  await page.route("**/api/v1/ui-shell", (route) => route.request().method() === "GET"
-    ? route.fulfill({ json: { enabled: true, look: "royal" }, headers: { "cache-control": "no-store" } })
-    : route.fallback());
+  await page.route("**/api/v1/ui-shell", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    if (answer.delayMs) await new Promise((resolve) => setTimeout(resolve, answer.delayMs));
+    if (answer.abort) return route.abort("connectionrefused");
+    return route.fulfill({ json: { enabled: true, look: "royal" }, headers: { "cache-control": "no-store" } });
+  });
   return { context, page };
 }
 
@@ -110,7 +127,9 @@ function expectLayout(g: Geometry, width: number, label: string) {
     expect(main.left, `${label}: содержимое правее рейки`).toBeGreaterThanOrEqual(rail!.right - 1);
   } else {
     expect(g.side, `${label}: боковое меню`).not.toBeNull();
-    expect(g.bottomNav, `${label}: нижнего меню нет`).toBeNull();
+    // Нижнего меню нет; на сенсорном планшете от него остаётся только круглая «+».
+    expect(g.bottomTabs, `${label}: пунктов нижнего меню нет`).toEqual([]);
+    if (g.bottomNav) expect(g.bottomNav.width, `${label}: от нижнего меню — только «+»`).toBeLessThanOrEqual(80);
     expect(g.side!.width, `${label}: меню с подписями, а не рейка значков`).toBeGreaterThanOrEqual(200);
     expect(g.sidePrimary.length, `${label}: главные пункты`).toBeGreaterThanOrEqual(4);
     expect(g.sidePrimary.length, `${label}: не больше восьми главных пунктов`).toBeLessThanOrEqual(8);
@@ -156,6 +175,11 @@ test("одна оболочка: сенсорный планшет 1100 px по�
     await expect(page.locator("html")).toHaveAttribute("data-mobile-ux", "1");
     await expect(page.locator("main#main")).toBeVisible();
     expectLayout(await measure(page), 1100, "DIRECTOR / 1100 (палец)");
+    // Нижнего меню нет, но «+» с быстрыми действиями остаётся (ревью #329).
+    const fab = page.locator("nav[data-bottomnav] [data-fab]");
+    await expect(fab).toBeVisible();
+    await fab.click();
+    await expect(page.getByRole("menu", { name: "Быстрые действия" })).toBeVisible();
   } finally {
     await context.close();
   }
@@ -178,6 +202,47 @@ test("одна оболочка: группа бокового меню раск
     await expect(page).toHaveURL(new RegExp(`${href}$`));
     // Открытый раздел держит свою группу раскрытой.
     await expect(page.locator(".clean-tabs > details[open] a[aria-current='page']")).toHaveCount(1);
+  } finally {
+    await context.close();
+  }
+});
+
+test("телефон агента: без запомненного вида не ждёт /ui-shell и не меняет оболочку посреди работы", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "устройство задаётся в десктопном проекте");
+  test.setTimeout(90_000);
+  const { context, page } = await royalPage(browser, "AGENT", WIDTHS[1], { rememberGrant: false, answer: { delayMs: 6_000 } });
+  try {
+    const started = Date.now();
+    await page.goto("/");
+    // Первый экран — прежний телефонный интерфейс, без ожидания сервера (ответ идёт 6 с,
+    // в пределах таймаута запроса 8 с — иначе он не пришёл бы вовсе).
+    await expect(page.locator("main#main")).toBeVisible({ timeout: 5_000 });
+    expect(Date.now() - started, "экран не ждал ответа /ui-shell").toBeLessThan(5_500);
+    await expect(page.locator("html")).not.toHaveAttribute("data-ui-look", /.+/);
+    // Ответ с видом пришёл — экран не перестраивается, вид запомнен до следующего запуска.
+    await page.waitForTimeout(8_000);
+    await expect(page.locator("html")).not.toHaveAttribute("data-ui-look", /.+/);
+    const remembered = await page.evaluate(() => {
+      const id = (JSON.parse(localStorage.getItem("royal-home-auth") ?? "{}") as { state?: { agent?: { id?: string } } }).state?.agent?.id;
+      return localStorage.getItem(`rh-look-granted:${id}`);
+    });
+    expect(remembered).toBe("1");
+    // Следующий запуск — сразу новый вид.
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal", { timeout: 20_000 });
+  } finally {
+    await context.close();
+  }
+});
+
+test("телефон агента: сбой /ui-shell при запомненном виде не вешает экран", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "устройство задаётся в десктопном проекте");
+  test.setTimeout(60_000);
+  const { context, page } = await royalPage(browser, "AGENT", WIDTHS[1], { answer: { abort: true } });
+  try {
+    await page.goto("/");
+    await expect(page.locator("main#main")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("html")).not.toHaveAttribute("data-ui-look", /.+/);
   } finally {
     await context.close();
   }

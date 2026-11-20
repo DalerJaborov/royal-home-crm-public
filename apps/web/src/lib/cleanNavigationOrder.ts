@@ -93,3 +93,16 @@ export function royalSideNavigation(main: NavItem[], all: NavItem[], saved: unkn
   });
   return { primary: tabs, groups };
 }
+
+/**
+ * Раскрытые группы бокового меню помнятся на устройстве — удобство, а не настройка.
+ * Ключ на сотрудника: на общем компьютере раскрытые группы одного не достаются другому.
+ */
+export const navGroupsKey = (agentId: string | undefined) => `rh-nav-groups:${agentId ?? "-"}`;
+export function readOpenNavGroups(agentId: string | undefined, storage?: Pick<Storage, "getItem">): string[] {
+  try {
+    const store = storage ?? window.localStorage;
+    const value = JSON.parse(store.getItem(navGroupsKey(agentId)) ?? "[]");
+    return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+  } catch { return []; }
+}

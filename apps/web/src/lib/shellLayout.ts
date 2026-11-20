@@ -7,6 +7,7 @@
  */
 const WIDE_ROUTES = ["/", "/reports", "/sources", "/insights", "/funnel"];
 
+/** Вложенные пути обзорного раздела (`/reports/<срез>`) — тоже широкие; «/» — только сама главная. */
 export function isWideRoute(pathname: string): boolean {
-  return WIDE_ROUTES.includes(pathname);
+  return WIDE_ROUTES.some((root) => pathname === root || (root !== "/" && pathname.startsWith(`${root}/`)));
 }

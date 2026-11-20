@@ -39,6 +39,34 @@ const IMPORTERS_BASELINE = [
   "pages/PropertyDetail.tsx",
 ];
 
+/** Точный список файлов прежних папок на 20.11.2026: новый файл или удалённый — правка списка. */
+const LEGACY_FILES_BASELINE = [
+  "components/home/mh/MhScreen.tsx",
+  "components/home/mh/MobileAgentHome.tsx",
+  "components/home/mh/MobileEditorHome.tsx",
+  "components/home/mh/MobileManagerHome.tsx",
+  "components/home/mh/MobileMarketingHome.tsx",
+  "components/home/mh/MobileSecurityHome.tsx",
+  "components/mobile/LegacyAgentPropertyView.tsx",
+  "components/mobile/LegacyAgentTopbar.tsx",
+  "components/mobile/MobileCalendar.tsx",
+  "components/mobile/MobileCalls.tsx",
+  "components/mobile/MobileChatView.tsx",
+  "components/mobile/MobileChatsList.tsx",
+  "components/mobile/MobileClientCard.tsx",
+  "components/mobile/MobileClientsList.tsx",
+  "components/mobile/MobileDeals.tsx",
+  "components/mobile/MobileFunnel.tsx",
+  "components/mobile/MobileHomeHeader.tsx",
+  "components/mobile/MobileInquiries.tsx",
+  "components/mobile/MobileInsights.tsx",
+  "components/mobile/MobileMore.tsx",
+  "components/mobile/MobilePropertiesList.tsx",
+  "components/mobile/NoContactTile.tsx",
+  "components/mobile/PropertyMobileBlocks.tsx",
+  "components/mobile/mh/MhList.tsx",
+];
+
 const SRC = path.dirname(fileURLToPath(import.meta.url));
 const LEGACY_DIRS = ["components/mobile", "components/home/mh"];
 const rel = (file: string) => path.relative(SRC, file).split(path.sep).join("/");
@@ -73,10 +101,9 @@ describe("одна оболочка: прежние телефонные экр�
     expect(legacyImporters(files)).toEqual([...IMPORTERS_BASELINE].sort());
   });
 
-  it("в прежних папках не появляются новые файлы", () => {
-    const now = files.map((f) => rel(f.path)).filter((p) => isLegacy(p) && !isTest(p));
-    // Число на 20.11.2026: components/mobile — 23 файла, components/home/mh — 7.
-    expect(now.length, now.join("\n")).toBeLessThanOrEqual(30);
+  it("в прежних папках ровно те файлы, что в списке (новый — красный, удалённый — вычеркнуть)", () => {
+    const now = files.map((f) => rel(f.path)).filter((p) => isLegacy(p) && !isTest(p)).sort();
+    expect(now).toEqual([...LEGACY_FILES_BASELINE].sort());
   });
 
   it("сторож проверен поломкой: новый подключающий файл виден", () => {

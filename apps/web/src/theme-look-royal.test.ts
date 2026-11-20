@@ -565,6 +565,7 @@ export const HIDING_ALLOWED = new Set<string>([
   // боковое меню и название (те же разделы — в рейке), «Ещё» рейки вне планшета (на
   // телефоне все разделы — у аватара), телефонное название при названии ПК, маркер раскрытия.
   `${R}[data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav]`,
+  `${R}[data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab`,
   `${R}[data-shell="clean"] .app-shell.clean-shell .clean-header :is(.clean-brand, .clean-tabs)`,
   `${R} .clean-shell .ry-rail-only`,
   `${R}[data-shell="clean"] .app-shell.clean-shell .clean-brand .clean-brand-mobile`,

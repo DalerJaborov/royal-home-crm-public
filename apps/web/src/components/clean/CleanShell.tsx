@@ -2,7 +2,7 @@ import { Suspense, useEffect, useRef, useState, type MouseEvent as ReactMouseEve
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { ChevronDown, House, Plus, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useNavigation, type NavItem } from "../../lib/navigation";
-import { defaultCleanNavigation, partitionCleanNavigation, royalSideNavigation, type RoyalNavGroup } from "../../lib/cleanNavigationOrder";
+import { defaultCleanNavigation, navGroupsKey, partitionCleanNavigation, readOpenNavGroups, royalSideNavigation, type RoyalNavGroup } from "../../lib/cleanNavigationOrder";
 import { useUiPrefs } from "../../store/uiPrefs";
 import { CleanNavigationOrderSheet } from "./CleanNavigationOrderSheet";
 export { partitionCleanNavigation } from "../../lib/cleanNavigationOrder";
@@ -40,21 +40,14 @@ function Tab({ item, royal }: { item: NavItem; royal?: boolean }) {
   </NavLink>;
 }
 
-const GROUPS_KEY = "rh-nav-groups";
-function readOpenGroups(): string[] {
-  try {
-    const value = JSON.parse(window.localStorage.getItem(GROUPS_KEY) ?? "[]");
-    return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
-  } catch { return []; }
-}
-
 /**
  * Группа бокового меню «Нового вида»: свёрнута, пока человек сам её не открыл
  * (запоминается на этом устройстве — удобство, а не настройка) или пока в ней
  * открытый сейчас раздел. Непрочитанное внутри видно на заголовке суммой.
  */
 function RoyalNavGroupBlock({ group, active }: { group: RoyalNavGroup; active: boolean }) {
-  const [open, setOpen] = useState(() => active || readOpenGroups().includes(group.key));
+  const agentId = useAuthStore((state) => state.agent?.id);
+  const [open, setOpen] = useState(() => active || readOpenNavGroups(agentId).includes(group.key));
   useEffect(() => { if (active) setOpen(true); }, [active]);
   const unread = group.items.reduce((total, item) => total + (item.badgeQuiet ? 0 : item.badge ?? 0), 0);
   // Запоминается только нажатие человека: раскрытие из-за открытого раздела — нет,
@@ -64,9 +57,9 @@ function RoyalNavGroupBlock({ group, active }: { group: RoyalNavGroup; active: b
     const next = !open;
     setOpen(next);
     try {
-      const keys = new Set(readOpenGroups());
+      const keys = new Set(readOpenNavGroups(agentId));
       if (next) keys.add(group.key); else keys.delete(group.key);
-      window.localStorage.setItem(GROUPS_KEY, JSON.stringify([...keys]));
+      window.localStorage.setItem(navGroupsKey(agentId), JSON.stringify([...keys]));
     } catch { /* Без хранилища группа просто не запомнит положение. */ }
   };
   return <details className="ry-nav-group" open={open}>

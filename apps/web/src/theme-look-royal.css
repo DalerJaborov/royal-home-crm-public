@@ -185,6 +185,20 @@
     margin-inline: auto; padding: 28px 0 40px;
   }
   :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] { display: none; }
+  /* Сенсорный планшет: разделы уже в боковом меню, но «+» с быстрыми действиями и
+     голосом по удержанию живёт только в нижнем меню (ревью #329) — от него остаётся
+     одна круглая кнопка в правом нижнем углу; запас снизу, чтобы она не закрыла строку. */
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] {
+    display: block; top: auto; left: auto; right: calc(24px + env(safe-area-inset-right, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    width: auto; max-width: none; margin: 0; padding: 0; border: 0; border-radius: 999px; box-shadow: none;
+    background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] > .grid { display: block; height: auto; padding: 0; }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab { display: none; }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] [data-fab] {
+    width: 56px; height: 56px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: var(--rh-ui-cap-shadow);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .app-main-col { padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)); }
   :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand {
     position: fixed; z-index: 33; top: 20px; left: 16px; width: calc(var(--rh-ui-side-w) - 32px);
     height: 48px; padding: 0 12px; gap: 12px; font-size: 18px; font-weight: 700; letter-spacing: -.025em;
@@ -358,7 +372,7 @@
   :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .ry-rail-only { display: block; }
   /* Плавающая подсказка «Поставьте CRM на экран» (InstallAppHint, до 819 px) растянута
      от края до края — на планшете её левый край уходил под рейку. */
-  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > .fixed.inset-x-0 { left: var(--ry-rail-w); }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > [data-install-hint] { left: var(--ry-rail-w); }
 }
 
 /* Тихие плашки над экраном (уведомления выключены, вопрос собственнику и т.п.):

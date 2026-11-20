@@ -6,9 +6,9 @@ vi.mock("@tanstack/react-query", () => ({ useQuery: (options: unknown) => { h.qu
 vi.mock("../../store/auth", () => ({ useAuthStore: (select: (s: unknown) => unknown) => select({ agent: { id: "one", role: h.role } }) }));
 vi.mock("../useMobileUx", () => ({ useMobileUx: () => h.mobile }));
 vi.mock("../../lib/api", () => ({ api: vi.fn() }));
-import { useCleanShellSelection } from "../useCleanShell";
+import { resetPhoneLookSessionForTests, useCleanShellSelection } from "../useCleanShell";
 
-beforeEach(() => { vi.unstubAllGlobals(); h.mobile = false; h.role = "DIRECTOR"; h.search = ""; h.result = { data: undefined, isPending: true, isError: false }; h.query.mockClear(); });
+beforeEach(() => { resetPhoneLookSessionForTests(); vi.unstubAllGlobals(); h.mobile = false; h.role = "DIRECTOR"; h.search = ""; h.result = { data: undefined, isPending: true, isError: false }; h.query.mockClear(); });
 describe("shell policy network failure", () => {
   it("checks an emergency rollback through one layout observer and leaves agent phones untouched", () => {
     useCleanShellSelection(true);
@@ -43,27 +43,52 @@ describe("shell policy network failure", () => {
   it("never bypasses the server switch with a URL, and agent mobile defaults to legacy", () => {
     h.search = "?shell=clean"; h.result = { data: { enabled: false }, isPending: false, isError: false };
     expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
-    h.mobile = true; h.role = "AGENT"; h.result = { data: { enabled: true }, isPending: false, isError: false };
+    h.mobile = true; h.role = "AGENT"; h.result = { data: { enabled: true }, isPending: true, isError: false };
     expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
   });
-  it("одна оболочка: выданный сервером «Новый вид» включает её и на телефоне агента", () => {
+  it("телефон агента без запомненного вида не ждёт сервер, а выданный вид включается со следующего запуска", () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("window", { location: { hostname: "crm.example.com" }, localStorage: {
+      getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v), removeItem: (k: string) => store.delete(k),
+    } });
     h.mobile = true; h.role = "AGENT";
-    // Пока ответа нет — ждём, а не монтируем прежний интерфейс на миг.
+    // Холодный старт: ответа нет — и ждать его незачем.
+    expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
+    // Вид пришёл посреди работы — экран не перестраивается до следующего запуска.
+    h.result = { data: { enabled: true, look: "royal" }, isPending: false, isError: false };
+    expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
+    // Следующий запуск: устройство помнит выданный вид — ждём ответ, затем новый вид.
+    store.set("rh-look-granted:one", "1");
+    resetPhoneLookSessionForTests();
+    h.result = { data: undefined, isPending: true, isError: false };
     expect(useCleanShellSelection()).toEqual({ clean: false, pending: true });
     h.result = { data: { enabled: true, look: "royal" }, isPending: false, isError: false };
     expect(useCleanShellSelection()).toEqual({ clean: true, look: "royal", pending: false });
-    // Сбой очередной проверки не выключает уже выданный вид.
+    // Сбой очередной проверки и снятый в середине сессии вид экран не меняют.
     h.result.isError = true;
     expect(useCleanShellSelection()).toEqual({ clean: true, look: "royal", pending: false });
-    // Личный отказ от вида возвращает агента в прежний телефонный интерфейс.
-    h.result.isError = false; h.search = "?look=legacy";
+    h.result = { data: { enabled: true }, isPending: false, isError: false };
+    expect(useCleanShellSelection()).toEqual({ clean: true, look: "royal", pending: false });
+    // Личный отказ от вида — прежний интерфейс.
+    h.search = "?look=legacy";
     expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
-    // Аварийное выключение оболочки на сервере снимает и вид, и оболочку.
+    // Аварийное выключение действует сразу.
     h.search = ""; h.result = { data: { enabled: false }, isPending: false, isError: false };
     expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
-    // Холодный сбой — прежний интерфейс без аварийного предложения: для телефона агента он штатный.
-    h.result = { data: undefined, isPending: false, isError: true };
+  });
+  it("телефон: вид решается на сессию, ПК: вид следует за сервером", () => {
+    h.role = "DIRECTOR"; h.mobile = true;
+    h.result = { data: { enabled: true, look: "royal" }, isPending: false, isError: false };
+    expect(useCleanShellSelection()).toEqual({ clean: true, look: "royal", pending: false });
+    h.result = { data: { enabled: true }, isPending: false, isError: false };
+    expect(useCleanShellSelection()).toEqual({ clean: true, look: "royal", pending: false });
+    h.result = { data: { enabled: false }, isPending: false, isError: false };
     expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
+    h.mobile = false;
+    h.result = { data: { enabled: true, look: "royal" }, isPending: false, isError: false };
+    expect(useCleanShellSelection()).toEqual({ clean: true, look: "royal", pending: false });
+    h.result = { data: { enabled: true }, isPending: false, isError: false };
+    expect(useCleanShellSelection()).toEqual({ clean: true, pending: false });
   });
   it.each(["DIRECTOR", "ADMIN", "MANAGER", "SHAREHOLDER"])("requests the mandatory server policy on %s phones", (role) => {
     h.role = role; h.mobile = true;

@@ -65,3 +65,29 @@ export function useRoyalLookChoice(serverGranted: boolean): boolean {
   }, [serverGranted, agentId, override]);
   return royalLookEnabled(serverGranted, override, saved);
 }
+
+/**
+ * ПАМЯТЬ «СЕРВЕР ВЫДАЛ ВИД» НА ЭТОМ УСТРОЙСТВЕ (ревью #329, 20.11.2026) — одна дверь на
+ * ключ `rh-look-granted:<сотрудник>`: пишет выбор оболочки по каждому удачному ответу
+ * `/ui-shell` (useCleanShell.ts), читают он же и мастер объекта (useWizardRoyalLook.ts).
+ *
+ * Зачем выбору оболочки. Телефон агента без выданного вида работает в прежнем интерфейсе
+ * и ждать ответа сервера перед первым кадром ему незачем: холодный старт не должен стоять
+ * 8 секунд на плохой связи ради вида, которого у агента нет. Ждёт только тот телефон, на
+ * котором вид уже выдавали: там первый кадр без ответа был бы не тем интерфейсом.
+ * Впервые выданный вид поэтому включается со следующего запуска.
+ */
+const GRANT_KEY = "rh-look-granted";
+
+export function rememberedLookGrant(agentId: string | undefined): boolean {
+  if (!agentId) return false;
+  try { return window.localStorage.getItem(`${GRANT_KEY}:${agentId}`) === "1"; } catch { return false; }
+}
+
+export function rememberLookGrant(agentId: string, granted: boolean): void {
+  if (rememberedLookGrant(agentId) === granted) return;
+  try {
+    if (granted) window.localStorage.setItem(`${GRANT_KEY}:${agentId}`, "1");
+    else window.localStorage.removeItem(`${GRANT_KEY}:${agentId}`);
+  } catch { /* Без хранилища телефон агента просто не ждёт ответа: прежний интерфейс. */ }
+}
