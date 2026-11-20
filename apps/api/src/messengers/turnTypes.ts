@@ -159,6 +159,8 @@ export interface MessengerTurnResult {
   ready: boolean;
   /** Заявка оформлена в CRM в этом ходе (или ранее). */
   accepted: boolean;
+  /** Номер проверяющего из Настроек (lib/botReviewers.ts): заявку не заводили нарочно — это не сбой, тревоги не нужно. */
+  reviewer?: true;
   /** false — оператор взял диалог на себя, бот-платформа не должна отправлять reply клиенту. */
   shouldReply?: boolean;
   /** true при shouldReply=false — вместо молчания webhooks.ts отвечает реакцией

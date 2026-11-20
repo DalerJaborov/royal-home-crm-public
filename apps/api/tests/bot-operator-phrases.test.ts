@@ -12,11 +12,9 @@ import { promisesAgentContact } from "../src/ai/callbackPromiseGuard.js";
  */
 const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
   greet: {}, greet_assalom: {}, ask_role: {}, buyer_free: {}, identity: { brand: "Arvan estate" }, bot_identity: {},
-  seller_intro: { percent: 2 }, seller_commission: { percent: 2 }, ask_details_buyer: {}, ask_details_seller: {},
-  ask_details_missing: { missing: ["district", "budget"] },
+  seller_intro: { percent: 2 }, seller_commission: { percent: 2 },
   lead_and_details_seller: { when: "завтра с 09:30" }, lead_and_details_buyer: { when: "завтра с 09:30" },
-  lead_and_details_missing: { when: "завтра с 09:30", missing: ["district", "budget"] }, ask_details_seller_phone: {},
-  ask_details_buyer_phone: {}, ask_details_missing_phone: { missing: ["district", "budget"] }, office_phone: { phone: "+992 00 000 00 02" },
+  lead_and_details_missing: { when: "завтра с 09:30", missing: ["district", "budget"] }, office_phone: { phone: "+992 00 000 00 02" },
   property_price: { id: 164, price: "520 000 сомони" },
   property_no_price: { id: 164 }, property_sold: { id: 164 }, bargain: {}, lead_known_phone: { when: "завтра с 09:30" },
   lead_callback: { time: "с 11:00 до 14:30" }, lead_text_only: { where: "WHATSAPP" }, ask_phone: {}, phone_received: { when: "в ближайшее время" },
@@ -25,6 +23,7 @@ const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
   job_open: { position: "менеджер по продажам" }, job_closed: { position: "SMM", list: ["менеджер по продажам"] }, jobs_none: {},
   job_contact: { phone: "+992 00 000 00 01" }, no_call_ack: {}, rude_calm: {}, off_topic: {}, complaint_ack: {},
   bargain_seller: {}, no_agent_noted: { when: "завтра с 09:30" },
+  question_noted: {}, lead_status: {}, lead_reminder: {}, work_hours: { from: "10:00", to: "22:30" }, reviewer_reset: {},
 };
 const LANGUAGES: readonly OperatorLanguage[] = ["ru", "tg"];
 /** Вопрос («?») — только у вопроса о роли: тогда в ответе из двух шагов вопрос всегда один. */
@@ -100,7 +99,7 @@ describe("сторож фраз оператора", () => {
     // прошла бы мимо него. Пометки после заявки (callback_noted, text_only_noted, note_added, no_agent_noted) — свободны.
     const LEAD_KEYS = ["lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing", "lead_known_phone", "lead_callback",
       "lead_text_only", "phone_received", "out_of_area_accepted"];
-    const AFTER_LEAD = ["callback_noted", "text_only_noted", "note_added", "no_agent_noted"];
+    const AFTER_LEAD = ["callback_noted", "text_only_noted", "note_added", "no_agent_noted", "question_noted", "lead_status", "lead_reminder"];
     for (const { key, language, text } of rendered()) {
       if (LEAD_KEYS.includes(key)) expect(promisesAgentContact(text), `${key}/${language}: ${text}`).toBe(true);
       else if (!AFTER_LEAD.includes(key)) expect(promisesAgentContact(text), `${key}/${language}: ${text}`).toBe(false);
@@ -111,5 +110,22 @@ describe("сторож фраз оператора", () => {
     const text = renderOperatorStep({ key: "job_open", vars: { position: "SMM — специалист\nстарший" }, variant: 0 }, "ru");
     expect(text).toBe("Вакансия «SMM, специалист старший» открыта.");
     expect(() => renderOperatorStep({ key: "property_price", vars: { id: 1 }, variant: 0 }, "ru")).toThrow(/price/u);
+  });
+});
+
+describe("без «одним сообщением» и без допроса (владелец 20.11.2026)", () => {
+  it("ни одна фраза оператора не просит писать «одним сообщением» / «дар як паём»", () => {
+    for (const { key, language, text } of rendered()) expect(text, `${key}/${language}`).not.toMatch(/одним\s+сообщени|як\s+паём/iu);
+  });
+  it("вопрос о деталях с заявкой — мягкий и короткий: «можете рассказать», не больше трёх пунктов", () => {
+    for (const key of ["lead_and_details_seller", "lead_and_details_buyer"] as const) {
+      for (const language of LANGUAGES) {
+        for (const variant of [0, 1]) {
+          const text = renderOperatorStep({ key, vars: SAMPLE[key], variant }, language);
+          expect(text, `${key}/${language}`).toMatch(language === "ru" ? /можете\s+рассказать/iu : /метавонед/iu);
+          expect(text).not.toMatch(/площадь|этаж|ремонт|квадрат|ошёна|таъмир/iu);
+        }
+      }
+    }
   });
 });
