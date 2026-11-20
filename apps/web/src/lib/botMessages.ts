@@ -85,8 +85,18 @@ const ATTACHMENT_LABELS: Record<string, string> = {
   fallback: "📎 вложение",
 };
 
+const BARE_ATTACHMENT_MARKERS = new Set(["[вложение без текста]", "[сообщение без текста]"]);
+const BARE_ATTACHMENT_LABEL = "Вложение не загрузилось";
+
 /** `[вложение: image]` → `🖼 фото`. Неизвестный тип остаётся распознаваемым. */
-export function humanizeAttachmentTags(content: string, opts: { outgoing?: boolean } = {}): string {
+export function humanizeAttachmentTags(content: string, opts: { outgoing?: boolean; hasAttachments?: boolean } = {}): string {
+  const bare = content.trim();
+  if (BARE_ATTACHMENT_MARKERS.has(bare)) {
+    // Служебная пометка бота «[вложение без текста]» (lib/customerQualifierLedger.ts):
+    // файл либо показан рядом из `attachments` (тогда пометка лишняя), либо не сохранился —
+    // говорим об этом спокойно словами, а не скобками (владелец 20.11.2026, кадр с iPhone).
+    return opts.hasAttachments ? "" : BARE_ATTACHMENT_LABEL;
+  }
   if (!content.includes("[вложение:")) return content;
   return content.replace(/\[вложение:\s*([^\]]+)\]/g, (_all, rawType: string) => {
     const type = rawType.trim().toLowerCase();

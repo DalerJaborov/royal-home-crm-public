@@ -12,6 +12,10 @@ export function useCleanViewport(enabled: boolean) {
     const apply = () => {
       frame = 0;
       root.style.setProperty("--clean-viewport-height", `${Math.round(viewport?.height ?? window.innerHeight)}px`);
+      // Safari при открытой клавиатуре двигает ВИДИМУЮ область вниз (offsetTop > 0), а слои
+      // `position: fixed` остаются привязаны к layout viewport: полноэкранная переписка с top: 0
+      // уезжала вверх за экран, поле ввода оказывалось под шапкой, под ним — пустота (кадр 12, 20.11).
+      root.style.setProperty("--clean-viewport-top", `${Math.max(0, Math.round(viewport?.offsetTop ?? 0))}px`);
       const nextNotice = document.querySelector<HTMLElement>(".clean-critical-notice");
       if (notice !== nextNotice) {
         if (notice) sizeObserver.unobserve(notice);
@@ -45,6 +49,7 @@ export function useCleanViewport(enabled: boolean) {
       contentObserver.disconnect();
       sizeObserver.disconnect();
       root.style.removeProperty("--clean-viewport-height");
+      root.style.removeProperty("--clean-viewport-top");
       root.style.removeProperty("--clean-notice-space");
       delete root.dataset.cleanKeyboard;
     };

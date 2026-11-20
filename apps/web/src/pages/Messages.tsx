@@ -940,7 +940,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
   // Новый вид: какие реплики вообще рисуются (пустая служебная — нет). Хвостик и
   // слитый отступ считаются по СОСЕДНЕЙ ВИДИМОЙ реплике, а не по соседу в массиве.
   const shown = useMemo(
-    () => (royal ? visibleMessages.map((m) => !!humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user" }) || !!m.attachments?.length) : []),
+    () => (royal ? visibleMessages.map((m) => !!humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user", hasAttachments: !!m.attachments?.length }) || !!m.attachments?.length) : []),
     [royal, visibleMessages],
   );
   return (
@@ -961,6 +961,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
         // (см. lib/botMessages.ts). Ответы бота показываем как есть.
         const content = humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, {
           outgoing: m.role !== "user",
+          hasAttachments: !!m.attachments?.length,
         });
         // От сообщения осталась одна подсказка и ничего больше — показывать
         // пустой пузырь незачем, вложения при этом сохраняем.
@@ -1964,7 +1965,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         return (
           <RoyalMessageInfo
             message={m}
-            text={humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user" })}
+            text={humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user", hasAttachments: !!m.attachments?.length })}
             conversationId={m.sourceConversationId ?? id}
             messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? infoIndex}`}
             index={m.sourceMessageIndex ?? infoIndex}

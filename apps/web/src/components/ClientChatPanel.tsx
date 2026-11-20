@@ -245,6 +245,7 @@ const ChatMessageList = memo(function ChatMessageList({
       // именно здесь: панель на карточке жила отдельным путём от инбокса).
       const content = humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, {
           outgoing: m.role !== "user",
+          hasAttachments: !!m.attachments?.length,
         });
       // Разделитель дня — та же логика, что в инбоксе (Messages.tsx,
       // MobileChatView.tsx): сравниваем с ПРЕДЫДУЩИМ сообщением полного

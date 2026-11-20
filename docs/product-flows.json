@@ -79351,22 +79351,22 @@
     },
     {
      "k": "do",
-     "t": "const text = await transcribeAudio(req.file.buffer, req.file.originalname || \"voice.webm\", mediaType);",
+     "t": "const result = await traceMeasured(\"asr\", ()",
      "a": [
-      "зовёт transcribeAudio()"
+      "зовёт traceMeasured()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "text === null",
+     "t": "result.failed",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(502).json({ error: \"Не удалось распознать речь\" });",
+       "t": "return res.status(424).json({ error: notConfigured ? \"Распознавание речи не настроено: не задан ключ ИИ. Напи…",
        "a": [
-        "ответ 502 — «Не удалось распознать речь»"
+        "ответ 424"
        ],
        "c": []
       }
@@ -79374,14 +79374,14 @@
     },
     {
      "k": "if",
-     "t": "!text.trim()",
+     "t": "!text || !text.trim()",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(422).json({ error: \"Речь не распознана — похоже, запись пустая\" });",
+       "t": "return res.status(422).json({ error: \"Речь не распознана. Скажите ещё раз, чуть громче и ближе к микрофону.\" …",
        "a": [
-        "ответ 422 — «Речь не распознана — похоже, запись пустая»"
+        "ответ 422 — «Речь не распознана. Скажите ещё раз, чуть громче и ближе к микрофону.»"
        ],
        "c": []
       }

@@ -40,6 +40,20 @@ describe("pickRecorderMimeType", () => {
     stubRecorder(["audio/mp4"]);
     expect(pickRecorderMimeType()).toBe("audio/mp4");
   });
+  const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Mobile/15E148 Safari/604.1";
+  const CHROME = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+  it("iPhone с iOS 18.4+: умеет и webm, и mp4 — берётся mp4 (webm из Safari модель расшифровки читала пусто)", () => {
+    stubRecorder(["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]);
+    expect(pickRecorderMimeType(IPHONE)).toBe("audio/mp4");
+  });
+  it("iPhone, где mp4 нет, — webm как запасной", () => {
+    stubRecorder(["audio/webm"]);
+    expect(pickRecorderMimeType(IPHONE)).toBe("audio/webm");
+  });
+  it("Chrome (его UA тоже содержит «Safari/») — по-прежнему opus в webm", () => {
+    stubRecorder(["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]);
+    expect(pickRecorderMimeType(CHROME)).toBe("audio/webm;codecs=opus");
+  });
   it("ничего не заявлено — undefined, браузер выберет сам", () => {
     stubRecorder([]);
     expect(pickRecorderMimeType()).toBeUndefined();
