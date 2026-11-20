@@ -24,6 +24,7 @@ import { findAgentsWithPermission } from "./recipients.js";
 import { logSystemError } from "./systemError.js";
 import { loadBotCapabilities } from "../messengers/botCapabilities.js";
 import { PUBLIC_AGENT_TECHNICAL_FAILURES } from "./customerPublicAgentFailure.js";
+import { loadBotAnswersItself, staffSignalAllowed } from "./botAnswersItself.js";
 
 /** Старый путь шлёт пуш сам сразу — даём ему время, чтобы не продублировать. */
 const MIN_AGE_MS = 3 * 60_000;
@@ -136,11 +137,14 @@ export async function runCommentNeedsHumanSweep(now: Date = new Date()): Promise
   const claim = (commentId: string) => prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
     VALUES (${randomUUID()},${CLAIM_CHANNEL},${commentId},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
   const due: typeof rows = [];
+  // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): «бот передал вопрос человеку» руководству не идёт; технические
+  // отказы (ИИ недоступен, застрял в очереди) — как раньше.
+  const selfAnswer = await loadBotAnswersItself();
   for (const row of rows) {
     const need = commentNeed(row.status, row.note);
     // Рубильник выключен: технический отказ не отмечаем — включат, и сводка уйдёт (в пределах суток).
     if (need === "technical" && !technicalOn) continue;
-    if (need === "no") {
+    if (need === "no" || (need === "human" && !staffSignalAllowed({ on: selfAnswer, kind: "bot_choice" }))) {
       // Решено «человека не звать» — отмечаем, чтобы такие строки не занимали предел выборки каждый тик.
       await claim(row.commentId);
       continue;

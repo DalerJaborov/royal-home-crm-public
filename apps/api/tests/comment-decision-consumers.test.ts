@@ -135,5 +135,6 @@ it.each(["INSTAGRAM", "FACEBOOK"] as const)("actual %s keeps a valid optional pr
   expect(mocks.graph.mock.calls[0][1]).toBe("fake-no-provider-access");
   expect(mocks.graph.mock.calls[0][2]).toEqual({ message: stored.replyText });
   expect(new URL(mocks.graph.mock.calls[0][0]).pathname).toMatch(new RegExp(`/${input.peer}/${channel === "INSTAGRAM" ? "replies" : "comments"}$`));
-  expect(mocks.privateReply).toHaveBeenCalledWith(input.peer, stored.dmText, [], "fake-no-provider-access", channel);
+  // 6-й и 7-й аргументы: без ворот ядра и с наблюдателем recipient_id (номер из комментария, 18.11.2026).
+  expect(mocks.privateReply).toHaveBeenCalledWith(input.peer, stored.dmText, [], "fake-no-provider-access", channel, undefined, expect.any(Function));
 });

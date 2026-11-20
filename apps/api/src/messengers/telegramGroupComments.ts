@@ -29,6 +29,15 @@ import { moderationErrorOutcome, moderationAcceptedNote } from "./commentModerat
 import { detectSpam } from "../lib/incomingSpam.js";
 import { detectAgencyAd, detectListingAd } from "../lib/listingAd.js";
 import { detectHate } from "../lib/commentHate.js";
+import { clientPhonesOf, createLeadFromCommentPhone } from "./commentPhoneLead.js";
+import { trackBackgroundTask } from "../lib/shutdownState.js";
+import { extractAllPhones } from "../lib/shared/phoneText.js";
+
+/** Пометка карточке по номеру из обсуждения Telegram (18.11.2026): личного разговора бот не ведёт, комментарий не удаляем. */
+const TG_COMMENT_PHONE_NOTE = "Номер из комментария в обсуждении Telegram: бот не спросил, что нужно — позвоните и узнайте.";
+const TG_COMMENT_PHONE_OFF_NOTE = "Номер из комментария в обсуждении Telegram: бот в обсуждении выключен — позвоните и узнайте, что нужно.";
+import { commentNeedsPerson, loadBotAnswersItself } from "../lib/botAnswersItself.js";
+import { commentSelfReply } from "../ai/botSelfAnswerText.js";
 import { resolveTelegramCommentProperty } from "../lib/propertyVoice/commentProperty.js";
 import { commentDecisionProviderSchema, type CommentDecision } from "@royal-home/shared";
 import { commentDecisionCapabilities, validateCommentDecision } from "../ai/commentDecision.js";
@@ -212,6 +221,12 @@ export async function ingestGroupComment(
         ...(enabled ? {} : { status: "SKIPPED", note: "bot_off" }),
       },
     });
+    // Бот выключен — номер из комментария всё равно заявка, без ответа и без удаления (второе ревью 1b, №1).
+    if (!enabled) {
+      void trackBackgroundTask(createLeadFromCommentPhone({ channel: "TELEGRAM", commentId: `${groupChatId}:${messageId}`,
+        authorId: String(authorId), authorName: msg.from?.username ?? msg.from?.first_name ?? null, text: text.slice(0, MAX_TEXT) },
+        TG_COMMENT_PHONE_OFF_NOTE));
+    }
     return true;
   } catch (err) {
     // P2002 (пара группа + messageId уже есть) — обычная повторная доставка, не ошибка.
@@ -302,6 +317,10 @@ type QueuedComment = {
   updatedAt: Date;
 };
 
+/** Выключенная фича: сколько подошедших комментариев закрывать за раз и сколько пачек за тик (номер каждого — заявкой). */
+const CLOSE_BATCH = 200;
+const CLOSE_MAX_BATCHES = 10;
+
 export async function processDueTelegramComments(now: Date = new Date()): Promise<TelegramCommentRunStats> {
   const stats: TelegramCommentRunStats = { replied: 0, hidden: 0, escalated: 0, skipped: 0 };
   const settings = await loadGroupSettings();
@@ -315,11 +334,27 @@ export async function processDueTelegramComments(now: Date = new Date()): Promis
      * (см. ingestGroupComment) и что делает Instagram у себя в разборе:
      * «отвечать задним числом нельзя», но запись в журнале остаётся.
      */
-    const closed = await prisma.telegramGroupComment.updateMany({
-      where: { status: "PENDING", replyDueAt: { lte: now } },
-      data: { status: "SKIPPED", note: "bot_off" },
-    });
-    stats.skipped += closed.count;
+    // Номер из закрываемого комментария — заявка, без ответа и без удаления (второе ревью 1b, №1). Закрывается ровно то,
+    // что разобрано, пачками (HANDOFF #283, 19.11: прежде заявки шли по первым 200, а закрывалось всё — номер в 201-м
+    // терялся). Больше CLOSE_MAX_BATCHES пачек за тик — остаток дождётся следующего тика, ничего не теряя.
+    for (let batch = 0; batch < CLOSE_MAX_BATCHES; batch++) {
+      const closing = await prisma.telegramGroupComment.findMany({ where: { status: "PENDING", replyDueAt: { lte: now } },
+        orderBy: { replyDueAt: "asc" }, take: CLOSE_BATCH,
+        select: { id: true, messageId: true, groupChatId: true, authorId: true, authorName: true, text: true } });
+      for (const c of closing) {
+        if (!extractAllPhones(c.text).length) continue;
+        await createLeadFromCommentPhone({ channel: "TELEGRAM", commentId: `${c.groupChatId ?? "legacy"}:${c.messageId}`, authorId: c.authorId,
+          authorName: c.authorName, text: c.text }, TG_COMMENT_PHONE_OFF_NOTE);
+      }
+      if (closing.length) {
+        const closed = await prisma.telegramGroupComment.updateMany({
+          where: { id: { in: closing.map((c) => c.id) }, status: "PENDING" },
+          data: { status: "SKIPPED", note: "bot_off" },
+        });
+        stats.skipped += closed.count;
+      }
+      if (closing.length < CLOSE_BATCH) break;
+    }
     return stats;
   }
 
@@ -446,7 +481,11 @@ export async function handleTelegramComment(
   }
 
   const screen = screenIncomingText(row.text, { checkSpam: false });
+  // Отсечка сторожа — на прежнем месте, выше спама/мата/объявлений (ревью #283, Б3): «не по теме» молча пропускается и не
+  // удаляется. Номер перед ней — заявкой (createLeadFromCommentPhone сам отсекает деньги, рассылку, мат и объявления).
   if (screen.action === "silent") {
+    // id сообщения уникален только внутри группы: ключ повтора — группа + сообщение (ревью 1b).
+    await createLeadFromCommentPhone({ ...row, commentId: `${groupChatId}:${row.messageId}`, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
     await finish(row.id, { status: "SKIPPED", note: screen.reason.slice(0, 120) });
     return "skipped";
   }
@@ -489,6 +528,8 @@ export async function handleTelegramComment(
       `Комментатор ${row.authorName ? `@${row.authorName}` : row.authorId} упёрся в суточный потолок ходов ИИ ` +
         `под постами Telegram — бот больше не отвечает ему сегодня.`
     );
+    // id сообщения уникален только внутри группы: ключ повтора — группа + сообщение (ревью 1b).
+    await createLeadFromCommentPhone({ ...row, commentId: `${groupChatId}:${row.messageId}`, channel: "TELEGRAM" }, TG_COMMENT_PHONE_NOTE);
     await finish(row.id, { status: "SKIPPED", note: "ai_budget" });
     return "skipped";
   }
@@ -512,7 +553,7 @@ export async function handleTelegramComment(
    * колонки. Отдельной задачей с миграцией — см. docs/TASKS.md.
    */
   await spendAiTurns(budgetRow.id, budget.dayKey, 1, "peer");
-  const decision = await decideOnComment(row.text, "", answered);
+  let decision = await decideOnComment(row.text, "", answered);
   if (!decision) throw new AiUnavailableError("Модель не вернула решение по комментарию Telegram");
 
   if (decision.action === "owner") {
@@ -536,11 +577,26 @@ export async function handleTelegramComment(
     return outcome;
   }
 
-  if (decision.action === "escalate") {
+  // Живой человек (не спам, не конкурент, не собственник): номер из комментария — заявкой,
+  // что бы ни решила модель дальше (ответить, промолчать, позвать человека), 17.11.2026.
+  // id сообщения уникален только внутри группы: ключ повтора — группа + сообщение (ревью 1b).
+  const phoneOutcome = await createLeadFromCommentPhone({ ...row, commentId: `${groupChatId}:${row.messageId}`, channel: "TELEGRAM" },
+    TG_COMMENT_PHONE_NOTE);
+  // Номер правда стал карточкой (принят сейчас или уже был): «номер получили» под ответом — правда.
+  const phoneTaken = phoneOutcome === "accepted" || phoneOutcome === "already";
+
+  // «Бот отвечает сам» (владелец 18.11.2026, lib/botAnswersItself.ts): человека не зовём, отвечаем в обсуждении сами —
+  // ответ модели, если он есть, иначе шаг к номеру (ai/botSelfAnswerText.ts).
+  // Ревью #283, блокер 3: жалоба и номер, не ставший карточкой, — человеку при любом положении настройки.
+  const selfAnswer = decision.action === "escalate" && await loadBotAnswersItself() &&
+    !commentNeedsPerson({ text: row.text, reason: decision.reason }) && (phoneTaken || !clientPhonesOf(row.text).length);
+  if (decision.action === "escalate" && !selfAnswer) {
     await escalate(row, decision.reason);
     await finish(row.id, { status: "ESCALATED", note: decision.reason?.slice(0, 200) });
     return "escalated";
   }
+  // Свой текст всегда: ответ модели при escalate — «уточним и вернёмся», обещание, которое некому выполнить.
+  if (selfAnswer) decision = { ...decision, reply: commentSelfReply(row.text, phoneTaken) };
 
   if (decision.action === "ignore" || !decision.reply?.trim()) {
     await finish(row.id, { status: "SKIPPED", note: "ignore" });

@@ -4063,6 +4063,10 @@ model Client {
   /// таймером duplicateReviewDueAt (lib/duplicateReview.ts::sweepExpiredDuplicateReviews,
   /// тот же принцип, что у lostReturnAcceptMinutes/returnAcceptDueAt).
   duplicateReviewOfClientId   String?
+  /// НОМЕР ИЗ КОММЕНТАРИЯ (18.11.2026, messengers/commentPhoneLead.ts): карточка заведена сразу, но в раздачу идёт после
+  /// ответа клиента боту в личных или по истечении этого срока (20 мин рабочего окна). Пусто — обычная раздача.
+  /// Снимает ТОЛЬКО lib/commentPhoneHold.ts (тик раздачи); утренняя волна такие карточки до срока не берёт.
+  commentPhoneHoldUntil       DateTime?
   duplicateReviewOfClient     Client?   @relation("ClientDuplicateReview", fields: [duplicateReviewOfClientId], references: [id], onDelete: SetNull)
   /// Обратная сторона self-relation выше — карточки, которые сочли похожими НА эту.
   duplicateReviewCandidateOf  Client[]  @relation("ClientDuplicateReview")
@@ -4213,6 +4217,9 @@ model Client {
   /// по workStatus=DEFERRED + deferredUntil<=now — без составного индекса это
   /// полный проход по всей таблице клиентов на каждом тике.
   @@index([workStatus, deferredUntil])
+  /// Снятие придержки номера из комментария (lib/commentPhoneHold.ts) — каждый тик раздачи отбирает
+  /// commentPhoneHoldUntil not null; без индекса это полный проход по клиентам (ревью #283, 20.11.2026).
+  @@index([commentPhoneHoldUntil])
   /// Пуши «новое объявление на площадке подошло покупателю» (14.11.2026).
   marketAlerts BuyerMarketAlert[]
 }
@@ -7456,6 +7463,22 @@ model Settings {
   /// Только в режиме «только заявки»: «хотим посмотреть», «куда ехать», «адрес»
   /// и таджикские равные — заявка агенту сразу, с объектом, если он известен.
   botHotIntentHandover              Boolean   @default(true)
+  /// «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026: «бот никак не вызывал администратора, директора… полностью сам все
+  /// отвечает… и в комментариях»). ВКЛ — бот не зовёт руководство («клиент ждёт», «передаю сотруднику», «комментарий
+  /// требует человека»), а сам отвечает безопасной фразой и ведёт к номеру. Остаются всегда: агенту — о его клиенте,
+  /// заявка с номером, назначающим — заявка без агента, техсбой. Одна дверь чтения — lib/botAnswersItself.ts.
+  /// ВЫКЛЮЧЕН по умолчанию.
+  botAnswersItself                  Boolean   @default(false)
+  /// НОМЕР ИЗ КОММЕНТАРИЯ — РАЗГОВОР (18.11.2026, messengers/commentPhoneLead.ts): ВКЛ — одно личное с вопросом о цели,
+  /// публичный ответ, если личное невозможно, и скрытие комментария. ВЫКЛ — карточка с пометкой, а комментарий разбирается
+  /// прежним путём (ответ модели под постом). ВЫКЛЮЧЕН по умолчанию: включается после «да» владельца на тексты.
+  /// Читает lib/botAnswersItself.ts.
+  botCommentPhoneConversation       Boolean   @default(false)
+  /// НОМЕР ИЗ КОММЕНТАРИЯ — ЗАЯВКА (20.11.2026, рубильник ревью #283): ВКЛ — номер под постом (Instagram, Facebook,
+  /// YouTube, обсуждение Telegram) становится карточкой и уходит агенту. ВЫКЛ — как до #283: номер под постом карточкой
+  /// не становится. Разговор по номеру (botCommentPhoneConversation) действует только при ВКЛ этой настройки.
+  /// ВЫКЛЮЧЕН по умолчанию. Читает только lib/botAnswersItself.ts.
+  botCommentPhoneLead               Boolean   @default(false)
   /// Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026). По умолчанию ВЫКЛ.
   marketBuyerAlertsEnabled          Boolean   @default(false)
   /// Когда рубильник пуша «объявление под покупателя» включили (ставит первый прогон; null при выключенном). «Новое» считается от неё.

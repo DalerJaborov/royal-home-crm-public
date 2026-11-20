@@ -9,6 +9,7 @@
 // with the client's name and a link to the chat, at most once per chat per
 // window. Failing to write is transient (the webhook answers 503 and Meta
 // retries); a scope denial is permanent and is reported without the text.
+import { loadBotAnswersItself, staffSignalAllowed } from "./botAnswersItself.js";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { decryptSecret, encryptSecret } from "../crypto.js";
@@ -189,13 +190,24 @@ async function pushStaffAboutChat(input: { conversationId: string; channel: stri
  */
 export async function notifyEscalatedCustomerTurn(input: { conversationId: string; channel: string; text: string;
   /** Разговор о вакансии: его ведёт рекрутер прежним путём, режим «только заявки» его не глушит. */
-  jobTopic?: boolean }): Promise<"sent" | "skipped"> {
+  jobTopic?: boolean;
+  /** Клиенту уже ушла безопасная строка (дверь ядра planSafetyLine): при «бот отвечает сам» — ни пуша, ни журнала. */
+  answered?: boolean;
+  /** Номер клиента известен, а заявку этим ходом не оформили: сигнал идёт при любой настройке (lib/botAnswersItself.ts). */
+  phoneKnown?: boolean }): Promise<"sent" | "skipped"> {
   try {
     const chat = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: { clientId: true } });
     if (!chat) return "skipped";
     // Режим «только заявки» (решение владельца 13.11.2026): до заявки людей не зовут вовсе — ни ботом, ни общими
     // уведомлениями. Сюда это доходит, только если режим включили посреди хода (иначе ответ даёт сам режим).
     if (!chat.clientId && !input.jobTopic && await leadOnlyQuietBeforeLead(input.channel)) return "skipped";
+    // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): клиенту уже ушла безопасная строка, а карточки (значит, и
+    // своего агента) нет — руководство не зовём. Клиент ответа не получил — сбой, сигнал как раньше (ревью 1b, №1).
+    const signal = { kind: input.answered ? "answered_handover" as const : "unanswered" as const, hasCard: !!chat.clientId,
+      phoneKnown: input.phoneKnown === true };
+    if (!input.jobTopic && !staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal })) {
+      return "skipped";
+    }
     const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[сообщение без текста]";
     const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
     return await pushStaffAboutChat({ conversationId: input.conversationId, channel: input.channel,

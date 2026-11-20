@@ -28,6 +28,7 @@ import { alertChannelStaff } from "../lib/channelStaffAlert.js";
 import { logSystemError } from "../lib/systemError.js";
 import { handOverChannelOffTurn, isCustomerAgentTurnOff } from "../lib/customerAgentChannelOff.js";
 import { resolveCustomerDmLanguage } from "./customerDmLanguage.js";
+import { ATTACHMENT_UNREADABLE, selfAnswerLine, selfCallbackRequested } from "./botSelfAnswerText.js";
 
 // Helpers of the old bot that callers still need. Re-exported here so that the old module has exactly one importer;
 // step 3b moves each of them to its own module and this list disappears.
@@ -151,11 +152,22 @@ async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOp
   const ownTexts = turnHistory.filter(item => item.role === "user").map(item => channelOwnWords(item.content)).filter(Boolean);
   if (outcome.status === "staff") {
     const lastUser = [...turnHistory].reverse().find(item => item.role === "user")?.content ?? "";
+    // Номер известен (контакт, номер в переписке): «бот отвечает сам» не ответит «позвоните нам» — человек узнаёт, как
+    // раньше (ревью #283: «позвоните мне завтра» → «позвоните нам сами», заявка потеряна).
     const alerted = await alertChannelStaff({ channel: source.channel, conversationId: options.conversationId ?? null,
-      text: lastUser, why: outcome.reason, eventId: source.eventId ?? null });
+      text: lastUser, why: outcome.reason, eventId: source.eventId ?? null, ...(options.phoneKnown === true ? { phoneKnown: true } : {}) });
     // No staff signal by design (the customer opted out, the client is in the trash): promising a person would be a lie and
     // the error log below a false alarm. Silence, as the old path did — its AI-retry job drops such chats (review 0e463b02 N5).
     if (alerted === "excluded") return { ...channelCoreQualifyResult(outcome, ownTexts), reply: [], silent: "intended" };
+    // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): человека не звали — «передал сотруднику» было бы неправдой.
+    // Бот отвечает сам одним шагом к номеру; номер уже просили — телефон офиса (ai/botSelfAnswerText.ts).
+    if (alerted === "self") {
+      const phoneAsked = turnHistory.some(item => item.role === "assistant" && mentionsPhoneRequest(item.content));
+      const line = outcome.reason === "unreadable_input" ? ATTACHMENT_UNREADABLE[outcome.language]
+        : selfAnswerLine(outcome.language, { phoneAsked, callback: selfCallbackRequested(channelOwnWords(lastUser)),
+          brandName: await (await import("../messengers/accounts.js")).accountBrandName(options.accountId) });
+      return { ...channelCoreQualifyResult(outcome, ownTexts), reply: [line], silent: undefined, verified: true };
+    }
     // The customer ALWAYS hears the core's approved handover line (the Meta receipt wording), owner 17.11.2026 (review #223
     // R1-2/R1-4): silence here kept the chat «unanswered», so the website's stuck-chat cron replayed it every 30 minutes and
     // at night nobody answered at all. `sent`/`already`: a person knows (if the earlier sender behind `already` fails, it logs
