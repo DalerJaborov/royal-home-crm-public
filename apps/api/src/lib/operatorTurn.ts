@@ -109,7 +109,9 @@ export async function loadOperatorTurnSetup(input: {
   const clientId = row?.clientId ?? null;
   const [focus, jobs, leadPending, cardAgentActive, noAgentWhen, staffActive] = await Promise.all([focusOf(propertyId, input.channel), vacancies(),
     clientId ? Promise.resolve(false) : leadIntakePending(input.conversationId),
-    clientId ? leadOnlyCardAgentActive(clientId).catch(() => true) : Promise.resolve(true),
+    // Карточки ещё нет: заявка в очереди приёма — агента назначит приём через секунды (пометки ждут карточку и уходят ему,
+    // lib/customerLeadOnlyCore.ts «card_pending»); заявки нет вовсе — живого агента нет (ревью #333).
+    clientId ? leadOnlyCardAgentActive(clientId).catch(() => true) : leadIntakePending(input.conversationId),
     contactWhenWithoutAgent(now).catch(() => ({ ru: "в рабочее время", tg: "дар вақти корӣ" })),
     staffWroteRecently(input.conversationId, input.config.staffQuietMinutes ?? 180, now)]);
   const reviewer = await isReviewerConversation(input.conversationId, input.peerPhone ?? null);

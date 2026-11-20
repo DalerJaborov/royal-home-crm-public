@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createNotifications } from "./notifications.js";
+import { createNotificationsStrict } from "./notifications.js";
 import { prisma } from "../db.js";
 import { automationSwitchOn } from "./automationSwitches.js";
 import { TG_PREFIX, TG_DIRECT_PREFIX } from "./conversationId.js";
@@ -423,7 +423,7 @@ export async function alertClientWaiting(input: {
       if (!target && !toLeadership) {
         const leaders = await leadershipAgentIds();
         if (!leaders.length) throw new Error("нет ни агента, ни руководства для сигнала");
-        await createNotifications(leaders, { kind: "message", title: "💬 Клиент ждёт человека", body, url });
+        await createNotificationsStrict(leaders, { kind: "message", title: "💬 Клиент ждёт человека", body, url, tag });
         return "director";
       }
       const queued = toLeadership ? await enqueueDirectorAlert({ title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа, агента нет",

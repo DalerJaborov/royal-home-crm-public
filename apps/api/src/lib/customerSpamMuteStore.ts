@@ -31,6 +31,15 @@ export async function recordCustomerSpamTurn(conversationId: string, turn: { eve
 }
 
 /** A real request ended the mute: forget the whole mark. */
+/** «Вернуть боту»: отметка спама снята, разговор больше не отсеивается (руководство, ревью #333). */
+export async function exemptCustomerSpam(conversationId: string): Promise<boolean> {
+  const json = JSON.stringify({ turns: [], exempt: true });
+  const n = await prisma.$executeRaw`UPDATE "BotConversation" SET "leadDraft" = CASE
+      WHEN jsonb_typeof("leadDraft") = 'object' THEN jsonb_set("leadDraft", ARRAY[${KEY}]::text[], ${json}::jsonb, true)
+      ELSE jsonb_build_object(${KEY}::text, ${json}::jsonb) END WHERE "id" = ${conversationId}`;
+  return n > 0;
+}
+
 export async function clearCustomerSpamMute(conversationId: string): Promise<void> {
   await prisma.$executeRaw`UPDATE "BotConversation" SET "leadDraft" = "leadDraft" - ${KEY}::text
     WHERE "id" = ${conversationId} AND jsonb_typeof("leadDraft") = 'object' AND jsonb_exists("leadDraft", ${KEY}::text)`;

@@ -91,7 +91,9 @@ export interface OperatorState {
     /** Продавцом клиент назвался сам: только тогда бот сам называет комиссию (тема рекламы роль не доказывает, 20.11.2026). */
     sellerByWords: boolean;
     /** Сигналы человеку «не понял», «вложения без слов», уже отправленные в этом разговоре (по одному). */
-    signaled: Array<"unclear" | "attachments" | "no_phone"> };
+    signaled: Array<"unclear" | "attachments" | "no_phone" | "staff_thread">;
+    /** Чем закрыт разговор для бота: дальше на каждое новое сообщение — тот же сигнал человеку (дверь держит один на эпизод). */
+    closedBy: OperatorStaffReason | null };
   leadAccepted: boolean;
   /** Сотрудника уже звали (грубость, жалоба): не зовём второй раз. */
   staffCalled: boolean;

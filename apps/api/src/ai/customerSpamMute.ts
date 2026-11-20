@@ -24,6 +24,8 @@ export const customerSpamMuteSchema = z.object({
   /** Spam turns seen (most recent last); `key` makes a retried event count once. */
   turns: z.array(z.object({ key: z.string().min(1).max(64), at: z.string().datetime() }).strict()).max(MAX_REMEMBERED_TURNS).default([]),
   mutedUntil: z.string().datetime().optional(),
+  /** «Вернуть боту» (руководство, 20.11.2026): этот разговор больше не отсеивается как спам. */
+  exempt: z.boolean().optional(),
 }).strict();
 export type CustomerSpamMute = z.infer<typeof customerSpamMuteSchema>;
 
@@ -44,6 +46,8 @@ export function customerSpamMuteActive(state: CustomerSpamMute, now: Date): bool
  */
 const INTEREST = new RegExp([
   `${BW}(?:квартир|кувартир|комнат|хона|хавли|хучра|участ|земельн|замин|манзил|недвижим|жиль|новостройк|ипотек|дуплекс|пентхаус)${TAIL}`,
+  // Таджикское «ҷой» (место, жильё: «ҷой лозим»), латиница (ревью #333; tajik-phrasebook, словарь чата).
+  `${BW}(?:чой|чои|joy|uy|hovli|havli|zamin|manzil|uchastok|xonai|honai|kvartir)${TAIL}`,
   `${BW}(?:дом(?:а|у|е|ом|ик\\p{L}*)?|дача|дачу|дачи|двушк\\p{L}*|трешк\\p{L}*|однушк\\p{L}*|студи[яюи])${EW}`,
   `${BW}(?:цен[аыуе]|ценой|стоимост|стоит|почем|сколько|нарх|чанд\\s+(?:пул|аст|мешавад|сомони|доллар))${TAIL}`,
   `${BW}(?:адрес|сурога|локаци|район|ноих|микрорайон|ориентир)${TAIL}`,

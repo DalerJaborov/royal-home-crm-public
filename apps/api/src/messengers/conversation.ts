@@ -67,7 +67,7 @@ import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, not
 import { leadOnlyQuietBeforeLead } from "../lib/leadOnlyConfig.js";
 import { runOperatorTurn, type OperatorTurnInput } from "../ai/operator/index.js";
 import { isReviewerPhone } from "../lib/botReviewers.js";
-import { spamFilterApplies } from "../lib/spamFilter.js";
+import { noteSpamFiltered, spamFilterApplies } from "../lib/spamFilter.js";
 import { customerSpamTurn } from "../ai/customerSpamMute.js";
 import { recordCustomerSpamTurn } from "../lib/customerSpamMuteStore.js";
 import { saveOperatorStateTx } from "../ai/operator/state.js";
@@ -3142,6 +3142,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     // Спам — без ответа и без модели (владелец 20.11.2026), та же дверь, что у ядра (lib/spamFilter.ts).
     if (said && customerSpamTurn({ inputText: said }) && await spamFilterApplies(conversation.id, channel)) {
       await recordCustomerSpamTurn(conversation.id, { eventKey: `legacy:${conversation.id}:${contactReceivedAt.getTime()}` }).catch(() => undefined);
+      void noteSpamFiltered().catch(() => undefined);
       return { reply: "", ready: false, accepted: !!conversation.clientId, shouldReply: false };
     }
     // Объект ЭТОГО сообщения (пост, реклама, ссылка), иначе фокус разговора, иначе объект чата агента; объект рекламы

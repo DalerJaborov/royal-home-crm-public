@@ -232,19 +232,20 @@ describe("ревью #333", () => {
   it("эстафета: сотрудник писал недавно — бот молчит и зовёт его; номер, а в WhatsApp ясная роль — заявка; вакансия — рекрутёр", () => {
     const quiet = run(FB({ staffThread: true, staffActive: true }), [ru({ greetingOnly: true, greeting: "ru" })])[0]!;
     expect(quiet.silent).toBe(true);
+    // Третий круг ревью: в пределах срока отдельного «клиент ждёт» нет — сотруднику штатный пуш, дальше сторож молчания.
     expect(quiet.yielded).toBe(true);
-    expect(quiet.actions).toEqual([{ type: "call_staff", reason: "staff_thread" }]);
+    expect(quiet.actions).toEqual([]);
     const phone = run(FB({ staffThread: true, staffActive: true }), [ru({ phone: "+992900000001" })])[0]!;
-    expect(phone.actions.map(a => a.type)).toEqual(["accept_lead", "call_staff"]);
+    expect(phone.actions.map(a => a.type)).toEqual(["accept_lead"]);
     const wa = run(ctx({ staffThread: true, staffActive: true }), [ru({ role: "buyer", quote: "Хочу купить квартиру" })])[0]!;
-    expect(wa.actions.map(a => a.type)).toEqual(["accept_lead", "call_staff"]);
+    expect(wa.actions.map(a => a.type)).toEqual(["accept_lead"]);
     const job = run(ctx({ staffThread: true, staffActive: true, recruiterPath: true }), [ru({ role: "job" })])[0]!;
     expect(job.handoff).toBe("recruiter");
   });
-  it("эстафета не вечна: сотрудник молчит дольше срока — обычный шаг без повторного приветствия и сигнал ему", () => {
-    const t = run(FB({ staffThread: true, staffActive: false }), [ru({ greetingOnly: true, greeting: "ru" })])[0]!;
-    expect(t.keys).toEqual(["ask_role"]);
-    expect(t.actions).toEqual([{ type: "call_staff", reason: "staff_thread" }]);
+  it("эстафета не вечна: после срока — обычный шаг без повторного приветствия и сигнал сотруднику раз в сутки", () => {
+    const turns = run(FB({ staffThread: true, staffActive: false }), [ru({ greetingOnly: true, greeting: "ru" }), ru({ question: "other" }), ru({ role: "buyer" })]);
+    expect(turns[0]!.keys).toEqual(["ask_role"]);
+    expect(turns.flatMap(t => t.actions).filter(a => a.type === "call_staff")).toEqual([{ type: "call_staff", reason: "staff_thread" }]);
   });
   it("вложение без слов: один короткий ответ на языке разговора и вопрос о роли; повтор — тишина и один сигнал", () => {
     const media = u({ hasText: false, attachments: { voice: "none", ownPost: false, foreignPost: false, media: true } });
@@ -252,7 +253,9 @@ describe("ревью #333", () => {
     expect(turns[0]!.text).toBe("Спасибо, получил. Вы хотите купить или продать недвижимость?");
     expect(turns[1]!.silent).toBe(true);
     expect(turns[1]!.actions).toEqual([{ type: "call_staff", reason: "attachments" }]);
-    expect(turns[2]!.silent && turns[2]!.actions.length === 0).toBe(true);
+    // Каждое молчание даёт сигнал, а дверь «клиент ждёт» держит один на эпизод (ключ — начало серии).
+    expect(turns[2]!.silent).toBe(true);
+    expect(turns[2]!.actions).toEqual([{ type: "call_staff", reason: "attachments" }]);
     const tgFirst = run(FB(), [media], { ...initialOperatorState(), language: "tg" })[0]!;
     expect(tgFirst.text).toBe("Ташаккур, гирифтам. Шумо хона мехаред ё мефурӯшед?");
   });
@@ -260,7 +263,8 @@ describe("ревью #333", () => {
     const turns = run(FB(), [ru(), ru(), ru(), ru()]);
     expect(turns[2]!.silent).toBe(true);
     expect(turns[2]!.actions).toEqual([{ type: "call_staff", reason: "unclear" }]);
-    expect(turns[3]!.actions).toEqual([]);
+    expect(turns[3]!.actions).toEqual([{ type: "call_staff", reason: "unclear" }]);
+    expect(run(FB(), [ru(), ru(), ru({ ackOnly: true })])[2]!.actions).toEqual([]);
   });
   it("запасной ход после сбоя: соискателю и арендатору заявку не заводит", async () => {
     const stored = serializeOperatorState({ ...initialOperatorState(), role: "job" });
@@ -281,21 +285,34 @@ describe("ревью #333", () => {
     expect(checkComposedReply("Спасибо, твой вопрос передал агенту.", "Передал агенту.", "ru")).toBe("informal");
     expect(checkComposedReply("Ташаккур, дархостат ба агент расид.", "Ба агент расондам.", "tg")).toBe("informal");
     expect(checkComposedReply("Для вас бесплатно, платит продавец.", "Для покупателя наши услуги бесплатны.", "ru")).toBe("money");
+    expect(checkComposedReply("Передал агенту, он всё решит, не переживайте.", "Передал агенту.", "ru")).toBe("promise");
     expect(checkComposedReply("Спасибо, передал агенту, он позвонит вам завтра с 10:00.", template, "ru")).toBeNull();
   });
 });
 
-describe("ИНВАРИАНТ (ревью #333, второй круг): нет пути «ни ответа бота, ни сигнала живому человеку»", () => {
-  function rng(seed: number) { let x = seed >>> 0 || 1; return () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 4294967296; }; }
+describe("ИНВАРИАНТ (ревью #333): нет пути «ни ответа бота, ни сигнала живому человеку»", () => {
+  /** xorshift32 с перемешанной затравкой (Math.imul с золотым сечением) и пропуском первых выдач: маленькие n не дают нулей. */
+  function rng(seed: number) {
+    let x = (Math.imul(seed, 2654435761) ^ 0x9e3779b9) >>> 0 || 1;
+    const next = () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; };
+    for (let i = 0; i < 8; i++) next();
+    return next;
+  }
   const pick = <T,>(r: () => number, items: readonly T[]): T => items[Math.floor(r() * items.length)]!;
-  it("3000 разговоров × карточка/агент/переписка сотрудника: каждая тишина — либо сигнал, либо оправданное исключение", () => {
-    for (let n = 1; n <= 3000; n++) {
+  it("4000 разговоров × карточка/агент/переписка сотрудника: каждая тишина — сигнал в этом эпизоде или узкое исключение", () => {
+    const stats = { conversations: 0, noLead: 0, staffThread: 0, noAgent: 0, silent: 0, violations: [] as string[] };
+    for (let n = 1; n <= 4000; n++) {
       const r = rng(n);
-      const leadExists = r() < 0.3, cardAgentActive = r() < 0.6, staffThread = r() < 0.3;
+      // Как в живом пути (lib/operatorTurn.ts): карточки нет — нет и живого агента, которому придёт пуш.
+      const leadExists = r() < 0.3, staffThread = r() < 0.3;
+      // Заявка в очереди (карточки ещё нет) — агента назначит приём; пометки ждут карточку и уходят ему.
+      const cardAgentActive = leadExists ? r() < 0.6 : true;
       const c = ctx({ channel: pick(r, ["WHATSAPP", "INSTAGRAM", "FACEBOOK"] as const), phoneKnown: r() < 0.5, leadExists, cardAgentActive,
-        staffThread, staffActive: staffThread && r() < 0.5, recruiterPath: r() < 0.5, leadPending: true, maxPhoneAsks: 1 + Math.floor(r() * 2),
+        staffThread, staffActive: staffThread && r() < 0.5, recruiterPath: r() < 0.5, leadPending: !leadExists, maxPhoneAsks: 1 + Math.floor(r() * 2),
         recentTurn: r() < 0.3, afterLeadReplies: r() < 0.8 });
+      stats.conversations++; if (!leadExists) stats.noLead++; if (staffThread) stats.staffThread++; if (!cardAgentActive || !leadExists) stats.noAgent++;
       let state = initialOperatorState();
+      let episodeSignalled = false;
       for (let turn = 0; turn < 8; turn++) {
         const chance = (p: number) => r() < p;
         const turnU = u({ role: pick(r, [null, null, null, "buyer", "seller", "rent", "job"] as const),
@@ -303,19 +320,52 @@ describe("ИНВАРИАНТ (ревью #333, второй круг): нет п
           details: chance(0.2) ? { rooms: "2" } : {}, phone: chance(0.1) ? "+992900000001" : null, language: pick(r, [null, "ru", "tg"] as const),
           greeting: pick(r, [null, "ru", "assalom"] as const), greetingOnly: chance(0.1), ackOnly: chance(0.15), thanksOnly: chance(0.05),
           rude: chance(0.03), complaint: chance(0.03), offTopic: chance(0.05), hasText: chance(0.85), quote: chance(0.5) ? "Скажите, пожалуйста" : "",
-          callback: { when: null, textOnly: false, noCall: chance(0.05) },
+          callback: { when: null, textOnly: false, noCall: chance(0.08) },
+          job: { asked: chance(0.3) ? "SMM" : null, openKey: null },
           attachments: { voice: "none", ownPost: false, foreignPost: chance(0.05), media: chance(0.15) } });
         const before = state;
         const d = decide(before, turnU, c);
         state = d.state;
-        if (!d.silent || d.handoff) continue;
-        const signalled = d.actions.some(a => a.type === "call_staff" || a.type === "follow_up");
-        // Оправданные исключения: карточка с живым агентом (агенту штатный пуш о каждом сообщении); «ок», «спасибо»;
-        // спам «не по теме»; человека по этому эпизоду уже звали; аренда и вакансия, на которые уже ответили.
-        const excused = (d.state.leadAccepted && c.cardAgentActive) || turnU.ackOnly || turnU.thanksOnly || turnU.offTopic ||
-          before.staffCalled || before.closed || before.flags.signaled.length > 0 || ["rent", "job"].includes(d.state.role);
-        expect(signalled || excused, `разговор ${n}, ход ${turn}: ${JSON.stringify({ leadExists, cardAgentActive, staffThread, role: turnU.role })}`).toBe(true);
+        const signalled = d.actions.some(a => a.type === "call_staff" || a.type === "follow_up" || (!leadExists && a.type === "append_note"));
+        if (!d.silent) { episodeSignalled = false; continue; }
+        if (signalled) episodeSignalled = true;
+        if (d.handoff) continue;
+        stats.silent++;
+        // Узкие исключения замысла: «ок» и «спасибо»; спам «не по теме» после ответа на него; бот уступил сотруднику (сторож
+        // молчания видит эту тишину); карточка есть и у неё живой агент (ему — штатный пуш о каждом сообщении); человека в
+        // ЭТОМ эпизоде уже звали; повтор уже отвеченных аренды или вакансии.
+        const repeatAnswered = (d.state.role === "rent" && (before.spoken.rent_refusal ?? 0) > 0) || (d.state.role === "job" && before.jobAnswered !== null);
+        const excused = turnU.ackOnly || turnU.thanksOnly || (turnU.offTopic && (before.spoken.off_topic ?? 0) > 0) || d.yielded === true ||
+          (leadExists && d.state.leadAccepted && cardAgentActive) || episodeSignalled || repeatAnswered;
+        if (!excused) stats.violations.push(`разговор ${n}, ход ${turn}: ${JSON.stringify({ leadExists, cardAgentActive, staffThread, role: turnU.role, q: turnU.question })}`);
       }
     }
+    // Перебор правда перебирает: каждой группы не меньше 15 %.
+    expect(stats.noLead / stats.conversations).toBeGreaterThan(0.15);
+    expect(stats.staffThread / stats.conversations).toBeGreaterThan(0.15);
+    expect(stats.noAgent / stats.conversations).toBeGreaterThan(0.15);
+    expect(stats.noAgent - stats.noLead).toBeGreaterThan(0.1 * stats.conversations); // карточка без живого агента
+    expect(stats.silent).toBeGreaterThan(500);
+    expect(stats.violations.slice(0, 5), `нарушений: ${stats.violations.length}`).toEqual([]);
+  });
+});
+
+describe("город Душанбе: ответ клиента закрывает вопрос, фраза о городе не повторяется (часовая сверка 20.11)", () => {
+  it("«Душанбе», «Дар Душанбе хаст», «Dushanbe» — не место вне зоны, бот город не переспрашивает", () => {
+    for (const text of ["Душанбе", "Дар Душанбе хаст", "Dushanbe"]) {
+      const understood = understandFallback({ current: text }, initialOperatorState(), ctx());
+      expect(understood.outsidePlace, text).toBeNull();
+      const t = run(ctx(), [understood])[0]!;
+      expect(t.keys, text).not.toContain("where_work");
+      expect(t.text, text).not.toMatch(/Душанбе/u);
+    }
+  });
+  it("«где работаете?» дважды — второй раз не та же фраза, а сигнал человеку; у клиента с заявкой вопроса о городе нет", () => {
+    const turns = run(FB(), [ru({ question: "area" }), ru({ question: "area" })]);
+    expect(turns[0]!.keys).toContain("where_work");
+    expect(turns[1]!.keys).not.toContain("where_work");
+    const lead = run(ctx({ leadExists: true }), [ru({ question: "area" }), ru({ question: "area" })], afterLead());
+    expect(lead[1]!.keys).not.toContain("where_work");
+    expect(lead.flatMap(t => t.keys).filter(k => k === "ask_role")).toEqual([]);
   });
 });

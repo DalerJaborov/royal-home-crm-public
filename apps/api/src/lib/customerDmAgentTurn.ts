@@ -43,7 +43,7 @@ import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult,
 import { customerPropertyUnresolvedReason } from "./customerPropertyUnresolvedReason.js";
 import { customerAgentMarkForeignShare } from "../ai/customerAgentAttachmentInput.js";
 import { customerSpamMuteGate, customerSpamTurn, SPAM_FILTERED_NO_REPLY, SPAM_MUTED_NO_REPLY } from "../ai/customerSpamMute.js";
-import { spamFilterApplies } from "./spamFilter.js";
+import { noteSpamFiltered, spamFilterApplies } from "./spamFilter.js";
 import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
 import { logSystemError } from "./systemError.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
@@ -206,6 +206,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       await spamFilterApplies(lane.ticket.conversationId, planningPrincipal.scope.channel)) {
       await recordCustomerSpamTurn(lane.ticket.conversationId, { eventKey: claim.eventKey }).catch(error =>
         console.error("[spam-filter]", error instanceof Error ? error.message : error));
+      void noteSpamFiltered().catch(error => console.error("[spam-filter] колокольчик", error instanceof Error ? error.message : error));
       await releaseHeldClaim(claim, SPAM_FILTERED_NO_REPLY);
       return { status: "held", reason: SPAM_FILTERED_NO_REPLY };
     }

@@ -1376,9 +1376,9 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 12,
+      "endpoints": 14,
       "label": "Переписка по всем каналам",
-      "usedBy": 3
+      "usedBy": 4
     },
     {
       "mount": "/api/v1/audit-log",

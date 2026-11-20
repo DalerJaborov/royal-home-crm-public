@@ -1092,9 +1092,59 @@ function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: bool
             </p>
           )}
           <BotHumanFields onToggle={onToggle} />
+          <SpamFilteredList />
         </>
       )}
     </>
+  );
+}
+
+interface SpamFilteredItem { id: string; channel: string; name: string | null; lastMessageAt: string | null; turns: number }
+
+/**
+ * ОТСЕЯНО КАК СПАМ (владелец 20.11.2026: «таким спамерам как то не отвечать»; ревью #333: отсев не должен быть невидимым).
+ * Простой список для РОПа, директора, админа: разговор открыть и «Вернуть боту». Без права список не показывается (403).
+ * Одна адаптивная карточка: строки сами складываются на телефоне.
+ */
+function SpamFilteredList() {
+  const [items, setItems] = useState<SpamFilteredItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api<{ items: SpamFilteredItem[] }>("/conversations/spam-filtered")
+      .then((data) => { if (alive) setItems(data.items); })
+      .catch(() => { if (alive) setItems(null); });
+    return () => { alive = false; };
+  }, []);
+  if (!items) return null;
+  return (
+    <div className="mod" id="spam-filtered">
+      <div className="t">
+        <b>Отсеяно как спам</b>
+        <span style={{ whiteSpace: "normal" }}>
+          {items.length ? "Бот не ответил этим людям. Если это живой клиент — верните его боту." : "За 30 дней никого не отсеяли."}
+        </span>
+        {items.map((item) => (
+          <div key={item.id} className="row" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <Link to={`/messages?open=${item.id}`}>{item.name || "Без имени"}</Link>
+            <span className="quiet">{item.channel} · {item.turns} раз</span>
+            <button
+              type="button"
+              className="pill"
+              onClick={() => {
+                setError(null);
+                api(`/conversations/${item.id}/spam-restore`, { method: "POST" })
+                  .then(() => setItems((list) => (list ?? []).filter((row) => row.id !== item.id)))
+                  .catch((err: unknown) => setError(err instanceof Error ? err.message : "Не удалось вернуть боту"));
+              }}
+            >
+              Вернуть боту
+            </button>
+          </div>
+        ))}
+        {error && <p className="msg" role="alert">{error}</p>}
+      </div>
+    </div>
   );
 }
 

@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 776,
-  "forks": 4150,
+  "endpoints": 778,
+  "forks": 4151,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -21768,6 +21768,51 @@
   },
   {
    "method": "POST",
+   "path": "/:id/spam-restore",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/:id/spam-restore",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен",
+    "есть право: clients.assign"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!(await exemptCustomerSpam(req.params.id))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Диалог не найден\" });",
+       "a": [
+        "ответ 404 — «Диалог не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/:id/translate",
    "mount": "/api/v1/conversations",
    "full": "/api/v1/conversations/:id/translate",
@@ -22351,6 +22396,44 @@
     {
      "k": "do",
      "t": "res.json({ id: key, channel: canSeeOrigin ? (channelNames.length === 1 ? channelNames[0] : \"MULTI\") : null, n…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/spam-filtered",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/spam-filtered",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен",
+    "есть право: clients.assign"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const rows = await prisma.$queryRaw<Array<{ id: string; channel: string; name: string | null; lastMessageAt: …",
+     "a": [
+      "обращается к базе своим SQL"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: rows.map(row",
      "a": [
       "ответ 200"
      ],
