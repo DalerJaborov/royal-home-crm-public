@@ -60,4 +60,18 @@ describe("PUT /me/preferences и раскладка главной", () => {
     expect(res.status).toBe(200);
     expect((await stored()).home).toBeUndefined();
   });
+
+  it("«Размер текста»: сохранение без поля его не стирает, выбор — меняет, чужое значение — 400", async () => {
+    expect((await put({ theme: "royal-home-2026-light", textSize: "xlarge" })).status).toBe(200);
+    const res = await put({ theme: "royal-home-2026-night" });
+    expect(res.status).toBe(200);
+    expect(res.body.textSize).toBe("xlarge");
+    expect((await put({ theme: "royal-home-2026-night", textSize: "normal" })).status).toBe(200);
+    expect((await stored()).textSize).toBe("normal");
+    expect((await put({ theme: "royal-home-2026-night", textSize: "huge" })).status).toBe(400);
+    // Битое сохранённое значение не переносится дальше.
+    await prisma.agent.update({ where: { id: agentId }, data: { preferences: { textSize: "huge" } } });
+    expect((await put({ theme: "royal-home-2026-light" })).status).toBe(200);
+    expect((await stored()).textSize).toBeUndefined();
+  });
 });

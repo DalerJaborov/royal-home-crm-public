@@ -79,7 +79,7 @@ export function HomeBlocksSettings() {
             );
           })}
         </ol>
-        {customized && <RhButton variant="gray" onClick={() => setHomeBlocks(role, null)}>Вернуть как было</RhButton>}
+        {customized && <RhButton variant="secondary" onClick={() => setHomeBlocks(role, null)}>Вернуть как было</RhButton>}
       </div>
     </section>
   );

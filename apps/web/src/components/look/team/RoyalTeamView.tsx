@@ -108,7 +108,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
     <div className="rh2 screens ry-teamp" data-ry-section="team">
       <div className="scr">
         <Head actions={<>
-          <RhButton variant="gray" onClick={p.onOpenFilters}>
+          <RhButton variant="secondary" onClick={p.onOpenFilters}>
             <SlidersHorizontal size={20} strokeWidth={2} aria-hidden="true" />Фильтры{p.sheetFilters > 0 ? ` ${p.sheetFilters}` : ""}
           </RhButton>
           <RhButton variant={p.showStages ? "dark" : "gray"} aria-pressed={p.showStages} onClick={p.onToggleStages}>Показы и сделки</RhButton>

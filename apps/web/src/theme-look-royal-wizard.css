@@ -89,13 +89,13 @@
   --ok-bg: var(--rh-ui-ok-soft);
   --warn: var(--rh-ui-warn);
   --warn-bg: var(--rh-ui-warn-soft);
-  --shadow-pop: 0 24px 60px -20px rgba(10, 14, 30, .38);
+  --shadow-pop: var(--rh-ui-shadow-lg);
   --shadow-sm: var(--rh-ui-shadow);
   --r-md: 20px;
   --ff-head: var(--font-sans, "Onest", system-ui, sans-serif);
   --ff-text: var(--font-sans, "Onest", system-ui, sans-serif);
   --ease: cubic-bezier(.23, 1, .32, 1);
-  background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 16px; line-height: 1.45;
+  background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: var(--rh-fs-md); line-height: 1.45;
 }
 
 /* Корень мастера на весь экран — фон нового вида. Мастер живёт без оболочки CRM,
@@ -107,13 +107,13 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .whead { padding: calc(20px + env(safe-area-inset-top)) 16px 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .line1 { align-items: center; gap: 12px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .ttl {
-  font-family: var(--ff-head); font-size: 28px; font-weight: 700; line-height: 1.12; letter-spacing: -.028em;
+  font-family: var(--ff-head); font-size: var(--rh-fs-2xl); font-weight: 700; line-height: 1.12; letter-spacing: -.028em;
   color: var(--rh-ui-text); text-wrap: balance;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .whead .sub { margin-top: 4px; font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .whead .sub { margin-top: 4px; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 /* Закрыть — круг 44 белой плиты с тонкой гранью, как «назад» в макете. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .xbtn {
-  width: 44px; height: 44px; border-radius: 999px; background: var(--rh-ui-card); color: var(--rh-ui-text);
+  width: 44px; height: 44px; border-radius: var(--rh-r-full); background: var(--rh-ui-card); color: var(--rh-ui-text);
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .xbtn svg { width: 20px; height: 20px; stroke-width: 2.25; }
@@ -121,9 +121,9 @@
 
 /* «Пойдёт на сайт · изменить» — таблетка 44 на белой плите; «только своим» — мягкая синяя. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .mode {
-  min-height: 44px; margin-top: 12px; padding: 0 16px 0 14px; gap: 8px; border-radius: 999px;
+  min-height: 44px; margin-top: 12px; padding: 0 16px 0 14px; gap: 8px; border-radius: var(--rh-r-full);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring);
-  font-family: var(--ff-head); font-size: 15px; font-weight: 600; white-space: normal; text-align: left;
+  font-family: var(--ff-head); font-size: var(--rh-fs-md); font-weight: 600; white-space: normal; text-align: left;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .mode:hover:not(:disabled) { background: var(--rh-ui-raised); color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .mode .sd { width: 10px; height: 10px; background: var(--rh-ui-primary); }
@@ -135,12 +135,12 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-toolbar { gap: 8px 12px; margin-top: 12px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-toolbar .mode { margin: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-secondary-action {
-  min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--rh-ui-press); color: var(--rh-ui-text);
-  font-size: 15px; font-weight: 600;
+  min-height: 44px; padding: 0 18px; border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-press); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); font-weight: 600;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-secondary-action:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-hint) 20%, transparent); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-text-action {
-  min-height: 44px; padding: 0 4px; font-size: 15px; font-weight: 600; color: var(--rh-ui-primary-ink);
+  min-height: 44px; padding: 0 4px; font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-primary-ink);
 }
 /* «Удалить черновик» — внизу формы, отдельно от «Сохранить и выйти», красным (пачка D1). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-danger-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0 0; padding-top: 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
@@ -148,17 +148,17 @@
 
 /* Полосы шагов (телефон): толще и скруглённые; пройдено — синим, сейчас — тёмным. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .bars { gap: 6px; margin-top: 16px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .bars i { height: 6px; border-radius: 999px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .bars i { height: 6px; border-radius: var(--rh-r-full); background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .bars i.done { background: var(--rh-ui-primary); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .bars i.now { background: var(--rh-ui-side-pill); }
 
 /* «Черновик сохранён …» и ошибка автосохранения. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-draft-notice { gap: 4px 8px; margin-top: 10px; font-size: 14px; line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-draft-notice { gap: 4px 8px; margin-top: 10px; font-size: var(--rh-fs-sm); line-height: 1.45; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-draft-dot { width: 8px; height: 8px; background: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-draft-notice[data-state="server"] .wizard-draft-dot { background: var(--rh-ui-ok); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-draft-notice[data-state="error"] { color: var(--rh-ui-warn); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-delete-error { flex-basis: 100%; margin: 0; font-size: 15px; color: var(--rh-ui-crit-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .draft { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-delete-error { flex-basis: 100%; margin: 0; font-size: var(--rh-fs-md); color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .draft { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
 
 /* ============================ тело шага ============================ */
 
@@ -167,65 +167,65 @@
 
 /* Блок шага — белая плита 24 без рамки, мягкая тень и тонкая грань. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .blk {
-  padding: 20px 16px; border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card);
+  padding: 20px 16px; border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card);
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); min-width: 0;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .blk h4 {
-  font-family: var(--ff-head); font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text);
+  font-family: var(--ff-head); font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .head { flex-wrap: wrap; gap: 8px 12px; margin-bottom: 14px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .blk .sub,
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wbody .sub { font-size: 14px; line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wbody .sub { font-size: var(--rh-fs-sm); line-height: 1.45; color: var(--rh-ui-hint); }
 
 /* Вторичные кнопки шага (Снять, Из галереи, Добавить…) — серые таблетки 44. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .ghost {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px;
-  border: 0; border-radius: 999px; background: var(--rh-ui-press); color: var(--rh-ui-text);
-  font-family: var(--ff-head); font-size: 15px; font-weight: 600; white-space: normal; text-align: center;
+  border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-press); color: var(--rh-ui-text);
+  font-family: var(--ff-head); font-size: var(--rh-fs-md); font-weight: 600; white-space: normal; text-align: center;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-hint) 20%, transparent); }
 
 /* Плашки: форма у всех, цвет — по смыслу (внимание остаётся вниманием). Текст
    переносится: «Осталось: фото, район, цена» — это данные. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .chip {
-  min-height: 32px; padding: 4px 12px; gap: 6px; border-radius: 999px; font-family: var(--ff-head); font-size: 14px; font-weight: 600;
+  min-height: 32px; padding: 4px 12px; gap: 6px; border-radius: var(--rh-r-full); font-family: var(--ff-head); font-size: var(--rh-fs-sm); font-weight: 600;
   line-height: 1.35; white-space: normal; text-align: left;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .chip.acc { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .chip.ok { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .chip.warn { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz button.chip { min-height: 44px; padding: 8px 16px; font-size: 15px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz button.chip { min-height: 44px; padding: 8px 16px; font-size: var(--rh-fs-md); }
 
 /* ================================ поля ================================ */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .f { min-width: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .f label {
-  display: flex; align-items: center; gap: 8px; margin: 0 2px 6px; font-family: var(--ff-head); font-size: 14px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px; margin: 0 2px 6px; font-family: var(--ff-head); font-size: var(--rh-fs-sm); font-weight: 600;
   letter-spacing: 0; text-transform: none; line-height: 1.35; color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .f input,
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .f input.txt {
-  min-height: 52px; padding: 0 16px; border: 0; border-radius: 16px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
-  font-family: var(--ff-text); font-size: 16px; font-weight: 500; box-shadow: none;
+  min-height: 52px; padding: 0 16px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-family: var(--ff-text); font-size: var(--rh-fs-md); font-weight: 500; box-shadow: inset 0 0 0 1px var(--rh-ui-field-line);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .f input::placeholder { color: var(--rh-ui-hint); opacity: 1; font-weight: 400; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .f input:focus { outline: 2px solid var(--rh-ui-primary); outline-offset: 0; border: 0; box-shadow: none; }
 /* Ошибка поля — обводка цветом внимания (текст ошибки под полем — тем же цветом). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .f[aria-invalid="true"] input,
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .f input[aria-invalid="true"] { box-shadow: inset 0 0 0 2px var(--rh-ui-warn); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-field-error { font-size: 14px; color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-field-error { font-size: var(--rh-fs-sm); color: var(--rh-ui-warn); }
 /* Тексты ошибок под полями заданы в разметке размером 13 — в новом виде 14. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz p[id^="wizard-"][id$="-error"] { margin-top: 6px !important; font-size: 14px !important; line-height: 1.4; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz p[id^="wizard-"][id$="-error"] { margin-top: 6px !important; font-size: var(--rh-fs-sm) !important; line-height: 1.4; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .grid2 { gap: 12px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .calc { margin-top: 8px; font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .calc { margin-top: 8px; font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
 
 /* Выбор вариантов (вид, комнаты, валюта, детали) — таблетки 48 на белой плите с
    гранью; выбранный — тёмная таблетка, как выбранный пункт меню в макете. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .segs { gap: 8px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .segs button {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; max-width: 100%; padding: 0 18px;
-  border: 0; border-radius: 999px; background: var(--rh-ui-card); color: var(--rh-ui-text);
-  box-shadow: 0 0 0 1px var(--rh-ui-ring); font-family: var(--ff-head); font-size: 15px; font-weight: 600; line-height: 1.3;
+  border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: 0 0 0 1px var(--rh-ui-ring); font-family: var(--ff-head); font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.3;
   text-align: center; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .segs button:hover:not(:disabled):not([aria-pressed="true"]):not([aria-selected="true"]) { background: var(--rh-ui-raised); }
@@ -239,30 +239,30 @@
 /* Место для файлов — мягкая синяя плита 24 со штриховой гранью, круг 56 со значком. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .drop {
   gap: 10px; min-height: 176px; padding: 20px; border: 2px dashed color-mix(in srgb, var(--rh-ui-primary) 40%, transparent);
-  border-radius: var(--rh-ui-r-card); background: color-mix(in srgb, var(--rh-ui-primary-soft) 70%, var(--rh-ui-card)); color: var(--rh-ui-text);
+  border-radius: var(--rh-r-lg); background: color-mix(in srgb, var(--rh-ui-primary-soft) 70%, var(--rh-ui-card)); color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .drop .ico {
-  width: 56px; height: 56px; border-radius: 999px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
+  width: 56px; height: 56px; border-radius: var(--rh-r-full); background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .drop .ico svg { width: 28px; height: 28px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .drop .t { font-family: var(--ff-head); font-size: 17px; font-weight: 700; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .drop .s { max-width: 36ch; font-size: 14px; line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .drop .t { font-family: var(--ff-head); font-size: var(--rh-fs-lg); font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .drop .s { max-width: 36ch; font-size: var(--rh-fs-sm); line-height: 1.45; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .drop.video { min-height: 144px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz :is(.drop, .tile.add, .more).drag { border-color: var(--rh-ui-primary); background: var(--rh-ui-primary-soft); }
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tiles { gap: 8px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile { border: 0; border-radius: 16px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile { border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile.cover { outline: 3px solid var(--rh-ui-primary); outline-offset: -3px; }
 /* «Обложка» — полосой по низу плитки во всю её ширину (ревью #321): плитка на телефоне
    ~72–80 px, а сверху справа крестик 44 — плашка в углу пряталась под ним и не влезала.
    Полоса не пересекается ни с крестиком, ни с кругом загрузки (у обложки он сверху слева). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile .badge {
   left: 0; right: 0; top: auto; bottom: 0; padding: 3px 4px; border-radius: 0; text-align: center; line-height: 1.3;
-  font-family: var(--ff-head); font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  font-family: var(--ff-head); font-size: var(--rh-fs-xs); font-weight: 600; letter-spacing: 0; text-transform: none;
   background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile.cover :is(.ring, .tick) { top: 6px; left: 6px; right: auto; bottom: auto; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile .x { width: 44px; height: 44px; background: rgba(14, 15, 18, .62); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile .x { width: 44px; height: 44px; background: color-mix(in srgb, var(--rh-ui-mix-dark) 62%, transparent); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile .x svg { width: 18px; height: 18px; stroke-width: 2.25; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile .retry { width: 48px; height: 48px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tile .tick { width: 24px; height: 24px; }
@@ -270,82 +270,82 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz :is(.tile.add, .more) {
   gap: 6px; border: 2px dashed color-mix(in srgb, var(--rh-ui-primary) 40%, transparent);
   background: color-mix(in srgb, var(--rh-ui-primary-soft) 70%, var(--rh-ui-card)); color: var(--rh-ui-primary-soft-fg);
-  font-family: var(--ff-head); font-size: 14px; font-weight: 600;
+  font-family: var(--ff-head); font-size: var(--rh-fs-sm); font-weight: 600;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .more { min-height: 48px; height: auto; border-radius: 999px; font-size: 15px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .more { min-height: 48px; height: auto; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); }
 
 /* Строка ролика: круг 48 со значком 24, название 17, подпись 14. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .vrow {
-  gap: 12px; min-height: 60px; padding: 10px 12px; border-radius: 20px; background: var(--rh-ui-bg);
+  gap: 12px; min-height: 60px; padding: 10px 12px; border-radius: var(--rh-r-lg); background: var(--rh-ui-bg);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .vrow .ic {
-  width: 48px; height: 48px; border: 0; border-radius: 999px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+  width: 48px; height: 48px; border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .vrow .ic svg { width: 24px; height: 24px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .vrow .nm { font-family: var(--ff-head); font-size: 16px; font-weight: 600; color: var(--rh-ui-text); overflow-wrap: anywhere; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .vrow .mt { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .vrow .nm { font-family: var(--ff-head); font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .vrow .mt { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
 
 /* ================================ адрес ================================ */
 
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .map { border: 0; border-radius: 20px; box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .map { border: 0; border-radius: var(--rh-r-lg); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .map .msearch { left: 10px; right: 10px; top: 10px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .map .msearch .bar {
-  min-height: 48px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  min-height: 48px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .map .msearch input { font-size: 16px; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .map .msearch input { font-size: var(--rh-fs-md); color: var(--rh-ui-text); }
 /* Кнопки приближения Leaflet уходили под строку поиска (она сверху на всю ширину) —
    в новом виде они ниже строки, кругами 44 на белой плите. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .leaflet-top.leaflet-left { top: 64px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .leaflet-bar { border: 0; border-radius: 16px; box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .leaflet-bar { border: 0; border-radius: var(--rh-r-md); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .leaflet-bar a {
-  width: 44px; height: 44px; line-height: 44px; border-bottom: 1px solid var(--rh-ui-sep); background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: 22px;
+  width: 44px; height: 44px; line-height: 44px; border-bottom: 1px solid var(--rh-ui-sep); background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-xl);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .leaflet-bar a:first-child { border-radius: 16px 16px 0 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .leaflet-bar a:last-child { border-bottom: 0; border-radius: 0 0 16px 16px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .leaflet-bar a:first-child { border-radius: var(--rh-r-md) var(--rh-r-md) 0 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .leaflet-bar a:last-child { border-bottom: 0; border-radius: 0 0 var(--rh-r-md) var(--rh-r-md); }
 
 /* Подсказки адреса, список продавцов — белая плита 20, строки ~60. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sugg { border: 0; border-radius: 20px; background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sugg { border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sugg button {
   flex-wrap: wrap; gap: 4px 10px; min-height: 56px; padding: 10px 14px; border-bottom: 1px solid var(--rh-ui-sep); color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sugg button:hover:not(:disabled) { background: var(--rh-ui-hover); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sugg .nm { font-size: 16px; font-weight: 600; color: var(--rh-ui-text); overflow-wrap: anywhere; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sugg .rg { font-size: 14px; color: var(--rh-ui-hint); white-space: normal; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sugg .nm { font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sugg .rg { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); white-space: normal; font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tag {
-  padding: 3px 10px; font-family: var(--ff-head); font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  padding: 3px 10px; font-family: var(--ff-head); font-size: var(--rh-fs-xs); font-weight: 600; letter-spacing: 0; text-transform: none;
   background: var(--rh-ui-raised); color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .tag.mine { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .empty { padding: 14px 16px; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .empty { padding: 14px 16px; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); }
 /* Список внутри блока шага — без второй рамки (карточка в карточке). */
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .blk .sugg { border-radius: 16px; box-shadow: none; background: transparent; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .blk .sugg { border-radius: var(--rh-r-md); box-shadow: none; background: transparent; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .blk .sugg .empty { padding: 4px 2px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-selected-seller-row { gap: 8px 12px; min-height: 56px; padding: 12px 14px; }
 
 /* Похожий адрес / продавец уже есть — плашка внимания 16, текст переносится. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .dup {
-  gap: 10px; padding: 12px 14px; border-radius: 16px; background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn);
-  font-family: var(--ff-head); font-size: 15px; font-weight: 600; line-height: 1.4;
+  gap: 10px; padding: 12px 14px; border-radius: var(--rh-r-md); background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn);
+  font-family: var(--ff-head); font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.4;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .dup .dot { width: 8px; height: 8px; }
 
 /* Тихие плашки старой темы внутри мастера (карта, «Смотрю…», «Похожий адрес»). */
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .card { border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .quiet { gap: 10px; padding: 12px 14px; border-radius: 16px; background: var(--rh-ui-bg); font-size: 15px; line-height: 1.45; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .card { border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .quiet { gap: 10px; padding: 12px 14px; border-radius: var(--rh-r-md); background: var(--rh-ui-bg); font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .card .quiet { background: transparent; padding: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .quiet.warn { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .quiet.crit { background: color-mix(in srgb, var(--rh-ui-crit) 12%, var(--rh-ui-card)); color: var(--rh-ui-crit-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .quiet .txt { font-size: 15px; color: inherit; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .lnk { min-height: 44px; font-size: 15px; font-weight: 600; color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .quiet .txt { font-size: var(--rh-fs-md); color: inherit; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .lnk { min-height: 44px; font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-primary-ink); }
 
 /* ============================== проверка ============================== */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .rev .r {
   align-items: center; text-align: left; gap: 12px; min-height: 56px; padding: 10px 2px; border-bottom: 1px solid var(--rh-ui-sep); color: var(--rh-ui-text);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .rev .k { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .rev .k { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .rev .v {
-  font-family: var(--ff-head); font-size: 16px; font-weight: 600; color: var(--rh-ui-text); overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
+  font-family: var(--ff-head); font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-text); overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .rev .v.gap { color: var(--rh-ui-hint); font-weight: 500; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .rev .v.wizard-review-missing, :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-review-missing { color: var(--rh-ui-warn); }
@@ -353,16 +353,16 @@
 
 /* Озвучка ролика (NarrationChoice): карточка шага, подсказка мягкой синей плитой. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] { padding: 20px 16px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] :is(p, label, span) { font-size: 15px; line-height: 1.45; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] .font-semibold { font-size: 17px; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] :is(p, label, span) { font-size: var(--rh-fs-md); line-height: 1.45; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] .font-semibold { font-size: var(--rh-fs-lg); color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] p.rounded-lg {
-  padding: 12px 14px; border-radius: 16px; background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
+  padding: 12px 14px; border-radius: var(--rh-r-md); background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] label { min-height: 44px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] p > span.rounded-full { width: 32px; height: 32px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f); font-size: 15px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] p > span.rounded-full { width: 32px; height: 32px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f); font-size: var(--rh-fs-md); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] textarea {
-  min-height: 140px; padding: 14px 16px; border: 0; border-radius: 16px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
-  font-size: 17px; line-height: 1.5;
+  min-height: 140px; padding: 14px 16px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-lg); line-height: 1.5;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz section.card[aria-label="Озвучка ролика"] textarea:focus { outline: 2px solid var(--rh-ui-primary); outline-offset: 0; }
 /* Выбор языка и варианта текста — выбранный тёмной таблеткой, как выбор вариантов мастера;
@@ -378,41 +378,41 @@
 /* Выбор из списка (кто принял объект, район, агент) — поле 52 на серой подложке,
    раскрытый список — белая плита 20, пункты 48. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-trigger {
-  min-height: 52px; padding: 0 16px; border: 0; border-radius: 16px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
-  font-family: var(--font-sans, "Onest", system-ui, sans-serif); font-size: 16px;
+  min-height: 52px; padding: 0 16px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-family: var(--font-sans, "Onest", system-ui, sans-serif); font-size: var(--rh-fs-md);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-trigger:is([data-open], :focus-visible) { outline: 2px solid var(--rh-ui-primary); outline-offset: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-ph { color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-val { color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-chev { width: 20px; height: 20px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-pop {
-  margin-top: 6px; border: 0; border-radius: 20px; background: var(--rh-ui-card); box-shadow: 0 24px 60px -20px rgba(10, 14, 30, .38), 0 0 0 1px var(--rh-ui-ring);
+  margin-top: 6px; border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-search,
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .f .rh-select input.rh-select-search {
   min-height: 52px; padding: 0 16px; border: 0; border-bottom: 1px solid var(--rh-ui-sep); border-radius: 0; background: transparent;
-  font-size: 16px; color: var(--rh-ui-text); outline: 0; box-shadow: none;
+  font-size: var(--rh-fs-md); color: var(--rh-ui-text); outline: 0; box-shadow: none;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-opt { min-height: 48px; padding: 0 16px; font-size: 16px; color: var(--rh-ui-text); border-bottom: 1px solid var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-opt { min-height: 48px; padding: 0 16px; font-size: var(--rh-fs-md); color: var(--rh-ui-text); border-bottom: 1px solid var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-opt:is(:hover, [aria-selected="true"]) { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-check { width: 20px; height: 20px; color: var(--rh-ui-primary-ink); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-empty { padding: 14px 16px; font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-empty { padding: 14px 16px; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 
 /* ================================ подвал ================================ */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot {
   gap: 10px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 0;
-  background: var(--rh-ui-card); box-shadow: 0 -1px 0 var(--rh-ui-sep), 0 -12px 28px -20px rgba(20, 24, 40, .35);
+  background: var(--rh-ui-card); box-shadow: 0 -1px 0 var(--rh-ui-sep);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot .back {
-  min-height: 52px; padding: 0 22px; border-radius: 999px; background: var(--rh-ui-press); color: var(--rh-ui-text);
-  font-family: var(--ff-head); font-size: 16px; font-weight: 600;
+  min-height: 52px; padding: 0 22px; border-radius: var(--rh-r-full); background: var(--rh-ui-press); color: var(--rh-ui-text);
+  font-family: var(--ff-head); font-size: var(--rh-fs-md); font-weight: 600;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot .back:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-hint) 20%, transparent); color: var(--rh-ui-text); }
 /* Главная кнопка шага — единственная синяя на экране. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot .next {
-  flex: 1 1 auto; min-height: 52px; padding: 0 24px; border-radius: 999px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
-  font-family: var(--ff-head); font-size: 16px; font-weight: 600;
+  flex: 1 1 auto; min-height: 52px; padding: 0 24px; border-radius: var(--rh-r-full); background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
+  font-family: var(--ff-head); font-size: var(--rh-fs-md); font-weight: 600;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot .next:hover:not(:disabled) { background: var(--rh-ui-primary-hover); filter: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot :is(.back, .next):active:not(:disabled) { transform: scale(.97); }
@@ -420,28 +420,28 @@
 /* ============================ окна мастера ============================ */
 
 /* «Куда пойдёт объект», загрузка файлов, неудачные файлы — шторка 28 снизу. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .scrim { background: rgba(0, 0, 0, .4); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .scrim { background: var(--rh-ui-scrim); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .panel {
-  gap: 12px; padding: 20px 20px calc(20px + env(safe-area-inset-bottom)); border-radius: 28px 28px 0 0;
-  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 -20px 60px rgba(0, 0, 0, .25);
+  gap: 12px; padding: 20px 20px calc(20px + env(safe-area-inset-bottom)); border-radius: var(--rh-r-lg) var(--rh-r-lg) 0 0;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow-lg);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .panel h4 {
-  margin-bottom: 4px; font-family: var(--ff-head); font-size: 22px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2;
+  margin-bottom: 4px; font-family: var(--ff-head); font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .pick2 {
-  gap: 14px; min-height: 64px; padding: 14px 16px; border: 0; border-radius: 20px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
+  gap: 14px; min-height: 64px; padding: 14px 16px; border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-bg); color: var(--rh-ui-text);
   box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .pick2[aria-checked="true"] { box-shadow: inset 0 0 0 2px var(--rh-ui-primary); background: var(--rh-ui-card); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .pick2 .mk { width: 24px; height: 24px; border: 2px solid var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .pick2[aria-checked="true"] .mk { border-color: var(--rh-ui-primary); background: var(--rh-ui-primary); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .pick2[aria-checked="true"] .mk::after { width: 10px; height: 10px; background: var(--rh-ui-card); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .pick2 b { font-family: var(--ff-head); font-size: 17px; font-weight: 600; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .pick2 span { font-size: 15px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .pick2 b { font-family: var(--ff-head); font-size: var(--rh-fs-lg); font-weight: 600; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .pick2 span { font-size: var(--rh-fs-md); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .pick2 b + span { color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .panel > .ghost { min-height: 48px; }
 /* Окно загрузки файлов: свой заголовок `.ttl` и строки `.vrow` — как в шаге. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sheet .ttl { font-size: 22px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sheet .ttl { font-size: var(--rh-fs-xl); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .sheet .wfoot { box-shadow: 0 -1px 0 var(--rh-ui-sep); }
 
 /* Значок набора макета в круге (см. components/look/wizard/WizIcon.tsx). */
@@ -454,118 +454,118 @@
   /* Вопрос о незаконченном объекте и «Смотрю…» — без разделов, колонкой 880 по центру. */
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz:not(.wizard-workspace) { max-width: 880px; margin-inline: auto; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz:not(.wizard-workspace) .whead { padding-top: 32px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz:not(.wizard-workspace) .ttl { font-size: 32px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz:not(.wizard-workspace) .wfoot { border-radius: 24px 24px 0 0; box-shadow: 0 0 0 1px var(--rh-ui-ring), 0 -12px 28px -20px rgba(20, 24, 40, .35); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz:not(.wizard-workspace) .ttl { font-size: var(--rh-fs-3xl); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz:not(.wizard-workspace) .wfoot { border-radius: var(--rh-r-lg) var(--rh-r-lg) 0 0; box-shadow: 0 0 0 1px var(--rh-ui-ring); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz:not(.wizard-workspace) .wfoot .next { flex: 0 1 auto; margin-left: auto; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .whead { gap: 12px 16px; padding: 32px 0 0; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .ttl { font-size: 32px; font-weight: 700; line-height: 1.12; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .ttl { font-size: var(--rh-fs-3xl); font-weight: 700; line-height: 1.12; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-header-actions { gap: 8px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .whead .xbtn { background: var(--rh-ui-card); }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-toolbar .mode { min-height: 44px; padding: 0 16px 0 14px; font-size: 15px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-draft-notice { font-size: 15px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-toolbar .mode { min-height: 44px; padding: 0 16px 0 14px; font-size: var(--rh-fs-md); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-draft-notice { font-size: var(--rh-fs-md); }
 
   /* Разделы мастера — лента таблеток 56 на белой плите: значок 24 в круге 40,
      текущий раздел — тёмная таблетка, заполненный — зелёная галочка. */
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-steps {
-    margin-top: 24px; padding: 6px; border: 0; border-radius: 999px; background: var(--rh-ui-card);
+    margin-top: 24px; padding: 6px; border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-card);
     box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); top: 12px;
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-steps ol { gap: 4px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-link {
-    justify-content: flex-start; gap: 10px; min-height: 56px; padding: 6px 12px 6px 8px; border: 0; border-radius: 999px;
+    justify-content: flex-start; gap: 10px; min-height: 56px; padding: 6px 12px 6px 8px; border: 0; border-radius: var(--rh-r-full);
     color: var(--rh-ui-text); background: transparent;
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace button.wizard-step-link:hover:not(:disabled) { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-link[aria-current="step"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace button.wizard-step-link[aria-current="step"]:hover:not(:disabled) { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-number {
-    width: 40px; height: 40px; border-radius: 999px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+    width: 40px; height: 40px; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-number svg { width: 24px; height: 24px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace [data-step-state="complete"] .wizard-step-number { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace [data-step-state="invalid"] .wizard-step-number { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-copy { font-size: 16px; font-weight: 600; line-height: 1.25; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-copy small { font-size: 13px; font-weight: 600; color: var(--rh-ui-warn); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-copy { font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.25; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-copy small { font-size: var(--rh-fs-xs); font-weight: 600; color: var(--rh-ui-warn); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-link[aria-current="step"] .wizard-step-copy small { color: inherit; }
 
   /* Заголовок раздела: значок 24 в круге 48 и название 24. */
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-main { margin-top: 24px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-section-heading { align-items: center; gap: 14px; margin-bottom: 16px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-section-icon {
-    width: 48px; height: 48px; border-radius: 999px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+    width: 48px; height: 48px; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-section-icon svg { width: 24px; height: 24px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-title { font-size: 24px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-desktop-help { font-size: 15px; line-height: 1.5; color: var(--rh-ui-hint); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-step-title { font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-desktop-help { font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-hint); }
 
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wbody { gap: 16px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .blk { padding: 24px; border: 0; border-radius: var(--rh-ui-r-card); }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .blk h4 { font-size: 20px; line-height: 1.25; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-desktop-heading { gap: 12px; margin: 0 0 16px; font-size: 20px; font-weight: 700; color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .blk { padding: 24px; border: 0; border-radius: var(--rh-r-lg); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .blk h4 { font-size: var(--rh-fs-xl); line-height: 1.25; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-desktop-heading { gap: 12px; margin: 0 0 16px; font-size: var(--rh-fs-xl); font-weight: 700; color: var(--rh-ui-text); }
 
   /* Подписи полей на ПК — 16/600 тёмным со значком 24 (поле крупное, как в Nuqta). */
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .f label,
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-desktop-field-label {
-    gap: 10px; margin: 0 0 10px; font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--rh-ui-text);
+    gap: 10px; margin: 0 0 10px; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.35; color: var(--rh-ui-text);
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-field-icon { width: 24px; height: 24px; color: var(--rh-ui-hint); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-field-icon svg,
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace svg.wizard-field-icon { width: 24px; height: 24px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-question-icon {
-    width: 40px; height: 40px; padding: 8px; border-radius: 999px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+    width: 40px; height: 40px; padding: 8px; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-required-mark { color: var(--rh-ui-hint); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .f input,
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .f input.txt { min-height: 56px; padding: 0 18px; border-radius: 16px; font-size: 18px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .f input.txt { min-height: 56px; padding: 0 18px; border-radius: var(--rh-r-md); font-size: var(--rh-fs-lg); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .grid2 { gap: 16px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .segs { gap: 8px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .segs button { min-height: 48px; padding: 0 20px; border: 0; font-size: 16px; text-align: center; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .segs button { min-height: 48px; padding: 0 20px; border: 0; font-size: var(--rh-fs-md); text-align: center; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .segs button:not([aria-pressed="true"]):not([aria-selected="true"]):hover:not(:disabled) { background: var(--rh-ui-raised); border: 0; }
   /* Вид объекта — четыре плитки 20 со значком 28; выбранная тёмная. */
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-type-group .segs button {
-    min-height: 76px; padding: 12px 16px; border: 0; border-radius: 20px; font-size: 17px;
+    min-height: 76px; padding: 12px 16px; border: 0; border-radius: var(--rh-r-lg); font-size: var(--rh-fs-lg);
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-type-icon,
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace svg.wizard-type-icon { width: 28px; height: 28px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-price-row { border-top: 1px solid var(--rh-ui-sep); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-price-currency .segs button { min-height: 56px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-price-row .calc { font-size: 15px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-details-group > h3 { font-size: 20px; font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-detail-field > .f label { font-size: 16px; font-weight: 600; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace button.wizard-detail-clear { min-height: 44px; padding: 0 8px; font-size: 15px; font-weight: 600; color: var(--rh-ui-primary-ink); }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-field-help.wizard-desktop-control { font-size: 15px; line-height: 1.5; color: var(--rh-ui-hint); }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-field-error { font-size: 15px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-price-row .calc { font-size: var(--rh-fs-md); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-details-group > h3 { font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-detail-field > .f label { font-size: var(--rh-fs-md); font-weight: 600; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace button.wizard-detail-clear { min-height: 44px; padding: 0 8px; font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-primary-ink); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-field-help.wizard-desktop-control { font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-hint); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-field-error { font-size: var(--rh-fs-md); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .sugg button { min-height: 60px; padding: 12px 16px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .sugg .nm { font-size: 16px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .sugg .rg { font-size: 15px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace :is(.ghost, .chip.warn) { min-height: 44px; padding: 0 18px; font-size: 15px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .empty { padding: 16px; font-size: 16px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .sugg .nm { font-size: var(--rh-fs-md); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .sugg .rg { font-size: var(--rh-fs-md); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace :is(.ghost, .chip.warn) { min-height: 44px; padding: 0 18px; font-size: var(--rh-fs-md); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .empty { padding: 16px; font-size: var(--rh-fs-md); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .tiles { gap: 12px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .drop { min-height: 196px; padding: 28px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .drop .t { font-size: 18px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .drop .t { font-size: var(--rh-fs-lg); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .vrow { gap: 14px; padding: 12px 14px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .vrow .nm { font-size: 17px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .vrow .mt { font-size: 14px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .vrow .nm { font-size: var(--rh-fs-lg); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .vrow .mt { font-size: var(--rh-fs-sm); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .map .msearch .bar { min-height: 52px; padding: 0 18px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .map .msearch input { font-size: 17px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .map .msearch input { font-size: var(--rh-fs-lg); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .rev .r { min-height: 60px; padding: 12px 4px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .rev .k { font-size: 16px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .rev .v { font-size: 17px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .rev .k { font-size: var(--rh-fs-md); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .rev .v { font-size: var(--rh-fs-lg); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wizard-review-edit { color: var(--rh-ui-hint); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .rev .r:is(:hover, :focus-visible) :is(.v, .wizard-review-edit) { color: var(--rh-ui-primary-ink); }
 
   /* Подвал ПК — белая плита 24 сверху; «Назад» серая, главная синяя. */
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wfoot {
-    gap: 12px; padding: 16px 24px; border: 0; border-radius: 24px 24px 0 0; background: var(--rh-ui-card);
-    box-shadow: 0 0 0 1px var(--rh-ui-ring), 0 -12px 28px -20px rgba(20, 24, 40, .35);
+    gap: 12px; padding: 16px 24px; border: 0; border-radius: var(--rh-r-lg) var(--rh-r-lg) 0 0; background: var(--rh-ui-card);
+    box-shadow: 0 0 0 1px var(--rh-ui-ring);
   }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wfoot :is(.back, .next) { min-height: 52px; padding: 0 28px; font-size: 16px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wfoot :is(.back, .next) { min-height: 52px; padding: 0 28px; font-size: var(--rh-fs-md); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .wfoot .next { flex: 0 1 auto; }
 
   /* Окна на ПК — по центру, 28, без ручки. */
-  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .panel { padding: 28px; border-radius: 28px; box-shadow: 0 24px 60px -20px rgba(10, 14, 30, .45); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz.wizard-workspace .panel { padding: 28px; border-radius: var(--rh-r-lg); box-shadow: var(--rh-ui-shadow-lg); }
 }
 
 /* ======================= форма «Изменить объект» ======================= */
@@ -577,36 +577,36 @@
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pg-h { align-items: flex-start; gap: 12px 16px; }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pg-h > div:first-child { flex: 1 1 320px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pg-h .lnk {
-  display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px 0 10px !important; border-radius: 999px;
-  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); font-size: 15px; font-weight: 600; text-decoration: none;
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px 0 10px !important; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none;
 }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pg-h .lnk .i { width: 20px; height: 20px; stroke-width: 2.25; }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pg-h h1 {
-  margin: 12px 0 0 !important; font-size: 32px; font-weight: 700; letter-spacing: -.028em; line-height: 1.12; color: var(--rh-ui-text);
+  margin: 12px 0 0 !important; font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.028em; line-height: 1.12; color: var(--rh-ui-text);
   font-family: var(--font-sans, "Onest", system-ui, sans-serif); text-wrap: balance;
 }
-:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pg-h .sub { margin-top: 6px; font-size: 16px; line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pg-h .sub { margin-top: 6px; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pg-h .acts { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* Карточки формы — белая плита 24 без рамки. */
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .card {
-  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .card.tight { padding: 14px 18px; }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .sec-h { display: grid; gap: 4px; margin: 0 0 16px; }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .sec-h h2 {
-  margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text);
+  margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text);
   font-family: var(--font-sans, "Onest", system-ui, sans-serif);
 }
-:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .sec-h .note { font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .sec-h .note { font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); }
 
 /* Тихие плашки: серая плита 16; смысловые — своими цветами. */
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .quiet {
-  gap: 10px; padding: 12px 14px; border-radius: 16px; background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 15px; line-height: 1.45;
+  gap: 10px; padding: 12px 14px; border-radius: var(--rh-r-md); background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: var(--rh-fs-md); line-height: 1.45;
 }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .card.tight > .quiet { padding: 0; background: transparent; }
-:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .quiet .txt { font-size: 15px; color: inherit; }
+:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .quiet .txt { font-size: var(--rh-fs-md); color: inherit; }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .quiet.warn { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .quiet.crit { background: color-mix(in srgb, var(--rh-ui-crit) 12%, var(--rh-ui-card)); color: var(--rh-ui-crit-text); }
 
@@ -615,12 +615,12 @@
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld { gap: 6px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld > .lab,
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld .lab {
-  margin: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none; line-height: 1.35; color: var(--rh-ui-hint);
+  margin: 0 2px; font-size: var(--rh-fs-sm); font-weight: 600; letter-spacing: 0; text-transform: none; line-height: 1.35; color: var(--rh-ui-hint);
 }
-:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld .pf-lab-note { font-size: 14px; font-weight: 500; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld .pf-lab-note { font-size: var(--rh-fs-sm); font-weight: 500; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr :is(.fld input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), .fld select, .fld textarea) {
-  min-height: 52px; padding: 0 16px; border: 0; border-radius: 16px; background-color: var(--rh-ui-raised); color: var(--rh-ui-text);
-  font-size: 16px; box-shadow: none;
+  min-height: 52px; padding: 0 16px; border: 0; border-radius: var(--rh-r-md); background-color: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld textarea { min-height: 112px; padding: 14px 16px; line-height: 1.45; }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr :is(.fld input, .fld textarea)::placeholder { color: var(--rh-ui-hint); opacity: 1; }
@@ -628,32 +628,32 @@
   outline: 2px solid var(--rh-ui-primary); outline-offset: 0; box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld.bad :is(input, select, textarea) { box-shadow: inset 0 0 0 2px var(--rh-ui-crit); }
-:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld .msg { font-size: 14px; line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld .msg { font-size: var(--rh-fs-sm); line-height: 1.45; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld.bad .msg { color: var(--rh-ui-crit-text); }
-:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld .unit { font-size: 15px; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .chk { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; font-weight: 600; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld .unit { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .chk { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-text); }
 /* Флажок «Срочное объявление» старой темы — свой квадрат 44 (цвет из переназначенных токенов). */
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .chk input[type="checkbox"]:checked::before { background: var(--rh-ui-primary); border-color: var(--rh-ui-primary); }
 /* Подзаголовок группы полей («Характеристики») — 17/700, а не подпись поля. */
-:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld.wide:has(> .fgrid) > .lab { margin-top: 8px; font-size: 17px; font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .fld.wide:has(> .fgrid) > .lab { margin-top: 8px; font-size: var(--rh-fs-lg); font-weight: 700; color: var(--rh-ui-text); }
 
 /* Фото формы — плитки 16, «Добавить фото» мягкой синей плитой со штрихом. */
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pgrid { gap: 8px; }
-:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pgrid .cell { border: 0; border-radius: 16px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pgrid .cell { border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pgrid .lead {
-  height: auto; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  height: auto; padding: 3px 10px; border-radius: var(--rh-r-full); font-size: var(--rh-fs-xs); font-weight: 600; letter-spacing: 0; text-transform: none;
   background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
 }
-:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pgrid .x { width: 44px; height: 44px; border-radius: 999px; background: rgba(14, 15, 18, .62); color: #fff; }
+:root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pgrid .x { width: 44px; height: 44px; border-radius: var(--rh-r-full); background: color-mix(in srgb, var(--rh-ui-mix-dark) 62%, transparent); color: var(--rh-ui-on-color); }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr .pgrid .add {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px; text-align: center; gap: 6px; border: 2px dashed color-mix(in srgb, var(--rh-ui-primary) 40%, transparent); border-radius: 16px;
-  background: color-mix(in srgb, var(--rh-ui-primary-soft) 70%, var(--rh-ui-card)); color: var(--rh-ui-primary-soft-fg); font-size: 14px; font-weight: 600;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px; text-align: center; gap: 6px; border: 2px dashed color-mix(in srgb, var(--rh-ui-primary) 40%, transparent); border-radius: var(--rh-r-md);
+  background: color-mix(in srgb, var(--rh-ui-primary-soft) 70%, var(--rh-ui-card)); color: var(--rh-ui-primary-soft-fg); font-size: var(--rh-fs-sm); font-weight: 600;
 }
 
 /* Кнопки-таблетки формы: форма у всех (48), цвет по смыслу — синяя только главная
    («Сохранить»), .ghost/.soft серые, смысловые варианты старой темы не трогаем. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .pill {
-  min-height: 48px; height: auto; padding: 0 20px; border-radius: 999px; font-size: 15px; font-weight: 600; box-shadow: none;
+  min-height: 48px; height: auto; padding: 0 20px; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); font-weight: 600; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab) {
   border: 0; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
@@ -668,8 +668,8 @@
   background: color-mix(in srgb, var(--rh-ui-hint) 20%, transparent); transform: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .pill.danger { border: 0; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .pill.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-crit) 86%, #000); color: var(--rh-ui-crit-fg); transform: none; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .pill.sm { min-height: 44px; padding: 0 16px; font-size: 15px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .pill.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-crit) 86%, var(--rh-ui-mix-dark)); color: var(--rh-ui-crit-fg); transform: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .pill.sm { min-height: 44px; padding: 0 16px; font-size: var(--rh-fs-md); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .pill.icon { width: 44px; min-height: 44px; padding: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .pill:active:not(:disabled) { transform: scale(.97); }
 
@@ -679,7 +679,7 @@
   border: 0; background: transparent; box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr form > .sheet-f > .pill { flex: 0 1 auto; min-width: 140px; }
-@media (max-width: 640px) {
+@media (max-width: 767.98px) {
   :root[data-ui-look="royal"] .ry-wiz-edit.rh2.screens[data-ry-section="wizard"] .scr form > .sheet-f > .pill { flex: 1 1 0; min-width: 0; }
 }
 
@@ -689,22 +689,22 @@
    заголовок 22, кнопки подвала 48. Корпус окна (фокус, Esc, смахивание) — Rh2Sheet. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet {
   border: 0; background: var(--rh-ui-card); color: var(--rh-ui-text);
-  box-shadow: 0 24px 60px -20px rgba(10, 14, 30, .38), 0 0 0 1px var(--rh-ui-ring);
+  box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet.right { border-radius: 28px 0 0 28px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet.bottom { border-radius: 28px 28px 0 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet.right { border-radius: var(--rh-r-lg) 0 0 var(--rh-r-lg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet.bottom { border-radius: var(--rh-r-lg) var(--rh-r-lg) 0 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet .sheet-h { min-height: 64px; padding: 16px 20px 12px; border: 0; background: transparent; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet .sheet-h h2 {
-  margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; text-wrap: balance; color: var(--rh-ui-text);
+  margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; text-wrap: balance; color: var(--rh-ui-text);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet .sheet-b { padding: 4px 20px 20px; font-size: 16px; line-height: 1.45; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet .sheet-b .state { font-size: 16px; line-height: 1.5; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet .sheet-b { padding: 4px 20px 20px; font-size: var(--rh-fs-md); line-height: 1.45; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet .sheet-b .state { font-size: var(--rh-fs-md); line-height: 1.5; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet .sheet-f {
   display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px 16px; border: 0; background: var(--rh-ui-card); box-shadow: inset 0 1px 0 var(--rh-ui-sep);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet .sheet-f > :is(.pill, button) { flex: 1 1 140px; min-width: 0; }
 /* Подложка окна — сплошная тень без размытия (тяжёлый эффект на всю площадь). */
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet-back { background: rgba(0, 0, 0, .4); backdrop-filter: none; -webkit-backdrop-filter: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet-back { background: var(--rh-ui-scrim); backdrop-filter: none; -webkit-backdrop-filter: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet .sheet-h .pill { min-height: 44px; }
 /* Шторка снизу на телефоне: запас под системную полоску iPhone сохраняется. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] > .scr > .sheet.bottom .sheet-f { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }

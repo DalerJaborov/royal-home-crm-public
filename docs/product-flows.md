@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **4192**. Модулей: **88**.
+Путей: **788**. Развилок в самих путях: **2504**; вместе с задачами по расписанию и фоновыми заданиями — **4195**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -9764,14 +9764,19 @@
   · читает в базе: agent
   · меняет в базе: agent
   · проверяет данные схемой homePreferencesSchema
-  - если data.home === undefined
+  - если data.home === undefined || data.textSize === undefined
     - const current = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { preferences: true } });
       · читает в базе: agent
-    - const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);
-      · проверяет данные схемой homePreferencesSchema
-    - если kept.success && kept.data
-      - data = { ...data, home: kept.data };
-        · дословно из кода
+    - если data.home === undefined
+      - const kept = homePreferencesSchema.safeParse(saved?.home);
+        · проверяет данные схемой homePreferencesSchema
+      - если kept.success && kept.data
+        - data = { ...data, home: kept.data };
+          · дословно из кода
+    - если data.textSize === undefined
+      - если keptSize.success && keptSize.data
+        - data = { ...data, textSize: keptSize.data };
+          · дословно из кода
   - return tx.agent.update({ where: { id: req.agent!.id }, data: { preferences: data }, select: { preferences: tr…
     · меняет в базе: agent
 - res.json(agent.preferences ?? {});

@@ -115,8 +115,8 @@ function HomeBlockFailed({ block, stale, retry, retrying, reload }: { block: Hom
       <div className="ry-state" role="alert">
         <span>{stale ? "Вышла новая версия" : "Не загрузилось"}</span>
         {stale
-          ? <RhButton variant="gray" onClick={reload}>Обновить страницу</RhButton>
-          : <RhButton variant="gray" onClick={retry} disabled={retrying} aria-busy={retrying}>Повторить</RhButton>}
+          ? <RhButton variant="secondary" onClick={reload}>Обновить страницу</RhButton>
+          : <RhButton variant="secondary" onClick={retry} disabled={retrying} aria-busy={retrying}>Повторить</RhButton>}
       </div>
     </section>
   );

@@ -85,7 +85,7 @@ export function RoyalPropertySummary({ property, onSchedule, onEdit, onMore, chi
       <div className="ry-obj-actions">
         {onSchedule && <button type="button" className="ry-btn" data-variant="primary" onClick={onSchedule}><ObjIcon name="calendar-plus" />Назначить показ</button>}
         {onEdit && <button type="button" className="ry-btn" data-variant={onSchedule ? "gray" : "primary"} onClick={onEdit}><ObjIcon name="pencil" />Изменить</button>}
-        <button type="button" className="ry-btn" data-variant="gray" onClick={onMore}><ObjIcon name="more" />Ещё</button>
+        <button type="button" className="ry-btn" data-variant="secondary" onClick={onMore}><ObjIcon name="more" />Ещё</button>
       </div>
       {children && <div className="ry-obj-sum-extra">{children}</div>}
     </section>

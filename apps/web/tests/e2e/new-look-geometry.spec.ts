@@ -1,6 +1,6 @@
 import { test, expect, webkit, devices, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
 import { contextForRole, type RoleName } from "./pages/roleAuth";
-import { ANDROID_UA, GEOMETRY_KINDS, IPHONE_UA, OWNER_WIDTHS, geometryFindings, type GeometryKind } from "./helpers/lookGeometry";
+import { ANDROID_UA, CONSTITUTION_KINDS, GEOMETRY_KINDS, IPHONE_UA, OWNER_WIDTHS, geometryFindings, type GeometryKind } from "./helpers/lookGeometry";
 import { LOOK_CONVERSATION_ID, stubLookVisualData } from "./helpers/lookVisualFixtures";
 
 /**
@@ -25,7 +25,9 @@ type Screen = { url: string; ready: string; skip?: string; kinds?: readonly Geom
 /** Экраны с кадров владельца — полный ряд ширин, обе темы, оба телефона. */
 const OWNER_SCREENS: Screen[] = [
   { url: "/properties", ready: ".ry-objects-head" },
-  { url: "/ads", ready: '[data-ry-section="marketing"] .tiles .tile' },
+  // «Реклама» — раздел директора: 20.11 его переделывает параллельная ветка (feat/look-director-sections),
+  // её ссылки-подписи и строки отчёта ниже 44 px. Конституция (цель 44, текст 13, список) — после её влития.
+  { url: "/ads", ready: '[data-ry-section="marketing"] .tiles .tile', kinds: GEOMETRY_KINDS.filter((k) => !CONSTITUTION_KINDS.includes(k)) },
   // Чат ждёт пузыри, а не кнопку: в новом виде номер в реплике — тихое «номер скрыт»
   // (решение владельца «как WhatsApp», ветка look-chat-clean), кнопки может не быть.
   // Окно переписки целиком у ветки look-chat-clean (#332): здесь только «Позвонить»
@@ -33,6 +35,8 @@ const OWNER_SCREENS: Screen[] = [
   { url: `/messages?open=${LOOK_CONVERSATION_ID}`, ready: ".bub", kinds: ["ghostCall", "blur"] },
   { url: "/", ready: ".ry-today" },
   { url: "/clients", ready: '[data-ry-section="clients"]' },
+  // Настройки: квадрат-рамка внутри капсулы поиска (ревью #337) — двойная рамка поля и мелкий текст.
+  { url: "/settings", ready: ".ry-search", kinds: ["fieldFrame", "smallText", "selectClip"] },
 ];
 
 type Device = { name: string; widths: readonly number[]; options: (width: number) => BrowserContextOptions };
@@ -102,6 +106,70 @@ for (const device of DEVICES) {
 }
 
 /**
+ * «Размер текста: очень крупный» (+25%, Профиль → Оформление) на самом узком телефоне: ничего не
+ * вылезает и не режется — длинное переносится строкой (решение владельца 20.11, пачка C).
+ */
+test("новый вид, геометрия при «Очень крупном» тексте — iPhone 320 и 390 @smoke", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
+  test.setTimeout(15 * 60_000);
+  const problems: string[] = [];
+  for (const width of [320, 390]) {
+    const context = await contextForRole(browser, "DIRECTOR", phone(IPHONE_UA, "light")(width));
+    const page = await context.newPage();
+    await stubLookVisualData(page, { textSize: "xlarge" });
+    for (const screen of OWNER_SCREENS.filter((s) => s.url !== "/ads")) {
+      await open(page, screen);
+      await expect(page.locator("html")).toHaveAttribute("data-text-size", "xlarge");
+      await page.evaluate(() => document.fonts.ready.then(() => true));
+      for (const f of await geometryFindings(page, { skip: screen.skip, kinds: kindsAt(width, screen.kinds) })) problems.push(`${screen.url} @${width} xlarge: ${f}`);
+    }
+    await context.close();
+  }
+  expect(problems, "поломки геометрии при очень крупном тексте").toEqual([]);
+});
+
+/**
+ * «Крупный» и «Очень крупный» на всех телефонах владельца (360–430), обе темы, директор и агент,
+ * пять главных экранов — полным прогоном (пачка C, повторное ревью #337).
+ */
+const TEXT_SCREENS: Screen[] = [
+  { url: "/", ready: ".ry-today" },
+  { url: "/clients", ready: '[data-ry-section="clients"]' },
+  { url: "/properties", ready: ".ry-objects-head" },
+  { url: `/messages?open=${LOOK_CONVERSATION_ID}`, ready: ".bub", kinds: ["ghostCall", "blur", "smallText", "fieldFrame"] },
+  // «Деньги» — раздел директора параллельной ветки: пустая область «note» у карточки трат есть и при
+  // обычном тексте (данных для строки нет) — её проверит та ветка.
+  { url: "/finance", ready: "main#main", kinds: GEOMETRY_KINDS.filter((k) => k !== "emptyArea") },
+];
+for (const textSize of ["large", "xlarge"] as const) {
+  for (const theme of ["light", "dark"] as const) {
+    test(`новый вид, «${textSize === "large" ? "Крупный" : "Очень крупный"}» текст, телефоны 360–430, ${theme} @geometry-full`, async ({ browser }, testInfo) => {
+      test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
+      test.setTimeout(30 * 60_000);
+      const problems: string[] = [];
+      for (const role of ["DIRECTOR", "AGENT"] as const) {
+        for (const width of [360, 390, 414, 430]) {
+          const context = await contextForRole(browser, role, phone(IPHONE_UA, theme)(width));
+          const page = await context.newPage();
+          await stubLookVisualData(page, { textSize });
+          // Первый заход холодной сессии дольше (вход по cookie, настройки, /ui-shell) — прогрев.
+          await page.goto("/clients", { waitUntil: "domcontentloaded" });
+          await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal", { timeout: 60_000 }).catch(() => {});
+          // Главная агента на телефоне — по настройке сервера (#329), подмена /ui-shell новый вид не включает.
+          for (const screen of TEXT_SCREENS.filter((sc) => !(role === "AGENT" && sc.url === "/"))) {
+            await open(page, screen);
+            await page.evaluate(() => document.fonts.ready.then(() => true));
+            for (const f of await geometryFindings(page, { skip: screen.skip, kinds: kindsAt(width, screen.kinds) })) problems.push(`${role} ${screen.url} @${width} ${textSize}: ${f}`);
+          }
+          await context.close();
+        }
+      }
+      expect(problems, "поломки геометрии при крупном тексте").toEqual([]);
+    });
+  }
+}
+
+/**
  * Движок Safari (WebKit): iPhone 390 и ПК 1440. Владелец смотрит с iPhone, а Chromium и
  * WebKit по-разному переносят строки и рисуют шрифт. WebKit ставится отдельно
  * (`npx playwright install webkit`); не установлен — тест пропускается с причиной.
@@ -161,7 +229,8 @@ test("новый вид, сторож геометрии ловит каждую
     { url: "/clients", ready: ".clean-client-notices > .quiet", kind: "lopsided", css: `${R} .clean-client-notices > .quiet { margin-top: 40px !important; }` },
     // ряд вкладок обрезан без затухания
     // (вкладки каталога #331 убрал в шторку фильтров — тот же механизм у вкладок «Денег»)
-    { url: "/finance", ready: ".cef-main-tabs", kind: "stripHint", css: `${R} .cef-main-tabs { animation: none !important; -webkit-mask-image: none !important; mask-image: none !important; }` },
+    // (с #336 вкладки «Денег» переносятся строкой и за край не уходят — ряд обрезается нарочно)
+    { url: "/finance", ready: ".cef-main-tabs", kind: "stripHint", css: `${R} .cef-main-tabs { flex-wrap: nowrap !important; overflow-x: auto !important; max-width: 220px !important; animation: none !important; -webkit-mask-image: none !important; mask-image: none !important; } ${R} .cef-main-tabs > * { flex: none !important; }` },
     // размытый заголовок шапки
     { url: "/properties", ready: "[data-topbar-title]", kind: "blur", css: `${R} [data-topbar-title] { opacity: .6 !important; }` },
     // низ страницы под нижним меню
@@ -177,10 +246,16 @@ test("новый вид, сторож геометрии ловит каждую
     { url: "/clients", ready: ".ry-crow .ry-crow-when", kind: "emptyArea", css: `${R} [data-ry-section="clients"] .ry-crow .ry-crow-when { grid-area: req !important; }` },
     // дыра в сетке плиток главной
     { url: "/", ready: ".ry-strip", kind: "hole", css: `${R} [data-ry-section="home"] .ry-strip > .ry-tile:last-child { grid-column: 1 / -1 !important; }` },
+    // Конституция оболочки (пачка C): текст мельче 13, цель нажатия меньше 44, обрезанный список.
+    { url: "/clients", ready: ".ry-crow .ry-crow-name", kind: "smallText", css: `${R} [data-ry-section="clients"] .ry-crow-name { font-size: 11px !important; }` },
+    { url: "/", ready: ".ry-section-link", kind: "smallTap", css: `${R} .ry-section-link { min-width: 0 !important; min-height: 20px !important; padding: 0 !important; }` },
+    { url: "/settings", ready: ".ry-search input", kind: "fieldFrame", css: `${R} .ry-search input { box-shadow: inset 0 0 0 1px var(--rh-ui-field-line) !important; }` },
+    { url: "/", ready: ".ry-today", kind: "selectClip", optional: true, css: `${R} .clean-shell .clean .clean-decision-select { field-sizing: fixed !important; width: 72px !important; flex: none !important; }` },
   ];
   for (const b of breaks) {
     await open(page, { url: b.url, ready: b.ready });
-    if (b.optional && (await page.locator("[data-msg-call]").count()) === 0) continue;
+    if (b.optional && b.kind === "ghostCall" && (await page.locator("[data-msg-call]").count()) === 0) continue;
+    if (b.optional && b.kind === "selectClip" && (await page.locator(".clean-decision-select").count()) === 0) continue;
     await page.evaluate(() => document.fonts.ready.then(() => true));
     expect(await geometryFindings(page, { kinds: [b.kind] }), `${b.kind} без поломки на ${b.url}`).toEqual([]);
     await page.addStyleTag({ content: b.css });
@@ -211,7 +286,10 @@ for (const role of Object.keys(ALL_SCREENS) as (keyof typeof ALL_SCREENS)[]) {
     test(`новый вид, геометрия всех экранов — ${role}, ${device.name} @geometry-full`, async ({ browser }, testInfo) => {
       test.skip(testInfo.project.name !== "chromium", "контексты и ширины задаются внутри теста");
       test.setTimeout(30 * 60_000);
-      const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main" }));
+      // Конституция (цель 44, текст 13, список) на всех экранах — пока без них: обязательна на
+      // экранах с кадров владельца (@smoke выше); по остальным — после прохода по разделам (пачка C, 20.11).
+      // Двойная рамка поля (fieldFrame) уже проверяется везде: 48 экранов пройдены (повторное ревью #337).
+      const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main", kinds: GEOMETRY_KINDS.filter((k) => k === "fieldFrame" || !CONSTITUTION_KINDS.includes(k)) }));
       const narrowed = { ...device, widths: device.widths.filter((w) => [320, 390, 1440].includes(w)) };
       expect(await sweep(browser, role, narrowed, screens), "поломки геометрии").toEqual([]);
     });
