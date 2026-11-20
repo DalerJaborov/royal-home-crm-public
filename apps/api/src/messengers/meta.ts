@@ -6,6 +6,7 @@ import { decryptSecretSafe } from "../crypto.js";
 import { describeError } from "../lib/describeError.js";
 import { GEMINI_RETRY_DELAYS_MS, sleep } from "../ai/geminiTransport.js";
 import { outgoingContentKey, rememberOutgoingMid, rememberOutgoingText } from "./outgoingMids.js";
+import { pauseBotForOtherThreadOwner } from "../lib/threadOwnerPause.js";
 import { admitOutbound, noteOutboundUndelivered, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import type { AttachmentSource } from "./attachments.js";
 import type { BotIngressShape } from "@royal-home/shared";
@@ -51,6 +52,7 @@ import {
   pageRouteFailed,
   pageRoutePolicyRefused,
   recordEternalSendSuccess,
+  sendErrorKind,
   routeMetaMessagingCall,
   type RoutedCall,
 } from "../lib/metaEternalTokens.js";
@@ -2076,6 +2078,8 @@ export async function callGraph<T = unknown>(
   let req = instagramRequest(routed.url, routed.token);
   /** Повтор личным ключом после отказа пути Страницы: отказ личного — это «запасной ключ», а не «аккаунт закрыт». */
   let fellBackFromPage = false;
+  /** Страница отказала как ПУТЬ (не «про этого клиента»): при отказе и личного — «оба пути не отвечают». */
+  let pageRouteRefused = false;
   for (let attempt = 0; ; attempt++) {
     const res = await fetchWithRetry(req.url, {
       method,
@@ -2092,8 +2096,17 @@ export async function callGraph<T = unknown>(
        * один повтор личным ключом, Страница на скамейке. Метка «Meta не пропускает отправку»
        * ставится ниже, только если откажет и личный путь. Предупреждение (не запрет) идёт как было.
        */
+      /**
+       * ПЕРЕПИСКУ ВЕДЁТ ДРУГОЕ ПРИЛОЖЕНИЕ (ревью #344, третий круг): сотрудник забрал её во «Входящих»
+       * или ведёт другой бот. Никаких повторов; бот в этой переписке на паузу, как после ручного ответа.
+       */
+      if (sendSurface === "dm" && sendErrorKind(graphError.code, graphError.subcode) === "thread_owner") {
+        await pauseBotForOtherThreadOwner({ accountId: routed.accountId ?? (await resolveSendAccount().catch(() => null))?.accountId,
+          peer: recipientId, code: graphError.code, subcode: graphError.subcode });
+      }
       if (policy && !policy.warning && pageRoutePolicyRefused(routed, res.status, graphError)) {
         fellBackFromPage = true;
+        pageRouteRefused = true;
         routed = personal;
         traceKnownSecrets([routed.token]);
         req = instagramRequest(routed.url, routed.token);
@@ -2124,6 +2137,7 @@ export async function callGraph<T = unknown>(
       if (!policyBlock && !policyWarning && routed.route !== "unchanged" && pageRouteFailed(routed, res.status, text)) {
         if (isMetaAuthFailure(res.status, text)) forgetPageToken(routed.token);
         fellBackFromPage = true;
+        pageRouteRefused = sendErrorKind(graphError.code, graphError.subcode) !== "recipient";
         routed = personal;
         traceKnownSecrets([routed.token]);
         req = instagramRequest(routed.url, routed.token);
@@ -2134,11 +2148,12 @@ export async function callGraph<T = unknown>(
         const failedToken = routed.token;
         forgetPageToken(failedToken);
         const afterPage = fellBackFromPage;
+        const pageRefused = pageRouteRefused;
         void describeMetaToken(failedToken).then(async (who) => {
           // Повтор личным после отказа Страницы (ревью #344, второй круг): Страница на паузе, но путь
           // у аккаунта есть — «Meta закрыла доступ» здесь была бы ложной. Запасной ключ, раз в сутки.
           if (who.instagramAccountId && afterPage) {
-            await noteInstagramBackupKeyDead(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 160)}`);
+            await noteInstagramBackupKeyDead(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 160)}`, { pageRefused });
             return;
           }
           // Meta закрыла сам аккаунт Instagram (21.11.2026, Arvan): одна отметка и одна

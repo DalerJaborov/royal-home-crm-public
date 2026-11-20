@@ -104993,7 +104993,7 @@
               },
               {
                "k": "if",
-               "t": "viaPage && ours.total > 0 && ours.known === 0",
+               "t": "viaPage && ours.crmSent > 0 && ours.known === 0",
                "a": [],
                "c": [
                 {

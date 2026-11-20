@@ -60,24 +60,47 @@ export async function instagramAccountPageRouted(accountId: string): Promise<boo
 }
 
 /**
- * Личный ключ аккаунта не работает, а бот отвечает через Страницу: «к сведению» руководству
- * раз в сутки. Входящие этого аккаунта приходят по подписке входа через Instagram, а она
- * держится на личном ключе — без переподключения их можно потерять.
+ * Личный ключ аккаунта не работает. Что сказать руководству — по фактам пути Страницы (ревью #344,
+ * третий круг), раз в сутки на аккаунт:
+ *  - Страница только что отказала как путь (или стоит на паузе после отказа) — бот не может отвечать
+ *    вовсе: «Meta отказывает обоим путям», срочно;
+ *  - через Страницу за последние сутки была успешная отправка — «бот отвечает через Страницу, но
+ *    личный ключ не работает», к сведению (входящие держатся на подписке личного ключа);
+ *  - отправок через Страницу за сутки не было — подтвердить, что путь отвечает, нечем: так и пишем.
  */
-export async function noteInstagramBackupKeyDead(accountId: string, detail: string): Promise<void> {
+export async function noteInstagramBackupKeyDead(accountId: string, detail: string, opts: { pageRefused?: boolean } = {}): Promise<void> {
   try {
     const name = await accountName(accountId);
     const reason = detail.replace(/\s+/g, " ").slice(0, 160);
+    const row = await prisma.messengerAccount.findUnique({ where: { id: accountId }, select: { token: true, eternalLastSentAt: true } });
+    const token = decryptSecretSafe(row?.token ?? null);
+    const pageRefused = opts.pageRefused ?? (token ? (await instagramRouteForToken(token)).kind !== "page" : false);
+    if (pageRefused) {
+      await logSystemError("meta", `${name}: бот не может отвечать — Meta отказывает обоим путям (Страница и личный ключ: ${reason}).`,
+        { dedupKey: `ig-both-routes-failed:${accountId}`, dedupWindowMs: DAY_MS, silent: true });
+      await raiseCriticalAlarm({
+        tag: `ig-both-routes-failed:${accountId}`,
+        title: "Instagram: бот не может отвечать",
+        body: `${name}: бот не может отвечать, Meta отказывает обоим путям — проверьте аккаунт в Instagram и кабинете Meta.`,
+        url: "/settings?tab=channels",
+        recipientRoles: MANAGEMENT_ALARM_ROLES,
+        everyMs: DAY_MS,
+      });
+      return;
+    }
+    const pageAnsweredRecently = !!row?.eternalLastSentAt && Date.now() - row.eternalLastSentAt.getTime() < DAY_MS;
+    const state = pageAnsweredRecently
+      ? "бот отвечает через Страницу, но личный ключ аккаунта не работает"
+      : "личный ключ аккаунта не работает; путь через Страницу настроен, но за сутки ответов через него не было — подтвердить, что он отвечает, нечем";
     await logSystemError(
       "meta",
-      `Предупреждение: запасной личный ключ ${name} не работает (${reason}). Бот отвечает ключом компании через Страницу; ` +
-        `если она откажет, отвечать будет нечем. Переподключите аккаунт в Настройках → Каналы.`,
+      `Предупреждение: ${name}: ${state} (${reason}). Если откажет и Страница, отвечать будет нечем. Переподключите аккаунт в Настройках → Каналы.`,
       { dedupKey: `ig-backup-key-dead:${accountId}`, dedupWindowMs: DAY_MS, silent: true }
     );
     await raiseCriticalAlarm({
       tag: `ig-backup-key-dead:${accountId}`,
       title: "Instagram: переподключите аккаунт",
-      body: `${name}: бот отвечает через Страницу, но личный ключ аккаунта не работает (${reason.slice(0, 80)}). Переподключите аккаунт в Настройках → Каналы, чтобы не пропали входящие.`,
+      body: `${name}: ${state} (${reason.slice(0, 80)}). Переподключите аккаунт в Настройках → Каналы, чтобы не пропали входящие.`,
       url: "/settings?tab=channels",
       quiet: true,
       recipientRoles: MANAGEMENT_ALARM_ROLES,

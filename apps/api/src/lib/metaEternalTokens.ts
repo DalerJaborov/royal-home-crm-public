@@ -445,7 +445,9 @@ export function pageRouteFailed(routed: RoutedCall, status: number, text: string
    * Страницу: пауза Страницы и повтор личным, но без тревоги о ключе.
    */
   const kind = sendErrorKind(error.code, error.error_subcode);
-  if (kind === "window") return false;
+  // Окно 24 ч — повтор бессмыслен; переписку ведёт другое приложение — повтор дал бы клиенту второй
+  // голос (бот ставится на паузу в callGraph, lib/threadOwnerPause.ts). Ни паузы Страницы, ни тревоги.
+  if (kind === "window" || kind === "thread_owner") return false;
   if (kind === "recipient") {
     void logSystemError("meta", `Путь Страницы ${routed.pageId}: отказ про собеседника (код ${error.code}/${error.error_subcode ?? "-"}), ответ повторён личным ключом аккаунта.`,
       { dedupKey: `page-route-recipient:${routed.pageId}:${error.code}`, dedupWindowMs: 24 * 60 * 60_000, silent: true });
@@ -477,24 +479,27 @@ export function pageRouteFailed(routed: RoutedCall, status: number, text: string
  * ошибки Instagram; сверено 21.11.2026, цитаты из таблицы):
  *  window — 10/2018278 и 10/2534022 «This message is sent outside of allowed window», 10/2018065 то
  *    же «You need News Messaging permission»: повтор бессмыслен;
+ *  thread_owner — 10/2018300 «The message failed to send because another app controls the
+ *    conversation», 100/2534037 «The action is invalid because your app is not the thread owner»:
+ *    переписку забрал сотрудник во «Входящих» или другой бот — без повтора, бот на паузу;
  *  recipient — 551 «This person isn't receiving messages from you right now» (551/1545041 и
  *    200/1545041 «This person isn't available right now»), 10/2018108 «They can't receive your
  *    messages right now», 10/1893015 «This user has currently stopped notification messages for
- *    this topic», 10/2018300 «another app controls the conversation», 100/2534037 «your app is not
- *    the thread owner», 100/2018001 «No matching user found», 100/2534014 «No matching Instagram user»;
+ *    this topic», 100/2018001 «No matching user found», 100/2534014 «No matching Instagram user»;
  *  rate — 613 (613/2534040 «Calls to this api have exceeded the rate limit», 613/1893016; 613/2018338
  *    — предупреждение по правилам, его раньше разбирает lib/metaSendBlock.ts).
  * null — отказ пути: 200 без подкода и 200/2018028 «Cannot message users who are not admins,
  * developers or testers» (нет App Review), 100/2534013 Страница не связана с Instagram, 10/2534077
  * связь Страницы и Instagram, 200/2534041 владелец закрыл доступ к Direct, 190 — ключ.
  */
-export function sendErrorKind(code: number | null | undefined, subcode: number | null | undefined): "window" | "recipient" | "rate" | null {
+export function sendErrorKind(code: number | null | undefined, subcode: number | null | undefined): "window" | "thread_owner" | "recipient" | "rate" | null {
   if (code === 10 && (subcode === 2018278 || subcode === 2534022 || subcode === 2018065)) return "window";
+  if ((code === 10 && subcode === 2018300) || (code === 100 && subcode === 2534037)) return "thread_owner";
   if (code === 613) return "rate";
   if (code === 551) return "recipient";
   if (code === 200 && subcode === 1545041) return "recipient";
-  if (code === 10 && (subcode === 2018108 || subcode === 1893015 || subcode === 2018300)) return "recipient";
-  if (code === 100 && (subcode === 2534037 || subcode === 2018001 || subcode === 2534014)) return "recipient";
+  if (code === 10 && (subcode === 2018108 || subcode === 1893015)) return "recipient";
+  if (code === 100 && (subcode === 2018001 || subcode === 2534014)) return "recipient";
   return null;
 }
 

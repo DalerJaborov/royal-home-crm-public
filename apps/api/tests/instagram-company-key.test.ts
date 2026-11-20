@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { waitFor, waitForSettled } from "./helpers/waitFor.js";
+import { createCustomerMessengerFixture } from "./helpers/customerMessengerFixture.js";
 
 /**
  * Instagram на постоянный ключ Meta (владелец 21.11.2026: «Да, переводи»).
@@ -58,7 +59,7 @@ async function settings(patch: Record<string, unknown>) {
 const alertWhere = () => ({ OR: [
   { tag: { startsWith: `ig-account-locked:${lockedId}` } }, { tag: { startsWith: `ig-account-locked:${accountId}` } },
   { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${lockedId}` }, { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}` },
-  { tag: `ig-backup-key-dead:${accountId}` }, { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}page-route:${PAGE_ID}` },
+  { tag: `ig-backup-key-dead:${accountId}` }, { tag: `ig-both-routes-failed:${accountId}` }, { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}page-route:${PAGE_ID}` },
 ] });
 const lockAlerts = () => ({ OR: [{ tag: { startsWith: `ig-account-locked:${lockedId}` } }, { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${lockedId}` }] });
 
@@ -90,7 +91,7 @@ beforeEach(async () => {
   pageSends.length = 0;
   personalSends.length = 0;
   resetOutgoingMids();
-  await prisma.messengerAccount.update({ where: { id: accountId }, data: { pageId: null, accessLostAt: null, accessLostReason: null } });
+  await prisma.messengerAccount.update({ where: { id: accountId }, data: { pageId: null, accessLostAt: null, accessLostReason: null, eternalLastSentAt: null } });
   await prisma.messengerAccount.update({ where: { id: lockedId }, data: { pageId: null, accessLostAt: null, accessLostReason: null } });
   await prisma.pendingDirectorAlert.deleteMany({ where: alertWhere() });
   await prisma.metaSendBlock.deleteMany({ where: { accountId: { in: [accountId, lockedId] } } });
@@ -267,7 +268,6 @@ describe("ревью #344: путь Страницы и запасной лич�
   it.each([
     { code: 551, subcode: 1545041, what: "человек недоступен" },
     { code: 100, subcode: 2534014, what: "нет такого собеседника" },
-    { code: 10, subcode: 2018300, what: "переписку ведёт другое приложение" },
   ])("отказ про собеседника ($what) — один повтор личным ключом, Страница без паузы, без тревоги", async ({ code, subcode }) => {
     await routed();
     meta.pageSendError = { status: 400, code, subcode };
@@ -276,6 +276,34 @@ describe("ревью #344: путь Страницы и запасной лич�
     expect((await eternal.instagramRouteForToken(PERSONAL)).kind).toBe("page");
     const alarm = await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}page-route:${PAGE_ID}` } }));
     expect(alarm).toBe(0);
+  });
+
+  it.each([
+    { code: 10, subcode: 2018300 },
+    { code: 100, subcode: 2534037 },
+  ])("переписку ведёт другое приложение ($code/$subcode) — без повтора, без паузы Страницы и тревоги; бот в переписке на паузе", async ({ code, subcode }) => {
+    const fixture = await createCustomerMessengerFixture("INSTAGRAM");
+    try {
+      await prisma.messengerAccount.update({ where: { id: fixture.id }, data: { pageId: PAGE_ID } });
+      meta.linkedIg = fixture.externalId;
+      eternal.resetMetaEternalCache();
+      const peer = `igsid-owner-${run}`;
+      const conv = await prisma.botConversation.create({ data: { channel: "INSTAGRAM", accountId: fixture.id,
+        endpointScopeId: fixture.transport.endpointScopeId, subscriberId: peer, messages: [{ role: "user", content: "Салом" }] as never } });
+      meta.pageSendError = { status: 400, code, subcode };
+      await expect(callGraph(instagramApiUrl(`/${GRAPH_VERSION}/me/messages`), fixture.token, { recipient: { id: peer }, message: { text: "Ответ бота" } }))
+        .rejects.toThrow();
+      expect(pageSends).toHaveLength(1);
+      expect(personalSends).toHaveLength(0);
+      expect((await eternal.instagramRouteForToken(fixture.token)).kind).toBe("page");
+      const row = await prisma.botConversation.findUnique({ where: { id: conv.id }, select: { pausedUntil: true } });
+      expect(row?.pausedUntil?.getTime()).toBeGreaterThan(Date.now());
+      const alarm = await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}page-route:${PAGE_ID}` } }));
+      expect(alarm).toBe(0);
+    } finally {
+      await fixture.cleanupConversations();
+      await fixture.dispose();
+    }
   });
 
   it("лимит частоты (613) — про приложение и Страницу: пауза Страницы, повтор личным, без тревоги о ключе", async () => {
@@ -294,7 +322,10 @@ describe("ревью #344: путь Страницы и запасной лич�
     meta.personalSendError = { status: 401, code: 190, message: LOCKED_TEXT };
     await expect(send()).rejects.toThrow(/401/);
     expect(personalSends).toHaveLength(1);
-    await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: `ig-backup-key-dead:${accountId}` } }));
+    // Страница отказала как путь, личный ключ — тоже: честный текст «отказывают оба пути», не «бот отвечает через Страницу».
+    const both = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: `ig-both-routes-failed:${accountId}` } }));
+    expect(both?.body).toContain("Meta отказывает обоим путям");
+    expect(await prisma.pendingDirectorAlert.count({ where: { tag: `ig-backup-key-dead:${accountId}` } })).toBe(0);
     const lost = await waitForSettled(() => prisma.messengerAccount.count({ where: { id: accountId, accessLostAt: { not: null } } }));
     expect(lost).toBe(0);
     expect(await prisma.pendingDirectorAlert.count({ where: { tag: { startsWith: `ig-account-locked:${accountId}` } } })).toBe(0);
@@ -337,6 +368,18 @@ describe("ревью #344: путь Страницы и запасной лич�
     expect((await prisma.messengerAccount.findUnique({ where: { id: accountId }, select: { accessLostAt: true } }))?.accessLostAt).toBeNull();
     const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: `ig-backup-key-dead:${accountId}` } }));
     expect(alert?.title).toBe("Instagram: переподключите аккаунт");
+    // Через Страницу за сутки отправок не было — не утверждаем, что «бот отвечает через Страницу».
+    expect(alert?.body).toContain("за сутки ответов через него не было");
+  });
+
+  it("через Страницу за сутки была успешная отправка — «бот отвечает через Страницу, но личный ключ не работает»", async () => {
+    await routed();
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { eternalLastSentAt: new Date(Date.now() - 60 * 60_000) } });
+    eternal.resetMetaEternalCache();
+    await access.noteInstagramBackupKeyDead(accountId, "HTTP 401");
+    const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: `ig-backup-key-dead:${accountId}` } }));
+    expect(alert?.body).toContain("бот отвечает через Страницу");
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { eternalLastSentAt: null } });
   });
 
   it("старая отметка «закрыт» у аккаунта с рабочим путём Страницы: экран её не показывает, суточная проверка снимает", async () => {

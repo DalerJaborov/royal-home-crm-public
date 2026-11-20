@@ -290,29 +290,44 @@ export async function knownMessageIds(messages: readonly InboxMessage[], channel
 }
 
 /**
- * Наши ответы в выборке переписок и сколько из них CRM знает по mid (отметка отправки `out:meta`,
- * реплика бота в ленте переписки). Ответ сотрудника руками из Instagram mid в CRM не имеет — поэтому
- * судим по «хоть один найден», а не по доле.
+ * Наши ответы в выборке переписок, ОТПРАВЛЕННЫЕ CRM, и сколько из них CRM знает по mid (ревью #344,
+ * третий круг). Отправленный CRM ответ узнаём так: его mid есть в CRM (отметка `out:meta` или mid
+ * реплики в ленте переписки), либо его текст совпадает с не-ручной репликой CRM этому же человеку.
+ * Ответы сотрудника руками из Instagram (в CRM они без mid и с пометкой «вручную») не считаются вовсе:
+ * по ним не отличить поломку сверки от потери, и глушить пуши из-за них нельзя.
  */
-export async function ownRepliesInCrm(ownIds: readonly string[], body: GraphConversations): Promise<{ total: number; known: number }> {
+export async function ownRepliesInCrm(ownIds: readonly string[], body: GraphConversations): Promise<{ crmSent: number; known: number }> {
   const own = new Set(ownIds);
-  const mids: string[] = [];
-  const peers = new Set<string>();
-  for (const conversation of body.data ?? []) for (const m of conversation.messages?.data ?? []) {
-    if (!m.id || !m.from?.id) continue;
-    if (own.has(m.from.id)) mids.push(m.id); else peers.add(m.from.id);
+  const ours: Array<{ mid: string; peer: string | null; text: string }> = [];
+  for (const conversation of body.data ?? []) {
+    const list = conversation.messages?.data ?? [];
+    const peer = list.find((m) => m.from?.id && !own.has(m.from.id))?.from?.id ?? null;
+    for (const m of list) if (m.id && m.from?.id && own.has(m.from.id)) ours.push({ mid: m.id, peer, text: (m.message ?? "").trim() });
   }
-  if (!mids.length) return { total: 0, known: 0 };
-  const marks = await prisma.processedMessage.count({ where: { channel: { in: ["out:meta", "INSTAGRAM"] }, messageId: { in: mids } } });
-  if (marks > 0) return { total: mids.length, known: marks };
-  if (!peers.size) return { total: mids.length, known: 0 };
-  const rows = await prisma.$queryRaw<Array<{ n: bigint }>>`
-    SELECT COUNT(*) AS "n"
-    FROM "BotConversation" c,
-      jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages")='array' THEN c."messages" ELSE '[]'::jsonb END) AS m(elem)
-    WHERE c."channel"='INSTAGRAM' AND c."subscriberId" = ANY(${[...peers]}::text[])
-      AND (m.elem ->> 'mid' = ANY(${mids}::text[]) OR m.elem ->> 'mid2' = ANY(${mids}::text[]))`;
-  return { total: mids.length, known: Number(rows[0]?.n ?? 0) };
+  if (!ours.length) return { crmSent: 0, known: 0 };
+  const peers = [...new Set(ours.map((o) => o.peer).filter((p): p is string => !!p))];
+  const marks = await prisma.processedMessage.findMany({ where: { channel: { in: ["out:meta", "INSTAGRAM"] }, messageId: { in: ours.map((o) => o.mid) } },
+    select: { messageId: true } });
+  const knownMids = new Set(marks.map((m) => m.messageId));
+  const crmText = new Map<string, string[]>();
+  if (peers.length) {
+    const convs = await prisma.botConversation.findMany({ where: { channel: "INSTAGRAM", subscriberId: { in: peers } }, select: { subscriberId: true, messages: true } });
+    for (const c of convs) for (const m of (Array.isArray(c.messages) ? c.messages : []) as Array<{ role?: string; content?: string; mid?: string; mid2?: string; by?: { kind?: string }; attachments?: { mid?: string }[] }>) {
+      for (const id of [m.mid, m.mid2, ...(m.attachments ?? []).map((x) => x.mid)]) if (id) knownMids.add(id);
+      if (m.role === "assistant" && m.by?.kind !== "manual" && m.content?.trim()) {
+        crmText.set(c.subscriberId, [...(crmText.get(c.subscriberId) ?? []), m.content.trim()]);
+      }
+    }
+  }
+  let crmSent = 0;
+  let known = 0;
+  for (const o of ours) {
+    if (knownMids.has(o.mid)) { crmSent++; known++; continue; }
+    // Пузырь реплики CRM (двумя сообщениями) — часть её текста; короткие тексты не сравниваем: «Да» бывает у всех.
+    const texts = o.peer ? crmText.get(o.peer) ?? [] : [];
+    if (o.text.length >= 8 && texts.some((t) => t === o.text || t.includes(o.text))) crmSent++;
+  }
+  return { crmSent, known };
 }
 
 /** Текст ошибки без ключа: адрес запроса к Graph содержит access_token. */
@@ -463,20 +478,21 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
       /**
        * МАССОВАЯ «ПОТЕРЯ» В INSTAGRAM (ревью #344). «Не дошло» больше половины сверенного (из трёх+) —
        * это либо настоящая потеря (подписку на вебхуки выключили, как у Arvan 17.11), либо поломка
-       * самой сверки (id сообщений на путях разошлись). Различаем по НАШИМ ответам в этих же
-       * переписках: их mid есть в CRM — id путей совпадают, потеря настоящая: пуши как раньше и
-       * тревога руководству «проверьте подписку». Наших ответов в CRM нет ни одного, а читаем через
-       * Страницу — сверка сломана: без пушей сотрудникам, журнал и одна несрочная тревога в сутки.
-       * Наших ответов в выборке нет вовсе — доказать поломку нечем, считаем потерю настоящей.
+       * самой сверки (id сообщений на путях разошлись). Различаем по ответам, ОТПРАВЛЕННЫМ CRM, в этих
+       * же переписках (ownRepliesInCrm): хоть один найден по mid — id путей совпадают, потеря настоящая:
+       * пуши как раньше и тревога руководству «проверьте подписку». Такие ответы есть, ни один не найден,
+       * а читаем через Страницу — сверка сломана: без пушей сотрудникам, журнал и одна несрочная тревога
+       * в сутки. Ответов CRM в выборке нет (только ручные сотрудников или никаких) — доказать поломку
+       * нечем, считаем потерю настоящей.
        * Facebook не трогаем: там массовая «потеря» — настоящий сигнал (Arvan 13–14.11, 1 из 8).
        */
       if (channel === "INSTAGRAM" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length) {
         const ours = await ownRepliesInCrm(page.ownIds?.length ? page.ownIds : [page.pageId], body);
         const viaPage = (await instagramRouteForToken(page.token)).kind === "page";
-        if (viaPage && ours.total > 0 && ours.known === 0) {
+        if (viaPage && ours.crmSent > 0 && ours.known === 0) {
           result.massMissedPages++;
           void logSystemError("meta", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.length} входящих не найдены в CRM, ` +
-            `и ни один из ${ours.total} наших ответов тоже. Похоже на поломку сверки (разные id сообщений на путях), а не на потерю — ` +
+            `и ни один из ${ours.crmSent} ответов, отправленных CRM, тоже. Похоже на поломку сверки (разные id сообщений на путях), а не на потерю — ` +
             `пуши сотрудникам не отправлены. Проверьте переписки аккаунта вручную.`,
             { dedupKey: `meta-inbox-mass-missed:${page.pageId}`, dedupWindowMs: 6 * 60 * 60_000, silent: true });
           await raiseCriticalAlarm({

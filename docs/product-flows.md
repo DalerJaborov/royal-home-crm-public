@@ -23499,7 +23499,7 @@
             · зовёт ownRepliesInCrm()
           - const viaPage = (await instagramRouteForToken(page.token)).kind === "page";
             · зовёт instagramRouteForToken()
-          - если viaPage && ours.total > 0 && ours.known === 0
+          - если viaPage && ours.crmSent > 0 && ours.known === 0
             - void logSystemError("meta", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.l…
               · запись в журнал ошибок
             - await raiseCriticalAlarm({ tag: `meta-inbox-mass-missed:${page.pageId}`, title: "Сверка Instagram: проверьте …
