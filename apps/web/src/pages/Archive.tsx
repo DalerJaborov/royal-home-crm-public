@@ -41,6 +41,7 @@ import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
 import { PropertyChangeRequestsInbox } from "../components/PropertyChangeRequestsInbox";
 import { RecordsSection, useRecordsSectionMark } from "../components/look/records/RecordsSection";
+import { PropertyPhoto } from "../components/property/PropertyPhoto";
 
 /**
  * «Архив и корзина».
@@ -688,12 +689,7 @@ function ArchiveScreen() {
                         нельзя, вспомнить объект по названию нечем. */}
                     <span className="av" style={{ background: "var(--track)", color: "var(--muted)", overflow: "hidden" }}>
                       {p.photos?.[0] ? (
-                        <img
-                          src={p.photos[0].thumbUrl}
-                          alt=""
-                          loading="lazy"
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        />
+                        <PropertyPhoto fill compact sources={[p.photos[0].thumbUrl, p.photos[0].url]} />
                       ) : (
                         <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                           <rect x="3" y="5" width="18" height="14" rx="3" />

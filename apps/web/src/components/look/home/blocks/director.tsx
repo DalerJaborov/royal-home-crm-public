@@ -1,21 +1,23 @@
 import { useMemo, type ReactNode } from "react";
-import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { monthShort, monthTitle, pluralizeRu } from "@royal-home/shared";
 import { useCan } from "../../../../lib/permissions";
 import { useNavigation } from "../../../../lib/navigation";
-import { dushanbeDate, dushanbeDayKey } from "../../../../lib/date";
+import { dushanbeDate } from "../../../../lib/date";
 import { formatMoney } from "../../../../lib/format";
 import { lazyWithReload } from "../../../../lib/lazyWithReload";
 import { mcOk, useMissionControl, usePropertiesPendingReview, type McFirstLineItem, type McMarketingChannel } from "../../../../hooks/useMissionControl";
 import { useProperties } from "../../../../hooks/useProperties";
 import { usePultActionRows, usePultActionStatus } from "../../../pult/PultActions";
 import { CleanDecisionRow } from "../../../clean/CleanDecisionRow";
-import { RoyalIcon } from "../../RoyalIcon";
-import { RH_SEVERITY_ICON, RhAvatar, RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
-import { channelBrand, monthPace } from "../time";
+import { RH_SEVERITY_ICON, RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
+import { tileTone } from "../../tileTone";
+import { channelBrand } from "../time";
 import { HomeColumns, num } from "../charts";
+import { waitLabel } from "../leader";
+import type { HomeBlockProps } from "../core";
 import { FullScreenToggle } from "./full";
+import { HomeQuiet, LeaderTeam, MoneyHero } from "./leader";
 
 /**
  * ГЛАВНАЯ ДИРЕКТОРА И АДМИНА — блоки ядра (перенесены из pages/TodayRoyal.tsx, home-core 20.11.2026).
@@ -26,6 +28,11 @@ import { FullScreenToggle } from "./full";
  * берут то, что снимок уже несёт (`marketing.pulse30`, `commission12`): ни одного
  * нового запроса. Блок без источника не рисуется, числа не выдумываются; выключенный
  * модуль пульта сервер не присылает вовсе — блок просто не появляется.
+ *
+ * Главные руководителей (20.11.2026): плита денег сравнивает с прошлым месяцем и планом,
+ * цвет плиток — только по смыслу (`tileTone`), «Горит» живёт одним блоком без плитки-дубля,
+ * пустые графики — одной спокойной строкой. Акционер берёт отсюда деньги и тренды, без
+ * операционных плиток (у него и прав на действия нет).
  */
 
 const PultClean = lazyWithReload(() => import("../../../../pages/PultClean").then((m) => ({ default: m.PultClean })));
@@ -52,60 +59,62 @@ function useDirector() {
   };
 }
 
-/** Деньги и плитки сверху. Без права на аналитику — прежняя строка «только руководству». */
-export function DirectorMoney() {
+/**
+ * Деньги и плитки сверху. Без права на аналитику — прежняя строка «только руководству».
+ * Директор и админ: плита денег + «Ждут ответа» и «Пропущенные звонки» (срочное — красным,
+ * ноль — серым) и «Первый ответ». Акционер: плита денег + сделки, расходы и заявки месяца.
+ */
+export function DirectorMoney({ role }: HomeBlockProps) {
   const d = useDirector();
   if (!d.canView) return <RhGroup><RhRow lead={<RhCircle icon="shield-check" tone="a3" />} title="Раздел доступен только руководству." /></RhGroup>;
   if (d.isError && !d.data) return <RhBlockState kind="error" onRetry={() => void d.refetch()} />;
-  const { hero, bot, firstLine, firstLineBroken } = d;
+  const { hero, bot, commission12, marketing } = d;
   const showMoney = !!hero?.commission && !!d.data?.seesMoney;
+  const shareholder = role === "SHAREHOLDER";
+  const waiting = bot?.attention?.waitingHuman;
+  const oldestWait = waiting?.items?.length ? Math.max(...waiting.items.map((item) => item.waitingMinutes)) : null;
+  const lastMonth = commission12?.months?.length ? commission12.months[commission12.months.length - 1] : null;
+  const monthName = dushanbeDate(new Date(), { month: "long" });
+  const leadsMonth = marketing?.funnel ? marketing.funnel.reduce((sum, c) => sum + c.leadsMonth, 0) : null;
+  const tiles: ReactNode[] = [];
+  if (!shareholder) {
+    if (waiting) tiles.push(
+      <RhTile key="waiting" variant={tileTone("urgent", waiting.count)} icon="message-circle" label="Ждут ответа" value={waiting.count}
+        note={waiting.count > 0 && oldestWait !== null ? `дольше всех ${waitLabel(oldestWait)}` : "клиенты в чатах"}
+        to={d.hasRoute("/messages") ? "/messages" : undefined} />,
+    );
+    if (hero && d.hasRoute("/calls")) tiles.push(
+      <RhTile key="missed" variant={tileTone("urgent", hero.missedCallsToday)} icon="phone-missed" label="Пропущенные звонки" value={hero.missedCallsToday} note="сегодня" to="/calls" />,
+    );
+    if (hero && hero.firstResponse.medianMinYesterday !== null) tiles.push(
+      <RhTile key="response" variant={tileTone("info", hero.firstResponse.medianMinYesterday)} icon="clock" label="Первый ответ" value={Math.round(hero.firstResponse.medianMinYesterday)} unit="мин" note="вчера, в среднем" />,
+    );
+    if (hero && !showMoney) tiles.push(
+      <RhTile key="leads" variant={tileTone("info", hero.leadsToday.count)} icon="user-plus" label="Заявки сегодня" value={hero.leadsToday.count} to={d.hasRoute("/clients") ? "/clients" : undefined} />,
+    );
+  } else {
+    if (lastMonth) tiles.push(
+      <RhTile key="deals" variant={tileTone("good", lastMonth.deals)} icon="handshake" label="Сделки закрыты" value={lastMonth.deals} note={`за ${monthName}`} to={d.hasRoute("/deals") ? "/deals" : undefined} />,
+    );
+    if (commission12 && commission12.expensesMonthTjs > 0) tiles.push(
+      <RhTile key="expenses" variant={tileTone("info", commission12.expensesMonthTjs)} icon="banknote" label="Расходы" value={formatMoney(Math.round(commission12.expensesMonthTjs), "TJS")} note={`за ${monthName}`} to={d.hasRoute("/finance") ? "/finance" : undefined} />,
+    );
+    if (leadsMonth !== null) tiles.push(
+      <RhTile key="leadsMonth" variant={tileTone("info", leadsMonth)} icon="user-plus" label="Заявки" value={leadsMonth} note={`за ${monthName}`} />,
+    );
+  }
   return (
-    <div className="ry-strip">
+    <div className="ry-strip" data-strip="money">
       {d.isLoading && !d.data ? <div className="ry-hero ry-hero-skeleton" aria-busy="true" /> : showMoney && hero?.commission ? (
-        <MoneyHero
-          fact={hero.commission.fact} plan={hero.commission.planIsDefault ? null : hero.commission.plan}
-          deals={hero.dealsInPipeline.count} leadsToday={hero.leadsToday.count}
-          to={d.hasRoute("/finance") ? "/finance" : undefined}
-        />
+        <MoneyHero commission={hero.commission} leadsToday={shareholder ? undefined : hero.leadsToday}
+          financeTo={d.hasRoute("/finance") ? "/finance" : undefined}
+          settingsTo={d.hasRoute("/settings") && d.can("settings.manage") ? "/settings?tab=money" : undefined} />
       ) : hero ? (
-        <RhTile variant="plain" icon="handshake" label="Сделки идут" value={hero.dealsInPipeline.count} to={d.hasRoute("/deals") ? "/deals" : undefined} />
+        <RhTile variant={tileTone("info", hero.dealsInPipeline.count)} icon="handshake" label="Покупатели в работе" value={hero.dealsInPipeline.count} to={d.hasRoute("/clients") ? "/clients" : undefined} />
       ) : null}
-      {bot?.attention && (
-        <RhTile variant="brand" icon="message-circle" label="Ждут ответа" value={bot.attention.waitingHuman.count} to={d.hasRoute("/messages") ? "/messages" : undefined} />
-      )}
-      {(firstLine || firstLineBroken) && (
-        <RhTile variant="ink" icon="flame" label="Горит" value={firstLine ? firstLine.totalCount : "—"} to="#ry-burning" alert={firstLineBroken} />
-      )}
-      {hero && hero.firstResponse.medianMinYesterday !== null && (
-        <RhTile variant="plain" icon="clock" label="Ответ вчера" value={Math.round(hero.firstResponse.medianMinYesterday)} unit="мин" />
-      )}
-      {hero && !showMoney && (
-        <RhTile variant="plain" icon="user-plus" label="Заявки сегодня" value={hero.leadsToday.count} to={d.hasRoute("/clients") ? "/clients" : undefined} />
-      )}
+      {tiles}
     </div>
   );
-}
-
-function MoneyHero({ fact, plan, deals, leadsToday, to }: { fact: number; plan: number | null; deals: number; leadsToday: number; to?: string }) {
-  const pct = plan && plan > 0 ? Math.round((fact / plan) * 100) : null;
-  const pace = monthPace(dushanbeDayKey(new Date()));
-  const month = dushanbeDate(new Date(), { month: "long" });
-  const body = <>
-    <span className="ry-hero-label"><RoyalIcon name="banknote" size={24} />Комиссия · {month}</span>
-    <span className="ry-hero-value ry-num">{formatMoney(Math.round(fact), "TJS")}</span>
-    {pct !== null && (
-      <span className="ry-hero-bar" role="img" aria-label={`План выполнен на ${pct}%, по времени прошло ${Math.round(pace * 100)}% месяца`}>
-        <span className="ry-hero-fill" style={{ width: `${Math.min(100, pct)}%` }} />
-        <span className="ry-hero-pace" style={{ left: `${pace * 100}%` }} />
-      </span>
-    )}
-    <span className="ry-hero-minis">
-      {pct !== null && <span><b className="ry-num">{pct}%</b> плана</span>}
-      <span><b className="ry-num">{deals}</b> {pluralizeRu(deals, ["сделка идёт", "сделки идут", "сделок идут"])}</span>
-      <span><b className="ry-num">{leadsToday}</b> {pluralizeRu(leadsToday, ["заявка сегодня", "заявки сегодня", "заявок сегодня"])}</span>
-    </span>
-  </>;
-  return to ? <Link to={to} className="ry-hero">{body}</Link> : <div className="ry-hero">{body}</div>;
 }
 
 /** «Нужно ваше решение» — прежние строки пульта со всеми их действиями. */
@@ -163,7 +172,7 @@ export function DirectorBurning() {
   const { firstLine, firstLineBroken } = d;
   if (!d.canView || !(firstLine || firstLineBroken || d.isLoading)) return null;
   return (
-    <RhSection id="ry-burning" title="Горит сейчас" to={d.hasRoute("/oversight") ? "/oversight" : undefined} className="ry-col-b">
+    <RhSection id="ry-burning" title={firstLine && firstLine.totalCount > 0 ? `Горит сейчас · ${firstLine.totalCount}` : "Горит сейчас"} to={d.hasRoute("/oversight") ? "/oversight" : undefined} className="ry-col-b">
       {firstLineBroken ? <RhBlockState kind="error" onRetry={() => void d.refetch()} />
         : !firstLine ? <RhBlockState kind="loading" />
         : firstLine.items.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Всё спокойно" /></RhGroup>
@@ -177,10 +186,9 @@ export function DirectorCheck() {
   const d = useDirector();
   const pending = usePropertiesPendingReview(d.canView);
   if (!d.canView) return null;
-  const { hero, team, clientsZone, system, can, hasRoute } = d;
+  const { team, clientsZone, system, can, hasRoute } = d;
   const items: ReactNode[] = [];
-  if (hero && hasRoute("/calls") && hero.missedCallsToday > 0)
-    items.push(<RhRow key="missed" to="/calls" lead={<RhCircle icon="phone-missed" tone="warn" />} title="Пропущенные звонки" sub="сегодня" right={<b className="ry-num ry-count">{hero.missedCallsToday}</b>} />);
+  // Пропущенные звонки — плиткой наверху (20.11.2026): здесь был бы дубль той же цифры.
   if (team?.showingsToday && team.showingsToday.count > 0 && hasRoute("/calendar"))
     items.push(<RhRow key="showings" to="/calendar" lead={<RhCircle icon="calendar-days" tone="a5" />} title="Показы сегодня" sub={`подтверждено ${team.showingsToday.confirmed}`} right={<b className="ry-num ry-count">{team.showingsToday.count}</b>} />);
   if (pending.data && pending.data.length > 0 && hasRoute("/properties"))
@@ -188,43 +196,26 @@ export function DirectorCheck() {
   if (clientsZone?.deleteRequests && clientsZone.deleteRequests.total > 0 && hasRoute("/archive") && (can("clients.delete") || can("properties.delete")))
     items.push(<RhRow key="delete" to={clientsZone.deleteRequests.clients > 0 && can("clients.delete") ? "/archive#delete-requests" : "/archive"} lead={<RhCircle icon="archive" tone="a4" />} title="Заявки на удаление" right={<b className="ry-num ry-count">{clientsZone.deleteRequests.total}</b>} />);
   if (system && can("auditLog.view") && hasRoute("/health") && (system.errorsToday > 0 || (system.unresolvedTotal ?? 0) > 0))
-    items.push(<RhRow key="errors" to="/health" lead={<RhCircle icon="gauge" tone={system.errorsToday >= 10 ? "crit" : "warn"} />} title="Ошибки системы" sub="за сегодня" right={<b className="ry-num ry-count">{system.errorsToday}</b>} />);
+    items.push(<RhRow key="errors" to="/health" lead={<RhCircle icon="gauge" tone={system.errorsToday >= 10 ? "crit" : "warn"} />} title="Сбои в работе CRM" sub="за сегодня" right={<b className="ry-num ry-count">{system.errorsToday}</b>} />);
   return items.length ? <RhSection title="Проверить" className="ry-col-a"><RhGroup>{items}</RhGroup></RhSection> : null;
 }
 
-function isOnline(lastSeenAt?: string | null): boolean {
-  return !!lastSeenAt && Date.now() - new Date(lastSeenAt).getTime() < 15 * 60_000;
-}
-
-/** «Команда» — шесть человек из снимка. */
+/** «Команда» — общий блок руководителей (./leader.tsx): кто когда заходил, звонки, просрочки. */
 export function DirectorTeam() {
   const d = useDirector();
-  const { team } = d;
-  if (!d.canView || !team || team.agents.length === 0 || !d.hasRoute("/team")) return null;
-  return (
-    <RhSection title="Команда" to="/team" className="ry-col-b">
-      <div className="ry-team">
-        {team.agents.slice(0, 6).map((agent) => (
-          <Link key={agent.id} to={`/team/${agent.id}`} className="ry-team-person">
-            <RhAvatar name={agent.fullName} src={agent.avatarUrl} size={64} />
-            <b>{agent.fullName.split(/\s+/)[0]}</b>
-            <span className="ry-team-status" data-tone={agent.pendingAccept > 0 ? "warn" : undefined}>
-              {agent.pendingAccept > 0 ? `ждут ${agent.pendingAccept}` : isOnline(agent.lastSeenAt) ? "на связи" : "не в сети"}
-            </span>
-          </Link>
-        ))}
-      </div>
-    </RhSection>
-  );
+  if (!d.canView || !d.hasRoute("/team")) return null;
+  return <LeaderTeam className="ry-col-b" />;
 }
 
 /** «Заявки за месяц» по каналам — полосы в родных цветах каналов. */
 export function DirectorChannels() {
   const d = useDirector();
   const { marketing } = d;
-  if (!d.canView || !marketing || marketing.funnel.length === 0) return null;
+  if (!d.canView || !marketing) return null;
+  const month = dushanbeDate(new Date(), { month: "long" });
+  if (!marketing.funnel.some((c) => c.leadsMonth > 0)) return <HomeQuiet title={`Заявки за ${month}`} />;
   return (
-    <RhSection title="Заявки за месяц" to={d.hasRoute("/sources") ? "/sources" : undefined}>
+    <RhSection title={`Заявки за ${month} по источникам`} to={d.hasRoute("/sources") ? "/sources" : undefined}>
       <Channels funnel={marketing.funnel} />
     </RhSection>
   );
@@ -243,6 +234,7 @@ function Channels({ funnel }: { funnel: McMarketingChannel[] }) {
             {brand ? <RhCircle brand={brand} /> : <RhCircle icon="globe" tone="a0" />}
             <span className="ry-row-text">
               <span className="ry-row-title">{c.label}</span>
+              {c.dealsClosedMonth > 0 && <span className="ry-row-sub">{c.dealsClosedMonth} {pluralizeRu(c.dealsClosedMonth, ["сделка", "сделки", "сделок"])}</span>}
               <span className="ry-bar" aria-hidden="true"><span style={{ width: `${(c.leadsMonth / max) * 100}%` }} /></span>
             </span>
             <span className="ry-row-right"><b className="ry-num ry-count">{c.leadsMonth}</b></span>
@@ -257,12 +249,13 @@ function Channels({ funnel }: { funnel: McMarketingChannel[] }) {
 export function DirectorPulse() {
   const d = useDirector();
   const pulse = d.marketing?.pulse30;
-  if (!d.canView || !pulse || !Array.isArray(pulse.days) || pulse.days.length === 0 || pulse.leadsTotal + pulse.showingsTotal === 0) return null;
+  if (!d.canView || !pulse || !Array.isArray(pulse.days)) return null;
+  if (pulse.days.length === 0 || pulse.leadsTotal + pulse.showingsTotal === 0) return <HomeQuiet title="Заявки за 30 дней" className="ry-col-a" />;
   const last = pulse.days[pulse.days.length - 1];
   return (
     <RhSection title="Заявки за 30 дней" to={d.hasRoute("/sources") ? "/sources" : undefined} className="ry-col-a">
       <HomeColumns
-        note={`${num(pulse.leadsTotal)} ${pluralizeRu(pulse.leadsTotal, ["заявка", "заявки", "заявок"])} · ${num(pulse.showingsTotal)} ${pluralizeRu(pulse.showingsTotal, ["показ", "показа", "показов"])}`}
+        note={`всего ${num(pulse.leadsTotal)} ${pluralizeRu(pulse.leadsTotal, ["заявка", "заявки", "заявок"])} и ${num(pulse.showingsTotal)} ${pluralizeRu(pulse.showingsTotal, ["показ", "показа", "показов"])} · столбик — заявки за день`}
         ariaLabel={`Заявки по дням за 30 дней: всего ${pulse.leadsTotal}, показов ${pulse.showingsTotal}`}
         lastValueLabel={num(last.leads)}
         items={pulse.days.map((day, index, all) => ({
@@ -282,14 +275,17 @@ export function DirectorPulse() {
 export function DirectorCommission() {
   const d = useDirector();
   const c = d.commission12;
-  if (!d.canView || !d.data?.seesMoney || !c || !Array.isArray(c.months) || c.months.length === 0 || !(c.totalTjs > 0)) return null;
+  if (!d.canView || !d.data?.seesMoney || !c || !Array.isArray(c.months)) return null;
+  // Один месяц с деньгами — не график, а та же цифра, что в плите денег: тихой строкой.
+  const withMoney = c.months.filter((m) => m.amountTjs > 0).length;
+  if (withMoney < 2) return <HomeQuiet title="Комиссия по месяцам" text={withMoney === 1 ? "пока только один месяц с комиссией" : undefined} className="ry-col-b" />;
   const last = c.months[c.months.length - 1];
   return (
     <RhSection title="Комиссия по месяцам" to={d.hasRoute("/finance") ? "/finance" : undefined} className="ry-col-b">
       <HomeColumns
-        note={`за год ${formatMoney(Math.round(c.totalTjs), "TJS")}`}
+        note={`за 12 месяцев ${formatMoney(Math.round(c.totalTjs), "TJS")} · столбик — комиссия месяца`}
         ariaLabel={`Комиссия по месяцам: ${c.months.map((m) => `${monthTitle(m.month)} ${num(Math.round(m.amountTjs))}`).join(", ")} сомони`}
-        lastValueLabel={num(Math.round(last.amountTjs))}
+        lastValueLabel={`${num(Math.round(last.amountTjs))}\u00a0с.`}
         items={c.months.map((m) => ({
           key: m.month,
           label: monthShort(m.month),

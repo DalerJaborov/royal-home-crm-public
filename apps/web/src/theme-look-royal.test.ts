@@ -76,6 +76,37 @@ export function unscopedSelectors(css: string, section?: string): string[] {
 const LOOK_FILE = /^theme-look-royal(-[\w-]+)?\.css$/;
 const lookFiles = readdirSync(new URL(".", import.meta.url)).filter((f) => LOOK_FILE.test(f)).sort();
 
+/**
+ * ГЕОМЕТРИЯ ТЕЛЕФОНА (20.11.2026, кадры владельца с iPhone) — два сторожа слоёв.
+ *
+ * 1. Размер текста без vw/vh: «5.4vw» давал 21,06 px, заголовок шапки на iPhone читался
+ *    мягким. Текст — целыми пикселями (или clamp без единиц окна).
+ * 2. Ряд, который листается вбок (`overflow-x: auto|scroll`), обязан быть в списке
+ *    затухания `ry-strip-more` (основа) — иначе он обрезан краем без признака, что дальше
+ *    есть ещё («Изменения на сайте», «Резерв», «Подписки»). Таблицы и графики — не ряды:
+ *    у них своя полоса прокрутки (`STRIP_HINT_EXEMPT`).
+ */
+export function viewportFontSizes(css: string): string[] {
+  return cssRules(css).filter((r) => declarations(r.body).some(([prop, value]) => /^font(-size)?$/.test(prop) && /\d(vw|vh|vmin|vmax|svw|dvw|lvw)\b/.test(value)))
+    .map((r) => r.selector);
+}
+const STRIP_HINT_EXEMPT = /\.(tbl-wrap|rh2-bar-chart|ry-gal-thumbs)\b/;
+/** Классы, которым основа даёт затухание (селектор правила с `animation: ry-strip-more`). */
+export function stripHintClasses(base: string): string[] {
+  const rule = cssRules(base).find((r) => /animation:\s*ry-strip-more\b/.test(r.body));
+  return rule ? [...rule.selector.matchAll(/\.([\w-]+)/g)].map((m) => m[1]) : [];
+}
+/** Правила, делающие ряд листаемым вбок, без класса из списка затухания. */
+export function stripsWithoutHint(css: string, hinted: readonly string[]): string[] {
+  return cssRules(css).filter((r) => declarations(r.body).some(([prop, value]) => /^overflow(-x|-inline)?$/.test(prop) && /\b(auto|scroll)\b/.test(value.split(/\s+/)[0])))
+    .flatMap((r) => splitTopLevel(r.selector))
+    .filter((sel) => {
+      const subject = sel.split(/[\s>+~]+/).pop() ?? "";
+      if (STRIP_HINT_EXEMPT.test(subject) || !/\./.test(subject)) return false;
+      return ![...subject.matchAll(/\.([\w-]+)/g)].some((m) => hinted.includes(m[1]));
+    });
+}
+
 describe("theme-look-royal*.css", () => {
   const css = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
   it("знает основу и слои разделов «Клиенты», «Чаты» и «Команда»", () => {
@@ -540,8 +571,8 @@ export const HIDING_ALLOWED = new Set<string>([
   `${R}[data-mobile-ux] .rh2[data-ry-section="clients"] .scr.clean-client-detail .ry-ctab svg`,
   `${R}[data-mobile-ux] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > svg`,
   `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent-av`,
-  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-nophoto-text`,
-  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-nophoto-text`,
+  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .rh-photo-text`,
+  `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .rh-photo-text`,
   // Дубли: заголовок экрана на телефоне (он же в шапке; для чтеца остаётся), короткая и
   // длинная подпись вкладки (видна одна из двух), подписи колонок для чтеца и шапка таблицы
   // на телефоне (на ПК — видимая шапка), имя отправителя в пузыре (оно в шапке переписки),
@@ -555,13 +586,24 @@ export const HIDING_ALLOWED = new Set<string>([
   `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-label`,
   `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-clist-head`,
   `${R} .ry-chats[data-ry-section="chats"] .clean-conversation .bub:not(.me) > .who`,
+  // Стрелка «Сведения о сообщении» — проявляется при наведении и с клавиатуры, как в
+  // WhatsApp Web; на касание её заменяет долгое нажатие (чаты, 20.11.2026).
+  `${R} .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more`,
   `${R} [data-ry-section="objects"] .ry-obj-state`,
   `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo > .ry-obj-pill`,
   `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo > .ry-obj-pill`,
   `${R} .ry-chats[data-ry-section="chats"] .ry-chats-more-body .clean-inbox-filters > summary`,
-  `${R}:not([data-mobile-ux]) .clean-shell .clean-brand b`,
-  // Узкое меню ПК (< 1200) — одни значки; подпись в title и для чтеца (решение основы).
-  `${R}:not([data-mobile-ux]) .clean-shell .ry-nav-label`,
+  // Одна оболочка (пачка B, 20.11.2026): меню с подписями на всех ширинах. Узкой рейки из
+  // голых значков больше нет — прежние исключения для подписи меню и названия CRM сняты.
+  // Скрыта только ЗАМЕНА: на 1024+ нижнее меню (те же разделы — в боковом), на 768–1023
+  // боковое меню и название (те же разделы — в рейке), «Ещё» рейки вне планшета (на
+  // телефоне все разделы — у аватара), телефонное название при названии ПК, маркер раскрытия.
+  `${R}[data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav]`,
+  `${R}[data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab`,
+  `${R}[data-shell="clean"] .app-shell.clean-shell .clean-header :is(.clean-brand, .clean-tabs)`,
+  `${R} .clean-shell .ry-rail-only`,
+  `${R}[data-shell="clean"] .app-shell.clean-shell .clean-brand .clean-brand-mobile`,
+  `${R}[data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title::-webkit-details-marker`,
   // Телефонная навигация «список ↔ переписка ↔ карточка»: экран переключён, а не текст скрыт.
   `${R} .ry-chats[data-ry-section="chats"][data-chat-active="thread"] .ry-chats-head`,
   `${R} .ry-chats[data-ry-section="chats"] .two[data-conversation-selected] > section[aria-label="Диалоги"]`,
@@ -1051,3 +1093,25 @@ ${K} ~ .rh2 .pill { color: red; }`, "admin")).toEqual([`${K} ~ .rh2 .pill`]);
       .toEqual([':root[data-ui-look="royal"] [data-ry-section="objects"] ~ .x', `${P} + .rh2 .pill`]);
   });
 });
+
+describe("геометрия телефона (кадры владельца 20.11)", () => {
+  const base = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
+  const hinted = stripHintClasses(base);
+  it("размер текста — без единиц окна (vw/vh)", () => {
+    for (const file of lookFiles) expect(viewportFontSizes(readFileSync(new URL(`./${file}`, import.meta.url), "utf8")), file).toEqual([]);
+  });
+  it("каждый ряд, листаемый вбок, гаснет у края (в списке ry-strip-more)", () => {
+    expect(hinted.length).toBeGreaterThan(3);
+    for (const file of lookFiles) expect(stripsWithoutHint(readFileSync(new URL(`./${file}`, import.meta.url), "utf8"), hinted), file).toEqual([]);
+  });
+  it("сторожа геометрии проверены поломкой", () => {
+    const P = ':root[data-ui-look="royal"] .rh2[data-ry-section="objects"]';
+    expect(viewportFontSizes(`${P} .x { font-size: clamp(17px, 5.4vw, 22px); }`)).toEqual([`${P} .x`]);
+    expect(viewportFontSizes(`${P} .x { font: 700 4vw/1.2 sans-serif; }`)).toEqual([`${P} .x`]);
+    expect(viewportFontSizes(`${P} .x { font-size: 22px; width: 50vw; }`)).toEqual([]);
+    expect(stripsWithoutHint(`${P} .new-tabs { display: flex; overflow-x: auto; }`, hinted)).toEqual([`${P} .new-tabs`]);
+    expect(stripsWithoutHint(`${P} .seg-ai { overflow-x: auto; }
+${P} .tbl-wrap { overflow-x: auto; }`, hinted)).toEqual([]);
+  });
+});
+

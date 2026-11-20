@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Download, Share, X } from "lucide-react";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
 import { useUiPrefs } from "../store/uiPrefs";
+import { useRoyalLook } from "../hooks/useRoyalLook";
 import { Rh2Inline } from "./rh2/Rh2Scope";
 
 /**
@@ -40,6 +41,7 @@ export function InstallAppHint() {
   const [visits] = useState(bumpVisits);
   const [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 819px)").matches);
   const [showIosSteps, setShowIosSteps] = useState(false);
+  const royal = useRoyalLook();
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 819px)");
@@ -51,6 +53,38 @@ export function InstallAppHint() {
   const canOffer = state === "available" || state === "ios";
   if (!narrow || !canOffer || visits < MIN_VISITS || dismissedHints.includes(HINT_ID)) return null;
 
+  /**
+   * «НОВЫЙ ВИД» — ОДНОЙ СТРОКОЙ НАД НИЖНИМ МЕНЮ (съёмка экранов 20.11.2026). Карточка в
+   * 200 px высотой с абзацем текста закрывала низ первого экрана на любом телефоне.
+   * Здесь: значок, «Поставьте CRM на экран», «Как» и крестик — 56 px. Шаги для iPhone
+   * раскрываются по «Как» той же строкой выше, как и в прежнем виде.
+   */
+  if (royal) {
+    return (
+      <Rh2Inline className="ry-install-hint fixed inset-x-0 bottom-[calc(84px+env(safe-area-inset-bottom))] z-30 px-3 md:hidden">
+        <div className="ry-install-card" role="region" aria-label="Установка CRM на экран телефона">
+          {state === "ios" && showIosSteps && (
+            <ol className="ry-install-steps">
+              <li><Share className="i" aria-hidden />Нажмите «Поделиться» внизу браузера</li>
+              <li>Выберите «На экран „Домой"»</li>
+              <li>Нажмите «Добавить», значок появится на экране</li>
+            </ol>
+          )}
+          <div className="ry-install-row">
+            <Download className="i" aria-hidden />
+            <b>Поставьте CRM на экран</b>
+            <button type="button" className="ry-install-go" onClick={() => (state === "ios" ? setShowIosSteps((v) => !v) : void install())}>
+              {state === "ios" ? (showIosSteps ? "Понятно" : "Как") : "Установить"}
+            </button>
+            <button type="button" className="ry-install-x" onClick={() => dismissHint(HINT_ID)} aria-label="Больше не предлагать">
+              <X className="i" aria-hidden />
+            </button>
+          </div>
+        </div>
+      </Rh2Inline>
+    );
+  }
+
   return (
     // 152px = 84 (нижнее меню) + 56 (высота круглой кнопки ассистента) + 12 зазора.
     // Раньше подсказка стояла на тех же 84px, что и кнопка ассистента, и та —
@@ -60,7 +94,10 @@ export function InstallAppHint() {
     // Облик — карточка `.card.tight` эталона со строкой `.mod` (значок, текст,
     // действия) и кнопкой `.pill`. Подсказка живёт в рамке приложения, вне
     // области темы экрана, поэтому открывает область сама (см. Rh2Scope.tsx).
-    <Rh2Inline className="fixed inset-x-0 bottom-[calc(152px+env(safe-area-inset-bottom))] z-30 px-3 md:hidden">
+    // `data-install-hint` — метка для рейки планшета «Нового вида» (theme-look-royal.css):
+    // там подсказка сдвигается вправо от рейки. Та же разметка, что давал className у Rh2Inline.
+    <div data-install-hint className="fixed inset-x-0 bottom-[calc(152px+env(safe-area-inset-bottom))] z-30 px-3 md:hidden">
+    <Rh2Inline>
       <div className="card tight">
         <div className="mod" style={{ padding: 0, borderBottom: 0 }}>
           <span className="call" aria-hidden>
@@ -112,5 +149,6 @@ export function InstallAppHint() {
         </div>
       </div>
     </Rh2Inline>
+    </div>
   );
 }

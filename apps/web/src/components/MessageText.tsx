@@ -3,6 +3,9 @@ import { MESSAGE_PHONE_MASK } from "@royal-home/shared";
 import { CallClientButton } from "./CallClientButton";
 import { humanizeAttachmentTags } from "../lib/botMessages";
 
+/** Почему позвонить нельзя: звонок идёт только через CRM из карточки клиента. */
+export const NO_CARD_TITLE = "Звонок идёт только через CRM из карточки клиента, а карточки здесь нет или она вам недоступна: примите лид, чтобы позвонить";
+
 /**
  * ТЕКСТ РЕПЛИКИ В ЛЕНТЕ — с кнопкой звонка на месте скрытого номера.
  *
@@ -40,23 +43,48 @@ export function MessageText({
   clientId,
   rh2 = false,
   readOnly = false,
+  quietMask = false,
 }: {
   content: string;
   clientId?: string | null;
   rh2?: boolean;
   readOnly?: boolean;
+  /**
+   * Новый вид чатов (владелец 20.11.2026): кнопка «Позвонить» без номера внутри
+   * фразы клиента мешала читать. Скрытый номер — тихой пометкой, звонок —
+   * кнопкой в шапке переписки (тот же POST /clients/:id/call). Маска остаётся.
+   */
+  quietMask?: boolean;
 }) {
   const text = humanizeAttachmentTags(content);
   if (!text.includes(MESSAGE_PHONE_MASK)) return <>{text}</>;
 
   // split сохраняет пустые куски по краям — они рисуются как пустые строки и не мешают.
   const parts = text.split(MESSAGE_PHONE_MASK);
+  if (quietMask) {
+    return (
+      <>
+        {parts.map((part, i) => (
+          <Fragment key={i}>
+            {part}
+            {i < parts.length - 1 && (
+              <span className="ry-masked-phone" title="Номер скрыт. Звонок клиенту — кнопкой в шапке переписки">номер скрыт</span>
+            )}
+          </Fragment>
+        ))}
+      </>
+    );
+  }
   return (
     <>
       {parts.map((part, i) => (
         <Fragment key={i}>
           {part}
-          {i < parts.length - 1 && (readOnly ? <span>Номер скрыт</span> : (
+          {/* Без карточки клиента звонить некуда (станция набирает номер карточки): вместо
+              мёртвой серой «Позвонить» — честные слова, а причина — подсказкой, как была у кнопки. */}
+          {i < parts.length - 1 && (readOnly ? <span data-msg-call>Номер скрыт</span> : !clientId ? (
+            <span data-msg-call title={NO_CARD_TITLE}>Номер скрыт</span>
+          ) : (
             <CallClientButton
               clientId={clientId}
               /* Маска-«точка» — тот же признак «номер закрыт», что у CallClientButton
@@ -64,6 +92,7 @@ export function MessageText({
                  подставить цифры в tel:. */
               phone="•••"
               variant="full"
+              inline
               label="Позвонить"
               title="Клиент продиктовал номер. Позвонить ему через CRM, номер остаётся скрытым, разговор запишется и попадёт в хронологию"
               className={

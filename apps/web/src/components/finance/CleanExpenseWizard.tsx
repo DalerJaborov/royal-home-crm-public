@@ -168,7 +168,7 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
           <p style={{ fontSize: 14, lineHeight: 1.6, color: "var(--muted)" }}>Расход попадёт в выбранный месяц. Точная дата оплаты пока не хранится.</p>
         </>}
         <div aria-label="Итог расхода" style={{ padding: 20, borderRadius: 18, background: "var(--track)", display: "grid", gap: 10 }}>
-          <strong style={{ fontSize: 28, fontVariantNumeric: "tabular-nums" }}>{Number(draft.amount.replace(",", ".")).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} с.</strong>
+          <strong style={{ fontSize: 28, fontVariantNumeric: "tabular-nums" }}>{Number(draft.amount.replace(",", ".")).toLocaleString("ru-RU", { maximumFractionDigits: 2 })}{"\u00a0"}с.</strong>
           <span style={{ fontSize: 16 }}>{draft.note.trim() || EXPENSE_CATEGORY_LABELS[draft.category]}</span>
           <span style={{ fontSize: 14, color: "var(--muted)" }}>{EXPENSE_CATEGORY_LABELS[draft.category]}{draft.category === "ADVERTISING" && draft.source ? ` · ${CLIENT_SOURCE_LABELS[draft.source]}` : ""}{draft.category === "SALARY" ? ` · ${agents.data?.find((agent) => agent.id === draft.agentId)?.fullName ?? "Выбранный сотрудник"}` : ""}</span>
           <span style={{ fontSize: 14, color: "var(--muted)" }}>{draft.repeat ? `Каждый месяц, ${draft.day}-го числа` : `Месяц учёта: ${new Date(`${current.month}-01T12:00:00`).toLocaleDateString("ru-RU", {month:"long",year:"numeric",timeZone:"Asia/Dushanbe"})}`}</span>

@@ -29,6 +29,9 @@ vi.mock("../src/db.js", async (importOriginal) => {
   };
   return { ...actual, prisma: { ...prisma, $transaction: (fn: (tx: typeof prisma) => unknown) => fn(prisma) } };
 });
+// Повтор наложения (20.11.2026): проверяются права пути, сама дверь подменена.
+const retry = vi.hoisted(() => vi.fn(async () => "QUEUED" as const));
+vi.mock("../src/lib/narrationAutoFlow.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/narrationAutoFlow.js")>(), retryNarrationRemix: retry }));
 import { narrationRouter } from "../src/routes/properties/narration.js";
 import { narrationFacts, narrationHash } from "../src/lib/propertyNarration.js";
 const app = express(); app.use(express.json()); app.use("/properties", narrationRouter);
@@ -292,5 +295,15 @@ describe("property narration route boundaries", () => {
     const response = await request(app).post(base).send({ expectedRevision: 1, requestKey: "33333333-3333-4333-8333-333333333333", script: "Квартира барои фурӯш, се ҳуҷра.", generate: true });
     expect(response.status).toBe(409);
     expect(s.create).not.toHaveBeenCalled();
+  });
+  it("remix-retry: чужой агент (нет доступа к объекту) и монтажёр получают 403 и повтор не зовётся; ведущий объект — повтор", async () => {
+    s.role = "AGENT"; s.access = false;
+    expect((await request(app).post(`${base}/remix-retry`).send({})).status).toBe(403);
+    s.role = "EDITOR"; s.access = true; s.assigned.mockResolvedValue({ id: "assigned" });
+    expect((await request(app).post(`${base}/remix-retry`).send({})).status).toBe(403);
+    expect(retry).not.toHaveBeenCalled();
+    s.role = "AGENT"; s.assigned.mockResolvedValue(null);
+    expect((await request(app).post(`${base}/remix-retry`).send({})).status).toBe(200);
+    expect(retry).toHaveBeenCalledWith(propertyId, "staff");
   });
 });

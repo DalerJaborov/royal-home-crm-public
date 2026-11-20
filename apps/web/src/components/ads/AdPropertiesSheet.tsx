@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Image as ImageIcon, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import type { AdBoardProperty } from "@royal-home/shared";
 import { useProperties, usePropertyByShortId, useSetAdProperties, type UnmatchedCandidate } from "../../hooks/useAds";
 import { mergeSearchResults, parsePropertySearch } from "../../lib/adPropertySearch";
@@ -15,6 +15,7 @@ import {
 } from "../../lib/adsView";
 import { pluralizeRu } from "../../lib/format";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
+import { PropertyPhoto } from "../property/PropertyPhoto";
 
 /**
  * ОКНО «ПРИВЯЗАТЬ ОБЪЕКТЫ» — несколько объектов у одного объявления (03.10.2026).
@@ -204,7 +205,7 @@ export function AdPropertiesSheet({ target, onClose }: { target: AdSheetTarget; 
             return (
               <div className="prow wrapt" key={p.id}>
                 <span className="ph" aria-hidden>
-                  {p.coverUrl ? <img src={p.coverUrl} alt="" loading="lazy" /> : <ImageIcon className="i" />}
+                  <PropertyPhoto fill compact sources={[p.coverUrl]} />
                 </span>
                 <div className="t">
                   <b>
@@ -356,7 +357,7 @@ function CandidateRow({
   return (
     <div className="prow wrapt">
       <span className="ph" aria-hidden>
-        {coverUrl ? <img src={coverUrl} alt="" loading="lazy" /> : <ImageIcon className="i" />}
+        <PropertyPhoto fill compact sources={[coverUrl]} />
       </span>
       <div className="t">
         <b>

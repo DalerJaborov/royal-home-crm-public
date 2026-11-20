@@ -1332,6 +1332,9 @@ const settingsUpdateSchema = z.object({
   /** Рабочие часы распределения лидов, "HH:MM" по Душанбе. */
   workHoursStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   workHoursEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  /** Начало рабочего дня сотрудников, "HH:MM" по Душанбе (20.11.2026) — для пометки
+   *  «сегодня не заходил» на главной руководителя; не окно раздачи заявок. */
+  workdayStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   /** Общие выходные компании (владелец 11.10.2026), 0 — воскресенье … 6 — суббота.
    *  Пусто — выходных нет. Правило — packages/shared/src/daysOff.ts. */
   companyDaysOff: daysOffSchema.optional(),

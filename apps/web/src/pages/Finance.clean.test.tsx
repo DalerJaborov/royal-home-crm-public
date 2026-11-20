@@ -99,11 +99,11 @@ describe("native Clean finance", () => {
   });
   it("uses server profit and operational expenses without subtracting agent shares twice", () => {
     const html = render("/finance?workspace=overview");
-    expect(html).toContain("Валовая комиссия</span><strong class=\"cef-kpi\">21 000 с.");
-    expect(html).toContain("Доход компании</span><strong class=\"cef-kpi\">14 000 с.");
-    expect(html).toContain("Операционные расходы</span><strong class=\"cef-kpi\">3 000 с.");
-    expect(html).toContain("Прибыль</span><strong class=\"cef-kpi\">11 000 с.");
-    expect(html).not.toContain("7 000 с.");
+    expect(html).toContain("Валовая комиссия</span><strong class=\"cef-kpi\">21 000\u00a0с.");
+    expect(html).toContain("Доход компании</span><strong class=\"cef-kpi\">14 000\u00a0с.");
+    expect(html).toContain("Операционные расходы</span><strong class=\"cef-kpi\">3 000\u00a0с.");
+    expect(html).toContain("Прибыль</span><strong class=\"cef-kpi\">11 000\u00a0с.");
+    expect(html).not.toContain("7 000\u00a0с.");
   });
   it("shares all native financial workspaces with the authorized Clean phone", () => {
     state.mobile = true;

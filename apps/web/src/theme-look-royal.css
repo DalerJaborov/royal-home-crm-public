@@ -48,6 +48,8 @@
   --rh-ui-crit: #b3261e;
   --rh-ui-crit-fg: #ffffff;
   --rh-ui-crit-text: #ad2116;
+  /* Плитка «срочно» (tileTone → crit): светло-красная, цифра --rh-ui-crit-text (≥ 4,5:1). */
+  --rh-ui-crit-soft: #fde7e4;
   --rh-ui-warn-soft: #ffefc7;
   --rh-ui-warn: #7a4300;
   --rh-ui-ok-soft: #e2f0e8;
@@ -109,6 +111,7 @@
   --rh-ui-ink-tile-ring: rgba(255, 255, 255, .08);
   --rh-ui-crit: #d13b30;
   --rh-ui-crit-text: #ff8f86;
+  --rh-ui-crit-soft: rgba(209, 59, 48, .2);
   --rh-ui-warn-soft: rgba(242, 180, 90, .16);
   --rh-ui-warn: #f2b45a;
   --rh-ui-ok-soft: rgba(95, 208, 138, .14);
@@ -139,19 +142,115 @@
 
 :root[data-ui-look="royal"] body { background: var(--rh-ui-bg); }
 :root[data-ui-look="royal"] .app-shell.clean-shell { padding: 0; background: var(--rh-ui-bg); color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .clean-shell .app-main-col { max-width: 1280px; margin-inline: 0; }
+/* ===================== РАСКЛАДКА ПО ШИРИНЕ (пачка B, 20.11.2026) =====================
+ * Конституция оболочки (docs/design/oblik-2026-11-17/audit-20-11/critic-uiux.md §7):
+ *   320–767   телефон: шапка сверху, капсула меню снизу (правила «Телефон» ниже);
+ *   768–1023  планшет: рейка 88 px слева, значок и подпись под ним (нижнее меню
+ *             встаёт вертикально — те же пункты и та же «+», что на телефоне, и «Ещё»);
+ *   1024+     боковое меню С ПОДПИСЯМИ (220 px, с 1440 — 248 px): до восьми главных
+ *             пунктов и свёрнутые группы (CleanShell, lib/cleanNavigationOrder.ts);
+ *   1440+     содержимое по центру, 1280 px (обзорные экраны — 1600 px, data-ry-wide).
+ * Раньше раскладку решал признак УСТРОЙСТВА (data-mobile-ux: телефон ИЛИ планшет с
+ * пальцем до 1180 px) — и планшет получал телефон, а ПК 1024–1199 — рейку из 30 голых
+ * значков. Жесты и шторки по-прежнему решает устройство; здесь только раскладка.
+ * На сенсорном планшете data-mobile-ux стоит, и правила телефонной оболочки
+ * (theme-2026-clean-mobile-shell.css) прячут меню и показывают нижнюю панель, — поэтому
+ * селекторы ниже держат [data-shell="clean"] и путь от .app-shell: они обязаны перебить
+ * те правила, а не зависеть от порядка файлов. Сторож — tests/e2e/one-shell.spec.ts. */
+:root[data-ui-look="royal"] { --ry-content-w: 1280px; --ry-rail-w: 88px; }
+:root[data-ui-look="royal"] .clean-shell .clean-frame[data-ry-wide] { --ry-content-w: 1600px; }
+:root[data-ui-look="royal"] .clean-shell .app-main-col { max-width: var(--ry-content-w); margin-inline: 0; }
+:root[data-ui-look="royal"] .clean-shell .ry-rail-only { display: none; }
 
-/* ---- ПК: вкладки встают боковым меню, остальная шапка справа ---- */
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-frame {
-  max-width: none; min-height: 100dvh; margin: 0; border: 0; border-radius: 0; box-shadow: none;
-  background: var(--rh-ui-bg);
-  padding: 0 32px 0 calc(var(--rh-ui-side-w) + 32px);
+/* ---- 1024+: боковое меню с подписями, остальная шапка справа ---- */
+@media (min-width: 1024px) {
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > .clean-frame {
+    max-width: none; min-height: 100dvh; margin: 0; border: 0; border-radius: 0; box-shadow: none;
+    background: var(--rh-ui-bg);
+    padding: 0 32px 0 calc(var(--rh-ui-side-w) + 32px);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-header {
+    flex-wrap: nowrap; justify-content: flex-end; gap: 12px; padding: 20px 0 4px; margin: 0 auto;
+    max-width: var(--ry-content-w); background: var(--rh-ui-bg); border: 0; box-shadow: none; border-radius: 0;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    position: sticky; top: 0; z-index: 31;
+  }
+  /* Сенсорный планшет: шапка телефона (заголовок, колокол, аватар) справа от меню;
+     прятать её на экранах со своей шапкой нельзя — в ней живёт само меню. */
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .clean-header {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .clean-header :is(.clean-brand, .clean-header-tools) { display: flex; }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .clean-header .clean-existing-topbar { grid-column: 1; grid-row: 1; }
+  /* Название CRM уже стоит над меню — второй раз в шапке главной его не пишем. */
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .clean-existing-topbar [data-topbar-title]:empty::before { content: ""; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .app-main-col {
+    margin-inline: auto; padding: 28px 0 40px;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] { display: none; }
+  /* Сенсорный планшет: разделы уже в боковом меню, но «+» с быстрыми действиями и
+     голосом по удержанию живёт только в нижнем меню (ревью #329) — от него остаётся
+     одна круглая кнопка в правом нижнем углу; запас снизу, чтобы она не закрыла строку. */
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] {
+    display: block; top: auto; left: auto; right: calc(24px + env(safe-area-inset-right, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    width: auto; max-width: none; margin: 0; padding: 0; border: 0; border-radius: 999px; box-shadow: none;
+    background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] > .grid { display: block; height: auto; padding: 0; }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab { display: none; }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] [data-fab] {
+    width: 56px; height: 56px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: var(--rh-ui-cap-shadow);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .app-main-col { padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand {
+    position: fixed; z-index: 33; top: 20px; left: 16px; width: calc(var(--rh-ui-side-w) - 32px);
+    height: 48px; padding: 0 12px; gap: 12px; font-size: 18px; font-weight: 700; letter-spacing: -.025em;
+    color: var(--rh-ui-text);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand .clean-brand-desktop { display: block; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand .clean-brand-mobile { display: none; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand > span {
+    display: grid; place-items: center;
+    width: 36px; height: 36px; border: 0; border-radius: 999px; background: var(--rh-ui-primary); color: var(--rh-ui-on-color);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tabs {
+    position: fixed; z-index: 32; top: 84px; bottom: 0; left: 0; width: var(--rh-ui-side-w);
+    display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px; max-width: none;
+    padding: 0 16px 24px; border-radius: 0; background: transparent;
+    overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tab {
+    position: relative; justify-content: flex-start; gap: 12px; height: auto; min-height: 48px; padding: 0 14px;
+    border-radius: 999px; color: var(--rh-ui-hint); font-size: 15px; font-weight: 600; white-space: nowrap;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tab:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tab[aria-current="page"] {
+    background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tab .clean-nav-count,
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title .clean-nav-count {
+    display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
+    background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: 13px; font-weight: 700; opacity: 1;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-header-tools { margin-left: 0; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-existing-topbar { flex: 0 1 auto; }
+  /* Группы под чертой: заголовок-кнопка 44 px, пункты те же, что наверху. */
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group { display: flex; flex-direction: column; gap: 2px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title {
+    display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px;
+    list-style: none; cursor: pointer; color: var(--rh-ui-hint); font-size: 14px; font-weight: 700;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title::-webkit-details-marker { display: none; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-chev { flex: none; width: 18px; height: 18px; margin-left: auto; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group[open] > .ry-nav-group-title .ry-nav-group-chev { transform: rotate(180deg); }
 }
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-header {
-  flex-wrap: nowrap; justify-content: flex-end; gap: 12px; padding: 20px 0 4px; margin: 0;
-  max-width: 1280px; background: var(--rh-ui-bg); border: 0; box-shadow: none; border-radius: 0;
-  -webkit-backdrop-filter: none; backdrop-filter: none;
-  position: sticky; top: 0; z-index: 31;
+@media (min-width: 1024px) and (max-width: 1439.98px) {
+  :root[data-ui-look="royal"] { --rh-ui-side-w: 220px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > .clean-frame { padding-left: calc(var(--rh-ui-side-w) + 24px); padding-right: 24px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tabs { padding: 0 12px 24px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand { left: 12px; width: calc(var(--rh-ui-side-w) - 24px); }
 }
 /* Подложка шапки (долг 18.11, кадр code-shots-team/fix3/save-disabled-pc.png): прежде
    шапка была прозрачной, и при прокрутке текст и поля проходили под поиском, колокольчиком
@@ -164,66 +263,29 @@
 }
 @supports (animation-timeline: scroll()) {
   :root[data-ui-look="royal"] .clean-shell .clean-header::after {
-    opacity: 0; animation: ry-head-shade linear both; animation-timeline: scroll(); animation-range: 0 24px;
+    /* !important: чистая оболочка гасит анимации с !important, и без него линия оставалась
+       невидимой навсегда (opacity: 0) — содержимое уходило под шапку без края (20.11). */
+    opacity: 0; animation: ry-head-shade linear both !important; animation-timeline: scroll() !important; animation-range: 0 24px !important;
   }
 }
 @keyframes ry-head-shade { to { opacity: 1; } }
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-brand {
-  position: fixed; z-index: 33; top: 20px; left: 16px; width: calc(var(--rh-ui-side-w) - 32px);
-  height: 48px; padding: 0 12px; gap: 12px; font-size: 18px; font-weight: 700; letter-spacing: -.025em;
-  color: var(--rh-ui-text);
-}
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-brand > span {
-  width: 36px; height: 36px; border: 0; border-radius: 999px; background: var(--rh-ui-primary); color: var(--rh-ui-on-color);
-}
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tabs {
-  position: fixed; z-index: 32; top: 84px; bottom: 0; left: 0; width: var(--rh-ui-side-w);
-  flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px; max-width: none;
-  padding: 0 16px 24px; border-radius: 0; background: transparent;
-  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
-}
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab {
-  position: relative; justify-content: flex-start; gap: 12px; height: auto; min-height: 48px; padding: 0 14px;
-  border-radius: 999px; color: var(--rh-ui-hint); font-size: 15px; font-weight: 600; white-space: nowrap;
-}
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab[aria-current="page"] {
-  background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg);
-}
 :root[data-ui-look="royal"] .clean-shell .ry-nav-glyph { display: grid; place-items: center; width: 26px; height: 26px; flex: none; }
 /* Заголовок раздела в шапке телефона переносится, а не режется: на 320 px справа
    две кнопки и аватар, и «Контроль руковод…», «Публикации в соцс…» обрезались
    многоточием (сторож @smoke, 20.11). Две строки помещаются в 60 px шапки. */
-:root[data-ui-look="royal"] [data-topbar] [data-topbar-title] {
+:root[data-ui-look="royal"] .clean-shell [data-topbar] [data-topbar-title] {
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
-  font-size: clamp(17px, 5.4vw, 22px); line-height: 1.15;
+  font-size: 22px; font-weight: 700; line-height: 1.15;
+}
+/* Размер — целым числом пикселей, без vw: при 5.4vw выходило 21,06 px, и на iPhone
+   заголовок раздела читался мягким, «размытым» (кадры владельца 20.11; ОЦЕНКА — в
+   Chromium не воспроизводится). Сторож — theme-look-royal.test.ts, «размер текста без vw». */
+@media (max-width: 374.98px) {
+  :root[data-ui-look="royal"] .clean-shell [data-topbar] [data-topbar-title] { font-size: 19px; }
 }
 /* Подпись пункта меню переносится, а не режется («Активность коман…», 18.11). */
 :root[data-ui-look="royal"] .clean-shell .ry-nav-label { flex: 1 1 auto; min-width: 0; white-space: normal; line-height: 1.2; padding-block: 4px; }
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab .clean-nav-count {
-  display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
-  background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: 13px; font-weight: 700; opacity: 1;
-}
 :root[data-ui-look="royal"] .clean-shell .ry-side-sep { display: block; height: 1px; flex: none; margin: 10px 14px; background: var(--rh-ui-sep); }
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-header-tools { margin-left: 0; }
-:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-existing-topbar { flex: 0 1 auto; }
-
-/* Меньше 1200 по ширине — меню сворачивается до значков (подпись — в title и для экранного чтеца). */
-@media (max-width: 1199.98px) {
-  :root[data-ui-look="royal"]:not([data-mobile-ux]) { --rh-ui-side-w: 80px; }
-  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-frame { padding-left: calc(var(--rh-ui-side-w) + 24px); padding-right: 24px; }
-  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-brand { left: 12px; width: 56px; padding: 0 10px; }
-  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-brand b { display: none; }
-  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tabs { padding: 0 12px 24px; }
-  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab { justify-content: center; padding: 0; width: 56px; }
-  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .ry-nav-label {
-    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
-  }
-  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab .clean-nav-count {
-    position: absolute; top: 4px; right: 2px; min-width: 18px; height: 18px; padding: 0 4px; font-size: 13px;
-  }
-  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .ry-side-sep { margin: 10px 8px; }
-}
 
 /* ---- Телефон: прежняя шапка на общем фоне, нижнее меню — капсула ---- */
 :root[data-ui-look="royal"][data-mobile-ux] .clean-shell,
@@ -267,6 +329,61 @@
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-fab] {
   width: 48px; height: 48px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none;
+}
+
+/* ---- 768–1023: планшет — рейка слева с подписями (пачка B, 20.11.2026) ----
+   Нижнее меню телефона встаёт вертикальной рейкой: те же разделы роли, та же «+»
+   (быстрые действия и голос) и «Ещё» — все разделы. Шапка остаётся своей ширины
+   (на сенсорном планшете — телефонная, в окне ПК — обычная без бокового меню). */
+@media (min-width: 768px) and (max-width: 1023.98px) {
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > .clean-frame {
+    max-width: none; min-height: 100dvh; margin: 0; border: 0; border-radius: 0; box-shadow: none;
+    background: var(--rh-ui-bg); padding: 0 0 0 var(--ry-rail-w);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-header {
+    margin: 0; padding: calc(8px + env(safe-area-inset-top, 0px)) 24px 8px; border: 0; border-radius: 0; box-shadow: none;
+    background: var(--rh-ui-bg); -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-header :is(.clean-brand, .clean-tabs) { display: none; }
+  /* Окно ПК этой ширины: шапка ПК без бокового меню — инструменты и поиск прижаты вправо. */
+  :root[data-ui-look="royal"][data-shell="clean"]:not([data-mobile-ux]) .app-shell.clean-shell .clean-header {
+    display: flex; flex-wrap: nowrap; justify-content: flex-end; align-items: center; gap: 12px;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"]:not([data-mobile-ux]) .app-shell.clean-shell .clean-existing-topbar { flex: 0 1 auto; min-width: 0; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .app-main-col {
+    max-width: none; margin: 0; padding: 16px 24px calc(32px + env(safe-area-inset-bottom, 0px));
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] {
+    display: block; top: 0; bottom: 0; left: 0; right: auto; width: var(--ry-rail-w); max-width: none; margin: 0;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 0 calc(16px + env(safe-area-inset-bottom, 0px)) env(safe-area-inset-left, 0px);
+    border: 0; border-right: 1px solid var(--rh-ui-sep); border-radius: 0; box-shadow: none;
+    background: var(--rh-ui-bg); color: var(--rh-ui-hint);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] > .grid {
+    display: flex; flex-direction: column; align-items: stretch; height: auto; padding: 0 8px; gap: 6px;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    min-height: 64px; padding: 6px 2px; border-radius: 16px; color: var(--rh-ui-hint);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab[aria-current="page"] {
+    background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab [data-tab-icon] {
+    display: grid; place-items: center; width: 28px; height: 26px; background: transparent; box-shadow: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] [data-tab-label] {
+    font-size: 13px; font-weight: 600; line-height: 1.15; text-align: center; white-space: normal; overflow-wrap: anywhere; color: inherit;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] [data-fab] {
+    width: 52px; height: 52px; margin: 4px auto; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .ry-rail-only { display: block; }
+  /* Плавающая подсказка «Поставьте CRM на экран» (InstallAppHint, до 819 px) растянута
+     от края до края — на планшете её левый край уходил под рейку. */
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > [data-install-hint] { left: var(--ry-rail-w); }
 }
 
 /* Тихие плашки над экраном (уведомления выключены, вопрос собственнику и т.п.):
@@ -409,6 +526,16 @@
 :root[data-ui-look="royal"] .ry-tile[data-variant="brand"] { background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-tile[data-variant="ink"] { background: var(--rh-ui-ink-tile); color: var(--rh-ui-ink-tile-fg); box-shadow: inset 0 0 0 1px var(--rh-ui-ink-tile-ring); }
 :root[data-ui-look="royal"] .ry-tile[data-variant="ink"] .ry-tile-value { color: var(--rh-ui-ink-tile-num); }
+/* По смыслу (components/look/tileTone.ts): ноль — серая и тихая, срочно — красная, хорошо — зелёная.
+   Каждая держится не только оттенком: у срочной и хорошей своя обводка — в тёмной теме не сливаются с фоном. */
+:root[data-ui-look="royal"] .ry-tile[data-variant="calm"] { background: var(--rh-ui-raised); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="calm"] .ry-tile-value,
+:root[data-ui-look="royal"] .ry-tile[data-variant="calm"] .ry-tile-label { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="crit"] { background: var(--rh-ui-crit-soft); box-shadow: inset 0 0 0 1.5px var(--rh-ui-crit); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="crit"] .ry-tile-value { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="ok"] { background: var(--rh-ui-ok-soft); box-shadow: inset 0 0 0 1.5px var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="ok"] .ry-tile-value { color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-tile-note { font-size: 14px; font-weight: 600; line-height: 1.3; color: inherit; overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .ry-tile-label { position: relative; display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; line-height: 1.2; }
 :root[data-ui-look="royal"] .ry-tile-label svg { flex: none; }
 :root[data-ui-look="royal"] .ry-tile-value { font-size: 48px; line-height: 1; }
@@ -469,6 +596,10 @@
 :root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-description { font-size: 15px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions { grid-column: 1 / -1; justify-content: flex-start; }
 :root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions :is(button, a) { min-height: 44px; border-radius: 999px; }
+/* Кнопка-таблетка не уже своей подписи: на 320–390 px две кнопки делили строку пополам, и
+   «Проверить материалы», «Открыть карточку» ломались в две строки внутри таблетки (20.11).
+   Не помещаются рядом — вторая уходит строкой ниже во всю ширину. */
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions > :is(button, a) { flex: 1 1 auto; min-width: min(100%, max-content); }
 
 :root[data-ui-look="royal"] .ry-team {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px;
@@ -509,4 +640,70 @@
   :root[data-ui-look="royal"] .ry-tile { min-height: 168px; }
   :root[data-ui-look="royal"] .ry-hero { min-height: 168px; }
   :root[data-ui-look="royal"] .ry-blocks .ry-col-b .ry-team { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ===================== геометрия на телефоне (20.11.2026) =====================
+   Кадры владельца с iPhone: у карточек пустой верх, ряды вкладок обрезаны без
+   признака прокрутки. Правила общие на все разделы — один механизм, одно место;
+   сторож — tests/e2e/new-look-geometry.spec.ts (helpers/lookGeometry.ts). */
+
+/* Тихая строка `.quiet` темы несёт margin-top 14 px — отступ от соседа сверху. Первой в
+   своей карточке или обёртке она отступает от пустоты: «Этап просрочен у 4 объектов»,
+   «Meta не ответила», строка «клиентов в CRM» под объявлением стояли с пустым верхом. */
+:root[data-ui-look="royal"] .rh2 .scr .quiet:first-child { margin-top: 0; }
+/* Тот же механизм у пустых состояний и подписей карточек: «За этот срок нет обращений»,
+   «Отчётов пока нет» (p.state, margin-top 12 px темы) стояли с пустым верхом (сторож, 20.11). */
+:root[data-ui-look="royal"] .rh2 .scr .card > :is(p, .state, .empty, .sub, h2, h3):first-child { margin-top: 0; }
+
+/* Ряд вкладок и фильтров, который листается вбок, гаснет у правого края — видно, что
+   дальше есть ещё («Изменения на сайте», «Резерв», «Подписки» уходили за край молча).
+   Затухание живёт только в кадрах анимации по прокрутке самого ряда: ряд без прокрутки
+   (вкладки поместились, ПК с переносом) его не получает вовсе, а докрученный до конца —
+   снимает. Браузер без animation-timeline остаётся как был. */
+@supports (animation-timeline: scroll()) {
+  :root[data-ui-look="royal"] :is(.seg-ai, .stg, .cef-pills, .cef-main-tabs, .seg, .rh-filters-scroll, .hscroll, .rh-tabs-scroll, .ry-ctabs, .ry-chat-quick, .ry-deals-stages, .ry-set-tasks) {
+    /* !important — чистая оболочка гасит любую анимацию с !important (theme-2026-clean-surface-integrity.css). */
+    animation: ry-strip-more linear both !important; animation-timeline: scroll(self inline) !important;
+  }
+}
+@keyframes ry-strip-more {
+  0%, 98% {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+  }
+  100% { -webkit-mask-image: none; mask-image: none; }
+}
+
+
+/* Подпись с числом одним куском («Не связывались: 4»): число не уезжает строкой ниже. */
+:root[data-ui-look="royal"] .ry-nowrap { white-space: nowrap; }
+
+/* Предложение поставить CRM на экран — одной строкой над нижним меню (съёмка 20.11:
+   прежняя карточка в 200 px закрывала низ первого экрана). Разметка — InstallAppHint.tsx. */
+:root[data-ui-look="royal"] .ry-install-card {
+  display: grid; gap: 8px; max-width: 440px; margin: 0 auto; padding: 6px 6px 6px 14px; border-radius: 999px;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-cap-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-install-card:has(.ry-install-steps) { border-radius: 24px; padding-top: 12px; }
+:root[data-ui-look="royal"] .ry-install-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-install-row > .i { width: 20px; height: 20px; flex: none; color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] .ry-install-row > b { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; line-height: 1.25; }
+:root[data-ui-look="royal"] .ry-install-go {
+  flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-install-x {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px;
+  background: transparent; color: var(--rh-ui-hint); cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-install-x .i { width: 20px; height: 20px; }
+:root[data-ui-look="royal"] .ry-install-steps { display: grid; gap: 6px; margin: 0; padding: 0 8px 0 22px; font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-install-steps .i { width: 16px; height: 16px; margin-right: 6px; vertical-align: -3px; }
+
+/* Нижнее меню на самых узких телефонах: подписи «Главная» и «Клиенты» стояли вплотную
+   (зазор 4 px на 320, съёмка 20.11). Капсула ближе к краям, подписи чуть плотнее. */
+@media (max-width: 359.98px) {
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] { left: max(6px, env(safe-area-inset-left, 0px)); right: max(6px, env(safe-area-inset-right, 0px)); padding-inline: 2px; }
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] > .grid { gap: 0; }
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-label] { letter-spacing: -.02em; }
 }

@@ -626,6 +626,8 @@ export type PropertyNarrationItem = {
   audioSec?: number | null;
   /** Только у последней версии: ждёт утверждения человеком (не утверждена или утверждена самой CRM на вышедшем ролике). */
   awaitsHuman?: boolean;
+  /** Когда ElevenLabs начал озвучивать эту версию (20.11.2026): «идёт N мин» в карточке считается от него. */
+  generationStartedAt?: string | null;
 };
 /** Что видит мастер: шаблоны и голоса без ключей и моделей. */
 export type NarrationOptionsView = {
@@ -658,7 +660,10 @@ export type PropertyNarrationView = {
   /** problem (14.11.2026): последняя озвучка не легла на вышедший ролик — VOICE_LONGER (ушла монтажёру удлинить ролик) или FAILED. */
   mix?: { hasMaster: boolean; error: string | null; problem?: "VOICE_LONGER" | "FAILED" | null;
     /** Одна строка агенту простыми словами (16.11.2026): CRM убирает старый голос, подогнала длину и т.п. */
-    note?: string | null };
+    note?: string | null;
+    /** Наложение текущей версии упало сбоем (20.11.2026): карточка предлагает «Попробовать ещё раз». Только сбой —
+     *  не «длиннее ролика» и не отказ, после которого ролик ушёл монтажёру. */
+    canRetry?: boolean };
   /** Длина вышедшего ролика, секунды (18.11.2026): по ней карточка считает «укладывается ли текст»; null — ролика нет. */
   clipSec?: number | null;
   /** Скорость речи по замерам уже озвученных версий (знаков в секунду); нет замеров — постоянная из shared. */
@@ -677,6 +682,8 @@ export type NarrationReleaseView = {
   /** MIXING — CRM накладывает голос; SCHEDULED — ждёт своего времени (at); PUBLISHING — уходит в сети; DONE — вышло. */
   stage: "MIXING" | "SCHEDULED" | "PUBLISHING" | "DONE";
   versionId: string; at: string | null; reason: string | null; channels: NarrationReleaseChannel[];
+  /** MIXING (20.11.2026): когда CRM взяла ролик в работу (метка сведения); null — ролик ждёт очереди наложения. */
+  since?: string | null;
 };
 /** Настройки CRM → «Озвучка роликов» (14.11.2026): вся техника, которую агент в карточке не видит. */
 export type NarrationSettingsView = {

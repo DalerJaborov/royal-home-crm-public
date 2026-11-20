@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **778**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4151**. Модулей: **87**.
+Путей: **779**. Развилок в самих путях: **2483**; вместе с задачами по расписанию и фоновыми заданиями — **4154**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -843,8 +843,8 @@
     · ответ 404 — «Сотрудник не найден»
 - const propertyWhere = { deletedAt: null, ...propertyOwnerWhere(id) };
   · зовёт propertyOwnerWhere()
-- const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRol…
-  · зовёт overdueTasksWhere()
+- const overdueTasksAgentWhere = overdueTasksOfAgentsWhere(now, [id], visibleInteractionWhere(investigationView…
+  · зовёт overdueTasksOfAgentsWhere()
 - const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(), { assignedAgentId: id }] };
   · зовёт noContactWhere()
 - const [ propertiesTotal, propertiesAvailable, propertiesCreated, lastProperties, clientsTotal, lastClients, d…
@@ -4987,9 +4987,14 @@
 
 `apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: clients.assign
 
-- если !(await exemptCustomerSpam(req.params.id))
+- если !id.success
+  - return res.status(400).json({ error: "Неверный идентификатор переписки" });
+    · ответ 400 — «Неверный идентификатор переписки»
+- если !(await exemptCustomerSpam(id.data))
   - return res.status(404).json({ error: "Диалог не найден" });
     · ответ 404 — «Диалог не найден»
+- logAudit(req, "BOT_SPAM_RESTORED", "BotConversation", id.data);
+  · зовёт logAudit()
 - res.json({ ok: true });
   · ответ 200
 
@@ -11108,6 +11113,23 @@
 - const [rows, deliveryRows] = await Promise.all([ preparePublicationMetadataPreview(p.id), listPriceCaptionDel…
   · зовёт preparePublicationMetadataPreview()
 - res.json({ rows, deliveryRows, sent: false });
+  · ответ 200
+
+### POST /api/v1/properties/:id/narration/remix-retry
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- const access = await narrationAccessForAgent(req.agent!.id, p.id);
+  · зовёт narrationAccessForAgent()
+- если !access
+  - return res.status(403).json({ error: "Повторить может тот, кто ведёт объект, или руководство" });
+    · ответ 403 — «Повторить может тот, кто ведёт объект, или руководство»
+- const outcome = await retryNarrationRemix(p.id, access.agentId);
+  · зовёт retryNarrationRemix()
+- если outcome === "NOTHING_TO_RETRY"
+  - return res.status(409).json({ error: "Повторять нечего: озвучка уже наложена или ошибка другая. Обновите карт…
+    · ответ 409 — «Повторять нечего: озвучка уже наложена или ошибка другая. Обновите…»
+- res.json({ ok: true, message: "CRM попробует наложить озвучку ещё раз в течение минуты." });
   · ответ 200
 
 ### GET /api/v1/properties/:id/narration

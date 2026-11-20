@@ -9,6 +9,10 @@ import { chatWaiting, rowWaiting, RoyalDialogRow } from "./RoyalDialogRow";
 import { RoyalInboxFilters, segmentByArrow } from "./RoyalInboxFilters";
 import { useMinuteClock } from "./useMinuteClock";
 
+// Кто смотрит список: «Вы:» — только его собственные сообщения (ревью #332).
+const viewer = vi.hoisted(() => ({ id: null as string | null }));
+vi.mock("../../../store/auth", () => ({ useAuthStore: (select: (state: { agent: { id: string } | null }) => unknown) => select({ agent: viewer.id ? { id: viewer.id } : null }) }));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const NOW = Date.parse("2026-11-18T10:00:00Z");
@@ -22,8 +26,8 @@ function item(over: Partial<ConversationListItem> = {}): ConversationListItem {
     accountId: null, accountTitle: null, agentAttentionRequestedAt: null, ...over,
   };
 }
-const row = (over: Partial<ConversationListItem> = {}, extra: { showAccount?: boolean; now?: number } = {}) =>
-  renderToStaticMarkup(createElement(RoyalDialogRow, { conversation: item(over), selected: false, showAccount: extra.showAccount ?? false, onSelect: () => {}, now: extra.now ?? Date.now() }));
+const row = (over: Partial<ConversationListItem> = {}, extra: { showAccount?: boolean; now?: number; showBotState?: boolean } = {}) =>
+  renderToStaticMarkup(createElement(RoyalDialogRow, { conversation: item(over), selected: false, showAccount: extra.showAccount ?? false, onSelect: () => {}, now: extra.now ?? Date.now(), showBotState: extra.showBotState }));
 
 describe("chatWaiting — сколько ждёт человек и насколько срочно", () => {
   it("follows the mockup thresholds: >15 min attention, from an hour urgent", () => {
@@ -79,7 +83,19 @@ describe("RoyalDialogRow — строка нового вида не теряе�
   it("name, one line of text, channel named in words", () => {
     const html = row({ lastMessage: { role: "assistant", content: "Отправляю адрес", by: { kind: "bot" } } });
     expect(html).toContain("Ситора Ахмедова");
-    expect(html).toContain("Бот: Отправляю адрес");
+    // Ответ бота — просто текст: ни «Бот:», ни «Вы:» (ревью #332).
+    expect(html).toContain("Отправляю адрес");
+    expect(html).not.toContain("Бот:");
+    expect(html).not.toContain("Вы:");
+    // «Вы:» — только своё сообщение того, кто смотрит; коллега — без подписи.
+    viewer.id = "me";
+    try {
+      const mine = { role: "assistant" as const, content: "Здравствуйте", by: { kind: "agent" as const, agentId: "me", agentName: "Я" } };
+      expect(row({ lastMessage: mine })).toContain("Вы: Здравствуйте");
+      expect(row({ lastMessage: { ...mine, by: { kind: "agent", agentId: "a", agentName: "Азиз" } } })).not.toContain("Вы:");
+    } finally {
+      viewer.id = null;
+    }
     expect(html).toContain("Канал: WhatsApp");
     expect(html).toContain('data-channel="WHATSAPP"');
   });
@@ -92,12 +108,15 @@ describe("RoyalDialogRow — строка нового вида не теряе�
     const html = row({
       agentAttentionRequestedAt: minutesAgo(3), unread: true, unreadCount: 4, paused: true,
       awaitingHumanSince: new Date(Date.now() - 30 * 3_600_000).toISOString(), accountTitle: "Royal Home Info",
-    }, { showAccount: true });
+    }, { showAccount: true, showBotState: true });
     expect(html).toContain("Просит агента");
     expect(html).toContain("data-attention");
     expect(html).toContain("Непрочитанных сообщений: 4");
     expect(html).toContain("Бот на паузе · 30 ч");
     expect(html).toContain("Royal Home Info");
+    // Агенту значок паузы бота не показываем — только руководству; по умолчанию скрыт.
+    expect(row({ paused: true }, { showBotState: false })).not.toContain("Бот на паузе");
+    expect(row({ paused: true })).not.toContain("Бот на паузе");
   });
   it("unread without a count falls back to a dot, like the previous row", () => {
     expect(row({ unread: true, unreadCount: undefined })).toContain("Есть непрочитанное сообщение");

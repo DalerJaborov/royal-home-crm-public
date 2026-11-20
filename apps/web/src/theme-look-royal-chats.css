@@ -307,21 +307,21 @@
 
 /* Лента. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .thread { padding: 16px; background: var(--rh-ui-bg); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-thread-content { gap: 6px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-thread-content { gap: 2px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .day {
   align-self: center; margin: 6px 0 8px; padding: 4px 12px; border: 0; border-radius: 999px;
   background: var(--rh-ui-card); color: var(--rh-ui-hint); font-size: 13px; font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  /* Плашка даты стоит на своём месте в ленте, а не липнет к верху: прежний телефонный
+     слой (theme-2026-mobile-chat.css, sticky) клал «Сегодня» поверх первого видимого
+     пузыря и закрывал его текст (сторож #328, 320 px, 20.11.2026). */
+  position: static;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub {
-  position: relative; max-width: min(78%, 560px); padding: 11px 15px; border: 0; border-radius: 20px; border-bottom-left-radius: 6px;
+  position: relative; max-width: min(78%, 560px); padding: 9px 14px 7px; border: 0; border-radius: 18px;
   background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: 16px; line-height: 1.45; box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me {
-  border-radius: 20px; border-bottom-right-radius: 6px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); box-shadow: none;
-}
-/* Ответ бота — не «свой»: светлый пузырь справа с тонкой рамкой, как в макете. */
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me.bot {
-  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1.5px var(--rh-ui-sep);
+  border-radius: 18px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .who { display: block; margin-bottom: 2px; font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); }
 /* «Клиент» над каждым входящим повторяет то, что уже сказано стороной пузыря
@@ -405,7 +405,7 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose .ry-chat-send:hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose .ry-chat-send:disabled { opacity: .4; }
 
-/* «Ответ ставит бота на паузу: …» — одна тихая строка под полем. */
+/* «Ответ ставит бота на паузу: …» — прежняя строка; в новом виде её больше нет (20.11.2026). */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .suggest.ry-chat-pausepick {
   flex-wrap: nowrap; gap: 8px; padding: 0 16px 10px; box-shadow: none; font-size: 14px; color: var(--rh-ui-hint);
 }
@@ -420,6 +420,102 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-state { padding: 24px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-state h2 { font-size: 20px; font-weight: 700; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-message-skeleton { height: 56px; max-width: 70%; margin-top: 16px; border-radius: 20px; background: var(--rh-ui-raised); }
+
+/* ====================== переписка как в мессенджере (20.11.2026) ======================
+ * Владелец: «бот на паузе… и функции всякие лишние в окне переписки — убрать,
+ * как в WhatsApp». Наши ответы (бот и сотрудник) — одинаковые пузыри справа,
+ * подряд идущие реплики одной стороны слиты в группу, хвостик — у последней;
+ * кто ответил — в «Сведениях о сообщении» (долгое нажатие, правая кнопка, стрелка).
+ */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub:not(.ry-cont) { margin-top: 6px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.ry-tail:not(.me) { border-bottom-left-radius: 4px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me.ry-tail { border-bottom-right-radius: 4px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .tm { margin-top: 2px; line-height: 1; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .ry-tick { display: inline-block; width: 16px; height: 16px; flex: none; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me .ry-tick[data-status="read"] { color: #b9ecff; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .ry-tick[data-status="failed"] {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 999px; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg);
+  font-size: 13px; font-weight: 800; line-height: 1;
+}
+/* Скрытый номер клиента — тихая пометка внутри фразы, без кнопки (звонок — в шапке). */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-masked-phone {
+  padding: 0 6px; border-radius: 6px; background: var(--rh-ui-press); color: var(--rh-ui-hint); font-size: 14px; white-space: nowrap;
+}
+
+/* Стрелка «Сведения о сообщении»: видна при наведении и с клавиатуры, на касание — долгое нажатие. */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more {
+  position: absolute; top: 2px; right: 2px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: 999px; background: inherit; color: inherit; cursor: pointer; opacity: 0; transition: opacity 120ms;
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more svg { width: 18px; height: 18px; opacity: .75; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub:hover > .ry-msg-more,
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more:focus-visible { opacity: 1; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 1px; }
+/* Палец: наведения нет — стрелка видна всегда, приглушённо; текст выделяется как
+   обычно (ревью #332), «Сведения» — стрелкой или долгим нажатием вне текста. */
+@media (hover: none) {
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more { opacity: .6; width: 28px; height: 28px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub { padding-right: 30px; }
+}
+
+/* Служебная строка по центру ленты, как в Telegram: запрос клиента, щит бота. */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-lines { display: grid; justify-items: center; gap: 6px; margin: 10px 0 4px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 10px; align-self: center; max-width: min(92%, 520px); margin: 10px auto 4px;
+  padding: 6px 14px; border-radius: 14px; background: var(--rh-ui-card); color: var(--rh-ui-hint); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  font-size: 14px; font-weight: 500; line-height: 1.35; text-align: center; overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-lines > .ry-service { margin: 0; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-acts { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-acts button {
+  min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-primary-ink);
+  font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-acts button:hover:not(:disabled) { background: var(--rh-ui-hover); }
+
+/* Меню «⋯» и скрепки: подпись группы, отметка выбранного канала, быстрые ответы. */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-group { display: grid; gap: 2px; padding-top: 6px; margin-top: 4px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-cap { padding: 4px 14px 2px; font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-group > button {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 14px;
+  border: 0; border-radius: 14px; background: transparent; color: var(--rh-ui-text);
+  font: inherit; font-size: 15px; font-weight: 600; text-align: left; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-group > button:hover:not(:disabled) { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-group > button svg { width: 20px; height: 20px; flex: none; color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-gap { display: inline-block; width: 20px; flex: none; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu-group > button.ry-menu-quick { min-height: 44px; padding: 8px 14px; font-weight: 500; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-menu.ry-menu-up {
+  top: auto; bottom: calc(100% + 8px); left: 0; right: auto; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain;
+}
+
+/* Строка ввода: скрепка | поле | одна круглая кнопка (микрофон или «отправить»). */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose { flex-wrap: nowrap; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .ry-attach { order: 0; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .ry-attach .ry-round { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .ry-attach .ry-round:disabled { opacity: .5; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .ry-send-wrap { position: relative; display: inline-flex; flex: none; order: 3; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-send-wrap > button[title="Записать голосовое"] {
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-send-wrap > button[title="Записать голосовое"]:hover:not(:disabled) { background: var(--rh-ui-primary-hover); color: var(--rh-ui-primary-fg); }
+/* Значок канала ответа на круглой кнопке (общий чат с несколькими каналами). */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-send-wrap > .ry-chat-ch { right: -2px; bottom: -2px; pointer-events: none; }
+
+/* Сведения о контакте: объект продавца — блоком, без полосы над перепиской. */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-contact-object > .pane-b {
+  flex-wrap: wrap; margin: 0 0 12px; padding: 12px 14px !important; border: 0 !important; border-radius: 16px; background: var(--rh-ui-bg);
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-contact-object .txt { font-size: 15px !important; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-contact-object .pill { min-height: 44px; border-radius: 999px; }
+
+/* Шторка «Сведения о сообщении» (портал с той же меткой раздела). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows { display: grid; gap: 12px; margin: 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows > div { display: grid; gap: 2px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows dt { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows dd { margin: 0; font-size: 16px; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rate { margin-top: 16px; padding-top: 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rate .clean-bot-feedback button { min-height: 44px; font-size: 15px; }
 
 /* ============================== телефон ============================== */
 
@@ -454,3 +550,8 @@
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-workspace[data-context-open] > .clean-conversation-timeline { display: none; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .suggest.ry-chat-pausepick { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* Имя собеседника в шапке переписки — целиком, в две строки при нехватке места: на 320 px
+   было «Фаррух Н…», а значок бота сжимался (съёмка экранов 20.11). */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who > :not(.ry-chat-who-tx) { flex: none; }
