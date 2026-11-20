@@ -25,7 +25,7 @@ afterEach(cleanup);
 
 describe("«Позвонить сейчас»", () => {
   it("клиент, назначенный руководителем и ждущий первого звонка, стоит один раз — строкой срока", () => {
-    render(<MemoryRouter><AgentFirstCalls role="AGENT" /></MemoryRouter>);
+    render(<MemoryRouter><AgentFirstCalls /></MemoryRouter>);
     expect(screen.getAllByText("Фарход Каримов")).toHaveLength(1);
     expect(screen.getByText(/первый звонок до/)).toBeTruthy();
     expect(screen.getByText("Мадина Рахимова")).toBeTruthy();

@@ -106,12 +106,12 @@ describe("«Сегодня» в новом виде", () => {
     expect(render()).toContain("Раздел доступен только руководству.");
   });
 
-  it("подпись графика комиссии для чтеца — целые сомони, без копеек (ревью #326)", () => {
+  it("подпись графика комиссии для чтеца — целые сомони, без копеек (ревью PR 326)", () => {
     state.mc = { data: { ...emptySnapshot, commission12: { reason: null, months: [{ month: "2026-10", amountTjs: 999.4, deals: 1 }, { month: "2026-11", amountTjs: 1234.6, deals: 2 }], totalTjs: 2234, bestMonth: null, expensesMonthTjs: 0 } }, isLoading: false, isError: false };
     state.rows = [];
     const html = render();
     expect(html).toContain("Комиссия по месяцам");
-    expect(html).toMatch(/Ноябрь 2026 1 235/);
+    expect(html).toContain(`Ноябрь 2026 ${(1235).toLocaleString("ru-RU")}`);
     expect(html).toMatch(/Октябрь 2026 999[,\s]/);
     expect(html).not.toMatch(/234,6|999,4/);
   });

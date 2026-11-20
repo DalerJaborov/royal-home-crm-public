@@ -69,7 +69,9 @@ async function stub(page: Page, look: boolean) {
     // Страница могла закрыться, пока ответ шёл: тогда подменять нечего.
     const res = await route.fetch().catch(() => null);
     if (!res) return;
-    const json = await res.json() as Record<string, unknown>;
+    // Ответ мог устареть, пока страница уходила на следующую ширину: тогда подменять нечего.
+    const json = await res.json().catch(() => null) as Record<string, unknown> | null;
+    if (!json) return;
     const marketing = (json.marketing ?? { instagramCommentsWaiting: 0, funnel: [], funnelMonth: "2026-11" }) as Record<string, unknown>;
     json.marketing = {
       ...marketing,
@@ -85,7 +87,9 @@ async function stub(page: Page, look: boolean) {
     // Страница могла закрыться, пока ответ шёл: тогда подменять нечего.
     const res = await route.fetch().catch(() => null);
     if (!res) return;
-    const json = await res.json() as Record<string, unknown>;
+    // Ответ мог устареть, пока страница уходила на следующую ширину: тогда подменять нечего.
+    const json = await res.json().catch(() => null) as Record<string, unknown> | null;
+    if (!json) return;
     json.firstCallDue = [
       { id: "fc1", shortId: 9001, fullName: NAME, phone: "+992000000000", dueAt: iso(-25), afterDue: "заявка уйдёт другому агенту через десять минут, если не позвонить" },
       { id: "fc2", shortId: 9002, fullName: `${NAME} второй`, phone: "+992000000000", dueAt: iso(40) },
@@ -119,6 +123,7 @@ for (const role of Object.keys(PHONES) as Role[]) {
       // Столбики по месяцам/дням листаются внутри своей карточки (задуманная лента).
       await expectNoOverflowAt(page, width, CHECK, { strips: ".rh2-bar-chart", textRoot: '[data-ry-section="home"]' });
     }
+    await page.unrouteAll({ behavior: "ignoreErrors" });
     await context.close();
   });
 }
