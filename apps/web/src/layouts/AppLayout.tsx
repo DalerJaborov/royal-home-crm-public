@@ -98,7 +98,12 @@ export function AppLayout() {
   // Флаг устройства для входа и страниц по ссылке (пачка records): ставится и снимается только здесь.
   useDeviceLookMemory(royal, shellPending);
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  // В открытой переписке нового вида нижнего меню нет вовсе (владелец 20.11.2026, кадр с iPhone): переписка
+  // занимает весь экран, а при клавиатуре Safari сдвигал видимую область, и меню «висело» над ней.
+  // Выбор диалога живёт в адресе (`?open=`) — отсюда признак; скрывает его CSS только на телефоне (< 820 px):
+  // с 820 px «?open=» ставится сам, а на 768-1023 это боковая рейка, которую прятать нельзя.
+  const chatThreadOpen = royal && pathname.startsWith("/messages") && !!new URLSearchParams(search).get("open");
   const viewportKey = useRouteViewportKey(pathname, clean);
   const scrollRef = useRef<HTMLDivElement>(null);
   /**
@@ -348,7 +353,7 @@ export function AppLayout() {
           </PullToRefresh>
         </main>
       </div>
-      <BottomNav royal={royal} />
+      <BottomNav royal={royal} chatOpen={chatThreadOpen} />
       {/* Панель ИИ-помощника — одна на все входы (удержание «+», кнопка в шапке,
           Ctrl+/); сам кусок панели грузится по нажатию, см. AssistantPanelLazy. */}
       <AssistantHost />

@@ -86,7 +86,7 @@ export function HeadOfSalesHome() {
         {marketing.isPending ? <p role="status" className="mt-4 text-gray-500">Загружаем очередь…</p> : marketing.isError ? <p role="alert" className="mt-4 text-gray-500">Данные маркетинга пока недоступны.</p> : <div className="mt-4 grid grid-cols-2 gap-3 text-[14px]">
           {[["В подготовке", marketing.data.total], ["Ждут проверки", marketing.data.awaitingReview], ["Ждут видео", marketing.data.awaitingVideo], ["Просрочено", marketing.data.overdue]].map(([label, value]) => <div key={String(label)} className="rounded-[16px] bg-row-alt p-3"><p className="text-[13px] text-gray-500">{label}</p><p className="mt-1 text-[22px] font-semibold tabular-nums">{value}</p></div>)}
         </div>}
-        <div className="mt-4 flex flex-wrap gap-2">{can("reports.view") && <CLink to="/sources" variant="white"><Compass /> Источники лидов</CLink>}<CLink to="/ads" variant="white"><Megaphone /> Реклама</CLink></div>
+        <div className="mt-4 flex flex-wrap gap-2">{can("reports.view") && <CLink to="/sources" variant="white"><Compass /> Источники заявок</CLink>}<CLink to="/ads" variant="white"><Megaphone /> Реклама</CLink></div>
       </CCard>}
       <CCard className="p-4 sm:p-6"><CHead title="Рабочие разделы" /><div className="mt-4 flex flex-wrap gap-2"><CLink to="/calendar" variant="white"><CalendarDays /> Календарь</CLink>{can("team.viewFull") && <CLink to="/team" variant="white"><Users /> Команда</CLink>}{can("reports.view") && <CLink to="/reports" variant="white"><ClipboardList /> Отчёты</CLink>}</div></CCard></div>
     </div>

@@ -75,7 +75,7 @@ export function buildFallbackBriefingText(n: BriefingNumbers): string {
     `Сегодня у команды ${n.tasksToday} ${pluralizeRu(n.tasksToday, ["задача", "задачи", "задач"])}.`
   );
   sentences.push(
-    `Вчера пришло ${n.leadsYesterday} ${pluralizeRu(n.leadsYesterday, ["новый лид", "новых лида", "новых лидов"])}` +
+    `Вчера пришло: ${n.leadsYesterday} ${pluralizeRu(n.leadsYesterday, ["новая заявка", "новые заявки", "новых заявок"])}` +
       ` и закрыто ${n.dealsYesterday} ${pluralizeRu(n.dealsYesterday, ["сделка", "сделки", "сделок"])}.`
   );
   sentences.push(`Комиссия с начала месяца — ${money(n.commissionMonth)}.`);
@@ -87,7 +87,7 @@ export function buildFallbackBriefingText(n: BriefingNumbers): string {
   );
 
   if (n.firstTouchMedianMin === null) {
-    sentences.push(`Первое касание по вчерашним лидам: ${NO_DATA}.`);
+    sentences.push(`Первое касание по вчерашним заявкам: ${NO_DATA}.`);
   } else {
     sentences.push(
       `Первое касание вчера в среднем за ${n.firstTouchMedianMin} ${pluralizeRu(n.firstTouchMedianMin, ["минуту", "минуты", "минут"])}` +
@@ -137,13 +137,13 @@ async function generateBriefingText(
 ): Promise<{ text: string; source: BriefingSource }> {
   const facts = [
     `Задач у команды сегодня: ${n.tasksToday}`,
-    `Новых лидов вчера: ${n.leadsYesterday}`,
+    `Новых заявок вчера: ${n.leadsYesterday}`,
     `Закрытых сделок вчера: ${n.dealsYesterday}`,
     `Комиссия с начала месяца, сомони: ${Math.round(n.commissionMonth)}`,
     `Входящих звонков вчера: ${n.incomingYesterday}, потеряно: ${n.missedYesterday}`,
     `Разговоров, не разобранных оператором: ${n.unqualifiedNow}`,
     `Медиана первого касания, минут: ${n.firstTouchMedianMin === null ? NO_DATA : n.firstTouchMedianMin}`,
-    `Лидов вчера без первого касания: ${n.firstTouchNoneCount}`,
+    `Заявок вчера без первого касания: ${n.firstTouchNoneCount}`,
     `Первых касаний дольше часа: ${n.firstTouchSlowCount}`,
     `Итогов показов просрочено больше 48 часов: ${n.showingSummariesOverdue48h}`,
     // Выключатель «Продавцы в утренней сводке» (lib/sellerSwitches.ts) гасит строку

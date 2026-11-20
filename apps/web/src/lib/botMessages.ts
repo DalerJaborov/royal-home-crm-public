@@ -1,3 +1,4 @@
+import { describeServiceMarker } from "@royal-home/shared";
 /**
  * Служебные подсказки модели, попавшие в переписку как слова клиента.
  *
@@ -70,27 +71,34 @@ export function stripBotHints(content: string): string {
  * убеждала агента, что клиент ничего не присылал. Поэтому по умолчанию подпись
  * нейтральная, а «наша» — только когда вызывающий знает, что реплика исходящая.
  */
-const OWN_TEMPLATE_LABEL = "📋 наша карточка с кнопкой";
+const OWN_TEMPLATE_LABEL = "наша карточка с кнопкой";
 const ATTACHMENT_LABELS: Record<string, string> = {
-  template: "📋 карточка",
-  image: "🖼 фото",
-  video: "🎬 видео",
-  audio: "🎤 голосовое",
-  file: "📎 файл",
-  share: "🔗 пересланная публикация",
-  story_mention: "📸 упоминание в истории",
-  location: "📍 геометка",
-  contact: "👤 контакт",
-  sticker: "🙂 стикер",
-  fallback: "📎 вложение",
+  template: "карточка",
+  image: "фото",
+  video: "видео",
+  audio: "голосовое",
+  file: "файл",
+  share: "пересланная публикация",
+  story_mention: "упоминание в истории",
+  location: "геометка",
+  contact: "контакт",
+  sticker: "стикер",
+  fallback: "вложение",
 };
 
-/** `[вложение: image]` → `🖼 фото`. Неизвестный тип остаётся распознаваемым. */
-export function humanizeAttachmentTags(content: string, opts: { outgoing?: boolean } = {}): string {
+/** `[вложение: image]` → `фото`. Неизвестный тип остаётся распознаваемым. */
+export function humanizeAttachmentTags(content: string, opts: { outgoing?: boolean; hasAttachments?: boolean; channel?: string | null } = {}): string {
+  const marker = describeServiceMarker(content, { hasAttachments: opts.hasAttachments, channel: opts.channel });
+  if (marker !== null) {
+    // Служебная пометка бота «[вложение без текста]» (lib/customerQualifierLedger.ts):
+    // файл либо показан рядом из `attachments` (тогда пометка лишняя), либо не сохранился —
+    // говорим об этом спокойно словами, а не скобками (владелец 20.11.2026, кадр с iPhone).
+    return marker;
+  }
   if (!content.includes("[вложение:")) return content;
   return content.replace(/\[вложение:\s*([^\]]+)\]/g, (_all, rawType: string) => {
     const type = rawType.trim().toLowerCase();
     if (type === "template" && opts.outgoing) return OWN_TEMPLATE_LABEL;
-    return ATTACHMENT_LABELS[type] ?? `📎 вложение (${type})`;
+    return ATTACHMENT_LABELS[type] ?? `вложение (${type})`;
   });
 }

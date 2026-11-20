@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 784,
-  "forks": 4182,
+  "endpoints": 788,
+  "forks": 4194,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -704,7 +704,7 @@
         },
         {
          "k": "do",
-         "t": "row.leadStats = leadStatsOf( toCents(row.period.spendTjs), found.total, row.period.conversations );",
+         "t": "row.leadStats = leadStatsOf( toCents(row.period.spendTjs), found.total, row.period.conversations, { seesCompa…",
          "a": [
           "зовёт leadStatsOf()"
          ],
@@ -722,7 +722,7 @@
            "c": [
             {
              "k": "do",
-             "t": "p.leadStats = leadStatsOf(toCents(p.spendTjs), counts, p.conversations, { shares: true });",
+             "t": "p.leadStats = leadStatsOf(toCents(p.spendTjs), counts, p.conversations, { shares: true, seesCompanyMoney });",
              "a": [
               "зовёт leadStatsOf()"
              ],
@@ -1745,7 +1745,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ...report, label: period.label, ...freshness });",
+     "t": "res.json({ ...report, rows, label: period.label, ...freshness });",
      "a": [
       "ответ 200"
      ],
@@ -3258,7 +3258,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(400, \"Лиды получают только агенты и руководитель продаж\");",
+         "t": "return fail(400, \"Заявки получают только агенты и руководитель продаж\");",
          "a": [
           "дословно из кода"
          ],
@@ -3288,7 +3288,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(409, \"Сотрудник уже заморожен — лиды ему и так не идут\");",
+         "t": "return fail(409, \"Сотрудник уже заморожен — заявки ему и так не идут\");",
          "a": [
           "дословно из кода"
          ],
@@ -5765,9 +5765,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -6216,9 +6216,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -12211,81 +12211,6 @@
      ]
     },
     {
-     "k": "do",
-     "t": "const updated = await prisma.$transaction(async tx",
-     "a": [
-      "всё внутри — одной транзакцией",
-      "меняет в базе: client",
-      "читает в базе: clientDesiredPlace",
-      "удаляет в базе: clientDesiredPlace",
-      "читает в базе: client"
-     ],
-     "c": [
-      {
-       "k": "do",
-       "t": "const changed = await tx.client.updateMany({ where: { id: client.id, assignedAgentId: client.assignedAgentId,…",
-       "a": [
-        "меняет в базе: client"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!changed.count",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return null;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const previousPlaces = stale ? await tx.clientDesiredPlace.findMany({ where: { clientId: client.id }, select:…",
-       "a": [
-        "читает в базе: clientDesiredPlace"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "stale",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "await tx.clientDesiredPlace.deleteMany({ where: { clientId: client.id } });",
-         "a": [
-          "удаляет в базе: clientDesiredPlace"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "await logTimeline({ clientId: client.id, actor: { kind: \"agent\", agentId: req.agent!.id }, type: \"SYSTEM\", no…",
-       "a": [
-        "зовёт logTimeline()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "return tx.client.findUniqueOrThrow({ where: { id: client.id } });",
-       "a": [
-        "читает в базе: client"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "if",
      "t": "!updated",
      "a": [],
@@ -12299,22 +12224,6 @@
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"UPDATE\", \"Client\", client.id, { requirementsFieldsKind: \"BUYER\" });",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });",
-     "a": [
-      "зовёт publishClientUpdated()"
-     ],
-     "c": []
     },
     {
      "k": "do",
@@ -12732,9 +12641,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -12842,9 +12751,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Лид ещё не принят — переписка не открыта\" });",
+       "t": "return res.status(403).json({ error: \"Заявка ещё не принята — переписка не открыта\" });",
        "a": [
-        "ответ 403 — «Лид ещё не принят — переписка не открыта»"
+        "ответ 403 — «Заявка ещё не принята — переписка не открыта»"
        ],
        "c": []
       }
@@ -13046,9 +12955,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Отклонить лид может только тот, кому он отдан. Передать другому — кнопк…",
+       "t": "return res.status(403).json({ error: \"Отклонить заявку может только тот, кому она отдана. Передать другому — …",
        "a": [
-        "ответ 403 — «Отклонить лид может только тот, кому он отдан. Передать другому —…»"
+        "ответ 403 — «Отклонить заявку может только тот, кому она отдана. Передать другому…»"
        ],
        "c": []
       }
@@ -13089,9 +12998,9 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.status(409).json({ error: \"Лид уже принят — отклонить его больше нельзя, используйте отказ от рабо…",
+         "t": "return res.status(409).json({ error: \"Заявка уже принята — отклонить её больше нельзя, используйте отказ от р…",
          "a": [
-          "ответ 409 — «Лид уже принят — отклонить его больше нельзя, используйте отказ от…»"
+          "ответ 409 — «Заявка уже принята — отклонить её больше нельзя, используйте отказ от…»"
          ],
          "c": []
         }
@@ -13863,9 +13772,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -14340,9 +14249,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -14938,9 +14847,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -15147,9 +15056,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -15484,9 +15393,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид»"
+        "ответ 403 — «Сначала примите заявку»"
        ],
        "c": []
       }
@@ -15809,9 +15718,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -15992,6 +15901,186 @@
     {
      "k": "do",
      "t": "res.json({ ok: true, message: \"Просьба отправлена — карточку восстановит директор или админ, если согласится\"…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/requirements-suggestion/apply",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/requirements-suggestion/apply",
+   "file": "apps/api/src/routes/clients/intents.ts",
+   "router": "intentsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!confirmedClientIntents(client).buys",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Сначала подтвердите, что клиент покупает недвижимость\" });",
+       "a": [
+        "ответ 409 — «Сначала подтвердите, что клиент покупает недвижимость»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!suggestion",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Из разговора больше нечего взять: поля уже заполнены или сводка изменил…",
+       "a": [
+        "ответ 409 — «Из разговора больше нечего взять: поля уже заполнены или сводка…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "seen !== suggestionFingerprint(suggestion)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Предложение обновилось, посмотрите ещё раз\" });",
+       "a": [
+        "ответ 409 — «Предложение обновилось, посмотрите ещё раз»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const input = clientBuyerRequirementsSchema.safeParse({ ...suggestion.fields, ...(merged !== null ? { require…",
+     "a": [
+      "проверяет данные схемой clientBuyerRequirementsSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!input.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Пожелания не поместились в карточку. Уточните их вручную\" });",
+       "a": [
+        "ответ 400 — «Пожелания не поместились в карточку. Уточните их вручную»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!updated",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Карточка изменилась. Обновите её и повторите\" });",
+       "a": [
+        "ответ 409 — «Карточка изменилась. Обновите её и повторите»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investigationV…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/requirements-suggestion",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/requirements-suggestion",
+   "file": "apps/api/src/routes/clients/intents.ts",
+   "router": "intentsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!suggestion",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ available: false, labels: [] as string[] });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ available: true, fingerprint: suggestionFingerprint(suggestion), labels: suggestion.labels.map((la…",
      "a": [
       "ответ 200"
      ],
@@ -16704,9 +16793,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -17722,9 +17811,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -18430,9 +18519,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -20651,7 +20740,7 @@
      "c": [
       {
        "k": "do",
-       "t": "sendLeadPush(assignedAgentId, client.id, { title: \"🔔 Новый лид\", body: `${client.fullName} — примите заявку,…",
+       "t": "sendLeadPush(assignedAgentId, client.id, { title: \"🔔 Новая заявка\", body: `${client.fullName} — примите заяв…",
        "a": [
         "зовёт sendLeadPush()"
        ],
@@ -22276,6 +22365,74 @@
   },
   {
    "method": "POST",
+   "path": "/:id/spam-restore",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/:id/spam-restore",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен",
+    "есть право: clients.assign"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный идентификатор переписки\" });",
+       "a": [
+        "ответ 400 — «Неверный идентификатор переписки»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!(await exemptCustomerSpam(id.data))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Диалог не найден\" });",
+       "a": [
+        "ответ 404 — «Диалог не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"BOT_SPAM_RESTORED\", \"BotConversation\", id.data);",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/:id/translate",
    "mount": "/api/v1/conversations",
    "full": "/api/v1/conversations/:id/translate",
@@ -22859,6 +23016,44 @@
     {
      "k": "do",
      "t": "res.json({ id: key, channel: canSeeOrigin ? (channelNames.length === 1 ? channelNames[0] : \"MULTI\") : null, n…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/spam-filtered",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/spam-filtered",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен",
+    "есть право: clients.assign"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const rows = await prisma.$queryRaw<Array<{ id: string; channel: string; name: string | null; lastMessageAt: …",
+     "a": [
+      "обращается к базе своим SQL"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: rows.map(row",
      "a": [
       "ответ 200"
      ],
@@ -43484,7 +43679,7 @@
      "c": [
       {
        "k": "if",
-       "t": "data.home === undefined",
+       "t": "data.home === undefined || data.textSize === undefined",
        "a": [],
        "c": [
         {
@@ -43496,25 +43691,54 @@
          "c": []
         },
         {
-         "k": "do",
-         "t": "const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);",
-         "a": [
-          "проверяет данные схемой homePreferencesSchema"
-         ],
-         "c": []
-        },
-        {
          "k": "if",
-         "t": "kept.success && kept.data",
+         "t": "data.home === undefined",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "data = { ...data, home: kept.data };",
+           "t": "const kept = homePreferencesSchema.safeParse(saved?.home);",
            "a": [
-            "дословно из кода"
+            "проверяет данные схемой homePreferencesSchema"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "kept.success && kept.data",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "data = { ...data, home: kept.data };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "data.textSize === undefined",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "keptSize.success && keptSize.data",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "data = { ...data, textSize: keptSize.data };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         }
@@ -63908,7 +64132,7 @@
           },
           {
            "k": "do",
-           "t": "const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : \"Лид\";",
+           "t": "const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : \"Заявка\";",
            "a": [
             "зовёт clientNamePhoneSafe()"
            ],
@@ -63949,7 +64173,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.json({ ok: true, message: result.reassignedTo ? \"Лид отклонён и передан следующему агенту\" : \"Лид …",
+         "t": "return res.json({ ok: true, message: result.reassignedTo ? \"Заявка отклонена и передана следующему агенту\" : …",
          "a": [
           "ответ 200"
          ],
@@ -64662,7 +64886,15 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ...range, funnel: await buildFunnelReport(range, reportViewer(req)) });",
+     "t": "const [funnel, cohort] = await Promise.all([buildFunnelReport(range, viewer), buildFunnelCohort(range, viewer…",
+     "a": [
+      "зовёт buildFunnelReport()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ...range, funnel, cohort });",
      "a": [
       "ответ 200"
      ],
@@ -79351,22 +79583,22 @@
     },
     {
      "k": "do",
-     "t": "const text = await transcribeAudio(req.file.buffer, req.file.originalname || \"voice.webm\", mediaType);",
+     "t": "const result = await traceMeasured(\"asr\", ()",
      "a": [
-      "зовёт transcribeAudio()"
+      "зовёт traceMeasured()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "text === null",
+     "t": "result.failed",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(502).json({ error: \"Не удалось распознать речь\" });",
+       "t": "return res.status(424).json({ error: notConfigured ? \"Распознавание речи не настроено: не задан ключ ИИ. Напи…",
        "a": [
-        "ответ 502 — «Не удалось распознать речь»"
+        "ответ 424"
        ],
        "c": []
       }
@@ -79374,14 +79606,14 @@
     },
     {
      "k": "if",
-     "t": "!text.trim()",
+     "t": "!text || !text.trim()",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(422).json({ error: \"Речь не распознана — похоже, запись пустая\" });",
+       "t": "return res.status(422).json({ error: \"Речь не распознана. Скажите ещё раз, чуть громче и ближе к микрофону.\" …",
        "a": [
-        "ответ 422 — «Речь не распознана — похоже, запись пустая»"
+        "ответ 422 — «Речь не распознана. Скажите ещё раз, чуть громче и ближе к микрофону.»"
        ],
        "c": []
       }
@@ -86894,7 +87126,7 @@
             },
             {
              "k": "do",
-             "t": "void sendPushToAgent(agent.id, { title: \"👋 С возвращением\", body: \"Отпуск закончился — новые лиды и входящие…",
+             "t": "void sendPushToAgent(agent.id, { title: \"👋 С возвращением\", body: \"Отпуск закончился — новые заявки и входящ…",
              "a": [
               "push-уведомление"
              ],
@@ -86934,7 +87166,7 @@
           },
           {
            "k": "do",
-           "t": "void sendPushToAgents(recipients, { title: \"👋 Сотрудник вышел\", body: `${names} — отсутствие закончилось, ли…",
+           "t": "void sendPushToAgents(recipients, { title: \"👋 Сотрудник вышел\", body: `${names} — отсутствие закончилось, за…",
            "a": [
             "push-уведомление"
            ],
@@ -99871,7 +100103,7 @@
             },
             {
              "k": "do",
-             "t": "const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: \"Лид назначен утренней…",
+             "t": "const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: \"Заявка назначена утре…",
              "a": [
               "зовёт changeClientAgent()"
              ],
@@ -99902,7 +100134,7 @@
             },
             {
              "k": "do",
-             "t": "sendLeadPush(agentId, lead.id, { title: \"🔔 Новый лид с ночи\", body: `${lead.fullName} — примите заявку`, url…",
+             "t": "sendLeadPush(agentId, lead.id, { title: \"🔔 Новая заявка с ночи\", body: `${lead.fullName} — примите заявку`, …",
              "a": [
               "зовёт sendLeadPush()"
              ],
@@ -100338,7 +100570,7 @@
            "c": [
             {
              "k": "do",
-             "t": "sendLeadPush(nextAgentId, client.id, { title: \"🔔 Новый лид\", body: `${client.fullName} — передан вам`, url: …",
+             "t": "sendLeadPush(nextAgentId, client.id, { title: \"🔔 Новая заявка\", body: `${client.fullName} — передан вам`, ur…",
              "a": [
               "зовёт sendLeadPush()"
              ],
@@ -100869,7 +101101,7 @@
                 },
                 {
                  "k": "do",
-                 "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Лид по объекту не принят вовремя\", body: `${lead.fu…",
+                 "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Заявка по объекту не принята вовремя\", body: `${lea…",
                  "a": [
                   "зовёт notifyFeedOnly()"
                  ],
@@ -100935,7 +101167,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Лид прошёл всех агентов\", body: `${lead.fullName}: …",
+                   "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Заявка прошла всех агентов\", body: `${lead.fullName…",
                    "a": [
                     "зовёт notifyFeedOnly()"
                    ],
@@ -101092,7 +101324,7 @@
               },
               {
                "k": "do",
-               "t": "sendLeadPush(nextAgentId, lead.id, { title: \"🤝 Лид переназначен вам\", body: `${lead.fullName} — предыдущий а…",
+               "t": "sendLeadPush(nextAgentId, lead.id, { title: \"🤝 Заявка переназначена вам\", body: `${lead.fullName} — предыдущ…",
                "a": [
                 "зовёт sendLeadPush()"
                ],
@@ -107118,7 +107350,7 @@
           },
           {
            "k": "do",
-           "t": "const payload = { kind: \"oversight\" as const, title: `📵 Лид без карточки: ${who}`, body: `${dushanbeDateTime…",
+           "t": "const payload = { kind: \"oversight\" as const, title: `📵 Заявка без карточки: ${who}`, body: `${dushanbeDateT…",
            "a": [
             "зовёт dushanbeDateTimeString()"
            ],
@@ -115555,21 +115787,6 @@
             "зовёт collectBaselineDrift()"
            ],
            "c": []
-          },
-          {
-           "k": "if",
-           "t": "drift.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "checks.push({ name: \"Настройки телефонии: рабочий эталон\", ok: false, detail: describeDrift(drift), cls: \"con…",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
           }
          ]
         },
@@ -115587,6 +115804,14 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "await dropLegacyHealthSnapshots().catch(()",
+         "a": [
+          "зовёт dropLegacyHealthSnapshots()"
+         ],
+         "c": []
         },
         {
          "k": "loop",
@@ -126486,7 +126711,7 @@
       },
       {
        "k": "do",
-       "t": "await sendLeadPush(outcome.agentId, client.id, { title: \"🔔 Новый лид\", body: `${client.fullName} — примите з…",
+       "t": "await sendLeadPush(outcome.agentId, client.id, { title: \"🔔 Новая заявка\", body: `${client.fullName} — примит…",
        "a": [
         "зовёт sendLeadPush()"
        ],
@@ -126678,7 +126903,7 @@
       },
       {
        "k": "do",
-       "t": "await sendPushToAgents(recipients, { title: \"⏳ Лид ждёт назначения\", body: `${client.fullName} — назначьте аг…",
+       "t": "await sendPushToAgents(recipients, { title: \"⏳ Заявка ждёт назначения\", body: `${client.fullName} — назначьте…",
        "a": [
         "push-уведомление"
        ],
@@ -128416,6 +128641,21 @@
        "c": []
       },
       {
+       "k": "if",
+       "t": "result.reviewer",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { status: \"skipped\", reason: \"reviewer\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
        "t": "const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …",
        "a": [
@@ -128761,6 +129001,21 @@
             "зовёт acceptLead()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "result.reviewer",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { status: \"skipped\", reason: \"reviewer\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "do",
@@ -135834,7 +136089,7 @@
           },
           {
            "k": "do",
-           "t": "const raw = clientOwnWords(input.text ?? \"\").replace(/\\s+/gu, \" \").trim() || \"[голосовое или вложение без тек…",
+           "t": "const raw = clientOwnWords(input.text ?? \"\").replace(/\\s+/gu, \" \").trim() || NO_TEXT_NOTE;",
            "a": [
             "зовёт clientOwnWords()"
            ],

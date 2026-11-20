@@ -78,17 +78,35 @@ function tabLabel(id: string): string {
   return SETTINGS_TABS.find((t) => t.id === id)?.label ?? "Настройки";
 }
 
+/** Причина по-человечески — её формирует сервер; сырой текст, имена переменных и задач — только в «Для разработчика». */
+const HUMAN_ERROR_FALLBACK = "Сбой в работе. Подробности — в блоке «Для разработчика».";
+
+function DevBlock({ lines }: { lines: Array<[string, string]> }) {
+  const shown = lines.filter(([, value]) => value);
+  if (shown.length === 0) return null;
+  return (
+    <details className="fs-dev">
+      <summary>Для разработчика</summary>
+      <dl>
+        {shown.map(([label, value]) => (
+          <div key={label}><dt>{label}</dt><dd><code className="fs-code">{value}</code></dd></div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
 function CronLine({ cron }: { cron: FunctionCron }) {
   const h = CRON_HEALTH_TEXT[cron.health];
   return (
     <li className="fs-cron">
       <span className="fs-cron-name">
-        {CRON_TITLES[cron.name] ?? cron.name}
-        {CRON_TITLES[cron.name] ? <code className="fs-code"> {cron.name}</code> : null}
+        {CRON_TITLES[cron.name] ?? "Фоновая задача"}
       </span>
       <span className="fs-cron-when">последний запуск: {when(cron.lastRunAt)}</span>
       <span className={h.chip}>{h.label}</span>
-      {cron.lastError ? <span className="fs-err">Ошибка: {cron.lastError}</span> : null}
+      {cron.lastError ? <span className="fs-err">Ошибка: {cron.humanError ?? HUMAN_ERROR_FALLBACK}</span> : null}
+      <DevBlock lines={[["Имя задачи", cron.name], ["Сырой текст ошибки", cron.lastError ?? ""]]} />
     </li>
   );
 }
@@ -119,19 +137,15 @@ function FunctionRow({ item, royal }: { item: FunctionStatusItem; royal: boolean
         ) : null}
         {item.lastError ? (
           <p className="fs-err">
-            Последняя ошибка ({exactDateTime(item.lastError.at)}): {item.lastError.message}
+            Последняя ошибка ({exactDateTime(item.lastError.at)}): {item.lastError.humanMessage ?? HUMAN_ERROR_FALLBACK}
           </p>
         ) : null}
+        <DevBlock lines={[
+          ["Сырой текст последней ошибки", item.lastError?.message ?? ""],
+          ["Переменные сервера", item.envNames.join(", ")],
+          ["Фоновые задачи", item.crons.map((c) => c.name).join(", ")],
+        ]} />
         <div className="fs-foot">
-          {item.envNames.length > 0 ? (
-            <span className="fs-env">
-              Управляет сервер: {item.envNames.map((n) => (
-                <code className="fs-code" key={n}>
-                  {n}
-                </code>
-              ))}
-            </span>
-          ) : null}
           {item.settingsTab ? (
             <Link className="lnk" to={`/settings?tab=${item.settingsTab}`}>
               Открыть: Настройки, «{tabLabel(item.settingsTab)}»

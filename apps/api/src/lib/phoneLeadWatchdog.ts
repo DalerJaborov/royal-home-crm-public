@@ -598,6 +598,8 @@ async function tryAcceptQuietly(row: PhoneWithoutLead): Promise<"accepted" | "ac
         fromHistory: true,
       }
     );
+    // Проверяющий из Настроек: заявку не заводят нарочно (дверь — acceptLead), попытка засчитана, тревоги нет.
+    if (result.reviewer) return "accepted";
     if (!result.accepted) return "declined";
     // «accepted» без карточки — не успех (AI-DIALOGUE01): так приём отвечает и
     // опоздавшему из гонки, чей победитель жив или умер до привязки. Тик ставит
@@ -746,7 +748,7 @@ export async function runPhoneLeadWatchdogTick(
           : `Клиент прислал «${row.raw}» — на номер похоже, но разобрать нельзя (опечатка?)`;
     const payload = {
       kind: "oversight" as const,
-      title: `📵 Лид без карточки: ${who}`,
+      title: `📵 Заявка без карточки: ${who}`,
       // Когда/откуда(канал)/что — видно без перехода по ссылке.
       body: `${dushanbeDateTimeString(now)}, канал ${channelLabel(row.channel)}: ${what}${row.spamFlagged ? ". Диалог помечен как рассылка — проверьте, не ошибка ли" : ""}`,
       url: `/messages?open=${row.conversationId}`,

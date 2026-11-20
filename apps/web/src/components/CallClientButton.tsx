@@ -174,7 +174,7 @@ export function CallClientButton({
         title={
           !hasPhone
             ? "У клиента ещё нет телефона, звонить нечем"
-            : "Звонок идёт только через CRM из карточки клиента, а карточки здесь нет или она вам недоступна (примите лид)"
+            : "Звонок идёт только через CRM из карточки клиента, а карточки здесь нет или она вам недоступна (примите заявку)"
         }
         className={`${className ?? (variant === "icon" ? DEFAULT_ICON_CLASS : DEFAULT_FULL_CLASS)} cursor-not-allowed opacity-50`}
       >

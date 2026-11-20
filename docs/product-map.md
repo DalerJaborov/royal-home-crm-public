@@ -10,10 +10,10 @@
 
 | Что | Сколько |
 |---|---|
-| Экранов (адресов в интерфейсе) | 71 |
+| Экранов (адресов в интерфейсе) | 72 |
 | Из них видно в меню | 33 |
 | Модулей сервера | 88 |
-| Адресов сервера всего | 778 |
+| Адресов сервера всего | 782 |
 | Задач по расписанию | 136 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -89,11 +89,12 @@
 | `/settings/roles` | RolesMatrix | только по ссылке | `apps/web/src/pages/settings/RolesMatrix.tsx` |
 | `/site-changes` | SiteChanges | **Изменения на сайте** | `apps/web/src/pages/SiteChanges.tsx` |
 | `/social-videos` | SocialVideos | **Публикации в соцсети** | `apps/web/src/pages/SocialVideos.tsx` |
-| `/sources` | Sources | **Источники лидов** | `apps/web/src/pages/Sources.tsx` |
+| `/sources` | Sources | **Источники заявок** | `apps/web/src/pages/Sources.tsx` |
 | `/stuck-work` | StuckWork | **Что не доехало** | `apps/web/src/pages/StuckWork.tsx` |
 | `/team` | Team | **Команда** | `apps/web/src/pages/Team.tsx` |
 | `/team/:id` | TeamMemberDetail | только по ссылке | `apps/web/src/pages/TeamMemberDetail.tsx` |
 | `/telephony` | Telephony | **Телефония** | `apps/web/src/pages/Telephony.tsx` |
+| `/ui-check` | UiCheck | только по ссылке | `apps/web/src/pages/UiCheck.tsx` |
 | `/vacancies` | Vacancies | **Вакансии** | `apps/web/src/pages/Vacancies.tsx` |
 | `/vacancies/:id` | VacancyDetail | только по ссылке | `apps/web/src/pages/VacancyDetail.tsx` |
 
@@ -120,7 +121,7 @@
 | team | Служба безопасности | `/security` | всем |
 | money | Финансы | `/finance` | всем |
 | money | Отчёты | `/reports` | всем |
-| money | Источники лидов | `/sources` | всем |
+| money | Источники заявок | `/sources` | всем |
 | money | Инсайты от ИИ | `/insights` | всем |
 | ads | Реклама | `/ads` | всем |
 | ads | Публикации в соцсети | `/social-videos` | всем |
@@ -158,7 +159,7 @@
 | `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 138 | да (36 мест) | `apps/api/src/routes/properties.ts` |
 | `/api/v1/construction-registry` | **без подписи** | 7 | да (1 мест) | `apps/api/src/routes/constructionRegistry.ts` |
 | `/api/v1/transfer-requests` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/transferRequests.ts` |
-| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 56 | да (13 мест) | `apps/api/src/routes/clients.ts` |
+| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 58 | да (13 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |
@@ -207,7 +208,7 @@
 | `/api/v1/import` | Загрузка данных пачкой | 4 | нет | `apps/api/src/routes/import.ts` |
 | `/api/v1/site-notifications` | Изменения, прилетевшие с сайта | 3 | да (2 мест) | `apps/api/src/routes/siteNotifications.ts` |
 | `/api/v1/contacts` | **без подписи** | 5 | да (2 мест) | `apps/api/src/routes/contacts.ts` |
-| `/api/v1/conversations` | Переписка по всем каналам | 12 | да (3 мест) | `apps/api/src/routes/conversations.ts` |
+| `/api/v1/conversations` | Переписка по всем каналам | 14 | да (4 мест) | `apps/api/src/routes/conversations.ts` |
 | `/api/v1/audit-log` | Журнал действий сотрудников | 1 | да (1 мест) | `apps/api/src/routes/auditLog.ts` |
 | `/api/v1/morning-report` | Служебная выдача для внешней сессии, интерфейс её не зовёт | 1 | нет | `apps/api/src/routes/morningReport.ts` |
 | `/api/v1/errors` | Журнал ошибок системы | 8 | да (5 мест) | `apps/api/src/routes/errorLog.ts` |

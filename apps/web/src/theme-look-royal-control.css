@@ -526,3 +526,16 @@
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
   -webkit-line-clamp: none; line-clamp: none; max-height: none;
 }
+
+/* ============ нули спокойные (разделы директора, 20.11.2026) ============
+ * Плитка с нулём (tileTone → calm, класс ry-tile-calm из pages/Oversight.tsx):
+ * серая подложка, приглушённая цифра и значок — ноль не спорит с настоящей тревогой.
+ * Тот же приём, что у .ry-tile[data-variant="calm"] на главных руководителей. */
+:root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .tiles .tile.ry-tile-calm {
+  background: var(--rh-ui-raised); box-shadow: 0 0 0 1px var(--rh-ui-ring); min-height: 0;
+}
+:root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .tiles .tile.ry-tile-calm b,
+:root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .tiles .tile.ry-tile-calm .hd { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .tiles .tile.ry-tile-calm .hd .ic { background: var(--rh-ui-bg); color: var(--rh-ui-hint); }
+/* Пустые срезы одной строкой «Всё спокойно: …». */
+:root[data-ui-look="royal"] .ry-control[data-ry-section="control"] .ry-calm-line .txt { white-space: normal; text-wrap: pretty; }

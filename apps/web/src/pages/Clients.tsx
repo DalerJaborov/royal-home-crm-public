@@ -568,7 +568,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
               onChange={(e) => patchFilters({ q: e.target.value || undefined })}
             />
             {royal
-              ? <RhButton variant="gray" aria-haspopup="dialog" onClick={() => setShowFilters(true)}>Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</RhButton>
+              ? <RhButton variant="secondary" aria-haspopup="dialog" onClick={() => setShowFilters(true)}>Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</RhButton>
               : clean && <CButton variant="outline" aria-haspopup="dialog" onClick={() => setShowFilters(true)}><SlidersHorizontal size={18} aria-hidden />Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</CButton>}
           </div>
         )}
@@ -647,7 +647,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
             }
             hint={
               pendingSlice
-                ? "Новые появятся здесь, как только кому-то назначат лид."
+                ? "Новые появятся здесь, как только кому-то назначат заявку."
                 : searching
                   ? searchAcrossKinds
                     ? "Искали по всем разделам сразу: попробуйте другое написание или снимите часть условий."
@@ -948,7 +948,7 @@ function ClientRow({
         <div className="basis-full">
           <MutationError
             mutation={acceptLead.isError ? acceptLead : declineLead}
-            fallback={acceptLead.isError ? "Не удалось принять лид" : "Не удалось отклонить лид"}
+            fallback={acceptLead.isError ? "Не удалось принять заявку" : "Не удалось отклонить заявку"}
           />
         </div>
       )}
@@ -978,7 +978,7 @@ function ClientRow({
     identity: [formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · "),
     request: royalText ? royalText.request : rowRequest,
     source: CLIENT_SOURCE_LABELS[c.source] ?? c.source,
-    nextAction: canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null),
+    nextAction: canAcceptRow ? <Chip tone="warn">Нужно принять заявку</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null),
     nextActionDate: !canAcceptRow && !chip ? visibleNextStep?.nextActionDate : null,
     lastContact: relativeTime(c.lastContactAt),
     staleContact: stale && !chip && !canAcceptRow,
@@ -1035,8 +1035,8 @@ function ClientRow({
       )}
       {confirmDecline && (
         <ConfirmDialog
-          title="Отклонить лид?"
-          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Лид сразу уйдёт следующему свободному агенту, а если отдать некому или лид по вашему объекту — руководителю. Эту карточку вы больше не увидите."
+          title="Отклонить заявку?"
+          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Заявка сразу уйдёт следующему свободному агенту, а если отдать некому или заявка по вашему объекту — руководителю. Эту карточку вы больше не увидите."
           confirmLabel="Отклонить"
           onConfirm={confirmRejection}
           onCancel={() => setConfirmDecline(false)}

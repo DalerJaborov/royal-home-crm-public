@@ -64,6 +64,7 @@ import { isMessagingWindowClosed, lastInboundMessageAt } from "../lib/messagingW
 import { rh2AvatarTone } from "../lib/rh2Avatar";
 import { Rh2DialogRow } from "../components/Rh2DialogRow";
 import { useNarrowScreen } from "../hooks/useNarrowScreen";
+import { useScrollLock } from "../hooks/useScrollLock";
 import { useConversationSearch } from "../hooks/useConversationSearch";
 import { useCleanChatDraft } from "../hooks/useCleanChatDraft";
 import { useChatReadingPosition } from "../hooks/useChatReadingPosition";
@@ -903,11 +904,14 @@ const ConversationMessageList = memo(function ConversationMessageList({
   readOnly,
   royal = false,
   multiChannel = true,
+  defaultChannel = null,
   onOpenInfo,
 }: {
   /** Новый вид: метка канала в пузыре — только когда каналов несколько или канал сменился. */
   royal?: boolean;
   multiChannel?: boolean;
+  /** Канал разговора — для подписи «посмотрите в WhatsApp» у служебной пометки, когда у реплики своего канала нет. */
+  defaultChannel?: string | null;
   /** Новый вид: «Сведения о сообщении» по абсолютному индексу (стабильная функция). */
   onOpenInfo?: (absoluteIndex: number) => void;
   allMessages: ConversationMessage[];
@@ -940,7 +944,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
   // Новый вид: какие реплики вообще рисуются (пустая служебная — нет). Хвостик и
   // слитый отступ считаются по СОСЕДНЕЙ ВИДИМОЙ реплике, а не по соседу в массиве.
   const shown = useMemo(
-    () => (royal ? visibleMessages.map((m) => !!humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user" }) || !!m.attachments?.length) : []),
+    () => (royal ? visibleMessages.map((m) => !!humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user", hasAttachments: !!m.attachments?.length }) || !!m.attachments?.length) : []),
     [royal, visibleMessages],
   );
   return (
@@ -961,6 +965,8 @@ const ConversationMessageList = memo(function ConversationMessageList({
         // (см. lib/botMessages.ts). Ответы бота показываем как есть.
         const content = humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, {
           outgoing: m.role !== "user",
+          hasAttachments: !!m.attachments?.length,
+          channel: m.sourceChannel ?? defaultChannel,
         });
         // От сообщения осталась одна подсказка и ничего больше — показывать
         // пустой пузырь незачем, вложения при этом сохраняем.
@@ -1039,7 +1045,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
                   : <span className="sr-only" data-message-channel>{channelMeta(m.sourceChannel).label}</span>)}
                 {/* Текст — в своей обёртке: на нём долгое нажатие выделяет слова (как
                     везде), а «Сведения» открывает нажатие на пустом месте пузыря и стрелка. */}
-                {!hasVoiceAttachment(m.attachments) && (
+                {!hasVoiceAttachment(m.attachments) && !!content && (
                   <span className="ry-msg-text">
                     {m.sourceChannel === "TELEGRAM_DIRECT" ? content : searchQuery ? (
                       highlightText(content, searchQuery, isActiveSearchMatch)
@@ -1230,6 +1236,9 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   // fallback создавал бы новую ссылку на каждый рендер и пересчитывал их
   // впустую (react-hooks/exhaustive-deps честно на это указал).
   const narrow = useNarrowScreen();
+  // Переписка нового вида на телефоне — на весь экран: фон под ней не прокручивается (при клавиатуре iOS
+  // иначе «поплыла» бы и вся страница, и видимая область уезжала от переписки; кадр 12, 20.11.2026).
+  useScrollLock(royal && narrow);
   const readOnly = useIsReadOnly();
   const search = useConversationSearch(allMessages);
   const { close: closeConversationSearch } = search;
@@ -1936,6 +1945,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           onOpenPhoto={openChatPhoto}
           royal={royal}
           multiChannel={multiChannel}
+          defaultChannel={conversation?.channel ?? null}
           onOpenInfo={royal ? setInfoIndex : undefined}
         />
         {/* Новый вид: важное о разговоре — серой строкой по центру ленты, как
@@ -1964,7 +1974,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         return (
           <RoyalMessageInfo
             message={m}
-            text={humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user" })}
+            text={humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user", hasAttachments: !!m.attachments?.length, channel: m.sourceChannel ?? conversation?.channel })}
             conversationId={m.sourceConversationId ?? id}
             messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? infoIndex}`}
             index={m.sourceMessageIndex ?? infoIndex}
@@ -1984,7 +1994,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         <div className="suggest">
           <span className="dot warn"></span>
           <span className="txt">
-            Клиент не писал больше суток — WhatsApp/Instagram не пропустят свободный текст. Позвоните
+            Клиент не писал больше суток, поэтому ваше сообщение уже не дойдёт. Позвоните
             {conversation?.clientPhone ? (
               <>
                 {" "}
@@ -2000,6 +2010,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               " с личного телефона"
             )}{" "}
             или дождитесь его сообщения.
+            {(isGroupedEntry ? replySource?.channel : conversation?.channel) === "WHATSAPP" && " В WhatsApp можно также отправить первое сообщение кнопкой «Написать в WhatsApp» в карточке клиента: она шлёт заранее одобренный текст."}
           </span>
         </div>
       )}

@@ -139,7 +139,7 @@ describe("P0-1: срыв первого звонка не уводит лид п
     });
     expect(note).not.toBeNull();
     const moved = await prisma.interaction.findFirst({
-      where: { clientId: lead.id, notes: { contains: "Лид снят и переназначен" } },
+      where: { clientId: lead.id, notes: { contains: "Заявка снята и переназначена" } },
     });
     expect(moved).toBeNull();
   });

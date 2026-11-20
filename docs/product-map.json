@@ -595,7 +595,7 @@
       "redirect": null,
       "nav": {
         "to": "/sources",
-        "label": "Источники лидов",
+        "label": "Источники заявок",
         "group": "money",
         "gate": ""
       }
@@ -642,6 +642,13 @@
         "group": "inbox",
         "gate": ""
       }
+    },
+    {
+      "path": "/ui-check",
+      "component": "UiCheck",
+      "file": "apps/web/src/pages/UiCheck.tsx",
+      "redirect": null,
+      "nav": null
     },
     {
       "path": "/vacancies",
@@ -780,7 +787,7 @@
     },
     {
       "to": "/sources",
-      "label": "Источники лидов",
+      "label": "Источники заявок",
       "group": "money",
       "gate": ""
     },
@@ -992,7 +999,7 @@
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 56,
+      "endpoints": 58,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
       "usedBy": 13
     },
@@ -1384,9 +1391,9 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 12,
+      "endpoints": 14,
       "label": "Переписка по всем каналам",
-      "usedBy": 3
+      "usedBy": 4
     },
     {
       "mount": "/api/v1/audit-log",

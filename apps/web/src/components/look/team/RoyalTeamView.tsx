@@ -108,7 +108,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
     <div className="rh2 screens ry-teamp" data-ry-section="team">
       <div className="scr">
         <Head actions={<>
-          <RhButton variant="gray" onClick={p.onOpenFilters}>
+          <RhButton variant="secondary" onClick={p.onOpenFilters}>
             <SlidersHorizontal size={20} strokeWidth={2} aria-hidden="true" />Фильтры{p.sheetFilters > 0 ? ` ${p.sheetFilters}` : ""}
           </RhButton>
           <RhButton variant={p.showStages ? "dark" : "gray"} aria-pressed={p.showStages} onClick={p.onToggleStages}>Показы и сделки</RhButton>
@@ -133,7 +133,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
                   <span className="ry-row-text">
                     <button type="button" className="ry-row-title ry-linklike" onClick={() => p.onOpen(m.id)}>{m.fullName}</button>
                     <span className="ry-row-sub ry-wrap" data-tone="warn">
-                      {absenceLabel(m)}{m.frozenAt ? `, с ${relativeTime(m.frozenAt)}` : ""}.{m.frozenReason ? ` Причина: ${m.frozenReason}.` : ""} Новые лиды ему не приходят.
+                      {absenceLabel(m)}{m.frozenAt ? `, с ${relativeTime(m.frozenAt)}` : ""}.{m.frozenReason ? ` Причина: ${m.frozenReason}.` : ""} Новые заявки ему не приходят.
                     </span>
                   </span>
                   <span className="ry-row-right"><RhButton variant="primary" onClick={() => p.onFreeze(m)}>Вернуть в строй</RhButton></span>
@@ -161,7 +161,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
             : list.length === 0 ? <div className="ry-state">В команде пока никого нет</div> : (
               <div className="ry-group ry-members" role="list" aria-label="Сотрудники">
                 <div className="ry-mhead" aria-hidden="true">
-                  <span>Сотрудник</span><span>В работе</span><span>Лиды</span><span>Показы</span><span>Сделки</span>
+                  <span>Сотрудник</span><span>В работе</span><span>Заявки</span><span>Показы</span><span>Сделки</span>
                   {p.seesMoney && <span>Комиссия</span>}<span>Баллы</span><span>Место</span><span />
                 </div>
                 {p.visible.map((m) => {
@@ -177,7 +177,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
                         </span>
                         <span className="ry-mrow-stats">
                         <Stat label="В работе" value={m.role === "AGENT" ? m.activeLoad : "нет"} />
-                        <Stat label="Лиды" value={m.month.leads} />
+                        <Stat label="Заявки" value={m.month.leads} />
                         <Stat label="Показы" value={m.month.showings} />
                         <Stat label="Сделки" value={m.month.dealsCompleted} />
                         {p.seesMoney && <Stat label="Комиссия" value={formatMoney(m.month.commission ?? 0, "TJS")} wide />}

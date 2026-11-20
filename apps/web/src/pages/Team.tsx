@@ -412,7 +412,7 @@ function TeamDesktop() {
             </div>
             <p className="state">
               {load.agents === 0
-                ? "Активных агентов нет, раздавать лиды некому."
+                ? "Активных агентов нет, раздавать заявки некому."
                 : `У ${load.agents} ${pluralizeRu(load.agents, ["агента", "агентов", "агентов"])} в работе ${load.total} ${pluralizeRu(load.total, ["клиент", "клиента", "клиентов"])}.`}
             </p>
           </div>
@@ -438,7 +438,7 @@ function TeamDesktop() {
                       заморозки — от вида зависит и судьба вернувшегося клиента. */}
                   {absenceLabel(m)}
                   {m.frozenAt ? `, с ${relativeTime(m.frozenAt)}` : ""}.
-                  {m.frozenReason ? ` Причина: ${m.frozenReason}.` : ""} Новые лиды ему не приходят.
+                  {m.frozenReason ? ` Причина: ${m.frozenReason}.` : ""} Новые заявки ему не приходят.
                 </span>
                 <span className="acts">
                   <button className="pill sm" type="button" onClick={() => setFreezeFor(m)}>
@@ -544,7 +544,7 @@ function TeamDesktop() {
                       <tr>
                         <th scope="col">Сотрудник</th>
                         <th scope="col">Нагрузка</th>
-                        <th scope="col">Лиды</th>
+                        <th scope="col">Заявки</th>
                         <th scope="col">Показы</th>
                         <th scope="col">Сделки</th>
                         {seesMoney && <th scope="col" className="num">Комиссия</th>}
@@ -712,7 +712,7 @@ function TeamDesktop() {
                           {/* Месячные показатели (макет `.tbl` не знает узкого экрана):
                               те же цифры, что в колонках десктопной таблицы, чипами. */}
                           <span style={CHIP_ROW}>
-                            <span className="chip mute">Лиды: {m.month.leads}</span>
+                            <span className="chip mute">Заявки: {m.month.leads}</span>
                             <span className="chip mute">Показы: {m.month.showings}</span>
                             <span className="chip mute">Сделки: {m.month.dealsCompleted}</span>
                             {seesMoney && <span className="chip mute">Комиссия: {formatMoney(m.month.commission ?? 0, "TJS")}</span>}
@@ -851,7 +851,7 @@ function TeamChips({
       {achievements?.commission === member.id && <span className="chip warn">Лучшая комиссия</span>}
       {achievements?.deals === member.id && <span className="chip ok">Больше всех сделок</span>}
       {achievements?.showings === member.id && <span className="chip ok">Больше всех показов</span>}
-      {achievements?.speed === member.id && <span className="chip">Быстрее всех берёт лиды</span>}
+      {achievements?.speed === member.id && <span className="chip">Быстрее всех берёт заявки</span>}
       {(stages?.showingsScheduled ?? 0) > 0 && (
         <span className="chip mute">Показов назначено: {stages?.showingsScheduled}</span>
       )}

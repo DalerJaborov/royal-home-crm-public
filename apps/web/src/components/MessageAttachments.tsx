@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Clock, FileText, ImageOff, Lock, Mic, X } from "lucide-react";
 import { useAttachmentUrl } from "../lib/attachmentUrl";
 import type { MessageAttachment } from "../types";
+import { RhAudioPlayer } from "./look/RhAudioPlayer";
 
 /**
  * Фото и голосовые, присланные клиентом в переписку.
@@ -230,13 +231,7 @@ function AttachmentItem({
      */
     <div className={rh2 ? "voice" : "mt-1 flex items-center gap-1.5 rounded-lg border border-line bg-card px-2 py-1.5"}>
       <Mic className={rh2 ? "i" : "h-3.5 w-3.5 shrink-0 text-gray-400"} strokeWidth={1.8} />
-      <audio
-        src={url}
-        controls
-        preload="none"
-        className={rh2 ? undefined : "h-8 w-[220px]"}
-        style={rh2 ? { height: 34, width: 220, maxWidth: "100%" } : undefined}
-      />
+      <RhAudioPlayer src={url} speeds preload="none" label="Голосовое" className="w-[300px] max-w-full" />
     </div>
   );
 }

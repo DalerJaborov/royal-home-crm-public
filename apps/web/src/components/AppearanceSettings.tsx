@@ -1,6 +1,16 @@
+import type { TextSizeId } from "@royal-home/shared";
 import { THEMES, DEFAULT_THEME } from "../lib/themes";
 import { useUiPrefs } from "../store/uiPrefs";
 import { ProtoToggle } from "./ProtoToggle";
+import { Segment } from "./rh2/Segment";
+import { useRoyalLookAttr } from "./look/team/useRoyalLookAttr";
+
+/** «Размер текста» нового вида: один множитель на всю шкалу шрифта (theme-look-royal.css). */
+export const TEXT_SIZE_OPTIONS = [
+  { id: "normal", label: "Обычный" },
+  { id: "large", label: "Крупный" },
+  { id: "xlarge", label: "Очень крупный" },
+] as const satisfies readonly { id: TextSizeId; label: string }[];
 
 /**
  * Профиль → «Вид приложения»: режим темы и декоративные эффекты.
@@ -26,6 +36,10 @@ export function AppearanceSettings() {
   const setAurora = useUiPrefs((s) => s.setAurora);
   const setGlass = useUiPrefs((s) => s.setGlass);
   const setAiSoundsEnabled = useUiPrefs((s) => s.setAiSoundsEnabled);
+  const textSize = useUiPrefs((s) => s.textSize);
+  const setTextSize = useUiPrefs((s) => s.setTextSize);
+  // Размер текста действует только в новом виде (шкала --rh-fs-*), в старом его не показываем.
+  const royal = useRoyalLookAttr();
 
   const current = THEMES.find((t) => t.id === theme) ?? THEMES.find((t) => t.id === DEFAULT_THEME)!;
 
@@ -61,6 +75,18 @@ export function AppearanceSettings() {
         Сохраняется сразу, отдельной кнопки нет
       </p>
 
+      {royal && (
+        <div className="mod" data-text-size-setting="">
+          <div className="t">
+            <b>Размер текста</b>
+            <span>Крупнее — читать легче. Действует на этом устройстве и в вашем профиле.</span>
+          </div>
+          <div className="acts">
+            <Segment options={TEXT_SIZE_OPTIONS} value={textSize ?? "normal"} onChange={setTextSize} aria-label="Размер текста" />
+          </div>
+        </div>
+      )}
+
       <div className="mod">
         <div className="t">
           <b>Аврора-фон</b>
@@ -84,7 +110,7 @@ export function AppearanceSettings() {
       <div className="mod">
         <div className="t">
           <b>Звуки уведомлений</b>
-          <span>Мягкие тона на новый лид, сообщение, звонок, сохранение и ошибку.</span>
+          <span>Мягкие тона на новую заявку, сообщение, звонок, сохранение и ошибку.</span>
         </div>
         <div className="acts">
           <ProtoToggle on={aiSoundsEnabled} label="Звуки уведомлений" onToggle={setAiSoundsEnabled} />

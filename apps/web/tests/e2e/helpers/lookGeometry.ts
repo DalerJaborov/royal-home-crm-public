@@ -22,12 +22,24 @@ import type { Page } from "@playwright/test";
  *  - wordBreak — слово в кнопке/вкладке разорвано по буквам («Продавц/ы» на 320);
  *  - emptyArea — в сетке с именованными областями область никем не занята (строка «agent»
  *                строки клиента на 391–430 px стояла пустой, ревью #328).
+ *  Конституция оболочки (пачка C, 20.11.2026):
+ *  - smallText — видимый текст мельче 13 px (шкала --rh-fs-*: мельче xs 13 не бывает);
+ *  - smallTap  — нажимаемое меньше 44 px по высоте или ширине (кнопка, ссылка-кнопка, вкладка,
+ *                переключатель, поле). Ссылка внутри предложения — не кнопка, не считается;
+ *                флажок внутри подписи считается по подписи;
+ *  - selectClip — выбранный пункт выпадающего списка шире самого списка (обрезан: «Мадина
+ *                Каримова · 2 в р…» на 320/768).
+ *  - fieldFrame — поле с двойной рамкой: своя граница и внутренняя обводка разом, или поле с
+ *                рамкой внутри обёртки-капсулы со своей рамкой (квадрат в капсуле поиска
+ *                Настроек, ревью #337).
  *
  * Каждая находка — строка «вид: что и где», чтобы сообщение теста называло место.
  * Без импортов в браузерной части: функция уходит в page.evaluate целиком.
  */
-export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea";
-export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea"];
+export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea" | "smallText" | "smallTap" | "selectClip" | "fieldFrame";
+export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea", "smallText", "smallTap", "selectClip", "fieldFrame"];
+/** Виды конституции оболочки (critic-uiux.md §9): цель нажатия ≥ 44, текст ≥ 13, список не режет выбранное. */
+export const CONSTITUTION_KINDS: readonly GeometryKind[] = ["smallText", "smallTap", "selectClip", "fieldFrame"];
 
 /** Пропустить заведомо задуманное: селекторы, внутри которых проверка не идёт. */
 export type GeometryOptions = { skip?: string; kinds?: readonly GeometryKind[] };
@@ -300,6 +312,104 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
     }
 
     // ---- wordBreak: слово в кнопке или вкладке разорвано по буквам ----
+    // ---- smallText: текст мельче 13 px ----
+    if (want.has("smallText")) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const el = n.parentElement;
+        if (!el || !(n.textContent ?? "").trim() || !visible(el) || skipped(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 2 || r.height <= 2) continue; // текст для экранного чтеца
+        const size = parseFloat(getComputedStyle(el).fontSize);
+        if (size < 13 - 0.01) out.push(`smallText: ${name(el)} — ${size} px`);
+      }
+    }
+    // ---- smallTap: нажимаемое меньше 44 px ----
+    if (want.has("smallTap")) {
+      const tappable = root.querySelectorAll<HTMLElement>('button, a[href], summary, select, [role="button"], [role="tab"], [role="radio"], [role="switch"], [role="checkbox"], input:not([type="hidden"])');
+      for (const el of tappable) {
+        if (!visible(el) || skipped(el) || el.closest("[inert], [aria-hidden=\"true\"]")) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 2 || r.height <= 2) continue; // спрятанный флажок под своей подписью
+        // Клетка дня в сетке месяца: семь колонок на 320 физически уже 44; высота 44+, ширина ≥ 24
+        // (WCAG 2.5.8) — допустимо, как в любом календаре телефона.
+        if (el.closest(".cal") && r.height >= 44 - 0.5 && r.width >= 24) continue;
+        // Ссылка внутри предложения — часть текста, не кнопка.
+        if (el.tagName === "A" && getComputedStyle(el).display === "inline") {
+          const host = el.parentElement;
+          const siblingsText = host ? [...host.childNodes].some((c) => c !== el && c.nodeType === 3 && (c.textContent ?? "").trim()) : false;
+          if (siblingsText) continue;
+        }
+        // Флажок или переключатель в подписи: нажимается подпись целиком. Ссылка, растянутая
+        // подложкой ::after (position: absolute) на строку, нажимается всей строкой.
+        const label = el.closest("label");
+        const after = getComputedStyle(el, "::after");
+        let host: Element | null = null;
+        if (after.content !== "none" && after.position === "absolute") {
+          for (let p: Element | null = el; p && p !== document.body; p = p.parentElement) if (getComputedStyle(p).position !== "static") { host = p; break; }
+        }
+        // Невидимая подложка ::before/::after с отрицательным отступом (`inset: -8px`) расширяет цель
+        // вокруг маленького значка (стрелка «Сведения» в пузыре чата, #339).
+        let grown = r;
+        for (const pseudo of ["::before", "::after"]) {
+          const ps = getComputedStyle(el, pseudo);
+          if (ps.content === "none" || ps.position !== "absolute" || getComputedStyle(el).position === "static") continue;
+          const t = -Math.min(0, parseFloat(ps.top) || 0), l = -Math.min(0, parseFloat(ps.left) || 0);
+          const b = -Math.min(0, parseFloat(ps.bottom) || 0), rr = -Math.min(0, parseFloat(ps.right) || 0);
+          if (t || l || b || rr) grown = new DOMRect(r.left - l, r.top - t, r.width + l + rr, r.height + t + b);
+        }
+        const box = host ? host.getBoundingClientRect() : label && label !== el && visible(label) ? label.getBoundingClientRect() : grown;
+        if (Math.min(box.width, box.height) < 44 - 0.5) out.push(`smallTap: ${name(el)} — ${Math.round(box.width)}×${Math.round(box.height)}`);
+      }
+    }
+    // ---- fieldFrame: двойная рамка у поля ----
+    if (want.has("fieldFrame")) {
+      const clear = (c: string) => /^transparent$|rgba\([^)]*,\s*0\)$/.test(c.trim());
+      const frame = (el: Element) => {
+        const s = getComputedStyle(el);
+        const border = (["Top", "Right", "Bottom", "Left"] as const).some((side) =>
+          parseFloat(s.getPropertyValue(`border-${side.toLowerCase()}-width`)) > 0 && s.getPropertyValue(`border-${side.toLowerCase()}-style`) !== "none" && !clear(s.getPropertyValue(`border-${side.toLowerCase()}-color`)));
+        // Видимая обводка тенью: хотя бы один слой с непрозрачным цветом.
+        const layers = s.boxShadow === "none" ? [] : s.boxShadow.split(/,(?![^()]*\))/);
+        const ring = layers.some((l) => !/rgba\([^)]*,\s*0\)/.test(l));
+        const inset = layers.some((l) => /inset/.test(l) && !/rgba\([^)]*,\s*0\)/.test(l));
+        const fill = !clear(s.backgroundColor);
+        return { border, ring, inset, fill, radius: parseFloat(s.borderTopLeftRadius) || 0 };
+      };
+      const fields = root.querySelectorAll<HTMLElement>('input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="file"], [type="color"], [type="submit"], [type="button"]), select, textarea');
+      for (const field of fields) {
+        if (!visible(field) || skipped(field)) continue;
+        const own = frame(field);
+        if (own.border && own.inset) { out.push(`fieldFrame: ${name(field)} — своя рамка и обводка разом`); continue; }
+        if (!own.border && !own.ring) continue;
+        const fr = field.getBoundingClientRect();
+        for (let p = field.parentElement, depth = 0; p && depth < 3 && p !== root; p = p.parentElement, depth++) {
+          const pr = p.getBoundingClientRect();
+          if (pr.height > fr.height + 24) break; // обёртка выше поля — это форма или карточка, не капсула
+          const wrap = frame(p);
+          if ((wrap.border || wrap.ring || wrap.fill) && wrap.radius >= 12 && pr.width < fr.width + 120) {
+            out.push(`fieldFrame: ${name(field)} — рамка внутри обёртки ${name(p)}`);
+            break;
+          }
+        }
+      }
+    }
+    // ---- selectClip: выбранный пункт шире самого списка ----
+    if (want.has("selectClip")) {
+      const ctx = document.createElement("canvas").getContext("2d");
+      for (const sel of root.querySelectorAll<HTMLSelectElement>("select")) {
+        if (!ctx || !visible(sel) || skipped(sel)) continue;
+        const text = sel.selectedOptions[0]?.text ?? "";
+        if (!text.trim()) continue;
+        const s = getComputedStyle(sel);
+        ctx.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+        // Системная стрелка списка рисуется внутри поля (~20 px), если вид не снят appearance: none.
+        const arrow = s.appearance === "none" ? 0 : 20;
+        const room = sel.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight) - arrow;
+        const need = ctx.measureText(text).width;
+        if (need > room + 1) out.push(`selectClip: ${name(sel)} «${text.slice(0, 28)}» — нужно ${Math.round(need)}, есть ${Math.round(room)}`);
+      }
+    }
     if (want.has("wordBreak")) {
       for (const el of root.querySelectorAll("button, a, [role=tab], .chip, .pill")) {
         if (!visible(el) || skipped(el)) continue;

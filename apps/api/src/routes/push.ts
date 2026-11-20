@@ -151,7 +151,7 @@ pushRouter.post("/action", async (req, res) => {
         // 02.10.2026): здесь нет req.agent, агент известен из маркера. У старых
         // карточек незнакомых звонивших номер лежит в самом имени.
         const { granted } = await partitionByPermission([consumed.agentId], "clients.viewPhone");
-        const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : "Лид";
+        const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : "Заявка";
         return res.json({ ok: true, message: `${name} принят — контакты открыты`, url });
       }
       return res.json({ ok: false, message: outcome.error, url } satisfies PushActionResult);
@@ -161,16 +161,16 @@ pushRouter.post("/action", async (req, res) => {
     if (result.ok) {
       return res.json({
         ok: true,
-        message: result.reassignedTo ? "Лид отклонён и передан следующему агенту" : "Лид отклонён и передан руководителю",
+        message: result.reassignedTo ? "Заявка отклонена и передана следующему агенту" : "Заявка отклонена и передана руководителю",
         url,
       });
     }
     const message =
       result.reason === "already_accepted"
-        ? "Лид уже принят — отклонить его больше нельзя"
+        ? "Заявка уже принята — отклонить её больше нельзя"
         : result.reason === "not_found"
           ? "Клиент не найден"
-          : "Лид уже не за вами";
+          : "Заявка уже не за вами";
     return res.json({ ok: false, message, url } satisfies PushActionResult);
   } catch (err) {
     await logSystemError("api", `Действие из push: ${err instanceof Error ? err.message : String(err)}`);

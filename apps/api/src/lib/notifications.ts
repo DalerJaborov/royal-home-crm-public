@@ -163,6 +163,13 @@ export async function createNotifications(
   }
 }
 
+/** То же, что createNotifications, но сбой записи БРОСАЕТ: вызывающий снимает свою метку и пишет журнал (ревью #333). */
+export async function createNotificationsStrict(agentIds: string[], payload: Parameters<typeof createNotifications>[1]): Promise<void> {
+  agentIds = await filterInvestigationRecipients(agentIds, payload);
+  if (agentIds.length === 0) throw new Error("нет получателей уведомления");
+  for (const group of await splitByPhoneRight(agentIds, payload)) await writeNotifications(group.agentIds, group.payload);
+}
+
 /** Запись как есть, без разбора прав, — то, чем createNotifications была до
  *  разделения получателей по праву на телефон. */
 async function writeNotifications(

@@ -426,3 +426,18 @@
 /* Отступ сверху у пояснения/пустого состояния — только под заголовком карточки. Первым в
    карточке («За этот срок нет обращений», «Отчётов пока нет») он давал пустой верх (20.11). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card > :is(.note, p.state):first-child { margin-top: 0; }
+
+/* ============ свёрнутый блок (разделы директора, 20.11.2026) ============
+ * «Спрос и предложение» в «Отчётах» свёрнут в одну строку-вопрос: раскрывается
+ * нажатием, внутри — прежняя матрица целиком. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold { padding: 0; margin: 0 0 16px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold > summary {
+  display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 14px 20px; cursor: pointer;
+  font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--rh-ui-text); list-style: none;
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold > summary::after {
+  content: "›"; margin-left: auto; font-size: 22px; color: var(--rh-ui-hint); transition: transform 160ms;
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold[open] > summary::after { transform: rotate(90deg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold > summary:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: inherit; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold > .sec { padding: 0 20px 16px; margin: 0; }

@@ -601,7 +601,7 @@ function NewExpenseSheet({ open, onClose, month }: { open: boolean; onClose: () 
       )}
 
       {repeat && needsSource && !source && (
-        <p className="state">Для рекламы выберите канал выше: по нему считается стоимость лида.</p>
+        <p className="state">Для рекламы выберите канал выше: по нему считается стоимость заявки.</p>
       )}
       {error && (
         <p className="state err">

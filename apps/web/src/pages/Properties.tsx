@@ -529,7 +529,7 @@ export function Properties() {
   const royalToolbar = (
     <div className="ry-catalog-bar">
       {searchField}
-      <button className="ry-btn ry-catalog-filters" data-variant="gray" type="button" aria-haspopup="dialog"
+      <button className="ry-btn ry-catalog-filters" data-variant="secondary" type="button" aria-haspopup="dialog"
         aria-label={`Фильтры${royalActiveFilters ? `, выбрано: ${royalActiveFilters}` : ""}`} onClick={() => setFiltersOpen(true)}>
         <SlidersHorizontal size={18} aria-hidden />
         Фильтры{royalActiveFilters > 0 && <b className="ry-catalog-count">{royalActiveFilters}</b>}

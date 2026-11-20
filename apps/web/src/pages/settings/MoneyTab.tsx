@@ -139,7 +139,7 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
             <span className="lab">План комиссии на месяц, сомони</span>
             <input type="number" value={plan} onChange={(e) => setPlan(e.target.value)} />
             <span className="msg" style={{ color: "var(--faint)" }}>
-              Только для сравнения плана и факта на главной. На доли и раздачу лидов не влияет.
+              Только для сравнения плана и факта на главной. На доли и раздачу заявок не влияет.
             </span>
           </label>
         </div>
@@ -149,12 +149,12 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
       {part !== "commission" && <>
       <section className="card">
         <div className="sec-h stack">
-          <h2>Сроки и лимиты по лидам</h2>
+          <h2>Сроки и лимиты по заявкам</h2>
           <span className="note">Сколько ждём агента и сколько клиентов он держит одновременно</span>
         </div>
         <div className="fgrid">
           <label className="fld">
-            <span className="lab">Приём лида, минут</span>
+            <span className="lab">Приём заявки, минут</span>
             <input
               type="number"
               min={3}
@@ -163,7 +163,7 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
               onChange={(e) => setAcceptMinutes(e.target.value)}
             />
             <span className="msg" style={{ color: "var(--faint)" }}>
-              Потом лид уходит следующему агенту.
+              Потом заявка уходит следующему агенту.
             </span>
           </label>
           <label className="fld">
@@ -223,7 +223,7 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
             </span>
           </label>
           <label className="fld">
-            <span className="lab">Предел передач лида</span>
+            <span className="lab">Предел передач заявки</span>
             <input
               type="number"
               min={0}
@@ -241,12 +241,12 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
 
         <div className="mod">
           <div className="t">
-            <b>Забирать лид у агента, который не позвонил</b>
+            <b>Забирать заявку у агента, который не позвонил</b>
             <span>
-              По умолчанию выключено (решение от 18.08.2026, чтобы принятый лид не уходил от агента без
-              объяснений) — если принявший агент не позвонил вовремя, руководитель получает сигнал, а лид
-              остаётся у агента. Включите — и лид сразу снимается и уходит следующему по очереди агенту.
-              Щиток занятости («Лиды» → «Занятость агента в раздаче») по-прежнему не даёт новому лиду прийти
+              По умолчанию выключено (решение от 18.08.2026, чтобы принятая заявка не уходила от агента без
+              объяснений) — если принявший агент не позвонил вовремя, руководитель получает сигнал, а заявка
+              остаётся у агента. Включите — и заявка сразу снимается и уходит следующему по очереди агенту.
+              Щиток занятости («Заявки» → «Занятость агента в раздаче») по-прежнему не даёт новой заявке прийти
               агенту, который прямо сейчас на показе или в звонке.
             </span>
           </div>
@@ -254,7 +254,7 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
             <Switch
               on={reassignOnMissedCall}
               onToggle={() => setReassignOnMissedCall((v) => !v)}
-              label="Забирать лид у агента, который не позвонил"
+              label="Забирать заявку у агента, который не позвонил"
             />
           </div>
         </div>

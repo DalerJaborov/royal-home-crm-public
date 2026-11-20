@@ -262,7 +262,7 @@ async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
   const metrics = [
     metric("botLost", "Диалоги бота оборвались без заявки", botLost, botLostPrev, "/settings?tab=bot",
       "Человек написал, поговорил и ушёл, не оставив номер"),
-    metric("unaccepted", "Лиды так и не приняты агентом", unaccepted, unacceptedPrev, "/clients",
+    metric("unaccepted", "Заявки так и не приняты агентом", unaccepted, unacceptedPrev, "/clients",
       "Карточка заведена, но работа по ней не начиналась"),
     metric("refusals", "Отказы клиентов", refusals, refusalsPrev, null),
     metric("escalated", "Переданы руководству (никто не взял)", escalated, escalatedPrev, "/lost-clients"),
@@ -277,14 +277,14 @@ async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
       label: c.fullName,
       hint: c.refusalReason
         ? `Передан руководству — ${REFUSAL_REASON_LABELS[c.refusalReason as RefusalReason] ?? c.refusalReason}`
-        : "Передан руководству — никто не принял лид",
+        : "Передан руководству — никто не принял заявку",
       href: `/clients/${c.shortId}`,
     })),
     ago: ctx.ago,
     headline: (worst, trend) =>
       worst
         ? `Больше всего теряем здесь: ${worst.label.toLowerCase()} — ${worst.value}. Всего потерь ${trend || "не с чем сравнить"}.`
-        : "Потерь за период не зафиксировано — ни оборванных диалогов, ни непринятых лидов.",
+        : "Потерь за период не зафиксировано — ни оборванных диалогов, ни непринятых заявок.",
   });
 }
 

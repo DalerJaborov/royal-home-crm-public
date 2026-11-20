@@ -35,7 +35,7 @@ export const SECTIONS = [
   { path: "/messages", heading: /Чаты|Сообщения|Мои чаты|Все чаты/ },
   { path: "/other-inquiries", heading: /Прочие обращения|Клиенты/ },
   { path: "/reports", heading: /Отчёты/ },
-  { path: "/sources", heading: /Источники лидов/ },
+  { path: "/sources", heading: /Источники заявок/ },
   { path: "/team", heading: /Команда|Доска почёта/ },
   // «Ключи» удалены полностью (владелец 07.09.2026) — раздел, маршрут, право.
   { path: "/finance", heading: /Финансы|Деньги/ },

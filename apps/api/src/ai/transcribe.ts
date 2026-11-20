@@ -464,6 +464,8 @@ export interface TranscriptionResult {
   failed: boolean;
   /** Причина отказа для журнала. */
   detail?: string;
+  /** Машинная причина отказа: по ней маршруты выбирают честный ответ человеку (не по тексту detail). */
+  reason?: "no_key" | "provider_failed";
 }
 
 /**
@@ -481,7 +483,7 @@ export async function transcribeAudioResult(
   // Ключи и модели — одним запросом к Настройкам (см. ai/geminiSettings.ts).
   const runtime = await resolveGeminiRuntime();
   const apiKeys = runtime.keys;
-  if (apiKeys.length === 0) return { text: null, failed: true, detail: "ключ Gemini не задан" };
+  if (apiKeys.length === 0) return { text: null, failed: true, detail: "ключ Gemini не задан", reason: "no_key" };
   const expensiveModels = runtime.transcribeModels;
   const primaryModel = expensiveModels[0];
   // Дешёвые — то же, чем пользуется весь остальной ИИ: последний рубеж, чтобы
@@ -491,7 +493,7 @@ export async function transcribeAudioResult(
   const fail = (detail: string): TranscriptionResult => {
     console.error("[transcribe]", detail);
     void logSystemError("ai", `Голосовое (${filename}) не расшифровано: ${detail}`);
-    return { text: null, failed: true, detail };
+    return { text: null, failed: true, detail, reason: "provider_failed" };
   };
 
   /**

@@ -1,3 +1,4 @@
+import { RuDateField, RuTimeField } from "./look/fields/RuFields";
 import { PropertyChoiceList } from "./PropertyChoiceList";
 import { useIsReadOnly } from "../lib/permissions";
 import { CleanRecordForm, ReadOnlyRecordFields, CleanInteractionContext } from "./clean/CleanRecordForm";
@@ -367,9 +368,8 @@ export function AddInteractionModal({
   }
 
   const stepTitle = scheduling ? "Назначить показ" : step === 1 ? "Что было" : step === 2 ? "Как прошло" : "Что дальше";
-  // Номер шага виден всегда: без него человек не знает, сколько ещё осталось, и
-  // бросает форму на середине. В планировании шаг один — счётчик только путал бы.
-  const title = scheduling ? stepTitle : `${stepTitle} · шаг ${step} из ${TOTAL_STEPS}`;
+  // Счётчика «шаг 1 из 3» в заголовке нет (аудит 20.11.2026, К03.6): правило «без счётчиков», устройство системы людям не нужно.
+  const title = stepTitle;
 
   return (
     <>
@@ -430,8 +430,7 @@ export function AddInteractionModal({
             <div className="fgrid" style={{ marginTop: "var(--s3)" }}>
               <label className="fld">
                 <span className="lab">Дата показа *</span>
-                <input
-                  type="date"
+                <RuDateField
                   required
                   value={nextActionDate}
                   /* Назначить показ задним числом нельзя: CRM тут же откроет по
@@ -442,7 +441,7 @@ export function AddInteractionModal({
               </label>
               <label className="fld">
                 <span className="lab">Время *</span>
-                <input type="time" required value={nextActionTime} onChange={(e) => setNextActionTime(e.target.value)} />
+                <RuTimeField required value={nextActionTime} onChange={(e) => setNextActionTime(e.target.value)} />
               </label>
             </div>
             <p className="quiet">
@@ -628,8 +627,7 @@ export function AddInteractionModal({
             <div className="fgrid" style={{ marginTop: "var(--s3)" }}>
               <label className="fld">
                 <span className="lab">{type === "SHOWING" ? "Дата показа *" : <>Дата следующего шага{outcome === "WAITING_SHOWING" && " *"}</>}</span>
-                <input
-                  type="date"
+                <RuDateField
                   required={type === "SHOWING" || outcome === "WAITING_SHOWING"}
                   value={nextActionDate}
                   onChange={(e) => setNextActionDate(e.target.value)}
@@ -637,8 +635,7 @@ export function AddInteractionModal({
               </label>
               <label className="fld">
                 <span className="lab">Время{(type === "SHOWING" || outcome === "WAITING_SHOWING") && " *"}</span>
-                <input
-                  type="time"
+                <RuTimeField
                   value={nextActionTime}
                   onChange={(e) => setNextActionTime(e.target.value)}
                   disabled={!nextActionDate}

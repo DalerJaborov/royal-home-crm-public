@@ -1,3 +1,4 @@
+import { RuDateField } from "../components/look/fields/RuFields";
 import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -18,7 +19,7 @@ import {
 import { CLIENT_SOURCE_LABELS } from "../lib/clientFormat";
 import { pluralizeRu } from "../lib/format";
 import { dushanbeDayKey, dushanbeFirstDayOfMonthKey, dushanbeTodayKey } from "../lib/date";
-import { isFunnelEmpty, selectFunnelStages } from "../lib/reportFunnelView";
+import { cohortFunnelView, isFunnelEmpty, selectFunnelStages } from "../lib/reportFunnelView";
 import { MonthlyReports } from "../components/MonthlyReports";
 import { ProblemReports } from "../components/ProblemReports";
 import { DemandSupplySection } from "../components/DemandSupplySection";
@@ -195,7 +196,11 @@ function ReportsScreen({ royal }: { royal: boolean }) {
   const funnel: FunnelStage[] = funnelData?.funnel ?? [];
   const funnelMax = Math.max(1, ...funnel.map((s) => s.count));
   const { leads, showings, negotiations, deals } = selectFunnelStages(funnel);
-  const toDeal = leads && deals && leads.count > 0 ? Math.round((deals.count / leads.count) * 100) : null;
+  // Путь заявок периода (cohort): есть — воронка и «дошли до сделки» считаются по
+  // нему, шаг не больше предыдущего. Нет — старый сервер, прежняя воронка событий.
+  const cohort = funnelData?.cohort && funnelData.cohort.length > 0 ? cohortFunnelView(funnelData.cohort) : null;
+  const toDeal = cohort ? cohort.toDeal : leads && deals && leads.count > 0 ? Math.round((deals.count / leads.count) * 100) : null;
+  const toDealLabel = cohort ? "заявок периода дошли до сделки" : "сделки / новые заявки за период";
   const toNegotiation =
     showings && negotiations && showings.count > 0 ? Math.round((negotiations.count / showings.count) * 100) : null;
 
@@ -248,7 +253,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                   )}
                   <button type="button" className="tile" onClick={() => scrollToSection("funnel-section")} title="Воронка за период — ниже">
                     <div className="v">{leads?.count ?? "—"}</div>
-                    <div className="l">новых лидов</div>
+                    <div className="l">{pluralizeRu(leads?.count ?? 0, ["новая заявка", "новые заявки", "новых заявок"])}</div>
                   </button>
                   <button type="button" className="tile" onClick={() => scrollToSection("funnel-section")} title="Воронка за период — ниже">
                     <div className="v">{deals?.count ?? "—"}</div>
@@ -256,7 +261,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                   </button>
                   <button type="button" className="tile" onClick={() => scrollToSection("funnel-section")} title="Воронка за период — ниже">
                     <div className="v">{toDeal !== null ? `${toDeal} %` : "—"}</div>
-                    <div className="l">сделки / новые лиды за период</div>
+                    <div className="l">{toDealLabel}</div>
                   </button>
                 </div>
               </div>
@@ -272,7 +277,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                             <span className="t">
                               <span className="n">{row.agentName}</span>
                               <span className="s">
-                                {row.dealsClosed} {row.dealsClosed === 1 ? "сделка" : "сделок"}
+                                {row.dealsClosed} {pluralizeRu(row.dealsClosed, ["сделка", "сделки", "сделок"])}
                                 {row.commission !== null && ` · ${nums(row.commission)}\u00a0с.`}
                               </span>
                             </span>
@@ -283,7 +288,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                             <span className="t">
                               <span className="n">{row.agentName}</span>
                               <span className="s">
-                                {row.dealsClosed} {row.dealsClosed === 1 ? "сделка" : "сделок"}
+                                {row.dealsClosed} {pluralizeRu(row.dealsClosed, ["сделка", "сделки", "сделок"])}
                                 {row.commission !== null && ` · ${nums(row.commission)}\u00a0с.`}
                               </span>
                             </span>
@@ -345,7 +350,9 @@ function ReportsScreen({ royal }: { royal: boolean }) {
         </div>
 
         <MoneyTabs />
-        {clean && <nav className="clean-report-section-nav" aria-label="Разделы отчётов">
+        {/* Новый вид — одна строка вкладок (MoneyTabs выше): быстрые ссылки на разделы
+            этой же страницы стояли второй строкой с похожими названиями. */}
+        {clean && !royal && <nav className="clean-report-section-nav" aria-label="Разделы отчётов">
           {[["funnel-section", "Воронка"], ["agents-report-section", "Команда"], ["sources-report-section", "Источники"], ["hot-properties-section", "Объекты"]].map(([id, label]) => <button key={id} type="button" onClick={() => scrollToSection(id)}>{label}</button>)}
         </nav>}
 
@@ -377,9 +384,8 @@ function ReportsScreen({ royal }: { royal: boolean }) {
             </div>
             <label className="field">
               <span className="lab">С какого дня</span>
-              <input
+              <RuDateField
                 className="inp"
-                type="date"
                 value={from}
                 style={{ maxWidth: 180 }}
                 onChange={(e) => {
@@ -391,9 +397,8 @@ function ReportsScreen({ royal }: { royal: boolean }) {
             </label>
             <label className="field">
               <span className="lab">По какой день</span>
-              <input
+              <RuDateField
                 className="inp"
-                type="date"
                 value={to}
                 style={{ maxWidth: 180 }}
                 onChange={(e) => {
@@ -420,18 +425,19 @@ function ReportsScreen({ royal }: { royal: boolean }) {
 
         {rangeError ? <p className="state err" role="alert">{rangeError}. Исправьте период, чтобы увидеть показатели.</p> : <>
         {clean && funnelData && !funnelLoading && !funnelError && <div className="tiles" aria-label="Основные показатели за выбранный период">
-          <StatTile label="Новые лиды" value={leads?.count ?? "—"} line="за выбранный период" onClick={() => scrollToSection("funnel-section")} />
+          <StatTile label="Новые заявки" value={leads?.count ?? "—"} line="за выбранный период" onClick={() => scrollToSection("funnel-section")} />
           <StatTile label="Показы" value={showings?.count ?? "—"} line="за выбранный период" onClick={() => scrollToSection("funnel-section")} />
           <StatTile label="Закрытые сделки" value={deals?.count ?? "—"} line="за выбранный период" onClick={() => scrollToSection("funnel-section")} />
           {deals?.commission != null
             ? <StatTile label="Комиссия" value={<Rh2Money value={deals.commission} cur="сомони" />} line="по закрытым сделкам" onClick={() => scrollToSection("funnel-section")} />
-            : <StatTile label="Сделки / новые лиды" value={toDeal === null ? "—" : `${toDeal} %`} line="соотношение событий за период" onClick={() => scrollToSection("funnel-section")} />}
+            : <StatTile label={cohort ? "Дошли до сделки" : "Сделки / новые заявки"} value={toDeal === null ? "—" : `${toDeal} %`} line={cohort ? "из заявок этого периода" : "соотношение событий за период"} onClick={() => scrollToSection("funnel-section")} />}
         </div>}
 
         {/* Воронка за период */}
         <div className="sec" id="funnel-section">
           <div className="sec-h">
-            <h2>Воронка за период</h2>
+            {/* Ревью PR 336: подпись прямо говорит, что шаги — про заявки этого периода. */}
+            <h2>{cohort ? "Воронка: из заявок за период" : "Воронка за период"}</h2>
             <span className="note">
               {dot(from)} по {dot(to)}
             </span>
@@ -472,6 +478,36 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                 </button>
               </div>
             ) : (
+              cohort ? (
+              <>
+                <Rh2Bars
+                  items={cohort.steps.map((s) => ({
+                    key: s.key,
+                    name: s.label,
+                    share: s.share,
+                    value: s.key === "leads" || s.percent === null ? String(s.count) : `${s.count} · ${s.percent} %`,
+                  }))}
+                />
+                <div className="prog-legend" style={{ marginTop: 16 }}>
+                  {toDeal !== null && (
+                    <span>
+                      <b>{toDeal} %</b>заявок периода дошли до сделки
+                    </span>
+                  )}
+                  {deals?.commission != null && (
+                    <span>
+                      <b>
+                        <Rh2Money value={deals.commission} />
+                      </b>
+                      комиссия за период
+                    </span>
+                  )}
+                </div>
+                <p className="note">
+                  Берём заявки, пришедшие за эти дни, и смотрим, сколько из них дошло до каждого шага к сегодняшнему дню.
+                </p>
+              </>
+              ) : (
               <>
                 <Rh2Bars
                   items={funnel.map((s) => ({
@@ -484,7 +520,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                 <div className="prog-legend" style={{ marginTop: 16 }}>
                   {toDeal !== null && (
                     <span>
-                      <b>{toDeal} %</b>сделки / новые лиды за период
+                      <b>{toDeal} %</b>сделки / новые заявки за период
                     </span>
                   )}
                   {toNegotiation !== null && (
@@ -506,6 +542,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                   поэтому результат может быть больше 100 %.
                 </p>}
               </>
+              )
             )}
           </div>
         </div>
@@ -632,12 +669,12 @@ function ReportsScreen({ royal }: { royal: boolean }) {
         <div className="sec" id="sources-report-section">
           <div className="sec-h">
             <h2>Откуда приходят</h2>
-            <span className="note">{sourcesLoading ? "Загружаем источники…" : sourcesError ? "Данные недоступны" : `${donutTotal} лидов за период`}</span>
+            <span className="note">{sourcesLoading ? "Загружаем источники…" : sourcesError ? "Данные недоступны" : `${donutTotal} ${pluralizeRu(donutTotal, ["заявка", "заявки", "заявок"])} за период`}</span>
           </div>
           <div className="card tight">
             {sourcesError ? (
               <div className="state err">
-                <span className="dot crit" /> Источники лидов не загрузились.
+                <span className="dot crit" /> Источники заявок не загрузились.
                 <button
                   className="lk"
                   type="button"
@@ -649,14 +686,14 @@ function ReportsScreen({ royal }: { royal: boolean }) {
               </div>
             ) : sourcesLoading ? (
               <div className="state" role="status">
-                <span className="sk w40" /> Загружаем источники лидов
+                <span className="sk w40" /> Загружаем источники заявок
               </div>
             ) : donutRows.length === 0 ? (
-              <p className="state">За этот период лидов не было.</p>
+              <p className="state">За этот период заявок не было.</p>
             ) : (
               <Rh2Donut
                 total={donutTotal}
-                middleLabel="лидов"
+                middleLabel={pluralizeRu(donutTotal, ["заявка", "заявки", "заявок"])}
                 ariaLabel={`Доли каналов: ${donutRows
                   .map((s) => `${CLIENT_SOURCE_LABELS[s.source as ClientSource] ?? s.source} ${Math.round((s.total / donutTotal) * 100)} процентов`)
                   .join(", ")}`}
@@ -664,7 +701,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                   key: s.source,
                   label: CLIENT_SOURCE_LABELS[s.source as ClientSource] ?? s.source,
                   value: s.total,
-                  quantity: `${s.total} лидов, ${Math.round((s.total / donutTotal) * 100)} %`,
+                  quantity: `${s.total} ${pluralizeRu(s.total, ["заявка", "заявки", "заявок"])} · ${Math.round((s.total / donutTotal) * 100)} %`,
                 }))}
               />
             )}
@@ -679,7 +716,16 @@ function ReportsScreen({ royal }: { royal: boolean }) {
 
         {/* «Спрос и предложение» (03.10.2026): где не хватает объектов, где их много,
             и какие объекты в продаже никто не ищет. Сервер: GET /reports/demand-supply. */}
-        <DemandSupplySection />
+        {royal ? (
+          /* Новый вид: матрица «Спрос и предложение» — самый сложный блок страницы,
+             нужен редко. Свёрнута в одну строку с простым вопросом, раскрывается по нажатию. */
+          <details className="card tight ry-fold" id="demand-supply-fold">
+            <summary>Где не хватает квартир, а где их слишком много · спрос и предложение</summary>
+            <DemandSupplySection />
+          </details>
+        ) : (
+          <DemandSupplySection />
+        )}
 
         {/* Месячные отчёты — про закрытый месяц целиком, а не про выбранный
             вверху диапазон дат. Компонент общий с настройками, в тему пока не

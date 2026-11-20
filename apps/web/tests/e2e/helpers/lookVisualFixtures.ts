@@ -65,7 +65,7 @@ const conversation = {
 };
 
 /** Подменить ответы, на которых видны баги с кадров владельца. */
-export async function stubLookVisualData(page: Page, opts: { look?: boolean } = {}) {
+export async function stubLookVisualData(page: Page, opts: { look?: boolean; textSize?: "large" | "xlarge" } = {}) {
   const look = opts.look ?? true;
   // Подсказка «Поставьте CRM на экран» встаёт поверх низа страницы с третьего захода —
   // для сторожа геометрии она шум (у неё своя проверка), поэтому счётчик заходов обнулён.
@@ -75,8 +75,10 @@ export async function stubLookVisualData(page: Page, opts: { look?: boolean } = 
   await page.addInitScript(() => { try { localStorage.removeItem("royal-home-ui"); } catch { /* приватный режим */ } });
   // Тема, сохранённая в учётке на сервере (GET /me → preferences.theme), тоже уступает системе.
   await page.route((u) => u.pathname === "/api/v1/me", patch((body) => {
-    const preferences = body.preferences && typeof body.preferences === "object" ? { ...(body.preferences as Record<string, unknown>) } : body.preferences;
+    let preferences = body.preferences && typeof body.preferences === "object" ? { ...(body.preferences as Record<string, unknown>) } : body.preferences;
     if (preferences && typeof preferences === "object") delete (preferences as Record<string, unknown>).theme;
+    // «Размер текста» из личных настроек (Профиль → Оформление) — для проверки «очень крупного».
+    if (opts.textSize) preferences = { ...(preferences && typeof preferences === "object" ? preferences : {}), textSize: opts.textSize };
     return { ...body, preferences };
   }));
   await page.route("**/api/v1/ui-shell", (route) => route.request().method() === "GET"

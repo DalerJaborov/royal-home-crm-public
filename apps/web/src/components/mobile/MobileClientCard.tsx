@@ -230,7 +230,7 @@ export function MobileClientCard({
       {pending && locked ? (
         <section className="sec">
           <div className="card-s big brief">
-            Запрос клиента, бюджет и история откроются, когда вы примете лид.
+            Запрос клиента, бюджет и история откроются, когда вы примете заявку.
           </div>
         </section>
       ) : (

@@ -221,19 +221,28 @@ export function leadStatsOf(
   spendCents: number,
   counts: LeadCounts,
   metaConversations: number,
-  options: { shares?: boolean } = {}
+  options: {
+    shares?: boolean;
+    /**
+     * Видит ли смотрящий деньги компании (право finance.view). Обязательный ответ, без
+     * умолчания (разделы директора, 20.11.2026): «Реклама» открыта маркетингу, а комиссия
+     * компании и окупаемость к ней — деньги компании. Без права оба поля null.
+     */
+    seesCompanyMoney: boolean;
+  }
 ): AdLeadStats {
+  const money = options.seesCompanyMoney;
   return {
     ...(options.shares ? { leadsAreShares: true } : {}),
     leads: counts.leads,
     showings: counts.showings,
     deals: counts.deals,
-    commissionTjs: fromCents(counts.commissionCents),
+    commissionTjs: money ? fromCents(counts.commissionCents) : null,
     costPerLeadTjs: ratio(spendCents, counts.leads),
     costPerShowingTjs: ratio(spendCents, counts.showings),
     costPerLeadMeta: ratio(spendCents, metaConversations),
     // Окупаемость в долях от расхода: 0,5 = +50 %, −1 = ничего не вернулось.
-    romi: spendCents > 0 ? Math.round(((counts.commissionCents - spendCents) / spendCents) * 1000) / 1000 : null,
+    romi: money && spendCents > 0 ? Math.round(((counts.commissionCents - spendCents) / spendCents) * 1000) / 1000 : null,
   };
 }
 

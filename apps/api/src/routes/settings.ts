@@ -1079,6 +1079,12 @@ const settingsUpdateSchema = z.object({
   botUseWhatsappNumber: z.boolean().optional(),
   botMaxPhoneAsks: z.number().int().min(1).max(3).optional(),
   botHotIntentHandover: z.boolean().optional(),
+  /** Бот клиентов по-человечески (20.11.2026): тишина после ответа сотрудника, слова модели, номера проверяющих. */
+  botStaffQuietMinutes: z.number().int().min(5).max(240).optional(),
+  botOwnWords: z.boolean().optional(),
+  botReviewerPhones: z.array(z.string().trim().max(32)).max(20)
+    .transform((list) => [...new Set(list.map((phone) => phone.replace(/\D/g, "")).filter((digits) => digits.length >= 9 && digits.length <= 15))])
+    .optional(),
   /** «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026, lib/botAnswersItself.ts): не зовёт руководство, отвечает сам. */
   botAnswersItself: z.boolean().optional(),
   /** Номер из комментария: личное с вопросом, ответ под постом, скрытие (18.11.2026). ВЫКЛ — карточка, ответ как раньше. */

@@ -1331,7 +1331,7 @@ async function assignKindChangedLead(existing: Client, input: ChannelLeadInput):
     if (!(await supervisorsNeedRepeatPush(existing, input))) return null;
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "🔔 Обращение стало лидом — нужен агент",
+      title: "🔔 Обращение стало заявкой — нужен агент",
       body: `${existing.fullName} — назвал(а) свой запрос, назначьте агента`,
       url: `/clients/${existing.shortId}`,
       tag: `lead-${existing.id}`,
@@ -1362,7 +1362,7 @@ async function assignKindChangedLead(existing: Client, input: ChannelLeadInput):
   });
   await recordAssignReason(existing.id, agentId, assignment);
   sendLeadPush(agentId, existing.id, {
-    title: `🔔 Новый лид: ${label}`,
+    title: `🔔 Новая заявка: ${label}`,
     body: `${existing.fullName} — примите заявку, иначе её передадут другому агенту`,
     url: `/clients/${existing.shortId}`,
     tag: `lead-${existing.id}`,
@@ -1486,7 +1486,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
    */
   const staffMatch = await findStaffPhone([input.phone, input.whatsappPhone]);
   if (staffMatch) {
-    void logSystemError("api", `Лид из канала (${input.source}) на номер сотрудника не заведён: ${staffPhoneError(staffMatch)}`, {
+    void logSystemError("api", `Заявка из канала (${input.source}) на номер сотрудника не заведена: ${staffPhoneError(staffMatch)}`, {
       dedupKey: `staff-phone-lead:${staffMatch.agentId}`,
     });
     throw new StaffPhoneLeadError(staffMatch);
@@ -1672,7 +1672,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
         const changed = await changeClientAgent({
           clientId: created.id,
           toAgentId: agentId,
-          reason: `Лид создан автоматически: ${label}`,
+          reason: `Заявка создана автоматически: ${label}`,
           source: "intake.createNewChannelLead",
           tx,
           skipInteraction: true,
@@ -1687,7 +1687,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
           clientId: updated.id,
           actor: { kind: "system", source: "intake-new-channel-lead", subjectAgentId: agentId },
           type: "SYSTEM",
-          notes: `Лид создан автоматически: ${label}`,
+          notes: `Заявка создана автоматически: ${label}`,
           tx,
         });
         if (ownedPending) {
@@ -1729,7 +1729,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
 
   if (agentId) {
     sendLeadPush(agentId, client.id, {
-      title: input.source === "WEBSITE" ? "🔔 Новая заявка с сайта" : `🔔 Новый лид: ${label}`,
+      title: input.source === "WEBSITE" ? "🔔 Новая заявка с сайта" : `🔔 Новая заявка: ${label}`,
       body: `${client.fullName}${leadGist(input.requirementsNotes)} — примите заявку, иначе её передадут другому агенту`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${client.id}`,
@@ -1741,7 +1741,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
     // молча зависнуть навсегда, никто её не увидит.
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "⏳ Лид ждёт назначения",
+      title: "⏳ Заявка ждёт назначения",
       body: `${client.fullName} — назначьте агента вручную`,
       url: `/clients/${client.shortId}`,
       tag: `lead-unassigned-${client.id}`,
@@ -1831,7 +1831,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
       const changed = await changeClientAgent({
         clientId,
         toAgentId: agentId,
-        reason: "Лид назначен по очереди — проверка на дубль закрыта (разные люди)",
+        reason: "Заявка назначена по очереди — проверка на дубль закрыта (разные люди)",
         source: "intake.assignHeldLead",
         tx,
         skipInteraction: true,
@@ -1843,7 +1843,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
         clientId,
         actor: { kind: "system", source: "intake-held-lead", subjectAgentId: agentId },
         type: "SYSTEM",
-        notes: "Лид назначен по очереди — проверка на дубль закрыта (разные люди)",
+        notes: "Заявка назначена по очереди — проверка на дубль закрыта (разные люди)",
         tx,
       });
       return true;
@@ -1854,7 +1854,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
     if (!claimed) return;
     await recordAssignReason(clientId, agentId, assignment);
     sendLeadPush(agentId, clientId, {
-      title: "🔔 Новый лид",
+      title: "🔔 Новая заявка",
       body: `${client.fullName} — примите заявку, иначе её передадут другому агенту`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${clientId}`,
@@ -1862,7 +1862,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
   } else {
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "⏳ Лид ждёт назначения",
+      title: "⏳ Заявка ждёт назначения",
       body: `${client.fullName} — назначьте агента вручную`,
       url: `/clients/${client.shortId}`,
       tag: `lead-unassigned-${clientId}`,

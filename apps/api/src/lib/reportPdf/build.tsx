@@ -12,7 +12,7 @@ import { buildCommissionForecast, currentDushanbeMonth } from "../financeForecas
 import { dushanbeDateString } from "../dushanbeTime.js";
 import { logSystemError } from "../systemError.js";
 import { describeError } from "../describeError.js";
-import { buildAgentsReport, buildFunnelReport, buildSourcesReport, parseReportRange } from "../teamReports.js";
+import { buildAgentsReport, buildFunnelCohort, buildFunnelReport, buildSourcesReport, parseReportRange } from "../teamReports.js";
 import { FinanceReport } from "./financeDocument.js";
 import { founderTotals } from "../founderContributions.js";
 import { TeamReport } from "./teamDocument.js";
@@ -105,8 +105,9 @@ async function assembleReportPdf(kind: ReportPdfKind, rawQuery: unknown, viewer:
     investigationRole: investigationRoleFor(viewer.role, viewer.can("clients.securityReview")),
     seesMoney: viewer.can("finance.view"),
   };
-  const [funnel, agents, sources] = await Promise.all([
+  const [funnel, cohort, agents, sources] = await Promise.all([
     buildFunnelReport(range, reportViewer),
+    buildFunnelCohort(range, reportViewer),
     buildAgentsReport(range, reportViewer),
     buildSourcesReport(range),
   ]);
@@ -118,6 +119,7 @@ async function assembleReportPdf(kind: ReportPdfKind, rawQuery: unknown, viewer:
       generatedAtLabel={generatedAtLabel}
       seesMoney={reportViewer.seesMoney}
       funnel={funnel}
+      cohort={cohort}
       agents={agents}
       sources={sources}
     />,

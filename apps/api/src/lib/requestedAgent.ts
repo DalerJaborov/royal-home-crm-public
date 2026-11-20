@@ -322,9 +322,9 @@ export function requestedAgentNote(match: RequestedAgentMatch): string | null {
     case "ambiguous":
       return `Клиент назвал имя «${match.namedAs}», но однозначно определить не вышло — подходят: ${match.candidates
         .map((c) => c.fullName)
-        .join(", ")}. Лид распределён обычным порядком`;
+        .join(", ")}. Заявка распределена обычным порядком`;
     case "unavailable":
-      return `Клиент просил ${match.fullName}, но тот ${blockWording(match.reason)} — лид распределён обычным порядком`;
+      return `Клиент просил ${match.fullName}, но тот ${blockWording(match.reason)} — заявка распределена обычным порядком`;
   }
 }
 

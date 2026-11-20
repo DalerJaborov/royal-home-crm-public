@@ -45,4 +45,18 @@ describe("PropertyPhoto", () => {
     fireEvent.error(container.querySelector("img")!);
     expect(screen.getByRole("img", { name: "Фото недоступно" }).textContent).toBe("");
   });
+
+  it("contain: фото целиком поверх размытой подложки из миниатюры; без contain подложки нет", () => {
+    const { container, rerender } = render(<PropertyPhoto fill contain backdropSource="thumb.jpg" sources={["big.jpg", "thumb.jpg"]} />);
+    const backdrop = container.querySelector("img[data-photo-backdrop]") as HTMLImageElement;
+    const main = container.querySelector("img:not([data-photo-backdrop])") as HTMLImageElement;
+    expect(backdrop.getAttribute("src")).toBe("thumb.jpg");
+    expect(backdrop.getAttribute("aria-hidden")).toBe("true");
+    expect(backdrop.style.filter).toContain("blur");
+    expect(main.getAttribute("src")).toBe("big.jpg");
+    expect(main.style.objectFit).toBe("contain");
+    rerender(<PropertyPhoto fill sources={["big.jpg"]} />);
+    expect(container.querySelector("img[data-photo-backdrop]")).toBeNull();
+    expect((container.querySelector("img") as HTMLImageElement).style.objectFit).toBe("cover");
+  });
 });

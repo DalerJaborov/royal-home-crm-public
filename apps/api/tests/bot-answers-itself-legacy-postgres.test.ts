@@ -61,7 +61,10 @@ describe("№2: аварийный рубильник — готовые тек�
     const phone = digits(); cleanup.push(phone);
     const result = await turn({ channel: "INSTAGRAM", subscriberId: `off-phone-${runId}`, text: `Мой номер ${phone}` });
     expect(result.reply ?? "").toBe("");
-    expect(m.ai).not.toHaveBeenCalled();
+    // Модель ОТВЕТА не зовётся. Фоновая оценка новой карточки («score-client» и соседи) идёт своим путём после приёма и в
+    // этот ход не входит: без фильтра тест гонялся с ней и краснел через раз (20.11.2026, ревью #333).
+    const background = new Set(["card-fill", "client-current-intents", "score-client"]);
+    expect(m.ai.mock.calls.filter((call: unknown[]) => !background.has(String((call[0] as { endpoint?: string } | undefined)?.endpoint ?? "")))).toEqual([]);
     expect(await prisma.client.count({ where: { phone: { contains: phone.slice(-9) } } })).toBe(1);
   });
 });

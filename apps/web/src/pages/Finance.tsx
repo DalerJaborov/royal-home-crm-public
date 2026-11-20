@@ -36,6 +36,7 @@ import { ReportPdfActions } from "../components/ReportPdfActions";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalMoneyTiles } from "../components/look/money/RoyalMoneyTiles";
+import { RoyalMoneyStrip } from "../components/look/money/RoyalMoneyStrip";
 
 /**
  * ФИНАНСЫ — экран /finance темы «Royal Home 2026», перенесённый из прототипа
@@ -224,7 +225,7 @@ function FinanceScreen({ royal }: { royal: boolean }) {
   // и нужны на обеих ширинах.
   const mhHeaderShown = mobile && !clean && current !== undefined;
 
-  if (clean) return <FinanceFrame clean royal={royal}><ClaudeMoneyPage month={month} onMonthChange={setSelectedMonth} workspace={workspace} onWorkspaceChange={setWorkspace} canManage={canManage} archiveAllowed={can("archive.view")} onExport={exportCsv} exporting={exporting} exportError={exportError} pdfMonths={rangeMonths} overview={<>
+  if (clean) return <FinanceFrame clean royal={royal}><ClaudeMoneyPage royal={royal} summary={royal && current && !error ? <RoyalMoneyStrip current={current} previous={previous} /> : undefined} month={month} onMonthChange={setSelectedMonth} workspace={workspace} onWorkspaceChange={setWorkspace} canManage={canManage} archiveAllowed={can("archive.view")} onExport={exportCsv} exporting={exporting} exportError={exportError} pdfMonths={rangeMonths} overview={<>
     {error ? <CleanLoadError title="Финансовая сводка" retry={refetch} /> : isLoading ? <p className="cef-muted" role="status">Загружаем финансовую сводку…</p> : <>
       <div className="cef-overview-period"><label>Графики за<select value={rangeMonths} onChange={(event) => setRangeMonths(Number(event.target.value))}>{RANGE_OPTIONS.map((option) => <option key={option.months} value={option.months}>{option.label}</option>)}</select></label></div>
       {current ? royal ? <RoyalMoneyTiles
@@ -717,13 +718,13 @@ function CostPerLeadSection({ current }: { current: FinanceMonth | undefined }) 
   return (
     <div className="sec">
       <div className="sec-h">
-        <h2>Стоимость лида</h2>
+        <h2>Стоимость заявки</h2>
         <span className="note">этот месяц, по расходам категории «Реклама»</span>
       </div>
       <div className="card tight">
         {rows.length === 0 ? (
           <p className="state">
-            Добавьте расход категории «Реклама» с каналом: CRM посчитает стоимость лида по каждому каналу сама.
+            Добавьте расход категории «Реклама» с каналом: CRM посчитает стоимость заявки по каждому каналу сама.
           </p>
         ) : (
           <>
@@ -739,7 +740,7 @@ function CostPerLeadSection({ current }: { current: FinanceMonth | undefined }) 
               })}
             />
             <p className="state">
-              Чем короче полоса, тем дешевле лид. Каналы без лидов за месяц в список не попадают.
+              Чем короче полоса, тем дешевле заявка. Каналы без заявок за месяц в список не попадают.
             </p>
           </>
         )}

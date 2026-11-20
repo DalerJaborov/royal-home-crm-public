@@ -1,3 +1,4 @@
+import { RuDateField } from "../../components/look/fields/RuFields";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useServerSyncedFields } from "../../hooks/useServerSyncedForm";
 import { Link } from "react-router-dom";
@@ -574,9 +575,8 @@ export function AssistantAuditSection() {
         </label>
         <label className="field">
           <span className="lab">Период с</span>
-          <input
+          <RuDateField
             className="inp"
-            type="date"
             value={from}
             onChange={(e) => {
               setFrom(e.target.value);
@@ -586,9 +586,8 @@ export function AssistantAuditSection() {
         </label>
         <label className="field">
           <span className="lab">по</span>
-          <input
+          <RuDateField
             className="inp"
-            type="date"
             value={to}
             onChange={(e) => {
               setTo(e.target.value);
@@ -1142,7 +1141,7 @@ export function ProblemReportsSection() {
       <div className="quiet">
         <span className="dot" />
         <span className="txt">
-          Отдельный отчёт о том, где агентство теряет: оборванные диалоги, непринятые лиды, просроченные
+          Отдельный отчёт о том, где агентство теряет: оборванные диалоги, непринятые заявки, просроченные
           обязательные окна, пропущенные звонки и застрявшие объекты. Сам отчёт живёт в разделе «Отчёты», с
           историей и заметками; директорам приходит пуш «разбор готов» с главным выводом.
         </span>

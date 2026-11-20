@@ -841,7 +841,7 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
             <span className="block mt-2" style={{ pointerEvents: "auto" }}>
               <MutationError
                 mutation={acceptLead.isError ? acceptLead : declineLead}
-                fallback={acceptLead.isError ? "Не удалось принять лид" : "Не удалось отклонить лид"}
+                fallback={acceptLead.isError ? "Не удалось принять заявку" : "Не удалось отклонить заявку"}
               />
             </span>
           )}
@@ -860,8 +860,8 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
       </div>
       {confirmDecline && (
         <ConfirmDialog
-          title="Отклонить лид?"
-          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Лид сразу уйдёт следующему свободному агенту, а если отдать некому или лид по вашему объекту — руководителю. Эту карточку вы больше не увидите."
+          title="Отклонить заявку?"
+          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Заявка сразу уйдёт следующему свободному агенту, а если отдать некому или заявка по вашему объекту — руководителю. Эту карточку вы больше не увидите."
           confirmLabel="Отклонить"
           onConfirm={confirmRejection}
           onCancel={() => setConfirmDecline(false)}

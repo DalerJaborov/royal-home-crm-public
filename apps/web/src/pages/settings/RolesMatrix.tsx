@@ -172,7 +172,7 @@ function MatrixRow({ id, label, hint }: { id: PermissionId; label: string; hint?
     <tr>
       <td className="nm">
         <b>{label}</b>
-        <span>{hint ?? id}</span>
+        {hint && <span>{hint}</span>}
       </td>
       {ROLES.map((r) => {
         const m = markFor(r, id);

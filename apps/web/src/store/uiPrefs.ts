@@ -2,11 +2,13 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   LOOK_IDS,
+  TEXT_SIZE_IDS,
   homePreferencesSchema,
   migrateLegacyTheme,
   type HomeBlocksLayout,
   type LookId,
   type Role,
+  type TextSizeId,
   type ThemeId,
   type UiPreferences,
 } from "@royal-home/shared";
@@ -20,7 +22,7 @@ import { readCleanNavigationOrder } from "../lib/cleanNavigationPreference";
 /** Идентификаторы виджетов дашборда, доступных к скрытию (Dashboard.tsx). */
 export const DASHBOARD_WIDGETS = [
   { id: "kpis", label: "Показатели (KPI)" },
-  { id: "myLeads", label: "Мои лиды" },
+  { id: "myLeads", label: "Мои заявки" },
   { id: "commission", label: "График комиссии" },
   { id: "properties", label: "Объекты" },
   { id: "funnel", label: "Воронка" },
@@ -28,7 +30,7 @@ export const DASHBOARD_WIDGETS = [
   { id: "districts", label: "Объекты по районам" },
   { id: "propertiesTrend", label: "Динамика объектов" },
   { id: "today", label: "Задачи на сегодня" },
-  { id: "sources", label: "Источники лидов" },
+  { id: "sources", label: "Источники заявок" },
   { id: "heatmap", label: "Тепловая карта обращений" },
   { id: "pulse", label: "Пульс команды" },
   { id: "team", label: "Команда · сейчас" },
@@ -43,6 +45,9 @@ interface UiPrefsValues {
   theme: ThemeId;
   /** Облик — компоновка экрана. Независим от темы: тема меняет цвета, облик — саму раскладку. */
   look: LookId;
+  /** Размер текста нового вида: обычный / крупный / очень крупный (Профиль → Оформление).
+   *  Не выбран (undefined) — обычный; на сервер уходит только выбранный. */
+  textSize?: TextSizeId;
   aurora: boolean;
   glass: boolean;
   dashboardHidden: string[];
@@ -76,6 +81,7 @@ interface UiPrefsState extends UiPrefsValues {
   saveDesktopNavigationOrder: (order: string[]) => Promise<void>;
   setTheme: (theme: ThemeId) => void;
   setLook: (look: LookId) => void;
+  setTextSize: (size: TextSizeId) => void;
   setAurora: (on: boolean) => void;
   setGlass: (on: boolean) => void;
   setAutoLogoutMinutes: (minutes: number | null) => void;
@@ -115,6 +121,7 @@ const DEFAULT_PREFS: UiPrefsValues = {
   // Классический по умолчанию: смена облика — осознанный выбор сотрудника,
   // а не сюрприз после обновления.
   look: "classic",
+  textSize: undefined,
   aurora: true,
   glass: computeDefaultGlass(),
   dashboardHidden: [],
@@ -136,6 +143,9 @@ function applyToDom(state: UiPrefsValues) {
   const el = document.documentElement;
   el.dataset.theme = state.theme;
   el.dataset.look = state.look;
+  // Размер текста: «обычный» — без атрибута (множитель 1 в theme-look-royal.css).
+  if (state.textSize && state.textSize !== "normal") el.dataset.textSize = state.textSize;
+  else delete el.dataset.textSize;
   el.classList.toggle("fx-no-aurora", !state.aurora);
   el.classList.toggle("fx-no-glass", !state.glass);
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
@@ -161,6 +171,8 @@ function buildPrefsBody(state: UiPrefsValues): UiPreferences {
   return {
     theme: state.theme,
     look: state.look,
+    // Только выбранный: устройство, где размер не трогали, не перетирает выбор с другого устройства.
+    ...(state.textSize ? { textSize: state.textSize } : {}),
     effects: { aurora: state.aurora, glass: state.glass },
     dashboard: { hidden: [...state.dashboardHidden] },
     ...(state.navigationOwnerId === useAuthStore.getState().agent?.id
@@ -308,6 +320,7 @@ export const useUiPrefs = create<UiPrefsState>()(
         },
         setTheme: (theme) => commit({ theme }),
         setLook: (look) => commit({ look }),
+        setTextSize: (textSize) => commit({ textSize }),
         setAurora: (aurora) => commit({ aurora }),
         setGlass: (glass) => commit({ glass }),
         setAutoLogoutMinutes: (autoLogoutMinutes) => commit({ autoLogoutMinutes }),
@@ -394,6 +407,7 @@ export const useUiPrefs = create<UiPrefsState>()(
             // клиента с undefined-темой.
             theme: prefs.theme ? migrateLegacyTheme(prefs.theme) : get().theme,
             look: prefs.look && LOOK_IDS.includes(prefs.look) ? prefs.look : get().look,
+            textSize: prefs.textSize && TEXT_SIZE_IDS.includes(prefs.textSize) ? prefs.textSize : get().textSize,
             aurora: prefs.effects?.aurora ?? get().aurora,
             glass: prefs.effects?.glass ?? get().glass,
             dashboardHidden: prefs.dashboard?.hidden ?? get().dashboardHidden,
@@ -430,6 +444,7 @@ export const useUiPrefs = create<UiPrefsState>()(
       partialize: (s) => ({
         theme: s.theme,
         look: s.look,
+        textSize: s.textSize,
         aurora: s.aurora,
         glass: s.glass,
         dashboardHidden: s.dashboardHidden,

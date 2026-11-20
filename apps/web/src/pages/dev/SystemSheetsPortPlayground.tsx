@@ -484,7 +484,7 @@ export default function SystemSheetsPortPlayground() {
         )}
         {ready && which === "stepup" && (
           <StepUpDialog
-            description="Разморозка возвращает сотруднику выдачу лидов. Подтвердите, что это вы."
+            description="Разморозка возвращает сотруднику выдачу заявок. Подтвердите, что это вы."
             onConfirmed={noop}
             onCancel={noop}
           />

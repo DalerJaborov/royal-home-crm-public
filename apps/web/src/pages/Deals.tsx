@@ -448,7 +448,7 @@ export function Deals() {
                   onOpen={() => openClient(d.id)}
                   actions={(canPayout || canComplete) ? <>
                     {canPayout && (
-                      <button className="ry-btn" data-variant="gray" type="button" onClick={() => setArchiveDocsDealId(d.id)}>
+                      <button className="ry-btn" data-variant="secondary" type="button" onClick={() => setArchiveDocsDealId(d.id)}>
                         Документы
                       </button>
                     )}
@@ -481,7 +481,7 @@ export function Deals() {
                   {/* Отказной лид: агентская часть комиссии делится 70/30, а не поровну —
                       это надо видеть в списке выплат, а не только в снапшоте сделки. */}
                   {d.refusedLeadSplit && (
-                    <span className="chip mute" title="Отказной лид: 70% продавшему, 30% приведшему объект">
+                    <span className="chip mute" title="Отказная заявка: 70% продавшему, 30% приведшему объект">
                       70/30
                     </span>
                   )}

@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { dateRangeQuerySchema, reportDateRangeError } from "@royal-home/shared";
+import { dateRangeQuerySchema, reportDateRangeError, RATED_ROLES } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { visibleInteractionWhere } from "./investigationPrivacy.js";
 import { loadMoneyContext, roundMoney, toTjs } from "./money.js";
 import { dushanbeStartOfMonth, dushanbeEndOfDay, dushanbeDayRange } from "./dushanbeTime.js";
 import { COUNTED_SHOWING_WHERE } from "./tasks.js";
 import { logSystemError } from "./systemError.js";
+import { neverContactedWhere, STAFF_CONTACT_INTERACTION_WHERE } from "./noContact.js";
 
 /**
  * ОТЧЁТЫ «ВОРОНКА», «ПО АГЕНТАМ», «ИСТОЧНИКИ» — один расчёт для экрана «Отчёты»
@@ -75,7 +76,11 @@ export async function buildFunnelReport(range: { from: Date; to: Date }, viewer:
       by: ["clientId"],
       // client.deletedAt — иначе «На контакте» считалось по удалённым клиентам, и
       // воронка расширялась вместо того, чтобы сужаться: 10 лидов, 12 на контакте.
-      where: { ...visible, archiveReview: false, type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
+      // «Связались» — то же правило, что «Не связывались» по всей CRM (lib/noContact.ts,
+      // ревью #336): пропущенный входящий звонок клиента и заметка сотрудника связью не
+      // считаются. Здесь — записи связи за период; переписка живёт в разговорах и в эту
+      // событийную цифру не входит (её учитывает воронка заявок ниже).
+      where: { AND: [visible, STAFF_CONTACT_INTERACTION_WHERE], createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
     }),
     // COUNTED_SHOWING_WHERE — отменённый показ не состоялся, и в воронке ему не
     // место: иначе шаг «Показы» шире шага «На контакте» на встречи, которых не было.
@@ -103,13 +108,61 @@ export async function buildFunnelReport(range: { from: Date; to: Date }, viewer:
   const dealsCount = completedDeals.reduce((sum, row) => sum + row._count._all, 0);
 
   return [
-    { key: "leads", label: "Новые лиды", count: newLeads },
+    { key: "leads", label: "Новые заявки", count: newLeads },
     { key: "contacted", label: "На контакте", count: contactedClientIds.length },
     { key: "showings", label: "Показы", count: showings },
     { key: "negotiations", label: "Переговоры", count: negotiations },
     // Деньги — только с правом на финансы (аудит 23.09.2026, №44): отчёты
     // открыты маркетингу и службе безопасности, комиссия им не положена.
     { key: "deals", label: "Сделки", count: dealsCount, commission: viewer.seesMoney ? commission : null },
+  ];
+}
+
+/**
+ * ВОРОНКА ЗАЯВОК ПЕРИОДА (разделы директора, 20.11.2026).
+ *
+ * Прежняя воронка (buildFunnelReport выше) считает СОБЫТИЯ по их собственным
+ * датам: новые карточки, показы, начатые и закрытые сделки периода. Шаги там
+ * про разных людей, и «Переговоры 4» при «Показах 0» или проценты больше 100 —
+ * не ошибка подписи, а ошибка смысла: воронки из таких чисел не бывает.
+ *
+ * Здесь — когорта: берём заявки, пришедшие за период, и считаем, сколько ИЗ НИХ
+ * дошло до каждого шага к сегодняшнему дню. Шаг засчитывается, если клиент
+ * дошёл до него ИЛИ ДАЛЬШЕ (сделка без записанного показа всё равно прошла
+ * показ), поэтому каждый шаг не больше предыдущего по построению, и доля шага
+ * от заявок никогда не превышает 100 %.
+ *
+ * Считает база (count с условием по связям) — карточки в память не тянутся.
+ */
+export interface FunnelCohortStep {
+  key: "leads" | "contacted" | "showings" | "negotiations" | "deals";
+  label: string;
+  count: number;
+}
+
+export async function buildFunnelCohort(range: { from: Date; to: Date }, viewer: ReportViewer): Promise<FunnelCohortStep[]> {
+  const { from, to } = range;
+  const visible = visibleInteractionWhere(viewer.investigationRole);
+  const cohort = { createdAt: { gte: from, lte: to }, deletedAt: null };
+  const anyDeal = { deals: { some: {} } };
+  const showing = { interactions: { some: { ...visible, type: "SHOWING" as const, ...COUNTED_SHOWING_WHERE } } };
+  // «Связались» — общее правило CRM «с клиентом связывались» (NOT neverContactedWhere,
+  // lib/noContact.ts): звонок с исходом дозвона, разговор, встреча или показ сотрудника,
+  // сообщение сотрудника в переписке. Пропущенный входящий и заметка — не связь.
+  const contact = { NOT: neverContactedWhere() };
+  const [leads, contacted, showings, negotiations, deals] = await Promise.all([
+    prisma.client.count({ where: cohort }),
+    prisma.client.count({ where: { ...cohort, OR: [contact, showing, anyDeal] } }),
+    prisma.client.count({ where: { ...cohort, OR: [showing, anyDeal] } }),
+    prisma.client.count({ where: { ...cohort, ...anyDeal } }),
+    prisma.client.count({ where: { ...cohort, deals: { some: { stage: "COMPLETED" } } } }),
+  ]);
+  return [
+    { key: "leads", label: "Новые заявки", count: leads },
+    { key: "contacted", label: "Связались", count: contacted },
+    { key: "showings", label: "Дошли до показа", count: showings },
+    { key: "negotiations", label: "Дошли до переговоров", count: negotiations },
+    { key: "deals", label: "Закрыли сделку", count: deals },
   ];
 }
 
@@ -137,7 +190,18 @@ export async function buildAgentsReport(range: { from: Date; to: Date }, viewer:
   // сделками в периоде остаётся строкой с пометкой «не работает».
   const agents = await prisma.agent.findMany({
     where: {
-      OR: [{ isActive: true }, { deals: { some: { stage: "COMPLETED", closedAt: { gte: from, lte: to } } } }],
+      // Рейтинг — про тех, с кем сравнивают (20.11.2026): общий список RATED_ROLES
+      // (агенты; РОП с ними не соревнуется, акционер, маркетинг, монтаж и служба
+      // безопасности сделок не ведут — «Акционер» стоял нулевой строкой среди агентов).
+      // Кто бы ни закрыл сделку в периоде (директор или РОП сам продал), остаётся
+      // строкой: иначе сумма сделок по людям не сойдётся с итогом воронки (C17).
+      OR: [
+        { isActive: true, role: { in: [...RATED_ROLES] } },
+        { deals: { some: { stage: "COMPLETED", closedAt: { gte: from, lte: to } } } },
+        // Тот же довод для показов: администратор, сам проводивший показы в периоде,
+        // остаётся строкой — иначе сумма показов по людям не сойдётся с воронкой.
+        { interactions: { some: { ...visible, type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: { gte: from, lte: to }, client: { deletedAt: null } } } },
+      ],
     },
     select: { id: true, fullName: true, avatarUrl: true, isActive: true },
     orderBy: { fullName: "asc" },

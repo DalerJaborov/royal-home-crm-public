@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { exactDateTime } from "../../../lib/format";
-import { cleanClientTabList, cleanRecordTabForKey, type CleanClientTab } from "../../clean/CleanClientDetailLayout";
+import { cleanClientTabList, type CleanClientTab } from "../../clean/CleanClientDetailLayout";
+import { RhTabs } from "../ui";
 import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
 
@@ -154,27 +155,19 @@ const TAB_ICONS: Record<CleanClientTab, RoyalIconName> = {
 export function RoyalClientTabs({ value, onChange, objectsLabel = "Объекты" }: { value: CleanClientTab; onChange: (value: CleanClientTab) => void; objectsLabel?: string }) {
   // Тот же список, что у CleanClientDetailTabs (одно место: cleanClientTabList).
   const tabs = cleanClientTabList(objectsLabel);
-  const ids = tabs.map((t) => t.id);
   return (
-    <div role="tablist" aria-label="Разделы карточки клиента" className="ry-ctabs">
-      {tabs.map(({ id, label, short }) => (
-        <button key={id} type="button" role="tab" id={`clean-client-tab-${id}`}
-          aria-selected={id === value} aria-label={label} aria-controls={`clean-client-panel-${id}`} tabIndex={id === value ? 0 : -1}
-          className="ry-ctab"
-          onClick={(event) => { onChange(id); event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" }); }}
-          onKeyDown={(event) => {
-            const next = cleanRecordTabForKey(ids, id, event.key);
-            if (!next) return;
-            event.preventDefault();
-            onChange(next);
-            event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#clean-client-tab-${next}`)?.focus();
-          }}
-        >
+    <RhTabs
+      className="ry-ctabs" tabClassName="ry-ctab" idPrefix="clean-client" label="Разделы карточки клиента"
+      value={value} onChange={onChange}
+      tabs={tabs.map(({ id, label, short }) => ({
+        id, ariaLabel: label,
+        label: <>
           <RoyalIcon name={TAB_ICONS[id]} size={20} />
           <span className="ry-ctab-long">{label}</span>
           <span className="ry-ctab-short" aria-hidden="true">{short}</span>
-        </button>
-      ))}
-    </div>
+        </>,
+      }))}
+    />
   );
 }
+

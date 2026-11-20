@@ -164,8 +164,11 @@ describe("theme-look-royal*.css", () => {
 export function normalizeClassAttr(css: string): string {
   return css.replace(/\[\s*class\s*~=\s*(["']?)([\w-]+)\1(?:\s+[is])?\s*\]/gi, ".$2");
 }
-/** Исключения: кнопки с Tailwind-фоном (`bg-…`) исключаются из перекраски — это не класс, а семейство. */
-const CLASS_ATTR_ALLOWED = new Set(['[class*="bg-"]']);
+/**
+ * Исключения — семейства Tailwind, а не классы: кнопки с фоном (`bg-…`) исключаются из перекраски,
+ * поля с рамкой (`border…`) — из общей границы поля (пачка C, ревью #337: двойная рамка).
+ */
+const CLASS_ATTR_ALLOWED = new Set(['[class*="bg-"]', '[class*="border"]']);
 /** Формы атрибута класса, которые сторожа не умеют читать как класс: в слоях их быть не должно. */
 export function classAttributeForms(css: string): string[] {
   const text = normalizeClassAttr(css.replace(/\/\*[\s\S]*?\*\//g, ""));
@@ -657,6 +660,8 @@ export const HIDING_ALLOWED = new Set<string>([
   // admin: на телефоне экран на Rh2Screen отдаёт название шапке оболочки — второй такой же
   // заголовок на странице («Уведомления», «Мой профиль») только для экранного чтеца.
   `${R}[data-mobile-ux] .ry-admin[data-ry-section="admin"] .pg-h h1[data-dup]`,
+  // Единые вкладки (RhTabs, пачка C): полоса прокрутки ленты вкладок — прокрутка пальцем остаётся.
+  `${R} :is(.ry-tabs, .seg.rh-tabs)::-webkit-scrollbar`,
 ]);
 export function hiddenTextSelectors(css: string): string[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -1115,3 +1120,71 @@ ${P} .tbl-wrap { overflow-x: auto; }`, hinted)).toEqual([]);
   });
 });
 
+
+/**
+ * КОНСТИТУЦИЯ ОБОЛОЧКИ — ШКАЛЫ И КОНТРАСТ (пачка C, 20.11.2026). Литералы вне токенов сторожит
+ * scripts/audit-look.mjs; здесь — сами шкалы: их длина, нижние пороги и контраст пар в обеих темах.
+ */
+describe("конституция оболочки: шкалы токенов и контраст", () => {
+  const base = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const blockVars = (head: string) => {
+    const vars: Record<string, string> = {};
+    for (const m of base.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (m[1].trim() !== head) continue;
+      for (const d of m[2].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) vars[d[1]] = d[2].trim();
+    }
+    return vars;
+  };
+  const light = blockVars(':root[data-ui-look="royal"]');
+  const night = { ...light, ...blockVars(':root[data-ui-look="royal"][data-theme="royal-home-2026-night"]') };
+  const resolve = (vars: Record<string, string>, value: string, depth = 0): string => {
+    const m = /^var\((--[\w-]+)\)$/.exec(value.trim());
+    return m && depth < 8 ? resolve(vars, vars[m[1]] ?? "", depth + 1) : value.trim();
+  };
+  const rgb = (hex: string) => { const h = hex.replace("#", ""); return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255); };
+  const lum = (hex: string) => { const [r, g, b] = rgb(hex).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const contrast = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
+  it("шрифт: 8 ступеней × личный масштаб, мельче 13 нет; на телефоне текст 17, вторичный 15, строка 18", () => {
+    const steps = Object.entries(light).filter(([k]) => /^--rh-fs-[\w]+-base$/.test(k)).map(([, v]) => parseFloat(v));
+    expect(steps).toHaveLength(8);
+    expect(Math.min(...steps)).toBeGreaterThanOrEqual(13);
+    for (const name of ["xs", "sm", "md", "lg", "xl", "2xl", "3xl", "4xl"]) {
+      expect(light[`--rh-fs-${name}`]).toBe(`calc(var(--rh-fs-${name}-base) * var(--rh-text-scale))`);
+    }
+    const phone = /@media \(max-width: 767\.98px\) \{\s*:root\[data-ui-look="royal"\] \{([^}]*)\}/.exec(base)?.[1] ?? "";
+    const touch = /:root\[data-ui-look="royal"\]\[data-mobile-ux\] \{([^}]*)\}/.exec(base)?.[1] ?? "";
+    for (const block of [phone, touch]) {
+      expect(parseFloat(/--rh-fs-sm-base:\s*([\d.]+)px/.exec(block)?.[1] ?? "0")).toBeGreaterThanOrEqual(15);
+      expect(parseFloat(/--rh-fs-md-base:\s*([\d.]+)px/.exec(block)?.[1] ?? "0")).toBe(17);
+      expect(parseFloat(/--rh-fs-lg-base:\s*([\d.]+)px/.exec(block)?.[1] ?? "0")).toBe(18);
+    }
+    expect(base).toMatch(/:root\[data-ui-look="royal"\]\[data-text-size="large"\] \{ --rh-text-scale: 1\.12; \}/);
+    expect(base).toMatch(/:root\[data-ui-look="royal"\]\[data-text-size="xlarge"\] \{ --rh-text-scale: 1\.25; \}/);
+  });
+  it.each([["светлая", light], ["тёмная", night]] as const)("%s тема: серый вторичный текст ≥ 4,5:1 к карточке, фону и подложке", (_, vars) => {
+    const hint = resolve(vars, "var(--rh-ui-hint)");
+    for (const surface of ["--rh-ui-card", "--rh-ui-bg", "--rh-ui-raised"]) {
+      expect(contrast(hint, resolve(vars, `var(${surface})`)), `${hint} к ${surface}`).toBeGreaterThanOrEqual(4.5);
+    }
+    // Тройка для tailwind text-g500/g600 — тот же цвет.
+    expect(vars["--rh-ui-hint-rgb"].split(/\s+/).map(Number)).toEqual(rgb(hint).map((c) => Math.round(c * 255)));
+  });
+  it("скругления — четыре, тени — три", () => {
+    expect(Object.keys(light).filter((k) => /^--rh-r-/.test(k)).sort()).toEqual(["--rh-r-full", "--rh-r-lg", "--rh-r-md", "--rh-r-sm"]);
+    expect(Object.keys(light).filter((k) => /^--rh-ui-shadow(-sm|-lg)?$/.test(k)).sort()).toEqual(["--rh-ui-shadow", "--rh-ui-shadow-lg", "--rh-ui-shadow-sm"]);
+  });
+  it.each([["светлая", light], ["тёмная", night]] as const)("%s тема: граница поля ≥ 3:1 к карточке, фону и подложке поля", (_, vars) => {
+    const line = resolve(vars, "var(--rh-ui-field-line)");
+    for (const surface of ["--rh-ui-card", "--rh-ui-bg", "--rh-ui-raised"]) {
+      expect(contrast(line, resolve(vars, `var(${surface})`)), `${line} к ${surface}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+  it.each([["светлая", light], ["тёмная", night]] as const)("%s тема: выбранный вариант переключателя отличим от трека, текст читается", (_, vars) => {
+    const on = resolve(vars, "var(--rh-seg-on)");
+    const track = resolve(vars, "var(--rh-seg-track)");
+    expect(on).not.toBe(track);
+    expect(contrast(resolve(vars, "var(--rh-seg-on-fg)"), on)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(resolve(vars, "var(--rh-tab-on-fg)"), resolve(vars, "var(--rh-tab-on)").startsWith("#") ? resolve(vars, "var(--rh-tab-on)") : resolve(vars, "var(--rh-ui-card)"))).toBeGreaterThanOrEqual(4.5);
+  });
+});

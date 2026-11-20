@@ -22,7 +22,7 @@ export function RoyalDealsHead({ scope, filterCount, onFilter, onCreate }: {
       {(onFilter || onCreate) && (
         <div className="ry-deals-head-acts">
           {onFilter && (
-            <button type="button" className="ry-btn" data-variant="gray" data-active={filterCount > 0 ? "true" : undefined}
+            <button type="button" className="ry-btn" data-variant="secondary" data-active={filterCount > 0 ? "true" : undefined}
               aria-label={filterCount > 0 ? `Фильтры, выбрано ${filterCount}` : undefined} onClick={onFilter}>
               <DealIcon name="sliders" size={20} />Фильтры{filterCount > 0 && <span className="ry-deals-dot" aria-hidden="true" />}
             </button>

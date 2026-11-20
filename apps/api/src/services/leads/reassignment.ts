@@ -243,7 +243,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
             lead,
             lead.assignedAgentId, // агент объекта остаётся — эскалации ещё нет
             { ownPropertyReminderSentAt: new Date() },
-            `Клиент по вашему объекту не принят за ${minutes} мин — напоминание хозяину, эскалация только при продолжающемся молчании`,
+            `Клиент по вашему объекту не принята за ${minutes} мин — напоминание хозяину, эскалация только при продолжающемся молчании`,
             "reassignment.ownPropertyRemind",
             lead.assignedAgentId!
           );
@@ -277,7 +277,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         // (владелец 20.09.2026, см. lib/notifications.ts::notifyFeedOnly).
         await notifyFeedOnly(supervisors, {
           kind: "lead",
-          title: "Лид по объекту не принят вовремя",
+          title: "Заявка по объекту не принята вовремя",
           body: `${lead.fullName}: хозяин объекта не принял заявку за ${minutes * 2} мин — переназначить может только руководитель`,
           url: `/clients/${lead.shortId}`,
           tag: `lead-escalated-${lead.id}`,
@@ -336,7 +336,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         if (!alreadyNotifiedFullCircle) {
           await notifyFeedOnly(supervisors, {
             kind: "lead",
-            title: "Лид прошёл всех агентов",
+            title: "Заявка прошла всех агентов",
             body: `${lead.fullName}: никто не принял за полный круг — назначьте вручную, карусель продолжает крутиться`,
             url: `/clients/${lead.shortId}`,
             tag: fullCircleTag,
@@ -405,11 +405,11 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         const allDeclined =
           declined.length > 0 && !(await pickAgentForLead(withDeclined([lead.assignedAgentId!]), leadKind));
         const escalationReason = allDeclined
-          ? "Все доступные агенты отказались от лида — эскалация руководителю, требует внимания"
-          : "Свободных агентов, принимающих лиды, не осталось вовсе — эскалация руководителю, требует внимания";
+          ? "Все доступные агенты отказались от заявки — эскалация руководителю, требует внимания"
+          : "Свободных агентов, принимающих заявки, не осталось вовсе — эскалация руководителю, требует внимания";
         const escalationNotifyBody = allDeclined
-          ? `${lead.fullName}: все доступные агенты отказались от лида — назначьте вручную`
-          : `${lead.fullName}: свободных агентов, принимающих лиды, не осталось — назначьте вручную`;
+          ? `${lead.fullName}: все доступные агенты отказались от заявки — назначьте вручную`
+          : `${lead.fullName}: свободных агентов, принимающих заявки, не осталось — назначьте вручную`;
         const claimed = await claimLead(
           lead,
           lead.assignedAgentId, // агент не меняется — только эскалируем
@@ -438,7 +438,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         lead,
         nextAgentId,
         { assignedAt: new Date(), reassignCount: { increment: 1 }, triedAgentIds: triedNow },
-        `Лид переназначен автоматически: не принят за ${minutes} мин`,
+        `Заявка переназначена автоматически: не принята за ${minutes} мин`,
         "reassignment.stale",
         nextAgentId
       );
@@ -458,7 +458,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
        * нём и получит минус. Убрано только «📤 Карточка передана» прежнему агенту.
        */
       sendLeadPush(nextAgentId, lead.id, {
-        title: "🤝 Лид переназначен вам",
+        title: "🤝 Заявка переназначена вам",
         body: `${lead.fullName} — предыдущий агент не принял заявку вовремя`,
         url: `/clients/${lead.shortId}`,
         tag: `lead-${lead.id}`,
@@ -838,7 +838,7 @@ export async function assignPendingLeads(): Promise<number> {
       const moved = await changeClientAgent({
         clientId: lead.id,
         toAgentId: agentId,
-        reason: "Лид назначен утренней волной распределения (поступил вне рабочих часов)",
+        reason: "Заявка назначена утренней волной распределения (поступила вне рабочих часов)",
         actorId: null,
         interactionAgentId: agentId,
         source: "reassignment.wave",
@@ -852,7 +852,7 @@ export async function assignPendingLeads(): Promise<number> {
        * `ok`, а дальше безусловно шли причина назначения, счётчик и пуш. Запись
        * отказывает штатно: карточка ушла в Корзину, кто-то успел первым (гонка
        * guardWhere), закон П-3 заменил передачу эскалацией — и во всех трёх
-       * случаях агент получал пуш «🔔 Новый лид с ночи» о лиде, которого у него
+       * случаях агент получал пуш «🔔 Новая заявка с ночи» о лиде, которого у него
        * нет, а `assignReason`/`ownPropertyLead` ложились на карточку без
        * назначения. Рядом, в reassignStaleLeads, тот же вызов давно обёрнут в
        * claimLead с `if (!claimed) continue` — здесь этой половины не хватало.
@@ -862,7 +862,7 @@ export async function assignPendingLeads(): Promise<number> {
       assigned++;
 
       sendLeadPush(agentId, lead.id, {
-        title: "🔔 Новый лид с ночи",
+        title: "🔔 Новая заявка с ночи",
         body: `${lead.fullName} — примите заявку`,
         url: `/clients/${lead.shortId}`,
         tag: `lead-${lead.id}`,

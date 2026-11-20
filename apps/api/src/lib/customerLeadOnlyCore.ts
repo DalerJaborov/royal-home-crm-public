@@ -87,6 +87,8 @@ export interface CustomerLeadOnlyTurnInput {
   now?: Date;
   /** Только для тестов: подмена модели понимания оператора. */
   model?: LeadOnlyIntentModel;
+  /** Только для тестов: подмена модели «своими словами». */
+  composeModel?: LeadOnlyIntentModel;
 }
 
 export interface CustomerLeadOnlyTurnPlan {
@@ -163,8 +165,9 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput)
   const own = clientOwnWords(input.inputText);
   const wa = input.channel === "WHATSAPP" && input.config.useWhatsappNumber ? await resolveWhatsAppLeadIdentity(input.channel, input.peer) : null;
   const setup = await loadOperatorTurnSetup({ channel: input.channel, conversationId: input.conversationId, config: input.config,
-    focusPropertyId: input.focusPropertyId, phoneKnownByChannel: !!wa?.leadPhone, now });
+    focusPropertyId: input.focusPropertyId, phoneKnownByChannel: !!wa?.leadPhone, peerPhone: input.channel === "WHATSAPP" ? input.peer : null, now });
   const operator = await runOperatorTurn({ storedState: setup.stored, ctx: setup.ctx, now, ...(input.model ? { model: input.model } : {}),
+    ownWords: { enabled: input.config.ownWords === true, ...(input.composeModel ? { model: input.composeModel } : {}) },
     input: { current: input.inputText, recent: input.turns, conversationId: input.conversationId, ...(input.attachments ? { attachments: input.attachments } : {}) } });
   const intakes: CustomerLeadOnlyIntake[] = [];
   let signal: CustomerLeadOnlyTurnPlan["signal"];
@@ -318,6 +321,8 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
       clientText: sealed.clientText, silent: true, fromHistory: true,
       ...(intake.modelFailed ? { leadNote: LEAD_MODEL_FAILED_NOTE } : {}),
     });
+  // Проверяющий (дверь — acceptLead): заявку не заводили нарочно, тревоги нет.
+  if (result.reviewer) return { status: "skipped", reason: "reviewer" };
   const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id },
     select: { client: { select: { kind: true, assignedAgentId: true } } } });
   if (!linked?.client) {

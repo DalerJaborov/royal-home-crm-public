@@ -270,7 +270,7 @@ export function PropertyVideoManager({
               disabled={archiving}
               title="Скачать все видео одним архивом"
             >
-              {archiving ? "Архивируем…" : "Скачать всё (.zip)"}
+              {archiving ? "Архивируем…" : "Скачать все видео"}
             </button>
           )}
           {readOnly && onStartEdit && (
@@ -383,7 +383,7 @@ export function PropertyVideoManager({
                         </span>
                       )}
                       {v.videoCodec && <span className="chip mute">{v.videoCodec}</span>}
-                      {v.hasAudio === false && <span className="chip crit">⚠ без звука</span>}
+                      {v.hasAudio === false && <span className="chip crit">Без звука</span>}
                     </div>
                   )}
                 </div>

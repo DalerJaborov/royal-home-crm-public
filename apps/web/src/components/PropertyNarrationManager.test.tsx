@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -88,7 +89,7 @@ describe("20.11: блок в карточке — короткий статус,
   });
   it("готова: «Одобрить» сразу под плеером, голос и текст НЕ открыты; «Изменить голос или текст» — отдельной кнопкой ниже", () => {
     const html = render({ versions: [version({ audioSec: 27 })] }, "card");
-    expect(html).toContain("Новая озвучка готова"); expect(html).toContain("▶ Послушать"); expect(html).toContain("0:27");
+    expect(html).toContain("Послушайте новую озвучку"); expect(html).toContain(`aria-label="Послушать"`); expect(html).toContain("0:00 / 0:27"); expect(html).not.toContain("<audio");
     expect(html).toContain('aria-label="Перемотать запись"');
     expect(html).toContain("✓ Одобрить"); expect(html).not.toContain("Утвердить и выпустить");
     expect(html.indexOf("✓ Одобрить")).toBeLessThan(html.indexOf("Изменить голос или текст"));
@@ -96,12 +97,26 @@ describe("20.11: блок в карточке — короткий статус,
     // Одна живая строка на блок.
     expect(html.match(/role="status"/g)).toHaveLength(1);
   });
+  it("плеер: длина из записи сервера, бесконечная/пустая длина браузера не ломает; заголовок и строка не повторяют друг друга", () => {
+    const html = render({ versions: [version({ audioSec: 27 })] }, "card");
+    expect(html).not.toContain("Infinity"); expect(html).not.toContain("NaN"); expect(html).toContain("0:00 / 0:27");
+    const title = /<h3[^>]*>([^<]*)<\/h3>/.exec(html)?.[1] ?? "";
+    expect(title).toBe("Послушайте новую озвучку");
+    expect(html).not.toMatch(/Послушайте и одобрите/);
+  });
+  it("запасной вариант плеера — штатный <audio controls> без ссылки на blob в новой вкладке", () => {
+    const source = readFileSync(`${process.cwd()}/src/components/PropertyNarrationManager.tsx`, "utf8");
+    const fallback = source.slice(source.indexOf('state === "fallback"'), source.indexOf("const buttonLabel"));
+    expect(fallback).toContain('<audio className="w-full" controls src={url.current} />');
+    expect(fallback).not.toContain("target=");
+    expect(source).not.toContain("aria-pressed={playing}");
+  });
   it("правка: свой заголовок и «Назад к прослушиванию»; поменяли текст — «Озвучить заново» без вопросов", async () => {
     postsReturn({ id: "v2", revision: 2, queued: true });
     mount({ versions: [version()] });
     fireEvent.click(screen.getByRole("button", { name: "Изменить голос или текст" }));
     expect(screen.getByRole("heading", { name: "Изменить голос или текст" })).toBeTruthy();
-    expect(screen.queryByText("Новая озвучка готова")).toBeNull();
+    expect(screen.queryByText("Послушайте новую озвучку")).toBeNull();
     expect(screen.queryByRole("button", { name: "✓ Одобрить" })).toBeNull();
     expect(screen.getByLabelText("Текст озвучки")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Текст озвучки"), { target: { value: "Квартира барои фурӯш, нархаш хуб. Масоҳаташ шасту ду метри мураббаъ." } });
@@ -176,9 +191,13 @@ describe("20.11: блок в карточке — короткий статус,
     const waiting = render({ published: true, versions: approved, release: mixing(null) }, "card");
     expect(waiting).toContain("в очереди на наложение"); expect(waiting).not.toContain("дольше обычного");
     const fresh = render({ published: true, versions: approved, release: mixing(new Date().toISOString()) }, "card");
-    expect(fresh).toContain("Обычно пара минут"); expect(fresh).toContain("Идёт 1 мин");
+    expect(fresh).toContain("обычно 2–3 минуты"); expect(fresh).toContain("Начали"); expect(fresh).toContain("идёт 1 мин");
+    expect(fresh).not.toContain("CRM накладывает"); expect(fresh).not.toContain(">Проверить<"); expect(fresh).not.toContain("w-1/2");
+    // Дольше обычного (6+ минут): честная строка и кнопка «Проверить»; 15+ — рассказ про повтор.
+    const long = render({ published: true, versions: approved, release: mixing(new Date(Date.now() - 8 * 60_000).toISOString()) }, "card");
+    expect(long).toContain("Дольше обычного"); expect(long).toContain(">Проверить<");
     const stuck = render({ published: true, versions: approved, release: mixing(new Date(Date.now() - 20 * 60_000).toISOString()) }, "card");
-    expect(stuck).toContain("дольше обычного"); expect(stuck).not.toContain("Обычно пара минут");
+    expect(stuck).toContain("дольше обычного"); expect(stuck).not.toContain("обычно 2–3 минуты");
   });
   it("наложение упало: «Попробовать ещё раз» зовёт повтор; «длиннее ролика» — без повтора", async () => {
     postsReturn({ message: "CRM попробует наложить озвучку ещё раз в течение минуты." });
@@ -262,7 +281,7 @@ describe("карточка объекта: озвучка для агента", 
   });
   it("новая озвучка не легла на вышедший ролик — агенту сказано, что дальше", () => {
     const approved = [version({ approvedAt: "2026-11-14" })];
-    expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: "VOICE_LONGER" } })).toContain("Обрезать голос CRM не стала");
+    expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: "VOICE_LONGER" } })).toContain("Обрезать голос мы не стали");
     expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: "FAILED" } })).toContain("в соцсетях пока прежний ролик");
     expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: null } })).not.toContain("warn-bg");
     // 16.11.2026: строка агенту, что CRM делает со звуком вышедшего ролика.
@@ -301,7 +320,7 @@ describe("карточка объекта: озвучка для агента", 
   });
   it("18.11: готово, ролик вышел — одна главная «Утвердить и выпустить», длина укладывается, старые посты снимет CRM", () => {
     const html = render({ published: true, clipSec: 35, changed: ["цена"], versions: [version()] });
-    expect(html).toContain("Новая озвучка готова"); expect(html).toContain("✓ Утвердить и выпустить");
+    expect(html).toContain("Послушайте новую озвучку"); expect(html).toContain("✓ Утвердить и выпустить");
     expect(html).toMatch(/Укладывается в ролик: ~\d+ с из 35 с/);
     expect(html).toContain("Старые посты CRM снимет сама");
     for (const gone of ["Оставить старый", "Прослушать перед выпуском", "Выпустить новый"]) expect(html).not.toContain(gone);
@@ -330,7 +349,7 @@ describe("карточка объекта: озвучка для агента", 
   });
   it("в спокойном состоянии — строка, «Послушать» и «Изменить озвучку»", () => {
     const quiet = render({ versions: [version({ approvedAt: "2026-11-18" })] }, "card");
-    expect(quiet).toContain("Озвучка утверждена"); expect(quiet).toContain("Изменить озвучку"); expect(quiet).toContain("▶ Послушать"); expect(quiet).not.toContain("Служебное");
+    expect(quiet).toContain("Озвучка утверждена"); expect(quiet).toContain("Изменить озвучку"); expect(quiet).toContain(`aria-label="Послушать"`); expect(quiet).not.toContain("Служебное");
   });
   it("общее правило длины: оценка по тексту словами, ускорение до 15 %, что поменялось — человеческими словами", () => {
     const check = narrationLengthCheck("Квартира в Душанбе. ".repeat(10), "ru", 10, null)!;

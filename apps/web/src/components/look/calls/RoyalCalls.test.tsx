@@ -105,13 +105,13 @@ describe("слой calls: кнопки звонка крупные и со св�
     const body = ruleBody('.ry-cw[data-ry-section="calls"] .cw2-btn.end');
     expect(body).toMatch(/background:\s*var\(--rh-ui-crit\)/);
     expect(px(body, "height")).toBeGreaterThanOrEqual(56);
-    const phone = /@media \(max-width: 640px\)[\s\S]*?\.cw2-btn\.end\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    const phone = /@media \(max-width: 767\.98px\)[\s\S]*?\.cw2-btn\.end\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
     expect(px(phone, "height")).toBeGreaterThanOrEqual(56);
   });
 
   it("трубка наборщика и «Перезвонить» — зелёные, общий синий их не красит", () => {
-    expect(ruleBody('[data-ry-section="calls"] .dp-call')).toMatch(/background:\s*var\(--ry-call-green\)/);
-    expect(ruleBody('[data-ry-section="calls"] .ry-call-act')).toMatch(/background:\s*var\(--ry-call-green\)/);
+    expect(ruleBody('[data-ry-section="calls"] .dp-call')).toMatch(/background:\s*var\(--rh-ui-call\)/);
+    expect(ruleBody('[data-ry-section="calls"] .ry-call-act')).toMatch(/background:\s*var\(--rh-ui-call\)/);
     expect(css.replace(/\/\*[\s\S]*?\*\//g, "")).not.toMatch(/\.(dp-call|ry-call-act)[^{]*\{[^}]*background:\s*var\(--rh-ui-primary/);
   });
 
@@ -137,11 +137,11 @@ describe("телефонные «Звонки»: зелёный круг и кр
     const rule = /\[data-ry-section="calls"\] \.ry-call-round \{([^}]*)\}/.exec(callsCss)![1];
     expect(rule).toMatch(/width:\s*44px/);
     expect(rule).toMatch(/height:\s*44px/);
-    expect(rule).toMatch(/background:\s*var\(--ry-call-green\)/);
-    expect(rule).toMatch(/color:\s*#f{6}\b/i); // белая трубка
+    expect(rule).toMatch(/background:\s*var\(--rh-ui-call\)/);
+    expect(rule).toMatch(/color:\s*var\(--rh-ui-on-color\)/); // белая трубка
   });
-  it("≤480 px: строка с кругами переносится, круги — под текстом", () => {
-    const narrow = callsCss.slice(callsCss.indexOf("@media (max-width: 480px)"));
+  it("телефон (до 768 px): строка с кругами переносится, круги — под текстом", () => {
+    const narrow = callsCss.slice(callsCss.indexOf("@media (max-width: 767.98px)"));
     expect(narrow).toMatch(/\.ry-call-row:has\(> \.ry-call-action :is\(\.ry-call-act, \.ry-call-round, \.ry-call-listen\)\) \{ flex-wrap: wrap; \}/);
     expect(narrow).toMatch(/\.ry-call-action:has\(:is\(\.ry-call-act, \.ry-call-round, \.ry-call-listen\)\) \{ flex: 1 1 100%;/);
   });

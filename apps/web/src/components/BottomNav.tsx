@@ -100,7 +100,7 @@ function Tab({ to, end, icon: Icon, label, badge, variant, royal }: NavItem & { 
  * первым пунктом меню для роли агента; директор/админ и другие роли видят
  * набор из 4 пунктов, состав задаёт FabMenu.tsx по образцу `SETS.boss` и т.д.
  * из прототипа. Владелец прислал скриншот именно такого меню. */
-export function BottomNavSurface({ variant, royal = false }: { variant: BottomNavVariant; royal?: boolean }) {
+export function BottomNavSurface({ variant, royal = false, chatOpen = false }: { variant: BottomNavVariant; royal?: boolean; chatOpen?: boolean }) {
   const legacy = variant === "legacy-agent";
   const glass = useUiPrefs((s) => s.glass);
   const { bottom } = useNavigation();
@@ -167,6 +167,9 @@ export function BottomNavSurface({ variant, royal = false }: { variant: BottomNa
     // считан по этой же высоте: 66 + 10 + safe-area = 96.
     <nav
       data-bottomnav
+      // Открыта переписка нового вида: на телефоне (< 820 px) она занимает весь экран и меню под ней не нужно —
+      // скрывает CSS (theme-2026-mobile-shell.css), а не размонтирование: на планшете это боковая рейка, она остаётся.
+      data-chat-open={chatOpen || undefined}
       className={legacy ? legacyStyle.nav : "sh-tabbar rh-glass md:hidden fixed bottom-0 left-0 right-0 z-40"}
       style={legacy ? {
         backdropFilter: glass ? "blur(18px) saturate(160%)" : "none",
@@ -238,8 +241,8 @@ export function BottomNavSurface({ variant, royal = false }: { variant: BottomNa
   );
 }
 
-export function BottomNav({ royal = false }: { royal?: boolean }) {
+export function BottomNav({ royal = false, chatOpen = false }: { royal?: boolean; chatOpen?: boolean }) {
   const legacy = useLegacyAgentMobile();
   // The legacy agent phone bar has its own contract; «Новый вид» never restyles it.
-  return <BottomNavSurface key={legacy ? "legacy-agent" : "current"} variant={legacy ? "legacy-agent" : "current"} royal={royal && !legacy} />;
+  return <BottomNavSurface key={legacy ? "legacy-agent" : "current"} variant={legacy ? "legacy-agent" : "current"} royal={royal && !legacy} chatOpen={chatOpen && !legacy} />;
 }
