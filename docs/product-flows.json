@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4194,
+  "forks": 4196,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -99534,6 +99534,14 @@
        "c": [
         {
          "k": "do",
+         "t": "await autoLinkInstagramPages().catch((err)",
+         "a": [
+          "зовёт autoLinkInstagramPages()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const totals = await checkInstagramSubscriptions();",
          "a": [
           "зовёт checkInstagramSubscriptions()"
@@ -99558,6 +99566,14 @@
            "t": "await logSystemError( \"meta\", `Instagram «${s.title}»: диалоги в CRM не обновлялись с ${last}, хотя у другого…",
            "a": [
             "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await raiseCriticalAlarm({ tag: `ig-account-silent:${s.id}:${last}`, title: \"Instagram: в аккаунт не приходят…",
+           "a": [
+            "зовёт raiseCriticalAlarm()"
            ],
            "c": []
           }
@@ -104949,6 +104965,68 @@
                "t": "continue;",
                "a": [
                 "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "channel === \"INSTAGRAM\" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const ours = await ownRepliesInCrm(page.ownIds?.length ? page.ownIds : [page.pageId], body);",
+               "a": [
+                "зовёт ownRepliesInCrm()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "const viaPage = (await instagramRouteForToken(page.token)).kind === \"page\";",
+               "a": [
+                "зовёт instagramRouteForToken()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "viaPage && ours.crmSent > 0 && ours.known === 0",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "void logSystemError(\"meta\", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.l…",
+                 "a": [
+                  "запись в журнал ошибок"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "await raiseCriticalAlarm({ tag: `meta-inbox-mass-missed:${page.pageId}`, title: \"Сверка Instagram: проверьте …",
+                 "a": [
+                  "зовёт raiseCriticalAlarm()"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "await raiseCriticalAlarm({ tag: `meta-inbox-ig-not-delivered:${page.pageId}`, title: \"Входящие Instagram не д…",
+               "a": [
+                "зовёт raiseCriticalAlarm()"
                ],
                "c": []
               }
@@ -116229,7 +116307,7 @@
          "c": [
           {
            "k": "do",
-           "t": "rows = await prisma.messengerAccount.findMany({ where: { channel: \"INSTAGRAM\" }, select: { id: true, title: t…",
+           "t": "rows = await prisma.messengerAccount.findMany({ where: { channel: \"INSTAGRAM\", accessLostAt: null }, select: …",
            "a": [
             "читает в базе: messengerAccount"
            ],

@@ -16,6 +16,8 @@ export const metaEternalStateSchema = z.enum([
   "page_not_shared",
   "mismatch",
   "error",
+  /** Meta закрыла доступ к самому аккаунту Instagram (проверка безопасности, блокировка). */
+  "locked",
 ]);
 export type MetaEternalState = z.infer<typeof metaEternalStateSchema>;
 
@@ -31,6 +33,10 @@ export const metaEternalKeyRowSchema = z.object({
   subscribed: z.boolean().nullable().optional(),
   /** Последняя успешная отправка через Страницу (ISO) — «работает» только после неё. */
   lastSentAt: z.string().nullable().optional(),
+  /** Instagram: каким путём аккаунт отвечает прямо сейчас — через Страницу (ключ компании) или личным маркером. */
+  route: z.enum(["page", "personal"]).optional(),
+  /** Instagram: с какого времени Meta закрыла доступ к аккаунту (ISO), если закрыла. */
+  accessLostAt: z.string().nullable().optional(),
 });
 export type MetaEternalKeyRow = z.infer<typeof metaEternalKeyRowSchema>;
 
@@ -68,6 +74,13 @@ export const META_ETERNAL_STATE_LABEL: Record<MetaEternalState, string> = {
   page_not_shared: "Нужно выдать доступ",
   mismatch: "Не та Страница",
   error: "Ошибка проверки",
+  locked: "Meta закрыла доступ к аккаунту",
+};
+
+/** Instagram: путь ответа простыми словами — одно место для экрана. */
+export const META_ETERNAL_ROUTE_LABEL: Record<"page" | "personal", string> = {
+  page: "Отвечает через Страницу (постоянный ключ)",
+  personal: "Отвечает личным ключом",
 };
 
 /** Страница Facebook, выданная ключу компании, — для кнопки «Подключить Messenger». */

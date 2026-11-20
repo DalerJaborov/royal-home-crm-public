@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { KeyRound, Megaphone, MessageCircle, Phone } from "lucide-react";
 import {
+  META_ETERNAL_ROUTE_LABEL,
   META_ETERNAL_STATE_LABEL,
   metaCompanyPagesSchema,
   metaEternalStatusSchema,
@@ -37,6 +38,9 @@ import {
  * для этого докликать. Честно: пока Meta не одобрила приложению расширенный
  * доступ (App Review), путь через Страницу отвечает только людям с ролью в
  * приложении — поэтому для клиентов он заблокирован до отметки директора.
+ * Instagram с 21.11.2026 этих двух флагов не ждёт: его путь решает рубильник
+ * «Instagram через постоянный ключ Meta» (Настройки → Автоматика), а строка
+ * аккаунта говорит, как он отвечает сейчас. Флаги ниже — Messenger и реклама.
  * Самопроверка работает при любом положении рубильника. Один экран для
  * компьютера и телефона: строки `.row` переносятся сами, кнопки в `.wrap`.
  */
@@ -107,9 +111,9 @@ export function MetaEternalKeys() {
         hint={
           data?.preferred
             ? data.appReviewApproved
-              ? "Переписка и реклама берут ключ компании, где он готов. Личные ключи — запасные."
-              : "Реклама берёт ключ компании, где он готов. Переписка — личными ключами, пока Meta не одобрит приложение."
-            : "Работают только личные ключи сотрудников — их сломает смена пароля."
+              ? "Messenger Страниц и реклама берут ключ компании, где он готов. Личные ключи — запасные. Instagram — свой рубильник в «Автоматике»."
+              : "Реклама берёт ключ компании, где он готов. Messenger — личными ключами, пока Meta не одобрит приложение. Instagram — свой рубильник в «Автоматике»."
+            : "Messenger и реклама — личными ключами сотрудников, их сломает смена пароля. Instagram — свой рубильник в «Автоматике»."
         }
       />
       <SwitchRow
@@ -185,6 +189,8 @@ function EternalRow({
           <span>{row.title}</span>
           <span className={`chip ${ok ? "ok" : calm ? "" : "crit"}`}>{META_ETERNAL_STATE_LABEL[row.state]}</span>
         </b>
+        {row.route && <span>{META_ETERNAL_ROUTE_LABEL[row.route]}</span>}
+        {row.accessLostAt && <span>Доступ закрыт Meta: {dushanbeDateTime(row.accessLostAt)}</span>}
         {row.pageName && <span>Страница: {row.pageName}</span>}
         {row.lastSentAt && (
           <span>
