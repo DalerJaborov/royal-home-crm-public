@@ -34,6 +34,16 @@ import { isMetaAuthFailure, raiseChannelKeyAlarm } from "./channelKeyAlarm.js";
  *    пути отправки разом; при чётком отказе Meta на пути Страницы (4xx с телом
  *    ошибки) callGraph повторяет ОДИН раз личным ключом (routeFailed ниже);
  *  - личный маркер остаётся удостоверением аккаунта в CRM, стирать его нельзя.
+ *
+ * INSTAGRAM С 21.11.2026 (владелец: «Да, переводи»): для Instagram отметка «App Review
+ * одобрен» и общий рубильник больше не нужны — путь решает рубильник реестра
+ * «Автоматика» `Settings.instagramCompanyKeyEnabled` (ВКЛ) плюс проверка аккаунта
+ * (ключ компании, права, Страница с этим же Instagram). Довод: Messenger той же Страницы
+ * Royal.home.tj в том же приложении без App Review отвечает клиентам (72 диалога за 30
+ * дней, прод 21.11), IGSID путей совпадают (48 из 50 собеседников). Документация при
+ * стандартном доступе обещает ответ только людям с ролью — если Meta откажет, срабатывает
+ * откат на личный ключ ниже и тревога руководству. Facebook-путь — по-прежнему за обоими
+ * флагами (Arvan 15.11: людям без роли не доходило).
  */
 
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -66,12 +76,16 @@ export interface EternalAccountRow {
   enabled: boolean;
   username: string | null;
   eternalLastSentAt: Date | null;
+  accessLostAt: Date | null;
+  accessLostReason: string | null;
 }
 
 interface Snapshot {
   at: number;
   preferred: boolean;
   appReviewApproved: boolean;
+  /** Рубильник «Instagram через постоянный ключ Meta» (реестр «Автоматика», ВКЛ по умолчанию). */
+  igCompanyKey: boolean;
   systemToken?: string;
   settingsPageId?: string;
   settingsPageToken?: string;
@@ -88,6 +102,13 @@ type Grant =
   | { ok: true; at: number; token: string; pageName?: string; igId?: string }
   | { ok: false; at: number; reason: string; auth: boolean };
 const grants = new Map<string, Grant>();
+/**
+ * Скамейка Страницы — ОТДЕЛЬНО от выдачи (ревью #344, второй круг): временная пауза после отказа
+ * Meta не должна выглядеть как «у аккаунта нет пути через Страницу». Иначе повтор личным ключом,
+ * получивший «проверку безопасности», ставил аккаунту ложную отметку «Meta закрыла доступ».
+ */
+const benchedUntil = new Map<string, number>();
+const isBenched = (pageId: string) => (benchedUntil.get(pageId) ?? 0) > Date.now();
 /** Маркер Страницы → id Страницы: узнать уже подменённый маркер (повторный вход, тревога). */
 const pageTokenOwner = new Map<string, string>();
 
@@ -112,6 +133,7 @@ const sentMarks = new Map<string, number>();
 export function resetMetaEternalCache(): void {
   snapshot = null;
   grants.clear();
+  benchedUntil.clear();
   pageTokenOwner.clear();
   scopesMemo.clear();
   adsMemo.clear();
@@ -129,6 +151,7 @@ async function loadSnapshot(): Promise<Snapshot> {
       select: {
         metaSystemTokenPreferred: true,
         metaAppReviewApproved: true,
+        instagramCompanyKeyEnabled: true,
         metaIgManageToken: true,
         metaPageId: true,
         metaPageToken: true,
@@ -139,7 +162,10 @@ async function loadSnapshot(): Promise<Snapshot> {
       },
     }),
     prisma.messengerAccount.findMany({
-      select: { id: true, channel: true, title: true, externalId: true, pageId: true, token: true, enabled: true, username: true, eternalLastSentAt: true },
+      select: {
+        id: true, channel: true, title: true, externalId: true, pageId: true, token: true, enabled: true, username: true,
+        eternalLastSentAt: true, accessLostAt: true, accessLostReason: true,
+      },
       orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
     }),
   ]);
@@ -147,6 +173,7 @@ async function loadSnapshot(): Promise<Snapshot> {
     at: Date.now(),
     preferred: s?.metaSystemTokenPreferred ?? false,
     appReviewApproved: s?.metaAppReviewApproved ?? false,
+    igCompanyKey: s?.instagramCompanyKeyEnabled ?? true,
     systemToken: decryptSecretSafe(s?.metaIgManageToken ?? null) || undefined,
     settingsPageId: s?.metaPageId || process.env.META_PAGE_ID || undefined,
     settingsPageToken: decryptSecretSafe(s?.metaPageToken ?? null) || process.env.META_PAGE_TOKEN || undefined,
@@ -159,8 +186,10 @@ async function loadSnapshot(): Promise<Snapshot> {
   return snapshot;
 }
 
-/** Путь переписки через ключ компании вообще разрешён? (рубильник + App Review + ключ) */
+/** Путь переписки Facebook через ключ компании разрешён? (рубильник + App Review + ключ) */
 const messagingAllowed = (s: Snapshot) => s.preferred && s.appReviewApproved && Boolean(s.systemToken);
+/** Instagram через Страницу (21.11.2026): рубильник реестра «Автоматика» + ключ компании. */
+const instagramAllowed = (s: Snapshot) => s.igCompanyKey && Boolean(s.systemToken);
 
 async function graphJson(url: string, token: string, init?: { method?: "GET" | "POST"; body?: URLSearchParams }) {
   const res = await fetch(url, {
@@ -222,7 +251,7 @@ async function systemPageGrant(pageId: string, systemToken: string): Promise<Gra
         ok: false,
         at: Date.now(),
         auth,
-        reason: r.ok ? "Meta не выдала маркер Страницы — Страница не назначена системному пользователю" : graphErrorText(r),
+        reason: r.ok ? "Meta не выдала ключ Страницы — Страница не назначена системному пользователю" : graphErrorText(r),
       };
       if (auth) {
         void raiseChannelKeyAlarm({
@@ -241,17 +270,19 @@ async function systemPageGrant(pageId: string, systemToken: string): Promise<Gra
 }
 
 /** Выдачу Страницы забыть и 5 минут не пробовать (отказ Meta, 190 на маркере Страницы). */
-function benchPage(pageId: string, reason: string, systemToken?: string): void {
+function benchPage(pageId: string, reason: string): void {
   for (const [token, owner] of pageTokenOwner) if (owner === pageId) pageTokenOwner.delete(token);
-  const keys = systemToken ? [grantKey(pageId, systemToken)] : [...grants.keys()].filter((k) => k.startsWith(`${pageId}:`));
-  for (const key of keys) grants.set(key, { ok: false, at: Date.now(), auth: false, reason });
+  // Выдачу забываем (после паузы маркер Страницы запросим заново), паузу держим отдельно.
+  for (const key of [...grants.keys()]) if (key.startsWith(`${pageId}:`)) grants.delete(key);
+  benchedUntil.set(pageId, Date.now() + FAIL_TTL_MS);
+  console.warn(`[вечные ключи] Страница ${pageId} на паузе ${FAIL_TTL_MS / 60_000} мин: ${reason}`);
 }
 
 export type InstagramRoute =
   | { kind: "instagram_login"; token: string }
   /** pageOnly — аккаунт подключён входом через Facebook и держит маркер САМОЙ
    *  Страницы: другого пути у него нет, откатываться некуда. */
-  | { kind: "page"; token: string; pageId: string; accountId: string | null; pageOnly?: boolean };
+  | { kind: "page"; token: string; pageId: string; accountId: string | null; pageOnly?: boolean; igId?: string };
 
 /**
  * Аккаунт Instagram с маркером Страницы (EAA…, «Войти через Facebook»,
@@ -262,14 +293,14 @@ export type InstagramRoute =
 function pageOnlyRoute(s: Snapshot, token: string): InstagramRoute | null {
   if (!isFacebookLoginToken(token)) return null;
   const account = s.accounts.find((a) => a.channel === "INSTAGRAM" && a.token === token && a.pageId);
-  return account?.pageId ? { kind: "page", token, pageId: account.pageId, accountId: account.id, pageOnly: true } : null;
+  return account?.pageId ? { kind: "page", token, pageId: account.pageId, accountId: account.id, pageOnly: true, igId: account.externalId } : null;
 }
 
 /**
  * Каким путём говорить с Instagram, если в руках — маркер аккаунта. Никогда не
  * бросает: худший исход — прежний личный путь.
  */
-export async function instagramRouteForToken(token: string): Promise<InstagramRoute> {
+export async function instagramRouteForToken(token: string, opts: { ignoreBench?: boolean } = {}): Promise<InstagramRoute> {
   const fallback: InstagramRoute = { kind: "instagram_login", token };
   try {
     const knownPage = pageTokenOwner.get(token);
@@ -277,9 +308,10 @@ export async function instagramRouteForToken(token: string): Promise<InstagramRo
     const s = await loadSnapshot();
     const pageOnly = pageOnlyRoute(s, token);
     if (pageOnly) return pageOnly;
-    if (!messagingAllowed(s)) return fallback;
+    if (!instagramAllowed(s)) return fallback;
     const account = s.accounts.find((a) => a.channel === "INSTAGRAM" && a.token === token && a.pageId);
     if (!account?.pageId) return fallback;
+    if (!opts.ignoreBench && isBenched(account.pageId)) return fallback;
     const missing = await missingScopes(s.systemToken!, IG_PAGE_SCOPES);
     if (!missing || missing.length) return fallback;
     const grant = await systemPageGrant(account.pageId, s.systemToken!);
@@ -294,7 +326,7 @@ export async function instagramRouteForToken(token: string): Promise<InstagramRo
       );
       return fallback;
     }
-    return { kind: "page", token: grant.token, pageId: account.pageId, accountId: account.id };
+    return { kind: "page", token: grant.token, pageId: account.pageId, accountId: account.id, igId: account.externalId };
   } catch (err) {
     console.warn("[вечные ключи] путь Instagram не выбран, остаётся личный маркер:", describeError(err));
     return fallback;
@@ -319,6 +351,7 @@ async function facebookRoute(token: string, urlPageId?: string): Promise<{ token
   if (urlPageId && urlPageId !== "me" && urlPageId !== owner.pageId) return null;
   const missing = await missingScopes(s.systemToken!, FB_PAGE_SCOPES);
   if (!missing || missing.length) return null;
+  if (isBenched(owner.pageId)) return null;
   const grant = await systemPageGrant(owner.pageId, s.systemToken!);
   return grant.ok ? { token: grant.token, ...owner } : null;
 }
@@ -401,18 +434,86 @@ export function pageRouteFailed(routed: RoutedCall, status: number, text: string
   // Маркер Страницы — единственный ключ аккаунта: откатываться некуда, отказ
   // идёт обычным путём ошибки (тревога «ключ не принят» — в callGraph).
   if (routed.pageOnly) return false;
-  let error: { code?: number; message?: string } | undefined;
-  try { error = (JSON.parse(text) as { error?: { code?: number; message?: string } }).error; } catch { error = undefined; }
+  let error: { code?: number; error_subcode?: number; message?: string } | undefined;
+  try { error = (JSON.parse(text) as { error?: { code?: number; error_subcode?: number; message?: string } }).error; } catch { error = undefined; }
   if (status < 400 || status >= 500 || !error) return false;
+  /**
+   * ОТКАЗ ПРО ОДНОГО СОБЕСЕДНИКА — НЕ ОТКАЗ ПУТИ (ревью #344). Страница исправна: без паузы и без
+   * тревоги «ключ перестал работать». Окно 24 часов — без повтора (личный путь ответит тем же, ошибка
+   * идёт обычным путём). Остальное «про клиента» — один повтор личным ключом на всякий случай
+   * (вдруг на этом пути другой id или владелец переписки). Лимит частоты (613) — про приложение и
+   * Страницу: пауза Страницы и повтор личным, но без тревоги о ключе.
+   */
+  const kind = sendErrorKind(error.code, error.error_subcode);
+  // Окно 24 ч — повтор бессмыслен; переписку ведёт другое приложение — повтор дал бы клиенту второй
+  // голос (бот ставится на паузу в callGraph, lib/threadOwnerPause.ts). Ни паузы Страницы, ни тревоги.
+  if (kind === "window" || kind === "thread_owner") return false;
+  if (kind === "recipient") {
+    void logSystemError("meta", `Путь Страницы ${routed.pageId}: отказ про собеседника (код ${error.code}/${error.error_subcode ?? "-"}), ответ повторён личным ключом аккаунта.`,
+      { dedupKey: `page-route-recipient:${routed.pageId}:${error.code}`, dedupWindowMs: 24 * 60 * 60_000, silent: true });
+    return true;
+  }
+  if (kind === "rate") {
+    benchPage(routed.pageId, `лимит частоты Meta на пути Страницы: код ${error.code}/${error.error_subcode ?? "-"}`);
+    return true;
+  }
   benchPage(routed.pageId, `отказ Meta на пути Страницы: HTTP ${status}${error.code ? ` код ${error.code}` : ""}`);
   if (isPermissionCode(error.code) || isMetaAuthFailure(status, text)) {
+    const instagram = routed.route === "instagram_page";
     void raiseChannelKeyAlarm({
       key: `page-route:${routed.pageId}`,
-      label: `${routed.route === "instagram_page" ? "Instagram" : "Facebook"} через Страницу ${routed.pageId} (ключ компании)`,
+      label: `${instagram ? "Instagram" : "Facebook"} через Страницу ${routed.pageId} (ключ компании)`,
       detail: `HTTP ${status} код ${error.code ?? "—"}: ${error.message ?? ""}`,
-      fix: "Ответ ушёл личным ключом. Проверьте «Вечные ключи» в Настройках → Каналы: права ключа компании и App Review.",
+      fix: instagram
+        ? "Ответ ушёл личным ключом аккаунта. Проверьте «Вечные ключи» в Настройках → Каналы: доступ ключа компании к Странице и права."
+        : "Ответ ушёл личным ключом. Проверьте «Вечные ключи» в Настройках → Каналы: права ключа компании и App Review.",
+      ...(instagram ? { audience: "management" as const } : {}),
     });
   }
+  return true;
+}
+
+/**
+ * Вид отказа Send API (первоисточник: Meta for Developers → Messenger Platform → «Common Error
+ * Codes», developers.facebook.com/docs/messenger-platform/error-codes, страница покрывает и
+ * ошибки Instagram; сверено 21.11.2026, цитаты из таблицы):
+ *  window — 10/2018278 и 10/2534022 «This message is sent outside of allowed window», 10/2018065 то
+ *    же «You need News Messaging permission»: повтор бессмыслен;
+ *  thread_owner — 10/2018300 «The message failed to send because another app controls the
+ *    conversation», 100/2534037 «The action is invalid because your app is not the thread owner»:
+ *    переписку забрал сотрудник во «Входящих» или другой бот — без повтора, бот на паузу;
+ *  recipient — 551 «This person isn't receiving messages from you right now» (551/1545041 и
+ *    200/1545041 «This person isn't available right now»), 10/2018108 «They can't receive your
+ *    messages right now», 10/1893015 «This user has currently stopped notification messages for
+ *    this topic», 100/2018001 «No matching user found», 100/2534014 «No matching Instagram user»;
+ *  rate — 613 (613/2534040 «Calls to this api have exceeded the rate limit», 613/1893016; 613/2018338
+ *    — предупреждение по правилам, его раньше разбирает lib/metaSendBlock.ts).
+ * null — отказ пути: 200 без подкода и 200/2018028 «Cannot message users who are not admins,
+ * developers or testers» (нет App Review), 100/2534013 Страница не связана с Instagram, 10/2534077
+ * связь Страницы и Instagram, 200/2534041 владелец закрыл доступ к Direct, 190 — ключ.
+ */
+export function sendErrorKind(code: number | null | undefined, subcode: number | null | undefined): "window" | "thread_owner" | "recipient" | "rate" | null {
+  if (code === 10 && (subcode === 2018278 || subcode === 2534022 || subcode === 2018065)) return "window";
+  if ((code === 10 && subcode === 2018300) || (code === 100 && subcode === 2534037)) return "thread_owner";
+  if (code === 613) return "rate";
+  if (code === 551) return "recipient";
+  if (code === 200 && subcode === 1545041) return "recipient";
+  if (code === 10 && (subcode === 2018108 || subcode === 1893015)) return "recipient";
+  if (code === 100 && (subcode === 2018001 || subcode === 2534014)) return "recipient";
+  return null;
+}
+
+/**
+ * Запрет Meta по правилам на пути Страницы (21.11.2026): аккаунт целиком не метим, а один раз
+ * пробуем личным ключом — запрет мог касаться только ключа компании. Страница на скамейке 5 минут.
+ * true — callGraph повторяет личным; метку «Meta не пропускает отправку» поставит отказ личного пути.
+ */
+export function pageRoutePolicyRefused(routed: RoutedCall, status: number, graph: { code: number | null; subcode: number | null }): boolean {
+  if (routed.route === "unchanged" || !routed.pageId || routed.pageOnly) return false;
+  const what = `HTTP ${status} код ${graph.code ?? "—"}/${graph.subcode ?? "-"}`;
+  benchPage(routed.pageId, `запрет Meta на пути Страницы: ${what}`);
+  void logSystemError("meta", `Путь Страницы ${routed.pageId}: Meta отказала по правилам (${what}), ответ пробуем личным ключом аккаунта.`,
+    { dedupKey: `page-route-policy:${routed.pageId}`, dedupWindowMs: 6 * 60 * 60_000 });
   return true;
 }
 
@@ -451,6 +552,35 @@ export async function instagramReadRequest(path: string, token: string): Promise
 }
 
 /**
+ * ЛЕНТА АККАУНТА (сайт, узнавание своих роликов) тем же путём, что и переписка
+ * (21.11.2026). Через Страницу: `graph.facebook.com/{ig-id}/media` маркером Страницы
+ * (проверено на проде 21.11 GET-запросом: 200, те же поля); иначе — прежний
+ * `graph.instagram.com/me/media` личным маркером. `next` — готовая ссылка следующей
+ * страницы из ответа: её хост решает, каким маркером идти.
+ */
+export async function instagramMediaRequest(
+  token: string,
+  query: string,
+  next?: string
+): Promise<{ url: string; headers: Record<string, string> } | null> {
+  const route = await instagramRouteForToken(token);
+  if (next) {
+    // Ключ — по хосту ссылки, а не по нынешнему пути: путь мог смениться между страницами
+    // (Страница на скамейке, рубильник). Ссылку Страницы личный ключ не откроет — null, дочитать нельзя.
+    let host = "";
+    try { host = new URL(next).host; } catch { return null; }
+    if (host === "graph.facebook.com") {
+      return route.kind === "page" ? { url: next, headers: { Authorization: `Bearer ${route.token}` } } : null;
+    }
+    return instagramRequest(next, token);
+  }
+  if (route.kind === "page" && route.igId) {
+    return { url: `${GRAPH}/${encodeURIComponent(route.igId)}/media?${query}`, headers: { Authorization: `Bearer ${route.token}` } };
+  }
+  return instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me/media?${query}`), token);
+}
+
+/**
  * Чей аккаунт отправляет (lib/metaSendBlock.ts: метка «Meta не пропускает отправку»
  * ставится аккаунту, а не каналу). По id строки или по личному маркеру — из того же
  * снимка на минуту, что и выбор пути выше, без отдельного запроса. Маркер из
@@ -472,7 +602,18 @@ export async function metaSendAccountFor(input: { accountId?: string | null; tok
 }
 
 /** Чей это маркер — для тревоги «ключ умер». Наружу — метка и имя, не маркер. */
-export async function describeMetaToken(token: string): Promise<{ key: string; label: string }> {
+export interface MetaTokenOwner {
+  key: string;
+  label: string;
+  /** Аккаунт Instagram — тревога руководству «к сведению», раз в сутки (channelKeyAlarm.ts). */
+  audience?: "management";
+  /** Аккаунт Instagram, чей это маркер (для отметки «Meta закрыла доступ»). */
+  instagramAccountId?: string;
+  /** Отметка «Meta закрыла доступ» уже стоит — тревога об этом уже ушла. */
+  accessLost?: boolean;
+}
+
+export async function describeMetaToken(token: string): Promise<MetaTokenOwner> {
   const page = pageTokenOwner.get(token);
   if (page) return { key: `page-route:${page}`, label: `Ключ компании для Страницы ${page}` };
   try {
@@ -480,12 +621,16 @@ export async function describeMetaToken(token: string): Promise<{ key: string; l
     const account = s.accounts.find((a) => a.token === token);
     if (account) {
       const name = account.channel === "INSTAGRAM" ? "Instagram" : account.channel === "FACEBOOK" ? "Facebook" : "WhatsApp";
-      const kind = account.channel === "INSTAGRAM" && isFacebookLoginToken(token) ? "ключ Страницы" : "личный маркер";
-      return { key: `account:${account.id}`, label: `${name} «${account.title}» (${kind})` };
+      const kind = account.channel === "INSTAGRAM" && isFacebookLoginToken(token) ? "ключ Страницы" : "личный ключ";
+      const who: MetaTokenOwner = { key: `account:${account.id}`, label: `${name} «${account.title}» (${kind})` };
+      if (account.channel === "INSTAGRAM") {
+        return { ...who, audience: "management", instagramAccountId: account.id, accessLost: Boolean(account.accessLostAt) };
+      }
+      return who;
     }
-    if (token === s.settingsPageToken) return { key: "settings:metaPageToken", label: "Страница Facebook (маркер в Настройках)" };
-    if (token === s.settingsIgToken) return { key: "settings:metaIgToken", label: "Instagram (запасной маркер в Настройках)" };
-    if (token === s.settingsWaToken) return { key: "settings:metaWaToken", label: "WhatsApp (маркер в Настройках)" };
+    if (token === s.settingsPageToken) return { key: "settings:metaPageToken", label: "Страница Facebook (ключ в Настройках)" };
+    if (token === s.settingsIgToken) return { key: "settings:metaIgToken", label: "Instagram (запасной ключ в Настройках)" };
+    if (token === s.settingsWaToken) return { key: "settings:metaWaToken", label: "WhatsApp (ключ в Настройках)" };
     if (token === s.systemToken) return { key: "meta-system-user", label: "Вечный ключ Meta (системный пользователь)" };
   } catch {
     // Имя не нашли — тревога всё равно уйдёт, по отпечатку.
@@ -551,6 +696,13 @@ const SHARE_HINT = (what: string) =>
   `Business Suite → Настройки компании → Пользователи → Системные пользователи → royalhome-crm → «Назначить ресурсы» → ${what} → полный доступ.`;
 const REVIEW_HINT =
   "Ждёт одобрения Meta (App Review: pages_messaging, instagram_manage_messages — расширенный доступ). Пока его нет, путь через Страницу ответит только людям с ролью в приложении, поэтому для клиентов он выключен.";
+const IG_SWITCH_OFF_HINT =
+  "Всё готово, но выключен рубильник «Instagram через постоянный ключ Meta» (Настройки → Автоматика → Бот клиентов). Аккаунт отвечает личным ключом.";
+const IG_NO_PAGE_HINT =
+  "CRM не нашла Страницу Facebook с этим Instagram среди Страниц ключа компании и отвечает личным ключом. Что сделать: " +
+  "1) привязать Instagram к Странице Facebook (Meta Business Suite → Настройки → Аккаунты Instagram → «Подключить»); " +
+  "2) выдать эту Страницу ключу компании: Business Suite → Настройки компании → Системные пользователи → royalhome-crm → «Назначить ресурсы» → Страницы → полный доступ. " +
+  "Дальше CRM найдёт Страницу сама в течение трёх часов или сразу по кнопке «Найти Страницу».";
 const TEST_HINT =
   "Проверка: напишите в этот аккаунт с личного профиля, у которого НЕТ роли в приложении Meta, — только так видно, что ответ дойдёт до любого клиента.";
 
@@ -590,15 +742,20 @@ export async function metaEternalStatus(): Promise<MetaEternalStatus> {
     if (!granted) return say("error", "Не удалось прочитать права ключа компании. Нажмите «Проверить ещё раз».");
     const missing = required.filter((p) => !granted!.has(p));
     if (missing.length) return say("missing_scopes", `У ключа компании нет прав: ${missing.join(", ")}. Выпустите ключ системного пользователя заново с этими правами.`);
-    if (!base.pageId) return say("no_page", "Нажмите «Найти Страницу» — CRM сама найдёт Страницу Facebook, к которой привязан этот Instagram.");
+    if (!base.pageId) return say("no_page", base.channel === "INSTAGRAM" ? IG_NO_PAGE_HINT : "Нажмите «Найти Страницу» — CRM сама найдёт Страницу Facebook, к которой привязан этот Instagram.");
     const grant = await systemPageGrant(base.pageId, s.systemToken);
     if (!grant.ok) return say("page_not_shared", SHARE_HINT(`Страницы → ${base.pageId}`));
     const named = { ...row, pageName: grant.pageName };
     if (igId && grant.igId !== igId) return { ...named, state: "mismatch", hint: "К этой Странице привязан другой Instagram. Нажмите «Найти Страницу» ещё раз." };
     const subscribed = await pageSubscribed(base.pageId, grant.token, appId);
     const withSub = { ...named, subscribed };
-    if (!s.appReviewApproved) return { ...withSub, state: "awaiting_review", hint: REVIEW_HINT };
-    if (!s.preferred) return { ...withSub, state: "off", hint: "Всё готово. Включите рубильник «Ключ компании вместо личных»." };
+    if (base.channel === "INSTAGRAM") {
+      // 21.11.2026: Instagram решает свой рубильник реестра «Автоматика», App Review не ждём.
+      if (!s.igCompanyKey) return { ...withSub, state: "off", hint: IG_SWITCH_OFF_HINT };
+    } else {
+      if (!s.appReviewApproved) return { ...withSub, state: "awaiting_review", hint: REVIEW_HINT };
+      if (!s.preferred) return { ...withSub, state: "off", hint: "Всё готово. Включите рубильник «Ключ компании вместо личных»." };
+    }
     if (!lastSentAt) return { ...withSub, state: "pending_first_send", hint: `Ни одной отправки через Страницу ещё не было. ${TEST_HINT}` };
     return {
       ...withSub,
@@ -622,10 +779,29 @@ export async function metaEternalStatus(): Promise<MetaEternalStatus> {
         lastSentAt: a.eternalLastSentAt?.toISOString() ?? null,
         state: a.eternalLastSentAt ? "ready" : "pending_first_send",
         hint: "Подключён входом через Facebook: отвечает ключом своей Страницы, ключ компании не нужен.",
+        route: "page",
       });
       continue;
     }
-    rows.push(await pageRow({ key: `account:${a.id}`, title: `Instagram «${a.title}»${a.username ? ` @${a.username}` : ""}`, channel: "INSTAGRAM", accountId: a.id, pageId: a.pageId }, IG_PAGE_SCOPES, a.eternalLastSentAt, a.externalId));
+    const base = { key: `account:${a.id}`, title: `Instagram «${a.title}»${a.username ? ` @${a.username}` : ""}`, channel: "INSTAGRAM" as const, accountId: a.id, pageId: a.pageId };
+    const liveRoute = a.token ? (await instagramRouteForToken(a.token)).kind : "instagram_login";
+    // Аккаунт с рабочим путём через Страницу «закрытым» не показываем (ревью #344): бот отвечает,
+    // умер лишь запасной личный ключ; отметку снимет суточная проверка (integrationHealth.ts).
+    if (a.accessLostAt && liveRoute !== "page") {
+      // Meta закрыла сам аккаунт (lib/instagramAccountAccess.ts): ни один путь не поможет,
+      // пока владелец не пройдёт проверку в Instagram. Страницу и права не дёргаем.
+      rows.push({
+        ...base,
+        lastSentAt: a.eternalLastSentAt?.toISOString() ?? null,
+        state: "locked",
+        hint: `Meta закрыла доступ к аккаунту${a.accessLostReason ? ` (${a.accessLostReason.slice(0, 120)})` : ""}. Войдите в этот аккаунт в Instagram и пройдите проверку, затем нажмите «Заменить маркер». Проверки здоровья этот аккаунт не трогают, пока доступ не вернётся.`,
+        route: "personal",
+        accessLostAt: a.accessLostAt.toISOString(),
+      });
+      continue;
+    }
+    const row = await pageRow(base, IG_PAGE_SCOPES, a.eternalLastSentAt, a.externalId);
+    rows.push({ ...row, route: liveRoute === "page" ? "page" : "personal", accessLostAt: null });
   }
   const fbAccounts = s.accounts.filter((x) => x.channel === "FACEBOOK");
   for (const a of fbAccounts) {
@@ -709,6 +885,52 @@ export async function verifyInstagramPage(pageId: string, externalId: string): P
   if (!grant.ok) return { ok: false, error: `Страница не выдана системному пользователю: ${grant.reason}` };
   if (grant.igId !== externalId) return { ok: false, error: `К Странице привязан другой Instagram (${grant.igId ?? "никакой"}).` };
   return { ok: true, pageName: grant.pageName };
+}
+
+/**
+ * САМ НАЙТИ СТРАНИЦУ (21.11.2026): аккаунтам Instagram без `pageId` CRM ищет Страницу
+ * среди Страниц ключа компании, сверяет, что Meta привязала к ней ИМЕННО этот
+ * Instagram, и записывает только своё поле `pageId` — тем же путём, что кнопка «Найти
+ * Страницу». Путь ответа от этого меняется, только если включён рубильник
+ * «Instagram через постоянный ключ Meta». Не нашла — ничего не пишет: экран говорит,
+ * что сделать. Аккаунты, к которым Meta закрыла доступ, и выключенные не трогает.
+ * Тик — сторож подписки Instagram (раз в три часа).
+ */
+export async function autoLinkInstagramPages(): Promise<{ linked: string[]; notFound: string[] }> {
+  const out = { linked: [] as string[], notFound: [] as string[] };
+  snapshot = null;
+  const s = await loadSnapshot();
+  if (!s.systemToken) return out;
+  const candidates = s.accounts.filter(
+    (a) => a.channel === "INSTAGRAM" && a.enabled && !a.pageId && !a.accessLostAt && !(a.token && isFacebookLoginToken(a.token))
+  );
+  for (const a of candidates) {
+    try {
+      const found = await discoverInstagramPage(a.externalId);
+      if (!found.ok) {
+        out.notFound.push(a.id);
+        continue;
+      }
+      const verified = await verifyInstagramPage(found.pageId, a.externalId);
+      if (!verified.ok) {
+        out.notFound.push(a.id);
+        continue;
+      }
+      const updated = await prisma.messengerAccount.updateMany({ where: { id: a.id, pageId: null }, data: { pageId: found.pageId } });
+      if (updated.count === 0) continue;
+      out.linked.push(a.id);
+      await logSystemError(
+        "meta",
+        `Instagram «${a.title}»: CRM сама нашла Страницу ${found.pageId}${verified.pageName ? ` («${verified.pageName}»)` : ""} с этим Instagram — ` +
+          `ответы пойдут через неё постоянным ключом, если рубильник «Instagram через постоянный ключ Meta» включён.`,
+        { dedupKey: `ig-page-autolinked:${a.id}`, silent: true }
+      );
+    } catch (err) {
+      console.warn("[вечные ключи] Страница для Instagram не найдена:", describeError(err));
+    }
+  }
+  if (out.linked.length) resetMetaEternalCache();
+  return out;
 }
 
 /**

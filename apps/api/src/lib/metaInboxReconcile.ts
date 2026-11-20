@@ -51,9 +51,13 @@ import { isMetaChannelEnabled, isMetaEnabled } from "../messengers/meta.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { logSystemError } from "./systemError.js";
+import { instagramRouteForToken } from "./metaEternalTokens.js";
+import { MANAGEMENT_ALARM_ROLES, raiseCriticalAlarm } from "./channelKeyAlarm.js";
 
 /** Пока вебхук мог ещё не дойти, Meta повторяет доставку после сбоя или бот ждёт склейки — не тревожим. */
 export const GRACE_MS = 15 * 60_000;
+/** Предохранитель срабатывает, когда сверено хотя бы столько входящих (меньше — обычный путь). */
+export const MASS_MISSED_MIN_SAMPLE = 3;
 /**
  * Сообщение пришло, пока этот процесс не работал (выкатка, падение): Meta может дослать его
  * после подъёма, и тогда ответит бот. Даём боту полчаса после старта процесса, потом зовём
@@ -188,7 +192,7 @@ export async function listFacebookPageInboxes(): Promise<PageInbox[]> {
 /** Все аккаунты Instagram из «Каналов» с ключом (переписка ходит маркером аккаунта, вход через Instagram). */
 export async function listInstagramInboxes(): Promise<PageInbox[]> {
   const accounts = await prisma.messengerAccount.findMany({
-    where: { channel: "INSTAGRAM", enabled: true },
+    where: { channel: "INSTAGRAM", enabled: true, accessLostAt: null },
     select: { externalId: true, messagingId: true, extraExternalIds: true, username: true, title: true, token: true },
   });
   const out: PageInbox[] = [];
@@ -226,8 +230,13 @@ export async function fetchPageInbox(page: PageInbox, fetchImpl: GraphFetch = de
   const fields = `messages.limit(${MESSAGES_PER_CONVERSATION}){id,created_time,message,from}`;
   if (page.channel === "INSTAGRAM") {
     // Instagram — graph.instagram.com маркером аккаунта; с нашего сервера — через прокси, если он задан.
-    const req = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me/conversations?platform=instagram&limit=${CONVERSATIONS_PER_PAGE}` +
-      `&fields=${encodeURIComponent(fields)}`), page.token);
+    // Аккаунт на постоянном ключе (21.11.2026) — через свою Страницу: сверка не слепнет,
+    // когда личный маркер умер (а именно тогда она нужнее всего). IGSID у путей одни.
+    const query = `platform=instagram&limit=${CONVERSATIONS_PER_PAGE}&fields=${encodeURIComponent(fields)}`;
+    const route = await instagramRouteForToken(page.token);
+    const req = route.kind === "page"
+      ? { url: `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(route.pageId)}/conversations?${query}`, headers: { Authorization: `Bearer ${route.token}` } }
+      : instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me/conversations?${query}`), page.token);
     const body = (await (await fetchImpl(req.url, req.headers)).json()) as GraphConversations;
     // Своя реплика по нику — приводим к основному id, дальше правила общие (ревью 199-2).
     if (page.ownUsername) {
@@ -278,6 +287,47 @@ export async function knownMessageIds(messages: readonly InboxMessage[], channel
     }
   }
   return known;
+}
+
+/**
+ * Наши ответы в выборке переписок, ОТПРАВЛЕННЫЕ CRM, и сколько из них CRM знает по mid (ревью #344,
+ * третий круг). Отправленный CRM ответ узнаём так: его mid есть в CRM (отметка `out:meta` или mid
+ * реплики в ленте переписки), либо его текст совпадает с не-ручной репликой CRM этому же человеку.
+ * Ответы сотрудника руками из Instagram (в CRM они без mid и с пометкой «вручную») не считаются вовсе:
+ * по ним не отличить поломку сверки от потери, и глушить пуши из-за них нельзя.
+ */
+export async function ownRepliesInCrm(ownIds: readonly string[], body: GraphConversations): Promise<{ crmSent: number; known: number }> {
+  const own = new Set(ownIds);
+  const ours: Array<{ mid: string; peer: string | null; text: string }> = [];
+  for (const conversation of body.data ?? []) {
+    const list = conversation.messages?.data ?? [];
+    const peer = list.find((m) => m.from?.id && !own.has(m.from.id))?.from?.id ?? null;
+    for (const m of list) if (m.id && m.from?.id && own.has(m.from.id)) ours.push({ mid: m.id, peer, text: (m.message ?? "").trim() });
+  }
+  if (!ours.length) return { crmSent: 0, known: 0 };
+  const peers = [...new Set(ours.map((o) => o.peer).filter((p): p is string => !!p))];
+  const marks = await prisma.processedMessage.findMany({ where: { channel: { in: ["out:meta", "INSTAGRAM"] }, messageId: { in: ours.map((o) => o.mid) } },
+    select: { messageId: true } });
+  const knownMids = new Set(marks.map((m) => m.messageId));
+  const crmText = new Map<string, string[]>();
+  if (peers.length) {
+    const convs = await prisma.botConversation.findMany({ where: { channel: "INSTAGRAM", subscriberId: { in: peers } }, select: { subscriberId: true, messages: true } });
+    for (const c of convs) for (const m of (Array.isArray(c.messages) ? c.messages : []) as Array<{ role?: string; content?: string; mid?: string; mid2?: string; by?: { kind?: string }; attachments?: { mid?: string }[] }>) {
+      for (const id of [m.mid, m.mid2, ...(m.attachments ?? []).map((x) => x.mid)]) if (id) knownMids.add(id);
+      if (m.role === "assistant" && m.by?.kind !== "manual" && m.content?.trim()) {
+        crmText.set(c.subscriberId, [...(crmText.get(c.subscriberId) ?? []), m.content.trim()]);
+      }
+    }
+  }
+  let crmSent = 0;
+  let known = 0;
+  for (const o of ours) {
+    if (knownMids.has(o.mid)) { crmSent++; known++; continue; }
+    // Пузырь реплики CRM (двумя сообщениями) — часть её текста; короткие тексты не сравниваем: «Да» бывает у всех.
+    const texts = o.peer ? crmText.get(o.peer) ?? [] : [];
+    if (o.text.length >= 8 && texts.some((t) => t === o.text || t.includes(o.text))) crmSent++;
+  }
+  return { crmSent, known };
 }
 
 /** Текст ошибки без ключа: адрес запроса к Graph содержит access_token. */
@@ -378,6 +428,10 @@ export interface MetaInboxReconcileResult {
   missed: number;
   people: number;
   failedPages: number;
+  /** Instagram через Страницу: «потеряно» больше половины — пуши не отправлены (предохранитель). */
+  massMissedPages: number;
+  /** Instagram: массовая настоящая потеря входящих — руководству «проверьте подписку на вебхуки». */
+  notDeliveredPages: number;
   /** Почему тик ничего не сверял: канал Meta выключен в Настройках. */
   skipped: "meta_disabled" | "switched_off" | null;
 }
@@ -385,7 +439,7 @@ export interface MetaInboxReconcileResult {
 /** Тик крона. Никогда не бросает: сбой одной Страницы — строка в журнале, остальные сверяются. */
 export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: GraphFetch = defaultFetch,
   options: { processStartedAt?: number } = {}): Promise<MetaInboxReconcileResult> {
-  const result: MetaInboxReconcileResult = { pages: 0, missed: 0, people: 0, failedPages: 0, skipped: null };
+  const result: MetaInboxReconcileResult = { pages: 0, missed: 0, people: 0, failedPages: 0, massMissedPages: 0, notDeliveredPages: 0, skipped: null };
   let pages: PageInbox[];
   try {
     // Канал Meta выключен в Настройках — вебхук отвечает 503 намеренно, звать людей не о чем (ревью 192-9).
@@ -421,6 +475,49 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
       const known = await knownMessageIds(incoming, channel);
       const missed = incoming.filter((m) => !known.has(m.mid));
       if (!missed.length) continue;
+      /**
+       * МАССОВАЯ «ПОТЕРЯ» В INSTAGRAM (ревью #344). «Не дошло» больше половины сверенного (из трёх+) —
+       * это либо настоящая потеря (подписку на вебхуки выключили, как у Arvan 17.11), либо поломка
+       * самой сверки (id сообщений на путях разошлись). Различаем по ответам, ОТПРАВЛЕННЫМ CRM, в этих
+       * же переписках (ownRepliesInCrm): хоть один найден по mid — id путей совпадают, потеря настоящая:
+       * пуши как раньше и тревога руководству «проверьте подписку». Такие ответы есть, ни один не найден,
+       * а читаем через Страницу — сверка сломана: без пушей сотрудникам, журнал и одна несрочная тревога
+       * в сутки. Ответов CRM в выборке нет (только ручные сотрудников или никаких) — доказать поломку
+       * нечем, считаем потерю настоящей.
+       * Facebook не трогаем: там массовая «потеря» — настоящий сигнал (Arvan 13–14.11, 1 из 8).
+       */
+      if (channel === "INSTAGRAM" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length) {
+        const ours = await ownRepliesInCrm(page.ownIds?.length ? page.ownIds : [page.pageId], body);
+        const viaPage = (await instagramRouteForToken(page.token)).kind === "page";
+        if (viaPage && ours.crmSent > 0 && ours.known === 0) {
+          result.massMissedPages++;
+          void logSystemError("meta", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.length} входящих не найдены в CRM, ` +
+            `и ни один из ${ours.crmSent} ответов, отправленных CRM, тоже. Похоже на поломку сверки (разные id сообщений на путях), а не на потерю — ` +
+            `пуши сотрудникам не отправлены. Проверьте переписки аккаунта вручную.`,
+            { dedupKey: `meta-inbox-mass-missed:${page.pageId}`, dedupWindowMs: 6 * 60 * 60_000, silent: true });
+          await raiseCriticalAlarm({
+            tag: `meta-inbox-mass-missed:${page.pageId}`,
+            title: "Сверка Instagram: проверьте переписки вручную",
+            body: `«${page.title}»: ${missed.length} из ${incoming.length} входящих не найдены в CRM, наши ответы тоже не сверяются. Срочные пуши сотрудникам не отправлены. Откройте Direct аккаунта и сверьте с CRM.`,
+            url: "/messages",
+            quiet: true,
+            recipientRoles: MANAGEMENT_ALARM_ROLES,
+            everyMs: 24 * 60 * 60_000,
+          });
+          continue;
+        }
+        await raiseCriticalAlarm({
+          tag: `meta-inbox-ig-not-delivered:${page.pageId}`,
+          title: "Входящие Instagram не доходят до CRM",
+          body: `«${page.title}»: ${missed.length} из ${incoming.length} входящих не дошли. Проверьте подписку на вебхуки в кабинете Meta: ` +
+            `developers.facebook.com → приложение → Instagram → «Настройка API для входа в Instagram» → «Подписка на Webhooks» должна быть включена.`,
+          url: "/messages",
+          quiet: true,
+          recipientRoles: MANAGEMENT_ALARM_ROLES,
+          everyMs: 24 * 60 * 60_000,
+        });
+        result.notDeliveredPages++;
+      }
       // Один пуш на человека за тик, даже если он написал пять сообщений подряд.
       const byPerson = new Map<string, InboxMessage[]>();
       for (const m of missed) byPerson.set(m.fromId, [...(byPerson.get(m.fromId) ?? []), m]);

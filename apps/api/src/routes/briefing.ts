@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Router } from "express";
-import { requireAuth, requirePermission } from "../auth/middleware.js";
+import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { buildBriefingResponse, existingBriefingAudioPath, loadBriefing } from "../lib/morningBriefing.js";
 
 /**
@@ -14,9 +14,10 @@ import { buildBriefingResponse, existingBriefingAudioPath, loadBriefing } from "
 export const briefingRouter = Router();
 
 /** GET /api/v1/dashboard/briefing — текст брифинга, числа и ссылка на озвучку. */
-briefingRouter.get("/briefing", requireAuth, requirePermission("dashboard.analytics"), async (_req, res) => {
+briefingRouter.get("/briefing", requireAuth, requirePermission("dashboard.analytics"), async (req, res) => {
   try {
-    res.json(await buildBriefingResponse());
+    // Комиссия компании — деньги: без finance.view её нет ни в числах, ни в тексте.
+    res.json(await buildBriefingResponse(new Date(), { seesCompanyMoney: can(req, "finance.view") }));
   } catch {
     // Брифинг не должен ронять главную: экран покажет «данных нет» тихой строкой.
     res.status(503).json({ error: "Брифинг сейчас недоступен" });
@@ -31,8 +32,8 @@ briefingRouter.get(
   "/briefing/audio",
   requireAuth,
   requirePermission("dashboard.analytics"),
-  async (_req, res) => {
-    const briefing = await loadBriefing().catch(() => null);
+  async (req, res) => {
+    const briefing = await loadBriefing(new Date(), { seesCompanyMoney: can(req, "finance.view") }).catch(() => null);
     const filePath = briefing ? existingBriefingAudioPath(briefing.text) : null;
     if (!filePath) return res.status(404).json({ error: "Озвучка не найдена" });
 

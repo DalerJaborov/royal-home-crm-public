@@ -1128,7 +1128,10 @@ adsRouter.get("/insights", requireAdsRead, async (req, res) => {
     return res.status(400).json({ error: "Неверный месяц", details: parsed.error.flatten() });
   }
   const month = parsed.data ?? currentMonth();
-  const result = await buildAdInsights(month, req.query.force === "1");
+  const result = await buildAdInsights(month, req.query.force === "1", {
+    // Прибыль и комиссия компании — только с finance.view (раздел открыт маркетингу).
+    seesCompanyMoney: req.agent!.permissions.has("finance.view"),
+  });
   // reason отличает «разбирать нечего» от «модель не ответила» — экран пишет
   // разное, и второе не должно выглядеть как отсутствие расходов.
   res.json(result ?? { text: null, reason: "empty" });

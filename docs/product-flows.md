@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4195**. Модулей: **88**.
+Путей: **788**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4197**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -301,7 +301,7 @@
     · ответ 400 — «Неверный месяц»
 - const month = parsed.data ?? currentMonth();
   · зовёт currentMonth()
-- const result = await buildAdInsights(month, req.query.force === "1");
+- const result = await buildAdInsights(month, req.query.force === "1", { seesCompanyMoney: req.agent!.permissio…
   · зовёт buildAdInsights()
 - res.json(result ?? { text: null, reason: "empty" });
   · ответ 200
@@ -5306,7 +5306,7 @@
 
 `apps/api/src/routes/briefing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
-- const briefing = await loadBriefing().catch(()
+- const briefing = await loadBriefing(new Date(), { seesCompanyMoney: can(req, "finance.view") }).catch(()
   · зовёт loadBriefing()
 - const filePath = briefing ? existingBriefingAudioPath(briefing.text) : null;
   · зовёт existingBriefingAudioPath()
@@ -5330,7 +5330,7 @@
 `apps/api/src/routes/briefing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - пробует
-  - res.json(await buildBriefingResponse());
+  - res.json(await buildBriefingResponse(new Date(), { seesCompanyMoney: can(req, "finance.view") }));
     · ответ 200
 - если сорвалось
   - res.status(503).json({ error: "Брифинг сейчас недоступен" });
@@ -22344,6 +22344,8 @@
 - пробует
   - const { restored, failed, silent } = await runInstagramSubscriptionWatch();
     · зовёт runInstagramSubscriptionWatch()
+    - await autoLinkInstagramPages().catch((err)
+      · зовёт autoLinkInstagramPages()
     - const totals = await checkInstagramSubscriptions();
       · зовёт checkInstagramSubscriptions()
     - const silent = await findSilentInstagramAccounts();
@@ -22351,6 +22353,8 @@
     - для каждого: const s of silent
       - await logSystemError( "meta", `Instagram «${s.title}»: диалоги в CRM не обновлялись с ${last}, хотя у другого…
         · запись в журнал ошибок
+      - await raiseCriticalAlarm({ tag: `ig-account-silent:${s.id}:${last}`, title: "Instagram: в аккаунт не приходят…
+        · зовёт raiseCriticalAlarm()
   - если restored || failed || silent
     - console.log( `[cron] Подписка Instagram: восстановлено ${restored}, не проверено ${failed}, замолчавших аккау…
       · пишет строку в журнал сервера
@@ -23495,6 +23499,20 @@
         - если !missed.length
           - continue;
             · переходит к следующему
+        - если channel === "INSTAGRAM" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length
+          - const ours = await ownRepliesInCrm(page.ownIds?.length ? page.ownIds : [page.pageId], body);
+            · зовёт ownRepliesInCrm()
+          - const viaPage = (await instagramRouteForToken(page.token)).kind === "page";
+            · зовёт instagramRouteForToken()
+          - если viaPage && ours.crmSent > 0 && ours.known === 0
+            - void logSystemError("meta", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.l…
+              · запись в журнал ошибок
+            - await raiseCriticalAlarm({ tag: `meta-inbox-mass-missed:${page.pageId}`, title: "Сверка Instagram: проверьте …
+              · зовёт raiseCriticalAlarm()
+            - continue;
+              · переходит к следующему
+          - await raiseCriticalAlarm({ tag: `meta-inbox-ig-not-delivered:${page.pageId}`, title: "Входящие Instagram не д…
+            · зовёт raiseCriticalAlarm()
         - для каждого: const m of missed
           - byPerson.set(m.fromId, [...(byPerson.get(m.fromId) ?? []), m]);
             · дословно из кода
@@ -25911,7 +25929,7 @@
         - void logSystemError("meta", `Маркер Instagram (копия в Настройках) не продлён: ${describeError(err)}`);
           · запись в журнал ошибок
     - пробует
-      - rows = await prisma.messengerAccount.findMany({ where: { channel: "INSTAGRAM" }, select: { id: true, title: t…
+      - rows = await prisma.messengerAccount.findMany({ where: { channel: "INSTAGRAM", accessLostAt: null }, select: …
         · читает в базе: messengerAccount
     - если сорвалось
       - void logSystemError( "meta", `Список аккаунтов Instagram не прочитан — продление маркеров пропущено в этом ти…

@@ -34,9 +34,13 @@ const ALLOWED = new Set([
   "apps/api/src/routes/constructionRegistry.ts",
   "apps/api/src/app.ts", // подключение маршрута сотрудников
   "apps/api/src/cron.ts", // еженедельный забор
+  "apps/api/src/ai/assistant/tools/registryReadTool.ts", // внутренняя помощница Шабнам (только сотрудники, только личка)
   "packages/shared/src/constructionRegistry.ts",
   "packages/shared/src/index.ts",
 ]);
+
+/** Внутренний помощник сотрудников (Шабнам): единственное место в ai/, которому реестр разрешён. */
+const INTERNAL_ASSISTANT_TOOL = "apps/api/src/ai/assistant/tools/registryReadTool.ts";
 
 /** Всё, что выдаёт реестр: таблицы Prisma, модуль, имена общих типов. */
 const REGISTRY_REFERENCE =
@@ -62,6 +66,7 @@ describe("реестр строек: охрана от утечки (стати�
   it("публичные и клиентские слои реестра не касаются вовсе (сайт, бот, реклама, каталог, публичные маршруты)", () => {
     const outward = files.filter((f) => {
       const r = rel(f);
+      if (r === INTERNAL_ASSISTANT_TOOL) return false;
       return (
         /apps\/api\/src\/(ai|messengers|telegram)\//.test(r) ||
         /apps\/api\/src\/lib\/(site|customer|public|ads|meta|social|publication|propertyPublic)/i.test(r) ||
@@ -72,6 +77,14 @@ describe("реестр строек: охрана от утечки (стати�
     expect(outward.length).toBeGreaterThan(30); // сторож не должен «молча» опустеть из-за смены папок
     const leaking = outward.filter((f) => REGISTRY_REFERENCE.test(readFileSync(f, "utf8"))).map(rel);
     expect(leaking).toEqual([]);
+  });
+
+  it("инструмент Шабнам скрыт в общей группе Telegram и недоступен вне личного чата", () => {
+    const bot = readFileSync(path.resolve(SRC, "telegram/assistantBot.ts"), "utf8");
+    const hidden = /GROUP_HIDDEN_TOOLS[^=]*=\s*new Set\(\[([\s\S]*?)\]\)/.exec(bot)?.[1] ?? "";
+    expect(hidden).toContain('"get_construction_registry"');
+    const tool = readFileSync(path.resolve(SRC, "ai/assistant/tools/registryReadTool.ts"), "utf8");
+    expect(tool).toContain('"telegram-group"');
   });
 
   it("ни одно поле реестра не добавлено в модель Property (публичные выборки собирают поля именно с неё)", () => {
