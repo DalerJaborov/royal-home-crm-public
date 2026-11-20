@@ -30,7 +30,8 @@ vi.mock("../hooks/useTeamLive", async (importOriginal) => ({ ...await importOrig
 vi.mock("../hooks/useDashboard", async (importOriginal) => ({ ...await importOriginal<typeof import("../hooks/useDashboard")>(), useDashboardSummary: () => ({ data: undefined, isPending: false, isError: false }) }));
 vi.mock("../hooks/useClients", async (importOriginal) => ({ ...await importOriginal<typeof import("../hooks/useClients")>(), useClients: () => ({ data: { items: [], total: 0 }, isPending: false, isError: false }) }));
 
-import { TodayRoyal, channelBrand, greetingFor, monthPace } from "./TodayRoyal";
+import { TodayRoyal } from "./TodayRoyal";
+import { channelBrand, greetingFor, monthPace } from "../components/look/home/time";
 
 const render = () => renderToString(
   <QueryClientProvider client={new QueryClient()}><MemoryRouter><TodayRoyal /></MemoryRouter></QueryClientProvider>,

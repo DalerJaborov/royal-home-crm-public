@@ -1,5 +1,5 @@
 import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useServerSyncedFields } from "../hooks/useServerSyncedForm";
 import { useNavigate } from "react-router-dom";
 import { useGoBack } from "../hooks/useGoBack";
@@ -47,6 +47,9 @@ import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { AdminScreen } from "../components/look/admin/AdminRoot";
 import { RhAvatar } from "../components/look/ui";
+import { lazyWithReload } from "../lib/lazyWithReload";
+// Выключатели блоков главной — только «Новому виду», отдельным куском: без признака ни байта.
+const HomeBlocksSettings = lazyWithReload(() => import("../components/look/home/HomeBlocksSettings").then((m) => ({ default: m.HomeBlocksSettings })));
 
 /**
  * «Мой профиль»: личные данные, вход и вид приложения.
@@ -218,7 +221,7 @@ function CleanProfile({ profile, royalScoreEnabled, canSettings, onLogout }: {
         {profile?.role === "AGENT" && <LeadPauseSection />}
         {canSettings && <div className="card tight"><div className="mod"><div className="t"><b>Настройки CRM</b><span>Общие правила агентства: комиссия, лиды и ИИ.</span></div><button className="pill ghost" type="button" onClick={() => navigate("/settings")}>Открыть</button></div></div>}
       </>}
-      {id === "appearance" && <><AppearanceSettings /><section className="card"><div className="sec-h stack"><h2>Приложение на устройстве</h2><span className="note">Быстрый запуск CRM с рабочего стола</span></div><InstallAppSection showStatus /></section></>}
+      {id === "appearance" && <><AppearanceSettings />{royal && <Suspense fallback={null}><HomeBlocksSettings /></Suspense>}<section className="card"><div className="sec-h stack"><h2>Приложение на устройстве</h2><span className="note">Быстрый запуск CRM с рабочего стола</span></div><InstallAppSection showStatus /></section></>}
       {id === "notifications" && <><NotifyKindsSection /><PushNotificationsSection showUnavailable /></>}
       {id === "security" && <section className="card"><div className="sec-h stack"><h2>Вход и безопасность</h2><span className="note">Двухфакторная защита, вход по отпечатку, автовыход</span></div><TwoFactorSettings /><PasskeySettings /><AutoLogoutSection /></section>}
       {id === "sessions" && <><ActiveSessionsSection /><LoginHistorySection /></>}

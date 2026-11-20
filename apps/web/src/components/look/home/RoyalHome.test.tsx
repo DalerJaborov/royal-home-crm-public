@@ -51,7 +51,7 @@ vi.mock("../../../hooks/useMobileUx", () => ({ useMobileUx: () => h.mobile }));
 vi.mock("../../home/TeamCharts", () => ({ TeamCharts: () => null }));
 vi.mock("../../home/HomeAsk", () => ({ HomeAsk: ({ placeholder }: { placeholder: string }) => <input aria-label="ask" placeholder={placeholder} /> }));
 
-import { homeBlocksFor, RoyalHomeCore, type HomeBlockDef } from "./core";
+import { homeBlocksFor, mergeHomeOrder, RoyalHomeCore, type HomeBlockDef } from "./core";
 import { HOME_BLOCKS, HOME_LAYOUT, RoyalRoleHome } from "./registry";
 import { channelBrand, greetingFor } from "./time";
 
@@ -88,8 +88,9 @@ describe("ядро главной: реестр и раскладка", () => {
     const layout = { EDITOR: ["b", "a", "c", "zzz", "a"], default: ["b"] };
     expect(homeBlocksFor("EDITOR", REG, layout).map((b) => b.id)).toEqual(["b", "a"]);
     expect(homeBlocksFor("EDITOR", REG, layout, { hidden: new Set(["a"]) }).map((b) => b.id)).toEqual(["b"]);
-    // Сохранённый порядок не расширяет права: блок другой роли не появляется.
-    expect(homeBlocksFor("EDITOR", REG, layout, { order: ["c", "a"] }).map((b) => b.id)).toEqual(["a"]);
+    // Сохранённый порядок не расширяет права: блок другой роли не появляется, а свой
+    // блок, которого в сохранённом нет, не теряется (выключают переключателем, не порядком).
+    expect(homeBlocksFor("EDITOR", REG, layout, { order: ["c", "a"] }).map((b) => b.id)).toEqual(["b", "a"]);
     // Роль без своей раскладки — раскладка и блоки `default` (как прежняя развилка Dashboard).
     expect(homeBlocksFor("SHAREHOLDER_X", REG, layout).map((b) => b.id)).toEqual(["b"]);
   });
@@ -101,13 +102,37 @@ describe("ядро главной: реестр и раскладка", () => {
       for (const id of order) expect(ids.has(id), `${role}: ${id}`).toBe(true);
       expect(homeBlocksFor(role, HOME_BLOCKS, HOME_LAYOUT).map((b) => b.id), role).toEqual(order);
     }
-    for (const role of ["EDITOR", "MARKETING", "SECURITY", "MANAGER", "SHAREHOLDER"]) expect(HOME_LAYOUT[role], role).toBeDefined();
+    for (const role of ["DIRECTOR", "ADMIN", "HEAD_OF_SALES", "AGENT", "EDITOR", "MARKETING", "SECURITY", "MANAGER", "SHAREHOLDER"]) expect(HOME_LAYOUT[role], role).toBeDefined();
   });
 
-  it("упавший блок показывает «Не загрузилось · Повторить», соседи живут; «Повторить» рисует его заново", () => {
+  it("у каждой роли ядра — свои блоки и «Весь прежний экран»; блоки чужих ролей не видны", () => {
+    const ids = (role: string) => homeBlocksFor(role, HOME_BLOCKS, HOME_LAYOUT).map((b) => b.id);
+    expect(ids("DIRECTOR")).toEqual(ids("ADMIN"));
+    expect(ids("DIRECTOR")).toEqual(expect.arrayContaining(["money", "decisions", "burning", "pulse", "commission", "full"]));
+    expect(ids("HEAD_OF_SALES")).toEqual(expect.arrayContaining(["ropTiles", "ropTasks", "teamCharts", "full"]));
+    expect(ids("AGENT")).toEqual(expect.arrayContaining(["agentTiles", "agentFirstCalls", "agentMonth", "full"]));
+    expect(ids("AGENT")).not.toContain("money");
+    expect(ids("MANAGER")).not.toContain("full");
+    // Сохранённый порядок агента с блоками директора не добавляет их агенту.
+    expect(homeBlocksFor("AGENT", HOME_BLOCKS, HOME_LAYOUT, { order: ["money", "decisions", "agentMonth"] }).map((b) => b.id))
+      .not.toEqual(expect.arrayContaining(["money"]));
+  });
+
+  it("блок, появившийся после сохранения порядка, встаёт на своё место включённым; неизвестные id отброшены", () => {
+    expect(mergeHomeOrder(["a", "b", "c", "d"], ["c", "a"])).toEqual(["c", "d", "a", "b"]);
+    expect(mergeHomeOrder(["a", "b", "c"], ["zzz", "b"])).toEqual(["a", "b", "c"]);
+    expect(mergeHomeOrder(["a", "b"], undefined)).toEqual(["a", "b"]);
+    expect(mergeHomeOrder(["a", "b", "c"], ["c", "c", "b"])).toEqual(["a", "c", "b"]);
+  });
+
+  it("упавший блок показывает «Не загрузилось · Повторить», соседи живут; «Повторить» рисует его заново", async () => {
     let broken = true;
     const Boom = () => { if (broken) throw new Error("boom"); return <p>ожил</p>; };
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // Граница пишет ошибку в журнал событием окна (ErrorBoundary); здесь гасим, иначе jsdom считает её непойманной.
+    const journal: string[] = [];
+    const capture = (event: ErrorEvent) => { journal.push(event.message); event.preventDefault(); event.stopImmediatePropagation(); };
+    window.addEventListener("error", capture, true);
     wrap(<RoyalHomeCore role="EDITOR" registry={[...REG, { id: "boom", roles: ["EDITOR"], title: "Взрыв", component: Boom }]} layout={{ EDITOR: ["a", "boom", "b"] }} />);
     expect(screen.getByText("блок А")).toBeTruthy();
     expect(screen.getByText("блок Б")).toBeTruthy();
@@ -115,7 +140,10 @@ describe("ядро главной: реестр и раскладка", () => {
     expect(screen.getByRole("alert").textContent).toContain("Не загрузилось");
     broken = false;
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
-    expect(screen.getByText("ожил")).toBeTruthy();
+    // Одна дверь на «блок упал» — общая BlockBoundary: сперва перезапрос упавшего, потом новая отрисовка.
+    expect(await screen.findByText("ожил")).toBeTruthy();
+    expect(journal.some((message) => message.startsWith("[блок today.boom]"))).toBe(true);
+    window.removeEventListener("error", capture, true);
     spy.mockRestore();
   });
 

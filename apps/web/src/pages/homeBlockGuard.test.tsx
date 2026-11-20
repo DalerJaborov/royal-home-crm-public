@@ -229,7 +229,7 @@ describe("главная: один блок без данных не роняе�
     expect(screen.getAllByText("Не загрузилось")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
     await waitFor(() => expect(screen.queryByText("Не загрузилось")).toBeNull());
-    expect(screen.getByText(/Комиссия/)).toBeTruthy();
+    expect(screen.getByText(/Комиссия ·/)).toBeTruthy();
   });
 
   it("прежний вид: упал блок показателей — остальной пульт на месте", () => {
@@ -273,6 +273,9 @@ describe("главная: один блок без данных не роняе�
       "/dashboard/sales-control": { tasks: [{ id: "t1", clientName: "Фарход", clientShortId: 2, responseAction: "ACTION", dueAt: null, title: "Позвонить" }] },
       // Сервер прислал раздел без списка метрик — блок читает `metrics.length`.
       "/reports/problems?period=week": [{ id: "r1", metrics: { sections: [{ key: "clients", metrics: null }] } }],
+      // Графики по команде у РОП (ядро главной, home-core): пустые, но живые.
+      "/dashboard/charts": { commissionByMonth: [], propertiesByMonth: [], sourcesThisMonth: [] },
+      "/dashboard/insights": { workload: [] },
     };
     renderPage("today");
     await waitFor(() => expect(screen.getByText("Фарход")).toBeTruthy());

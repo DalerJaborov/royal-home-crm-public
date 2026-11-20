@@ -785,7 +785,7 @@
     {
      "i": 293,
      "direct": false,
-     "conf": "через общую часть"
+     "conf": "через часть экрана"
     },
     {
      "i": 332,
@@ -903,72 +903,12 @@
      "conf": "через общую часть"
     },
     {
-     "i": 420,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 427,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 435,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 454,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 457,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 458,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 459,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 460,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 461,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 462,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 467,
      "direct": false,
      "conf": "через общую часть"
     },
     {
      "i": 468,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 470,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 473,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -983,52 +923,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 477,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 492,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 494,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 495,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 500,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 503,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 504,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 505,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 506,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 507,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -1073,22 +968,12 @@
      "conf": "через общую часть"
     },
     {
-     "i": 528,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 529,
      "direct": false,
      "conf": "через общую часть"
     },
     {
      "i": 530,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 535,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -1108,17 +993,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 541,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 543,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 545,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -1134,11 +1009,6 @@
     },
     {
      "i": 548,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 549,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -38191,7 +38061,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -38638,7 +38507,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -39093,7 +38961,6 @@
     "есть право: clients.viewAll"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -40664,7 +40531,6 @@
     "есть право: properties.purge"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41004,7 +40870,6 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41156,7 +41021,6 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41248,7 +41112,6 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41406,7 +41269,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41492,7 +41354,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -41571,7 +41432,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -42446,7 +42306,6 @@
     "есть право: properties.aiListing"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -42590,7 +42449,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -42836,7 +42694,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -44062,7 +43919,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -44210,7 +44066,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -44302,7 +44157,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -45112,7 +44966,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -45464,7 +45317,6 @@
     "есть право: properties.delete"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -45602,7 +45454,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -46111,7 +45962,6 @@
     "есть право: properties.publish"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -46276,7 +46126,6 @@
     "есть право: properties.delete"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -47433,7 +47282,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -48253,7 +48101,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -48712,7 +48559,6 @@
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -48959,7 +48805,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",
@@ -49305,7 +49150,6 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
     "/archive",
     "/clients/:id",
     "/deals",

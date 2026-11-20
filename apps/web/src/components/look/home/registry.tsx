@@ -1,21 +1,55 @@
-import { RoyalHomeCore, type HomeBlockDef } from "./core";
+import { useMemo } from "react";
+import { useAuthStore } from "../../../store/auth";
+import { useUiPrefs } from "../../../store/uiPrefs";
+import { RoyalHomeCore, type HomeBlockDef, type HomeBlockProps } from "./core";
 import { AskBlock, ChartsBlock, SecurityLinks } from "./blocks/common";
 import { EditorEditing, EditorHint, EditorQuick, EditorTiles, EditorUpcoming } from "./blocks/editor";
 import { MarketingAds, MarketingFocus, MarketingQueue, MarketingQuick, MarketingStale, MarketingTiles } from "./blocks/marketing";
 import { ManagerFocus, ManagerQuick, ManagerTeam, ManagerTiles, ManagerUnread, ManagerWaiting } from "./blocks/manager";
+import { DirectorBurning, DirectorChannels, DirectorCheck, DirectorCommission, DirectorDecisions, DirectorFull, DirectorMoney, DirectorPulse, DirectorTeam } from "./blocks/director";
+import { RopFull, RopLosses, RopTasks, RopTeam, RopTiles } from "./blocks/rop";
+import { AgentFirstCalls, AgentFull, AgentMonth, AgentPending, AgentShowings, AgentTiles } from "./blocks/agent";
 
 /**
- * РЕЕСТР БЛОКОВ ГЛАВНОЙ «НОВОГО ВИДА» (пачка home, 20.11.2026) — одна дверь на
- * состав главной: блок появляется у роли, только если он здесь и роль в его
- * `roles`. `default` — роли без своей раскладки (как прежняя развилка Dashboard:
- * менеджер, акционер и прочие получают главную менеджера).
+ * РЕЕСТР БЛОКОВ ГЛАВНОЙ «НОВОГО ВИДА» — одна дверь на состав главной всех ролей:
+ * блок появляется у роли, только если он здесь и роль в его `roles`. `default` —
+ * роли без своей раскладки (как прежняя развилка Dashboard: менеджер, акционер и
+ * прочие получают главную менеджера).
  *
- * Директор, админ, РОП и агент пока живут в pages/TodayRoyal.tsx; перевод их
- * блоков сюда — следующий шаг (см. журнал пачки).
+ * Пачка home (20.11.2026) — монтажёр, маркетинг, СБ, менеджер, акционер; home-core
+ * (20.11.2026) — директор и админ, РОП, агент (прежде pages/TodayRoyal.tsx).
  */
 const MANAGERS = ["MANAGER", "SHAREHOLDER", "default"] as const;
+const DIRECTORS = ["DIRECTOR", "ADMIN"] as const;
+
+/** «Весь экран»: прежняя главная роли целиком (один id на три роли — один выключатель). */
+function FullBlock({ role }: HomeBlockProps) {
+  if (role === "HEAD_OF_SALES") return <RopFull />;
+  if (role === "AGENT") return <AgentFull />;
+  return <DirectorFull />;
+}
 
 export const HOME_BLOCKS: readonly HomeBlockDef[] = [
+  { id: "money", roles: DIRECTORS, title: "Деньги и главное за день", component: DirectorMoney },
+  { id: "decisions", roles: DIRECTORS, title: "Нужно ваше решение", span: "a", component: DirectorDecisions },
+  { id: "burning", roles: DIRECTORS, title: "Горит сейчас", span: "b", component: DirectorBurning },
+  { id: "check", roles: DIRECTORS, title: "Проверить", span: "a", component: DirectorCheck },
+  { id: "team", roles: DIRECTORS, title: "Команда", span: "b", component: DirectorTeam },
+  { id: "pulse", roles: DIRECTORS, title: "Заявки за 30 дней", span: "a", component: DirectorPulse },
+  { id: "commission", roles: DIRECTORS, title: "Комиссия по месяцам", span: "b", component: DirectorCommission },
+  { id: "channels", roles: DIRECTORS, title: "Заявки за месяц по каналам", component: DirectorChannels },
+
+  { id: "ropTiles", roles: ["HEAD_OF_SALES"], title: "Задачи и нагрузка", component: RopTiles },
+  { id: "ropTasks", roles: ["HEAD_OF_SALES"], title: "Требуют ответа", span: "a", component: RopTasks },
+  { id: "ropTeam", roles: ["HEAD_OF_SALES"], title: "Команда", span: "b", component: RopTeam },
+  { id: "ropLosses", roles: ["HEAD_OF_SALES"], title: "Где теряем клиентов", span: "a", component: RopLosses },
+
+  { id: "agentTiles", roles: ["AGENT"], title: "Заявки, показы и дела", component: AgentTiles },
+  { id: "agentFirstCalls", roles: ["AGENT"], title: "Позвонить сейчас", span: "a", component: AgentFirstCalls },
+  { id: "agentPending", roles: ["AGENT"], title: "Ждут принятия", span: "a", component: AgentPending },
+  { id: "agentShowings", roles: ["AGENT"], title: "Показы сегодня", span: "b", component: AgentShowings },
+  { id: "agentMonth", roles: ["AGENT"], title: "Мой месяц", span: "b", component: AgentMonth },
+
   { id: "editorTiles", roles: ["EDITOR"], title: "Показатели монтажа", component: EditorTiles },
   { id: "editorQuick", roles: ["EDITOR"], title: "Быстрые переходы", component: EditorQuick },
   { id: "editorHint", roles: ["EDITOR"], title: "Подсказка", component: EditorHint },
@@ -37,22 +71,49 @@ export const HOME_BLOCKS: readonly HomeBlockDef[] = [
   { id: "managerWaiting", roles: MANAGERS, title: "Ждут распределения", component: ManagerWaiting },
   { id: "managerTeam", roles: MANAGERS, title: "Кто сейчас свободен", component: ManagerTeam },
   { id: "managerUnread", roles: MANAGERS, title: "Сообщения без ответа", component: ManagerUnread },
-  { id: "teamCharts", roles: MANAGERS, title: "Графики по команде", component: ChartsBlock },
+  // РОП получает те же графики команды (источники месяца, нагрузка агентов): право
+  // dashboard.analytics проверяет сам TeamCharts.
+  { id: "teamCharts", roles: [...MANAGERS, "HEAD_OF_SALES"], title: "Графики по команде", component: ChartsBlock },
 
   { id: "ask", roles: ["MARKETING", ...MANAGERS], title: "Спросить помощника", component: AskBlock },
+  { id: "full", roles: [...DIRECTORS, "HEAD_OF_SALES", "AGENT"], title: "Весь прежний экран", component: FullBlock },
 ];
 
-/** Порядок блоков по умолчанию; на ПК половинные блоки встают парами в две колонки. */
+const DIRECTOR_LAYOUT = ["money", "decisions", "burning", "check", "team", "pulse", "commission", "channels", "full"] as const;
+const MANAGER_LAYOUT = ["managerTiles", "managerQuick", "managerFocus", "ask", "managerWaiting", "managerTeam", "managerUnread", "teamCharts"] as const;
+
+/** Порядок блоков по умолчанию (всё включено); на ПК половинные блоки встают парами в две колонки. */
 export const HOME_LAYOUT: Readonly<Record<string, readonly string[]>> = {
+  DIRECTOR: DIRECTOR_LAYOUT,
+  ADMIN: DIRECTOR_LAYOUT,
+  HEAD_OF_SALES: ["ropTiles", "ropTasks", "ropTeam", "ropLosses", "teamCharts", "full"],
+  AGENT: ["agentTiles", "agentFirstCalls", "agentPending", "agentShowings", "agentMonth", "full"],
   EDITOR: ["editorTiles", "editorQuick", "editorHint", "editorEditing", "editorUpcoming"],
   MARKETING: ["marketingTiles", "marketingQuick", "marketingFocus", "ask", "marketingQueue", "marketingAds", "marketingStale"],
   SECURITY: ["securityLinks"],
-  MANAGER: ["managerTiles", "managerQuick", "managerFocus", "ask", "managerWaiting", "managerTeam", "managerUnread", "teamCharts"],
-  SHAREHOLDER: ["managerTiles", "managerQuick", "managerFocus", "ask", "managerWaiting", "managerTeam", "managerUnread", "teamCharts"],
-  default: ["managerTiles", "managerQuick", "managerFocus", "ask", "managerWaiting", "managerTeam", "managerUnread", "teamCharts"],
+  MANAGER: MANAGER_LAYOUT,
+  SHAREHOLDER: MANAGER_LAYOUT,
+  default: MANAGER_LAYOUT,
 };
 
-/** Главная роли (кроме ролей TodayRoyal): ядро с реестром и раскладкой по умолчанию. */
+type StoredLayout = { order?: string[]; hidden?: string[] };
+
+/**
+ * Личная раскладка главной роли (Профиль → Оформление). Только своя: раскладка,
+ * оставшаяся на общем устройстве от прежнего входа, не применяется.
+ */
+export function useHomeLayoutPrefs(role: string): { order?: readonly string[]; hidden: ReadonlySet<string> } {
+  const actorId = useAuthStore((s) => s.agent?.id ?? null);
+  const owner = useUiPrefs((s) => s.homeBlocksOwnerId);
+  const layout = useUiPrefs((s) => (s.homeBlocks as Record<string, StoredLayout | undefined>)[role]);
+  const own = owner !== null && owner === actorId ? layout : undefined;
+  const hidden = useMemo(() => new Set(own?.hidden ?? []), [own]);
+  return { order: own?.order, hidden };
+}
+
+/** Главная «Нового вида» любой роли: ядро с реестром, раскладкой и личными выключателями. */
 export function RoyalRoleHome() {
-  return <RoyalHomeCore registry={HOME_BLOCKS} layout={HOME_LAYOUT} />;
+  const role = useAuthStore((s) => s.agent?.role) ?? "default";
+  const { order, hidden } = useHomeLayoutPrefs(role);
+  return <RoyalHomeCore role={role} registry={HOME_BLOCKS} layout={HOME_LAYOUT} order={order} hidden={hidden} />;
 }
