@@ -454,3 +454,16 @@
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-workspace[data-context-open] > .clean-conversation-timeline { display: none; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .suggest.ry-chat-pausepick { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* «Позвонить» на месте скрытого номера — внутри фразы клиента (MessageText, inline):
+   компактная ссылка-кнопка в строку, строка текста не раздувается до 44 px, а область
+   нажатия остаётся крупной за счёт отрицательных полей (кадр владельца 20.11). */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] [data-msg-call] > button {
+  min-height: 32px; margin-block: -6px; padding: 0 8px; gap: 4px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-press); color: var(--rh-ui-primary-ink); font: inherit; font-weight: 600; vertical-align: baseline;
+}
+
+/* Имя собеседника в шапке переписки — целиком, в две строки при нехватке места: на 320 px
+   было «Фаррух Н…», а значок бота сжимался (съёмка экранов 20.11). */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who > :not(.ry-chat-who-tx) { flex: none; }

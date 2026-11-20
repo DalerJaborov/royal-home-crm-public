@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { MESSAGE_PHONE_MASK } from "@royal-home/shared";
 import { Bot, Flame } from "lucide-react";
 import type { ConversationListItem } from "../../../hooks/useConversations";
 import { exactDateTime, listTime } from "../../../lib/format";
@@ -65,6 +66,9 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
   const attention = !!c.agentAttentionRequestedAt;
   const last = c.lastMessage
     ? `${c.lastMessage.role === "assistant" ? `${senderPrefix(c.lastMessage.by)}: ` : ""}${c.lastMessage.content}`
+      // Скрытый номер в превью — словами, а не «****» (тот же смысл, что «Позвонить»/«Номер
+      // скрыт» в самой переписке; кадр владельца 20.11). Цифр здесь нет и не было.
+      .split(MESSAGE_PHONE_MASK).join("номер скрыт")
     : "";
   return (
     <button

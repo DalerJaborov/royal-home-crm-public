@@ -21,12 +21,20 @@
 /* ============================ полоса плиток ============================ */
 
 /* Телефон (две колонки): нечётная последняя плитка — во всю ширину, без дыры справа. */
-:root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip > .ry-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* Считаются только плитки (`of .ry-tile`): плита денег `.ry-hero` стоит первой и сама занимает
+   строку. Прежнее `:nth-child(odd)` считало и её — при двух плитках вторая («Горит») растягивалась,
+   а «Ждут ответа» оставалась одна с дырой справа (кадр 20.11, 390 px). */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip > .ry-tile:last-child:nth-child(odd of .ry-tile) { grid-column: 1 / -1; }
 
 /* ============================ быстрые переходы ============================ */
 
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quick {
   grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; min-width: 0;
+}
+/* Телефоны уже 390 px — три в ряд: в четверти 320–375 px «Календарь» и «Команда» рвались
+   по буквам («Кален-дарь», съёмка 20.11). */
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-quick { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q {
   display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 8px 4px;
@@ -254,7 +262,7 @@
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-blocks { grid-auto-flow: row dense; }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-blk > .ry-col-a { grid-column: 1; }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-blk > .ry-col-b { grid-column: 2; }
-  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip > .ry-tile:last-child:nth-child(odd) { grid-column: auto; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip > .ry-tile:last-child:nth-child(odd of .ry-tile) { grid-column: auto; }
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-tiles="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   /* Пять плиток: три сверху, две снизу пошире — без пустой клетки. */
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-strip[data-tiles="5"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }

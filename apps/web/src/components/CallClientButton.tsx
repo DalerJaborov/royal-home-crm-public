@@ -36,6 +36,10 @@ interface CallClientButtonProps {
   /** Анкета кандидата (раздел «Вакансии»): у неё нет карточки клиента, звонок
    *  идёт своим путём POST /vacancies/:id/call — тоже через станцию. */
   candidateId?: string;
+  /** Кнопка стоит ВНУТРИ строки текста (реплика клиента со скрытым номером, MessageText):
+   *  обёртка строчная, а не блочная. Блочный div рвал фразу и ставил «Позвонить» отдельной
+   *  строкой с пустой строкой над ней (кадр владельца 20.11.2026). */
+  inline?: boolean;
 }
 
 /**
@@ -102,6 +106,7 @@ export function CallClientButton({
   title,
   stopPropagation = true,
   candidateId,
+  inline = false,
 }: CallClientButtonProps) {
   const callClientMutation = useCallClient(clientId ?? "", callPhone, phoneKey);
   const callCandidate = useCallCandidate(candidateId ?? "");
@@ -180,6 +185,7 @@ export function CallClientButton({
   }
 
   // Одно состояние кнопки на оба варианта: подпись full и имя значка для чтеца.
+  const Wrap = inline ? "span" : "div";
   const stateLabel = isThisClient && callInProgress
     ? "Идёт звонок…"
     : callInProgress
@@ -189,7 +195,7 @@ export function CallClientButton({
         : (label ?? "Позвонить");
 
   return (
-    <div className={variant === "icon" ? "relative shrink-0" : "relative"}>
+    <Wrap className={variant === "icon" ? "relative shrink-0" : inline ? "relative inline-flex align-middle" : "relative"} data-msg-call={inline || undefined}>
       <button
         type="button"
         // Метка для жеста «смахнуть строку — позвонить» (components/SwipeRow.tsx):
@@ -251,6 +257,6 @@ export function CallClientButton({
           )}
         </div>
       )}
-    </div>
+    </Wrap>
   );
 }

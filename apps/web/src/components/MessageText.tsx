@@ -56,7 +56,9 @@ export function MessageText({
       {parts.map((part, i) => (
         <Fragment key={i}>
           {part}
-          {i < parts.length - 1 && (readOnly ? <span>Номер скрыт</span> : (
+          {/* Без карточки клиента звонить некуда (станция набирает номер карточки): вместо
+              мёртвой серой «Позвонить» — честные слова, как у читателя без права звонить. */}
+          {i < parts.length - 1 && (readOnly || !clientId ? <span data-msg-call>Номер скрыт</span> : (
             <CallClientButton
               clientId={clientId}
               /* Маска-«точка» — тот же признак «номер закрыт», что у CallClientButton
@@ -64,6 +66,7 @@ export function MessageText({
                  подставить цифры в tel:. */
               phone="•••"
               variant="full"
+              inline
               label="Позвонить"
               title="Клиент продиктовал номер. Позвонить ему через CRM, номер остаётся скрытым, разговор запишется и попадёт в хронологию"
               className={

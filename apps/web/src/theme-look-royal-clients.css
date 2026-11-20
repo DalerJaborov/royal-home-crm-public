@@ -564,3 +564,35 @@
 :root[data-ui-look="royal"][data-theme="royal-home-2026-night"] .rh2[data-ry-section="clients"] .sheet {
   box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .8), 0 0 0 1px var(--rh-ui-ring);
 }
+
+/* ====================== узкий телефон (кадры 20.11, 320–430 px) ====================== */
+
+/* «Продавцы / Покупатели» не рвутся посреди слова («Продавц/ы», «Покупател/и» на 320 px):
+   слово переносится только целиком, а на самых узких подпись на ступень мельче. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .seg button { overflow-wrap: normal; word-break: normal; hyphens: none; }
+@media (max-width: 359.98px) {
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-clients-tools .seg button { padding: 0 5px; font-size: 14px; }
+}
+/* Строка «Не связывались: 4» и «Показать» — кнопка уходит строкой ниже, а не рвёт подпись. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .quiet { flex-wrap: wrap; }
+
+/* Имя клиента на телефоне — во всю ширину строки, сроки — строкой под ним. Прежде колонка
+   двух дат («22.11 02:20 / 20.11 02:20») забирала справа 112 px, и на 320 px от имени
+   оставалось «Сито…», на 390 — «Ситора Наза…». */
+@media (max-width: 430px) {
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow {
+    grid-template-areas: "av top acts" "av when acts" "av req acts" "av foot acts";
+  }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] {
+    grid-template-areas: "av top acts" "av when acts" "av req acts" "av foot acts" "av agent acts";
+  }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent]:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) {
+    grid-template-areas: "av top" "av when" "av req" "av foot" "av agent" ". acts";
+  }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-main { max-width: 100%; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-when,
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-deadline] .ry-crow-when {
+    grid-area: when; justify-self: start; max-width: 100%; text-align: left;
+    display: flex; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 10px;
+  }
+}

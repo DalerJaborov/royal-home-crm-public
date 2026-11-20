@@ -26,6 +26,7 @@ export function formatArea(value: number | string | null | undefined): string {
  * Там, где деньги стоят колонкой и обязаны сходиться в итог (Финансы, Реклама,
  * отчёты), используется formatMoneyExact — он всегда печатает две цифры.
  */
+const NBSP = " ";
 export function formatMoney(value: number | string, currency: Currency | string) {
   const n = Number(value);
   const safe = Number.isFinite(n) ? n : 0;
@@ -34,7 +35,8 @@ export function formatMoney(value: number | string, currency: Currency | string)
     minimumFractionDigits: hasCents ? 2 : 0,
     maximumFractionDigits: hasCents ? 2 : 0,
   }).format(safe);
-  return currency === "USD" ? `$${formatted}` : `${formatted} с.`;
+  // Неразрывный пробел перед «с.»: сумма не рвётся на «3 220,70 / с.» в узкой плитке (20.11).
+  return currency === "USD" ? `$${formatted}` : `${formatted}${NBSP}с.`;
 }
 
 /**
@@ -53,7 +55,7 @@ export function formatMoneyExact(value: number | string, currency: Currency | st
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number.isFinite(n) ? n : 0);
-  return currency === "USD" ? `$${formatted}` : `${formatted} с.`;
+  return currency === "USD" ? `$${formatted}` : `${formatted}${NBSP}с.`;
 }
 
 /**

@@ -55,5 +55,6 @@ describe("nearbySummary — что рядом с нажатой точкой", (
 });
 
 function formatted(n: number, suffix: string): string {
-  return `${new Intl.NumberFormat("ru-RU").format(n)} ${suffix}`;
+  // Перед «с.» — неразрывный пробел (lib/format.ts, 20.11): сумма не рвётся на строки.
+  return `${new Intl.NumberFormat("ru-RU").format(n)} ${suffix}`;
 }
