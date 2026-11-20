@@ -6,6 +6,7 @@ import { SwitchRow } from "../../components/Switch";
 import { SellerAutomationSection } from "./SellerAutomationSection";
 import { SecurityAutomationSection } from "./SecurityAutomationSection";
 import { AutomationSwitchesSection } from "./AutomationSwitchesSection";
+import { RegistrySettingsSection } from "./RegistrySettingsSection";
 
 /**
  * Числа, по которым система требует работу от агента.
@@ -90,6 +91,8 @@ export function DisciplineSection() {
       <SecurityAutomationSection />
       {/* Выключатели автоматики ИИ и напоминаний (19.11.2026) — сохраняются сами. */}
       <AutomationSwitchesSection />
+      {/* Реестр строек Душанбе (20.11.2026): два рубильника, статус забора и «Забрать сейчас». */}
+      <RegistrySettingsSection />
       {/* «Ждёт варианты» и «Ждёт показ» убраны с экрана 23.09.2026: блок обещал
           напоминания агенту и стоп на выдачу лидов, но ни напоминаний, ни стопа в
           коде нет — ни одна строка сервера это поле не читает (проверено поиском 23.09.2026). Поля
