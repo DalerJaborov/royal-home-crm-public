@@ -20,6 +20,7 @@ import { useLiveEvents } from "../hooks/useLiveEvents";
 import { useUiPrefs } from "../store/uiPrefs";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { isRh2Route } from "../lib/navigation";
+import { isWideRoute } from "../lib/shellLayout";
 import { useCleanShellSelection } from "../hooks/useCleanShell";
 import { CleanShell } from "../components/clean/CleanShell";
 import { useCleanViewport } from "../hooks/useCleanViewport";
@@ -265,6 +266,7 @@ export function AppLayout() {
         // ниже них (жалоба владельца 19.08.2026). На десктопе и на телефонах без
         // выреза переменная равна нулю — правило безвредно везде.
         className={clean ? "clean-frame" : "flex-1 flex flex-col min-w-0 md:overflow-y-auto md:overscroll-contain pt-[env(safe-area-inset-top)]"}
+        data-ry-wide={royal && isWideRoute(pathname) ? "" : undefined}
       >
         {clean ? <CleanShell royal={royal} /> : <Topbar />}
         {appearanceUnavailable && <ShellAppearanceRecovery />}

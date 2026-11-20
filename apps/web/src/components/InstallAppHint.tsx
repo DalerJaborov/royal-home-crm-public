@@ -94,7 +94,10 @@ export function InstallAppHint() {
     // Облик — карточка `.card.tight` эталона со строкой `.mod` (значок, текст,
     // действия) и кнопкой `.pill`. Подсказка живёт в рамке приложения, вне
     // области темы экрана, поэтому открывает область сама (см. Rh2Scope.tsx).
-    <Rh2Inline className="fixed inset-x-0 bottom-[calc(152px+env(safe-area-inset-bottom))] z-30 px-3 md:hidden">
+    // `data-install-hint` — метка для рейки планшета «Нового вида» (theme-look-royal.css):
+    // там подсказка сдвигается вправо от рейки. Та же разметка, что давал className у Rh2Inline.
+    <div data-install-hint className="fixed inset-x-0 bottom-[calc(152px+env(safe-area-inset-bottom))] z-30 px-3 md:hidden">
+    <Rh2Inline>
       <div className="card tight">
         <div className="mod" style={{ padding: 0, borderBottom: 0 }}>
           <span className="call" aria-hidden>
@@ -146,5 +149,6 @@ export function InstallAppHint() {
         </div>
       </div>
     </Rh2Inline>
+    </div>
   );
 }

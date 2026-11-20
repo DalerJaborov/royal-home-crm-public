@@ -590,9 +590,17 @@ export const HIDING_ALLOWED = new Set<string>([
   `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo > .ry-obj-pill`,
   `${R} [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo > .ry-obj-pill`,
   `${R} .ry-chats[data-ry-section="chats"] .ry-chats-more-body .clean-inbox-filters > summary`,
-  `${R}:not([data-mobile-ux]) .clean-shell .clean-brand b`,
-  // Узкое меню ПК (< 1200) — одни значки; подпись в title и для чтеца (решение основы).
-  `${R}:not([data-mobile-ux]) .clean-shell .ry-nav-label`,
+  // Одна оболочка (пачка B, 20.11.2026): меню с подписями на всех ширинах. Узкой рейки из
+  // голых значков больше нет — прежние исключения для подписи меню и названия CRM сняты.
+  // Скрыта только ЗАМЕНА: на 1024+ нижнее меню (те же разделы — в боковом), на 768–1023
+  // боковое меню и название (те же разделы — в рейке), «Ещё» рейки вне планшета (на
+  // телефоне все разделы — у аватара), телефонное название при названии ПК, маркер раскрытия.
+  `${R}[data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav]`,
+  `${R}[data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab`,
+  `${R}[data-shell="clean"] .app-shell.clean-shell .clean-header :is(.clean-brand, .clean-tabs)`,
+  `${R} .clean-shell .ry-rail-only`,
+  `${R}[data-shell="clean"] .app-shell.clean-shell .clean-brand .clean-brand-mobile`,
+  `${R}[data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title::-webkit-details-marker`,
   // Телефонная навигация «список ↔ переписка ↔ карточка»: экран переключён, а не текст скрыт.
   `${R} .ry-chats[data-ry-section="chats"][data-chat-active="thread"] .ry-chats-head`,
   `${R} .ry-chats[data-ry-section="chats"] .two[data-conversation-selected] > section[aria-label="Диалоги"]`,
