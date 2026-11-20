@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const h = vi.hoisted(() => ({ query: vi.fn(), mobile: false, role: "DIRECTOR", search: "", result: { data: undefined as { enabled: boolean } | undefined, isPending: true, isError: false } }));
+const h = vi.hoisted(() => ({ query: vi.fn(), mobile: false, role: "DIRECTOR", search: "", result: { data: undefined as { enabled: boolean; look?: "royal" } | undefined, isPending: true, isError: false } }));
 vi.mock("react", () => ({ useEffect: () => {}, useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot() }));
 vi.mock("react-router-dom", () => ({ useLocation: () => ({ search: h.search }) }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: (options: unknown) => { h.query(options); return h.result; } }));
@@ -19,9 +19,14 @@ describe("shell policy network failure", () => {
     expect(options.refetchInterval({ state: { data: { enabled: false } } })).toBe(false);
     useCleanShellSelection();
     expect(h.query.mock.calls.at(-1)?.[0]).toMatchObject({ refetchInterval: false });
+    // Телефон агента спрашивает сервер (о «Новом виде»), но следит за откатом
+    // только когда вид выдан: без него он в прежнем интерфейсе (пачка B, 20.11).
     h.mobile = true; h.role = "AGENT";
     useCleanShellSelection(true);
-    expect(h.query.mock.calls.at(-1)?.[0]).toMatchObject({ refetchInterval: false, enabled: false });
+    const agentPhone = h.query.mock.calls.at(-1)?.[0];
+    expect(agentPhone).toMatchObject({ enabled: true });
+    expect(agentPhone.refetchInterval({ state: { data: { enabled: true } } })).toBe(false);
+    expect(agentPhone.refetchInterval({ state: { data: { enabled: true, look: "royal" } } })).toBe(30_000);
   });
   it("defaults to Clean only after an affirmative server policy", () => {
     h.result = { data: { enabled: true }, isPending: false, isError: false };
@@ -38,7 +43,26 @@ describe("shell policy network failure", () => {
   it("never bypasses the server switch with a URL, and agent mobile defaults to legacy", () => {
     h.search = "?shell=clean"; h.result = { data: { enabled: false }, isPending: false, isError: false };
     expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
-    h.mobile = true; h.role = "AGENT"; h.result = { data: { enabled: true }, isPending: true, isError: false };
+    h.mobile = true; h.role = "AGENT"; h.result = { data: { enabled: true }, isPending: false, isError: false };
+    expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
+  });
+  it("одна оболочка: выданный сервером «Новый вид» включает её и на телефоне агента", () => {
+    h.mobile = true; h.role = "AGENT";
+    // Пока ответа нет — ждём, а не монтируем прежний интерфейс на миг.
+    expect(useCleanShellSelection()).toEqual({ clean: false, pending: true });
+    h.result = { data: { enabled: true, look: "royal" }, isPending: false, isError: false };
+    expect(useCleanShellSelection()).toEqual({ clean: true, look: "royal", pending: false });
+    // Сбой очередной проверки не выключает уже выданный вид.
+    h.result.isError = true;
+    expect(useCleanShellSelection()).toEqual({ clean: true, look: "royal", pending: false });
+    // Личный отказ от вида возвращает агента в прежний телефонный интерфейс.
+    h.result.isError = false; h.search = "?look=legacy";
+    expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
+    // Аварийное выключение оболочки на сервере снимает и вид, и оболочку.
+    h.search = ""; h.result = { data: { enabled: false }, isPending: false, isError: false };
+    expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
+    // Холодный сбой — прежний интерфейс без аварийного предложения: для телефона агента он штатный.
+    h.result = { data: undefined, isPending: false, isError: true };
     expect(useCleanShellSelection()).toEqual({ clean: false, pending: false });
   });
   it.each(["DIRECTOR", "ADMIN", "MANAGER", "SHAREHOLDER"])("requests the mandatory server policy on %s phones", (role) => {

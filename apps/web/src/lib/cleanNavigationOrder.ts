@@ -45,3 +45,51 @@ export function mergeCleanNavigationDraft(saved: readonly string[], visible: rea
   const allowedSet = new Set(allowed);
   return readCleanNavigationOrder([...visible.filter((id) => allowedSet.has(id)), ...saved.filter((id) => !allowedSet.has(id))]);
 }
+
+/**
+ * БОКОВОЕ МЕНЮ «НОВОГО ВИДА» (пачка B «одна оболочка», 20.11.2026).
+ *
+ * Было: шесть вкладок и под чертой ВЕСЬ остальной реестр плоским списком — у
+ * директора 33 строки, на 1024–1199 ещё и голыми значками (critic-uiux.md P0-4,
+ * P1-7). Стало: до восьми главных строк (тот же порядок, что вкладки, — с личной
+ * настройкой «Порядок вкладок», preferences.navigation) и остальное в свёрнутых
+ * группах по смыслу реестра (`NavItem.group`). Права не трогаются: на вход идут
+ * уже отфильтрованные `main`/`all`; каждый путь показывается ровно один раз.
+ */
+export const ROYAL_PRIMARY_CAPACITY = 8;
+
+export type RoyalNavGroupKey = "work" | "team" | "money" | "ads" | "system";
+
+const GROUP_OF: Record<NavItem["group"], RoyalNavGroupKey> = {
+  main: "work", inbox: "work", people: "work", objects: "work",
+  team: "team", money: "money", ads: "ads", system: "system",
+};
+
+export const ROYAL_NAV_GROUP_TITLES: Record<RoyalNavGroupKey, string> = {
+  work: "Работа",
+  team: "Команда и контроль",
+  money: "Отчёты",
+  ads: "Маркетинг",
+  system: "Система",
+};
+
+const GROUP_ORDER: RoyalNavGroupKey[] = ["work", "team", "money", "ads", "system"];
+
+export interface RoyalNavGroup { key: RoyalNavGroupKey; title: string; items: NavItem[] }
+
+export function royalSideNavigation(main: NavItem[], all: NavItem[], saved: unknown = [], capacity = ROYAL_PRIMARY_CAPACITY) {
+  const { tabs, overflow } = partitionCleanNavigation(main, all, capacity, saved);
+  const seen = new Set(tabs.map((item) => item.to));
+  const buckets = new Map<RoyalNavGroupKey, NavItem[]>();
+  for (const item of overflow) {
+    if (seen.has(item.to)) continue;
+    seen.add(item.to);
+    const key = GROUP_OF[item.group] ?? "system";
+    buckets.set(key, [...(buckets.get(key) ?? []), item]);
+  }
+  const groups: RoyalNavGroup[] = GROUP_ORDER.flatMap((key) => {
+    const items = buckets.get(key);
+    return items?.length ? [{ key, title: ROYAL_NAV_GROUP_TITLES[key], items }] : [];
+  });
+  return { primary: tabs, groups };
+}
