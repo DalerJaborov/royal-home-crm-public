@@ -107,6 +107,9 @@ describe("narration text rules (one builder for CRM wizard, Shabnam and server)"
     expect(apartmentPriceCurrencySuspect({ type: "APARTMENT", price: "107400", currency: "TJS", areaSqm: "89.5" })).toBe("LOOKS_USD");
     expect(narrationPriceProblem(mixedUp)).toBe("CURRENCY_SUSPECT");
     expect(renderNarrationTemplate({ lang: "tg", text: "Нархи хона {цена}. Нависед!" }, mixedUp)).toBe("Нависед!");
+    // Шаблоны прода: «[…предложение.] Нархи хона {цена}.» — выпадает только цена, остальное на месте.
+    expect(renderNarrationTemplate({ lang: "tg", text: "Хонаи худро меҷӯед? [Хона {комнаты} ҳуҷра дорад.] [Хона дар ошёнаи {этаж_пор}и бинои {этажей} ошёна ҷойгир аст.] Нархи хона {цена}. Нависед!" }, mixedUp))
+      .toBe("Хонаи худро меҷӯед? Хона ду ҳуҷра дорад. Хона дар ошёнаи бистуми бинои бисту чор ошёна ҷойгир аст. Нависед!");
     // Настоящие цены продолжают звучать: 788 000 сомони за 77,5 м², 127 200 $ за 106 м².
     expect(apartmentPriceCurrencySuspect({ type: "APARTMENT", price: "788000", currency: "TJS", areaSqm: "77.5" })).toBeNull();
     expect(apartmentPriceCurrencySuspect({ type: "APARTMENT", price: "127200", currency: "USD", areaSqm: "106" })).toBeNull();

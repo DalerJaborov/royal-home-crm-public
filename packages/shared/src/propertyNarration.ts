@@ -493,7 +493,9 @@ function dropPriceSentences(text: string): string {
     else if (ch === "]") depth = Math.max(0, depth - 1);
     else if (depth === 0 && text.startsWith("{цена}", i)) price = true;
     current += ch;
-    if (depth === 0 && /[.!?]/u.test(ch) && /\s/u.test(text[i + 1] ?? " ")) {
+    // Конец предложения: «.!?» вне скобок или «[…предложение.]» — скобка, закрывшая целое предложение.
+    const ends = /[.!?]/u.test(ch) || (ch === "]" && /[.!?]/u.test(text[i - 1] ?? ""));
+    if (depth === 0 && ends && /\s/u.test(text[i + 1] ?? " ")) {
       sentences.push({ text: current, price });
       current = ""; price = false;
     }
