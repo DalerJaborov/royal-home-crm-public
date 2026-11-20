@@ -4,6 +4,7 @@ import { Image as ImageIcon } from "lucide-react";
 import type { AdBoardProperty } from "@royal-home/shared";
 import { formatMoneyExact, pluralizeRu } from "../../lib/format";
 import { formatLeadCount, formatPct } from "../../lib/adsView";
+import { PropertyPhoto } from "../property/PropertyPhoto";
 
 /**
  * ОБЪЕКТЫ ОБЪЯВЛЕНИЯ — ряд чипов в строке рекламы (03.10.2026).
@@ -46,14 +47,7 @@ export function AdPropertyChips({ properties }: { properties: AdBoardProperty[] 
           style={{ gap: 6, maxWidth: "100%" }}
         >
           {p.thumbUrl ? (
-            <img
-              src={p.thumbUrl}
-              alt=""
-              loading="lazy"
-              width={20}
-              height={20}
-              style={{ borderRadius: 4, objectFit: "cover", flex: "none" }}
-            />
+            <PropertyPhoto compact sources={[p.thumbUrl]} maxWidth={20} style={{ width: 20, height: 20, borderRadius: 4, flex: "none" }} />
           ) : (
             <ImageIcon className="i" aria-hidden style={{ width: 16, height: 16, flex: "none" }} />
           )}

@@ -319,3 +319,15 @@
   /* Счётчик в капсуле — на верхнем краю круга, не на подписи. */
   :root[data-ui-look="royal"] [data-ry-section="home"] .ry-home-q-count { top: -8px; right: -4px; }
 }
+
+/* «Позвонить сейчас» на главной агента (пачка D1, 20.11.2026): строка-ссылка в карточку и
+   рядом круглая трубка 48. Кнопка — соседка ссылки, не налезает на неё ни на 320, ни на ПК. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-group > .ry-agent-call-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 12px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-group > .ry-agent-call-row + .ry-agent-call-row { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row > .ry-row { flex: 1 1 auto; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn {
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); cursor: pointer;
+}
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn svg { width: 22px; height: 22px; }
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-agent-call-row .ry-agent-call-btn:disabled { opacity: .6; cursor: default; }

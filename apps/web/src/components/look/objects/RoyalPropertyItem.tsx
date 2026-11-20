@@ -1,11 +1,13 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { PropertyHealthBrief } from "@royal-home/shared";
 import type { Property } from "../../../types";
 import { formatArea, formatMoney, formatPricePerSqm, STAGE_OWNER_LABELS } from "../../../lib/format";
 import { formatPropertyCode } from "../../../lib/clientFormat";
-import { statusChipClass, statusChipLabel } from "../../../lib/theme2026";
+import { stageLabelFor, statusChipClass } from "../../../lib/theme2026";
+import { useAuthStore } from "../../../store/auth";
 import { PropertyHealthDot } from "../../PropertyHealthDot";
+import { PropertyPhoto } from "../../property/PropertyPhoto";
 import { PropertyStats } from "../../PropertyStats";
 import { RhAvatar } from "../ui";
 import { ObjIcon } from "./ObjIcon";
@@ -49,13 +51,15 @@ export function ObjStatusPill({ tone, label, testId }: { tone: ObjTone; label: s
 
 export function RoyalPropertyItem({ property: p, health, variant = "card", selected, onToggleSelect, onTogglePublish, agentName, agentTitle, floors, awaitingAcceptance, handoff, subline, band }: RoyalPropertyItemProps) {
   const tone = toneFromChipClass(statusChipClass(p.status, p.pipeline));
+  const role = useAuthStore((s) => s.agent?.role);
+  const stageLabel = stageLabelFor(p.status, p.pipeline, role);
   const overdue = p.pipeline?.overdue && !subline;
   const canTogglePublish = !!onTogglePublish && (p.publishedOnSite || p.status === "AVAILABLE");
   return (
     <article data-property-row="" data-list-row data-property-layout={variant} className="ry-obj-card" data-selected={selected ? "true" : undefined}>
       <div className="ry-obj-photo">
         <ObjThumb key={`${p.photos[0]?.thumbUrl ?? "empty"}:${p.photos[0]?.url ?? ""}`} photo={p.photos[0]?.thumbUrl || p.photos[0]?.url} alternate={p.photos[0]?.url} />
-        <ObjStatusPill tone={tone} label={statusChipLabel(p.status, p.pipeline)} />
+        <ObjStatusPill tone={tone} label={stageLabel} />
         {p.photos.length > 0 && <span className="ry-obj-count"><ObjIcon name="image" size={16} />{p.photos.length}</span>}
       </div>
       <div className="ry-obj-body">
@@ -67,8 +71,8 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
         <p className="ry-obj-addr">{p.district?.name ?? "Район не указан"}{p.address ? ` · ${p.address}` : ""} · {formatArea(p.areaSqm)} м²{floors}</p>
         <p className="ry-obj-meta">
           <PropertyHealthDot health={health} />
-          <span>{formatPropertyCode(p.shortId)}</span>
-          <span className="ry-obj-state" data-tone={tone}>{statusChipLabel(p.status, p.pipeline)}</span>
+          <span title={`Номер для поиска: ${formatPropertyCode(p.shortId)}`}>№{p.shortId}</span>
+          <span className="ry-obj-state" data-tone={tone}>{stageLabel}</span>
           {p.publishedOnSite && <span className="ry-obj-tag" data-tone="ok"><ObjIcon name="globe" size={16} />На сайте</span>}
         </p>
         <div className="ry-obj-stats"><PropertyStats property={p} /></div>
@@ -108,10 +112,6 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
 }
 
 function ObjThumb({ photo, alternate }: { photo?: string; alternate?: string }) {
-  const [attempt, setAttempt] = useState(0);
-  const candidates = [...new Set([photo, alternate].filter((url): url is string => !!url))];
-  const source = candidates[attempt];
-  return source
-    ? <img src={source} alt="" loading="lazy" decoding="async" onError={() => setAttempt((value) => value + 1)} />
-    : <span className="ry-obj-nophoto"><ObjIcon name="image-off" /><span className="ry-obj-nophoto-text">{photo ? "Фото недоступно" : "Нет фото"}</span></span>;
+  // Одна заглушка на все экраны (PropertyPhoto): «Фото недоступно» / «Нет фото».
+  return <PropertyPhoto fill sources={[photo, alternate]} />;
 }

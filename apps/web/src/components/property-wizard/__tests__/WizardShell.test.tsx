@@ -51,6 +51,21 @@ describe("property wizard workspace", () => {
     expect(failed).not.toMatch(/<button[^>]*data-testid="wizard-delete-draft"[^>]*disabled=""/);
   });
 
+  it("keeps «Удалить черновик» away from «Сохранить и выйти» (пачка D1)", () => {
+    const html = render({ onDeleteDraft: () => {}, onSaveAndExit: () => {} });
+    const header = html.match(/<div class="wizard-draft-actions wizard-header-actions">[\s\S]*?<\/div>/)?.[0] ?? "";
+    expect(header).toContain('data-testid="wizard-save-exit"');
+    expect(header).not.toContain('data-testid="wizard-delete-draft"');
+    expect(html).toMatch(/<div class="wizard-danger-zone"><button[^>]*data-variant="danger"[^>]*data-testid="wizard-delete-draft"/);
+  });
+
+  it("shows a failed deletion next to the bottom button, not in the header (ревью PR 331)", () => {
+    const html = render({ onDeleteDraft: () => {}, onSaveAndExit: () => {}, deleteDraftError: "Не удалось удалить черновик." });
+    const zone = html.slice(html.indexOf('class="wizard-danger-zone"'));
+    expect(zone).toContain('data-testid="wizard-delete-error"');
+    expect(html.slice(0, html.indexOf('class="wizard-danger-zone"'))).not.toContain('data-testid="wizard-delete-error"');
+  });
+
   it("does not call saving completed while a new save is in flight", () => {
     const html = render({ draftSaved: true, draftStatus: { state: "saving" } });
     expect(html).toContain("Сохраняю черновик");

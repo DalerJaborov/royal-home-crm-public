@@ -39,6 +39,20 @@ export function statusChipClass(status: PropertyStatus, stage?: PropertyStageSta
  * Дни приходят с сервера готовым признаком (stage.daysInStage) — своей арифметики
  * по датам здесь нет, иначе список и карточка разошлись бы в цифрах.
  */
+/**
+ * Этап объекта бытовыми словами для агента (пачка D1, 20.11.2026). «На монтаже» —
+ * слово монтажёра и маркетинга; агенту оно ничего не говорит о том, что ему делать
+ * (critic-agent-newbie: «Монтаж и ждём видео агенту ни о чём не говорят»). Остальные
+ * роли видят прежнее слово: для монтажёра это его работа.
+ */
+const AGENT_STAGE_WORDS: Partial<Record<PropertyStatus, string>> = { EDITING: "Готовим видео" };
+
+export function stageLabelFor(status: PropertyStatus, stage: PropertyStageState | null | undefined, role: string | undefined): string {
+  const label = statusChipLabel(status, stage);
+  const plain = role === "AGENT" ? AGENT_STAGE_WORDS[status] : undefined;
+  return plain ? label.replace(PROPERTY_STATUS_LABELS[status], plain) : label;
+}
+
 export function statusChipLabel(status: PropertyStatus, stage?: PropertyStageState | null): string {
   const base = PROPERTY_STATUS_LABELS[status];
   if (!stage?.inPipeline || !stage.daysInStage) return base;
