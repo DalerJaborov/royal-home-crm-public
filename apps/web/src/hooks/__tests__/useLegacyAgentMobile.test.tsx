@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { useLegacyAgentMobile } from "../useLegacyAgentMobile";
+import { legacyAgentMobileActive, useLegacyAgentMobile } from "../useLegacyAgentMobile";
 
 const device = vi.hoisted(() => ({ narrow: true, role: "AGENT", clean: false }));
 vi.mock("../useCleanShell", () => ({ useCleanShell: () => device.clean }));
@@ -22,5 +22,10 @@ describe("legacy agent mobile boundary", () => {
     expect(renderToStaticMarkup(<Screen />)).toBe("<span>current</span>");
     device.clean = false;
     expect(renderToStaticMarkup(<Screen />)).toBe("<span>legacy</span>");
+  });
+  it("сторож одной оболочки: при чистой оболочке (её включает и «Новый вид») прежний интерфейс агента не рисуется ни на одной ширине", () => {
+    for (const narrow of [true, false]) for (const role of ["AGENT", "DIRECTOR", "ADMIN", "MANAGER", undefined]) {
+      expect(legacyAgentMobileActive(narrow, role, true)).toBe(false);
+    }
   });
 });
