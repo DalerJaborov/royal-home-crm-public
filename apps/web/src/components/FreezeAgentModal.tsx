@@ -108,7 +108,7 @@ export function FreezeAgentModal({
       if (err instanceof ApiError && err.status === 428) {
         setPendingStepUp({
           run: () => unfreeze.mutate(),
-          description: "Разморозка возвращает сотруднику выдачу лидов, подтвердите, что это вы.",
+          description: "Разморозка возвращает сотруднику выдачу заявок, подтвердите, что это вы.",
         });
         return;
       }
@@ -137,7 +137,7 @@ export function FreezeAgentModal({
         description={[
           agent.absenceKind ? `${ABSENCE_KIND_LABELS[agent.absenceKind]}${absenceTail(agent.absenceUntil)}.` : "",
           agent.frozenReason ? `Причина: «${agent.frozenReason}».` : "",
-          "Сотрудник снова начнёт получать новые лиды и входящие звонки.",
+          "Сотрудник снова начнёт получать новые заявки и входящие звонки.",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -171,7 +171,7 @@ export function FreezeAgentModal({
   return (
     <ConfirmDialog
       title={`Отсутствие: ${agent.fullName}`}
-      description="Сотрудник продолжает работать с текущими клиентами, но перестаёт получать новые лиды. Непринятые активные лиды сразу уходят в общую очередь. Вернуть в строй можно в любой момент."
+      description="Сотрудник продолжает работать с текущими клиентами, но перестаёт получать новые заявки. Непринятые активные заявки сразу уходят в общую очередь. Вернуть в строй можно в любой момент."
       confirmLabel={freeze.isPending ? "Сохраняем…" : `Отметить: ${ABSENCE_KIND_LABELS[kind].toLowerCase()}`}
       confirmDisabled={freeze.isPending || reason.trim().length < 3}
       onConfirm={() => {
@@ -201,7 +201,7 @@ export function FreezeAgentModal({
         />
         <span className="msg">
           {until
-            ? "В этот день сотрудник вернётся в строй сам — лиды и входящие звонки пойдут к нему снова."
+            ? "В этот день сотрудник вернётся в строй сам — заявки и входящие звонки пойдут к нему снова."
             : "Без даты вернуть в строй придётся вручную."}
         </span>
       </label>

@@ -2183,7 +2183,7 @@ export function PropertyVideoFixCard({
                         ? "Не удалось получить список исходников"
                         : hasCurrentSource
                           ? keptSources
-                              .map((v) => `${v.filename} · ${formatMb(v.sizeBytes)}${v.hasAudio === false ? " · ⚠ без звука" : ""}`)
+                              .map((v) => `${v.filename} · ${formatMb(v.sizeBytes)}${v.hasAudio === false ? " · без звука" : ""}`)
                               .join(", ")
                           : "Исходников на сервере нет — их убрали после публикации. Загрузите новый."}
                   </span>

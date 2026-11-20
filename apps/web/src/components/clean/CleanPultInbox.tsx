@@ -120,7 +120,7 @@ function InboxEntry({ item, show, hidden, onGone, onBack, actions, agentChoice }
     actions: simpleActions(item, actions, swallow, agentChoice?.defaultId),
     choice: item.type === "unassigned" && agentChoice ? { ...agentChoice, label: "Кому назначить" } : undefined,
   };
-  if (item.type === "unassigned" && !agentChoice) row.k = `${row.k} · нет агентов, принимающих лиды`;
+  if (item.type === "unassigned" && !agentChoice) row.k = `${row.k} · нет агентов, принимающих заявки`;
   // Вторая строка: возраст и суть. `k` выводится после «Требует внимания».
   row.k = [INBOX_GROUP_LABEL[item.group], item.detail].filter(Boolean).join(" · ");
 

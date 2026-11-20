@@ -95,7 +95,7 @@ async function stub(page: Page, look: boolean) {
       { id: "fc2", shortId: 9002, fullName: `${NAME} второй`, phone: "+992000000000", dueAt: iso(40) },
     ];
     json.assignedBySupervisor = [{ id: "as1", shortId: 9003, fullName: `${NAME} третий`, phone: "+992000000000", assignedAt: iso(-60), byName: "Руководитель отдела продаж Абдурахмонов" }];
-    json.funnel = [{ key: "leads", label: "Новые лиды", count: 34 }, { key: "contacted", label: "На контакте", count: 21 }, { key: "showings", label: "Показы", count: 9 },
+    json.funnel = [{ key: "leads", label: "Новые заявки", count: 34 }, { key: "contacted", label: "На контакте", count: 21 }, { key: "showings", label: "Показы", count: 9 },
       { key: "negotiations", label: "Переговоры", count: 4 }, { key: "deals", label: "Сделки", count: 2 }];
     await route.fulfill({ response: res, json });
   });

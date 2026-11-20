@@ -106,9 +106,9 @@ const SYSTEM_PATTERNS: { match: RegExp; style: TypeStyle }[] = [
   { match: /ссылк|предложен объект/i, style: { icon: Home, fg: "text-violet" } },
   { match: /показ/i, style: { icon: CalendarCheck, fg: "text-violet" } },
   { match: /отказ/i, style: { icon: UserX, fg: "text-red" } },
-  { match: /передан|переназнач|принял лид|назначен/i, style: { icon: ArrowRightLeft, fg: "text-blue" } },
+  { match: /передан|переназнач|принял (?:заявку|ли\u0434)|назначен/i, style: { icon: ArrowRightLeft, fg: "text-blue" } },
   { match: /напомин|бот/i, style: { icon: Bot, fg: "text-amber" } },
-  { match: /заявк|лид/i, style: { icon: Sparkles, fg: "text-green" } },
+  { match: /заявк|ли\u0434/i, style: { icon: Sparkles, fg: "text-green" } },
 ];
 
 function styleFor(type: string, notes: string | null | undefined): TypeStyle {

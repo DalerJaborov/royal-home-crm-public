@@ -56,7 +56,7 @@ describe("royal deals: archive rows", () => {
     const html = renderToStaticMarkup(<RoyalArchiveRow deal={{ ...deal, stage: "COMPLETED", refusedLeadSplit: true }} kind="completed" onOpen={noop} actions={<button type="button">Аннулировать</button>} />);
     expect(html).toContain(formatMoney("1250000", "USD"));
     expect(html).toContain(`+${formatMoney("37500.5", "USD")}`);
-    expect(html).toContain("Отказной лид: 70% продавшему, 30% приведшему");
+    expect(html).toContain("Отказная заявка: 70% продавшему, 30% приведшему");
     expect(html).toMatch(/class="ry-deal-note"><svg/); // строка со значком, не таблетка
     expect(html).not.toMatch(/class="ry-deal-tag">Отказной/);
     expect(html).toContain("Аннулировать");

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4195,
+  "forks": 4194,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -3258,7 +3258,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(400, \"Лиды получают только агенты и руководитель продаж\");",
+         "t": "return fail(400, \"Заявки получают только агенты и руководитель продаж\");",
          "a": [
           "дословно из кода"
          ],
@@ -3288,7 +3288,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(409, \"Сотрудник уже заморожен — лиды ему и так не идут\");",
+         "t": "return fail(409, \"Сотрудник уже заморожен — заявки ему и так не идут\");",
          "a": [
           "дословно из кода"
          ],
@@ -64132,7 +64132,7 @@
           },
           {
            "k": "do",
-           "t": "const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : \"Лид\";",
+           "t": "const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : \"Заявка\";",
            "a": [
             "зовёт clientNamePhoneSafe()"
            ],
@@ -87126,7 +87126,7 @@
             },
             {
              "k": "do",
-             "t": "void sendPushToAgent(agent.id, { title: \"👋 С возвращением\", body: \"Отпуск закончился — новые лиды и входящие…",
+             "t": "void sendPushToAgent(agent.id, { title: \"👋 С возвращением\", body: \"Отпуск закончился — новые заявки и входящ…",
              "a": [
               "push-уведомление"
              ],
@@ -87166,7 +87166,7 @@
           },
           {
            "k": "do",
-           "t": "void sendPushToAgents(recipients, { title: \"👋 Сотрудник вышел\", body: `${names} — отсутствие закончилось, ли…",
+           "t": "void sendPushToAgents(recipients, { title: \"👋 Сотрудник вышел\", body: `${names} — отсутствие закончилось, за…",
            "a": [
             "push-уведомление"
            ],
@@ -100103,7 +100103,7 @@
             },
             {
              "k": "do",
-             "t": "const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: \"Лид назначен утренней…",
+             "t": "const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: \"Заявка назначена утре…",
              "a": [
               "зовёт changeClientAgent()"
              ],
@@ -101101,7 +101101,7 @@
                 },
                 {
                  "k": "do",
-                 "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Лид по объекту не принят вовремя\", body: `${lead.fu…",
+                 "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Заявка по объекту не принята вовремя\", body: `${lea…",
                  "a": [
                   "зовёт notifyFeedOnly()"
                  ],
@@ -101167,7 +101167,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Лид прошёл всех агентов\", body: `${lead.fullName}: …",
+                   "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Заявка прошла всех агентов\", body: `${lead.fullName…",
                    "a": [
                     "зовёт notifyFeedOnly()"
                    ],
@@ -101324,7 +101324,7 @@
               },
               {
                "k": "do",
-               "t": "sendLeadPush(nextAgentId, lead.id, { title: \"🤝 Лид переназначен вам\", body: `${lead.fullName} — предыдущий а…",
+               "t": "sendLeadPush(nextAgentId, lead.id, { title: \"🤝 Заявка переназначена вам\", body: `${lead.fullName} — предыдущ…",
                "a": [
                 "зовёт sendLeadPush()"
                ],
@@ -107350,7 +107350,7 @@
           },
           {
            "k": "do",
-           "t": "const payload = { kind: \"oversight\" as const, title: `📵 Лид без карточки: ${who}`, body: `${dushanbeDateTime…",
+           "t": "const payload = { kind: \"oversight\" as const, title: `📵 Заявка без карточки: ${who}`, body: `${dushanbeDateT…",
            "a": [
             "зовёт dushanbeDateTimeString()"
            ],
@@ -115787,21 +115787,6 @@
             "зовёт collectBaselineDrift()"
            ],
            "c": []
-          },
-          {
-           "k": "if",
-           "t": "drift.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "checks.push({ name: \"Настройки телефонии: рабочий эталон\", ok: false, detail: describeDrift(drift), cls: \"con…",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
           }
          ]
         },
@@ -115819,6 +115804,14 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "await dropLegacyHealthSnapshots().catch(()",
+         "a": [
+          "зовёт dropLegacyHealthSnapshots()"
+         ],
+         "c": []
         },
         {
          "k": "loop",

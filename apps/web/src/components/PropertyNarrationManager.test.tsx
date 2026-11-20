@@ -281,7 +281,7 @@ describe("карточка объекта: озвучка для агента", 
   });
   it("новая озвучка не легла на вышедший ролик — агенту сказано, что дальше", () => {
     const approved = [version({ approvedAt: "2026-11-14" })];
-    expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: "VOICE_LONGER" } })).toContain("Обрезать голос CRM не стала");
+    expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: "VOICE_LONGER" } })).toContain("Обрезать голос мы не стали");
     expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: "FAILED" } })).toContain("в соцсетях пока прежний ролик");
     expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: null } })).not.toContain("warn-bg");
     // 16.11.2026: строка агенту, что CRM делает со звуком вышедшего ролика.

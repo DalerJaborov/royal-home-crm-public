@@ -1,5 +1,6 @@
 import { claimAudio, releaseAudio } from "./look/rhAudio";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Pause, Play } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   chooseNarration, narrationAudioLengthCheck, narrationChangesLine, narrationLengthCheck, narrationLengthLine, narrationRemovesOldPosts, pickNarrationVoice,
@@ -218,7 +219,7 @@ export function NarrationPlayer({ load, knownSec, primary, disabled, prefetch, l
       <div className="flex items-center gap-3 rounded-2xl bg-[var(--soft)] p-2 pr-4">
         <button type="button" aria-label={buttonLabel} disabled={disabled || state === "loading"} onClick={toggle}
           className={`grid h-14 w-14 flex-none place-items-center rounded-full text-xl ${primary ? "bg-blue text-on-accent" : "bg-[var(--card)] shadow-sm"} disabled:opacity-60`}>
-          <span aria-hidden>{state === "loading" ? "…" : playing ? "❚❚" : "▶"}</span>
+          <span aria-hidden>{state === "loading" ? "…" : playing ? <Pause size={22} /> : <Play size={22} />}</span>
         </button>
         <div className="min-w-0 flex-1 space-y-1">
           <input type="range" className="block w-full accent-[rgb(var(--rgb-accent))]" min={0} max={total ?? 0} step={0.1} value={Math.min(pos, total ?? 0)}
@@ -423,10 +424,10 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
       case "publishing": return { title: "Ролик уходит в соцсети", line: "Старый пост в каждой сети CRM снимет, как только там выйдет новый." };
       case "done": return { title: "✓ Ролик с новой озвучкой вышел", tone: "ok" };
       case "mixFailed": return data.mix?.problem === "VOICE_LONGER"
-        ? { title: "Озвучка длиннее ролика", tone: "warn", line: "Обрезать голос CRM не стала. Ролик ушёл монтажёру: он удлинит его под голос. Быстрее: сократить текст и озвучить заново." }
+        ? { title: "Озвучка длиннее ролика", tone: "warn", line: "Обрезать голос мы не стали. Ролик ушёл монтажёру: он удлинит его под голос. Быстрее: сократить текст и озвучить заново." }
         : { title: "Озвучка не легла на ролик", tone: "warn", line: "Наложить новую озвучку не получилось, в соцсетях пока прежний ролик. Руководство видит ошибку." };
       case "approved": return { title: "✓ Озвучка утверждена", tone: "ok",
-        line: data.mix?.note ?? (data.mix?.hasMaster ? "Озвучку на ролик накладывает CRM: поменяются данные, звук обновится после вашего утверждения." : published ? undefined : "Монтажёр получит её вместе с заданием на ролик.") };
+        line: data.mix?.note ?? (data.mix?.hasMaster ? "Озвучку на ролик накладываем мы: данные поменяются, а звук обновится после вашего утверждения." : published ? undefined : "Монтажёр получит её вместе с заданием на ролик.") };
       default: return { title: "Озвучка ролика", line: "Состояние озвучки уточняется. Обновите карточку через минуту." };
     }
   })();

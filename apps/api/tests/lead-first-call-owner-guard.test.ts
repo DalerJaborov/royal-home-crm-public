@@ -143,7 +143,7 @@ describe("Срыв первого звонка при включённом ту�
     expect(after?.acceptedAt).not.toBeNull();
     expect(after?.reassignCount).toBe(0);
     const trace = await prisma.interaction.findFirst({
-      where: { clientId: lead.id, notes: { contains: "Лид снят и переназначен" } },
+      where: { clientId: lead.id, notes: { contains: "Заявка снята и переназначена" } },
     });
     expect(trace).toBeNull();
   });

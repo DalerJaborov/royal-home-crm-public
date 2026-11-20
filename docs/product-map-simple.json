@@ -16,10 +16,10 @@
   "paths": 788,
   "cron": 143,
   "jobs": 34,
-  "conditions": 4168,
+  "conditions": 4167,
   "untranslatedUnique": 476,
   "untranslatedTotal": 612,
-  "partialUnique": 1127,
+  "partialUnique": 1126,
   "translatedShare": 85
  },
  "untranslated": [
@@ -8701,7 +8701,7 @@
   },
   {
    "path": "/sources",
-   "title": "Источники лидов",
+   "title": "Источники заявок",
    "group": "money",
    "parent": null,
    "file": "apps/web/src/pages/Sources.tsx",
@@ -76916,13 +76916,6 @@
           },
           {
            "t": "если есть silence",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если drift количество больше 0",
            "k": "if",
            "a": [],
            "c": [],

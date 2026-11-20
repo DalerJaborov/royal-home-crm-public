@@ -1,0 +1,12 @@
+{
+ "emoji": {
+  "lib/softenShouting.ts": 1,
+  "pages/settings/FunnelEditor.tsx": 2
+ },
+ "caps": {
+  "components/PropertyVideoFixCard.tsx": 1,
+  "lib/softenShouting.ts": 1,
+  "lib/vacancyQueue.ts": 1
+ },
+ "codes": {}
+}

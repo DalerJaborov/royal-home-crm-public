@@ -371,7 +371,7 @@ async function pullQueueLeadToOwner(
 ): Promise<boolean> {
   if (client.acceptedAt || (client.assignReason && client.assignReason !== "queue")) return false;
   const now = new Date();
-  const reason = `Клиент из очереди пишет по объекту №${property.shortId} — лид передан хозяину объекта до принятия`;
+  const reason = `Клиент из очереди пишет по объекту №${property.shortId} — заявка передана хозяину объекта до принятия`;
   const committed = await prisma.$transaction(async tx => {
     if (witness.clientId !== client.id) return null;
     const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Client" WHERE "id"=${client.id} AND "deletedAt" IS NULL FOR UPDATE`;
@@ -415,7 +415,7 @@ async function pullQueueLeadToOwner(
     await closeOwnershipSatellites({ clientId: client.id, clientShortId: client.shortId, fromAgentId: client.assignedAgentId,
       toAgentId: ownerId, reason: `[objectInterest.pull] ${reason}`, queueReturnFromAgentId: client.assignedAgentId ? null : committed.lastAgentId });
   } catch (error) {
-    void logSystemError("api", `Лид по объекту передан, но последующие обновления не завершены: ${describeError(error)}`, { dedupKey: "property-interest-pull-satellites" });
+    void logSystemError("api", `Заявка по объекту передана, но последующие обновления не завершены: ${describeError(error)}`, { dedupKey: "property-interest-pull-satellites" });
   }
   if (!await ownerNoticeCurrent(property.id, ownerId, true, committed.witness)) return true; // local transfer succeeded; do not undo/replay it for a notification race
   sendLeadPush(ownerId, client.id, {

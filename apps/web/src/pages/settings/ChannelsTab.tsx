@@ -1,6 +1,6 @@
 import { RuTimeField } from "../../components/look/fields/RuFields";
 import { useEffect, useRef, useState } from "react";
-import { GEMINI_VOICES, voiceGenderLabel } from "@royal-home/shared";
+import { GEMINI_VOICES, TELEPHONY_OPTIONS, voiceGenderLabel } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { dushanbeDate, dushanbeDayKey, dushanbeTime, dushanbeTodayKey } from "../../lib/date";
 import { MessengerAccounts } from "./MessengerAccounts";
@@ -255,7 +255,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
 
         <SecretKeyEditor
           title="Маркер Instagram"
-          description="ЗАПАСНОЙ путь: пока в списке «Аккаунты Instagram» выше есть основной аккаунт с маркером, работа идёт по ЕГО маркеру, а это поле не используется — перевыпущенный маркер вписывать в аккаунт, кнопкой с ключом. Само поле: Instagram → «Настройка API для входа в Instagram» → «Сгенерировать маркер». Показывается один раз."
+          description="Запасной путь: пока в списке «Аккаунты Instagram» выше есть основной аккаунт с маркером, работа идёт по его маркеру, а это поле не используется — перевыпущенный маркер вписывать в аккаунт, кнопкой с ключом. Само поле: Instagram → «Настройка API для входа в Instagram» → «Сгенерировать маркер». Показывается один раз."
           placeholder="Маркер доступа Instagram"
           configured={settings ? !!settings.metaIgTokenMasked : undefined}
           masked={settings?.metaIgTokenMasked}
@@ -1648,23 +1648,7 @@ function PublishWindowFields() {
 }
 
 /** Куда станция звонит сотруднику перед соединением с клиентом. */
-const AGENT_DIAL_MODES = [
-  {
-    value: "auto",
-    title: "Сам выберет (рекомендуется)",
-    hint: "Аппарат сотрудника на связи — звоним на него бесплатно; выключен — на мобильный.",
-  },
-  {
-    value: "mobile",
-    title: "На мобильный сотрудника",
-    hint: "Ничего устанавливать не нужно. Оплачиваются два плеча: до сотрудника и до клиента.",
-  },
-  {
-    value: "extension",
-    title: "На внутренний номер (софтфон)",
-    hint: "Плечо до сотрудника бесплатное. Нужен софтфон на телефоне или IP-аппарат на столе.",
-  },
-] as const;
+const AGENT_DIAL_MODES = TELEPHONY_OPTIONS.asteriskAgentDialMode; // подписи — в packages/shared/src/telephonyOptions.ts, их же читает текст сервера
 
 function AgentDialModeSetting() {
   const { data: settings } = useSettings();
@@ -2619,7 +2603,7 @@ function IncomingHoursSetting() {
       <div className="quiet">
         <span className="dot" />
         <span className="txt">
-          Это не «Рабочие часы» из раздела «Сотрудники»: те определяют, когда лид уходит агенту и когда консультант
+          Это не «Рабочие часы» из раздела «Сотрудники»: те определяют, когда заявка уходит агенту и когда консультант
           на телефоне отвечает сразу. Здесь — только когда CRM беспокоит пушем о пропущенном звонке. На станцию,
           очередь, ночное правило и консультанта эти часы не влияют. Журнал входящих ведётся круглосуточно, и задача
           перезвонить по пропущенному ставится в любое время.
@@ -2681,7 +2665,7 @@ function IncomingCallsSection() {
         <span className="dot" />
         <span className="txt">
           Входящий звонок всегда попадает в «Прочие обращения» — агенту он раздаётся только после разбора, когда
-          понятно, покупатель это или продавец. Иначе лидом становился бы каждый звонок, включая ошибочные и
+          понятно, покупатель это или продавец. Иначе заявкой становился бы каждый звонок, включая ошибочные и
           сообщения автоответчика.
         </span>
       </div>
@@ -2893,7 +2877,7 @@ function ConsultantOverridesNotice({ rule }: { rule: "night" | "noAnswer" }) {
         {rule === "night"
           ? mode === "always"
             ? "Сейчас это правило не действует: на входящих включён консультант (ИИ), он отвечает на каждый звонок первым, в том числе ночью."
-            : `Сейчас это правило не действует: на входящих включён консультант (ИИ), и звонок идёт к нему. Ночью он берёт трубку сразу — по рабочим часам из «Сотрудники → Когда лиды уходят агентам» (вне ${start}–${end}), а не по границам ниже.`
+            : `Сейчас это правило не действует: на входящих включён консультант (ИИ), и звонок идёт к нему. Ночью он берёт трубку сразу — по рабочим часам из «Сотрудники → Когда заявки уходят агентам» (вне ${start}–${end}), а не по границам ниже.`
           : mode === "always"
             ? "Сейчас это правило не действует: на входящих включён консультант (ИИ), он отвечает на каждый звонок первым."
             : "Сейчас это правило не действует: на входящих включён консультант (ИИ). Оператору звонят столько секунд, сколько задано в «ИИ-ассистент → Живой голос по телефону», потом трубку берёт консультант."}{" "}
@@ -3165,18 +3149,7 @@ function AudioUploadRow({
  * нет намеренно — режим задаётся самим номером, иначе появилось бы состояние
  * «режим включён, номера нет», в котором звонок уходит в тишину.
  */
-const PRIMARY_TARGETS = [
-  {
-    value: "queue",
-    title: "Операторам в очередь",
-    hint: "Как было с запуска телефонии: звонок звонит у операторов на приёме.",
-  },
-  {
-    value: "extension",
-    title: "Прямо на SIP-аппарат",
-    hint: "Звонок идёт только на указанный внутренний номер — например, на софтфон в телефоне. Операторы при этом не звонят вовсе.",
-  },
-] as const;
+const PRIMARY_TARGETS = TELEPHONY_OPTIONS.incomingPrimaryTarget;
 
 function PrimaryTargetSetting() {
   const { data: settings } = useSettings();
@@ -3245,28 +3218,7 @@ function PrimaryTargetSetting() {
   );
 }
 
-const NO_ANSWER_ACTIONS = [
-  {
-    value: "none",
-    title: "Ничего не делать",
-    hint: "Клиент слышит гудки, пока не положит трубку сам или пока его сеть не сбросит звонок (обычно через 30–60 секунд).",
-  },
-  {
-    value: "forward",
-    title: "Позвонить дежурному",
-    hint: "Станция переводит звонок на номер ниже. Клиент почти всегда с кем-то поговорит; плечо платное.",
-  },
-  {
-    value: "voicemail",
-    title: "Предложить оставить сообщение",
-    hint: "CRM расшифрует сообщение, заведёт карточку и поставит задачу перезвонить. Бесплатно.",
-  },
-  {
-    value: "both",
-    title: "Дежурному, потом сообщение",
-    hint: "Сначала звонок дежурному, если и он не взял — запись сообщения. Максимум шансов не потерять клиента.",
-  },
-] as const;
+const NO_ANSWER_ACTIONS = TELEPHONY_OPTIONS.incomingNoAnswerAction;
 
 function NoAnswerRuleSetting() {
   const { data: settings } = useSettings();
@@ -3467,32 +3419,7 @@ function RouteToAgentSetting() {
  * — по календарной ротации списка ниже (lib/telephony/dutyRosterRouting.ts).
  * "ivr_menu" — единственный, кому диалплан правда нужен (DTMF-меню).
  */
-const ROUTING_MODES = [
-  {
-    value: "assigned_then_forward",
-    title: "Как сейчас: своему агенту, потом дежурному",
-    hint: "Работает прямо сейчас. Известного клиента станция уводит его агенту (настройка выше), незнакомого — по правилу «если оператор не ответил».",
-    live: true,
-  },
-  {
-    value: "kpi_queue",
-    title: "Очередь по KPI",
-    hint: "Незнакомый звонок и клиент без агента уходят лучшему свободному по Royal Score — тем же переводом, что известному клиенту. Отдельной настройки станции не требует.",
-    live: true,
-  },
-  {
-    value: "dedicated_operator",
-    title: "Дежурный по очереди",
-    hint: "Лёгкая версия вместо удалённой 18.08.2026 роли оператора — без рабочего места и отдельных прав, просто список ниже. Кто дежурит сегодня, выбирается по календарному дню. Отдельной настройки станции не требует.",
-    live: true,
-  },
-  {
-    value: "ivr_menu",
-    title: "Голосовое меню (IVR)",
-    hint: "«Нажмите 1 для продажи, 2 для покупки…». Нужна отдельная настройка станции.",
-    live: false,
-  },
-] as const;
+const ROUTING_MODES = TELEPHONY_OPTIONS.incomingRoutingMode.map((o) => ({ ...o, live: o.value !== "ivr_menu" }));
 
 function RoutingModeSetting() {
   const { data: settings } = useSettings();

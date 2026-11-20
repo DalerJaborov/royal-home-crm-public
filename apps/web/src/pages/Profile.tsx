@@ -157,7 +157,7 @@ export function Profile() {
             <div className="mod">
               <div className="t">
                 <b>Настройки CRM</b>
-                <span>Комиссия, лиды, бот, ИИ. Общие правила агентства, а не личные.</span>
+                <span>Комиссия, заявки, бот, ИИ. Общие правила агентства, а не личные.</span>
               </div>
               <div className="acts">
                 <button className="pill ghost sm" type="button" onClick={() => navigate("/settings")}>
@@ -219,7 +219,7 @@ function CleanProfile({ profile, royalScoreEnabled, canSettings, onLogout }: {
         <PersonalInfoSection />
         {profile?.role === "AGENT" && royalScoreEnabled && <RoyalScoreCard />}
         {profile?.role === "AGENT" && <LeadPauseSection />}
-        {canSettings && <div className="card tight"><div className="mod"><div className="t"><b>Настройки CRM</b><span>Общие правила агентства: комиссия, лиды и ИИ.</span></div><button className="pill ghost" type="button" onClick={() => navigate("/settings")}>Открыть</button></div></div>}
+        {canSettings && <div className="card tight"><div className="mod"><div className="t"><b>Настройки CRM</b><span>Общие правила агентства: комиссия, заявки и ИИ.</span></div><button className="pill ghost" type="button" onClick={() => navigate("/settings")}>Открыть</button></div></div>}
       </>}
       {id === "appearance" && <><AppearanceSettings />{royal && <Suspense fallback={null}><HomeBlocksSettings /></Suspense>}<section className="card"><div className="sec-h stack"><h2>Приложение на устройстве</h2><span className="note">Быстрый запуск CRM с рабочего стола</span></div><InstallAppSection showStatus /></section></>}
       {id === "notifications" && <><NotifyKindsSection /><PushNotificationsSection showUnavailable /></>}
@@ -459,7 +459,7 @@ function ProfileMobile() {
                   />
                 </div>
               )}
-              <MhQuiet>Нет данных: отдельного тумблера «звук на новый лид» в CRM нет, есть только общий звук браузера.</MhQuiet>
+              <MhQuiet>Нет данных: отдельного тумблера «звук на новую заявку» в CRM нет, есть только общий звук браузера.</MhQuiet>
             </div>
           </section>
 
@@ -823,7 +823,7 @@ function PushNotificationsSection({ showUnavailable = false }: { showUnavailable
           <span>
             {denied
               ? "Уведомления заблокированы в настройках браузера: разрешите их для этого сайта, чтобы включить."
-              : "Новые лиды, переназначения и смена этапа сделки приходят сразу, даже если CRM свёрнута."}
+              : "Новые заявки, переназначения и смена этапа сделки приходят сразу, даже если CRM свёрнута."}
           </span>
           {testState === "failed" && <span>Тестовое уведомление не отправилось. Проверьте, что уведомления включены.</span>}
           {testState === "sent" && (
@@ -1078,7 +1078,7 @@ function LeadPauseSection() {
   return (
     <section className="card">
       <div className="sec-h stack">
-        <h2>Приём новых лидов</h2>
+        <h2>Приём новых заявок</h2>
         <span className="note">Текущие клиенты остаются за вами в любом случае</span>
       </div>
 
@@ -1090,7 +1090,7 @@ function LeadPauseSection() {
           <div className="quiet warn">
             <span className="dot warn" />
             <span className="txt">
-              Выдача лидов остановлена руководителем.
+              Выдача заявок остановлена руководителем.
               {profile?.frozenReason ? ` Причина: ${profile.frozenReason}.` : ""} Текущие клиенты остаются у вас,
               новые не назначаются. Снять может только руководитель.
             </span>
@@ -1103,7 +1103,7 @@ function LeadPauseSection() {
         <div className="quiet warn">
           <span className="dot warn" />
           <span className="txt">
-            {profile.leadsPausedBy.fullName} остановил вам выдачу новых лидов до{" "}
+            {profile.leadsPausedBy.fullName} остановил вам выдачу новых заявок до{" "}
             {dushanbeDateTime(pausedUntil!.toISOString())}.
             {profile.leadsPausedReason ? ` Причина: ${profile.leadsPausedReason}.` : ""} Текущие клиенты остаются у
             вас. Снять паузу может только руководитель.
@@ -1112,9 +1112,9 @@ function LeadPauseSection() {
       ) : isPaused ? (
         <div className="mod">
           <div className="t">
-            <b>Пауза «не принимаю лиды» включена</b>
+            <b>Пауза «не принимаю заявки» включена</b>
             <span>
-              Новые лиды вам не назначаются до {dushanbeDateTime(pausedUntil!.toISOString())}. Текущие клиенты
+              Новые заявки вам не назначаются до {dushanbeDateTime(pausedUntil!.toISOString())}. Текущие клиенты
               остаются за вами, KPI считается как обычно.
             </span>
           </div>
@@ -1128,7 +1128,7 @@ function LeadPauseSection() {
       ) : (
         <div className="mod">
           <div className="t">
-            <b>Пауза «не принимаю лиды»</b>
+            <b>Пауза «не принимаю заявки»</b>
             <span>
               Заболели или заняты: временно не получайте новых клиентов. KPI продолжает считаться, пауза не
               снимает просрочки. Между паузами должно пройти время.
@@ -1150,7 +1150,7 @@ function LeadPauseSection() {
               disabled={pause.isPending}
               onClick={() => pause.mutate(Number(hours))}
             >
-              Не принимать лиды
+              Не принимать заявки
             </button>
           </div>
           <MutationError mutation={pause} fallback="Не удалось включить паузу" />
@@ -1160,7 +1160,7 @@ function LeadPauseSection() {
       <div className="quiet warn">
         <span className="dot warn" />
         <span className="txt">
-          Остановить выдачу лидов может и руководитель. Тогда снять паузу самому нельзя, причина будет написана
+          Остановить выдачу заявок может и руководитель. Тогда снять паузу самому нельзя, причина будет написана
           здесь.
         </span>
       </div>

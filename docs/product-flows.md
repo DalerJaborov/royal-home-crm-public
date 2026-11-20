@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2504**; вместе с задачами по расписанию и фоновыми заданиями — **4195**. Модулей: **88**.
+Путей: **788**. Развилок в самих путях: **2504**; вместе с задачами по расписанию и фоновыми заданиями — **4194**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -803,13 +803,13 @@
     - return fail(400, "Свою паузу включают в профиле");
       · дословно из кода
   - если !(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)
-    - return fail(400, "Лиды получают только агенты и руководитель продаж");
+    - return fail(400, "Заявки получают только агенты и руководитель продаж");
       · дословно из кода
   - если !agent.isActive
     - return fail(409, "Сотрудник отключён");
       · дословно из кода
   - если agent.frozenAt
-    - return fail(409, "Сотрудник уже заморожен — лиды ему и так не идут");
+    - return fail(409, "Сотрудник уже заморожен — заявки ему и так не идут");
       · дословно из кода
   - const actorRow = await prisma.agent.findUnique({ where: { id: actor.id }, select: { fullName: true } });
     · читает в базе: agent
@@ -14498,7 +14498,7 @@
     - если outcome.ok
       - const { granted } = await partitionByPermission([consumed.agentId], "clients.viewPhone");
         · зовёт partitionByPermission()
-      - const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : "Лид";
+      - const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : "Заявка";
         · зовёт clientNamePhoneSafe()
       - return res.json({ ok: true, message: `${name} принят — контакты открыты`, url });
         · ответ 200
@@ -19695,7 +19695,7 @@
           · зовёт invalidateAgentAccess()
         - void syncAgentQueuePresence(agent.id).catch(()
           · зовёт syncAgentQueuePresence()
-        - void sendPushToAgent(agent.id, { title: "👋 С возвращением", body: "Отпуск закончился — новые лиды и входящие…
+        - void sendPushToAgent(agent.id, { title: "👋 С возвращением", body: "Отпуск закончился — новые заявки и входящ…
           · push-уведомление
       - если сорвалось
         - console.error("[отсутствие] возврат сотрудника:", err instanceof Error ? err.message : err);
@@ -19703,7 +19703,7 @@
     - если returned > 0
       - const recipients = await findAgentsWithPermission("agents.manage");
         · зовёт findAgentsWithPermission()
-      - void sendPushToAgents(recipients, { title: "👋 Сотрудник вышел", body: `${names} — отсутствие закончилось, ли…
+      - void sendPushToAgents(recipients, { title: "👋 Сотрудник вышел", body: `${names} — отсутствие закончилось, за…
         · push-уведомление
   - если returned > 0
     - console.log(`[cron] Вышли из отсутствия: ${returned}`);
@@ -22461,7 +22461,7 @@
         - если !agentId
           - continue;
             · переходит к следующему
-        - const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: "Лид назначен утренней…
+        - const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: "Заявка назначена утре…
           · зовёт changeClientAgent()
         - если !moved.ok
           - continue;
@@ -22674,7 +22674,7 @@
             - если !claimed
               - continue;
                 · переходит к следующему
-            - await notifyFeedOnly(supervisors, { kind: "lead", title: "Лид по объекту не принят вовремя", body: `${lead.fu…
+            - await notifyFeedOnly(supervisors, { kind: "lead", title: "Заявка по объекту не принята вовремя", body: `${lea…
               · зовёт notifyFeedOnly()
             - continue;
               · переходит к следующему
@@ -22688,7 +22688,7 @@
             - const alreadyNotifiedFullCircle = await prisma.notification.findFirst({ where: { tag: fullCircleTag }, select…
               · читает в базе: notification
             - если !alreadyNotifiedFullCircle
-              - await notifyFeedOnly(supervisors, { kind: "lead", title: "Лид прошёл всех агентов", body: `${lead.fullName}: …
+              - await notifyFeedOnly(supervisors, { kind: "lead", title: "Заявка прошла всех агентов", body: `${lead.fullName…
                 · зовёт notifyFeedOnly()
           - let nextAgentId = await pickAgentForLead(withDeclined(triedNow), leadKind);
             · зовёт pickAgentForLead()
@@ -22721,7 +22721,7 @@
           - если !claimed
             - continue;
               · переходит к следующему
-          - sendLeadPush(nextAgentId, lead.id, { title: "🤝 Лид переназначен вам", body: `${lead.fullName} — предыдущий а…
+          - sendLeadPush(nextAgentId, lead.id, { title: "🤝 Заявка переназначена вам", body: `${lead.fullName} — предыдущ…
             · зовёт sendLeadPush()
         - если сорвалось
           - reportCronRowError("Переназначение протухшей заявки", lead.shortId, err);
@@ -24011,7 +24011,7 @@
           · переходит к следующему
       - const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…
         · зовёт maskClientPhone()
-      - const payload = { kind: "oversight" as const, title: `📵 Лид без карточки: ${who}`, body: `${dushanbeDateTime…
+      - const payload = { kind: "oversight" as const, title: `📵 Заявка без карточки: ${who}`, body: `${dushanbeDateT…
         · зовёт dushanbeDateTimeString()
       - пробует
         - await enqueueDirectorAlert({ ...payload, level: "CRITICAL", recipientRoles: ["DIRECTOR", "ADMIN", "HEAD_OF_SA…
@@ -25813,12 +25813,11 @@
           · дословно из кода
       - const drift = await collectBaselineDrift(amiCreds ?? null);
         · зовёт collectBaselineDrift()
-      - если drift.length > 0
-        - checks.push({ name: "Настройки телефонии: рабочий эталон", ok: false, detail: describeDrift(drift), cls: "con…
-          · дословно из кода
     - если сорвалось
       - void logSystemError("telephony", `Сводная проверка телефонии не выполнена целиком: ${describeError(err)}`, { …
         · запись в журнал ошибок
+    - await dropLegacyHealthSnapshots().catch(()
+      · зовёт dropLegacyHealthSnapshots()
     - для каждого: const check of checks
       - await prisma.integrationHealthSnapshot .upsert({ where: { name: `Телефония: ${check.name}` }, create: { name:…
         · создаёт или меняет в базе: integrationHealthSnapshot

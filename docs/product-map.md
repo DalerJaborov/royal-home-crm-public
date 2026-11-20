@@ -89,7 +89,7 @@
 | `/settings/roles` | RolesMatrix | только по ссылке | `apps/web/src/pages/settings/RolesMatrix.tsx` |
 | `/site-changes` | SiteChanges | **Изменения на сайте** | `apps/web/src/pages/SiteChanges.tsx` |
 | `/social-videos` | SocialVideos | **Публикации в соцсети** | `apps/web/src/pages/SocialVideos.tsx` |
-| `/sources` | Sources | **Источники лидов** | `apps/web/src/pages/Sources.tsx` |
+| `/sources` | Sources | **Источники заявок** | `apps/web/src/pages/Sources.tsx` |
 | `/stuck-work` | StuckWork | **Что не доехало** | `apps/web/src/pages/StuckWork.tsx` |
 | `/team` | Team | **Команда** | `apps/web/src/pages/Team.tsx` |
 | `/team/:id` | TeamMemberDetail | только по ссылке | `apps/web/src/pages/TeamMemberDetail.tsx` |
@@ -121,7 +121,7 @@
 | team | Служба безопасности | `/security` | всем |
 | money | Финансы | `/finance` | всем |
 | money | Отчёты | `/reports` | всем |
-| money | Источники лидов | `/sources` | всем |
+| money | Источники заявок | `/sources` | всем |
 | money | Инсайты от ИИ | `/insights` | всем |
 | ads | Реклама | `/ads` | всем |
 | ads | Публикации в соцсети | `/social-videos` | всем |

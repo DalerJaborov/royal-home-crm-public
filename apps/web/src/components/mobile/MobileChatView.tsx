@@ -914,7 +914,7 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
           <div className="suggest">
             <span className="dot warn"></span>
             <span className="txt">
-              Клиент не писал больше суток — WhatsApp/Instagram не пропустят свободный текст. Позвоните
+              Клиент не писал больше суток, поэтому ваше сообщение уже не дойдёт. Позвоните
               {conversation?.clientPhone ? (
                 <>
                   {" "}
@@ -930,6 +930,7 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
                 " с личного телефона"
               )}{" "}
               или дождитесь его сообщения.
+              {replyChannel === "WHATSAPP" && " В WhatsApp можно также отправить первое сообщение кнопкой «Написать в WhatsApp» в карточке клиента: она шлёт заранее одобренный текст."}
             </span>
           </div>
         )}

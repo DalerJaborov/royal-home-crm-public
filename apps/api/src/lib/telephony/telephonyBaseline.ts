@@ -1,3 +1,4 @@
+import { telephonyOptionTitle, type TelephonyOptionField } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { amiActionRetrying, type AmiCredentials } from "./amiClient.js";
 import { ROUTE_DIALPLAN_FILE } from "./dialplanContext.js";
@@ -40,6 +41,10 @@ export interface BaselineRule {
   /** Каким оно должно быть. */
   expected: string;
   ok: boolean;
+  /** Поле настроек с вариантами: значения в сообщении подписываются общим словарём (packages/shared/src/telephonyOptions.ts). */
+  field?: TelephonyOptionField;
+  /** Единица измерения числового значения для сообщения («с»). */
+  unit?: string;
 }
 
 /** Ожидаемая настройка CRM. Меняется ТОЛЬКО вместе с решением владельца и
@@ -110,8 +115,8 @@ const REQUIRED_DIALPLAN_LINES = [
   "Wait(1)",
 ];
 
-function rule(name: string, why: string, expected: string, actual: string): BaselineRule {
-  return { name, why, expected, actual, ok: expected === actual };
+function rule(name: string, why: string, expected: string, actual: string, extra: Pick<BaselineRule, "field" | "unit"> = {}): BaselineRule {
+  return { name, why, expected, actual, ok: expected === actual, ...extra };
 }
 
 /** Сверка настроек CRM с эталоном. Станцию не трогает — только свою базу. */
@@ -132,35 +137,39 @@ export async function checkSettingsBaseline(): Promise<BaselineRule[]> {
   const rules: BaselineRule[] = [
     rule(
       "Куда идёт входящий",
-      "приём на прямой аппарат стоил тридцати дней тишины (21.08-19.09.2026)",
+      "если приём настроен на один аппарат, а не на очередь, звонки могут не доходить: так было тридцать дней подряд (21.08-19.09.2026)",
       EXPECTED.incomingPrimaryTarget,
-      s.incomingPrimaryTarget ?? ""
+      s.incomingPrimaryTarget ?? "",
+      { field: "incomingPrimaryTarget" }
     ),
     rule(
       "Известный клиент — своему агенту",
-      "выключено = все звонки оператору, обратное решению владельца 21.09.2026",
+      "если выключено, все звонки идут оператору, а владелец решил 21.09.2026, что знакомый клиент звонит своему агенту",
       String(EXPECTED.incomingRouteToAssignedAgent),
       String(s.incomingRouteToAssignedAgent)
     ),
     rule(
       "Чем звонить агенту",
-      "настольных трубок нет ни у кого с 18.08.2026, режим «аппарат» звонит в пустоту",
+      "настольных телефонов нет ни у кого с 18.08.2026, а звонок на стол уходит в пустоту",
       EXPECTED.asteriskAgentDialMode,
-      s.asteriskAgentDialMode ?? ""
+      s.asteriskAgentDialMode ?? "",
+      { field: "asteriskAgentDialMode" }
     ),
     rule(
       "Сколько ждёт незнакомый",
-      "решение владельца 24.09.2026: 40 секунд — дольше сеть звонящего неотвеченный вызов не держит",
+      "решение владельца 24.09.2026: 40 секунд, потому что дольше сеть звонящего неотвеченный вызов не держит",
       String(EXPECTED.incomingNoAnswerSeconds),
-      String(s.incomingNoAnswerSeconds)
+      String(s.incomingNoAnswerSeconds),
+      { unit: "с" }
     ),
     // Пустая строка в колонке читается как умолчание (incomingSettings.ts:
     // `|| "assigned_then_forward"`) — сверяем то, что реально применит станция.
     rule(
       "Незнакомый звонок — оператору",
-      "Незнакомые звонки должны идти оператору (решение 20.09.2026); режимы «kpi_queue»/«dedicated_operator» уводят их агенту мимо очереди",
+      "Незнакомые звонки должны идти оператору (решение 20.09.2026); другие режимы отправляют их агенту мимо очереди",
       EXPECTED.incomingRoutingMode,
-      s.incomingRoutingMode || EXPECTED.incomingRoutingMode
+      s.incomingRoutingMode || EXPECTED.incomingRoutingMode,
+      { field: "incomingRoutingMode" }
     ),
   ];
 
@@ -173,11 +182,12 @@ export async function checkSettingsBaseline(): Promise<BaselineRule[]> {
   rules.push({
     name: "Что делать, если не ответили",
     why:
-      "пустое значение = станция не знает, что делать с неотвеченным звонком (половина причины простоя 21.08-19.09.2026); " +
-      "«none» (звонить без предела, пока не снимут) — решение владельца 03.10.2026 и тревогой не считается",
-    expected: "любое значение, в том числе «none»",
+      "если ничего не выбрано, станция не знает, что делать с неотвеченным звонком (так было в простой 21.08-19.09.2026); " +
+      "вариант «звонить без предела, пока не снимут» выбран владельцем 03.10.2026 и тревогой не считается",
+    expected: "любой вариант, в том числе «Ничего не делать»",
     actual: action === "" ? "не задано" : action,
     ok: action !== "",
+    field: "incomingNoAnswerAction",
   });
 
   return rules;
@@ -198,7 +208,7 @@ export async function checkOperatorsBaseline(): Promise<BaselineRule> {
   });
   return {
     name: "Операторы приёма",
-    why: "ноль операторов = очередь станции пустеет за 15 минут, незнакомый не дозвонится никому",
+    why: "если операторов нет, очередь пустеет за 15 минут, и незнакомый звонящий не дозвонится никому",
     expected: "хотя бы один",
     actual: `${count}`,
     ok: count > 0,
@@ -221,10 +231,10 @@ export async function checkDialplanBaseline(creds: AmiCredentials): Promise<Base
     .join("\n");
   const missing = REQUIRED_DIALPLAN_LINES.filter((line) => !text.includes(line));
   return {
-    name: "Ожидание вердикта CRM в диалплане",
-    why: "без него очередь стартует по таймеру и оператор перехватывает чужих клиентов (20.09.2026 — три раза за день)",
-    expected: REQUIRED_DIALPLAN_LINES.join(", "),
-    actual: missing.length === 0 ? "на месте" : `пропало: ${missing.join(", ")}`,
+    name: "Ожидание ответа CRM перед звонком оператору",
+    why: "без этого звонок уходит оператору по таймеру, и оператор перехватывает чужих клиентов (20.09.2026: три раза за день)",
+    expected: "включено",
+    actual: missing.length === 0 ? "включено" : "выключено (в схеме звонков пропали нужные строки)",
     ok: missing.length === 0,
   };
 }
@@ -244,13 +254,24 @@ export async function collectBaselineDrift(creds: AmiCredentials | null): Promis
 
 /** Одна строка на все отклонения — у журнала свой дедуп по тексту, и пять
  *  отдельных сообщений об одной и той же правке он пропустил бы все пять. */
+/**
+ * Значения настроек словами: в журнале их читает директор, а не разработчик. Названия вариантов берутся из общего словаря
+ * `telephonyOptions.ts` по ПОЛЮ (то же значение «extension» в разных полях значит разное), а не придумываются здесь.
+ */
+function valueWords(d: BaselineRule, v: string): string {
+  if (d.field) return telephonyOptionTitle(d.field, v);
+  if (v === "true") return "включено";
+  if (v === "false") return "выключено";
+  return d.unit && /^\d+$/.test(v) ? `${v} ${d.unit}` : v;
+}
+
 export function describeDrift(drift: BaselineRule[]): string {
-  const items = drift.map((d) => `«${d.name}»: сейчас «${d.actual}», должно быть «${d.expected}» — ${d.why}`);
+  const items = drift.map((d) => `${d.name}: сейчас «${valueWords(d, d.actual)}», нужно «${valueWords(d, d.expected)}» (${d.why})`);
   return (
-    // Текст для человека — без пути к файлу-эталону (ночная проверка 24.09.2026, №9а):
-    // сами actual/expected нужны как есть, а совет чинить оставлен разработчику.
-    `Настройки телефонии отошли от рабочего эталона (${drift.length}): ${items.join("; ")}. ` +
-    "Если это ваше решение — попросите разработчика закрепить новый эталон вместе с причиной; " +
-    "если нет — верните прежнее значение, звонки сейчас теряются."
+    // Текст для человека — без пути к файлу и без имён внутренних режимов (ночная проверка 24.09.2026, №9а;
+    // 20.11.2026: «простыми словами»). Совет чинить оставлен разработчику.
+    `Настройки телефонии изменились, звонки могут теряться. Что отличается (${drift.length}): ${items.join("; ")}. ` +
+    "Если вы поменяли это сами, сообщите разработчику: он закрепит новое значение вместе с причиной. " +
+    "Если нет, верните прежнее значение, пока звонки не потерялись."
   );
 }

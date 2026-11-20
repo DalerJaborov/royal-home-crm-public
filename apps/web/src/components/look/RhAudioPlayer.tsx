@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Pause, Play } from "lucide-react";
 import { AUDIO_SPEEDS, audioClock, audioSpeedLabel, claimAudio, nextAudioSpeed, releaseAudio, usableDuration } from "./rhAudio";
 
 /**
  * ОДИН ПЛЕЕР ДЛЯ ВСЕХ ЗАПИСЕЙ (20.11.2026, класс К01 аудита; кадр владельца №17 — серый
- * системный плеер iPhone с «00:27 … 00:00»). Заменяет `<audio controls>`: кнопка ▶/❚❚,
+ * системный плеер iPhone с «00:27 … 00:00»). Заменяет `<audio controls>`: кнопка «слушать/пауза»,
  * полоса перемотки, «0:12 / 0:27»; у голосовых — скорость 1× / 1,5× / 2× (`speeds`).
  *
  *  - Длительность берётся из файла, но Infinity/NaN (у webm из Chrome) не показываем:
@@ -126,7 +127,7 @@ export function RhAudioPlayer({
         /* «!» — правило `.rh2 button` (background:none; color:inherit; font:inherit) бьёт слои Tailwind */
         className="grid h-11 w-11 flex-none place-items-center rounded-full bg-blue! text-lg! text-on-accent!"
       >
-        <span aria-hidden="true">{playing ? "❚❚" : "▶"}</span>
+        {playing ? <Pause aria-hidden="true" size={20} /> : <Play aria-hidden="true" size={20} />}
       </button>
       <input
         type="range"

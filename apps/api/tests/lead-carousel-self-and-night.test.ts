@@ -141,7 +141,7 @@ describe("новый круг не отдаёт лид тому же держа�
 
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).toBe(veteranId);
-    expect(pushTitlesTo(newbieId)).not.toContain("🤝 Лид переназначен вам");
+    expect(pushTitlesTo(newbieId)).not.toContain("🤝 Заявка переназначена вам");
   });
 
   it("кроме держателя принимать некому: руководителю, а не самому себе", async () => {
@@ -155,7 +155,7 @@ describe("новый круг не отдаёт лид тому же держа�
       expect(after?.assignedAgentId).toBe(newbieId);
       expect(after?.escalatedAt).not.toBeNull();
       expect(after?.reassignCount).toBe(5);
-      expect(pushTitlesTo(newbieId)).not.toContain("🤝 Лид переназначен вам");
+      expect(pushTitlesTo(newbieId)).not.toContain("🤝 Заявка переназначена вам");
     } finally {
       await prisma.agent.update({ where: { id: veteranId }, data: { frozenAt: null } });
     }

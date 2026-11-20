@@ -23,6 +23,6 @@ describe("humanizeAttachmentTags: пометка «вложение без те�
   });
 
   it("прежние «[вложение: image]» работают как раньше", () => {
-    expect(humanizeAttachmentTags("[вложение: image]")).toBe("🖼 фото");
+    expect(humanizeAttachmentTags("[вложение: image]")).toBe("фото");
   });
 });

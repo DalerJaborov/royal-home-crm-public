@@ -20,13 +20,13 @@ interface KpiHistory {
 
 /** Метрики честного KPI (см. ТЗ и apps/api/src/kpi.ts) — подписи и веса для людей. */
 const METRIC_LABELS: Record<string, { label: string; weight: number; hint: string }> = {
-  response: { label: "Скорость ответа на лид", weight: 20, hint: "до 5 минут полный балл, до 15 минут половина" },
+  response: { label: "Скорость ответа на заявку", weight: 20, hint: "до 5 минут полный балл, до 15 минут половина" },
   crm: { label: "Работа с CRM", weight: 20, hint: "задачи дня выполнены вовремя" },
   discipline: { label: "Дисциплина", weight: 20, hint: "нет просроченных «хвостов» задач" },
   photo: { label: "Фото объекта", weight: 10, hint: "не меньше 15 фото у опубликованных объектов" },
   video: { label: "Видео объекта", weight: 10, hint: "видео-обзор у опубликованных объектов" },
   contract: { label: "Заключение договора", weight: 20, hint: "закрытая сделка оформлена с комиссией" },
-  personalLeads: { label: "Личные лиды", weight: 10, hint: "привёл клиента сам и заполнил карточку" },
+  personalLeads: { label: "Личные заявки", weight: 10, hint: "привёл клиента сам и заполнил карточку" },
   cards: { label: "Заполнение карточек", weight: 10, hint: "бюджет, район и запрос у принятых клиентов" },
 };
 

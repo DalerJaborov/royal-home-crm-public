@@ -27,7 +27,7 @@ export const ASSISTANT_CATEGORIES: AssistantCategory[] = [
   {
     icon: TrendingUp,
     label: "Статистика",
-    example: "Сколько лидов пришло в этом месяце и откуда?",
+    example: "Сколько заявок пришло в этом месяце и откуда?",
   },
   {
     icon: History,

@@ -38,7 +38,7 @@ describe("MessageText — кнопка звонка на месте скрыто
     const html = render(<MessageText content={content} clientId={null} rh2 />);
     expect(html).toContain("Номер скрыт");
     expect(html).toContain(`title="${NO_CARD_TITLE}"`);
-    expect(NO_CARD_TITLE).toMatch(/примите лид, чтобы позвонить/);
+    expect(NO_CARD_TITLE).toMatch(/примите заявку, чтобы позвонить/);
     expect(html).not.toContain("Позвонить<");
     expect(html).not.toContain(MESSAGE_PHONE_MASK);
   });

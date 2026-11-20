@@ -383,7 +383,7 @@ export function PropertyVideoManager({
                         </span>
                       )}
                       {v.videoCodec && <span className="chip mute">{v.videoCodec}</span>}
-                      {v.hasAudio === false && <span className="chip crit">⚠ без звука</span>}
+                      {v.hasAudio === false && <span className="chip crit">Без звука</span>}
                     </div>
                   )}
                 </div>

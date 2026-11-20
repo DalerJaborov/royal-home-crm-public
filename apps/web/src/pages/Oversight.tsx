@@ -659,7 +659,7 @@ function EventLogSlice({
     <Slice
       id={id}
       title={title}
-      note={data ? `журнал, ${data.total} ${pluralizeRu(data.total, ["запись", "записи", "записей"])}` : undefined}
+      note={data && data.total > 0 ? `${data.total} ${pluralizeRu(data.total, ["запись", "записи", "записей"])}` : undefined}
       hint={hint}
     >
       <SliceState
@@ -948,7 +948,7 @@ function TransferPairs({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
       note={data ? `за ${data.windowDays} дней` : undefined}
       hint={
         data
-          ? `Топ пар «от кого, кому». Пара, повторившаяся ${data.frequentThreshold} раза и больше, отмечена. Смотреть ли внимательнее, решает руководитель.`
+          ? `Какие пары чаще всего передают клиентов друг другу. Если пара повторилась ${data.frequentThreshold} раза и больше, она отмечена. Нужно ли присмотреться, решает руководитель.`
           : undefined
       }
     >

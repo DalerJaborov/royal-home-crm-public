@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { prisma } from "../src/db.js";
+import { TELEPHONY_OPTIONS, telephonyOptionTitle } from "@royal-home/shared";
 import { checkSettingsBaseline, checkOperatorsBaseline, describeDrift } from "../src/lib/telephony/telephonyBaseline.js";
+import { BASELINE_CHECK_NAME, LEGACY_BASELINE_CHECK_NAMES, dropLegacyHealthSnapshots } from "../src/lib/telephony/stationHealth.js";
 
 /**
  * СТОРОЖ РАБОЧЕЙ НАСТРОЙКИ ТЕЛЕФОНИИ (просьба владельца 21.09.2026: «если всё
@@ -179,15 +181,62 @@ describe("текст для журнала", () => {
         expected: "queue",
         actual: "extension",
         ok: false,
+        field: "incomingPrimaryTarget",
       },
     ]);
     expect(text).toContain("Куда идёт входящий");
-    expect(text).toContain("extension");
-    expect(text).toContain("queue");
+    // Значения — словами, а не именами режимов станции (владелец 20.11.2026: «простыми словами»).
+    expect(text).toContain("Прямо на один аппарат");
+    expect(text).toContain("Операторам в очередь");
+    expect(text).not.toMatch(/(?<![a-z_])(extension|queue|kpi_queue|dedicated_operator|PJSIP|RH_CRM_VERDICT)(?![a-z_])/i);
+    // «» у кириллицы молчит (JS считает границей слова только латиницу): слово «эталон» ищем через lookaround
+    expect(text).not.toMatch(/(?<![а-яё])эталон/i);
     expect(text).toContain("тридцати дней тишины");
     // Читающему нужно знать не только «разошлось», но и что делать дальше — без
     // пути к файлу в тексте для человека (ночная проверка 24.09.2026, №9а).
-    expect(text).toContain("разработчика");
+    expect(text).toContain("разработчику");
     expect(text).not.toMatch(/\.[jt]sx?\b/);
+  });
+});
+
+describe("текст для журнала: подписи вариантов из общего словаря", () => {
+  it("каждое значение каждого поля подписано словом из общего словаря, а не именем режима", () => {
+    for (const field of Object.keys(TELEPHONY_OPTIONS) as Array<keyof typeof TELEPHONY_OPTIONS>) {
+      const values = TELEPHONY_OPTIONS[field].map((o) => o.value as string);
+      for (const value of values) {
+        const text = describeDrift([{ name: "Поле", why: "причина", expected: values[0], actual: value, ok: false, field }]);
+        expect(text, field + "/" + value).toContain(telephonyOptionTitle(field, value));
+        expect(text, field + "/" + value).not.toMatch(/(mobile|extension|queue|none|auto|ivr_menu|kpi_queue|dedicated_operator)/);
+      }
+    }
+  });
+
+  it("«mobile» — звонок на мобильный сотрудника, «dedicated_operator» — дежурный по календарю, секунды — с единицей", () => {
+    const text = describeDrift([
+      { name: "Чем звонить агенту", why: "п", expected: "mobile", actual: "extension", ok: false, field: "asteriskAgentDialMode" },
+      { name: "Незнакомый звонок — оператору", why: "п", expected: "assigned_then_forward", actual: "dedicated_operator", ok: false, field: "incomingRoutingMode" },
+      { name: "Сколько ждёт незнакомый", why: "п", expected: "40", actual: "20", ok: false, unit: "с" },
+    ]);
+    expect(text).toContain("сейчас «На внутренний номер (софтфон)», нужно «На мобильный сотрудника»");
+    expect(text).toContain("сейчас «Дежурный по календарю»");
+    expect(text).toContain("сейчас «20 с», нужно «40 с»");
+  });
+});
+
+describe("имя проверки телефонии: ключ без слова «эталон», старая строка снимка удаляется", () => {
+  it("старый снимок здоровья удаляется, снимок под новым именем остаётся", async () => {
+    const legacy = LEGACY_BASELINE_CHECK_NAMES.map((n) => `Телефония: ${n}`);
+    const fresh = `Телефония: ${BASELINE_CHECK_NAME}`;
+    for (const name of [...legacy, fresh]) {
+      await prisma.integrationHealthSnapshot.upsert({ where: { name }, create: { name, ok: false, detail: "тест" }, update: { ok: false, detail: "тест" } });
+    }
+    expect(await dropLegacyHealthSnapshots()).toBeGreaterThanOrEqual(legacy.length);
+    expect(await prisma.integrationHealthSnapshot.count({ where: { name: { in: legacy } } })).toBe(0);
+    expect(await prisma.integrationHealthSnapshot.count({ where: { name: fresh } })).toBe(1);
+    await prisma.integrationHealthSnapshot.delete({ where: { name: fresh } });
+  });
+
+  it("новое имя без слова «эталон»", () => {
+    expect(BASELINE_CHECK_NAME).not.toMatch(/эталон/i);
   });
 });

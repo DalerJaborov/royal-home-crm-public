@@ -294,7 +294,7 @@ export async function qualifyIncomingCall(input: {
           const answerer = await prisma.agent.findUnique({ where: { id: input.answeredByAgentId }, select: { fullName: true } });
           propertyNote = [
             identificationNote(identified, { byRobot, toOwner: true }),
-            `Трубку снял ${answerer?.fullName ?? "другой сотрудник"}, но звонок по объекту — лид отдан хозяину объекта`,
+            `Трубку снял ${answerer?.fullName ?? "другой сотрудник"}, но звонок по объекту — заявка отдана хозяину объекта`,
           ]
             .filter(Boolean)
             .join(". ");
@@ -338,7 +338,7 @@ export async function qualifyIncomingCall(input: {
     requested.status === "matched" && !assignedToRequested
       ? // Либо агента отключили, пока шла расшифровка, либо трубку снял другой и
         // клиент уже его: в обоих случаях обещать «закреплён за названным» — враньё.
-        `Клиент называл сотрудника ${requested.fullName}, но лид распределён обычным порядком`
+        `Клиент называл сотрудника ${requested.fullName}, но заявка распределена обычным порядком`
       : requestedAgentNote(requested);
 
   // Карточка и запись в хронологии — одной транзакцией: назначенный агент без записи
@@ -807,8 +807,8 @@ function identificationNote(
         ? "объект уже продан"
         : top.status !== "AVAILABLE" && top.status !== "RESERVED"
           ? "объект снят с продажи"
-          : "агент объекта сейчас не принимает лиды (отключён или не на связи)";
-    return `${head}. Лид ушёл обычной раздачей: ${why}.`;
+          : "агент объекта сейчас не принимает заявки (отключён или не на связи)";
+    return `${head}. Заявка ушла обычной раздачей: ${why}.`;
   }
   if (found.candidates.length === 0) return null;
   return `Объект по приметам уверенно не узнан. Похожие: ${found.candidates.map(describe).join("; ")}`;

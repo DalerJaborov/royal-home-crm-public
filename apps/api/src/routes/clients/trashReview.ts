@@ -31,8 +31,8 @@ const REVIEW_AUDIT_LIMIT = 50;
 const AUDIT_LABELS: Record<string, string> = {
   CLIENT_CREATE: "Создал карточку",
   UPDATE: "Изменил карточку",
-  LEAD_ACCEPT: "Принял лида",
-  LEAD_DECLINE: "Отказался от лида",
+  LEAD_ACCEPT: "Принял заявку",
+  LEAD_DECLINE: "Отказался от заявки",
   CLIENT_AGENT_CHANGE: "Передал другому агенту",
   CLIENT_REFUSE: "Завершил без сделки",
   CLIENT_DEFER: "Отложил",
