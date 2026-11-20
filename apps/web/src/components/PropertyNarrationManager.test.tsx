@@ -114,7 +114,7 @@ describe("20.11: блок в карточке — короткий статус,
     fireEvent.click(screen.getByRole("button", { name: "← Назад к прослушиванию" }));
     expect(screen.getByRole("button", { name: "✓ Одобрить" })).toBeTruthy();
   });
-  it("ревью #334: переделать тем же текстом и голосом можно (интонация), но только после явного «это новая платная озвучка»", async () => {
+  it("ревью PR 334: переделать тем же текстом и голосом можно (интонация), но только после явного «это новая платная озвучка»", async () => {
     postsReturn({ id: "v2", revision: 2, queued: true });
     mount({ versions: [version()] });
     fireEvent.click(screen.getByRole("button", { name: "Изменить голос или текст" }));
@@ -149,7 +149,7 @@ describe("20.11: блок в карточке — короткий статус,
     expect(api.mock.calls.filter(([, opts]) => (opts as { body?: { generate?: boolean } })?.body?.generate)).toHaveLength(1);
     await act(async () => { finish({ id: "v2", revision: 2, queued: true }); });
   });
-  it("ревью #334: сохранённый текст без аудио при автоозвучке — не тупик: «Открыть текст» и «Озвучить»", () => {
+  it("ревью PR 334: сохранённый текст без аудио при автоозвучке — не тупик: «Открыть текст» и «Озвучить»", () => {
     const draft = [version({ status: "DRAFT", hasAudio: false, generateAfter: null })];
     expect(render({ versions: draft }, "card")).not.toContain("Автоозвучка выключена");
     mount({ versions: draft });
