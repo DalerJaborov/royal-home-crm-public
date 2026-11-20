@@ -34,6 +34,7 @@ export function TranslatableMessageText({
   clientId,
   rh2 = false,
   readOnly = false,
+  quietMask = false,
 }: {
   /** Уже прогнан вызывающим кодом через humanizeAttachmentTags/stripBotHints —
    *  тот же текст, что раньше шёл прямо в MessageText. */
@@ -45,6 +46,8 @@ export function TranslatableMessageText({
   clientId?: string | null;
   rh2?: boolean;
   readOnly?: boolean;
+  /** Скрытый номер тихой пометкой вместо кнопки (см. MessageText). */
+  quietMask?: boolean;
 }) {
   const translationSupported = !!conversationId && !conversationId.startsWith("tg_") && !conversationId.startsWith("td_");
   const [translatedRu, setTranslatedRu] = useState<string | null>(message.translatedRu ?? null);
@@ -84,7 +87,7 @@ export function TranslatableMessageText({
 
   return (
     <>
-      <MessageText content={displayTranslation ? translatedRu! : content} clientId={clientId} rh2={rh2} readOnly={readOnly} />
+      <MessageText content={displayTranslation ? translatedRu! : content} clientId={clientId} rh2={rh2} readOnly={readOnly} quietMask={quietMask} />
       {showToggle && (
         <div style={{ marginTop: 4, fontSize: 13 }}>
           {translatedRu ? (
