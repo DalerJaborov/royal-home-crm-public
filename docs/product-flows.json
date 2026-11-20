@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 776,
-  "forks": 4146,
+  "forks": 4148,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -42966,11 +42966,61 @@
     },
     {
      "k": "do",
-     "t": "const agent = await prisma.agent.update({ where: { id: req.agent!.id }, data: { preferences: parsed.data }, s…",
+     "t": "const agent = await prisma.$transaction(async (tx)",
      "a": [
-      "меняет в базе: agent"
+      "всё внутри — одной транзакцией",
+      "читает в базе: agent",
+      "меняет в базе: agent",
+      "проверяет данные схемой homePreferencesSchema"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "if",
+       "t": "data.home === undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const current = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { preferences: true } });",
+         "a": [
+          "читает в базе: agent"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);",
+         "a": [
+          "проверяет данные схемой homePreferencesSchema"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "kept.success && kept.data",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "data = { ...data, home: kept.data };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return tx.agent.update({ where: { id: req.agent!.id }, data: { preferences: data }, select: { preferences: tr…",
+       "a": [
+        "меняет в базе: agent"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
