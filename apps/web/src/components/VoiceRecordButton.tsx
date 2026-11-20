@@ -16,15 +16,25 @@ export function VoiceRecordButton({
   send,
   onError,
   disabled,
+  onBusyChange,
 }: {
   send: (blob: Blob) => Promise<unknown>;
   /** Показ ошибки отдаёт вызывающему — у обеих форм уже есть своё место под неё
    *  (то же, где текстовая отправка показывает свой отказ). */
   onError: (message: string | null) => void;
   disabled?: boolean;
+  /** Идёт запись или отправка (новый вид чатов: пока true, строка ввода не
+   *  подменяет эту кнопку на «Отправить» — иначе запись пропала бы). */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const { supported, isRecording, isSending, elapsedMs, error, start, stop, cancel } =
     useVoiceMessageRecorder(send);
+  const busy = isRecording || isSending;
+  useEffect(() => {
+    onBusyChange?.(busy);
+    // onBusyChange — setState родителя, стабильная ссылка не гарантирована (см. onError ниже).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy]);
 
   useEffect(() => {
     onError(error);
