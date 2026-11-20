@@ -1200,7 +1200,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await buildAdInsights(month, req.query.force === \"1\");",
+     "t": "const result = await buildAdInsights(month, req.query.force === \"1\", { seesCompanyMoney: req.agent!.permissio…",
      "a": [
       "зовёт buildAdInsights()"
      ],
@@ -23180,7 +23180,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const briefing = await loadBriefing().catch(()",
+     "t": "const briefing = await loadBriefing(new Date(), { seesCompanyMoney: can(req, \"finance.view\") }).catch(()",
      "a": [
       "зовёт loadBriefing()"
      ],
@@ -23283,7 +23283,7 @@
      "c": [
       {
        "k": "do",
-       "t": "res.json(await buildBriefingResponse());",
+       "t": "res.json(await buildBriefingResponse(new Date(), { seesCompanyMoney: can(req, \"finance.view\") }));",
        "a": [
         "ответ 200"
        ],
