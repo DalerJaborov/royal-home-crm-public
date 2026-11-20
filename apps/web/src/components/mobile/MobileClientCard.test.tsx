@@ -40,7 +40,7 @@ describe("mobile client overview lifecycle integration", () => {
   it("renders acceptance once while keeping the unaccepted content gate", () => {
     const html = render({ ...base, pendingAcceptance: true });
     expect(html.match(/Ждёт принятия/g)).toHaveLength(1);
-    expect(html).toContain("когда вы примете лид");
+    expect(html).toContain("когда вы примете заявку");
     expect(html).not.toContain("Объекты в обзоре");
   });
   it("renders other-inquiry identity once and retains the new overview and activity sections", () => {

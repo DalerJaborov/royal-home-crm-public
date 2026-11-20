@@ -161,13 +161,13 @@ pushRouter.post("/action", async (req, res) => {
     if (result.ok) {
       return res.json({
         ok: true,
-        message: result.reassignedTo ? "Лид отклонён и передан следующему агенту" : "Лид отклонён и передан руководителю",
+        message: result.reassignedTo ? "Заявка отклонена и передана следующему агенту" : "Заявка отклонена и передана руководителю",
         url,
       });
     }
     const message =
       result.reason === "already_accepted"
-        ? "Лид уже принят — отклонить его больше нельзя"
+        ? "Заявка уже принята — отклонить её больше нельзя"
         : result.reason === "not_found"
           ? "Клиент не найден"
           : "Лид уже не за вами";

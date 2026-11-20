@@ -39,7 +39,7 @@ propertyActivityRouter.get("/:id/property-activity", requireAuth, async (req, re
   // бывшему агенту — пустой список, а не история показов и отправок.
   const access = await resolveClientCardAccess(req, { ...client, id: id.data });
   if (access === "denied") return res.status(403).json({ error: "Недостаточно прав" });
-  if (access === "nameOnly") return res.status(403).json({ error: "Сначала примите лид" });
+  if (access === "nameOnly") return res.status(403).json({ error: "Сначала примите заявку" });
   if (access === "transferred") {
     return res.json({ items: [], total: 0, page: query.data.page, pageSize } satisfies ClientPropertyActivity);
   }

@@ -4,14 +4,14 @@ import type { PropertyHealthBrief } from "@royal-home/shared";
 import type { Property } from "../../../types";
 import { formatArea, formatMoney, formatPricePerSqm, STAGE_OWNER_LABELS } from "../../../lib/format";
 import { formatPropertyCode } from "../../../lib/clientFormat";
-import { stageLabelFor, statusChipClass } from "../../../lib/theme2026";
+
 import { useAuthStore } from "../../../store/auth";
 import { PropertyHealthDot } from "../../PropertyHealthDot";
 import { PropertyPhoto } from "../../property/PropertyPhoto";
 import { PropertyStats } from "../../PropertyStats";
 import { RhAvatar } from "../ui";
 import { ObjIcon } from "./ObjIcon";
-import { TONE_ICON, toneFromChipClass, type ObjTone } from "./objectTone";
+import { propertyStagePill, TONE_ICON, type ObjTone } from "./objectTone";
 
 /**
  * КАРТОЧКА ОБЪЕКТА В СПИСКЕ — «Новый вид» (облик royal, 18.11.2026).
@@ -50,9 +50,9 @@ export function ObjStatusPill({ tone, label, testId }: { tone: ObjTone; label: s
 }
 
 export function RoyalPropertyItem({ property: p, health, variant = "card", selected, onToggleSelect, onTogglePublish, agentName, agentTitle, floors, awaitingAcceptance, handoff, subline, band }: RoyalPropertyItemProps) {
-  const tone = toneFromChipClass(statusChipClass(p.status, p.pipeline));
   const role = useAuthStore((s) => s.agent?.role);
-  const stageLabel = stageLabelFor(p.status, p.pipeline, role);
+  // Один тон и один текст плашки на список и карточку (propertyStagePill).
+  const { tone, label: stageLabel } = propertyStagePill(p, role);
   const overdue = p.pipeline?.overdue && !subline;
   const canTogglePublish = !!onTogglePublish && (p.publishedOnSite || p.status === "AVAILABLE");
   return (
@@ -87,7 +87,7 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
             </span>
           ))}
         </div>}
-        {overdue && <p className="ry-obj-overdue"><ObjIcon name="flame" size={18} />{STAGE_OWNER_LABELS[p.pipeline!.owner ?? ""] ?? p.pipeline!.owner ?? "Этап"} задерживает объект: {p.pipeline!.daysInStage} дн. при сроке {p.pipeline!.limitDays ?? "не задан"}.</p>}
+        {overdue && <p className="ry-obj-overdue" data-tone={tone === "crit" ? "crit" : "warn"}>{STAGE_OWNER_LABELS[p.pipeline!.owner ?? ""] ?? p.pipeline!.owner ?? "Этап"} задерживает объект: {p.pipeline!.daysInStage} дн. при сроке {p.pipeline!.limitDays ?? "не задан"}.</p>}
         <div className="ry-obj-foot">
           <span className="ry-obj-agent" title={agentTitle}>
             {agentName ? <RhAvatar name={agentName} size={44} /> : null}

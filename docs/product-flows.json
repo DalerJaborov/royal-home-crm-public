@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 786,
-  "forks": 4186,
+  "endpoints": 788,
+  "forks": 4192,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -5765,9 +5765,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -6216,9 +6216,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -12211,81 +12211,6 @@
      ]
     },
     {
-     "k": "do",
-     "t": "const updated = await prisma.$transaction(async tx",
-     "a": [
-      "всё внутри — одной транзакцией",
-      "меняет в базе: client",
-      "читает в базе: clientDesiredPlace",
-      "удаляет в базе: clientDesiredPlace",
-      "читает в базе: client"
-     ],
-     "c": [
-      {
-       "k": "do",
-       "t": "const changed = await tx.client.updateMany({ where: { id: client.id, assignedAgentId: client.assignedAgentId,…",
-       "a": [
-        "меняет в базе: client"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!changed.count",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return null;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const previousPlaces = stale ? await tx.clientDesiredPlace.findMany({ where: { clientId: client.id }, select:…",
-       "a": [
-        "читает в базе: clientDesiredPlace"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "stale",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "await tx.clientDesiredPlace.deleteMany({ where: { clientId: client.id } });",
-         "a": [
-          "удаляет в базе: clientDesiredPlace"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "await logTimeline({ clientId: client.id, actor: { kind: \"agent\", agentId: req.agent!.id }, type: \"SYSTEM\", no…",
-       "a": [
-        "зовёт logTimeline()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "return tx.client.findUniqueOrThrow({ where: { id: client.id } });",
-       "a": [
-        "читает в базе: client"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "if",
      "t": "!updated",
      "a": [],
@@ -12299,22 +12224,6 @@
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"UPDATE\", \"Client\", client.id, { requirementsFieldsKind: \"BUYER\" });",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });",
-     "a": [
-      "зовёт publishClientUpdated()"
-     ],
-     "c": []
     },
     {
      "k": "do",
@@ -12732,9 +12641,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -12842,9 +12751,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Лид ещё не принят — переписка не открыта\" });",
+       "t": "return res.status(403).json({ error: \"Заявка ещё не принята — переписка не открыта\" });",
        "a": [
-        "ответ 403 — «Лид ещё не принят — переписка не открыта»"
+        "ответ 403 — «Заявка ещё не принята — переписка не открыта»"
        ],
        "c": []
       }
@@ -13046,9 +12955,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Отклонить лид может только тот, кому он отдан. Передать другому — кнопк…",
+       "t": "return res.status(403).json({ error: \"Отклонить заявку может только тот, кому она отдана. Передать другому — …",
        "a": [
-        "ответ 403 — «Отклонить лид может только тот, кому он отдан. Передать другому —…»"
+        "ответ 403 — «Отклонить заявку может только тот, кому она отдана. Передать другому…»"
        ],
        "c": []
       }
@@ -13089,9 +12998,9 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.status(409).json({ error: \"Лид уже принят — отклонить его больше нельзя, используйте отказ от рабо…",
+         "t": "return res.status(409).json({ error: \"Заявка уже принята — отклонить её больше нельзя, используйте отказ от р…",
          "a": [
-          "ответ 409 — «Лид уже принят — отклонить его больше нельзя, используйте отказ от…»"
+          "ответ 409 — «Заявка уже принята — отклонить её больше нельзя, используйте отказ от…»"
          ],
          "c": []
         }
@@ -13863,9 +13772,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -14340,9 +14249,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -14938,9 +14847,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -15147,9 +15056,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -15484,9 +15393,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид»"
+        "ответ 403 — «Сначала примите заявку»"
        ],
        "c": []
       }
@@ -15809,9 +15718,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -15992,6 +15901,186 @@
     {
      "k": "do",
      "t": "res.json({ ok: true, message: \"Просьба отправлена — карточку восстановит директор или админ, если согласится\"…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/requirements-suggestion/apply",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/requirements-suggestion/apply",
+   "file": "apps/api/src/routes/clients/intents.ts",
+   "router": "intentsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!confirmedClientIntents(client).buys",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Сначала подтвердите, что клиент покупает недвижимость\" });",
+       "a": [
+        "ответ 409 — «Сначала подтвердите, что клиент покупает недвижимость»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!suggestion",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Из разговора больше нечего взять: поля уже заполнены или сводка изменил…",
+       "a": [
+        "ответ 409 — «Из разговора больше нечего взять: поля уже заполнены или сводка…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "seen !== suggestionFingerprint(suggestion)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Предложение обновилось, посмотрите ещё раз\" });",
+       "a": [
+        "ответ 409 — «Предложение обновилось, посмотрите ещё раз»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const input = clientBuyerRequirementsSchema.safeParse({ ...suggestion.fields, ...(merged !== null ? { require…",
+     "a": [
+      "проверяет данные схемой clientBuyerRequirementsSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!input.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Пожелания не поместились в карточку. Уточните их вручную\" });",
+       "a": [
+        "ответ 400 — «Пожелания не поместились в карточку. Уточните их вручную»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!updated",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Карточка изменилась. Обновите её и повторите\" });",
+       "a": [
+        "ответ 409 — «Карточка изменилась. Обновите её и повторите»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investigationV…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/requirements-suggestion",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/requirements-suggestion",
+   "file": "apps/api/src/routes/clients/intents.ts",
+   "router": "intentsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!suggestion",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ available: false, labels: [] as string[] });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ available: true, fingerprint: suggestionFingerprint(suggestion), labels: suggestion.labels.map((la…",
      "a": [
       "ответ 200"
      ],
@@ -16704,9 +16793,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -17722,9 +17811,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -18430,9 +18519,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Сначала примите лид — до принятия карточка закрыта\" });",
+       "t": "return res.status(403).json({ error: \"Сначала примите заявку — до принятия карточка закрыта\" });",
        "a": [
-        "ответ 403 — «Сначала примите лид — до принятия карточка закрыта»"
+        "ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»"
        ],
        "c": []
       }
@@ -20651,7 +20740,7 @@
      "c": [
       {
        "k": "do",
-       "t": "sendLeadPush(assignedAgentId, client.id, { title: \"🔔 Новый лид\", body: `${client.fullName} — примите заявку,…",
+       "t": "sendLeadPush(assignedAgentId, client.id, { title: \"🔔 Новая заявка\", body: `${client.fullName} — примите заяв…",
        "a": [
         "зовёт sendLeadPush()"
        ],
@@ -64055,7 +64144,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.json({ ok: true, message: result.reassignedTo ? \"Лид отклонён и передан следующему агенту\" : \"Лид …",
+         "t": "return res.json({ ok: true, message: result.reassignedTo ? \"Заявка отклонена и передана следующему агенту\" : …",
          "a": [
           "ответ 200"
          ],
@@ -100016,7 +100105,7 @@
             },
             {
              "k": "do",
-             "t": "sendLeadPush(agentId, lead.id, { title: \"🔔 Новый лид с ночи\", body: `${lead.fullName} — примите заявку`, url…",
+             "t": "sendLeadPush(agentId, lead.id, { title: \"🔔 Новая заявка с ночи\", body: `${lead.fullName} — примите заявку`, …",
              "a": [
               "зовёт sendLeadPush()"
              ],
@@ -100452,7 +100541,7 @@
            "c": [
             {
              "k": "do",
-             "t": "sendLeadPush(nextAgentId, client.id, { title: \"🔔 Новый лид\", body: `${client.fullName} — передан вам`, url: …",
+             "t": "sendLeadPush(nextAgentId, client.id, { title: \"🔔 Новая заявка\", body: `${client.fullName} — передан вам`, ur…",
              "a": [
               "зовёт sendLeadPush()"
              ],
@@ -126600,7 +126689,7 @@
       },
       {
        "k": "do",
-       "t": "await sendLeadPush(outcome.agentId, client.id, { title: \"🔔 Новый лид\", body: `${client.fullName} — примите з…",
+       "t": "await sendLeadPush(outcome.agentId, client.id, { title: \"🔔 Новая заявка\", body: `${client.fullName} — примит…",
        "a": [
         "зовёт sendLeadPush()"
        ],
@@ -126792,7 +126881,7 @@
       },
       {
        "k": "do",
-       "t": "await sendPushToAgents(recipients, { title: \"⏳ Лид ждёт назначения\", body: `${client.fullName} — назначьте аг…",
+       "t": "await sendPushToAgents(recipients, { title: \"⏳ Заявка ждёт назначения\", body: `${client.fullName} — назначьте…",
        "a": [
         "push-уведомление"
        ],

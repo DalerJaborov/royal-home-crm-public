@@ -39,26 +39,35 @@ import type { Client } from "../types";
  * макете. Заголовок и оценка — `.sec-h`/`.chip`. Компонент рендерит только
  * карточка клиента, переключателя облика не требуется.
  */
+/**
+ * Оценка ИИ спокойным чипом с подписью, что она значит (владелец 20.11.2026: «30/100» крупной красной плашкой пугала).
+ * Красного нет вовсе: низкая оценка — не тревога, а «пока не ясно»; цвет только у высокой.
+ */
+export function insightScoreView(score: number | null | undefined): { tone: "ok" | "mute"; text: string } | null {
+  if (score == null) return null;
+  const word = score >= 70 ? "высокий" : score >= 40 ? "средний" : "низкий";
+  return { tone: score >= 70 ? "ok" : "mute", text: `Шанс сделки: ${word} · ${score}/100` };
+}
+
 export function ClientInsight({ client }: { client: Client }) {
   if (!client.aiInsight) return null;
 
-  const score = client.aiScore;
-  const tone = score == null ? "mute" : score >= 70 ? "ok" : score >= 40 ? "warn" : "crit";
+  const view = insightScoreView(client.aiScore);
 
   return (
     <section>
-      <div className="sec-h">
+      <div className="sec-h" style={{ flexWrap: "wrap", gap: "6px 12px" }}>
         {/* «Коротко ИИ» вплотную к заголовку читалось как опечатка (аудит
             07.09.2026, ui-audit-07-09-2026.md п.5) — теперь это одна подпись,
             а не жирное слово и серый довесок встык. */}
         {/* «Всё о клиенте» (владелец 29.09.2026): не «коротко», а вся суть
             карточки — «Что просит» и «О карточке» убраны, их место здесь. */}
-        <h2>Всё о клиенте</h2>
-        {score != null && (
+        <h2 style={{ whiteSpace: "nowrap" }}>Всё о клиенте</h2>
+        {view && (
           // Число без подписи читается как попало: подписываем прямо в чипе,
           // а не только всплывающей подсказкой, которую на телефоне не видно.
-          <span className={`chip ${tone}`} title="Насколько вероятна сделка по этому клиенту">
-            Оценка ИИ {score}/100
+          <span className={`chip ${view.tone}`} title="Оценка ИИ: насколько вероятна сделка по этому клиенту. Считается по разговорам и обновляется сама">
+            {view.text}
           </span>
         )}
       </div>

@@ -988,7 +988,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
       commissionScope: ownAgentId ? ("own" as const) : ("company" as const),
     },
     funnel: [
-      { key: "leads", label: "Новые лиды", count: newLeads },
+      { key: "leads", label: "Новые заявки", count: newLeads },
       { key: "contacted", label: "На контакте", count: contactedClientIds.length },
       { key: "showings", label: "Показы", count: showingsThisMonth.length },
       { key: "negotiations", label: "Переговоры", count: negotiations },

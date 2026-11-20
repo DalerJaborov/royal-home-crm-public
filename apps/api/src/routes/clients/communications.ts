@@ -87,7 +87,7 @@ communicationsRouter.post("/:id/message", requireAuth, async (req, res) => {
   }
   if (client.deletedAt) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   // Диалог, выбранный вкладкой канала в карточке; без него — самый живой. Чужой
@@ -137,7 +137,7 @@ communicationsRouter.post("/:id/message-voice", requireAuth, anyParams(voiceMess
   }
   if (client.deletedAt) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   const target = await resolveSendTarget(client.id, conversationId.data);
@@ -564,7 +564,7 @@ communicationsRouter.post("/:id/live-voice-call", requireAuth, async (req, res) 
   }
   if (client.deletedAt) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   let propertyDescription: string | null = null;
@@ -689,7 +689,7 @@ async function loadClientForRobotStop(req: Request, id: string, write: boolean) 
     const denied = foreignWriteDenied(req, client, ownAgentId);
     if (denied) return { ok: false as const, status: 403, error: denied };
     if (client.deletedAt) return { ok: false as const, status: 409, error: "Карточка в Корзине — сначала восстановите её" };
-    if (ownAgentId && !client.acceptedAt) return { ok: false as const, status: 403, error: "Сначала примите лид — до принятия карточка закрыта" };
+    if (ownAgentId && !client.acceptedAt) return { ok: false as const, status: 403, error: "Сначала примите заявку — до принятия карточка закрыта" };
   }
   return { ok: true as const, client };
 }

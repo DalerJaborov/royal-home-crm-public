@@ -37,7 +37,7 @@ describe("client overview portfolio and activity separation", () => {
   });
   it("keeps an unaccepted gated client from loading portfolios or history", () => {
     const html = render({ variant: "portfolio", locked: true, client: { ...seller, pendingAcceptance: true } });
-    expect(html).toContain("после принятия лида");
+    expect(html).toContain("после принятия заявки");
     expect(h.properties).toHaveBeenLastCalledWith({ sellerClientId: seller.id, page: 1 }, false);
     expect(h.history).toHaveBeenLastCalledWith(seller.id, "showings", 1, false);
   });

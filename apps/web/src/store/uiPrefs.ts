@@ -20,7 +20,7 @@ import { readCleanNavigationOrder } from "../lib/cleanNavigationPreference";
 /** Идентификаторы виджетов дашборда, доступных к скрытию (Dashboard.tsx). */
 export const DASHBOARD_WIDGETS = [
   { id: "kpis", label: "Показатели (KPI)" },
-  { id: "myLeads", label: "Мои лиды" },
+  { id: "myLeads", label: "Мои заявки" },
   { id: "commission", label: "График комиссии" },
   { id: "properties", label: "Объекты" },
   { id: "funnel", label: "Воронка" },
@@ -28,7 +28,7 @@ export const DASHBOARD_WIDGETS = [
   { id: "districts", label: "Объекты по районам" },
   { id: "propertiesTrend", label: "Динамика объектов" },
   { id: "today", label: "Задачи на сегодня" },
-  { id: "sources", label: "Источники лидов" },
+  { id: "sources", label: "Источники заявок" },
   { id: "heatmap", label: "Тепловая карта обращений" },
   { id: "pulse", label: "Пульс команды" },
   { id: "team", label: "Команда · сейчас" },

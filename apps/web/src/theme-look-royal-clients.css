@@ -588,3 +588,15 @@
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="clients"] .scr > .client-next-step b { font-size: 15px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="clients"] .scr > .client-next-step p { font-size: 16px; color: var(--rh-ui-text, var(--ink)); }
+
+/* ---- Карточки клиента и подбор: правки по кадрам владельца 20.11.2026 ---- */
+/* Липкая панель «Отправить выбранные» стоит НАД нижним меню-капсулой, а не под ней. Высота меню и отступ от края — те же
+   числа, что у запаса страницы в theme-look-royal.css (64 + 14), плюс зазор 12 и safe-area: одна переменная вместо «104 px». */
+:root[data-ui-look="royal"][data-mobile-ux] .rh2[data-ry-section="clients"] { --ry-nav-clear: calc(64px + 14px + 12px + env(safe-area-inset-bottom, 0px)); }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2[data-ry-section="clients"] .client-match-toolbar { bottom: var(--ry-nav-clear); }
+/* «Чего мы не знаем о клиенте» — один раз над списком подбора. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .client-match-common { margin: 8px 0 14px; padding: 12px 14px; border-radius: 16px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .client-match-common p:first-child { margin-top: 0; }
+/* «Взять из разговора» — одна кнопка под запросом покупателя. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .client-take-from-talk { margin: 10px 0 4px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .client-take-from-talk .pill { min-height: 44px; white-space: normal; text-align: left; height: auto; padding-block: 10px; }
