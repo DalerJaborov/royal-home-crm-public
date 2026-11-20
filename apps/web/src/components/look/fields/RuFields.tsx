@@ -46,8 +46,9 @@ const PLAIN_APPEARANCE: CSSProperties = { WebkitAppearance: "none", appearance: 
 
 /** Вид текста поля, снятый один раз: подпись должна выглядеть как родной текст. */
 interface Look {
-  paddingLeft: string; paddingRight: string; fontFamily: string; fontSize: string; fontWeight: string;
-  lineHeight: string; letterSpacing: string; textAlign: string;
+  paddingLeft: string; paddingRight: string; textAlign: string;
+  /** Шрифт поля одной строкой (`font`): подпись выглядит как родной текст, размер не пишем литералом. */
+  font: string;
   /** Поле занимает всю ячейку (подпись тянется за ним) или уже её (подпись той же ширины, прижата влево). */
   fullWidth: boolean; width: number;
 }
@@ -58,8 +59,8 @@ function readLook(input: HTMLInputElement): Look {
   const width = input.getBoundingClientRect().width;
   return {
     fullWidth: cell > 0 && Math.abs(cell - width) < 2, width,
-    paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, fontFamily: cs.fontFamily, fontSize: cs.fontSize,
-    fontWeight: cs.fontWeight, lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing, textAlign: cs.textAlign,
+    paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, textAlign: cs.textAlign,
+    font: `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight} ${cs.fontFamily}`,
   };
 }
 
@@ -150,10 +151,9 @@ function makeField(kind: RuFieldKind) {
             maxWidth: "100%", display: "flex", alignItems: "center",
             justifyContent: centered ? "center" : "flex-start", boxSizing: "border-box",
             visibility: revealed ? "hidden" : "visible", opacity: rest.disabled ? 0.55 : undefined,
-            paddingLeft: look?.paddingLeft, paddingRight: look?.paddingRight, fontFamily: look?.fontFamily, fontSize: look?.fontSize,
-            fontWeight: look?.fontWeight, lineHeight: look?.lineHeight, letterSpacing: look?.letterSpacing,
+            paddingLeft: look?.paddingLeft, paddingRight: look?.paddingRight, font: look?.font,
             pointerEvents: "none", zIndex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", minWidth: 0,
-            color: empty ? "var(--muted, rgba(120,120,128,.9))" : "var(--rh-ui-text, var(--ink, currentColor))",
+            color: empty ? "var(--rh-ui-hint, var(--muted))" : "var(--rh-ui-text, var(--ink, currentColor))",
           }}
         >
           {text}

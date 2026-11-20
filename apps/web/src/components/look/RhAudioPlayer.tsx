@@ -98,7 +98,7 @@ export function RhAudioPlayer({
 
   return (
     <div
-      className={`rh-audio flex min-w-0 items-center gap-1.5 rounded-2xl bg-[var(--soft,rgba(120,120,128,.12))] p-1 pr-2 ${className ?? ""}`}
+      className={`rh-audio flex min-w-0 items-center gap-1.5 rounded-2xl bg-[var(--rh-ui-hover)] p-1 pr-2 ${className ?? ""}`}
       style={style}
       data-testid="rh-audio"
     >
@@ -130,7 +130,7 @@ export function RhAudioPlayer({
       </button>
       <input
         type="range"
-        className="block min-w-14 flex-1 accent-[rgb(var(--rgb-accent))]"
+        className="block min-w-14 flex-1 accent-[var(--rh-ui-primary)]"
         min={0}
         max={total ?? 0}
         step={0.1}
@@ -144,7 +144,7 @@ export function RhAudioPlayer({
         onBlur={() => { scrubbing.current = false; }}
         onChange={(e) => seekTo(Number(e.target.value))}
       />
-      <span className="flex-none whitespace-nowrap text-[13px] tabular-nums text-[var(--muted)]" data-testid="rh-audio-clock">
+      <span className="flex-none whitespace-nowrap tabular-nums" style={{ fontSize: "var(--rh-fs-xs)", color: "var(--rh-ui-hint)" }} data-testid="rh-audio-clock">
         {total ? `${audioClock(pos)} / ${audioClock(total)}` : audioClock(pos)}
       </span>
       {speeds && (
@@ -152,7 +152,7 @@ export function RhAudioPlayer({
           type="button"
           aria-label={`Скорость ${audioSpeedLabel(speed)}, нажмите, чтобы сменить`}
           onClick={() => setSpeed(nextAudioSpeed(speed))}
-          className="h-11 min-w-10 flex-none rounded-full px-1! text-[13px]! font-semibold! tabular-nums"
+          className="h-11 min-w-10 flex-none rounded-full px-1! font-semibold! tabular-nums" style={{ fontSize: "var(--rh-fs-xs)" }}
         >
           {audioSpeedLabel(speed)}
         </button>
