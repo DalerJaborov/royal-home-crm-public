@@ -1244,7 +1244,7 @@ function ClientDetailCard() {
           initialType={showingMode === "schedule" ? "SHOWING" : undefined}
           initialPropertyId={showingPropertyId}
           sellerClientId={sells && !buys ? client.id : undefined}
-          selectedClientName={clean ? client.displayName ?? client.fullName : undefined}
+          // Имя клиента не передаём: оно уже в шапке этой страницы, повтор внутри шторки лишний (аудит К08.3).
           isSeller={isSeller}
           onClose={() => setShowInteraction(false)}
           onSaved={(outcome) => {

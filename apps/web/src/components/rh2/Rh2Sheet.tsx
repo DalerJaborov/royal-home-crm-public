@@ -3,6 +3,8 @@ import type { FormEvent, ReactNode } from "react";
 import { Rh2Portal } from "./Rh2Scope";
 import { useScrollLock } from "../../hooks/useScrollLock";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
+import { useKeyboardInset } from "../../hooks/useKeyboardInset";
+import { useRevealFocusedField } from "../../hooks/useRevealFocusedField";
 import { useMobileUx } from "../../hooks/useMobileUx";
 import { useSwipeToDismiss } from "../BottomSheet";
 
@@ -121,6 +123,10 @@ export function Rh2Sheet({
   const panelRef = useRef<HTMLFormElement | null>(null);
 
   useScrollLock(open);
+  // Клавиатура (аудит К07, 21.11.2026): подвал шторки поднимается над ней, поле в фокусе остаётся видимым.
+  // Подъём делает CSS по `--rh-kb-inset` (theme-2026-mobile-shell.css, п. 8) — шторка своего отступа не задаёт.
+  useKeyboardInset(open && mobile);
+  useRevealFocusedField(panelRef, open && mobile);
 
   useEffect(() => {
     if (!open) return;

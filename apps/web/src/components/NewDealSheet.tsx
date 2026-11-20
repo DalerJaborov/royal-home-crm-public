@@ -59,7 +59,7 @@ export function NewDealSheet({ client, onClose }: { client?: Client; onClose: ()
     <Rh2Sheet title={picked ? `Сделка: ${picked.fullName}` : "Новая сделка"} onClose={onClose}>
       {!picked ? (
         <>
-          <p className="state">Шаг 1 из 2. С кем сделка?</p>
+          <p className="state">С кем сделка?</p>
           <label className="fld">
             <span className="lab">Покупатель</span>
             <input
@@ -85,7 +85,7 @@ export function NewDealSheet({ client, onClose }: { client?: Client; onClose: ()
       ) : (
         <>
           <p className="state">
-            {client ? "По какому объекту сделка?" : "Шаг 2 из 2. По какому объекту?"} Сделка заведётся на странице
+            По какому объекту сделка? Сделка заведётся на странице
             объекта, клиент уже будет выбран.
           </p>
           {shown.length > 0 && (
