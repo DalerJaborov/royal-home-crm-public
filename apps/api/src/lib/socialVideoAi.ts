@@ -391,7 +391,12 @@ export async function generateSocialVideoCaptions(
 
   const factGuard = makeFactGuard(`${input.brief}\n${input.title ?? ""}`);
   const forbidden = opts.forbiddenWords ?? [];
-  const isSafe = (line: string) => factGuard(line) && !containsForbiddenWord(line, forbidden);
+  let nameHits = 0;
+  const isSafe = (line: string) => {
+    if (!factGuard(line)) return false;
+    if (containsForbiddenWord(line, forbidden)) { nameHits++; return false; }
+    return true;
+  };
   const limit = effectiveCaptionLimit(input.channels);
   // Заходы, которые уже показывали, и повторы внутри ответа не берём: «Перегенерировать» должно давать новое.
   const usedKeys = new Set(input.avoid.map(hookKey));
@@ -409,6 +414,10 @@ export async function generateSocialVideoCaptions(
     if (captions.length === SOCIAL_VIDEO_CAPTION_VARIANTS) break;
   }
 
+  if (nameHits > 0) {
+    // Само имя в журнал не пишем: достаточно знать, что запрет сработал и сколько строк он выбросил.
+    void logSystemError("ai", `Подпись к ролику: из ответа ИИ убрано имя сотрудника (строк и крючков: ${nameHits}, осталось вариантов: ${captions.length})`, { dedupKey: "social-caption-staff-name" });
+  }
   if (captions.length === 0) {
     throw new SocialVideoAiError("ИИ написал подписи, но они не прошли проверку (выдуманные цифры, ссылки или повтор прежних) — нажмите «Перегенерировать»");
   }

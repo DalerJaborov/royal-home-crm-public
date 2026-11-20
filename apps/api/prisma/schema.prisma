@@ -3160,7 +3160,8 @@ model StaffSocialPost {
   socialVideoPostId String?   @unique
   /// PREPARING — готовим (черновик, подпись, новая подпись): публиковать нельзя; PREVIEW — превью показано,
   /// ждём кнопку; EDIT_CAPTION — ждём новый текст; PICKING — выбор сетей; PUBLISHING — нажато «Опубликовать»;
-  /// PUBLISHED — ушло в публикацию; CANCELLED — отменено человеком или уборкой (lib/staffSocialPostSweep.ts).
+  /// PUBLISHED — ушло в публикацию; CANCELLED — отменено человеком; EXPIRED — сутки без решения, убрано уборкой
+  /// (lib/staffSocialPostSweep.ts, она же возвращает зависшие PREPARING / PUBLISHING после перезапуска).
   /// Все переходы условные (updateMany из ожидаемого статуса). Подготовка не удалась — строка и черновик удаляются.
   status            String    @default("PREPARING")
   previewMessageId  Int?
@@ -3168,6 +3169,8 @@ model StaffSocialPost {
   previewVersion    Int       @default(0)
   /// Отпечаток подписи и сетей показанного превью: уходит ровно то, что человек видел.
   previewCaptionHash String?
+  /// updatedAt черновика после НАШЕЙ последней записи: черновик позже правили в «Роликах» CRM — его не удаляем никогда.
+  draftSeenAt       DateTime?
   publishedAt       DateTime?
   expiresAt         DateTime
   createdAt         DateTime  @default(now())

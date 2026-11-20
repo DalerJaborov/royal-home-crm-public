@@ -33,15 +33,16 @@ import {
   createSocialPhotoPostFromUpload,
   createSocialVideoFromUpload,
   deleteSocialVideo,
+  deleteSocialVideoDraftIfUntouched,
   getSocialVideo,
   publishSocialVideo,
   updateSocialVideo,
 } from "../lib/socialVideoPosts.js";
 import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import { videoHandoffDir } from "../upload.js";
-import { dropDraftIfStillDraft } from "../lib/staffSocialPostSweep.js";
 import { dushanbeDateString, dushanbeTimeString } from "../lib/dushanbeTime.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
+import { FOLK_PINS, FOLK_PLACES } from "../ai/folkPlaces.js";
 import { downloadAssistantMedia } from "./assistantMedia.js";
 import {
   answerCallbackQuery, editMessageText, resolveTelegramFileMaterialization, sendChatAction, sendMessage, sendMessageWithButtons,
@@ -125,7 +126,7 @@ const T = {
     queued: (where: string) => `Отправила в публикацию: ${where}. Как выйдет, напишу сюда со ссылками.`,
     cancelled: "Отменила. В соцсети ничего не ушло.",
     stale: "Кнопка устарела",
-    expired: "Прошли сутки, пост не опубликован. Пришлите файлы ещё раз или опубликуйте черновик в разделе «Ролики».",
+    expired: "Прошли сутки без решения, этот пост я убрала. В соцсети ничего не ушло. Пришлите файлы ещё раз.",
     already: "Уже публикую",
     failed: "Не получилось подготовить пост. Попробуйте ещё раз или сделайте его в разделе «Ролики» CRM.",
     publishFailed: "Не получилось отправить в публикацию, попробуйте ещё раз через минуту.",
@@ -172,7 +173,7 @@ const T = {
     queued: (where: string) => `Ба нашр фиристодам: ${where}. Вақте ки баромад, ҳамин ҷо бо пайвандҳо менависам.`,
     cancelled: "Бекор кардам. Ба шабакаҳо чизе нарафт.",
     stale: "Тугма кӯҳна шуд",
-    expired: "Як шабонарӯз гузашт, пост нашр нашуд. Файлҳоро боз фиристед ё лоиҳаро дар бахши «Роликҳо» нашр кунед.",
+    expired: "Як шабонарӯз бе қарор гузашт, ин постро тоза кардам. Ба шабакаҳо чизе нарафт. Файлҳоро боз фиристед.",
     already: "Аллакай нашр мекунам",
     failed: "Постро омода карда натавонистам. Боз кӯшиш кунед ё онро дар бахши «Роликҳо»-и CRM созед.",
     publishFailed: "Ба нашр фиристода натавонистам, баъди як дақиқа боз кӯшиш кунед.",
@@ -265,11 +266,36 @@ const NOT_A_NAME = new Set(["royal", "home", "роял", "хоум", "офис",
   "робот", "robot", "агентство", "агент", "менеджер", "маркетинг", "маркетолог", "директор", "сотрудник", "отдел", "продаж",
   "тест", "test", "душанбе", "оператор", "монтажёр", "монтажер", "смм", "smm"]);
 
-/** Слова из имён действующих сотрудников (3+ буквы): их не должно быть в публичной подписи. */
+const wordsOf = (text: string | null | undefined): string[] => (text ?? "").toLowerCase().replace(/ё/gu, "е").split(/[^\p{L}]+/u).filter(Boolean);
+
+/**
+ * Слова, которые ЗНАЧАТ МЕСТО, а не человека: районы из справочника (и их таджикские названия), народные
+ * названия и ориентиры словаря района (ai/folkPlaces.ts), улицы и ориентиры активных объектов. Сотрудник
+ * «Сино Рахимов» не должен запрещать подпись «квартира в Сино» (второе ревью #349).
+ */
+async function placeWords(): Promise<Set<string>> {
+  const [districts, properties] = await Promise.all([
+    prisma.district.findMany({ select: { name: true, nameTj: true } }),
+    prisma.property.findMany({ where: { deletedAt: null, status: { notIn: ["SOLD", "WITHDRAWN"] } }, select: { address: true, landmark: true }, take: 3000 }),
+  ]);
+  return new Set([
+    ...districts.flatMap((d) => [...wordsOf(d.name), ...wordsOf(d.nameTj)]),
+    ...FOLK_PLACES.flatMap((f) => [...wordsOf(f.name), ...wordsOf(f.district)]),
+    ...FOLK_PINS.flatMap((f) => wordsOf(f.name)),
+    ...properties.flatMap((p) => [...wordsOf(p.address), ...wordsOf(p.landmark)]),
+  ]);
+}
+
+/** Слова из имён действующих сотрудников (от 4 букв, не слова учёток и не места): их не должно быть в публичной подписи. */
 export async function staffNameWords(): Promise<string[]> {
-  const rows = await prisma.agent.findMany({ where: { isActive: true }, select: { fullName: true }, take: 2000 });
-  return [...new Set(rows.flatMap((r) => r.fullName.split(/[^\p{L}]+/u)))]
-    .filter((w) => w.length >= 3 && !NOT_A_NAME.has(w.toLowerCase().replace(/ё/gu, "е")));
+  const [rows, places] = await Promise.all([
+    prisma.agent.findMany({ where: { isActive: true }, select: { fullName: true }, take: 2000 }),
+    placeWords(),
+  ]);
+  return [...new Set(rows.flatMap((r) => r.fullName.split(/[^\p{L}]+/u)))].filter((w) => {
+    const key = w.toLowerCase().replace(/ё/gu, "е");
+    return w.length >= 4 && !NOT_A_NAME.has(key) && !places.has(key);
+  });
 }
 
 // ───────────────────────────── сети по умолчанию ─────────────────────────────
@@ -302,6 +328,12 @@ const jsonChannels = (v: Prisma.JsonValue | null | undefined): SocialVideoChanne
 /** Отпечаток того, что уйдёт: подпись и сети. Совпал с показанным — публикуем, нет — показываем заново. */
 export function previewHash(item: Pick<SocialVideoItem, "caption" | "channels">): string {
   return createHash("sha256").update(`${item.caption}\n${[...item.channels].sort().join(",")}`).digest("hex").slice(0, 32);
+}
+
+/** Отметить: черновик сейчас в том виде, в каком его оставили МЫ. Правка в CRM позже — и уборка его не тронет. */
+async function markDraftSeen(postId: string, draftId: string): Promise<void> {
+  const draft = await prisma.socialVideoPost.findUnique({ where: { id: draftId }, select: { updatedAt: true } });
+  if (draft) await prisma.staffSocialPost.updateMany({ where: { id: postId }, data: { draftSeenAt: draft.updatedAt } });
 }
 
 // ───────────────────────────── подпись ─────────────────────────────
@@ -404,9 +436,10 @@ async function showPreview(postId: string, extraNotes: string[] = []): Promise<b
   if (post.previewMessageId) await editMessageText(post.chatId, post.previewMessageId, t.updatedBelow, null).catch(() => {});
   if (captionAlone) await sendMessage(post.chatId, captionAlone);
   const sent = await sendMessageWithButtons(post.chatId, text, previewButtons(post.id, post.previewVersion, lang));
+  const draftRow = await prisma.socialVideoPost.findUnique({ where: { id: post.socialVideoPostId }, select: { updatedAt: true } });
   const moved = await prisma.staffSocialPost.updateMany({
     where: { id: post.id, status: { in: SHOWABLE }, previewVersion: post.previewVersion },
-    data: { status: "PREVIEW", previewMessageId: sent?.message_id ?? null, previewCaptionHash: previewHash(item) },
+    data: { status: "PREVIEW", previewMessageId: sent?.message_id ?? null, previewCaptionHash: previewHash(item), draftSeenAt: draftRow?.updatedAt ?? null },
   });
   if (!moved.count) {
     if (sent?.message_id) await editMessageText(post.chatId, sent.message_id, t.oldPreview, null).catch(() => {});
@@ -439,6 +472,7 @@ async function preparePost(post: PostRow, actor: Actor, transcript: string | nul
   const item = await makeDraft(channels, postTitle(post.kind), brief);
   const linked = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PREPARING" }, data: { socialVideoPostId: item.id } });
   if (!linked.count) { await deleteSocialVideo(item.id).catch(() => {}); return; }
+  await markDraftSeen(post.id, item.id);
   logAgentAudit(actor.id, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { source: "telegram-shabnam", kind: post.kind, staffSocialPostId: post.id });
   const notes: string[] = [];
   const written = await writeCaption(actor.id, brief, post.language as SocialVideoCaptionLanguage, channels);
@@ -451,6 +485,7 @@ async function preparePost(post: PostRow, actor: Actor, transcript: string | nul
   const fitting = channels.filter((c) => !blockedFor({ ...item, caption }, c));
   await updateSocialVideo(item.id, { caption, channels: fitting });
   await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PREPARING" }, data: { channels: fitting } });
+  await markDraftSeen(post.id, item.id);
   await showPreview(post.id, notes);
 }
 
@@ -694,6 +729,8 @@ export async function handleStaffSocialCallback(query: TelegramCallbackQuery, de
   };
   try {
     if (post.status === "PREPARING") { await answer(t.busy); return true; }
+    // Сутки без решения — пост убран уборкой: сказать это словами, а не только «кнопка устарела».
+    if (post.status === "EXPIRED") { await answer(t.stale); await sendMessage(chatId, t.expired); return true; }
     if (!SHOWABLE.includes(post.status) || !draftId) {
       await answer(post.status === "PUBLISHING" || post.status === "PUBLISHED" ? t.already : t.stale);
       return true;
@@ -706,7 +743,7 @@ export async function handleStaffSocialCallback(query: TelegramCallbackQuery, de
       const claimed = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: [...LIVE, "PICKING"] } }, data: { status: "CANCELLED" } });
       if (!claimed.count) { await answer(t.stale); return true; }
       await answer();
-      await dropDraftIfStillDraft(draftId);
+      if (post.draftSeenAt) await deleteSocialVideoDraftIfUntouched(draftId, post.draftSeenAt).catch(() => false);
       logAgentAudit(agent.id, "SOCIAL_VIDEO_DELETED", "SocialVideoPost", draftId, { source: "telegram-shabnam", staffSocialPostId: post.id });
       if (post.previewMessageId) await editMessageText(chatId, post.previewMessageId, t.cancelState, null).catch(() => {});
       await sendMessage(chatId, t.cancelled);
@@ -756,6 +793,7 @@ export async function handleStaffSocialCallback(query: TelegramCallbackQuery, de
         if (!next.length) { await answer(t.needOne); return true; }
         await updateSocialVideo(item.id, { channels: next });
         await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PICKING" }, data: { channels: next } });
+        await markDraftSeen(post.id, item.id);
         selected = next;
       }
       await answer();
@@ -786,8 +824,10 @@ export async function handleStaffSocialCallback(query: TelegramCallbackQuery, de
       data: { status: "PUBLISHING" },
     });
     if (!claimed.count) { await answer(t.already); return true; }
-    // После захвата подпись никто не перепишет; сверяем, что она та же, что в показанном превью
-    // (её могли поменять и в «Роликах» CRM).
+    // Публикация — прямо в нажатии, без очереди чата: publishSocialVideo только захватывает черновик и ставит
+    // задание в общую очередь заданий (переживает перезапуск). Иначе падение сервера между «✅ Отправлено» и
+    // очередью чата оставило бы пост в PUBLISHING навсегда. Зависшее всё равно вернёт уборка (lib/staffSocialPostSweep.ts).
+    // Отпечаток — сразу перед вызовом: после захвата подпись никто не перепишет; правку в «Роликах» CRM ловит он.
     const shown = await getSocialVideo(draftId);
     if (previewHash(shown) !== post.previewCaptionHash) {
       await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PUBLISHING" }, data: { status: "PREVIEW" } });
@@ -795,25 +835,24 @@ export async function handleStaffSocialCallback(query: TelegramCallbackQuery, de
       await defer(async () => { await showPreview(post.id).catch(failed); });
       return true;
     }
-    await answer(t.sentState);
-    await defer(async () => {
-      try {
-        const item = await publishSocialVideo(draftId, { mode: "NOW" });
-        await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PUBLISHING" }, data: { status: "PUBLISHED", publishedAt: new Date() } });
-        const where = item.channels.map((c) => SOCIAL_VIDEO_CHANNEL_LABELS[c]).join(", ");
-        logAgentAudit(agent.id, "SOCIAL_VIDEO_PUBLISH", "SocialVideoPost", item.id, { source: "telegram-shabnam", mode: "NOW", channels: item.channels, staffSocialPostId: post.id });
-        await editMessageText(chatId, messageId, `${t.sentState}: ${where}`, null).catch(() => {});
-        await sendMessage(chatId, t.queued(where));
-      } catch (err) {
-        // Публикация не началась (черновик всё ещё черновик) — превью снова живое; началась — отмечаем PUBLISHED.
-        const still = await getSocialVideo(draftId).catch(() => null);
-        const started = still !== null && still.status !== "DRAFT";
-        await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PUBLISHING" }, data: started ? { status: "PUBLISHED", publishedAt: new Date() } : { status: "PREVIEW" } });
-        if (err instanceof SocialVideoError) { await sendMessage(chatId, t.refused(err.message)); return; }
-        if (!started) await failed(err);
-        else void logSystemError("telegram", `Шабнам: после запуска публикации — ${describeError(err)}`, { dedupKey: "staff-social-callback" });
-      }
-    });
+    try {
+      const item = await publishSocialVideo(draftId, { mode: "NOW" });
+      await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PUBLISHING" }, data: { status: "PUBLISHED", publishedAt: new Date() } });
+      await answer(t.sentState);
+      const where = item.channels.map((c) => SOCIAL_VIDEO_CHANNEL_LABELS[c]).join(", ");
+      logAgentAudit(agent.id, "SOCIAL_VIDEO_PUBLISH", "SocialVideoPost", item.id, { source: "telegram-shabnam", mode: "NOW", channels: item.channels, staffSocialPostId: post.id });
+      await editMessageText(chatId, messageId, `${t.sentState}: ${where}`, null).catch(() => {});
+      await sendMessage(chatId, t.queued(where));
+    } catch (err) {
+      // Публикация не началась (черновик всё ещё черновик) — превью снова живое; началась — отмечаем PUBLISHED.
+      const still = await getSocialVideo(draftId).catch(() => null);
+      const started = still !== null && still.status !== "DRAFT";
+      await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PUBLISHING" }, data: started ? { status: "PUBLISHED", publishedAt: new Date() } : { status: "PREVIEW" } });
+      await answer();
+      if (err instanceof SocialVideoError) { await sendMessage(chatId, t.refused(err.message)); return true; }
+      if (!started) await failed(err);
+      else void logSystemError("telegram", `Шабнам: после запуска публикации — ${describeError(err)}`, { dedupKey: "staff-social-callback" });
+    }
     return true;
   } catch (err) {
     await answer();

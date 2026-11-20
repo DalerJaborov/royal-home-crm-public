@@ -41,6 +41,7 @@ import { videoHandoffDir } from "../upload.js";
 import { fileObjectNumber, textObjectNumbers, recognizeClipProperty, describeCandidate, type ClipRecognition } from "../lib/clipPropertyRecognition.js";
 import { transcribeClipSpeech } from "./staffClipSpeech.js";
 import { runInline, socialPublishGate, startVideoPostFromClip, wantsNoProperty, type DeferWork } from "./staffSocialPost.js";
+import type { ClipWorkMarker } from "../lib/staffSocialPostSweep.js";
 import { handoffReceiptText } from "./montajerReceive.js";
 import { clipCountsAsPublished } from "../lib/publishedClip.js";
 import { cancelPreviousClipRetries, openReplacement, undoReplacement } from "../lib/remakeRequests.js";
@@ -417,6 +418,20 @@ async function undo(intake: { id: string; propertyId: string | null; result: Pri
   return null;
 }
 
+/**
+ * Захват ролика «в работу» с отметкой, ЧЬЁ это нажатие (21.11.2026, второе ревью #349). Долгая часть идёт в
+ * очереди чата в памяти: после перезапуска уборка (lib/staffSocialPostSweep.ts) возвращает ролик к кнопке, и
+ * опоздавшая работа из очереди старой отметкой не должна принять ролик второй раз — она сверяет отметку.
+ */
+async function claimClipWork(intakeId: string, from: string, kind: ClipWorkMarker["kind"]): Promise<ClipWorkMarker | null> {
+  const marker: ClipWorkMarker = { kind, token: randomUUID(), startedAt: new Date().toISOString() };
+  const claimed = await prisma.staffClipIntake.updateMany({ where: { id: intakeId, status: from }, data: { status: "WORKING", result: { ...marker } } });
+  return claimed.count ? marker : null;
+}
+async function stillMyClipWork(intakeId: string, marker: ClipWorkMarker): Promise<boolean> {
+  return (await prisma.staffClipIntake.count({ where: { id: intakeId, status: "WORKING", result: { path: ["token"], equals: marker.token } } })) === 1;
+}
+
 const CALLBACK = /^clip:(r|m|u|x|p|f):([\da-f-]{36})(?::(\d{1,7}))?$/u;
 /**
  * `clip:r|m|u|x|f:<id>` и выбор объекта `clip:p:<id>:<номер>`. true — наша кнопка.
@@ -467,11 +482,12 @@ export async function handleStaffClipCallback(query: TelegramCallbackQuery, defe
       // Захват: второй тап не заведёт второй пост (и StaffSocialPost.staffClipIntakeId уникален).
       const from = intake.status;
       if (from !== "ASKING" && from !== "CHOSEN") { await answer("Кнопка устарела"); return true; }
-      const claimed = await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: from }, data: { status: "WORKING" } });
-      if (!claimed.count) { await answer("Уже выполняется"); return true; }
+      const marker = await claimClipWork(intake.id, from, "FREE_POST");
+      if (!marker) { await answer("Уже выполняется"); return true; }
       await answer("Готовлю пост…");
       await defer(async () => {
         try {
+          if (!(await stillMyClipWork(intake.id, marker))) return;
           const refusal = await startFreePost(intake.id, chatId, actor);
           if (refusal) {
             await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: "WORKING" }, data: { status: from } });
@@ -494,13 +510,16 @@ export async function handleStaffClipCallback(query: TelegramCallbackQuery, defe
       return true;
     }
     // «Готов» / «Монтаж»: захват строки — двойной тап не примет ролик дважды.
-    const claimed = await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: "CHOSEN" }, data: { status: "WORKING" } });
-    if (!claimed.count || !intake.propertyId) { await answer("Уже выполняется"); return true; }
+    if (intake.status !== "CHOSEN" || !intake.propertyId) { await answer("Уже выполняется"); return true; }
+    const marker = await claimClipWork(intake.id, "CHOSEN", action === "r" ? "RECEIVING" : "MONTAGE_SENDING");
+    if (!marker) { await answer("Уже выполняется"); return true; }
     const p = await prisma.property.findUnique({ where: { id: intake.propertyId }, select: PROPERTY_REF });
     if (!p || !canManage(actor, p)) { await prisma.staffClipIntake.update({ where: { id: intake.id }, data: { status: "CHOSEN" } }); await answer("Объект недоступен"); return true; }
     await answer(action === "r" ? "Принимаю ролик" : "Передаю монтажёру");
     await defer(async () => {
       try {
+        // Уборка уже вернула ролик к кнопке (перезапуск) или нажали заново — эта работа не наша.
+        if (!(await stillMyClipWork(intake.id, marker))) return;
         const tmpPath = await fileToTemp(intake.fileId);
         if (!tmpPath) {
           await prisma.staffClipIntake.update({ where: { id: intake.id }, data: { status: "CHOSEN" } });

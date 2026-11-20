@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2504**; вместе с задачами по расписанию и фоновыми заданиями — **4198**. Модулей: **88**.
+Путей: **788**. Развилок в самих путях: **2504**; вместе с задачами по расписанию и фоновыми заданиями — **4206**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -25362,6 +25362,61 @@
 - пробует
   - const r = await sweepStaffSocialPosts();
     · зовёт sweepStaffSocialPosts()
+    - const publishing = await prisma.staffSocialPost.findMany({ where: { status: "PUBLISHING", updatedAt: { lt: be…
+      · читает в базе: staffSocialPost
+    - для каждого: const post of publishing
+      - const draft = post.socialVideoPostId ? await prisma.socialVideoPost.findUnique({ where: { id: post.socialVide…
+        · читает в базе: socialVideoPost
+      - const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PUBLISHING" }, data: n…
+        · меняет в базе: staffSocialPost
+      - если !moved.count
+        - continue;
+          · переходит к следующему
+      - если notStarted
+        - await tell(post.chatId, post.agentId, TEXT.publishNotStarted[lang(post.request)]);
+          · дословно из кода
+    - const preparing = await prisma.staffSocialPost.findMany({ where: { status: "PREPARING", updatedAt: { lt: befo…
+      · читает в базе: staffSocialPost
+    - для каждого: const post of preparing
+      - если post.previewMessageId && post.socialVideoPostId
+        - const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PREPARING" }, data: { …
+          · меняет в базе: staffSocialPost
+        - если !moved.count
+          - continue;
+            · переходит к следующему
+        - continue;
+          · переходит к следующему
+      - const gone = await prisma.staffSocialPost.deleteMany({ where: { id: post.id, status: "PREPARING" } });
+        · удаляет в базе: staffSocialPost
+      - если !gone.count
+        - continue;
+          · переходит к следующему
+      - если !post.staffClipIntakeId
+        - await tell(post.chatId, post.agentId, TEXT.albumNotPrepared[lang(post.request)]);
+          · дословно из кода
+    - const working = await prisma.staffClipIntake.findMany({ where: { status: "WORKING", updatedAt: { lt: before(S…
+      · читает в базе: staffClipIntake
+    - для каждого: const intake of working
+      - const marker = clipWorkMarker(intake.result);
+        · зовёт clipWorkMarker()
+      - если marker?.kind === "RECEIVING" && intake.propertyId
+        - const p = await prisma.property.findUnique({ where: { id: intake.propertyId }, select: { shortId: true, video…
+          · читает в базе: property
+        - если p?.videoHandoffReceivedAt && p.videoHandoffReceivedAt >= new Date(marker.startedAt)
+          - const moved = await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: "WORKING", updatedAt:…
+            · меняет в базе: staffClipIntake
+          - если moved.count
+            - result.released++;
+              · дословно из кода
+            - await tell(intake.chatId, intake.agentId, `Ролик для ${formatPropertyCode(p.shortId)} принят. Нажимать ещё ра…
+              · дословно из кода
+          - continue;
+            · переходит к следующему
+      - const moved = await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: "WORKING", updatedAt:…
+        · меняет в базе: staffClipIntake
+      - если !moved.count
+        - continue;
+          · переходит к следующему
     - const expired = await prisma.staffSocialPost.findMany({ where: { status: { in: ALIVE }, expiresAt: { lt: now …
       · читает в базе: staffSocialPost
     - для каждого: const post of expired
@@ -25370,26 +25425,7 @@
       - если !moved.count
         - continue;
           · переходит к следующему
-      - await dropDraftIfStillDraft(post.socialVideoPostId);
-        · зовёт dropDraftIfStillDraft()
-    - const stuck = await prisma.staffSocialPost.findMany({ where: { status: "PREPARING", updatedAt: { lt: new Date…
-      · читает в базе: staffSocialPost
-    - для каждого: const post of stuck
-      - если post.previewMessageId && post.socialVideoPostId
-        - const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: "PREPARING" }, data: { …
-          · меняет в базе: staffSocialPost
-        - continue;
-          · переходит к следующему
-      - const gone = await prisma.staffSocialPost.deleteMany({ where: { id: post.id, status: "PREPARING" } });
-        · удаляет в базе: staffSocialPost
-      - если !gone.count
-        - continue;
-          · переходит к следующему
-      - await dropDraftIfStillDraft(post.socialVideoPostId);
-        · зовёт dropDraftIfStillDraft()
-    - const [asking, chosen] = await Promise.all([ prisma.staffClipIntake.updateMany({ where: { status: "WORKING", …
-      · меняет в базе: staffClipIntake
-  - если r.cancelled + r.dropped + r.restored + r.released + r.files > 0
+  - если r.expired + r.dropped + r.restored + r.released + r.files > 0
     - console.log(`[cron] Уборка постов Шабнам: ${JSON.stringify(r)}`);
       · пишет строку в журнал сервера
 - если сорвалось

@@ -979,6 +979,27 @@ export async function deleteSocialVideo(id: string): Promise<void> {
   await removeCoverFiles([row.coverPath, row.coverSquarePath]);
 }
 
+/**
+ * Удалить ЧЕРНОВИК, только если его никто не трогал после `unchangedSince` (Шабнам, 21.11.2026):
+ * одним условным запросом — всё ещё DRAFT, не удалён и updatedAt не позже отметки. Черновик, который
+ * поправили, поставили в расписание или опубликовали в «Роликах» CRM, не удаляется никогда. true — удалён.
+ */
+export async function deleteSocialVideoDraftIfUntouched(id: string, unchangedSince: Date): Promise<boolean> {
+  const row = await prisma.socialVideoPost.findUnique({ where: { id } });
+  if (!row) return false;
+  const deleted = await prisma.socialVideoPost.updateMany({
+    where: { id, deletedAt: null, status: "DRAFT", updatedAt: { lte: unchangedSince } },
+    data: { deletedAt: new Date() },
+  });
+  if (deleted.count !== 1) return false;
+  if (row.mediaKind === "PHOTO") for (const p of row.imagePaths) await removeVideoFile(p);
+  else {
+    await removeVideoFile(row.videoPath);
+    await removeCoverFiles([row.coverPath, row.coverSquarePath]);
+  }
+  return true;
+}
+
 // ───────────────────────────── исполнение (фон) ─────────────────────────────
 
 /** Запись одного адреса в channelResults: читаем свежее, меняем одно место, пишем. Публикация идёт последовательно — гонок нет. */

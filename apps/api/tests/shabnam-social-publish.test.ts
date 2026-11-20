@@ -205,16 +205,23 @@ describe.skipIf(!ffmpegReady)("ролик без объекта", () => {
     expect((await prisma.staffSocialPost.findUniqueOrThrow({ where: { id: post.id } })).status).toBe("PUBLISHED");
   });
 
-  it("кнопка отвечает сразу, долгое — в очереди чата: до запуска очереди в сети ничего", async () => {
+  it("«Опубликовать» ставит публикацию прямо в нажатии: очередь чата, потерянная при перезапуске, ей не нужна", async () => {
     const post = await freshVideoPost("v-lane");
-    const queued: Array<() => Promise<void>> = [];
-    const lane: Defer = async (work) => { queued.push(work); };
-    await pressPost(marketingChat, "p", post.id, { defer: lane });
-    expect(answers()).toContain("✅ Отправлено в публикацию");
-    expect(jobs.enqueue).not.toHaveBeenCalled();
-    expect(queued).toHaveLength(1);
-    await queued[0]!();
+    const lost: Defer = async () => {}; // очередь чата, которая так и не выполнилась (сервер упал)
+    await pressPost(marketingChat, "p", post.id, { defer: lost });
     expect(jobs.enqueue).toHaveBeenCalledTimes(1);
+    expect(answers()).toContain("✅ Отправлено в публикацию");
+    expect((await prisma.staffSocialPost.findUniqueOrThrow({ where: { id: post.id } })).status).toBe("PUBLISHED");
+  });
+
+  it("«Другая подпись» отвечает сразу, ИИ — в очереди чата", async () => {
+    const post = await freshVideoPost("v-lane2");
+    const queued: Array<() => Promise<void>> = [];
+    await pressPost(marketingChat, "g", post.id, { defer: async (work) => { queued.push(work); } });
+    expect(answers()).toContain("Пишу другую подпись…");
+    expect(ai.captions).toHaveBeenCalledTimes(1); // только первая подпись при подготовке
+    await queued[0]!();
+    expect(ai.captions).toHaveBeenCalledTimes(2);
   });
 
   it("«Другая подпись» и «Опубликовать» наперегонки: пока пишется подпись — «подождите»; после — публикуется только новое превью", async () => {
@@ -298,6 +305,20 @@ describe.skipIf(!ffmpegReady)("ролик без объекта", () => {
       ai.captions.mockRejectedValueOnce(new SocialVideoAiError("нет"));
       const plain = await freshVideoPost("v-name2", "без объекта, светлая квартира у парка");
       expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: plain.socialVideoPostId! } })).caption).toBe("светлая квартира у парка");
+    } finally {
+      await prisma.agent.delete({ where: { id: colleague.id } });
+    }
+  });
+
+  it("слово из ФИО, которое значит место («Сино»), подпись не запрещает", async () => {
+    const colleague = await prisma.agent.create({ data: { fullName: "Сино Рахимов", phone: `+99293${tail}8`, role: "AGENT", passwordHash: "x" } });
+    try {
+      const words = await social.staffNameWords();
+      expect(words).toContain("Рахимов");
+      expect(words).not.toContain("Сино");
+      ai.captions.mockRejectedValueOnce(new SocialVideoAiError("нет"));
+      const post = await freshVideoPost("v-sino", "без объекта, квартира в Сино");
+      expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: post.socialVideoPostId! } })).caption).toBe("квартира в Сино");
     } finally {
       await prisma.agent.delete({ where: { id: colleague.id } });
     }
@@ -396,22 +417,94 @@ describe.skipIf(!ffmpegReady)("уборка брошенного (cron, раз �
     const source = await fs.readFile(new URL("../src/cron.ts", import.meta.url), "utf8");
     expect(source).toMatch(/scheduleTracked\("staff-social-post-sweep", "\*\/15 \* \* \* \*", async \(\) => \{\s+try \{\s+const r = await sweepStaffSocialPosts\(\);/u);
   });
-  it("превью старше суток — отменено и черновик удалён; PREPARING больше часа — убран; WORKING ролика — освобождён; старые временные файлы — удалены", async () => {
+  const dirFor = async (name: string) => { const d = path.join(tmp, name); await fs.mkdir(d, { recursive: true }); return d; };
+  const age = (table: "StaffSocialPost" | "StaffClipIntake", id: string, minutes: number) => (table === "StaffSocialPost"
+    ? prisma.$executeRaw`UPDATE "StaffSocialPost" SET "updatedAt" = now() - make_interval(mins => ${minutes}) WHERE id = ${id}`
+    : prisma.$executeRaw`UPDATE "StaffClipIntake" SET "updatedAt" = now() - make_interval(mins => ${minutes}) WHERE id = ${id}`);
+
+  it("перезапуск после «✅ Отправлено»: PUBLISHING с черновиком в DRAFT через 10 минут — снова превью и одна строка сотруднику; повтор публикует", async () => {
+    const post = await freshVideoPost("s-pub");
+    // Как будто захват прошёл, а сервер упал до постановки задания.
+    await prisma.staffSocialPost.update({ where: { id: post.id }, data: { status: "PUBLISHING" } });
+    await age("StaffSocialPost", post.id, 5);
+    await sweepStaffSocialPosts(new Date(), { handoff: await dirFor("e1"), tmp: await dirFor("e1") });
+    expect((await prisma.staffSocialPost.findUniqueOrThrow({ where: { id: post.id } })).status).toBe("PUBLISHING"); // 5 минут — ещё ждём
+    await age("StaffSocialPost", post.id, 11);
+    const r = await sweepStaffSocialPosts(new Date(), { handoff: await dirFor("e1"), tmp: await dirFor("e1") });
+    expect(r.restored).toBeGreaterThanOrEqual(1);
+    expect((await prisma.staffSocialPost.findUniqueOrThrow({ where: { id: post.id } })).status).toBe("PREVIEW");
+    expect(tg.sendMessage).toHaveBeenCalledWith(marketingChat, "Публикация не началась (сервер перезапускался). Нажмите «Опубликовать» ещё раз.");
+    await pressPost(marketingChat, "p", post.id);
+    expect(jobs.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("перезапуск посреди подготовки: альбом в PREPARING 20+ минут — убран и «пришлите фото ещё раз»; ролик «без объекта» в WORKING — снова к кнопке", async () => {
+    const album = await prisma.staffSocialPost.create({ data: {
+      chatId: marketingChat, agentId: marketingId, kind: "PHOTO", status: "PREPARING", expiresAt: new Date(Date.now() + 3_600_000),
+    } });
+    await age("StaffSocialPost", album.id, 21);
+    const intake = await prisma.staffClipIntake.create({ data: {
+      chatId: marketingChat, agentId: marketingId, fileId: "w0", filename: "w0.mp4", status: "WORKING", expiresAt: new Date(Date.now() + 3_600_000),
+      result: { kind: "FREE_POST", token: "t0", startedAt: new Date().toISOString() },
+    } });
+    await age("StaffClipIntake", intake.id, 21);
+    await sweepStaffSocialPosts(new Date(), { handoff: await dirFor("e2"), tmp: await dirFor("e2") });
+    expect(await prisma.staffSocialPost.findUnique({ where: { id: album.id } })).toBeNull();
+    expect((await prisma.staffClipIntake.findUniqueOrThrow({ where: { id: intake.id } })).status).toBe("ASKING");
+    const texts = tg.sendMessage.mock.calls.map((c) => String((c as unknown[])[1]));
+    expect(texts).toContain("Пост из фото не подготовился (сервер перезапускался). Пришлите фото ещё раз.");
+    expect(texts).toContain("Ролик не обработался (сервер перезапускался). Нажмите кнопку под ним ещё раз.");
+  });
+
+  it("«Готов к выпуску» не принимает ролик дважды: приём прошёл до падения — READY; опоздавшая работа из очереди после уборки не принимает", async () => {
+    const p = await seedProperty();
+    const startedAt = new Date(Date.now() - 30 * 60_000);
+    const done = await prisma.staffClipIntake.create({ data: {
+      chatId: agentChat, agentId, fileId: "w1", filename: "w1.mp4", status: "WORKING", propertyId: p.id, expiresAt: new Date(Date.now() + 3_600_000),
+      result: { kind: "RECEIVING", token: "t1", startedAt: startedAt.toISOString() },
+    } });
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffReceivedAt: new Date(startedAt.getTime() + 60_000) } });
+    await age("StaffClipIntake", done.id, 25);
+    await sweepStaffSocialPosts(new Date(), { handoff: await dirFor("e3"), tmp: await dirFor("e3") });
+    expect((await prisma.staffClipIntake.findUniqueOrThrow({ where: { id: done.id } })).status).toBe("READY");
+    expect(tg.sendMessage.mock.calls.map((c) => String((c as unknown[])[1]))).toContain(`Ролик для ОБ-${String(p.shortId).padStart(6, "0")} принят. Нажимать ещё раз не нужно.`);
+
+    // Нажали «Готов», очередь чата не дошла (перезапуск), уборка вернула ролик к кнопке, потом очередь всё же выполнилась.
+    const q = await seedProperty();
+    tg.file = Buffer.from("late-clip");
+    const intake = await prisma.staffClipIntake.create({ data: {
+      chatId: agentChat, agentId, fileId: "w2", filename: "w2.mp4", status: "CHOSEN", propertyId: q.id, expiresAt: new Date(Date.now() + 3_600_000),
+    } });
+    const queued: Array<() => Promise<void>> = [];
+    await press(agentChat, `clip:r:${intake.id}`, 2, async (work) => { queued.push(work); });
+    expect((await prisma.staffClipIntake.findUniqueOrThrow({ where: { id: intake.id } })).status).toBe("WORKING");
+    await age("StaffClipIntake", intake.id, 25);
+    await sweepStaffSocialPosts(new Date(), { handoff: await dirFor("e4"), tmp: await dirFor("e4") });
+    expect((await prisma.staffClipIntake.findUniqueOrThrow({ where: { id: intake.id } })).status).toBe("CHOSEN");
+    tg.sendMessage.mockClear();
+    tg.sendMessageWithButtons.mockClear();
+    await queued[0]!();
+    // Опоздавшая работа сверила отметку и ничего не делала: ни приёма, ни ответа.
+    expect(tg.sendMessage).not.toHaveBeenCalled();
+    expect(tg.sendMessageWithButtons).not.toHaveBeenCalled();
+    expect((await prisma.staffClipIntake.findUniqueOrThrow({ where: { id: intake.id } })).status).toBe("CHOSEN");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: q.id } })).videoHandoffFinalPath).toBeNull();
+  });
+
+  it("превью без решения сутки — EXPIRED, черновик удалён; тронутый в CRM черновик не удаляется; кнопка говорит, что пост убран", async () => {
+    const dir = await dirFor("handoff");
     const old = await freshVideoPost("s-old");
     await prisma.staffSocialPost.update({ where: { id: old.id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
     const live = await freshVideoPost("s-live");
-    const stuckDraft = await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: live.socialVideoPostId! } });
-    const stuck = await prisma.staffSocialPost.create({ data: {
-      chatId: marketingChat, agentId: marketingId, kind: "PHOTO", status: "PREPARING", expiresAt: new Date(Date.now() + 3_600_000), socialVideoPostId: null,
-    } });
-    await prisma.$executeRaw`UPDATE "StaffSocialPost" SET "updatedAt" = now() - interval '2 hours' WHERE id = ${stuck.id}`;
-    const p = await seedProperty();
-    const working = await prisma.staffClipIntake.create({ data: {
-      chatId: agentChat, agentId, fileId: "w", filename: "w.mp4", status: "WORKING", propertyId: p.id, expiresAt: new Date(Date.now() + 3_600_000),
-    } });
-    await prisma.$executeRaw`UPDATE "StaffClipIntake" SET "updatedAt" = now() - interval '3 hours' WHERE id = ${working.id}`;
-    const dir = path.join(tmp, "handoff");
-    await fs.mkdir(dir, { recursive: true });
+    // Черновик поправили в «Роликах» CRM после превью (всё ещё DRAFT) — его не удаляем никогда.
+    const touched = await freshVideoPost("s-crm-edit");
+    await new Promise((r) => setTimeout(r, 5));
+    await updateSocialVideo(touched.socialVideoPostId!, { caption: "Правка маркетолога в CRM" });
+    await prisma.staffSocialPost.update({ where: { id: touched.id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+    // Опубликовали из CRM — тоже не удаляем.
+    const viaCrm = await freshVideoPost("s-crm");
+    await prisma.socialVideoPost.update({ where: { id: viaCrm.socialVideoPostId! }, data: { status: "DONE" } });
+    await prisma.staffSocialPost.update({ where: { id: viaCrm.id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
     const oldFile = path.join(dir, "staff-social-old.mp4");
     const newFile = path.join(dir, "staff-clip-new.mp4");
     const foreign = path.join(dir, "promo-keep.mp4");
@@ -420,28 +513,23 @@ describe.skipIf(!ffmpegReady)("уборка брошенного (cron, раз �
     await fs.utimes(oldFile, longAgo, longAgo);
     await fs.utimes(foreign, longAgo, longAgo);
 
+    tg.sendMessage.mockClear();
     const result = await sweepStaffSocialPosts(new Date(), { handoff: dir, tmp: dir });
-    expect(result.cancelled).toBeGreaterThanOrEqual(1);
-    expect((await prisma.staffSocialPost.findUniqueOrThrow({ where: { id: old.id } })).status).toBe("CANCELLED");
+    expect(result.expired).toBeGreaterThanOrEqual(3);
+    for (const p of [old, touched, viaCrm]) expect((await prisma.staffSocialPost.findUniqueOrThrow({ where: { id: p.id } })).status).toBe("EXPIRED");
     expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: old.socialVideoPostId! } })).deletedAt).not.toBeNull();
-    expect(await prisma.staffSocialPost.findUnique({ where: { id: stuck.id } })).toBeNull();
-    expect((await prisma.staffClipIntake.findUniqueOrThrow({ where: { id: working.id } })).status).toBe("CHOSEN");
-    // Живое не тронуто.
+    expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: touched.socialVideoPostId! } })).deletedAt).toBeNull();
+    expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: viaCrm.socialVideoPostId! } })).deletedAt).toBeNull();
     expect((await prisma.staffSocialPost.findUniqueOrThrow({ where: { id: live.id } })).status).toBe("PREVIEW");
-    expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: stuckDraft.id } })).deletedAt).toBeNull();
+    expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: live.socialVideoPostId! } })).deletedAt).toBeNull();
     await expect(fs.access(oldFile)).rejects.toThrow();
     await fs.access(newFile);
     await fs.access(foreign);
-    // Черновик, который уже опубликовали из «Роликов» CRM, уборка не удаляет.
-    const viaCrm = await freshVideoPost("s-crm");
-    await prisma.socialVideoPost.update({ where: { id: viaCrm.socialVideoPostId! }, data: { status: "DONE" } });
-    await prisma.staffSocialPost.update({ where: { id: viaCrm.id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
-    await sweepStaffSocialPosts(new Date(), { handoff: dir, tmp: dir });
-    expect((await prisma.staffSocialPost.findUniqueOrThrow({ where: { id: viaCrm.id } })).status).toBe("CANCELLED");
-    expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: viaCrm.socialVideoPostId! } })).deletedAt).toBeNull();
-    // Кнопка отменённого уборкой превью — «устарела», в сети ничего.
+    // Уборка пишет молча; текст про убранный пост доходит, когда человек нажимает кнопку.
+    expect(tg.sendMessage).not.toHaveBeenCalled();
     await pressPost(marketingChat, "p", old.id);
     expect(jobs.enqueue).not.toHaveBeenCalled();
+    expect(tg.sendMessage).toHaveBeenCalledWith(marketingChat, "Прошли сутки без решения, этот пост я убрала. В соцсети ничего не ушло. Пришлите файлы ещё раз.");
   });
 });
 

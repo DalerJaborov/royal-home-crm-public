@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4198,
+  "forks": 4206,
   "mounts": 88,
   "cron": 144,
   "jobs": 34,
@@ -113698,7 +113698,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const expired = await prisma.staffSocialPost.findMany({ where: { status: { in: ALIVE }, expiresAt: { lt: now …",
+         "t": "const publishing = await prisma.staffSocialPost.findMany({ where: { status: \"PUBLISHING\", updatedAt: { lt: be…",
          "a": [
           "читает в базе: staffSocialPost"
          ],
@@ -113706,12 +113706,20 @@
         },
         {
          "k": "loop",
-         "t": "для каждого: const post of expired",
+         "t": "для каждого: const post of publishing",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: ALIVE } }, data: …",
+           "t": "const draft = post.socialVideoPostId ? await prisma.socialVideoPost.findUnique({ where: { id: post.socialVide…",
+           "a": [
+            "читает в базе: socialVideoPost"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: \"PUBLISHING\" }, data: n…",
            "a": [
             "меняет в базе: staffSocialPost"
            ],
@@ -113733,18 +113741,25 @@
            ]
           },
           {
-           "k": "do",
-           "t": "await dropDraftIfStillDraft(post.socialVideoPostId);",
-           "a": [
-            "зовёт dropDraftIfStillDraft()"
-           ],
-           "c": []
+           "k": "if",
+           "t": "notStarted",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await tell(post.chatId, post.agentId, TEXT.publishNotStarted[lang(post.request)]);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         },
         {
          "k": "do",
-         "t": "const stuck = await prisma.staffSocialPost.findMany({ where: { status: \"PREPARING\", updatedAt: { lt: new Date…",
+         "t": "const preparing = await prisma.staffSocialPost.findMany({ where: { status: \"PREPARING\", updatedAt: { lt: befo…",
          "a": [
           "читает в базе: staffSocialPost"
          ],
@@ -113752,7 +113767,7 @@
         },
         {
          "k": "loop",
-         "t": "для каждого: const post of stuck",
+         "t": "для каждого: const post of preparing",
          "a": [],
          "c": [
           {
@@ -113767,6 +113782,21 @@
               "меняет в базе: staffSocialPost"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "!moved.count",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
             },
             {
              "k": "do",
@@ -113802,29 +113832,173 @@
            ]
           },
           {
-           "k": "do",
-           "t": "await dropDraftIfStillDraft(post.socialVideoPostId);",
-           "a": [
-            "зовёт dropDraftIfStillDraft()"
-           ],
-           "c": []
+           "k": "if",
+           "t": "!post.staffClipIntakeId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await tell(post.chatId, post.agentId, TEXT.albumNotPrepared[lang(post.request)]);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         },
         {
          "k": "do",
-         "t": "const [asking, chosen] = await Promise.all([ prisma.staffClipIntake.updateMany({ where: { status: \"WORKING\", …",
+         "t": "const working = await prisma.staffClipIntake.findMany({ where: { status: \"WORKING\", updatedAt: { lt: before(S…",
          "a": [
-          "меняет в базе: staffClipIntake"
+          "читает в базе: staffClipIntake"
          ],
          "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const intake of working",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const marker = clipWorkMarker(intake.result);",
+           "a": [
+            "зовёт clipWorkMarker()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "marker?.kind === \"RECEIVING\" && intake.propertyId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const p = await prisma.property.findUnique({ where: { id: intake.propertyId }, select: { shortId: true, video…",
+             "a": [
+              "читает в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "p?.videoHandoffReceivedAt && p.videoHandoffReceivedAt >= new Date(marker.startedAt)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const moved = await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: \"WORKING\", updatedAt:…",
+               "a": [
+                "меняет в базе: staffClipIntake"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "moved.count",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "result.released++;",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "await tell(intake.chatId, intake.agentId, `Ролик для ${formatPropertyCode(p.shortId)} принят. Нажимать ещё ра…",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const moved = await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: \"WORKING\", updatedAt:…",
+           "a": [
+            "меняет в базе: staffClipIntake"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!moved.count",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const expired = await prisma.staffSocialPost.findMany({ where: { status: { in: ALIVE }, expiresAt: { lt: now …",
+         "a": [
+          "читает в базе: staffSocialPost"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const post of expired",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: ALIVE } }, data: …",
+           "a": [
+            "меняет в базе: staffSocialPost"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!moved.count",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
         }
        ],
        "from": "sweepStaffSocialPosts() — apps/api/src/lib/staffSocialPostSweep.ts"
       },
       {
        "k": "if",
-       "t": "r.cancelled + r.dropped + r.restored + r.released + r.files > 0",
+       "t": "r.expired + r.dropped + r.restored + r.released + r.files > 0",
        "a": [],
        "c": [
         {

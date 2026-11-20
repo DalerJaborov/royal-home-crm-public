@@ -17,6 +17,7 @@ CREATE TABLE "StaffSocialPost" (
     "previewMessageId" INTEGER,
     "previewVersion" INTEGER NOT NULL DEFAULT 0,
     "previewCaptionHash" TEXT,
+    "draftSeenAt" TIMESTAMP(3),
     "publishedAt" TIMESTAMP(3),
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

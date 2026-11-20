@@ -16,10 +16,10 @@
   "paths": 788,
   "cron": 144,
   "jobs": 34,
-  "conditions": 4171,
+  "conditions": 4179,
   "untranslatedUnique": 477,
   "untranslatedTotal": 613,
-  "partialUnique": 1127,
+  "partialUnique": 1129,
   "translatedShare": 85
  },
  "untranslated": [
@@ -426,7 +426,7 @@
   "property.videoMasterStorageKey && !await localVideoDelete(property.videoMasterStorageKey)",
   "propertyOwnerAgentId(property) !== req.agent!.id && !can(req, \"properties.editForeign\")",
   "propertyOwnerAgentId(property) === toAgentId",
-  "r.cancelled + r.dropped + r.restored + r.released + r.files > 0",
+  "r.expired + r.dropped + r.restored + r.released + r.files > 0",
   "r.storageKey && !await localVideoDelete(r.storageKey)",
   "raced.storageKey !== session.storageKey",
   "rawId.startsWith(TG_PREFIX)",
@@ -76046,6 +76046,13 @@
            "a": [],
            "c": [],
            "more": true
+          },
+          {
+           "t": "если есть not started",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
           }
          ]
         },
@@ -76073,23 +76080,71 @@
            "a": [],
            "c": [],
            "more": true
+          },
+          {
+           "t": "если нет: staff ролик intake",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
           }
          ]
         },
         {
-         "t": "меняет: staff ролик intake",
-         "k": "do",
+         "t": "и так по каждому",
+         "k": "loop",
          "a": [],
-         "c": []
+         "c": [
+          {
+           "t": "если вид — «RECEIVING» и есть объект",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "меняет: staff ролик intake",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если нет: количество",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: staff social публикация",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если нет: количество",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
         }
        ]
       },
       {
-       "t": "если r.cancelled + r.dropped + r.restored + r.released + r.files > 0",
+       "t": "если r.expired + r.dropped + r.restored + r.released + r.files > 0",
        "k": "if",
        "a": [],
        "c": [],
-       "raw": "r.cancelled + r.dropped + r.restored + r.released + r.files > 0"
+       "raw": "r.expired + r.dropped + r.restored + r.released + r.files > 0"
       }
      ]
     },

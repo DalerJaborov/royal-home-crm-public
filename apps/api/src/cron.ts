@@ -2446,7 +2446,7 @@ export function startCronJobs() {
   scheduleTracked("staff-social-post-sweep", "*/15 * * * *", async () => {
     try {
       const r = await sweepStaffSocialPosts();
-      if (r.cancelled + r.dropped + r.restored + r.released + r.files > 0) console.log(`[cron] Уборка постов Шабнам: ${JSON.stringify(r)}`);
+      if (r.expired + r.dropped + r.restored + r.released + r.files > 0) console.log(`[cron] Уборка постов Шабнам: ${JSON.stringify(r)}`);
     } catch (err) {
       reportCronTickError("Ошибка уборки постов Шабнам", err);
     }
