@@ -27,7 +27,14 @@ export interface McZoneItem {
 
 export interface McHero {
   /** `planIsDefault: true` — план месяца не задан (подставлен по умолчанию): «% плана» не показываем. */
-  commission: { fact: number; plan: number; forecastEndOfMonth: number; forecastPercent: number; planIsDefault?: boolean } | null;
+  commission: {
+    fact: number; plan: number; forecastEndOfMonth: number; forecastPercent: number; planIsDefault?: boolean;
+    /** Прошлый месяц с 1-го числа по ту же точку месяца и целиком (20.11.2026; null — не посчиталось). */
+    previousMonthToDate?: number | null;
+    previousMonthTotal?: number | null;
+    /** Ожидаемая комиссия по сделкам в работе в этом месяце — оценка «Прогноза комиссии» (lib/financeForecast.ts). */
+    pipeline?: { deals: number; expectedTjs: number } | null;
+  } | null;
   profit: { todayTjs: number; previousTodayTjs: number } | null;
   leadsToday: { count: number; deltaVsYesterday: number };
   firstResponse: { medianMinYesterday: number | null; noneCountYesterday: number };
@@ -61,6 +68,8 @@ export interface McAgent {
   /** Принимает ли лиды сейчас: false — заморожен или приём на паузе (F2, 02.10.2026).
    *  Пульт не предлагает такому агенту «Передать». */
   takesLeads?: boolean;
+  /** Просроченных задач у агента сейчас (20.11.2026). */
+  overdueTasks?: number;
 }
 export interface McTeamDayRow {
   agentId: string;
@@ -94,6 +103,8 @@ export interface McShowingsToday extends McEmptyable {
 }
 export interface McTeam {
   agents: McAgent[];
+  /** Начало рабочего дня сегодня (Настройки, окно раздачи заявок), ISO; до него «не заходил» не помечается. */
+  workdayStartAt?: string;
   day?: McTeamDay;
   showingsToday?: McShowingsToday;
 }

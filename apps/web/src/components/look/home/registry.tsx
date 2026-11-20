@@ -7,7 +7,7 @@ import { EditorEditing, EditorHint, EditorQuick, EditorTiles, EditorUpcoming } f
 import { MarketingAds, MarketingFocus, MarketingQueue, MarketingQuick, MarketingStale, MarketingTiles } from "./blocks/marketing";
 import { ManagerFocus, ManagerQuick, ManagerTeam, ManagerTiles, ManagerUnread, ManagerWaiting } from "./blocks/manager";
 import { DirectorBurning, DirectorChannels, DirectorCheck, DirectorCommission, DirectorDecisions, DirectorFull, DirectorMoney, DirectorPulse, DirectorTeam } from "./blocks/director";
-import { RopFull, RopLosses, RopTasks, RopTeam, RopTiles } from "./blocks/rop";
+import { RopFull, RopLosses, RopSpread, RopTasks, RopTeam, RopTiles } from "./blocks/rop";
 import { AgentFirstCalls, AgentFull, AgentMonth, AgentPending, AgentShowings, AgentTiles } from "./blocks/agent";
 
 /**
@@ -19,8 +19,14 @@ import { AgentFirstCalls, AgentFull, AgentMonth, AgentPending, AgentShowings, Ag
  * Пачка home (20.11.2026) — монтажёр, маркетинг, СБ, менеджер, акционер; home-core
  * (20.11.2026) — директор и админ, РОП, агент (прежде pages/TodayRoyal.tsx).
  */
-const MANAGERS = ["MANAGER", "SHAREHOLDER", "default"] as const;
+const MANAGERS = ["MANAGER", "default"] as const;
 const DIRECTORS = ["DIRECTOR", "ADMIN"] as const;
+/**
+ * Деньги и тренды: директор, админ и акционер (главные руководителей, 20.11.2026). Акционеру —
+ * своя раскладка без операционных блоков («эскалаций», раздачи заявок): он ничего не меняет,
+ * а прав на деньги у него столько же, сколько отдаёт сервер (seesMoney в снимке пульта).
+ */
+const MONEY_VIEWERS = [...DIRECTORS, "SHAREHOLDER"] as const;
 
 /** «Весь экран»: прежняя главная роли целиком (один id на три роли — один выключатель). */
 function FullBlock({ role }: HomeBlockProps) {
@@ -30,18 +36,19 @@ function FullBlock({ role }: HomeBlockProps) {
 }
 
 export const HOME_BLOCKS: readonly HomeBlockDef[] = [
-  { id: "money", roles: DIRECTORS, title: "Деньги и главное за день", component: DirectorMoney },
+  { id: "money", roles: MONEY_VIEWERS, title: "Деньги и главное за день", component: DirectorMoney },
   { id: "decisions", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Нужно ваше решение", span: "a", component: DirectorDecisions },
   { id: "burning", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Горит сейчас", span: "b", component: DirectorBurning },
   { id: "check", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Проверить", span: "a", component: DirectorCheck },
   { id: "team", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Команда", span: "b", component: DirectorTeam },
-  { id: "pulse", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Заявки за 30 дней", span: "a", component: DirectorPulse },
-  { id: "commission", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Комиссия по месяцам", span: "b", component: DirectorCommission },
-  { id: "channels", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Заявки за месяц по каналам", component: DirectorChannels },
+  { id: "pulse", roles: MONEY_VIEWERS, requires: ["dashboard.analytics"], title: "Заявки за 30 дней", span: "a", component: DirectorPulse },
+  { id: "commission", roles: MONEY_VIEWERS, requires: ["dashboard.analytics", "finance.view"], title: "Комиссия по месяцам", span: "b", component: DirectorCommission },
+  { id: "channels", roles: MONEY_VIEWERS, requires: ["dashboard.analytics"], title: "Заявки за месяц по источникам", component: DirectorChannels },
 
-  { id: "ropTiles", roles: ["HEAD_OF_SALES"], title: "Задачи и нагрузка", component: RopTiles },
-  { id: "ropTasks", roles: ["HEAD_OF_SALES"], title: "Требуют ответа", span: "a", component: RopTasks },
+  { id: "ropTiles", roles: ["HEAD_OF_SALES"], requires: ["dashboard.analytics"], title: "Ждут ответа, звонки и просрочки", component: RopTiles },
+  { id: "ropSpread", roles: ["HEAD_OF_SALES"], requires: ["dashboard.analytics"], title: "Распределение заявок", span: "a", component: RopSpread },
   { id: "ropTeam", roles: ["HEAD_OF_SALES"], requires: ["dashboard.analytics", "team.viewFull"], title: "Команда", span: "b", component: RopTeam },
+  { id: "ropTasks", roles: ["HEAD_OF_SALES"], title: "Мои задачи", span: "b", component: RopTasks },
   { id: "ropLosses", roles: ["HEAD_OF_SALES"], requires: ["reports.view"], title: "Где теряем клиентов", span: "a", component: RopLosses },
 
   { id: "agentTiles", roles: ["AGENT"], title: "Заявки, показы и дела", component: AgentTiles },
@@ -75,7 +82,7 @@ export const HOME_BLOCKS: readonly HomeBlockDef[] = [
   // dashboard.analytics проверяет сам TeamCharts.
   { id: "teamCharts", roles: [...MANAGERS, "HEAD_OF_SALES"], requires: ["dashboard.analytics"], title: "Графики по команде", component: ChartsBlock },
 
-  { id: "ask", roles: ["MARKETING", ...MANAGERS], title: "Спросить помощника", component: AskBlock },
+  { id: "ask", roles: ["MARKETING", ...MANAGERS, "SHAREHOLDER"], title: "Спросить помощника", component: AskBlock },
   { id: "full", roles: [...DIRECTORS, "HEAD_OF_SALES", "AGENT"], title: "Весь прежний экран", component: FullBlock,
     // Пульт директора без права на аналитику не показывается (DirectorFull), у РОП и агента прав не нужно.
     requires: (role) => (role === "DIRECTOR" || role === "ADMIN" ? ["dashboard.analytics"] : []) },
@@ -83,18 +90,20 @@ export const HOME_BLOCKS: readonly HomeBlockDef[] = [
 
 const DIRECTOR_LAYOUT = ["money", "decisions", "burning", "check", "team", "pulse", "commission", "channels", "full"] as const;
 const MANAGER_LAYOUT = ["managerTiles", "managerQuick", "managerFocus", "ask", "managerWaiting", "managerTeam", "managerUnread", "teamCharts"] as const;
+/** Акционер: деньги и тренды — плита денег, комиссия и заявки по месяцам, источники, вопрос помощнику. */
+const SHAREHOLDER_LAYOUT = ["money", "commission", "pulse", "channels", "ask"] as const;
 
 /** Порядок блоков по умолчанию (всё включено); на ПК половинные блоки встают парами в две колонки. */
 export const HOME_LAYOUT: Readonly<Record<string, readonly string[]>> = {
   DIRECTOR: DIRECTOR_LAYOUT,
   ADMIN: DIRECTOR_LAYOUT,
-  HEAD_OF_SALES: ["ropTiles", "ropTasks", "ropTeam", "ropLosses", "teamCharts", "full"],
+  HEAD_OF_SALES: ["ropTiles", "ropSpread", "ropTeam", "ropTasks", "ropLosses", "teamCharts", "full"],
   AGENT: ["agentTiles", "agentFirstCalls", "agentPending", "agentShowings", "agentMonth", "full"],
   EDITOR: ["editorTiles", "editorQuick", "editorHint", "editorEditing", "editorUpcoming"],
   MARKETING: ["marketingTiles", "marketingQuick", "marketingFocus", "ask", "marketingQueue", "marketingAds", "marketingStale"],
   SECURITY: ["securityLinks"],
   MANAGER: MANAGER_LAYOUT,
-  SHAREHOLDER: MANAGER_LAYOUT,
+  SHAREHOLDER: SHAREHOLDER_LAYOUT,
   default: MANAGER_LAYOUT,
 };
 

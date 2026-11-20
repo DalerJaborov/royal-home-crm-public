@@ -10,7 +10,8 @@ import { listActive as activeRobotCalls } from "../lib/telephony/liveVoiceMonito
 import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { loadMoneyContext, roundMoney, toTjs } from "../lib/money.js";
-import { computePlanForecast } from "../lib/dashboardInsights.js";
+import { computePlanForecast, computePreviousMonthCommission } from "../lib/dashboardInsights.js";
+import { buildCommissionForecast, currentDushanbeMonth } from "../lib/financeForecast.js";
 import { buildFinancePulse } from "../lib/financePulse.js";
 import { loadMorningNumbers } from "../lib/morningNumbers.js";
 import { liveIncomingCalls } from "../lib/telephony/incomingCalls.js";
@@ -26,7 +27,10 @@ import { loadPipelineDeadlines, stageState } from "../lib/propertyPipeline.js";
 import { MARKETING_PIPELINE_SCAN_CAP } from "./marketing.js";
 import { PROPERTY_PIPELINE_STATUSES, plural, type PultModuleId, RATED_ROLES } from "@royal-home/shared";
 import { BUYERS_IN_WORK_WHERE } from "../lib/agentLoad.js";
-import { dushanbeStartOfToday, dushanbeWallClock } from "../lib/dushanbeTime.js";
+import { dushanbeDateString, dushanbeInputToDate, dushanbeStartOfToday, dushanbeWallClock } from "../lib/dushanbeTime.js";
+import { leadHoursOf } from "../services/leads/shared.js";
+import { overdueTasksWhere } from "../lib/tasks.js";
+import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { buildMarketingFunnel } from "../lib/marketingFunnel.js";
 import { loadMissionControlTicker } from "../lib/missionControlTicker.js";
 import { loadWeeklyLeaderboard } from "../lib/leaderboard.js";
@@ -160,13 +164,21 @@ function envelope(ctx: McContext, body: Record<string, unknown>) {
   return { generatedAt: ctx.now.toISOString(), seesMoney: ctx.seesMoney, modulesOff: [...ctx.off], ...body };
 }
 
+/** Добавка к плите денег не посчиталась: в журнал и null, герой-строка остаётся. */
+function heroExtraFailed(what: string) {
+  return (err: unknown) => {
+    void logSystemError("api", `Пульт, плита денег: не посчитано «${what}»: ${describeError(err)}`);
+    return null;
+  };
+}
+
 async function buildLive(ctx: McContext) {
   const { now, startOfDay, startOfYesterday, seesMoney, canSeePhone } = ctx;
   const gated = makeGated(ctx);
   const [hero, firstLine, callsZone] = await Promise.all([
     cachedSection(`hero:${seesMoney}:${ctx.canSeePhone}`, LIVE_TTL_MS, () =>
       section("hero", async () => {
-      const [forecast, pulse, leadsToday, leadsYesterday, morning, missedToday, dealsInPipeline, dealsInPipelineItems, stuckTotal] =
+      const [forecast, pulse, leadsToday, leadsYesterday, morning, missedToday, dealsInPipeline, dealsInPipelineItems, stuckTotal, previousMonth, pipelineForecast] =
         await Promise.all([
           seesMoney ? computePlanForecast() : null,
           seesMoney ? buildFinancePulse() : null,
@@ -191,6 +203,12 @@ async function buildLive(ctx: McContext) {
             select: { id: true, shortId: true, fullName: true, status: true, createdAt: true },
           }),
           prisma.client.count({ where: noContactWhere() }),
+          // Сравнение с прошлым месяцем и ожидаемая комиссия по сделкам в работе
+          // (главная руководителя, 20.11.2026) — только при праве на деньги. Это
+          // добавки к плите денег: их отказ не должен ронять всю героя-строку,
+          // поэтому отказ пишется в журнал, а поле приходит null.
+          seesMoney ? computePreviousMonthCommission(now).catch(heroExtraFailed("прошлый месяц")) : null,
+          seesMoney ? buildCommissionForecast(currentDushanbeMonth(now), now).catch(heroExtraFailed("сделки в работе")) : null,
         ]);
       const pulseToday = pulse?.find((p) => p.period === "today") ?? null;
       return {
@@ -202,6 +220,20 @@ async function buildLive(ctx: McContext) {
               forecastPercent: forecast.forecastPercent,
               /** true — в настройках значение по умолчанию (8000): не выдавать за настоящий план. */
               planIsDefault: forecast.planIsDefault ?? false,
+              /** Прошлый месяц на ту же точку месяца и целиком (null — не посчиталось). */
+              previousMonthToDate: previousMonth?.toDate ?? null,
+              previousMonthTotal: previousMonth?.total ?? null,
+              /**
+               * Ожидаемая комиссия по сделкам в работе в этом месяце — та же оценка, что
+               * «Прогноз комиссии» в «Деньгах» (lib/financeForecast.ts, одна дверь):
+               * открытые сделки с ожидаемым закрытием в этом месяце × вероятность стадии.
+               */
+              pipeline: pipelineForecast
+                ? {
+                    deals: pipelineForecast.stages.reduce((sum, stage) => sum + stage.count, 0),
+                    expectedTjs: roundMoney(Math.max(0, pipelineForecast.expectedTjs - pipelineForecast.factTjs)),
+                  }
+                : null,
             }
           : null,
         profit: pulseToday
@@ -419,7 +451,11 @@ async function buildZones(ctx: McContext) {
         status: { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] as ("LOST" | "DEAL_CLOSED" | "ARCHIVED")[] },
         deletedAt: null,
       };
-      const [activeLoad, pendingAccept, acceptedToday, buyerCount, sellerCount] =
+      // Просроченные задачи по агенту — то же условие, что «Контроль руководителя» и
+      // карточка сотрудника (lib/tasks.ts::overdueTasksWhere, routes/team.ts): задача
+      // агента или записанная ботом от лица держателя карточки (subjectAgentId).
+      const overdueWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(ctx.viewerRole) };
+      const [activeLoad, pendingAccept, acceptedToday, buyerCount, sellerCount, hours, overdueOwn, overdueSubject] =
         await Promise.all([
           prisma.client.groupBy({
             by: ["assignedAgentId"],
@@ -449,6 +485,13 @@ async function buildZones(ctx: McContext) {
             where: { assignedAgentId: { in: ids }, kind: "SELLER", ...ACTIVE_NOT_TERMINAL },
             _count: { _all: true },
           }),
+          prisma.settings.findUnique({ where: { id: "singleton" }, select: { workHoursStart: true, workHoursEnd: true } }),
+          prisma.interaction.groupBy({ by: ["agentId"], where: { ...overdueWhere, agentId: { in: ids } }, _count: { _all: true } }),
+          prisma.interaction.groupBy({
+            by: ["subjectAgentId"],
+            where: { ...overdueWhere, agentId: null, subjectAgentId: { in: ids } },
+            _count: { _all: true },
+          }),
         ]);
       const toMap = (arr: { assignedAgentId: string | null; _count: { _all: number } }[]) =>
         new Map(arr.map((x) => [x.assignedAgentId, x._count._all]));
@@ -457,6 +500,9 @@ async function buildZones(ctx: McContext) {
         acc = toMap(acceptedToday),
         buy = toMap(buyerCount),
         sell = toMap(sellerCount);
+      const overdue = new Map<string, number>();
+      for (const row of overdueOwn) if (row.agentId) overdue.set(row.agentId, (overdue.get(row.agentId) ?? 0) + row._count._all);
+      for (const row of overdueSubject) if (row.subjectAgentId) overdue.set(row.subjectAgentId, (overdue.get(row.subjectAgentId) ?? 0) + row._count._all);
       return {
         agents: agents
           .map((a) => ({
@@ -468,6 +514,8 @@ async function buildZones(ctx: McContext) {
             acceptedToday: acc.get(a.id) ?? 0,
             buyerCount: buy.get(a.id) ?? 0,
             sellerCount: sell.get(a.id) ?? 0,
+            /** Просроченных задач у агента сейчас (главная руководителя, 20.11.2026). */
+            overdueTasks: overdue.get(a.id) ?? 0,
             lastSeenAt: a.lastSeenAt ? a.lastSeenAt.toISOString() : null,
             /**
              * Принимает ли агент лиды сейчас (глубокая проверка 02.10.2026,
@@ -481,6 +529,13 @@ async function buildZones(ctx: McContext) {
           .sort((a, b) => b.activeLoad - a.activeLoad),
         // «День команды» и «Показы сегодня» — блоки, которые до 12.09.2026 стояли
         // с подписью «нет данных»: разметка артефакта была, считалки не было.
+        /**
+         * Начало рабочего дня сегодня (Настройки → «Когда лиды уходят агентам», то же
+         * окно, что у раздачи, services/leads/shared.ts::leadHoursOf). Главная
+         * руководителя помечает «сегодня не заходил» только после этого часа — ночью
+         * и ранним утром отсутствие в CRM ничего не значит (20.11.2026).
+         */
+        workdayStartAt: dushanbeInputToDate(dushanbeDateString(now), leadHoursOf(hours).start).toISOString(),
         day: await loadTeamDay(now, ctx.viewerRole),
         showingsToday: await loadShowingsToday(now, ctx.viewerRole),
       };
