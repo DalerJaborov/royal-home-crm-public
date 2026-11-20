@@ -112,6 +112,9 @@ describe("долгое нажатие и шторка «Сведения» (ре
   it("the chats layer never switches text selection off and keeps service buttons at 44px", () => {
     const css = readFileSync(resolve(process.cwd(), "src/theme-look-royal-chats.css"), "utf8");
     expect(css).not.toMatch(/user-select:\s*none/);
+    // Плашка даты не липнет к верху ленты и не закрывает пузырь (сторож #328, 320 px).
+    const day = css.slice(css.indexOf('.clean-conversation .day {'));
+    expect(day.slice(0, day.indexOf("}"))).toMatch(/position:\s*static/);
     const service = css.slice(css.indexOf(".ry-service-acts button {"));
     expect(service.slice(0, service.indexOf("}"))).toMatch(/min-height:\s*44px/);
   });

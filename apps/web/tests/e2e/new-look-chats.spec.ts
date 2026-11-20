@@ -118,6 +118,28 @@ test("новый вид, чаты: окно как в мессенджере —
   }
 });
 
+test("новый вид, чаты: плашка даты не наезжает на пузыри на 320 px", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "ширины перебираются в десктопном проекте");
+  await stub(page, true);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto("/messages?open=e2e-chat-0");
+  await expect(page.locator(".clean-conversation .bub").first()).toBeVisible({ timeout: 20_000 });
+  const thread = page.locator(".clean-conversation .thread");
+  // Сверху, посередине и внизу ленты: ни одна видимая плашка даты не пересекает пузырь.
+  for (const at of [0, 0.5, 1]) {
+    await thread.evaluate((el, part) => { el.scrollTop = (el.scrollHeight - el.clientHeight) * part; }, at);
+    await page.waitForTimeout(150);
+    const overlaps = await page.evaluate(() => {
+      const box = (el: Element) => el.getBoundingClientRect();
+      const days = [...document.querySelectorAll(".clean-conversation .day")].map(box);
+      const bubbles = [...document.querySelectorAll(".clean-conversation .bub")].map(box);
+      return days.filter((d) => bubbles.some((b) => d.left < b.right && b.left < d.right && d.top < b.bottom - 1 && b.top < d.bottom - 1)).length;
+    });
+    expect(overlaps, `плашка даты поверх пузыря при прокрутке ${at}`).toBe(0);
+  }
+  await page.screenshot({ path: "test-results/chat-day-320.png" });
+});
+
 test("без признака с сервера разметки нового вида в чатах нет", async ({ page }) => {
   await stub(page, false);
   await page.goto("/messages");

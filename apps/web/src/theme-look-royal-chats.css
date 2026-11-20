@@ -311,6 +311,10 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .day {
   align-self: center; margin: 6px 0 8px; padding: 4px 12px; border: 0; border-radius: 999px;
   background: var(--rh-ui-card); color: var(--rh-ui-hint); font-size: 13px; font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  /* Плашка даты стоит на своём месте в ленте, а не липнет к верху: прежний телефонный
+     слой (theme-2026-mobile-chat.css, sticky) клал «Сегодня» поверх первого видимого
+     пузыря и закрывал его текст (сторож #328, 320 px, 20.11.2026). */
+  position: static;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub {
   position: relative; max-width: min(78%, 560px); padding: 9px 14px 7px; border: 0; border-radius: 18px;
