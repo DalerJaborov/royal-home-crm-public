@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { glueNumbers, glueRange } from "../../lib/glueNumbers";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { ExternalLink, Image as ImageIcon } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -235,9 +236,9 @@ function BoardRow({ row, last, onEdit }: { row: AdBoardRow; last: boolean; onEdi
           <span>
             {properties.length === 0 && !row.property && (row.brand ? "реклама агентства · " : "без объекта · ")}
             {row.objective && OBJECTIVE_LABEL[row.objective] ? `${OBJECTIVE_LABEL[row.objective]} · ` : ""}
-            {shortDate(row.firstSpendAt)}
-            {row.lastSpendAt && row.lastSpendAt !== row.firstSpendAt ? ` — ${shortDate(row.lastSpendAt)}` : ""}
-            {row.activeDays > 0 ? ` · ${row.activeDays} дн. с тратами` : " · трат не было"}
+            {/* Промежуток дат одним куском (glueRange): на iPhone «10 нояб. — / 19 нояб.» рвался (20.11). */}
+            {row.lastSpendAt && row.lastSpendAt !== row.firstSpendAt ? glueRange(shortDate(row.firstSpendAt), shortDate(row.lastSpendAt)) : shortDate(row.firstSpendAt)}
+            {row.activeDays > 0 ? ` · ${glueNumbers(`${row.activeDays} дн.`)} с тратами` : " · трат не было"}
             {row.postUrl && (
               <>
                 {" · "}

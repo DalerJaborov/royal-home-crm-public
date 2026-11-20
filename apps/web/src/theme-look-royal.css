@@ -263,7 +263,9 @@
 }
 @supports (animation-timeline: scroll()) {
   :root[data-ui-look="royal"] .clean-shell .clean-header::after {
-    opacity: 0; animation: ry-head-shade linear both; animation-timeline: scroll(); animation-range: 0 24px;
+    /* !important: чистая оболочка гасит анимации с !important, и без него линия оставалась
+       невидимой навсегда (opacity: 0) — содержимое уходило под шапку без края (20.11). */
+    opacity: 0; animation: ry-head-shade linear both !important; animation-timeline: scroll() !important; animation-range: 0 24px !important;
   }
 }
 @keyframes ry-head-shade { to { opacity: 1; } }
@@ -271,9 +273,15 @@
 /* Заголовок раздела в шапке телефона переносится, а не режется: на 320 px справа
    две кнопки и аватар, и «Контроль руковод…», «Публикации в соцс…» обрезались
    многоточием (сторож @smoke, 20.11). Две строки помещаются в 60 px шапки. */
-:root[data-ui-look="royal"] [data-topbar] [data-topbar-title] {
+:root[data-ui-look="royal"] .clean-shell [data-topbar] [data-topbar-title] {
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
-  font-size: clamp(17px, 5.4vw, 22px); line-height: 1.15;
+  font-size: 22px; font-weight: 700; line-height: 1.15;
+}
+/* Размер — целым числом пикселей, без vw: при 5.4vw выходило 21,06 px, и на iPhone
+   заголовок раздела читался мягким, «размытым» (кадры владельца 20.11; ОЦЕНКА — в
+   Chromium не воспроизводится). Сторож — theme-look-royal.test.ts, «размер текста без vw». */
+@media (max-width: 374.98px) {
+  :root[data-ui-look="royal"] .clean-shell [data-topbar] [data-topbar-title] { font-size: 19px; }
 }
 /* Подпись пункта меню переносится, а не режется («Активность коман…», 18.11). */
 :root[data-ui-look="royal"] .clean-shell .ry-nav-label { flex: 1 1 auto; min-width: 0; white-space: normal; line-height: 1.2; padding-block: 4px; }
@@ -588,6 +596,10 @@
 :root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-description { font-size: 15px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions { grid-column: 1 / -1; justify-content: flex-start; }
 :root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions :is(button, a) { min-height: 44px; border-radius: 999px; }
+/* Кнопка-таблетка не уже своей подписи: на 320–390 px две кнопки делили строку пополам, и
+   «Проверить материалы», «Открыть карточку» ломались в две строки внутри таблетки (20.11).
+   Не помещаются рядом — вторая уходит строкой ниже во всю ширину. */
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions > :is(button, a) { flex: 1 1 auto; min-width: min(100%, max-content); }
 
 :root[data-ui-look="royal"] .ry-team {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px;
@@ -628,4 +640,70 @@
   :root[data-ui-look="royal"] .ry-tile { min-height: 168px; }
   :root[data-ui-look="royal"] .ry-hero { min-height: 168px; }
   :root[data-ui-look="royal"] .ry-blocks .ry-col-b .ry-team { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ===================== геометрия на телефоне (20.11.2026) =====================
+   Кадры владельца с iPhone: у карточек пустой верх, ряды вкладок обрезаны без
+   признака прокрутки. Правила общие на все разделы — один механизм, одно место;
+   сторож — tests/e2e/new-look-geometry.spec.ts (helpers/lookGeometry.ts). */
+
+/* Тихая строка `.quiet` темы несёт margin-top 14 px — отступ от соседа сверху. Первой в
+   своей карточке или обёртке она отступает от пустоты: «Этап просрочен у 4 объектов»,
+   «Meta не ответила», строка «клиентов в CRM» под объявлением стояли с пустым верхом. */
+:root[data-ui-look="royal"] .rh2 .scr .quiet:first-child { margin-top: 0; }
+/* Тот же механизм у пустых состояний и подписей карточек: «За этот срок нет обращений»,
+   «Отчётов пока нет» (p.state, margin-top 12 px темы) стояли с пустым верхом (сторож, 20.11). */
+:root[data-ui-look="royal"] .rh2 .scr .card > :is(p, .state, .empty, .sub, h2, h3):first-child { margin-top: 0; }
+
+/* Ряд вкладок и фильтров, который листается вбок, гаснет у правого края — видно, что
+   дальше есть ещё («Изменения на сайте», «Резерв», «Подписки» уходили за край молча).
+   Затухание живёт только в кадрах анимации по прокрутке самого ряда: ряд без прокрутки
+   (вкладки поместились, ПК с переносом) его не получает вовсе, а докрученный до конца —
+   снимает. Браузер без animation-timeline остаётся как был. */
+@supports (animation-timeline: scroll()) {
+  :root[data-ui-look="royal"] :is(.seg-ai, .stg, .cef-pills, .cef-main-tabs, .seg, .rh-filters-scroll, .hscroll, .rh-tabs-scroll, .ry-ctabs, .ry-chat-quick, .ry-deals-stages, .ry-set-tasks) {
+    /* !important — чистая оболочка гасит любую анимацию с !important (theme-2026-clean-surface-integrity.css). */
+    animation: ry-strip-more linear both !important; animation-timeline: scroll(self inline) !important;
+  }
+}
+@keyframes ry-strip-more {
+  0%, 98% {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+  }
+  100% { -webkit-mask-image: none; mask-image: none; }
+}
+
+
+/* Подпись с числом одним куском («Не связывались: 4»): число не уезжает строкой ниже. */
+:root[data-ui-look="royal"] .ry-nowrap { white-space: nowrap; }
+
+/* Предложение поставить CRM на экран — одной строкой над нижним меню (съёмка 20.11:
+   прежняя карточка в 200 px закрывала низ первого экрана). Разметка — InstallAppHint.tsx. */
+:root[data-ui-look="royal"] .ry-install-card {
+  display: grid; gap: 8px; max-width: 440px; margin: 0 auto; padding: 6px 6px 6px 14px; border-radius: 999px;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-cap-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-install-card:has(.ry-install-steps) { border-radius: 24px; padding-top: 12px; }
+:root[data-ui-look="royal"] .ry-install-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-install-row > .i { width: 20px; height: 20px; flex: none; color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] .ry-install-row > b { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; line-height: 1.25; }
+:root[data-ui-look="royal"] .ry-install-go {
+  flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-install-x {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px;
+  background: transparent; color: var(--rh-ui-hint); cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-install-x .i { width: 20px; height: 20px; }
+:root[data-ui-look="royal"] .ry-install-steps { display: grid; gap: 6px; margin: 0; padding: 0 8px 0 22px; font-size: 15px; line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-install-steps .i { width: 16px; height: 16px; margin-right: 6px; vertical-align: -3px; }
+
+/* Нижнее меню на самых узких телефонах: подписи «Главная» и «Клиенты» стояли вплотную
+   (зазор 4 px на 320, съёмка 20.11). Капсула ближе к краям, подписи чуть плотнее. */
+@media (max-width: 359.98px) {
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] { left: max(6px, env(safe-area-inset-left, 0px)); right: max(6px, env(safe-area-inset-right, 0px)); padding-inline: 2px; }
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] > .grid { gap: 0; }
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-label] { letter-spacing: -.02em; }
 }

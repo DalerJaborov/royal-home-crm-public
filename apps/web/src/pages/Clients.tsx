@@ -1,4 +1,6 @@
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
+import { glueNumbers } from "../lib/glueNumbers";
+import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { useClientRowActions } from "../hooks/useClientRowActions";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientRow, cleanClientColumns } from "../components/clean/CleanClientRow";
@@ -112,10 +114,11 @@ function budgetShort(c: Pick<Client, "budgetMin" | "budgetMax" | "currency">): s
   const div = ref >= 1_000_000 ? 1_000_000 : ref >= 1_000 ? 1_000 : 1;
   const unit = div === 1_000_000 ? " млн" : div === 1_000 ? " тыс." : "";
   const sym = c.currency === "USD" ? "$" : "";
-  const tail = c.currency === "USD" ? "" : " с.";
-  if (min && max) return `${sym}${oneDecimal(min / div)}–${oneDecimal(max / div)}${unit}${tail}`;
-  if (max) return `до ${sym}${oneDecimal(max / div)}${unit}${tail}`;
-  return `от ${sym}${oneDecimal((min as number) / div)}${unit}${tail}`;
+  const tail = c.currency === "USD" ? "" : "\u00a0с.";
+  // glueNumbers: «1,1–1,3 млн с.» не рвётся на «1,3 / млн с.» на узком телефоне (20.11).
+  if (min && max) return glueNumbers(`${sym}${oneDecimal(min / div)}–${oneDecimal(max / div)}${unit}${tail}`);
+  if (max) return glueNumbers(`до ${sym}${oneDecimal(max / div)}${unit}${tail}`);
+  return glueNumbers(`от ${sym}${oneDecimal((min as number) / div)}${unit}${tail}`);
 }
 
 const num = (n: number) => n.toLocaleString("ru-RU");
@@ -290,7 +293,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   };
   // «Прочие обращения» — управленческий раздел: без права сервер ответил бы 403.
   const otherBlocked = isOther && !can("otherInquiries.view");
-  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useClients(clientQuery, !otherBlocked);
+  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt, failureCount } = useClients(clientQuery, !otherBlocked);
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...clientQuery, page: 1 }, (filters.page ?? 1) > 1 && !otherBlocked);
   // Мягкая подгрузка вместо страниц (решение владельца 15.09.2026): строки копятся,
@@ -498,7 +501,8 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
               {royal ? (
                 // Новый вид: одна строка «Не связывались: 4», полное пояснение — подсказкой и для чтеца.
                 <span className="txt" title={`${NO_CONTACT_TEXT.title}: ${num(summary.neverContacted)} — ни звонка, ни сообщения сотрудника, ни показа.`}>
-                  {NO_CONTACT_TEXT.title}: <b>{num(summary.neverContacted)}</b>
+                  {/* Подпись и число — одним куском: на 320 px «4» уезжало строкой ниже (20.11). */}
+                  <span className="ry-nowrap">{NO_CONTACT_TEXT.title}: <b>{num(summary.neverContacted)}</b></span>
                   <span className="sr-only"> — ни звонка, ни сообщения сотрудника, ни показа.</span>
                 </span>
               ) : (
@@ -590,12 +594,22 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
         )}
 
         {/* Состояния блока: загрузка, ошибка, пусто */}
-        {(isLoading || (!!error && !listGuard.broken)) && (
+        {isLoading && !error && (
           <div role="status" aria-label="Загружаем клиентов">
             {[0, 1, 2, 3, 4].map((i) => (
               <Skeleton key={i} kind="row" />
             ))}
+            {/* Первый запрос не прошёл, идут повторы (до ~30 с): сразу сказать словами, а не молча
+                крутить серые полосы (съёмка экранов 20.11). */}
+            {failureCount > 0 && <p className="quiet"><span className="txt">Связь с сервером прерывается, пробуем ещё раз…</span></p>}
           </div>
+        )}
+        {/* Ошибка — словами и с кнопкой, а не вечные серые полосы (съёмка экранов 20.11:
+            обрыв запроса клиентов — скелетоны без конца). `error` появляется только после
+            всех повторов запроса (lib/queryClient.ts), а повторные попытки сторожа пустого
+            списка показываются на самой кнопке («Пробуем снова…»), а не скелетоном. */}
+        {!!error && !listGuard.broken && (
+          <Rh2ErrorState message="Не удалось загрузить клиентов. Проверьте связь и попробуйте ещё раз." onRetry={() => void refetch()} retrying={isFetching} />
         )}
         {listGuard.broken && <EmptyListGuardBanner guard={listGuard} variant="desktop" />}
 

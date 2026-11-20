@@ -17,7 +17,7 @@ export const ASSISTANT_CATEGORIES: AssistantCategory[] = [
   {
     icon: Search,
     label: "Поиск объектов",
-    example: "Покажи 2-комнатные до 400 000 с. в Сино",
+    example: "Покажи 2-комнатные до 400\u00a0000\u00a0с. в Сино",
   },
   {
     icon: Building2,
