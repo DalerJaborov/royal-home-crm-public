@@ -242,7 +242,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                 <div className="tiles">
                   {deals?.commission != null && (
                     <button type="button" className="tile" onClick={() => scrollToSection("funnel-section")} title="Воронка за период — ниже">
-                      <div className="v">{nums(deals.commission)} с.</div>
+                      <div className="v">{nums(deals.commission)}{"\u00a0"}с.</div>
                       <div className="l">комиссия за период</div>
                     </button>
                   )}
@@ -273,7 +273,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                               <span className="n">{row.agentName}</span>
                               <span className="s">
                                 {row.dealsClosed} {row.dealsClosed === 1 ? "сделка" : "сделок"}
-                                {row.commission !== null && ` · ${nums(row.commission)} с.`}
+                                {row.commission !== null && ` · ${nums(row.commission)}\u00a0с.`}
                               </span>
                             </span>
                           </div>
@@ -284,7 +284,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                               <span className="n">{row.agentName}</span>
                               <span className="s">
                                 {row.dealsClosed} {row.dealsClosed === 1 ? "сделка" : "сделок"}
-                                {row.commission !== null && ` · ${nums(row.commission)} с.`}
+                                {row.commission !== null && ` · ${nums(row.commission)}\u00a0с.`}
                               </span>
                             </span>
                           </div>

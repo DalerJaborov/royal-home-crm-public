@@ -221,7 +221,7 @@ export function Properties() {
   const debouncedAreaMax = useDebouncedValue(filters.areaMax, 350);
   const debouncedPriceMin = useDebouncedValue(filters.priceMin, 350);
   const debouncedPriceMax = useDebouncedValue(filters.priceMax, 350);
-  const { data, isLoading, error, refetch } = useProperties({
+  const { data, isLoading, error, refetch, failureCount } = useProperties({
     ...filters,
     q: debouncedQuery,
     areaMin: debouncedAreaMin,
@@ -765,6 +765,11 @@ export function Properties() {
             </div>
           )}
 
+          {/* Первый запрос не прошёл, идут повторы (до ~30 с): сразу сказать словами, а не молча
+              крутить серые плитки (съёмка экранов 20.11). */}
+          {isLoading && !error && failureCount > 0 && (
+            <p className="quiet" role="status"><span className="txt">Связь с сервером прерывается, пробуем ещё раз…</span></p>
+          )}
           {isLoading && !error && clean && view === "cards" && (
             <div className={royal ? "ry-obj-grid" : "clean-property-grid"} data-view={royal ? "cards" : undefined} aria-hidden="true">
               {Array.from({ length: 6 }).map((_, i) => (

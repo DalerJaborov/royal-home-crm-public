@@ -1,4 +1,5 @@
 import { pluralizeRu, type AdLeadStats } from "@royal-home/shared";
+import { glueNumbers } from "./glueNumbers";
 import { formatMoneyExact } from "./format";
 
 /**
@@ -67,7 +68,7 @@ export const PERIODS: { key: AdPeriodPreset; label: string }[] = [
 /** «3 сент.» — короткая дата для сроков показа. */
 export function shortDate(value: string | null | undefined): string {
   if (!value) return "—";
-  return new Date(value).toLocaleDateString("ru-RU", { timeZone: "Asia/Dushanbe", day: "numeric", month: "short" });
+  return glueNumbers(new Date(value).toLocaleDateString("ru-RU", { timeZone: "Asia/Dushanbe", day: "numeric", month: "short" }));
 }
 
 /**
@@ -145,7 +146,8 @@ export function weightToField(weight: number): string {
 /** Доля в процентах для подписи: «25 %», «33,3 %», «0,3 %». */
 export function formatPct(value: number): string {
   const rounded = Math.round(value * 10) / 10;
-  return `${rounded.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} %`;
+  // glueNumbers: «100 %» не рвётся на «100 / %» в узком чипе (20.11).
+  return glueNumbers(`${rounded.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} %`);
 }
 
 /**

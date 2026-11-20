@@ -550,3 +550,8 @@
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-workspace[data-context-open] > .clean-conversation-timeline { display: none; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .suggest.ry-chat-pausepick { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* Имя собеседника в шапке переписки — целиком, в две строки при нехватке места: на 320 px
+   было «Фаррух Н…», а значок бота сжимался (съёмка экранов 20.11). */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who > :not(.ry-chat-who-tx) { flex: none; }

@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { MESSAGE_PHONE_MASK } from "@royal-home/shared";
 import { Bot, Flame } from "lucide-react";
 import type { ConversationListItem } from "../../../hooks/useConversations";
 import { exactDateTime, listTime } from "../../../lib/format";
@@ -39,6 +40,15 @@ function pauseWaitHours(c: ConversationListItem, now: number): number | null {
 }
 
 /**
+ * Текст последней реплики для превью: скрытый номер — словами «номер скрыт», а не «****»
+ * (тот же смысл, что в самой переписке; кадр владельца 20.11). Цифр здесь нет и не было.
+ * Отдельно от подписи отправителя, чтобы её можно было менять, не трогая текст.
+ */
+export function previewText(content: string): string {
+  return content.split(MESSAGE_PHONE_MASK).join("номер скрыт");
+}
+
+/**
  * СТРОКА РАЗГОВОРА НОВОГО ВИДА (18.11.2026): аватар с меткой канала в родном
  * цвете, имя, ОДНА строка текста, справа время ожидания (или время последнего
  * сообщения) и пометки. Данные — ровно те же, что у прежней строки
@@ -70,8 +80,9 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
   const last = c.lastMessage
     // «Вы:» — только своё сообщение того, кто смотрит (ревью #332). Ответ бота или
     // коллеги — просто текст, без подписи: как у бизнес-аккаунта WhatsApp, кто
-    // именно ответил — в «Сведениях о сообщении» в переписке.
-    ? `${c.lastMessage.role === "assistant" && c.lastMessage.by?.kind === "agent" && !!viewerAgentId && c.lastMessage.by.agentId === viewerAgentId ? "Вы: " : ""}${c.lastMessage.content}`
+    // именно ответил — в «Сведениях о сообщении» в переписке. Текст — через общий
+    // previewText (#328: скрытый номер словами).
+    ? `${c.lastMessage.role === "assistant" && c.lastMessage.by?.kind === "agent" && !!viewerAgentId && c.lastMessage.by.agentId === viewerAgentId ? "Вы: " : ""}${previewText(c.lastMessage.content)}`
     : "";
   return (
     <button

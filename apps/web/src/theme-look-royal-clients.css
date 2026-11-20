@@ -569,6 +569,17 @@
   box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .8), 0 0 0 1px var(--rh-ui-ring);
 }
 
+/* ====================== узкий телефон (кадры 20.11, 320–430 px) ====================== */
+
+/* «Продавцы / Покупатели» не рвутся посреди слова («Продавц/ы», «Покупател/и» на 320 px):
+   слово переносится только целиком, а на самых узких подпись на ступень мельче. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .seg button { overflow-wrap: normal; word-break: normal; hyphens: none; }
+@media (max-width: 359.98px) {
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-clients-tools .seg button { padding: 0 5px; font-size: 14px; }
+}
+/* Строка «Не связывались: 4» и «Показать» — кнопка уходит строкой ниже, а не рвёт подпись. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .quiet { flex-wrap: wrap; }
+
 /* «Следующий шаг» под шапкой карточки клиента (пачка D1, 20.11.2026): отдельной поверхностью,
    сразу под кнопками «Позвонить / Написать», на телефоне и на ПК. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="clients"] .scr > .client-next-step {
