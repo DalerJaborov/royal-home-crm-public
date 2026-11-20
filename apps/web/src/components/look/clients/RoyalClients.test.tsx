@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { CleanClientRow } from "../../clean/CleanClientRow";
 import { CleanClientDetailTabs } from "../../clean/CleanClientDetailLayout";
 import { readFileSync } from "node:fs";
-import { ROYAL_ROW_PC_ONLY, RoyalClientFacts, RoyalClientListHead, RoyalClientRow, RoyalClientTabs, type RoyalClientRowProps } from "./RoyalClients";
+import { ROYAL_ROW_PC_ONLY, RoyalClientFacts, RoyalClientListHead, RoyalClientRow, RoyalClientTabs, royalPhoneFact, type RoyalClientRowProps } from "./RoyalClients";
 
 /**
  * «Новый вид» раздела «Клиенты»: разметка другая, данные и действия те же.
@@ -26,6 +26,14 @@ const clean = (props: Partial<RoyalClientRowProps> = {}) => inRouter(<CleanClien
 const words = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&nbsp;|·|:/g, " ")
   .split(/\s+/).filter(Boolean).filter((w) => !["Следующее", "действие", "Ответственный"].includes(w));
 
+describe("номер в шапке карточки клиента", () => {
+  it("виден тем, кто ведёт клиента; до приёма заявки нет даже хвоста маски (ревью #331)", () => {
+    expect(royalPhoneFact("+9929070••008", false)).toEqual([{ icon: "phone", text: "+9929070••008", label: "Телефон +9929070••008" }]);
+    expect(royalPhoneFact("+9929070••008", true)).toEqual([]);
+    expect(royalPhoneFact(null, false)).toEqual([]);
+  });
+});
+
 describe("строка клиента нового вида", () => {
   it("одна дата с глаголом: срок шага или когда связывались (пачка D1)", () => {
     const withDeadline = royal({ nextActionDate: "2099-01-01T08:00:00.000Z" });
@@ -35,15 +43,19 @@ describe("строка клиента нового вида", () => {
     const noDeadline = royal({ nextAction: null });
     expect(noDeadline).toContain("связывались ");
     expect(noDeadline).toContain("2 дня назад");
-    expect(royal({ nextAction: null, staleContact: true })).toContain("давно не связывались");
+    expect(royal({ nextAction: null, staleContact: true })).toContain("Давно не связывались");
+    const both = royal({ nextActionDate: "2099-01-01T08:00:00.000Z", staleContact: true });
+    expect(both).toContain("срок ");
+    expect(both).toContain("Давно не связывались");
   });
   it("показывает всё, что показывает строка Clean (ничего не теряется)", () => {
     // Исключение одно и намеренное (пачка D1, 20.11.2026): при сроке шага строка нового вида
-    // показывает ОДНУ дату — срок; «последний контакт» и подписи «Срок / Последний контакт /
-    // Давно не связывались» остаются в карточке клиента и в строке без срока.
+    // показывает ОДНУ дату — срок; время последнего контакта и подписи «Срок / Последний
+    // контакт» остаются в карточке клиента и в строке без срока. «Давно не связывались»
+    // не теряется никогда (ревью #331).
     const dropped = (props: Partial<RoyalClientRowProps>) => {
       const p = { ...fixture, ...props };
-      const words = new Set(["Срок", "Последний", "контакт", "Давно", "не", "связывались"]);
+      const words = new Set(["Срок", "Последний", "контакт"]);
       if (p.nextAction && p.nextActionDate) for (const w of p.lastContact.split(/\s+/)) words.add(w);
       return words;
     };

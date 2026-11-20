@@ -109,10 +109,14 @@ export function AgentFirstCalls() {
           );
         })}
         {assigned.slice(0, 4).map((row) => (
-          <RhRow key={`a-${row.id}`} to={`/clients/${row.shortId}`}
-            lead={<RhCircle icon="user-plus" tone="a1" />}
-            title={row.fullName}
-            sub={row.byName ? `назначил ${row.byName}` : "назначил руководитель"} />
+          <div key={`a-${row.id}`} className="ry-agent-call-row">
+            <RhRow to={`/clients/${row.shortId}`}
+              lead={<RhCircle icon="user-plus" tone="a1" />}
+              title={row.fullName}
+              sub={row.byName ? `назначил ${row.byName}` : "назначил руководитель"} />
+            <CallClientButton clientId={row.id} phone={row.phone} variant="icon" label={`Позвонить: ${row.fullName}`}
+              title="Позвонить через CRM" className="ry-agent-call-btn" stopPropagation={false} />
+          </div>
         ))}
       </RhGroup>
     </RhSection>

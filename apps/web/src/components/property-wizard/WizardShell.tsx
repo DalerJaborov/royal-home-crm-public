@@ -184,7 +184,6 @@ export function WizardShell({
           </div>
 
           <WizardDraftNotice status={status} onRetry={onRetryDraft} disabled={controlsBusy} />
-          {deleteDraftError && <p className="wizard-delete-error" role="alert" data-testid="wizard-delete-error">{deleteDraftError} Можно повторить удаление.</p>}
         </div>
 
         <nav className="wizard-steps" aria-label="Разделы объекта">
@@ -212,6 +211,8 @@ export function WizardShell({
             {onDeleteDraft && <div className="wizard-danger-zone">
               <button type="button" className="wizard-text-action wizard-delete-action" data-variant="danger" data-testid="wizard-delete-draft"
                 onClick={onDeleteDraft} disabled={controlsBusy}>{deleteDraftPending ? "Удаляю черновик…" : "Удалить черновик"}</button>
+              {/* Ошибка удаления — рядом с самой кнопкой, внизу, а не в шапке над экраном (ревью #331). */}
+              {deleteDraftError && <p className="wizard-delete-error" role="alert" data-testid="wizard-delete-error">{deleteDraftError} Можно повторить удаление.</p>}
             </div>}
           </div>
           </div>

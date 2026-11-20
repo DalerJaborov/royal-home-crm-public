@@ -143,7 +143,7 @@
   min-height: 44px; padding: 0 4px; font-size: 15px; font-weight: 600; color: var(--rh-ui-primary-ink);
 }
 /* «Удалить черновик» — внизу формы, отдельно от «Сохранить и выйти», красным (пачка D1). */
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-danger-zone { display: flex; margin: 8px 0 0; padding-top: 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-danger-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0 0; padding-top: 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-delete-action { color: var(--rh-ui-crit-text); }
 
 /* Полосы шагов (телефон): толще и скруглённые; пройдено — синим, сейчас — тёмным. */
@@ -157,7 +157,7 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-draft-dot { width: 8px; height: 8px; background: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-draft-notice[data-state="server"] .wizard-draft-dot { background: var(--rh-ui-ok); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-draft-notice[data-state="error"] { color: var(--rh-ui-warn); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-delete-error { font-size: 15px; color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-delete-error { flex-basis: 100%; margin: 0; font-size: 15px; color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .draft { font-size: 14px; color: var(--rh-ui-hint); }
 
 /* ============================ тело шага ============================ */

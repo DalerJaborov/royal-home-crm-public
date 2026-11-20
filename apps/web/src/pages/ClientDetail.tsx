@@ -65,7 +65,7 @@ import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTabs, cleanClientDetailScale, cleanClientPanelProps, cleanClientShowsPanel } from "../components/clean/CleanClientDetailLayout";
 import { MobileClientCard } from "../components/mobile/MobileClientCard";
 import { useRoyalLook } from "../hooks/useRoyalLook";
-import { RoyalClientFacts, RoyalClientTabs, type RoyalClientFact } from "../components/look/clients/RoyalClients";
+import { RoyalClientFacts, RoyalClientTabs, royalPhoneFact, type RoyalClientFact } from "../components/look/clients/RoyalClients";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
 import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
@@ -656,7 +656,7 @@ function ClientDetailCard() {
   // Номер — первым фактом под именем (пачка D1): какой номер наберёт «Позвонить», видно
   // до нажатия. Строку отдаёт сервер по правам: полный номер — директору, остальным маской.
   const headFacts: RoyalClientFact[] = [
-    ...(client.phone ? [{ icon: "phone" as const, text: client.phone, label: `Телефон ${client.phone}` }] : []),
+    ...royalPhoneFact(client.phone, locked),
     { icon: "calendar-days", text: dushanbeDate(client.createdAt, { day: "numeric", month: "long" }), label: `Пришёл ${dushanbeDate(client.createdAt, { day: "numeric", month: "long" })}` },
     { icon: "clock", text: relativeTime(client.lastContactAt), label: `Последний контакт ${relativeTime(client.lastContactAt)}` },
     { icon: "users", text: client.assignedAgent?.fullName ?? "Агент не назначен", label: client.assignedAgent ? `Агент ${client.assignedAgent.fullName}` : "Агент не назначен" },

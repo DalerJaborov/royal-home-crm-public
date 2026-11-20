@@ -113,5 +113,5 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
 
 function ObjThumb({ photo, alternate }: { photo?: string; alternate?: string }) {
   // Одна заглушка на все экраны (PropertyPhoto): «Фото недоступно» / «Нет фото».
-  return <PropertyPhoto fill className="ry-obj-nophoto-box" sources={[photo, alternate]} />;
+  return <PropertyPhoto fill sources={[photo, alternate]} />;
 }

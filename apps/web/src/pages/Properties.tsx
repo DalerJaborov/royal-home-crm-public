@@ -7,6 +7,7 @@ import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalObjectsHead } from "../components/look/objects/RoyalObjectsHead";
 import { PropertyPhoto } from "../components/property/PropertyPhoto";
+import { royalCatalogFilterCount } from "../lib/royalCatalogFilters";
 import { CButton } from "../components/clean/ui";
 import { PropertyDraftShortcut } from "../components/PropertyDraftShortcut";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -461,7 +462,7 @@ export function Properties() {
   const searchField = <input
       className="inp"
       type="search"
-      placeholder={royal ? "Район или улица" : "Номер, название, адрес"}
+      placeholder={royal ? "Район, улица или №" : "Номер, название, адрес"}
       aria-label="Поиск по объектам"
       value={filters.q ?? ""}
       onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value || undefined, page: 1 }))}
@@ -524,7 +525,7 @@ export function Properties() {
   // «Новый вид» (пачка D1, 20.11.2026): до первого объекта — не больше двух рядов управления.
   // Ряд 1 — заголовок с числом и «+ Объект»; ряд 2 — поиск и одна кнопка «Фильтры (n)».
   // Стадии, «Мои / Все», «Без видео», просрочка, вид и «Карта» уехали в шторку фильтров.
-  const royalActiveFilters = activeExtraFilters + (filters.status || filters.inPrep ? 1 : 0) + (scope.isMine ? 1 : 0);
+  const royalActiveFilters = royalCatalogFilterCount(filters, scope.isMine);
   const royalToolbar = (
     <div className="ry-catalog-bar">
       {searchField}

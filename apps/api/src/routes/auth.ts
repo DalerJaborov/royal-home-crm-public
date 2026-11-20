@@ -55,7 +55,7 @@ type SessionAgent = {
 
 export async function issueSession(req: import("express").Request, res: import("express").Response, agent: SessionAgent) {
   // Журнал входов + уведомление о новом устройстве — в фоне, вход не тормозим.
-  void recordLogin(req, { id: agent.id, fullName: agent.fullName });
+  void recordLogin(req, { id: agent.id, fullName: agent.fullName, role: agent.role });
   // Сессия устройства — создаёт/продлевает строку Session и, если уже 3 живых
   // устройства, вытесняет самое залежавшееся (см. lib/sessions.ts). Синхронно —
   // sid должен попасть в refresh-токен ДО того, как он подписан и уйдёт в cookie.

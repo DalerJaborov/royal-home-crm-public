@@ -124,3 +124,27 @@ test("агент: мастер — «Удалить черновик» отде�
     await context.close();
   }
 });
+
+test("агент: карточка объекта — главное и вкладки первыми, служебное ниже", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "свой контекст агента на ширине телефона");
+  const context = await contextForRole(browser, "AGENT", { viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  await royalShell(page);
+  await page.goto(`/properties?${PHONE}`);
+  const link = page.locator(".ry-obj-card .ry-obj-link").first();
+  await expect(link).toBeVisible({ timeout: 30_000 });
+  await link.click();
+  const summary = page.locator(".ry-obj-summary");
+  await expect(summary).toBeVisible({ timeout: 30_000 });
+  await expect(summary.locator(".ry-obj-bigprice")).toBeVisible();
+  const tabs = page.locator("#rh-pcard-tabs");
+  const people = page.locator("#rh-people");
+  await expect(tabs).toBeVisible();
+  await expect(people).toBeVisible();
+  // Вкладки — сразу под главным блоком, «Кто ведёт» и «Решить сейчас» — внутри «Обзора», ниже.
+  expect((await tabs.boundingBox())!.y).toBeLessThan((await people.boundingBox())!.y);
+  expect((await summary.boundingBox())!.y).toBeLessThan((await tabs.boundingBox())!.y);
+  // Фото — общая дверь: картинка или заглушка, не битый значок браузера.
+  await expect(page.locator(".rh-gallery [data-property-photo]").first()).toBeVisible();
+  await context.close();
+});

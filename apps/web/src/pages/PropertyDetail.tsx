@@ -948,7 +948,7 @@ function PropertyViewCard({
         </div>
 
         <div className="rh-pcard-side" style={clean ? { display: "contents" } : undefined}>
-          {royal ? <RoyalPropertySummary {...summaryProps} place={placeLine(property)} viewerRole={role}>{demandContent}</RoyalPropertySummary> : clean ? <CleanPropertySummary {...summaryProps}>{demandContent}</CleanPropertySummary> : <PropertyPriceCard
+          {royal ? <RoyalPropertySummary {...summaryProps} place={placeLine(property)} viewerRole={role} onAddSeller={canInlineEdit ? () => { setTab("short"); setEditingFields(true); jumpTo("rh-people"); } : null}>{demandContent}</RoyalPropertySummary> : clean ? <CleanPropertySummary {...summaryProps}>{demandContent}</CleanPropertySummary> : <PropertyPriceCard
             property={property}
             onSchedule={canSchedule ? () => setShowingOpen(true) : null}
             onEdit={canEnterEdit ? () => setEditMenuOpen(true) : null}

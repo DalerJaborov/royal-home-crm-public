@@ -199,9 +199,6 @@
 
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-photo { position: relative; flex: none; aspect-ratio: 4 / 3; overflow: hidden; background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-photo img { display: block; width: 100%; height: 100%; object-fit: cover; outline: 1px solid var(--rh-ui-ring); outline-offset: -1px; }
-:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-nophoto {
-  display: grid; place-content: center; justify-items: center; gap: 6px; height: 100%; color: var(--rh-ui-hint); font-size: 14px; font-weight: 600;
-}
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-photo > .ry-obj-pill { position: absolute; left: 10px; top: 10px; z-index: 2; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-count {
   position: absolute; right: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px;
@@ -400,6 +397,10 @@
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller .row > .t { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller .row > .act { display: flex; flex-wrap: wrap; gap: 8px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0; font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller-add {
+  min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--rh-ui-primary-ink); font: inherit; font-weight: 600; cursor: pointer;
+}
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-actions > .ry-btn[data-variant="primary"] { flex: 1 1 100%; min-height: 52px; font-size: 16px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-actions > .ry-btn:not([data-variant="primary"]) { flex: 1 1 0; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-sum-extra { margin-top: 8px; padding-top: 10px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }

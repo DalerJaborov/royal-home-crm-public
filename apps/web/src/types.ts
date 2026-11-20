@@ -304,6 +304,8 @@ export interface Client {
    *  объекта продавца, которых в этом типе может не быть. Нет поля — значит эндпоинт
    *  его не отдаёт (Корзина, «Потерянные» и т.п.), там fullName/formatClientName как раньше. */
   displayName?: string;
+  /** То же имя порознь: `{ name, anchor }` (clientNameParts в @royal-home/shared) — строка «Нового вида». */
+  displayNameParts?: { name: string; anchor: string | null } | null;
   /** Фамилия отдельным полем — необязательна, у старых карточек не заполнена. */
   lastName?: string | null;
   phone: string;

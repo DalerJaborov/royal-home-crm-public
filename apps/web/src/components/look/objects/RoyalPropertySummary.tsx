@@ -34,16 +34,19 @@ export function royalPropertyFacts(property: Parameters<typeof propertyParams>[0
     .map(({ label, value }) => ({ label, value, icon: FACT_ICON[label] ?? "building-2" }));
 }
 
-export function RoyalPropertySummary({ property, place, onSchedule, onEdit, onMore, children, viewerRole }: {
+export function RoyalPropertySummary({ property, place, onSchedule, onEdit, onMore, children, viewerRole, onAddSeller }: {
   property: Property; place?: string; onSchedule: (() => void) | null; onEdit: (() => void) | null; onMore: () => void; children?: ReactNode;
   /** Роль смотрящего — агенту этап бытовыми словами («Готовим видео»). Приходит от карточки. */
   viewerRole?: string;
+  /** Продавец не записан — тихая строка и это действие (открыть правку «кто ведёт и контакты»); без права — нет действия. */
+  onAddSeller?: (() => void) | null;
 }) {
   const stage = propertyStageChip(property, Date.now(), viewerRole);
   // Продавец — в главном блоке, рядом с ценой (пачка D1): агент открывает объект, чтобы
   // позвонить продавцу или показать клиенту. Кому номер закрыт, блока нет (решает сервер:
   // полный номер видит директор, тот, кто ведёт объект, — маской и звонит через станцию).
   const showSeller = ownerVisible(property);
+  const sellerKnown = !!property.sellerClient || !!property.ownerContact?.trim() || !!property.ownerContactMasked?.trim();
   const facts = royalPropertyFacts(property);
   const sub = [Number(property.areaSqm) > 0 ? formatPricePerSqm(property.price, property.areaSqm, property.currency) : null, property.district?.name].filter(Boolean).join(" · ");
   return (
@@ -63,12 +66,20 @@ export function RoyalPropertySummary({ property, place, onSchedule, onEdit, onMo
           ))}
         </ul>
       )}
-      {showSeller && (
+      {showSeller && (sellerKnown ? (
         <div className="ry-obj-seller" data-testid="property-seller">
           <p className="ry-obj-seller-label">Продавец</p>
-          <OwnerRow property={property} />
+          <OwnerRow property={property} hideDeadCall />
         </div>
-      )}
+      ) : (
+        // Ни карточки продавца, ни номера: тихая строка, а не «Имя не записано / Телефон не записан».
+        <div className="ry-obj-seller" data-testid="property-seller" data-empty="">
+          <p className="ry-obj-seller-empty">
+            <span>Продавец не указан</span>
+            {onAddSeller && <button type="button" className="ry-obj-seller-add" onClick={onAddSeller}>Добавить продавца</button>}
+          </p>
+        </div>
+      ))}
       <div className="ry-obj-actions">
         {onSchedule && <button type="button" className="ry-btn" data-variant="primary" onClick={onSchedule}><ObjIcon name="calendar-plus" />Назначить показ</button>}
         {onEdit && <button type="button" className="ry-btn" data-variant={onSchedule ? "gray" : "primary"} onClick={onEdit}><ObjIcon name="pencil" />Изменить</button>}

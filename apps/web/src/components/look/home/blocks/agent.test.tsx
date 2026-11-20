@@ -36,9 +36,16 @@ describe("«Позвонить сейчас»", () => {
 
   it("в строке срока — трубка «Позвонить» рядом со ссылкой, не внутри неё (пачка D1)", () => {
     const { container } = render(wrap(<AgentFirstCalls />));
-    const button = screen.getByRole("button", { name: /Позвонить/ });
+    const button = screen.getByRole("button", { name: "Позвонить: Фарход Каримов" });
     expect(button.closest("a")).toBeNull();
     expect(button.closest(".ry-agent-call-row")?.querySelector("a[href='/clients/11']")).toBeTruthy();
     expect(container.textContent).not.toContain("срок первого звонка прошёл");
+  });
+
+  it("у строки «назначил руководитель» тоже своя трубка (ревью #331)", () => {
+    render(wrap(<AgentFirstCalls />));
+    const button = screen.getByRole("button", { name: "Позвонить: Мадина Рахимова" });
+    expect(button.closest("a")).toBeNull();
+    expect(button.closest(".ry-agent-call-row")?.querySelector("a[href='/clients/12']")).toBeTruthy();
   });
 });
