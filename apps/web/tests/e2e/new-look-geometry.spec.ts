@@ -171,8 +171,8 @@ test("новый вид, сторож геометрии ловит каждую
     { url: "/properties", ready: "nav[data-bottomnav]", kind: "navCrowd", css: `${R}[data-mobile-ux] nav[data-bottomnav] [data-tab-label] { letter-spacing: 4px !important; }` },
     // «Продавц/ы» — слово во вкладке разорвано по буквам
     { url: "/clients", ready: '[data-ry-section="clients"] .seg', kind: "wordBreak", css: `${R} [data-ry-section="clients"] .seg button { width: 56px !important; flex: none !important; overflow-wrap: anywhere !important; }` },
-    // строка «agent» строки клиента пустая (391–430 px)
-    { url: "/clients", ready: ".ry-crow[data-agent] .ry-crow-agent", kind: "emptyArea", css: `${R} [data-ry-section="clients"] .ry-crow[data-agent] .ry-crow-agent { grid-area: foot !important; }` },
+    // именованная область строки клиента осталась пустой (строка «when» без даты)
+    { url: "/clients", ready: ".ry-crow .ry-crow-when", kind: "emptyArea", css: `${R} [data-ry-section="clients"] .ry-crow .ry-crow-when { grid-area: req !important; }` },
     // дыра в сетке плиток главной
     { url: "/", ready: ".ry-strip", kind: "hole", css: `${R} [data-ry-section="home"] .ry-strip > .ry-tile:last-child { grid-column: 1 / -1 !important; }` },
   ];
