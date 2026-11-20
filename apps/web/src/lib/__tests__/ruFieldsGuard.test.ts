@@ -19,11 +19,7 @@ const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const IMPLEMENTATION = ["components/look/fields/RuFields.tsx", "components/look/RhAudioPlayer.tsx"];
 
 /** Исключения: файл → причина. Список только убывает. */
-const AUDIO_EXCEPTIONS: Record<string, string> = {
-  // Запасной вариант «запись не заиграла» в озвучке объекта: ветка fix/look-cards-20-11 (#338) заменяет его ссылкой «Открыть запись».
-  // При сведении с #338 строку убрать отсюда: файла с `<audio controls>` там не останется.
-  "components/PropertyNarrationManager.tsx": "заменяет #338 (fix/look-cards-20-11)",
-};
+const AUDIO_EXCEPTIONS: Record<string, string> = {};
 const FIELD_EXCEPTIONS: Record<string, string> = {};
 
 function sourceFiles(dir: string): string[] {

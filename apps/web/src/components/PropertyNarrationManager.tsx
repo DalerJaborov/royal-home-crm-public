@@ -1,3 +1,4 @@
+import { RhAudioPlayer } from "./look/RhAudioPlayer";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -202,7 +203,7 @@ export function NarrationPlayer({ load, knownSec, primary, disabled, prefetch, l
   if (state === "fallback" && url.current) return (
     <div className="space-y-2">
       <p className="text-base text-[var(--muted)]">{hint}</p>
-      <audio className="w-full" controls src={url.current} />
+      <RhAudioPlayer src={url.current} preload="metadata" label="Озвучка" knownSec={knownSec} className="w-full" />
     </div>
   );
   const buttonLabel = state === "loading" ? "Загружаем…" : playing ? "Пауза" : state === "paused" && pos > 0 ? "Дальше" : label;
