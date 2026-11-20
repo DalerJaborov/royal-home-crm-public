@@ -99,7 +99,7 @@ describe("Звонок = принятие лида", () => {
     const reloaded = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
     expect(reloaded.acceptedAt).toBeTruthy();
     const accepted = await prisma.interaction.findFirst({
-      where: { clientId: client.id, type: "SYSTEM", notes: { contains: "принят агентом" } },
+      where: { clientId: client.id, type: "SYSTEM", notes: { contains: "принята агентом" } },
     });
     expect(accepted).toBeTruthy();
   });

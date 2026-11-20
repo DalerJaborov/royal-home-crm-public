@@ -900,14 +900,13 @@ export async function runStationHealthTick(now: Date = new Date()): Promise<Stat
      * Разбор эталона и почему это сторож, а не запрет: telephonyBaseline.ts.
      */
     const drift = await collectBaselineDrift(amiCreds ?? null);
-    if (drift.length > 0) {
-      checks.push({
-        name: BASELINE_CHECK_NAME,
-        ok: false,
-        detail: describeDrift(drift),
-        cls: "config",
-      });
-    }
+    // Строка пишется и когда расхождений нет (ok: true): иначе снимок здоровья остаётся красным навсегда после починки.
+    checks.push({
+      name: BASELINE_CHECK_NAME,
+      ok: drift.length === 0,
+      detail: drift.length === 0 ? "настройки звонков на месте" : describeDrift(drift),
+      cls: "config",
+    });
   } catch (err) {
     // Сюда попадает только сбой самого обхода (не отдельной проверки — они сами
     // ловят свои ошибки): не роняем тик, но оставляем след в журнале.

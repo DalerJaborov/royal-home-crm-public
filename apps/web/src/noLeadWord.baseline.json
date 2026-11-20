@@ -1,4 +1,5 @@
 {
+ "_scope": "multiline-v2",
  "api/ai/customerAgentToolDefinitions.ts": 1,
  "api/ai/leadQualifier.ts": 2,
  "api/ai/vacancyFacts.ts": 2,

@@ -127,7 +127,7 @@ describe("правило первого звонка на краях дня", ()
     });
     expect(note?.notes).toContain("иначе руководитель увидит, что звонка не было");
     expect(note?.notes).not.toContain("Royal Score");
-    expect(note?.notes).not.toContain("лид уйдёт");
+    expect(note?.notes).not.toContain("заявка уйдёт");
   });
 
   it("окно кандидатов утром отодвинуто к вечеру, днём прежнее", () => {

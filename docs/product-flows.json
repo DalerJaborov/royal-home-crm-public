@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4192,
+  "forks": 4191,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -115758,21 +115758,6 @@
             "зовёт collectBaselineDrift()"
            ],
            "c": []
-          },
-          {
-           "k": "if",
-           "t": "drift.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "checks.push({ name: BASELINE_CHECK_NAME, ok: false, detail: describeDrift(drift), cls: \"config\", });",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
           }
          ]
         },

@@ -243,7 +243,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
             lead,
             lead.assignedAgentId, // агент объекта остаётся — эскалации ещё нет
             { ownPropertyReminderSentAt: new Date() },
-            `Клиент по вашему объекту не принят за ${minutes} мин — напоминание хозяину, эскалация только при продолжающемся молчании`,
+            `Клиент по вашему объекту не принята за ${minutes} мин — напоминание хозяину, эскалация только при продолжающемся молчании`,
             "reassignment.ownPropertyRemind",
             lead.assignedAgentId!
           );
@@ -438,7 +438,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         lead,
         nextAgentId,
         { assignedAt: new Date(), reassignCount: { increment: 1 }, triedAgentIds: triedNow },
-        `Заявка переназначена автоматически: не принят за ${minutes} мин`,
+        `Заявка переназначена автоматически: не принята за ${minutes} мин`,
         "reassignment.stale",
         nextAgentId
       );
@@ -838,7 +838,7 @@ export async function assignPendingLeads(): Promise<number> {
       const moved = await changeClientAgent({
         clientId: lead.id,
         toAgentId: agentId,
-        reason: "Заявка назначена утренней волной распределения (поступил вне рабочих часов)",
+        reason: "Заявка назначена утренней волной распределения (поступила вне рабочих часов)",
         actorId: null,
         interactionAgentId: agentId,
         source: "reassignment.wave",

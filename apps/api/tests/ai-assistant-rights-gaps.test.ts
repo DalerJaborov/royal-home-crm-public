@@ -442,7 +442,7 @@ describe("промт и инструменты — из прав актора", 
     expect(tools).not.toContain("get_lead_sources");
     expect(tools).toContain("create_task");
     expect(system).toContain("- Клиенты —");
-    for (const section of ["- Финансы —", "- Отчёты —", "- Источники лидов —", "- Настройки CRM —", "- Изменения на сайте —"]) {
+    for (const section of ["- Финансы —", "- Отчёты —", "- Источники заявок —", "- Настройки CRM —", "- Изменения на сайте —"]) {
       expect(system).not.toContain(section);
     }
     expect(system).not.toContain("{{SECTIONS}}");

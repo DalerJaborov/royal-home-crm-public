@@ -16,10 +16,10 @@
   "paths": 788,
   "cron": 143,
   "jobs": 34,
-  "conditions": 4165,
+  "conditions": 4164,
   "untranslatedUnique": 476,
   "untranslatedTotal": 612,
-  "partialUnique": 1124,
+  "partialUnique": 1123,
   "translatedShare": 85
  },
  "untranslated": [
@@ -76894,13 +76894,6 @@
           },
           {
            "t": "если есть silence",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если drift количество больше 0",
            "k": "if",
            "a": [],
            "c": [],
