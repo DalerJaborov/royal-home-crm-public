@@ -879,10 +879,13 @@
   box-shadow: inset 0 0 0 1px var(--rh-ui-field-line);
 }
 /* Выпадающий список не режет выбранное: ширина по содержимому, не шире строки. */
-/* Ширина по содержимому (field-sizing), но не уже 12em: короткие пункты не дёргают ширину при
-   выборе, а где field-sizing нет (Safari) — список держит ту же ширину-запас. */
-:root[data-ui-look="royal"] :where(select) { min-width: min(100%, 12em); max-width: 100%; text-overflow: clip; field-sizing: content; }
-:root[data-ui-look="royal"] .clean-shell .clean .clean-decision-select { max-width: 100%; font-size: var(--rh-fs-md); text-overflow: clip; field-sizing: content; }
+/* Выпадающий список не шире строки и не режет многоточием. Ширину по содержимому (field-sizing)
+   общим правилом не ставим: список прыгал бы шириной при каждом выборе и выталкивал соседей за
+   край (карточка клиента на 320, ревью #337). Где выбранное длинное — своё правило ниже. */
+:root[data-ui-look="royal"] :where(select) { min-width: 0; max-width: 100%; text-overflow: clip; }
+/* «Нужно ваше решение»: выбор агента — во всю строку действий (по содержимому, не уже 12em —
+   запас там, где field-sizing нет), имя и число в работе целиком. */
+:root[data-ui-look="royal"] .clean-shell .clean .clean-decision-select { min-width: min(100%, 12em); max-width: 100%; font-size: var(--rh-fs-md); text-overflow: clip; field-sizing: content; }
 :root[data-ui-look="royal"] .clean-shell .clean .clean-decision-actions > .clean-decision-select { flex: 1 1 auto; }
 
 /* Ссылка «Все» у раздела — цель не уже 44 px. */

@@ -371,8 +371,8 @@
 /* Вкладки внутри экрана (разделы «Моего профиля») переносятся на всех ширинах: лента без
    полосы прокрутки прятала бы хвост и на ПК, и на 320 (тот же урок, что ревью PR #305). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .hscroll { overflow-x: visible; margin: 0; padding: 2px 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg {
-  display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; background: var(--rh-seg-track); box-shadow: none;
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg:not(.rh-tabs) {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .hscroll .seg { flex-wrap: wrap; width: auto; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button {
@@ -382,7 +382,13 @@
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .seg > button { white-space: normal; text-align: left; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button:hover:not(:disabled) { background: var(--rh-ui-hover); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button[aria-selected="true"] { background: var(--rh-seg-on); color: var(--rh-seg-on-fg); box-shadow: var(--rh-seg-on-shadow); }
+/* Здесь .seg — набор отдельных меток с переносом (много вариантов), а не капсула: выбранная —
+   как выбранная вкладка, мягкий синий (белая на белых метках была бы не видна). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg:not(.rh-tabs) > button[aria-selected="true"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg.rh-tabs { flex-wrap: wrap; overflow: visible; background: transparent; box-shadow: none; }
+/* Разделы профиля и настроек — вкладки (Tabs), а не переключатель: без трека, выбранная — мягкий синий. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg.rh-tabs > button[aria-selected="true"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg.rh-tabs > button[aria-selected="true"]:is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button .n {
   display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
