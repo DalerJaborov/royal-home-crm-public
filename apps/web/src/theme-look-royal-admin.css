@@ -78,11 +78,11 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .pg-h { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 16px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .pg-h > div:first-child { flex: 1 1 320px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .pg-h h1 {
-  margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text); text-wrap: balance;
+  margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text); text-wrap: balance;
 }
-:root[data-ui-look="royal"][data-mobile-ux] .ry-admin[data-ry-section="admin"] .pg-h h1 { font-size: 28px; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-admin[data-ry-section="admin"] .pg-h h1 { font-size: var(--rh-fs-2xl); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .pg-h .sub {
-  margin: 8px 0 0; max-width: 68ch; font-size: 16px; line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty;
+  margin: 8px 0 0; max-width: 68ch; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); text-wrap: pretty;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .pg-h .acts { display: flex; flex-wrap: wrap; gap: 8px; flex: none; }
 
@@ -92,9 +92,9 @@
   margin: 0; padding: 2px; background: transparent; border: 0; box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .seg-ai > a {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: var(--rh-r-full);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring);
-  font-size: 15px; font-weight: 600; text-decoration: none; white-space: nowrap;
+  font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none; white-space: nowrap;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .seg-ai > a:hover { background: var(--rh-ui-hover); }
 /* От 820 px (ниже ScreenTabs сам ставит выбор вместо длинной полосы) ряд вкладок переносится,
@@ -103,18 +103,18 @@
 @media (min-width: 820px) {
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .seg-ai { flex-wrap: wrap; overflow-x: visible; }
 }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .seg-ai > a[aria-current="page"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .seg-ai > a[aria-current="page"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .seg-ai > a:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .seg-ai > a .n {
-  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
-  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
 }
 /* Число на вкладке — нейтральное: «Вакансии 0» красным кружком выглядело бы тревогой. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .seg-ai > a[aria-current="page"] .n { background: color-mix(in srgb, currentColor 18%, transparent); color: inherit; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .clean-section-switcher { margin: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .clean-section-switcher select {
-  width: 100%; min-height: 52px; padding: 0 44px 0 20px; border: 0; border-radius: 999px;
-  background-color: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); font-size: 16px; font-weight: 600;
+  width: 100%; min-height: 52px; padding: 0 44px 0 20px; border: 0; border-radius: var(--rh-r-full);
+  background-color: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-field-line); font-size: var(--rh-fs-md); font-weight: 600;
 }
 
 /* ================================ плитки ================================ */
@@ -126,7 +126,7 @@
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile {
   position: relative; display: grid; align-content: start; gap: 4px; min-width: 0; min-height: 152px; margin: 0; padding: 16px 18px 18px;
-  border: 0; border-radius: var(--rh-ui-r-tile); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); text-align: left; text-decoration: none; font: inherit; cursor: pointer;
   white-space: normal; overflow-wrap: break-word;
   transition: transform 90ms cubic-bezier(.23, 1, .32, 1), box-shadow 160ms;
@@ -136,10 +136,10 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile .hd {
   display: grid; justify-items: start; gap: 10px; min-width: 0; margin: 0; padding-right: 22px;
-  font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-hint);
+  font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.3; color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile .hd .ic {
-  display: grid; place-items: center; width: 48px; height: 48px; margin: 0; border-radius: 999px;
+  display: grid; place-items: center; width: 48px; height: 48px; margin: 0; border-radius: var(--rh-r-full);
   background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile:nth-child(6n + 2) .hd .ic { background: var(--rh-ui-a1); color: var(--rh-ui-a1f); }
@@ -153,18 +153,18 @@
   position: absolute; top: 18px; right: 16px; width: 18px; height: 18px; margin: 0; color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile b {
-  display: block; margin: 6px 0 0; min-width: 0; font-family: var(--rh-ui-font-num); font-size: 40px; font-weight: 700;
+  display: block; margin: 6px 0 0; min-width: 0; font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-4xl); font-weight: 700;
   letter-spacing: -.035em; line-height: 1; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile small {
-  display: block; margin: 4px 0 0; font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); text-wrap: pretty;
+  display: block; margin: 4px 0 0; font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); text-wrap: pretty;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile small.crit { color: var(--rh-ui-crit-text); font-weight: 700; }
 
 /* ================================ карточки ================================ */
 
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .card {
-  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-ui-r-card);
+  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
   min-width: 0; overflow-wrap: break-word;
 }
@@ -172,7 +172,7 @@
 /* Карточка внутри карточки (кабинет Royal Score, вложенные блоки входа) — плоская светлая плита, без второй тени. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .card .card,
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .card {
-  margin: 0; padding: 16px; border: 0; border-radius: 20px; background: var(--rh-ui-bg); box-shadow: none;
+  margin: 0; padding: 16px; border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-bg); box-shadow: none;
 }
 /* В карточке экрана вложенные идут стопкой с шагом 12; в шторке шаг даёт её сетка. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .card .card { margin-top: 12px; }
@@ -191,32 +191,32 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .card .sec-h { margin: 8px 0 4px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] :is(.sec-h, .sec-t) h2,
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .card > h2 {
-  margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); text-wrap: balance;
+  margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); text-wrap: balance;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .sec-h .note,
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .sec-t .cnt,
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .note { font-size: 15px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .note { font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .sec-t {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 12px 0 0;
-  font-size: 15px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr h3,
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet h3 { margin: 16px 0 4px; font-size: 17px; font-weight: 700; line-height: 1.3; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet h3 { margin: 16px 0 4px; font-size: var(--rh-fs-lg); font-weight: 700; line-height: 1.3; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr :is(p, label, small, blockquote),
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet :is(p, label, small, blockquote) { font-size: max(1em, 14px); line-height: 1.5; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet :is(p, label, small, blockquote) { font-size: var(--rh-fs-md); line-height: 1.5; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr p.sub,
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet p.sub { margin: 6px 0 8px; font-size: 15px; line-height: 1.5; color: var(--rh-ui-hint); text-wrap: pretty; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet p.sub { margin: 6px 0 8px; font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-hint); text-wrap: pretty; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr blockquote,
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet blockquote {
-  margin: 8px 0; padding: 10px 14px; border-left: 3px solid var(--rh-ui-sep); border-radius: 0 12px 12px 0; background: var(--rh-ui-bg); font-size: 15px; color: var(--rh-ui-text);
+  margin: 8px 0; padding: 10px 14px; border-left: 3px solid var(--rh-ui-sep); border-radius: 0 var(--rh-r-md) var(--rh-r-md) 0; background: var(--rh-ui-bg); font-size: var(--rh-fs-md); color: var(--rh-ui-text);
 }
 
 /* Раскрывашки («Все фоновые задачи» в «Состоянии функций»): заголовок — строка 44+. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr details > summary,
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet details > summary {
-  display: list-item; min-height: 44px; padding: 10px 0; font-size: 17px; font-weight: 600; line-height: 1.35; color: var(--rh-ui-text); cursor: pointer;
+  display: list-item; min-height: 44px; padding: 10px 0; font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.35; color: var(--rh-ui-text); cursor: pointer;
 }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr details > summary:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: 8px; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr details > summary:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: var(--rh-r-sm); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr details.card { padding: 8px 20px 12px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .card details.card { padding: 6px 16px 12px; }
 
@@ -228,23 +228,23 @@
 /* Подсказка «только на телефоне» (.only-narrow) остаётся скрытой на ПК правилом прежней темы:
    форму строки ей даём, а видимость — только на узком экране. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet:not(.only-narrow) { display: flex; }
-@media (max-width: 820px) {
+@media (max-width: 819.98px) {
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet.only-narrow { display: flex; }
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet {
   flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; min-height: 52px; margin: 0; padding: 8px 0;
-  border: 0; border-radius: 0; background: transparent; font-size: 16px; line-height: 1.45; color: var(--rh-ui-text);
+  border: 0; border-radius: 0; background: transparent; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .card.tight > .quiet { min-height: 60px; padding: 10px 0; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .card.tight > .quiet:first-child { box-shadow: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet .txt {
-  flex: 1 1 220px; min-width: 0; font-size: 16px; line-height: 1.45; color: inherit; overflow-wrap: anywhere; text-wrap: pretty;
+  flex: 1 1 220px; min-width: 0; font-size: var(--rh-fs-md); line-height: 1.45; color: inherit; overflow-wrap: anywhere; text-wrap: pretty;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet.crit .txt { color: var(--rh-ui-crit-text); font-weight: 500; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet.warn .txt { color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet:is(.crit, .warn)::before {
-  content: "!"; display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 999px;
-  font-size: 16px; font-weight: 800; line-height: 1; font-family: var(--rh-ui-font-num);
+  content: "!"; display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: var(--rh-r-full);
+  font-size: var(--rh-fs-md); font-weight: 800; line-height: 1; font-family: var(--rh-ui-font-num);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet.crit::before { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet.warn::before {
@@ -254,7 +254,7 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet:is(.crit, .warn):has(> .dot)::before { content: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet > .dot,
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .state > .dot {
-  flex: none; width: 12px; height: 12px; border-radius: 999px; background: var(--rh-ui-hint); box-shadow: none;
+  flex: none; width: 12px; height: 12px; border-radius: var(--rh-r-full); background: var(--rh-ui-hint); box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr :is(.quiet, .state) > .dot.crit { width: 14px; height: 14px; background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr :is(.quiet, .state) > .dot.warn { background: var(--rh-ui-warn-soft); box-shadow: inset 0 0 0 2px var(--rh-ui-warn); }
@@ -271,9 +271,9 @@
   text-underline-offset: 3px; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr a.lk:hover { text-decoration-color: currentColor; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr :is(a.lk, .lnk, a):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: 4px; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr :is(a.lk, .lnk, a):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: var(--rh-r-sm); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr :is(.quiet, .state) .lnk {
-  display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; color: var(--rh-ui-primary-ink); font-size: 15px; font-weight: 700; text-decoration: none;
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; color: var(--rh-ui-primary-ink); font-size: var(--rh-fs-md); font-weight: 700; text-decoration: none;
 }
 /* «Повторить» в строке ошибки: кнопка-ссылка (button.lk) — зона нажатия 44. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .state button.lk { display: inline-flex; align-items: center; min-height: 44px; padding: 0 6px; font-weight: 700; }
@@ -281,19 +281,19 @@
 /* Загрузка, отказ, пусто. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .state {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 52px; margin: 0; padding: 8px 0;
-  font-size: 15px; font-weight: 500; line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere;
+  font-size: var(--rh-fs-md); font-weight: 500; line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .state.err { color: var(--rh-ui-crit-text); font-weight: 600; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .sec > p.state { min-height: 0; padding: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .empty {
-  display: grid; justify-items: center; gap: 12px; padding: 28px 16px; text-align: center; font-size: 16px; color: var(--rh-ui-hint);
+  display: grid; justify-items: center; gap: 12px; padding: 28px 16px; text-align: center; font-size: var(--rh-fs-md); color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .empty .ic {
-  display: grid; place-items: center; width: 60px; height: 60px; border-radius: 999px; background: var(--rh-ui-a2); color: var(--rh-ui-a2f);
+  display: grid; place-items: center; width: 60px; height: 60px; border-radius: var(--rh-r-full); background: var(--rh-ui-a2); color: var(--rh-ui-a2f);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .empty .ic svg { width: 28px; height: 28px; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .empty :is(p, b) { margin: 0; max-width: 52ch; font-size: 16px; line-height: 1.5; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .empty .sub { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .empty :is(p, b) { margin: 0; max-width: 52ch; font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .empty .sub { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 
 /* Строки списка (каналы, устройства, история входов, функции): круг 48, две строки, справа метка и одно действие. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list { display: block; margin: 0; padding: 0; border: 0; background: transparent; }
@@ -304,26 +304,26 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row:first-child { box-shadow: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .t { display: grid; gap: 3px; flex: 1 1 160px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .t > b {
-  font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere;
+  font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere;
 }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .t > span { font-size: 15px; line-height: 1.4; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .t > span { font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .t > span.quiet.crit {
-  display: block; min-height: 0; padding: 0; font-size: 15px; font-weight: 500; color: var(--rh-ui-crit-text);
+  display: block; min-height: 0; padding: 0; font-size: var(--rh-fs-md); font-weight: 500; color: var(--rh-ui-crit-text);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .t > span.quiet.crit::before { content: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .meta {
-  flex: none; font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums;
+  flex: none; font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > :is(.dot, svg) { flex: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .ic {
-  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 999px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
 }
 
 /* ================================ метки ================================ */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .chip {
-  display: inline-flex; align-items: center; gap: 5px; min-height: 28px; height: auto; padding: 3px 10px; border: 0; border-radius: 999px;
-  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: 13px; font-weight: 700; line-height: 1.25; white-space: normal;
+  display: inline-flex; align-items: center; gap: 5px; min-height: 28px; height: auto; padding: 3px 10px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-xs); font-weight: 700; line-height: 1.25; white-space: normal;
   font-variant-numeric: tabular-nums; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .chip.mute { background: var(--rh-ui-raised); color: var(--rh-ui-hint); }
@@ -339,14 +339,14 @@
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; height: auto; padding: 0 20px;
-  border: 0; border-radius: 999px; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
-  font: inherit; font-size: 15px; font-weight: 600; line-height: 1.25; text-decoration: none; white-space: normal; box-shadow: none; cursor: pointer;
+  border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.25; text-decoration: none; white-space: normal; box-shadow: none; cursor: pointer;
   transition: transform 90ms cubic-bezier(.23, 1, .32, 1), background-color 160ms;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill.ghost:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) {
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rh-ui-text) 14%, transparent);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill.sm:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) { padding: 0 16px; font-size: 14px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill.sm:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)) { padding: 0 16px; font-size: var(--rh-fs-sm); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, .ghost)):hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill.ghost:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab)):hover:not(:disabled) { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill:active:not(:disabled) { transform: scale(.97); }
@@ -356,8 +356,8 @@
 /* Голые кнопки вложенных блоков (без своего класса) — тихие таблетки 44. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr :is(details, article, section, .card) button:not([class]):not(.seg > button, .modes > button):not(:is(.danger, .crit, .warn, .ok, .gold, .hot)),
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .sheet-b button:not([class]):not(.seg > button, .modes > button):not(:is(.danger, .crit, .warn, .ok, .gold, .hot)) {
-  display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
-  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-ring); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-ring); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr :is(details, article, section, .card) button:not([class]):not(.seg > button, .modes > button):not(:is(.danger, .crit, .warn, .ok, .gold, .hot)):hover:not(:disabled),
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .sheet-b button:not([class]):not(.seg > button, .modes > button):not(:is(.danger, .crit, .warn, .ok, .gold, .hot)):hover:not(:disabled) { background: var(--rh-ui-hover); }
@@ -371,29 +371,36 @@
 /* Вкладки внутри экрана (разделы «Моего профиля») переносятся на всех ширинах: лента без
    полосы прокрутки прятала бы хвост и на ПК, и на 320 (тот же урок, что ревью PR #305). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .hscroll { overflow-x: visible; margin: 0; padding: 2px 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg {
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg:not(.rh-tabs) {
   display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .hscroll .seg { flex-wrap: wrap; width: auto; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-ring);
-  font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; cursor: pointer;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .seg > button { white-space: normal; text-align: left; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button:hover:not(:disabled) { background: var(--rh-ui-hover); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button[aria-selected="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
+/* Здесь .seg — набор отдельных меток с переносом (много вариантов), а не капсула: выбранная —
+   как выбранная вкладка, мягкий синий (белая на белых метках была бы не видна). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg:not(.rh-tabs) > button:is([aria-selected="true"], [aria-pressed="true"]) { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg:not(.rh-tabs) > button:is([aria-selected="true"], [aria-pressed="true"]):is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg.rh-tabs { flex-wrap: wrap; overflow: visible; background: transparent; box-shadow: none; }
+/* Разделы профиля и настроек — вкладки (Tabs), а не переключатель: без трека, выбранная — мягкий синий. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg.rh-tabs > button[aria-selected="true"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg.rh-tabs > button[aria-selected="true"]:is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .seg > button .n {
-  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
-  background: color-mix(in srgb, currentColor 14%, transparent); color: inherit; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
+  background: color-mix(in srgb, currentColor 14%, transparent); color: inherit; font-size: var(--rh-fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
 }
 
 /* ================================== поля ================================== */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.scr, .sheet) :is(select, textarea, input:is([type="number"], [type="text"], [type="search"], :not([type]))) {
-  min-height: 48px; padding: 10px 16px; border: 0; border-radius: 16px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
-  box-shadow: inset 0 0 0 1px var(--rh-ui-ring); font: inherit; font-size: 16px; line-height: 1.4; max-width: 100%;
+  min-height: 48px; padding: 10px 16px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-bg); color: var(--rh-ui-text);
+  box-shadow: inset 0 0 0 1px var(--rh-ui-field-line); font: inherit; font-size: var(--rh-fs-md); line-height: 1.4; max-width: 100%;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.scr, .sheet) textarea { min-height: 96px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.scr, .sheet) :is(select, textarea, input):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 1px; }
@@ -401,10 +408,10 @@
 /* Подпись поля над полем. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr :is(details, section, .card) label:has(> :is(select, textarea, input:not([type="checkbox"]))),
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet label:has(> :is(select, textarea, input:not([type="checkbox"]))) {
-  display: grid; gap: 6px; min-width: 0; font-size: 14px; font-weight: 600; color: var(--rh-ui-text);
+  display: grid; gap: 6px; min-width: 0; font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.scr, .sheet) label:has(> input[type="checkbox"]) {
-  display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 10px 0; font-size: 15px; line-height: 1.45;
+  display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 10px 0; font-size: var(--rh-fs-md); line-height: 1.45;
 }
 
 /* ================================== шторки ================================== */
@@ -412,33 +419,33 @@
    Нижние отступы .sheet-f/.sheet-b (запас под полоску iPhone) не трогаем. */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet {
-  border-radius: 28px; background: var(--rh-ui-card); color: var(--rh-ui-text);
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet.bottom { border-radius: 28px 28px 0 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet.bottom { border-radius: var(--rh-r-lg) var(--rh-r-lg) 0 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .sheet-h h2,
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .sheet-h h3 { font-size: 22px; font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .sheet-b { color: var(--rh-ui-text); font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .sheet-h h3 { font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .sheet-b { color: var(--rh-ui-text); font-size: var(--rh-fs-md); line-height: 1.5; overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet .sec-t {
-  margin: 16px 0 8px; font-size: 15px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
+  margin: 16px 0 8px; font-size: var(--rh-fs-md); font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
 }
 
 /* ================================ телефон ================================ */
 
-@media (max-width: 640px) {
+@media (max-width: 767.98px) {
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile { min-height: 140px; padding: 14px 14px 16px; }
-  :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile b { font-size: 32px; }
-  :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile small { font-size: 13px; }
+  :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile b { font-size: var(--rh-fs-3xl); }
+  :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile small { font-size: var(--rh-fs-xs); }
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .card { padding: 16px; }
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .card.tight { padding: 4px 16px; }
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr details.card { padding: 6px 16px 12px; }
-  :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .pg-h .sub { font-size: 15px; }
+  :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .pg-h .sub { font-size: var(--rh-fs-md); }
   /* Строка с кругом: круг у первой строки текста, время и кнопка — под текстом, с его отступа. */
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row { align-items: flex-start; }
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row:has(> .ry-circle) > .meta { margin-left: 60px; align-self: center; }
 }
-@media (max-width: 360px) {
-  :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile b { font-size: 28px; }
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile b { font-size: var(--rh-fs-2xl); }
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .tiles .tile .hd { padding-right: 0; }
 }
 
@@ -453,26 +460,26 @@
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .pg-h .lnk {
-  display: inline-flex; align-items: center; min-height: 44px; padding: 0; color: var(--rh-ui-primary-ink); font-size: 15px; font-weight: 600; text-decoration: none;
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0; color: var(--rh-ui-primary-ink); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .pg-h .lnk svg { width: 20px; height: 20px; }
 
 /* ================== своя разметка нового вида: карточка, пусто ================== */
 
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-card {
-  display: grid; gap: 12px; align-content: start; min-width: 0; margin: 0; padding: 20px; border-radius: var(--rh-ui-r-card);
+  display: grid; gap: 12px; align-content: start; min-width: 0; margin: 0; padding: 20px; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-card h2 {
-  margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); text-wrap: balance;
+  margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); text-wrap: balance;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-head-t { display: grid; justify-items: start; gap: 6px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-sec-h { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; min-width: 0; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-sec-h > span { font-size: 15px; line-height: 1.4; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-text { margin: 0; font-size: 16px; line-height: 1.5; color: var(--rh-ui-text); text-wrap: pretty; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-text.ry-adm-hint { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-sec-h > span { font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-text { margin: 0; font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-text); text-wrap: pretty; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-text.ry-adm-hint { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-text[data-tone="crit"] { color: var(--rh-ui-crit-text); font-weight: 600; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-acts { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; margin-top: 4px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-acts .ry-btn { white-space: normal; text-align: center; }
@@ -489,41 +496,41 @@
 
 /* Состояние канала: норма — зелёная плашка, ошибка — сплошная красная, не настроен — спокойная серая. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-state {
-  display: inline-flex; align-items: center; min-height: 28px; padding: 3px 12px; border-radius: 999px;
-  background: var(--rh-ui-raised); color: var(--rh-ui-hint); font-size: 14px; font-weight: 700; line-height: 1.25;
+  display: inline-flex; align-items: center; min-height: 28px; padding: 3px 12px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-hint); font-size: var(--rh-fs-sm); font-weight: 700; line-height: 1.25;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-state[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-state[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
 
 /* Пустое состояние макета: круг 60, заголовок, строка, кнопка («Страница не найдена», «Новых уведомлений нет»). */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-empty {
-  display: grid; justify-items: center; gap: 12px; min-width: 0; margin: 0; padding: 40px 20px; border-radius: var(--rh-ui-r-card);
+  display: grid; justify-items: center; gap: 12px; min-width: 0; margin: 0; padding: 40px 20px; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); text-align: center;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-empty :is(h1, h2) {
-  margin: 4px 0 0; font-size: 24px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); text-wrap: balance;
+  margin: 4px 0 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); text-wrap: balance;
 }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-empty p { margin: 0; max-width: 52ch; font-size: 16px; line-height: 1.5; color: var(--rh-ui-hint); text-wrap: pretty; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-empty p { margin: 0; max-width: 52ch; font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-hint); text-wrap: pretty; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-empty .ry-btn { margin-top: 8px; }
 
 /* ============================ «Права по ролям» ============================ */
 /* Таблица роль на роль: на узком экране прокручивается вбок, название слева стоит на месте. */
 
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx-lgd {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 10px 0; font-size: 15px; line-height: 1.4; color: var(--rh-ui-text);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 10px 0; font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx-lgd > span { display: inline-flex; align-items: center; gap: 8px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mk {
   display: inline-flex; align-items: center; justify-content: center; min-width: 52px; min-height: 28px; height: auto; padding: 3px 10px;
-  border-radius: 999px; font-size: 13px; font-weight: 700; line-height: 1.25;
+  border-radius: var(--rh-r-full); font-size: var(--rh-fs-xs); font-weight: 700; line-height: 1.25;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mk.y { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mk.n { background: transparent; color: var(--rh-ui-hint); box-shadow: inset 0 0 0 1px var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mk.p { background: var(--rh-ui-info-soft); color: var(--rh-ui-info); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .tbl-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx { font-size: 15px; border-collapse: separate; border-spacing: 0; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx { font-size: var(--rh-fs-md); border-collapse: separate; border-spacing: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > thead > tr > th {
-  padding: 10px 4px; font-size: 13px; font-weight: 700; line-height: 1.25; color: var(--rh-ui-hint); background: var(--rh-ui-card);
+  padding: 10px 4px; font-size: var(--rh-fs-xs); font-weight: 700; line-height: 1.25; color: var(--rh-ui-hint); background: var(--rh-ui-card);
   white-space: normal; overflow-wrap: normal; hyphens: manual;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > thead > tr > th.nm { min-width: 240px; }
@@ -532,11 +539,11 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx :is(th, td).nm {
   position: sticky; left: 0; z-index: 1; padding-left: 0; padding-right: 12px; background: var(--rh-ui-card);
 }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr > td.nm > b { font-size: 16px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr > td.nm > span { display: block; margin-top: 2px; font-size: 13px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr > td.nm > b { font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr > td.nm > span { display: block; margin-top: 2px; font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr.grp > td { height: auto; padding: 24px 0 8px; border-top: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr.grp > td > b {
-  font-size: 16px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
 }
 
 /* ============================ «Состояние функций» ============================ */
@@ -544,36 +551,36 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-filters { display: flex; flex-wrap: wrap; gap: 8px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .chip.fs-filter {
   min-height: 44px; padding: 0 16px; background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-ring);
-  font: inherit; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer;
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .chip.fs-filter:hover { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .chip.fs-filter[aria-pressed="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .chip.fs-filter:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row.fs-item { align-items: flex-start; gap: 8px 14px; padding: 16px 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .row.fs-item > .fs-body { display: grid; gap: 6px; flex: 1 1 160px; min-width: 0; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .row.fs-item > .fs-body > b { font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); white-space: normal; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .row.fs-item > .fs-body > b { font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); white-space: normal; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-body p { margin: 0; overflow-wrap: anywhere; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-what { font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-reason { font-size: 16px; line-height: 1.45; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-detail { font-size: 15px; line-height: 1.45; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-err { display: block; margin: 0; font-size: 15px; font-weight: 600; line-height: 1.45; color: var(--rh-ui-crit-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-what { font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-reason { font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-detail { font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-err { display: block; margin: 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.45; color: var(--rh-ui-crit-text); overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 2px 0 0; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-env { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-env { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-code {
-  padding: 2px 8px; border-radius: 8px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere;
+  padding: 2px 8px; border-radius: var(--rh-r-sm); background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--rh-fs-xs); overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-foot .lnk {
-  display: inline-flex; align-items: center; min-height: 44px; color: var(--rh-ui-primary-ink); font-size: 15px; font-weight: 600; text-decoration: none;
+  display: inline-flex; align-items: center; min-height: 44px; color: var(--rh-ui-primary-ink); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-crons { display: grid; gap: 0; margin: 4px 0 0; padding: 0; list-style: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-cron {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 52px; padding: 8px 0;
-  font-size: 15px; line-height: 1.4; color: var(--rh-ui-text); box-shadow: inset 0 1px 0 var(--rh-ui-sep);
+  font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-text); box-shadow: inset 0 1px 0 var(--rh-ui-sep);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-cron-name { flex: 1 1 14em; min-width: 0; font-weight: 600; overflow-wrap: anywhere; white-space: normal; overflow: visible; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-cron-when { font-size: 14px; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-cron-when { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-cron > .fs-err { flex: 1 1 100%; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fs-crons-all { padding: 0; }
 
@@ -591,7 +598,7 @@
 
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-sec { gap: 4px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-day { display: grid; min-width: 0; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-day-h { margin: 14px 0 2px; font-size: 14px; font-weight: 700; line-height: 1.3; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-day-h { margin: 14px 0 2px; font-size: var(--rh-fs-sm); font-weight: 700; line-height: 1.3; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf {
   display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 14px; min-width: 0; min-height: var(--rh-ui-row-h); padding: 12px 0;
   box-shadow: inset 0 1px 0 var(--rh-ui-sep);
@@ -600,20 +607,20 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-t { display: grid; justify-items: start; gap: 4px; flex: 1 1 160px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-title {
   display: block; min-height: 44px; margin: -10px 0 -8px; padding: 10px 0 8px; border: 0; background: transparent; color: var(--rh-ui-text);
-  font: inherit; font-size: 17px; font-weight: 700; line-height: 1.3; text-align: left; overflow-wrap: anywhere; cursor: pointer;
+  font: inherit; font-size: var(--rh-fs-lg); font-weight: 700; line-height: 1.3; text-align: left; overflow-wrap: anywhere; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf.done .ry-ntf-title { font-weight: 500; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-title:hover { text-decoration: underline; text-underline-offset: 3px; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-title:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: 6px; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-body { font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; text-wrap: pretty; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-title:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: var(--rh-r-sm); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-body { font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; text-wrap: pretty; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 2px; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-time { font-size: 14px; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-time { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-acts { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: 8px; flex: 0 1 auto; min-width: 0; }
 /* Ответ на предложение объекта — те же кнопки рядом с «Открыть», без своей обёртки-колонки. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-acts .offer-answer { display: contents; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-acts .offer-status {
-  min-height: 32px; padding: 5px 12px; border-radius: 999px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
-  font-size: 14px; font-weight: 600; white-space: normal;
+  min-height: 32px; padding: 5px 12px; border-radius: var(--rh-r-full); background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-sm); font-weight: 600; white-space: normal;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-acts .offer-status.ok { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding-top: 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
@@ -624,7 +631,7 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .seg.rh-tabs > button::after { content: none; }
 /* Выбранная вкладка под мышью остаётся тёмной: правило наведения прежней темы (`.rh-tabs button:hover`)
    красило её светлым фоном под белым текстом — подпись пропадала. */
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .seg.rh-tabs > button[aria-selected="true"]:is(:hover, :focus-visible, :active):not(:disabled) { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .seg.rh-tabs > button[aria-selected="true"]:is(:hover, :focus-visible, :active):not(:disabled) { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .seg.rh-tabs > button:not([aria-selected="true"]):hover:not(:disabled) { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .clean-profile-panel:not([hidden]) { display: grid; gap: 16px; min-width: 0; }
 
@@ -632,23 +639,23 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .prof-h { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px 16px; text-align: left; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .prof-h .who { flex: 1 1 220px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .prof-h .who h1 {
-  margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); overflow-wrap: anywhere;
+  margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); overflow-wrap: anywhere;
 }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .prof-h .who .sub { margin: 4px 0 0; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .prof-h .who .sub { margin: 4px 0 0; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .prof-h .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 
 /* Зелёная точка «в сети» у аватара (как в прежнем виде), с кольцом цвета карточки. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-av { position: relative; display: inline-grid; flex: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-pres {
-  position: absolute; right: -2px; bottom: -2px; width: 16px; height: 16px; border-radius: 999px;
+  position: absolute; right: -2px; bottom: -2px; width: 16px; height: 16px; border-radius: var(--rh-r-full);
   background: var(--rh-ui-ok); box-shadow: 0 0 0 3px var(--rh-ui-card);
 }
 
 /* Опасное действие («Да, отключить» двухфакторную защиту) — сплошное красное, как удаление. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill.danger {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; height: auto; padding: 0 16px;
-  border: 0; border-radius: 999px; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg);
-  font: inherit; font-size: 14px; font-weight: 600; line-height: 1.25; white-space: normal; box-shadow: none; cursor: pointer;
+  border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg);
+  font: inherit; font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.25; white-space: normal; box-shadow: none; cursor: pointer;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .pill.danger:focus-visible { outline: 2px solid var(--rh-ui-crit); outline-offset: 2px; }
 
@@ -659,20 +666,20 @@
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .card > .mod:first-child { box-shadow: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mod > .t { display: grid; gap: 3px; flex: 1 1 240px; min-width: 0; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mod > .t > b { font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mod > .t > span { margin: 0; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; text-wrap: pretty; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mod > .t > b { font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mod > .t > span { margin: 0; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); overflow-wrap: anywhere; text-wrap: pretty; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mod > .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mod > :is(.quiet, .msg) { flex: 1 1 100%; }
 
 /* Переключатель 56×34 (ProtoToggle `.tgl` и тумблер копий монтажа `.tg`): выкл — серый, вкл — синий. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .tgl { position: relative; display: inline-flex; align-items: center; width: 56px; height: 44px; flex: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .tgl i {
-  position: relative; display: block; width: 56px; height: 34px; border-radius: 999px; background: #7d8494; transition: background-color 160ms;
+  position: relative; display: block; width: 56px; height: 34px; border-radius: var(--rh-r-full); background: var(--rh-ui-switch-off); transition: background-color 160ms;
 }
-:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] .ry-admin[data-ry-section="admin"] .scr .tgl i { background: #6b7385; }
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] .ry-admin[data-ry-section="admin"] .scr .tgl i { background: var(--rh-ui-switch-off); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .tgl i::after {
-  content: ""; position: absolute; left: 3px; top: 3px; width: 28px; height: 28px; border-radius: 999px; background: #ffffff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .25); transition: transform 240ms cubic-bezier(.32, .72, 0, 1);
+  content: ""; position: absolute; left: 3px; top: 3px; width: 28px; height: 28px; border-radius: var(--rh-r-full); background: var(--rh-ui-on-color);
+  box-shadow: var(--rh-ui-shadow-sm); transition: transform 240ms cubic-bezier(.32, .72, 0, 1);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .tgl input:checked + i { background: var(--rh-ui-primary); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .tgl input:checked + i::after { transform: translateX(22px); }
@@ -682,12 +689,12 @@
   position: relative; display: inline-grid; place-items: center; flex: none; width: 56px; height: 44px; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr button.tg i {
-  position: relative; display: block; width: 56px; height: 34px; border-radius: 999px; background: #7d8494; transition: background-color 160ms;
+  position: relative; display: block; width: 56px; height: 34px; border-radius: var(--rh-r-full); background: var(--rh-ui-switch-off); transition: background-color 160ms;
 }
-:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] .ry-admin[data-ry-section="admin"] .scr button.tg i { background: #6b7385; }
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] .ry-admin[data-ry-section="admin"] .scr button.tg i { background: var(--rh-ui-switch-off); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr button.tg i::after {
-  content: ""; position: absolute; left: 3px; top: 3px; width: 28px; height: 28px; border-radius: 999px; background: #ffffff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .25); transition: transform 240ms cubic-bezier(.32, .72, 0, 1);
+  content: ""; position: absolute; left: 3px; top: 3px; width: 28px; height: 28px; border-radius: var(--rh-r-full); background: var(--rh-ui-on-color);
+  box-shadow: var(--rh-ui-shadow-sm); transition: transform 240ms cubic-bezier(.32, .72, 0, 1);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr button.tg[aria-checked="true"] i { background: var(--rh-ui-primary); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr button.tg[aria-checked="true"] i::after { transform: translateX(22px); }
@@ -696,17 +703,17 @@
 /* Режим темы (.modes): две плиты 20, выбранная — тёмное кольцо. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 12px; margin: 8px 0 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes > button {
-  display: grid; gap: 10px; min-height: 44px; padding: 12px; border: 0; border-radius: 20px; background: var(--rh-ui-bg);
+  display: grid; gap: 10px; min-height: 44px; padding: 12px; border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-bg);
   box-shadow: inset 0 0 0 1px var(--rh-ui-ring); text-align: left; font: inherit; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes > button[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--rh-ui-text); background: var(--rh-ui-card); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes > button:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes .sw2 { display: flex; height: 48px; border-radius: 14px; box-shadow: 0 0 0 1px var(--rh-ui-ring); }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes .sw2 > i:first-child { border-radius: 14px 0 0 14px; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes .sw2 > i:last-child { border-radius: 0 14px 14px 0; }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes .sw2 { display: flex; height: 48px; border-radius: var(--rh-r-md); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes .sw2 > i:first-child { border-radius: var(--rh-r-md) 0 0 var(--rh-r-md); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes .sw2 > i:last-child { border-radius: 0 var(--rh-r-md) var(--rh-r-md) 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes .sw2 > i { display: block; flex: 1 1 0; height: 100%; }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes > button b { font-size: 16px; font-weight: 600; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .saved { margin: 0; font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .modes > button b { font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .saved { margin: 0; font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .saved.on { color: var(--rh-ui-ok); font-weight: 600; }
 
 /* Личные данные (.fgrid/.fld): подпись 14 над полем 48. */
@@ -714,10 +721,10 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fgrid > .wide { grid-column: 1 / -1; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fgrid > .wide.wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.fld, .field) { display: grid; gap: 6px; min-width: 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.fld, .field) > .lab { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.fld, .field) > .lab { margin: 0; font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.3; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.scr, .sheet) :is(.inp, .fld input:not([type="checkbox"]):not([type="radio"]), .fld select, input[type="tel"], input[type="email"]) {
-  width: 100%; min-height: 48px; padding: 10px 16px; border: 0; border-radius: 16px; background: var(--rh-ui-bg); color: var(--rh-ui-text);
-  box-shadow: inset 0 0 0 1px var(--rh-ui-ring); font: inherit; font-size: 16px; line-height: 1.4;
+  width: 100%; min-height: 48px; padding: 10px 16px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-bg); color: var(--rh-ui-text);
+  box-shadow: inset 0 0 0 1px var(--rh-ui-field-line); font: inherit; font-size: var(--rh-fs-md); line-height: 1.4;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.scr, .sheet) :is(.inp, input, select)::placeholder { color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.scr, .sheet) :is(.inp, input, select):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 1px; }
@@ -726,18 +733,18 @@
 
 /* Устройства и ключи входа: круг 48 на спокойной пастели. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .av {
-  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 999px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .av svg { width: 24px; height: 24px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .list > .row > .act { display: flex; flex-wrap: wrap; gap: 8px; flex: none; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr p.state button.lk {
   display: inline-flex; align-items: center; min-height: 44px; padding: 0 6px; border: 0; background: transparent;
-  color: var(--rh-ui-primary-ink); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+  color: var(--rh-ui-primary-ink); font: inherit; font-size: var(--rh-fs-md); font-weight: 700; cursor: pointer;
 }
 
 /* ============================= телефон (пачка) ============================= */
 
-@media (max-width: 640px) {
+@media (max-width: 767.98px) {
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-card { padding: 16px; }
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-adm-empty { padding: 32px 16px; }
   /* Действия уведомления — под текстом, с его отступа (круг 48 + 14). */
@@ -745,6 +752,6 @@
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mod > .acts { flex: 1 1 100%; }
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .mod > .acts:has(> :is(.tgl, .tg):only-child) { flex: 0 0 auto; }
 }
-@media (max-width: 360px) {
+@media (max-width: 389.98px) {
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-acts { padding-left: 0; }
 }

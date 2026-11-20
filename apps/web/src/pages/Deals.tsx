@@ -448,7 +448,7 @@ export function Deals() {
                   onOpen={() => openClient(d.id)}
                   actions={(canPayout || canComplete) ? <>
                     {canPayout && (
-                      <button className="ry-btn" data-variant="gray" type="button" onClick={() => setArchiveDocsDealId(d.id)}>
+                      <button className="ry-btn" data-variant="secondary" type="button" onClick={() => setArchiveDocsDealId(d.id)}>
                         Документы
                       </button>
                     )}

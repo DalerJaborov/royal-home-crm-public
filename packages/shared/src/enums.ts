@@ -57,6 +57,14 @@ export type AbsenceKind = (typeof ABSENCE_KINDS)[number];
 export const LOOK_IDS = ["classic"] as const;
 export type LookId = (typeof LOOK_IDS)[number];
 
+/**
+ * Личный «Размер текста» нового вида (20.11.2026, владелец: «слишком мелкий шрифт»):
+ * обычный / крупный (+12%) / очень крупный (+25%). Один множитель на всю шкалу шрифта
+ * (--rh-text-scale в theme-look-royal.css). Хранится на устройстве и в Agent.preferences.
+ */
+export const TEXT_SIZE_IDS = ["normal", "large", "xlarge"] as const;
+export type TextSizeId = (typeof TEXT_SIZE_IDS)[number];
+
 export const LOOK_LABELS: Record<LookId, string> = {
   classic: "Классический",
 };

@@ -568,7 +568,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
               onChange={(e) => patchFilters({ q: e.target.value || undefined })}
             />
             {royal
-              ? <RhButton variant="gray" aria-haspopup="dialog" onClick={() => setShowFilters(true)}>Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</RhButton>
+              ? <RhButton variant="secondary" aria-haspopup="dialog" onClick={() => setShowFilters(true)}>Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</RhButton>
               : clean && <CButton variant="outline" aria-haspopup="dialog" onClick={() => setShowFilters(true)}><SlidersHorizontal size={18} aria-hidden />Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</CButton>}
           </div>
         )}

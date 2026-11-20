@@ -362,10 +362,19 @@ meRouter.put("/preferences", requireAuth, async (req, res) => {
   // не потерялось между ними.
   const agent = await prisma.$transaction(async (tx) => {
     let data: typeof parsed.data = parsed.data;
-    if (data.home === undefined) {
+    if (data.home === undefined || data.textSize === undefined) {
       const current = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { preferences: true } });
-      const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);
-      if (kept.success && kept.data) data = { ...data, home: kept.data };
+      const saved = (current?.preferences ?? null) as { home?: unknown; textSize?: unknown } | null;
+      if (data.home === undefined) {
+        const kept = homePreferencesSchema.safeParse(saved?.home);
+        if (kept.success && kept.data) data = { ...data, home: kept.data };
+      }
+      // «Размер текста» (пачка C, 20.11.2026): клиент шлёт его, только когда человек его выбрал;
+      // сохранение без поля (тема, старая вкладка, другое устройство) выбранный размер не стирает.
+      if (data.textSize === undefined) {
+        const keptSize = uiPreferencesSchema.shape.textSize.safeParse(saved?.textSize);
+        if (keptSize.success && keptSize.data) data = { ...data, textSize: keptSize.data };
+      }
     }
     return tx.agent.update({
       where: { id: req.agent!.id },
