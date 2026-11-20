@@ -73,7 +73,7 @@ describe("«Сегодня» в новом виде", () => {
 
   it("РОП и агент получают свои экраны на пустых данных", () => {
     state.role = "HEAD_OF_SALES";
-    expect(render()).toContain("Требуют ответа");
+    expect(render()).toContain("Мои задачи");
     state.role = "AGENT";
     const agent = render();
     expect(agent).toContain("Новых заявок нет");

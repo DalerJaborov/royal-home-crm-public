@@ -45,7 +45,11 @@ interface Block {
   body: ReactNode;
 }
 
-export function TeamCharts({ host, showCommission = true }: { host: Host; showCommission?: boolean }) {
+/**
+ * `showWorkload: false` — у главной РОП «Нагрузка агентов» уже есть в «Распределении заявок»
+ * (components/look/home/blocks/rop.tsx, 20.11.2026): второй такой же график рядом не нужен.
+ */
+export function TeamCharts({ host, showCommission = true, showWorkload = true }: { host: Host; showCommission?: boolean; showWorkload?: boolean }) {
   const can = useCan();
   const enabled = can("dashboard.analytics");
   const charts = useDashboardCharts(enabled);
@@ -151,7 +155,7 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
   // показываются нигде (владелец).
 
   // Нагрузка: у кого сколько клиентов в работе.
-  const workload = ins?.workload ?? [];
+  const workload = showWorkload ? ins?.workload ?? [] : [];
   if (workload.length > 0) {
     const max = Math.max(1, ...workload.map((w) => w.activeClients));
     blocks.push({

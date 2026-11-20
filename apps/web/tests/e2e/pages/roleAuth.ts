@@ -29,6 +29,8 @@ export const ROLE_PHONES = {
   EDITOR: "+992900000006",
   SECURITY: "+992900000007",
   SHAREHOLDER: "+992900000009",
+  // РОП (главные руководителей, 20.11.2026): учётка сида +992900000010.
+  HEAD_OF_SALES: "+992900000010",
 } as const;
 
 export type RoleName = keyof typeof ROLE_PHONES;

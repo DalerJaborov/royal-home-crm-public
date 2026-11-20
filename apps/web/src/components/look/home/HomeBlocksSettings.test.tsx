@@ -135,6 +135,6 @@ describe("«Оформление» → «Главная»", () => {
     signIn("r1", "HEAD_OF_SALES");
     view("HEAD_OF_SALES");
     expect(screen.queryByRole("switch", { name: "Команда" })).toBeNull();
-    expect(screen.getByRole("switch", { name: "Требуют ответа" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Мои задачи" })).toBeTruthy();
   });
 });

@@ -69,9 +69,13 @@ describe("Дубликат клиента ловится в любом форм�
     // 03.09.2026 (раздел L, уровень 3) тот же fullName + совпадающие последние
     // 7 цифр номера уже ловятся мягким предупреждением (см.
     // duplicate-review-manual-warning.test.ts), даже если 9-значный хвост другой.
-    const other = `+99293${tail.split("").reverse().join("")}`;
+    // Случайный хвост на редком префиксе 99299: перевёрнутый хвост от
+    // Date.now() сталкивался с номерами соседних файлов на общей базе
+    // (облачный прогон ship #330, 20.11.2026), и тест краснел без правки кода.
+    const randomTail = String(Math.floor(Math.random() * 1e7)).padStart(7, "0");
+    const other = `+99299${randomTail}`;
     const res = await createClient(other);
-    expect(res.status).toBe(201);
-    expect(res.body.warning).toBeUndefined();
+    expect(res.status, `ответ: ${JSON.stringify(res.body)}`).toBe(201);
+    expect(res.body.warning, `ответ: ${JSON.stringify(res.body)}`).toBeUndefined();
   });
 });

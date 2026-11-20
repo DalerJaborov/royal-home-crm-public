@@ -213,12 +213,13 @@ describe("главная: один блок без данных не роняе�
 
   it("новый вид: упал блок денег — «Не загрузилось» и «Повторить» только в нём, «Повторить» возвращает блок", async () => {
     const broken = fullSnapshot() as unknown as { hero: Record<string, unknown> };
-    delete broken.hero.dealsInPipeline;
+    // Плита денег (20.11.2026) читает «Первый ответ» без проверки — его и роняем.
+    delete broken.hero.firstResponse;
     state.mc = { data: broken, isLoading: false, isError: false };
     const view = renderPage("today");
     expect(screen.getAllByText("Не загрузилось")).toHaveLength(1);
     expect(screen.getByText("Нужно ваше решение")).toBeTruthy();
-    expect(screen.getByText("Горит сейчас")).toBeTruthy();
+    expect(screen.getByText(/^Горит сейчас/)).toBeTruthy();
     expect(screen.getByText("Далер", { exact: false })).toBeTruthy();
     // Ошибка ушла в журнал с именем блока.
     expect(journal.some((message) => message.startsWith("[блок today.money]"))).toBe(true);
@@ -229,7 +230,7 @@ describe("главная: один блок без данных не роняе�
     expect(screen.getAllByText("Не загрузилось")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
     await waitFor(() => expect(screen.queryByText("Не загрузилось")).toBeNull());
-    expect(screen.getByText(/Комиссия ·/)).toBeTruthy();
+    expect(screen.getByText(/Комиссия за/)).toBeTruthy();
   });
 
   it("прежний вид: упал блок показателей — остальной пульт на месте", () => {
@@ -281,8 +282,9 @@ describe("главная: один блок без данных не роняе�
     await waitFor(() => expect(screen.getByText("Фарход")).toBeTruthy());
     await waitFor(() => expect(journal.some((m) => m.startsWith("[блок today.ropLosses]"))).toBe(true));
     expect(screen.getAllByText("Не загрузилось")).toHaveLength(1);
-    expect(screen.getByText("Требуют ответа")).toBeTruthy();
-    expect(screen.getByText("Ноза Агентова")).toBeTruthy();
+    expect(screen.getByText("Мои задачи")).toBeTruthy();
+    // Агент — и в «Распределении заявок», и в «Команде» (20.11.2026).
+    expect(screen.getAllByText("Ноза Агентова").length).toBeGreaterThan(0);
   });
 
   it("агент: битая заявка роняет только блок «Ждут принятия», показы и плитки на месте", () => {
