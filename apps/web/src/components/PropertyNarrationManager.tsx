@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  chooseNarration, narrationAudioLengthCheck, narrationChangesLine, narrationLengthCheck, narrationRemovesOldPosts, pickNarrationVoice,
+  chooseNarration, narrationAudioLengthCheck, narrationChangesLine, narrationLengthCheck, narrationLengthLine, narrationRemovesOldPosts, pickNarrationVoice,
   type NarrationReleaseChannel, type PropertyNarrationView,
 } from "@royal-home/shared";
 import { api } from "../lib/api";
@@ -9,17 +9,17 @@ import { NarrationComposer, resolveNarrationDraft, type NarrationDraft } from ".
 import { PropertyNarrationService } from "./PropertyNarrationService";
 
 /**
- * ОЗВУЧКА В КАРТОЧКЕ ОБЪЕКТА (14.11.2026; «поменял, послушал, утвердил» — 18.11.2026, макет владельца).
+ * ОЗВУЧКА В КАРТОЧКЕ ОБЪЕКТА (14.11.2026; «поменял, послушал, утвердил» — 18.11.2026; разбор владельца 20.11.2026).
  *
- * Один адаптивный блок наверху карточки (ПК и телефон — одна разметка, сетка голосов сама в один столбец):
- *   • готовится — «Озвучка под новые данные», что изменилось, полоса хода;
- *   • готова — большая «▶ Послушать», голоса с образцами, текст можно поправить, строка длины
- *     («Укладывается в ролик: ~32 с из 35 с»), главная кнопка «✓ Утвердить и выпустить» (ролик уже вышел)
- *     или «✓ Одобрить» (ролика ещё нет); поменяли текст или голос — «Озвучить заново»;
- *   • текст длиннее ролика — кнопки неактивны, «Сократите текст», кредиты не тратятся (сервер тоже отказывает);
- *   • выпуск — CRM накладывает голос → выйдет в 14:15 / утром в 09:00 → уходит в сети → вышел, по каждой сети:
- *     «новый пост, старый снят», TikTok — «старый удалите сами» со ссылкой;
- *   • всё спокойно — одна строка и «Изменить озвучку» (ошибка в тексте, другой голос без правки данных).
+ * 20.11 владелец: «захожу в любой объект, и первым выходит такое, как будто это не часть карточки». Поэтому:
+ *   • место — в колонке карточки рядом со строкой «Ролик», ПОСЛЕ фото, цены и «кто ведёт» (PropertyDetail);
+ *   • блок — короткая карточка-статус: заголовок «Озвучка ролика», одна строка что происходит, одна главная кнопка;
+ *   • «послушать и одобрить» и «переделать» — два разных действия: «✓ Одобрить» стоит сразу под плеером, выбор голоса
+ *     и текст открываются только по «Изменить голос или текст»;
+ *   • озвучки нет и ролик давно вышел (старые объекты) — в карточке блока нет вовсе, он остаётся во вкладке ролика;
+ *   • «готовится» и «накладывается» — без выдуманной полосы на половине: значок хода и сколько минут идёт, а дольше
+ *     обычного — честная строка; «накладывается» сервер ставит только если CRM правда наложит (narrationRemixPending);
+ *   • свой плеер: длина известна серверу (audioSec), «00:27 / 00:00» на телефоне больше не бывает.
  * Утверждение — одна дверь сервера (POST …/approve → approveNarrationVersion), её же зовёт Шабнам.
  * Техника (модель, ключ, пределы) — в Настройках; сверки и передачи — свёрнутый PropertyNarrationService.
  */
@@ -28,6 +28,9 @@ import { PropertyNarrationService } from "./PropertyNarrationService";
 const QUOTA_EXCEEDED = "PROVIDER_QUOTA_EXCEEDED";
 /** Код «текст длиннее ролика, озвучка не заказана» (apps/api/src/lib/narrationAutoFlow.ts, NARRATION_TEXT_TOO_LONG). */
 const TEXT_TOO_LONG = "TEXT_LONGER_THAN_CLIP";
+/** После скольких минут «готовим» и «накладываем» честно говорят «дольше обычного». */
+const SLOW_GENERATION_MIN = 5;
+const SLOW_MIX_MIN = 30;
 
 const CHANNEL_NAME: Record<string, string> = { INSTAGRAM: "Instagram", FACEBOOK: "Facebook", YOUTUBE: "YouTube", TELEGRAM: "Telegram", TIKTOK: "TikTok", THREADS: "Threads" };
 
@@ -48,6 +51,19 @@ export function narrationReleaseTime(iso: string, now: Date = new Date()): strin
   if (day(d) === day(now)) return `в ${time}`;
   if (day(d) === day(new Date(now.getTime() + 86_400_000))) return `завтра в ${time}`;
   return `${d.toLocaleDateString("ru-RU", { timeZone: "Asia/Dushanbe", day: "numeric", month: "long" })} в ${time}`;
+}
+
+/** «0:27» — для плеера; секунды целые. */
+export function narrationClock(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Сколько минут прошло с момента (целые, не меньше нуля); нет даты — null. */
+function minutesSince(iso: string | null | undefined, now: number): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : Math.max(0, Math.floor((now - t) / 60_000));
 }
 
 function channelLine(c: NarrationReleaseChannel): string {
@@ -72,15 +88,91 @@ export function narrationReleaseMoving(data: PropertyNarrationView | undefined):
   return stage === "MIXING" || stage === "SCHEDULED" || stage === "PUBLISHING" || (stage === "DONE" && !!data?.release?.channels.some((c) => c.state === "WAITING"));
 }
 
-function Progress({ label }: { label: string }) {
+/**
+ * Состояние блока — одно на ПК и телефон, одно для тестов. «none» — озвучки ещё не было; «hidden» — показывать в
+ * карточке нечего (старый объект: озвучки нет, ролик давно вышел; озвучка в нём не нужна, пока её не попросят).
+ */
+export type NarrationCardState = "off" | "hidden" | "none" | "pending" | "uncertain" | "failed" | "tooLong" | "awaiting" | "marketingReview"
+  | "draftSaved" | "stale" | "mixing" | "scheduled" | "publishing" | "done" | "mixFailed" | "approved";
+export function narrationCardState(data: PropertyNarrationView): NarrationCardState {
+  const latest = data.versions[0];
+  if (data.off) return "off";
+  if (!latest) return data.published ? "hidden" : "none";
+  if (narrationIsPending(latest)) return "pending";
+  if (latest.status === "UNKNOWN" || (latest.status === "GENERATING" && latest.canReconcile)) return "uncertain";
+  if (latest.status === "FAILED") return latest.errorCode === TEXT_TOO_LONG ? "tooLong" : "failed";
+  if (data.release) return data.release.stage === "MIXING" ? "mixing" : data.release.stage === "SCHEDULED" ? "scheduled" : data.release.stage === "PUBLISHING" ? "publishing" : "done";
+  if (latest.stale) return "stale";
+  const ready = latest.status === "READY" && latest.hasAudio;
+  const awaitsHuman = latest.awaitsHuman ?? (!latest.approvedAt && latest.source !== "MANUAL");
+  if (ready && awaitsHuman) return "awaiting";
+  if (ready && !latest.approvedAt && latest.source === "MANUAL") return "marketingReview";
+  if (ready && latest.approvedAt) return data.mix?.problem ? "mixFailed" : "approved";
+  if (latest.status === "DRAFT") return "draftSaved";
+  return "approved";
+}
+
+/** Ход без процентов: процент CRM не знает, поэтому не рисуем выдуманную половину полосы (было до 20.11). */
+function Busy({ label }: { label: string }) {
+  return <span className="inline-block h-5 w-5 flex-none animate-spin rounded-full border-[3px] border-blue/25 border-t-blue motion-reduce:animate-none" role="img" aria-label={label} />;
+}
+
+/**
+ * Плеер озвучки (20.11.2026). Встроенный &lt;audio controls&gt; на телефоне показывал «00:27 / 00:00»: у mp3 без
+ * заголовка длины браузер её не знает. Длину знает сервер (audioSec) — она и показывается; запись грузится
+ * по первому нажатию, повтор — с начала.
+ */
+function NarrationPlayer({ load, knownSec, primary, disabled }: { load: () => Promise<string>; knownSec: number | null | undefined; primary?: boolean; disabled?: boolean }) {
+  const el = useRef<HTMLAudioElement | null>(null);
+  const url = useRef<string | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
+  const [pos, setPos] = useState(0), [dur, setDur] = useState<number | null>(knownSec ?? null), [error, setError] = useState("");
+  useEffect(() => () => { el.current?.pause(); if (url.current) URL.revokeObjectURL(url.current); }, []);
+  async function toggle() {
+    setError("");
+    if (state === "playing") { el.current?.pause(); return; }
+    try {
+      if (!el.current) {
+        setState("loading");
+        url.current = await load();
+        const audio = new Audio(url.current);
+        audio.ontimeupdate = () => setPos(audio.currentTime);
+        audio.onloadedmetadata = () => { if (Number.isFinite(audio.duration) && audio.duration > 0) setDur(audio.duration); };
+        audio.onplay = () => setState("playing");
+        audio.onpause = () => setState("paused");
+        audio.onended = () => { setState("paused"); setPos(0); audio.currentTime = 0; };
+        el.current = audio;
+      }
+      await el.current.play();
+    } catch {
+      setState(el.current ? "paused" : "idle");
+      setError("Запись не воспроизвелась. Попробуйте ещё раз.");
+    }
+  }
+  const total = dur ?? knownSec ?? null;
+  const playing = state === "playing";
   return (
-    <div className="mt-4 h-4 overflow-hidden rounded-full bg-[var(--track)]" role="progressbar" aria-label={label}>
-      <div className="h-full w-1/2 animate-pulse rounded-full bg-blue" />
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <button type="button" className={`pill min-h-12! flex-none justify-center text-base! ${primary ? "bg-blue! text-on-accent! font-bold" : "ghost"}`} disabled={disabled || state === "loading"}
+          aria-pressed={playing} onClick={() => void toggle()}>
+          {state === "loading" ? "Загружаем…" : playing ? "❚❚ Пауза" : state === "paused" && pos > 0 ? "▶ Дальше" : "▶ Послушать"}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="h-2 overflow-hidden rounded-full bg-[var(--track)]" aria-hidden>
+            <div className="h-full rounded-full bg-blue" style={{ width: total ? `${Math.min(100, (pos / total) * 100)}%` : "0%" }} />
+          </div>
+        </div>
+        {total ? <span className="flex-none text-base tabular-nums text-[var(--muted)]">{state === "idle" ? narrationClock(total) : `${narrationClock(pos)} из ${narrationClock(total)}`}</span> : null}
+      </div>
+      {error && <p className="text-base text-[var(--crit)]" role="status">{error}</p>}
     </div>
   );
 }
 
-export function PropertyNarrationManager({ propertyId, placement = "media", factsKey }: { propertyId: string; placement?: "top" | "media";
+export function PropertyNarrationManager({ propertyId, placement = "media", factsKey }: { propertyId: string;
+  /** card — короткий блок в колонке карточки объекта (20.11.2026); media — полный, во вкладке ролика, со служебным. */
+  placement?: "card" | "media";
   /** Факты озвучки из карточки (цена, этаж…): поменялись после «Сохранить» — блок сразу спрашивает сервер заново. */
   factsKey?: string }) {
   const client = useQueryClient();
@@ -92,73 +184,73 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
   });
   const [draft, setDraft] = useState<NarrationDraft>({});
   const [editing, setEditing] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
-  // Плеер привязан к версии (ревью 14.11): иначе играла бы старая запись, а утверждали бы новую.
-  const [audio, setAudio] = useState<{ versionId: string; url: string } | null>(null);
+  // Второе нажатие, пока первое ещё в пути (двойной тап на телефоне): состояние React ещё не перерисовалось.
+  const inFlight = useRef(false);
   const requestKey = useRef(crypto.randomUUID());
+  const [now, setNow] = useState(() => Date.now());
   const latest = data?.versions[0];
   const factsType = data?.facts?.type;
   const freshPick = useMemo(() => data ? chooseNarration(data.config, factsType, { avoid: { templateId: data.lastChoice?.usedTemplateId ?? data.lastChoice?.templateId, endingId: data.lastChoice?.usedEndingId ?? data.lastChoice?.endingId } }) : null, [data, factsType]);
-  useEffect(() => () => { if (audio) URL.revokeObjectURL(audio.url); }, [audio]);
-  useEffect(() => { setDraft({}); setEditing(false); setAudio(null); setMessage(""); requestKey.current = crypto.randomUUID(); }, [propertyId]);
+  useEffect(() => { setDraft({}); setEditing(false); setMessage(""); requestKey.current = crypto.randomUUID(); }, [propertyId]);
   const seenFacts = useRef(factsKey);
   useEffect(() => {
     if (factsKey === undefined || seenFacts.current === factsKey) return;
     seenFacts.current = factsKey;
     void client.invalidateQueries({ queryKey: ["property-narration", propertyId] });
   }, [client, factsKey, propertyId]);
+  const state = data ? narrationCardState(data) : null;
+  // Часы для «идёт N мин»: тикают только пока что-то идёт.
+  useEffect(() => {
+    if (state !== "pending" && state !== "mixing") return;
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [state]);
 
   async function run(action: () => Promise<void>) {
-    setBusy(true); setMessage("");
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true); setMessage("");
     try { await action(); await client.invalidateQueries({ queryKey: key }); }
     catch (err) { setMessage(err instanceof Error ? err.message : "Действие не выполнено"); }
-    finally { setBusy(false); }
+    finally { inFlight.current = false; setBusy(false); }
   }
-  async function listen(versionId: string) {
-    await run(async () => {
-      const blob = await api<Blob>(`/properties/${propertyId}/narration/${versionId}/audio`, { responseType: "blob" });
-      setAudio({ versionId, url: URL.createObjectURL(blob) });
-    });
-  }
+  const loadAudio = (versionId: string) => async () => URL.createObjectURL(await api<Blob>(`/properties/${propertyId}/narration/${versionId}/audio`, { responseType: "blob" }));
 
-  if (isPending) return placement === "top" ? null : <section className="card p-4" aria-busy="true">Загружаем озвучку…</section>;
-  // Наверху карточки ошибка доступа не нужна: блок просто не показывается. Сбой ПОВТОРНОГО опроса (связь моргнула,
+  if (isPending) return placement === "card" ? null : <section className="card p-4" aria-busy="true">Загружаем озвучку…</section>;
+  // В карточке ошибка доступа не нужна: блок просто не показывается. Сбой ПОВТОРНОГО опроса (связь моргнула,
   // пока готовится озвучка) блок не прячет: TanStack Query держит прежние данные, показываем их (18.11.2026).
-  if (!data) return placement === "top" ? null : <section className="card p-4" role="status">Озвучка недоступна: {error instanceof Error ? error.message : "не удалось загрузить"}</section>;
+  if (!data || !state) return placement === "card" ? null : <section className="card p-4" role="status">Озвучка недоступна: {error instanceof Error ? error.message : "не удалось загрузить"}</section>;
+  if (placement === "card" && state === "hidden" && !editing) return null;
 
   const templates = data.config.templates ?? [];
   const endings = data.config.endings ?? [];
   const facts = data.facts;
   const canEdit = data.canDraft !== false;
   const published = data.published === true;
-  const pending = narrationIsPending(latest);
-  const ready = latest?.status === "READY" && latest.hasAudio;
-  const failed = latest?.status === "FAILED";
-  const tooLongFailed = failed && latest?.errorCode === TEXT_TOO_LONG;
-  const uncertain = !!latest && (latest.status === "UNKNOWN" || (latest.status === "GENERATING" && !!latest.canReconcile));
+  const awaiting = state === "awaiting";
   // Устаревшая версия несёт прежнюю цену словами (ревью 14.11): её текст в форму не подставляем, только свежий шаблон.
   const currentScript = latest && !latest.stale ? latest.script : null;
-  // Ждёт человека — правило сервера (narrationAwaitsHuman): не утверждена, или утверждена самой CRM на вышедшем ролике;
-  // аудио по тексту маркетинга на вышедшем ролике тоже (ревью 18.11). Старый ответ без поля — прежнее правило.
-  const awaitsHuman = latest?.awaitsHuman ?? (!latest?.approvedAt && latest?.source !== "MANUAL");
-  const approved = !!ready && !!latest?.approvedAt && !latest.stale && !awaitsHuman;
-  const waitsForApproval = !!ready && !latest?.stale && awaitsHuman;
   const last = data.lastChoice ?? {};
   const defaultTemplateId = latest?.templateId ?? freshPick?.templateId ?? null;
   const defaultEndingId = latest ? latest.endingId ?? null : freshPick?.endingId ?? null;
   const defaultVoiceId = pickNarrationVoice(data.config, latest?.voiceId ?? last.voiceId);
   const resolved = facts ? resolveNarrationDraft({ templates, endings, facts, value: draft, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript: currentScript }) : null;
   const textOk = (resolved?.text.trim().length ?? 0) >= 10;
-  // Текст или голос поменяли в блоке готовой озвучки — утверждать старое аудио нельзя, только «Озвучить заново».
-  const changedDraft = waitsForApproval && !!resolved && (resolved.text !== latest?.script || (resolved.voiceId ?? null) !== (latest?.voiceId ?? null));
-  // Готовое аудио с настоящей длиной (ревью 18.11): «Утвердить» решает замер, а не оценка по тексту; правят текст — снова оценка.
-  const measured = waitsForApproval && !changedDraft && latest?.audioSec ? narrationAudioLengthCheck(latest.audioSec, data.clipSec ?? null) : null;
+  // Поменяли текст или голос против текущей озвучки — утверждать старое аудио нельзя, только «Озвучить заново».
+  const changedDraft = !!latest && !!resolved && (resolved.text !== latest.script || (resolved.voiceId ?? null) !== (latest.voiceId ?? null));
+  // Перезаказ того же текста тем же голосом сервер отклоняет (UNCHANGED): кнопка ждёт правки, если озвучка цела.
+  const needsChange = !!latest && !latest.stale && latest.status !== "FAILED" && !narrationIsPending(latest);
+  // Готовое аудио с настоящей длиной (ревью 18.11): «Одобрить» решает замер, а не оценка по тексту; правят текст — снова оценка.
+  const measured = awaiting && !(editing && changedDraft) && latest?.audioSec ? narrationAudioLengthCheck(latest.audioSec, data.clipSec ?? null) : null;
   const length = measured ?? (resolved ? narrationLengthCheck(resolved.text, resolved.lang, data.clipSec ?? null, data.charsPerSec) : null);
-  const tooLong = !!length && !length.fits;
-  // Форма: готовая озвучка (по макету — голос и текст рядом с «Послушать»), нажали «Изменить», озвучки нет, не вышла.
-  const showComposer = canEdit && !data.off && !!facts && (editing || waitsForApproval || !latest || failed || (latest.status === "DRAFT" && !latest.generateAfter));
+  // «Одобрить» закрыта, если голос (замер) или, без замера, оценка текста не влезает в ролик (как до 20.11).
+  const audioTooLong = awaiting && !editing && !!length && !length.fits;
+  const draftTooLong = !!length && !length.fits;
   const changesLine = narrationChangesLine(data.changed ?? []);
   const release = data.release ?? null;
   const removesOld = narrationRemovesOldPosts(data.config);
+  const composerOpen = editing && canEdit && !!facts;
+  const openEditor = () => { setDraft({}); setEditing(true); setMessage(""); };
+  const closeEditor = () => { setDraft({}); setEditing(false); };
 
   const submit = (generate: boolean) => void run(async () => {
     if (!resolved) return;
@@ -178,136 +270,119 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
     const result = await api<{ message: string }>(`/properties/${propertyId}/narration/mode`, { method: "POST", body: { off } });
     setMessage(result.message);
   });
-  const player = (versionId: string, primary: boolean) => audio?.versionId === versionId
-    ? <audio className="w-full" controls autoPlay src={audio.url} />
-    : <button type="button" className={`pill ${primary ? "min-h-14! w-full justify-start bg-blue! text-lg! text-on-accent! sm:flex-1" : "min-h-12! text-base!"}`} disabled={busy} onClick={() => void listen(versionId)}>▶ Послушать</button>;
 
-  // Наверху карточки — только когда есть что делать или смотреть; в спокойном состоянии одна строка.
-  const quiet = !pending && !waitsForApproval && !failed && !uncertain && !release && !(latest?.stale) && !editing && !!latest;
+  const generatingMin = state === "pending" ? minutesSince(latest?.createdAt, now) : null;
+  const mixingMin = state === "mixing" ? minutesSince(latest?.approvedAt, now) : null;
 
-  const title = release ? (release.stage === "DONE" ? "Ролик вышел" : "Ролик с новой озвучкой")
-    : pending ? (published ? "Озвучка под новые данные" : "Готовим озвучку")
-    : waitsForApproval ? "Новая озвучка готова"
-    : tooLongFailed ? "Текст длиннее ролика"
-    : "Озвучка ролика";
+  // Заголовок и строка «что сейчас» — по состоянию; одна главная мысль на блок.
+  const head: { title: string; line?: string; tone?: "ok" | "warn" } = (() => {
+    switch (state) {
+      case "off": return { title: "Без озвучки", line: "Для этого объекта выбрано «Без озвучки»: ничего не готовится, монтажёр знает." };
+      case "hidden":
+      case "none": return { title: "Озвучки пока нет", line: "Голос и текст можно выбрать заранее: монтажёр получит озвучку вместе с заданием на ролик." };
+      case "pending": return { title: published ? "Готовим новую озвучку" : "Готовим озвучку",
+        line: generatingMin !== null && generatingMin >= SLOW_GENERATION_MIN ? "Это дольше обычного. Если через несколько минут не придёт, руководство увидит сбой в журнале." : "Обычно минута-две. Придёт сюда и в Шабнам." };
+      case "uncertain": return { title: "Озвучку проверяют", line: "Результат озвучки уточняет руководство. Как только сверят, можно будет озвучить заново.", tone: "warn" };
+      case "failed": return { title: "Озвучка не получилась", tone: "warn",
+        line: latest?.errorCode === QUOTA_EXCEEDED ? "Закончились кредиты ElevenLabs. Руководство уже видит это." : "Попробуйте ещё раз: проверьте голос и текст и нажмите «Озвучить»." };
+      case "tooLong": return { title: "Текст длиннее ролика", line: "Озвучку не заказывали, кредиты не потрачены. Сократите текст и нажмите «Озвучить».", tone: "warn" };
+      case "awaiting": return { title: "Новая озвучка готова", line: published ? "Послушайте. Если всё верно, утвердите: ролик с ней сразу выйдет." : "Послушайте и одобрите. Монтажёр получит её вместе с заданием на ролик." };
+      case "marketingReview": return { title: "Аудио готово", line: "Его проверяет маркетинг." };
+      case "draftSaved": return { title: "Текст сохранён", line: "Автоозвучка выключена: аудио по этому тексту подготовит маркетинг." };
+      case "stale": return { title: "Озвучка устарела", line: `Данные объекта изменились.${data.autoGenerate ? " Новая подготовится сама через минуту." : " Озвучьте заново, чтобы цифры были верными."}`, tone: "warn" };
+      case "mixing": return { title: "Накладываем озвучку на ролик",
+        line: mixingMin !== null && mixingMin >= SLOW_MIX_MIN ? "Это дольше обычного. Если ролик не обновится в течение часа, сообщите руководству." : "Озвучка утверждена, CRM накладывает её на ролик. Обычно пара минут." };
+      case "scheduled": {
+        const when = release?.at ? narrationReleaseTime(release.at) : null;
+        return { title: when ? `Ролик выйдет ${when.startsWith("в ") ? "сегодня " : ""}${when}` : "Ролик выйдет в ближайшее время", line: release?.reason ?? undefined };
+      }
+      case "publishing": return { title: "Ролик уходит в соцсети", line: "Старый пост в каждой сети CRM снимет, как только там выйдет новый." };
+      case "done": return { title: "✓ Ролик с новой озвучкой вышел", tone: "ok" };
+      case "mixFailed": return data.mix?.problem === "VOICE_LONGER"
+        ? { title: "Озвучка длиннее ролика", tone: "warn", line: "Обрезать голос CRM не стала. Ролик ушёл монтажёру: он удлинит его под голос. Быстрее: сократить текст и озвучить заново." }
+        : { title: "Озвучка не легла на ролик", tone: "warn", line: "Наложить новую озвучку не получилось, в соцсетях пока прежний ролик. Руководство видит ошибку." };
+      default: return { title: "✓ Озвучка утверждена", tone: "ok",
+        line: data.mix?.note ?? (data.mix?.hasMaster ? "Озвучку на ролик накладывает CRM: поменяются данные, звук обновится после вашего утверждения." : published ? undefined : "Монтажёр получит её вместе с заданием на ролик.") };
+    }
+  })();
+  const line = head.line;
 
-  if (data.off) {
-    return (
-      <section className="card space-y-3 p-4 sm:p-6" aria-label="Озвучка объекта">
-        <p className="text-base">Для этого объекта выбрано «Без озвучки»: ничего не готовится, монтажёр знает.</p>
-        {canEdit && <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={() => setMode(false)}>Включить озвучку</button>}
-        {message && <p className="text-base" role="status">{message}</p>}
-      </section>
-    );
-  }
-
-  if (quiet && placement === "top") {
-    return (
-      <section className="card flex flex-wrap items-center gap-3 p-4" aria-label="Озвучка объекта">
-        <p className="flex-1 text-base">{approved ? "✓ Озвучка утверждена" : ready && latest?.source === "MANUAL" ? "Аудио готово, его проверяет маркетинг." : "Озвучка ролика"}</p>
-        {ready && latest && player(latest.id, false)}
-        {canEdit && <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={() => setEditing(true)}>Изменить озвучку</button>}
-        {message && <p className="w-full text-base" role="status">{message}</p>}
-      </section>
-    );
-  }
+  const manualOrFailed = !!release?.channels.some((c) => c.state === "OLD_MANUAL" || c.state === "NEW_FAILED");
+  const showComposerFor = !composerOpen && canEdit && !!facts;
 
   return (
-    <section className="card space-y-4 p-4 sm:p-7" aria-label="Озвучка объекта">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 space-y-1">
-          <h3 className="text-xl font-extrabold leading-tight sm:text-2xl">{title}</h3>
-          {changesLine && (pending || waitsForApproval) && <p className="text-base text-[var(--muted)]">{changesLine}</p>}
+    <section className={`card space-y-3 ${placement === "card" ? "p-4" : "p-4 sm:p-6"}`} aria-label="Озвучка ролика" data-narration-state={state}>
+      <div className="flex items-start gap-3">
+        {(state === "pending" || state === "mixing" || state === "publishing") && <span className="mt-1"><Busy label={state === "pending" ? "Готовим озвучку" : state === "mixing" ? "Накладываем озвучку" : "Публикуем"} /></span>}
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-[15px] text-[var(--muted)]">Озвучка ролика</p>
+          <h3 className={`text-lg font-extrabold leading-snug sm:text-xl ${head.tone === "ok" ? "text-[var(--ok)]" : ""}`}>{head.title}</h3>
+          {line && <p className={`text-base ${head.tone === "warn" ? "rounded-xl bg-[var(--warn-bg)] p-3" : "text-[var(--muted)]"}`} role="status">{line}</p>}
+          {changesLine && (state === "pending" || awaiting) && <p className="text-base text-[var(--muted)]">{changesLine}</p>}
+          {/* Сколько идёт — только у озвучки: начало известно точно. У наложения начала нет (ждёт выхода ролика). */}
+          {state === "pending" && generatingMin !== null && <p className="text-[15px] text-[var(--muted)]">Идёт {Math.max(1, generatingMin)} мин</p>}
         </div>
-        {/* «Без озвучки» — не на главном пути: наверху карточки только послушать и утвердить (владелец 18.11: «максимум легко»). */}
-        {canEdit && !release && placement === "media" && <button type="button" className="pill min-h-12! text-base! ghost" disabled={busy} onClick={() => setMode(true)}>Без озвучки</button>}
       </div>
 
-      {!data.configured && <p className="rounded-xl bg-[var(--warn-bg)] p-3 text-base" role="status">Озвучка ещё не настроена руководством. Голос и текст можно выбрать уже сейчас.</p>}
-
-      {release && <ReleaseBlock release={release} />}
-
-      {!release && latest && <div className="space-y-3" role="status">
-        {uncertain && <p className="text-base">Результат озвучки уточняет руководство. Как только сверят, можно будет озвучить заново.</p>}
-        {pending && <>
-          <p className="text-base">{published ? "Данные изменились, CRM готовит новую озвучку. Это займёт около минуты." : "Готовим озвучку. Обычно минута-две, придёт сюда и в Шабнам."}</p>
-          <Progress label="Готовим озвучку" />
-        </>}
-        {waitsForApproval && <>
-          <p className="text-base">{published ? "Послушайте и, если всё верно, выпускайте." : "Озвучка готова: послушайте и одобрите."}</p>
-          <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-[var(--soft)] p-3">
-            {player(latest.id, true)}
-            {length && <span className="px-2 text-lg font-bold">~{length.estSec} с</span>}
-          </div>
-        </>}
-        {approved && <>
-          <p className="text-base font-semibold">✓ Озвучка одобрена</p>
-          <p className="text-base text-[var(--muted)]">{data.mix?.hasMaster ? "Озвучку на ролик накладывает CRM: поменяются данные, звук обновится после вашего утверждения." : "Монтажёр получает её вместе с заданием на ролик."}</p>
-          {data.mix?.problem === "VOICE_LONGER" && <p className="rounded-xl bg-[var(--warn-bg)] p-3 text-base" role="status">Новая озвучка длиннее ролика, обрезать голос CRM не стала. Ролик ушёл монтажёру: он удлинит его под голос. Быстрее: сократить текст и озвучить заново.</p>}
-          {data.mix?.note && <p className="text-base" role="status">{data.mix.note}</p>}
-          {data.mix?.problem === "FAILED" && <p className="rounded-xl bg-[var(--warn-bg)] p-3 text-base" role="status">Наложить новую озвучку на ролик не получилось, в соцсетях пока прежний ролик. Руководство видит ошибку.</p>}
-          <div className="flex flex-wrap items-center gap-2">
-            {player(latest.id, false)}
-            {canEdit && <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={() => setEditing(true)}>Изменить озвучку</button>}
-          </div>
-        </>}
-        {latest.stale && !pending && <>
-          <p className="text-base">Данные объекта изменились, озвучка устарела.{data.autoGenerate ? " Новая подготовится сама через минуту." : ""}</p>
-          {canEdit && <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={() => setEditing(true)}>Озвучить заново</button>}
-        </>}
-        {ready && !latest.approvedAt && !latest.stale && latest.source === "MANUAL" && <p className="text-base">Аудио готово, его проверяет маркетинг.</p>}
+      {/* ПОСЛУШАТЬ И ОДОБРИТЬ — одно действие, кнопка сразу под плеером (20.11.2026). */}
+      {awaiting && latest && !composerOpen && <div className="space-y-3">
+        <NarrationPlayer key={latest.id} load={loadAudio(latest.id)} knownSec={latest.audioSec} primary={!data.canApproveAudio} disabled={busy} />
+        {length && <p className={`rounded-xl px-3 py-2 text-base font-semibold ${length.fits ? "bg-[var(--ok-bg)] text-[var(--ok)]" : "bg-[var(--crit-bg)] text-[var(--crit)]"}`} role="status">
+          {length.fits ? "✓ " : ""}{narrationLengthLine(length)}</p>}
+        {data.canApproveAudio
+          ? <button type="button" className="pill min-h-14! w-full justify-center bg-blue! text-lg! font-bold text-on-accent!" disabled={busy || audioTooLong} onClick={approve}>
+              {audioTooLong ? "Сократите текст" : busy ? "Сохраняем…" : published ? "✓ Утвердить и выпустить" : "✓ Одобрить"}
+            </button>
+          : <p className="text-base text-[var(--muted)]">Эту озвучку одобряет владелец.</p>}
+        {published && data.canApproveAudio && !audioTooLong && <p className="text-center text-[15px] text-[var(--muted)]">{removesOld
+          ? "Ролик сразу уйдёт в соцсети, где он уже был. Старые посты CRM снимет сама."
+          : "Ролик сразу уйдёт в соцсети. Старые посты останутся рядом: так задано в настройках."}</p>}
       </div>}
 
-      {failed && !tooLongFailed && <p className="rounded-xl bg-[var(--warn-bg)] p-3 text-base" role="status">
-        {latest?.errorCode === QUOTA_EXCEEDED ? "Озвучка не получилась: закончились кредиты ElevenLabs. Руководство уже видит это." : "Озвучка не получилась. Проверьте голос и текст и нажмите «Озвучить» ещё раз."}
-      </p>}
-      {tooLongFailed && <p className="text-base">Текст длиннее ролика, поэтому озвучку не заказывали. Сократите текст и нажмите «Озвучить».</p>}
+      {/* Утверждённая озвучка — послушать ещё раз маленькой кнопкой. */}
+      {(state === "approved" || state === "mixFailed" || state === "marketingReview" || state === "done" || state === "scheduled") && latest?.hasAudio && !composerOpen && (
+        <NarrationPlayer key={latest.id} load={loadAudio(latest.id)} knownSec={latest.audioSec} disabled={busy} />
+      )}
 
-      {showComposer && facts && !release && <>
+      {release && release.channels.length > 0 && (state === "done" && !manualOrFailed
+        ? <details><summary className="cursor-pointer text-base text-[var(--muted)]">По соцсетям</summary><div className="mt-2"><ChannelList channels={release.channels} /></div></details>
+        : <ChannelList channels={release.channels} />)}
+
+      {composerOpen && facts && <div className="space-y-3 border-t border-line pt-3">
+        {!data.configured && <p className="rounded-xl bg-[var(--warn-bg)] p-3 text-base" role="status">Озвучка ещё не настроена руководством. Голос и текст можно выбрать уже сейчас.</p>}
         <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data.config.voices} samples={data.samples} facts={facts} value={draft} onChange={setDraft}
-          defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} defaultScript={currentScript} lastPickedVoiceId={last.voiceId ?? null} disabled={busy}
-          lengthCheck={length} />
+          defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} defaultScript={currentScript} lastPickedVoiceId={last.voiceId ?? null}
+          recommendedVoiceId={data.config.defaultVoiceId ?? null} disabled={busy} lengthCheck={length} />
         <div className="space-y-2">
-          {waitsForApproval && data.canApproveAudio && !changedDraft && (
-            <button type="button" className="pill min-h-14! w-full justify-center bg-blue! text-lg! font-bold text-on-accent!" disabled={busy || tooLong} onClick={approve}>
-              {tooLong ? "Сократите текст" : published ? "✓ Утвердить и выпустить" : "✓ Одобрить"}
-            </button>
-          )}
-          {waitsForApproval && !data.canApproveAudio && <p className="text-base text-[var(--muted)]">Эту озвучку одобряет владелец.</p>}
           {data.autoGenerate
-            ? (!waitsForApproval || changedDraft || editing) && (
-              <button type="button" className={`pill min-h-12! w-full justify-center ${changedDraft || !waitsForApproval ? "min-h-14! bg-blue! text-lg! font-bold text-on-accent!" : "ghost text-base!"}`}
-                disabled={busy || !resolved?.voiceId || !textOk || tooLong} onClick={() => submit(true)}>
-                {tooLong ? "Сократите текст" : waitsForApproval || (latest && !failed) ? "Озвучить заново" : "Озвучить"}
-              </button>)
+            ? <button type="button" className="pill min-h-14! w-full justify-center bg-blue! text-lg! font-bold text-on-accent!"
+                disabled={busy || !resolved?.voiceId || !textOk || draftTooLong || (needsChange && !changedDraft)} onClick={() => submit(true)}>
+                {draftTooLong ? "Сократите текст" : busy ? "Отправляем…" : latest && latest.status !== "FAILED" ? "Озвучить заново" : "Озвучить"}
+              </button>
             : <button type="button" className="pill min-h-12! text-base! w-full justify-center" disabled={busy || !textOk} onClick={() => submit(false)}>Сохранить текст</button>}
-          {(editing || changedDraft) && <button type="button" className="pill min-h-12! text-base! w-full justify-center ghost" disabled={busy} onClick={() => { setDraft({}); setEditing(false); }}>Отмена</button>}
-          <p className="text-center text-[15px] text-[var(--muted)]">{waitsForApproval && published
-            ? removesOld ? "Ролик сразу уйдёт в соцсети, где он уже был. Старые посты CRM снимет сама." : "Ролик сразу уйдёт в соцсети. Старые посты останутся рядом: так задано в настройках."
-            : data.autoGenerate ? "Озвучка придёт на прослушивание сюда и в Шабнам." : "Автоозвучка выключена: аудио по этому тексту подготовит маркетинг."}</p>
+          {data.autoGenerate && needsChange && !changedDraft && <p className="text-center text-[15px] text-[var(--muted)]">Поменяйте голос или текст, чтобы озвучить заново.</p>}
+          <button type="button" className="pill min-h-12! text-base! w-full justify-center ghost" disabled={busy} onClick={closeEditor}>Отмена</button>
+          {data.autoGenerate && <p className="text-center text-[15px] text-[var(--muted)]">Новая озвучка придёт на прослушивание сюда и в Шабнам. Пока вы её не одобрите, ничего не меняется.</p>}
         </div>
-      </>}
+      </div>}
+
+      {/* Второе действие — переделать. Отдельной кнопкой, не вперемешку с «Одобрить». */}
+      {showComposerFor && state !== "pending" && state !== "uncertain" && state !== "mixing" && state !== "publishing" && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={`pill min-h-12! text-base! ${state === "none" || state === "hidden" || state === "failed" || state === "tooLong" || (state === "stale" && !data.autoGenerate) ? "" : "ghost"}`}
+            disabled={busy} onClick={openEditor}>
+            {state === "none" || state === "hidden" ? "Выбрать голос и текст" : state === "failed" || state === "tooLong" ? "Исправить и озвучить" : state === "stale" ? "Озвучить заново" : awaiting ? "Изменить голос или текст" : "Изменить озвучку"}
+          </button>
+          {placement === "media" && state !== "off" && !release && <button type="button" className="pill min-h-12! text-base! ghost" disabled={busy} onClick={() => setMode(true)}>Без озвучки</button>}
+        </div>
+      )}
+      {state === "off" && canEdit && <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={() => setMode(false)}>Включить озвучку</button>}
 
       {message && <p className="text-base" role="status">{message}</p>}
-      {audio && !((waitsForApproval || approved) && audio.versionId === latest?.id) && <audio className="w-full" controls src={audio.url} />}
-      {placement === "media" && (data.canApprove || data.canConfigure) && <PropertyNarrationService propertyId={propertyId} data={data} busy={busy} run={run} setMessage={setMessage} onListen={(id) => void listen(id)} />}
+      {placement === "media" && (data.canApprove || data.canConfigure) && <PropertyNarrationService propertyId={propertyId} data={data} busy={busy} run={run} setMessage={setMessage}
+        onListen={(id) => void run(async () => { const url = await loadAudio(id)(); void new Audio(url).play(); })} />}
     </section>
   );
-}
-
-/** Ход выпуска: накладываем → выйдет в 14:15 → уходит → вышел, по каждой сети. */
-function ReleaseBlock({ release }: { release: NonNullable<PropertyNarrationView["release"]> }) {
-  if (release.stage === "MIXING") return <><p className="text-base">Озвучка утверждена. CRM накладывает её на ролик, обычно пару минут.</p><Progress label="Накладываем озвучку" /></>;
-  if (release.stage === "SCHEDULED") {
-    const when = release.at ? narrationReleaseTime(release.at) : null;
-    return <div className="space-y-1">
-      <p className="text-lg font-bold">{when ? `Выйдет ${when.startsWith("в ") ? "сегодня " : ""}${when}` : "Выйдет в ближайшее время"}</p>
-      {release.reason && <p className="text-base text-[var(--muted)]">{release.reason}</p>}
-    </div>;
-  }
-  if (release.stage === "PUBLISHING") return <><p className="text-base">Ролик уходит в соцсети. Старый пост в каждой сети CRM снимет, как только там выйдет новый.</p><Progress label="Публикуем" />
-    {release.channels.length > 0 && <ChannelList channels={release.channels} />}</>;
-  return <><p className="text-base">Новая озвучка опубликована.</p>{release.channels.length > 0 && <ChannelList channels={release.channels} />}</>;
 }
 
 function ChannelList({ channels }: { channels: NarrationReleaseChannel[] }) {

@@ -473,6 +473,17 @@ export async function ownMusicRemixApplies(propertyId: string): Promise<boolean>
   return (await remixWanted(propertyId))?.mode === "MUSIC";
 }
 
+/**
+ * CRM САМА НАЛОЖИТ ОЗВУЧКУ НА РОЛИК (20.11.2026): то же решение, что у обхода remixFromMasters (отправка включена
+ * и remixWanted видит, что сводить). Карточка показывает «CRM накладывает» только по нему: раньше строка ставилась
+ * по признакам «ролик вышел, наложенной версии нет», и на объекте, где голос вклеил монтажёр (№209, 19.11), висела
+ * сутками, хотя накладывать было нечего.
+ */
+export async function narrationRemixPending(propertyId: string): Promise<boolean> {
+  if (mediaExecutionMode("NARRATION") !== "LIVE") return false;
+  return !!(await remixWanted(propertyId));
+}
+
 /** Перемикс из мастера возможен: отправка включена, у объекта есть ролик без голоса, он не у монтажёра. */
 async function crmRemixApplies(propertyId: string): Promise<boolean> {
   if (mediaExecutionMode("NARRATION") !== "LIVE") return false;

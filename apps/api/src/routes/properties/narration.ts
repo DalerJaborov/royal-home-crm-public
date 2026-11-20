@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
 import { ownMusicRemixSinceAfterSave, narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
-import { narrationFactsChanges, narrationLengthLine, type NarrationFacts, type NarrationReleaseView } from "@royal-home/shared";
+import { narrationFactsChanges, narrationLengthLine, type NarrationFacts } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { clipCountsAsPublished } from "../../lib/publishedClip.js";
 import { narrationAccessForAgent } from "../../lib/staffNarration.js";
 import { measuredNarrationCharsPerSec, narrationAudioSec, narrationClipSec, narrationLengthCheckFor } from "../../lib/narrationLengthCalibration.js";
-import { releaseChannelsView } from "../../lib/remakeOldPosts.js";
-import { estimateNarrationPublishAt, isHandoffPublishRunning } from "../../lib/videoHandoff.js";
+import { narrationReleaseView } from "../../lib/narrationRelease.js";
+import { estimateNarrationPublishAt } from "../../lib/videoHandoff.js";
 import { requireAuth } from "../../auth/middleware.js";
 import { hasMarketingRole } from "../marketing.js";
 import { canManageProperty } from "./shared.js";
@@ -36,30 +36,6 @@ const manager = (agent?: { permissions: ReadonlySet<string> } | null) => hasMark
 const configuration = loadNarrationConfiguration;
 /** Образец объекта для проверки шаблона при сохранении: цена и ошибки ловятся до первой оплаты. */
 const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD" };
-/**
- * ХОД ВЫПУСКА НОВОЙ ОЗВУЧКИ (18.11.2026) для блока карточки: CRM накладывает голос → ждёт своего времени →
- * уходит в сети → вышло (по сетям: новый пост, старый снят / удалите сами). null — показывать нечего.
- */
-async function releaseView(p: { id: string; videoHandoffStatus: string | null; videoMasterNarrationVersionId: string | null; videoMasterMixErrorVersionId: string | null; scheduledPublishAt: Date | null; scheduledPublishReason: string | null;
-  publishedChannels: string[]; instagramUrl: string | null }, latest: { id: string; status: string; approvedAt: Date | null } | undefined): Promise<NarrationReleaseView | null> {
-  if (!latest || latest.status !== "READY" || !latest.approvedAt) return null;
-  // Заявка этой версии (третье ревью 18.11): переиспользованная заявка старше утверждения, поэтому по ссылке на версию;
-  // старые заявки без ссылки — по времени, как раньше.
-  const request = await prisma.videoRemakeRequest.findFirst({ where: { propertyId: p.id, replaceOldPostsOnPublish: true,
-    OR: [{ narrationVersionId: latest.id }, { narrationVersionId: null, reason: "NARRATION_CHANGED", createdAt: { gte: latest.approvedAt } }] },
-    orderBy: { createdAt: "desc" }, select: { oldPosts: true, oldPostsOutcome: true, oldPostsReplacedAt: true } });
-  const channels = releaseChannelsView(request?.oldPostsOutcome ?? null);
-  const base = { versionId: latest.id, at: p.scheduledPublishAt?.toISOString() ?? null, reason: p.scheduledPublishReason, channels };
-  if (p.videoMasterNarrationVersionId !== latest.id) {
-    // Ещё не наложена: только если ролик вышел и наложение не упало (упало — строка mix.problem).
-    if (!request && p.videoHandoffStatus === "RECEIVED" && await clipCountsAsPublished(p.id, p) && p.videoMasterMixErrorVersionId !== latest.id) return { ...base, stage: "MIXING", at: null, reason: null };
-    return null;
-  }
-  if (!request) return null;
-  if (request.oldPostsReplacedAt) return { ...base, stage: "DONE", at: null };
-  if (request.oldPosts !== null || await isHandoffPublishRunning(p.id)) return { ...base, stage: "PUBLISHING" };
-  return { ...base, stage: "SCHEDULED" };
-}
 /** Видна ли кнопка «Утвердить»: права на объект (одна дверь с Шабнам), разовый проход — владелец, текст маркетинга — маркетинг. */
 async function canApproveAudioFor(agentId: string, role: string, propertyId: string, source: string | null): Promise<boolean> {
   const access = await narrationAccessForAgent(agentId, propertyId);
@@ -284,7 +260,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     // ОДНО УТВЕРЖДЕНИЕ (18.11.2026): длина ролика для «укладывается ли текст», что поменялось, ход выпуска.
     clipSec: await narrationClipSec(p), charsPerSec: await measuredNarrationCharsPerSec(), published: await clipCountsAsPublished(p.id, p),
     changed: narrationFactsChanges(versions.find((v) => v.approvedAt && v.status === "READY")?.factsSnapshot as NarrationFacts | undefined, facts),
-    release: await releaseView(p, versions[0]),
+    release: await narrationReleaseView(p, versions[0]),
     quotaExceeded: manager(req.agent) ? !!await narrationQuotaExceededSince() : undefined });
 });
 

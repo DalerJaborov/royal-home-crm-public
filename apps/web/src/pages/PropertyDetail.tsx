@@ -868,8 +868,9 @@ function PropertyViewCard({
     <PriceHistoryBlock property={property} />
   </>;
   const shareOpensBlock = canEdit && !isTrashed && <PropertyShareOpensCard propertyId={property.id} />;
-  // Один блок озвучки на обе раскладки и телефон (18.11.2026): ниже он стоит наверху карточки.
-  const narrationBlock = canEdit && !property.offSite ? <div id="rh-narration"><PropertyNarrationManager propertyId={property.id} placement="top"
+  // Один блок озвучки на обе раскладки и телефон (18.11.2026). С 20.11.2026 он стоит рядом со строкой «Ролик», после
+  // фото, цены и «кто ведёт», а не первым в карточке (владелец: «как будто это не часть карточки»).
+  const narrationBlock = canEdit && !property.offSite ? <div id="rh-narration"><PropertyNarrationManager propertyId={property.id} placement="card"
     factsKey={[property.type, property.rooms, property.areaSqm, property.floor, property.totalFloors, property.districtId, property.price, property.currency].join("|")} /></div> : null;
   const matchDialog = matchOpen && <MatchPanel mode="property" property={property} open={matchOpen} onClose={() => setMatchOpen(false)} />;
   const deleteDialog = !accountReadOnly && deleteOpen && <DeletePropertyDialog propertyId={property.id} onClose={() => setDeleteOpen(false)} />;
@@ -907,10 +908,6 @@ function PropertyViewCard({
       {addressNotice}
       {lockedNotice}
 
-      {/* ОЗВУЧКА НАВЕРХУ КАРТОЧКИ (18.11.2026, макет владельца «поменял, послушал, утвердил»): один адаптивный
-          блок для нового облика и прежней раскладки, ПК и телефона. Поменяли цену или этаж — он сразу здесь. */}
-      {narrationBlock}
-
       <CleanPropertyDetailLayout enabled={clean}>
         <div className="rh-pcard-main" style={clean ? { display: "contents" } : undefined}>
           <CleanPropertySlot enabled={clean} area="gallery"><PropertyGallery photos={photos} thumbs={royal} /></CleanPropertySlot>
@@ -941,6 +938,10 @@ function PropertyViewCard({
               </div>
             </Card>
           )}</CleanPropertySlot>
+
+          {/* ОЗВУЧКА РОЛИКА (20.11.2026): рядом со строкой «Ролик», после фото, цены и «кто ведёт». Один адаптивный
+              блок для нового облика и прежней раскладки, ПК и телефона; спокойное состояние — короткая строка. */}
+          <CleanPropertySlot enabled={clean} area="work">{narrationBlock}</CleanPropertySlot>
 
           <CleanPropertySlot enabled={clean} area="work">{showSolve && viewSolve}</CleanPropertySlot>
           <CleanPropertySlot enabled={clean} area="work">{dealSlot}</CleanPropertySlot>
