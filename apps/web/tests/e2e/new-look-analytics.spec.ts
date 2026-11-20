@@ -48,7 +48,9 @@ const CHECK = ".card, .tile, .sec-h, .pg-h, .bars .b, .donut, .tbl-wrap, .mag-ca
 const SCREENS = [
   { url: "/reports", ready: "#funnel-section .card" },
   { url: "/sources", ready: ".pg-h h1" },
-  { url: "/insights", ready: ".sec-h h2" },
+  // От 820 px — выпуски секцией (`.sec-h h2`); уже — MobileInsights: список выпусков без
+  // секций, ждём его строку. Иначе проверка ширины шла бы по ещё пустому экрану (20.11).
+  { url: "/insights", ready: (width: number) => (width >= 820 ? ".sec-h h2" : ".card .list > .row") },
   { url: "/funnel", ready: ".mag-card" },
   { url: "/pipeline", ready: ".seg button" },
 ];
@@ -64,7 +66,8 @@ for (const screen of SCREENS) {
       await page.goto(screen.url);
       await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
       await expect(page.locator('[data-ry-section="analytics"]').first()).toBeAttached({ timeout: 20_000 });
-      await expect(page.locator(screen.ready).first()).toBeVisible({ timeout: 20_000 });
+      const ready = typeof screen.ready === "function" ? screen.ready(width) : screen.ready;
+      await expect(page.locator(ready).first()).toBeVisible({ timeout: 20_000 });
       await expectNoOverflowAt(page, width, CHECK, { strips: ".hscroll, .seg-ai, .tbl-wrap, .heat-wrap, .dsm-scroll" });
     }
   });

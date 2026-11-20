@@ -515,3 +515,14 @@
 @media (prefers-reduced-motion: reduce) {
   :root[data-ui-look="royal"] .rh2[data-ry-section="control"] :is(.pill, .tile) { transition: none; }
 }
+
+/* Причина в полосах «Службы безопасности» и итог проверки в «Копиях» переносятся, а не
+   режутся: «Купил через другое агентство», «сбой · Хранилище не ответило за 60 секунд…»
+   обрезались многоточием на 320–360 px (сторож @smoke, 20.11). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .scr .bars .b .nm3 {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="control"] .scr .list > .row > .t :is(b, span, small) {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+  -webkit-line-clamp: none; line-clamp: none; max-height: none;
+}

@@ -415,3 +415,10 @@
   :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut { justify-content: center; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .keys { min-width: 0; flex: 1 1 100%; }
 }
+
+/* Строки списков (объекты в «Отчётах» и т.п.) переносятся, а не режутся зажимом строк:
+   «Шохмансур · 1 комн. · 363 000 с.» обрезалось многоточием на 320 px (сторож @smoke, 20.11). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .list > .row > .t :is(b, span, small) {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+  -webkit-line-clamp: none; line-clamp: none; max-height: none;
+}

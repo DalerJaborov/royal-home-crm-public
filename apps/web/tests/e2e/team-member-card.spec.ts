@@ -16,7 +16,10 @@ import { CRASH_TEXT, collectPageErrors } from "./pages/crm.page";
  * открыли одного и того же сотрудника.
  */
 
-const HEADINGS = ["Сейчас", "Что не так", "Переписка", "Звонки", "Лиды по этапам", "Объекты", "Клиенты", "Сделки"];
+// «Лиды по этапам» сняты с карточки 16.11.2026 вместе со статусами-папками
+// (#220, решение владельца) — тест их ещё ждал и краснел на исправной карточке
+// (Чат 3, 20.11). На их месте «Цифры за неделю»: есть на обеих ширинах всегда.
+const HEADINGS = ["Сейчас", "Что не так", "Цифры за неделю", "Переписка", "Звонки", "Объекты", "Клиенты", "Сделки"];
 
 async function assertNoHorizontalScroll(page: import("@playwright/test").Page) {
   const overflowing = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);

@@ -26,8 +26,12 @@ test("@smoke вход по коду — подсказка номера, отс�
   await page.getByRole("button", { name: "Получить код", exact: true }).click();
 
   await expect(page.getByText(/Шесть цифр из СМС на номер •• ••• 06 61/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Прислать в Telegram" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Отправить ещё раз через \d+ с/ })).toBeDisabled();
+  // Подписи с #104 (04.11.2026): отсчёт ушёл из кнопки в строку состояния,
+  // «Прислать в Telegram» стало «Через Telegram» и тоже ждёт конца отсчёта.
+  // Тест тогда не обновили — @smoke краснел на исправном экране (Чат 3, 20.11).
+  await expect(page.getByRole("status").filter({ hasText: /Новый код можно запросить через \d+ с/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Отправить ещё раз", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Через Telegram", exact: true })).toBeDisabled();
 
   await page.getByRole("textbox", { name: "Код из СМС" }).fill("123456");
   await page.getByRole("button", { name: "Подтвердить", exact: true }).click();
