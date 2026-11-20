@@ -121,8 +121,26 @@ const {
  *  микрозадачам добежать. */
 const pendingTranscriptionRetries = async () => {
   await new Promise((r) => setTimeout(r, 200));
-  return prisma.backgroundJob.count({ where: { type: "transcription-retry", status: "PENDING" } });
+  return countOwnPendingJobs("transcription-retry");
 };
+
+/** Считает ждущие задания только по разговорам ЭТОГО файла. Общий счёт по типу
+ *  краснел на общей базе: соседний файл (transcription-retry-reseed и др.) в
+ *  тот же момент заводит задания того же типа — облачный прогон ship #331,
+ *  20.11.2026, падал без единой правки в телефонии. */
+async function countOwnPendingJobs(type: string): Promise<number> {
+  const own = await prisma.interaction.findMany({ where: { clientId }, select: { id: true } });
+  const ids = new Set(own.map((r) => r.id));
+  const jobs = await prisma.backgroundJob.findMany({
+    where: { type, status: "PENDING" },
+    select: { payload: true },
+    take: 5000,
+  });
+  return jobs.filter((j) => {
+    const id = (j.payload as { interactionId?: unknown } | null)?.interactionId;
+    return typeof id === "string" && ids.has(id);
+  }).length;
+}
 const { handleAriEvent } = await import("../src/lib/telephony/ariEvents.js");
 const { resetIncomingCalls } = await import("../src/lib/telephony/incomingCalls.js");
 
@@ -956,8 +974,7 @@ describe("Запись разговора: путь от станции до к�
  * которое она обязана страховать, и до неё дело не дошло.
  * ──────────────────────────────────────────────────────────────────────────── */
 describe("Конвейер переживает рестарт процесса", () => {
-  const pendingSearchRetries = () =>
-    prisma.backgroundJob.count({ where: { type: "recording-search-retry", status: "PENDING" } });
+  const pendingSearchRetries = () => countOwnPendingJobs("recording-search-retry");
 
   it("страховка заводится ДО поиска файла, а не после него", async () => {
     stubPbx({ listing: [] });

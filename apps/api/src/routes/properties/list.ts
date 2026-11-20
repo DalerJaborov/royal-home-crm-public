@@ -182,6 +182,9 @@ listRouter.get("/", requireAuth, async (req, res) => {
       OR: toTokenVariants(token).flatMap((variant) => [
         { title: { contains: variant, mode: "insensitive" as const } },
         { address: { contains: variant, mode: "insensitive" as const } },
+        // РАЙОН ПО ИМЕНИ (пачка D1, 20.11.2026): агент ищет «Сино» строкой поиска. Название
+        // объекта район обычно содержит, но не всегда (адрес без района, свой заголовок).
+        { district: { name: { contains: variant, mode: "insensitive" as const } } },
         // ОПИСАНИЕ ТОЖЕ ИЩЕТСЯ (владелец 10.08.2026: «поиск по ключевым словам»).
         // «Евроремонт», «панорамные окна», «своя котельная» в названии не пишут —
         // они живут в описании, и без него поиск отвечал «объектов нет» на самые

@@ -1,3 +1,4 @@
+import { messageTimeText } from "../lib/messageTime";
 import { clearIfUnchanged } from "../lib/clearSentText";
 import { formatWaiting } from "../lib/formatWaiting";
 import { inboxClientConversationId } from "../lib/inboxLink";
@@ -105,9 +106,8 @@ export function replySourceLabels(channels: Array<string | null>): string[] {
   });
 }
 
-export function messageTimeText(at: string | null | undefined): string {
-  return at ? dushanbeTime(at) : "Время сообщения неизвестно";
-}
+// Одно правило на три экрана чата — lib/messageTime.ts (пачка D1).
+export { messageTimeText };
 
 export function messageRenderKey(message: ConversationMessage, index: number): string {
   const localKey = message.mid ?? `idx:${message.sourceMessageIndex ?? index}`;

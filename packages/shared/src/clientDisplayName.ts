@@ -190,14 +190,23 @@ function resolveAnchor(input: ClientDisplayNameInput, facts?: ClientDisplayNameF
  * приоритета, только без первого шага.
  */
 export function clientDisplayName(input: ClientDisplayNameInput, facts?: ClientDisplayNameFacts): string {
-  const namePart = resolveNamePart(input) || (input.kind ? STUB_ROLE[input.kind] : "Клиент без имени");
-  const anchor = resolveAnchor(input, facts);
-  if (!anchor) return namePart;
+  const { name, anchor } = clientNameParts(input, facts);
+  return anchor ? `${name} · ${anchor}` : name;
+}
 
+/**
+ * Те же «Имя · Якорь», но порознь (пачка D1, 20.11.2026): строка списка в «Новом виде»
+ * ставит имя первой строкой, а якорь — второй, вместо склейки через « · ». Правило
+ * одно с `clientDisplayName` (она собирается отсюда): заглушки заменяются, якорь
+ * продавца — ориентир/адрес объекта, покупателя — «ищет …», якорь не повторяет то,
+ * что агент уже дописал в имя.
+ */
+export function clientNameParts(input: ClientDisplayNameInput, facts?: ClientDisplayNameFacts): { name: string; anchor: string | null } {
+  const name = resolveNamePart(input) || (input.kind ? STUB_ROLE[input.kind] : "Клиент без имени");
+  const anchor = resolveAnchor(input, facts);
   // Якорь агент мог уже дописать в само имя («Зоир стадион Спартак») — угадывать,
   // какая часть имени это дописка, мы не пытаемся (см. шапку файла), но хотя бы не
   // дублируем, если текст якоря буквально уже есть в имени.
-  if (namePart.toLowerCase().includes(anchor.toLowerCase())) return namePart;
-
-  return `${namePart} · ${truncateAnchor(anchor)}`;
+  if (!anchor || name.toLowerCase().includes(anchor.toLowerCase())) return { name, anchor: null };
+  return { name, anchor: truncateAnchor(anchor) };
 }
