@@ -70,6 +70,11 @@ export interface McAgent {
   takesLeads?: boolean;
   /** Просроченных задач у агента сейчас (20.11.2026). */
   overdueTasks?: number;
+  /** Звонков и всех дел (звонки, показы, задачи, сообщения) за сегодня — по каждому агенту. */
+  callsToday?: number;
+  actionsToday?: number;
+  /** Сегодня у него выходной: общий, личный или праздник компании. */
+  dayOffToday?: boolean;
 }
 export interface McTeamDayRow {
   agentId: string;

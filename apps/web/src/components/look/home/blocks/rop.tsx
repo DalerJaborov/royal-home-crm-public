@@ -1,8 +1,10 @@
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { pluralizeRu, type ProblemReportMetrics, type SalesControlHome } from "@royal-home/shared";
 import { api } from "../../../../lib/api";
 import { useAuthStore } from "../../../../store/auth";
 import { useCan } from "../../../../lib/permissions";
+import { useNavigation } from "../../../../lib/navigation";
 import { dushanbeTime } from "../../../../lib/date";
 import { lazyWithReload } from "../../../../lib/lazyWithReload";
 import { useTeamLive } from "../../../../hooks/useTeamLive";
@@ -11,6 +13,8 @@ import { RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../..
 import { tileTone } from "../../tileTone";
 import { HomeBars, num } from "../charts";
 import { waitLabel } from "../leader";
+import type { HomeBlockProps } from "../core";
+import { useHomeLayoutPrefs } from "../prefs";
 import { FullScreenToggle } from "./full";
 import { HomeQuiet, LeaderTeam } from "./leader";
 
@@ -40,13 +44,23 @@ function tasksOf(data: SalesControlHome | undefined) {
   return Array.isArray(data?.tasks) ? data.tasks : [];
 }
 
-/** Четыре плитки РОП: срочное больше нуля — красным, ноль — серым (tileTone). */
-export function RopTiles() {
+/**
+ * Плитки РОП: срочное больше нуля — красным, ноль — серым (tileTone). Плитка рисуется,
+ * только когда её источник пришёл (выключенный модуль пульта — нет плитки, а не «—»);
+ * ссылка — только туда, где РОП увидит ту же цифру и куда у него есть путь.
+ */
+export function RopTiles({ role }: HomeBlockProps) {
   const can = useCan();
   const canView = can("dashboard.analytics");
   const mc = useMissionControl(canView);
   const live = useTeamLive(canView);
+  const { all: navigation } = useNavigation();
+  const { hidden } = useHomeLayoutPrefs(role);
   if (!canView) return null;
+  if (mc.isLoading && !mc.data) return <RhBlockState kind="loading" />;
+  const hasRoute = (path: string) => navigation.some((item) => item.to === path);
+  // «Команда сегодня» на этой главной: по строке на агента — те же «просрочено» и «не принял вовремя».
+  const teamShown = can("team.viewFull") && !hidden.has("ropTeam");
   const data = mc.data;
   const hero = data?.hero && mcOk(data.hero) ? data.hero : null;
   const bot = data?.bot && mcOk(data.bot) ? data.bot : null;
@@ -54,19 +68,27 @@ export function RopTiles() {
   const waiting = bot?.attention?.waitingHuman;
   const oldest = waiting?.items?.length ? Math.max(...waiting.items.map((item) => item.waitingMinutes)) : null;
   const overdue = team ? team.agents.reduce((sum, agent) => sum + (agent.overdueTasks ?? 0), 0) : null;
-  const late = live.data ? live.data.escalatedTotal ?? null : null;
-  const missed = hero ? hero.missedCallsToday : null;
-  const dash = (n: number | null | undefined) => (n === null || n === undefined ? "—" : n);
-  return (
-    <div className="ry-strip ry-strip-tiles" data-tiles="4">
-      <RhTile variant={tileTone("urgent", waiting?.count)} icon="message-circle" label="Ждут ответа" value={dash(waiting?.count)}
-        note={waiting && waiting.count > 0 && oldest !== null ? `дольше всех ${waitLabel(oldest)}` : "клиенты в чатах"}
-        to="/messages" alert={mc.isError} />
-      <RhTile variant={tileTone("urgent", missed)} icon="phone-missed" label="Пропущенные звонки" value={dash(missed)} note="сегодня" to="/calls" />
-      <RhTile variant={tileTone("urgent", overdue)} icon="hourglass" label="Просрочки агентов" value={dash(overdue)} note="задачи после срока" to="#ry-leader-team" />
-      <RhTile variant={tileTone("urgent", late)} icon="user-plus" label="Не приняли вовремя" value={dash(late)} note="заявки, время вышло" to="/clients?slice=pending" alert={live.isError} />
-    </div>
+  const late = typeof live.data?.escalatedTotal === "number" ? live.data.escalatedTotal : null;
+  const tiles: ReactNode[] = [];
+  if (waiting) tiles.push(
+    <RhTile key="waiting" variant={tileTone("urgent", waiting.count)} icon="message-circle" label="Ждут ответа" value={waiting.count}
+      note={waiting.count > 0 && oldest !== null ? `дольше всех ${waitLabel(oldest)}` : "клиенты в чатах"}
+      to={hasRoute("/messages") ? "/messages" : undefined} />,
   );
+  if (hero) tiles.push(
+    <RhTile key="missed" variant={tileTone("urgent", hero.missedCallsToday)} icon="phone-missed" label="Пропущенные звонки" value={hero.missedCallsToday}
+      note="сегодня" to={hasRoute("/calls") ? "/calls" : undefined} />,
+  );
+  if (overdue !== null) tiles.push(
+    <RhTile key="overdue" variant={tileTone("urgent", overdue)} icon="hourglass" label="Просрочки агентов" value={overdue}
+      note="задачи после срока" to={teamShown ? "#ry-leader-team" : undefined} />,
+  );
+  if (late !== null) tiles.push(
+    <RhTile key="late" variant={tileTone("urgent", late)} icon="user-plus" label="Не приняли вовремя" value={late}
+      note="заявки, время вышло" to={teamShown ? "#ry-leader-team" : undefined} />,
+  );
+  if (tiles.length === 0) return mc.isError || live.isError ? <RhBlockState kind="error" onRetry={() => { void mc.refetch(); void live.refetch(); }} /> : null;
+  return <div className="ry-strip ry-strip-tiles" data-tiles={tiles.length}>{tiles}</div>;
 }
 
 /**

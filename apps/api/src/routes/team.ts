@@ -1,6 +1,7 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { Router } from "express";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
+import { overdueTasksOfAgentsWhere } from "../lib/tasks.js";
 import { canViewInvestigations } from "@royal-home/shared";
 import { Prisma, type ClientStatus } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
@@ -23,7 +24,6 @@ import {
   findEndlessNegotiations,
   findRefusedHighScore,
   findSilentAfterShowing,
-  overdueTasksWhere,
   RECENT_EVENTS_DAYS,
   RECENT_EVENTS_MS,
 } from "./oversight.js";
@@ -418,7 +418,8 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
   // subjectAgentId ?? agentId (П-10, 17.09.2026): просроченная задача, заведённая
   // ботом/системой от лица держателя карточки (agentId: null), остаётся ЕГО
   // хвостом — тот же приём, что computeDiscipline в kpi.ts.
-  const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRole(req)), OR: [{ agentId: id }, { subjectAgentId: id }] };
+  // Одно правило с главной руководителя (lib/tasks.ts::overdueTasksOfAgentsWhere, 20.11.2026).
+  const overdueTasksAgentWhere = overdueTasksOfAgentsWhere(now, [id], visibleInteractionWhere(investigationViewerRole(req)));
   // «Не связывались» — одно правило на всю CRM (lib/noContact.ts), здесь — по этому агенту.
   const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(), { assignedAgentId: id }] };
 

@@ -776,6 +776,22 @@ export interface McTeamDay extends McEmptyable {
  * схеме нет, реплики лежат JSONB внутри диалога, и считать их по агенту нечем.
  */
 export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTeamDay> {
+  return (await loadTeamDayWithCounts(now, viewerRole)).day;
+}
+
+/** Дела агента за сегодня — для его строки в «Команде» руководителя, без обрезки до 12. */
+export interface TeamDayAgentCounts {
+  calls: number;
+  total: number;
+}
+
+/**
+ * Тот же расчёт, что loadTeamDay, плюс счётчики по КАЖДОМУ агенту (20.11.2026). Список
+ * `rows` в ответе режется до 12 по числу дел, а при равенстве — по имени: агент с нулём
+ * дел и фамилией в конце алфавита в него не попадал, и главная не могла отличить «ноль»
+ * от «не попал в список». Счётчики строятся из тех же четырёх groupBy, без новых запросов.
+ */
+export async function loadTeamDayWithCounts(now: Date, viewerRole?: string): Promise<{ day: McTeamDay; counts: Map<string, TeamDayAgentCounts> }> {
   const { start, end } = dushanbeDayRange(now);
   const window = { gte: start, lt: end };
 
@@ -834,7 +850,13 @@ export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTea
   const sum = (f: (r: McTeamDayRow) => number) => rows.reduce((acc, r) => acc + f(r), 0);
   const total = sum((r) => r.total);
 
-  return {
+  const counts = new Map<string, TeamDayAgentCounts>();
+  for (const id of new Set([...byCalls.keys(), ...byShowings.keys(), ...byTasks.keys(), ...byMessages.keys()])) {
+    const calls = byCalls.get(id) ?? 0;
+    counts.set(id, { calls, total: calls + (byShowings.get(id) ?? 0) + (byTasks.get(id) ?? 0) + (byMessages.get(id) ?? 0) });
+  }
+
+  const day: McTeamDay = {
     rows: rows.slice(0, 12),
     calls: sum((r) => r.calls),
     showings: sum((r) => r.showings),
@@ -847,6 +869,7 @@ export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTea
           ? null
           : "С начала суток по Душанбе ни звонков, ни показов, ни закрытых задач.",
   };
+  return { day, counts };
 }
 
 // ─── Показы сегодня ──────────────────────────────────────────────────────────

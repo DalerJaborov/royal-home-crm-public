@@ -30,41 +30,80 @@ describe("tileTone", () => {
 });
 
 /**
- * Сторож: в блоках главных руководителей у RhTile нет буквального `variant="…"` — цвет
- * считает tileTone(). Главные агента, монтажёра и маркетинга пока на прежних вариантах
- * (их ведут другие пачки) — они в списке «ещё не переведены», и этот список только убывает.
+ * Сторож: у КАЖДОЙ плитки RhTile в блоках главных руководителей вариант задаёт вызов
+ * `variant={tileTone(…)}` — не строка, не `{"ink"}`, не тернарник `{x ? "ink" : "plain"}`,
+ * не переменная. Главные агента, монтажёра и маркетинга пока на прежних вариантах (их
+ * ведут другие пачки) — они в списке «ещё не переведены», и этот список только убывает.
  */
 const GUARDED = ["home/blocks/director.tsx", "home/blocks/rop.tsx", "home/blocks/leader.tsx", "home/blocks/manager.tsx"];
 const NOT_YET = ["home/blocks/agent.tsx", "home/blocks/editor.tsx", "home/blocks/marketing.tsx"];
-// От «<RhTile» до «variant="» в пределах одного тега (стрелки `=>` в свойствах тег не обрывают).
-const LITERAL = /<RhTile\b(?:(?!\/>|<RhTile)[\s\S])*?\svariant="/;
 
-function literalTileVariants(source: string): number {
-  return [...source.matchAll(new RegExp(LITERAL.source, "g"))].length;
+/** Теги `<RhTile …>` целиком: до `>` или `/>` вне фигурных скобок (стрелки `=>` внутри `{}` тег не обрывают). */
+function rhTileTags(source: string): string[] {
+  const tags: string[] = [];
+  let from = 0;
+  for (;;) {
+    const start = source.indexOf("<RhTile", from);
+    if (start < 0) return tags;
+    const after = source[start + "<RhTile".length];
+    if (after && /[\w$]/.test(after)) { from = start + 1; continue; }
+    let depth = 0;
+    let quote: string | null = null;
+    let i = start + 1;
+    for (; i < source.length; i++) {
+      const ch = source[i];
+      if (quote) { if (ch === quote && source[i - 1] !== "\\") quote = null; continue; }
+      if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      else if (ch === ">" && depth === 0) break;
+    }
+    tags.push(source.slice(start, i + 1));
+    from = i + 1;
+  }
+}
+
+/** Теги плиток, чей вариант задан не вызовом tileTone(). */
+function tilesWithoutTone(source: string): string[] {
+  return rhTileTags(source).filter((tag) => !/\svariant=\{tileTone\(/.test(tag));
 }
 
 describe("сторож: плитки руководителей красятся только через tileTone()", () => {
-  it("ни одного буквального variant у RhTile в блоках руководителей", () => {
+  it("у каждой плитки в блоках руководителей variant={tileTone(…)}", () => {
+    let seen = 0;
     for (const file of GUARDED) {
       const source = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
-      expect(literalTileVariants(source), file).toBe(0);
+      seen += rhTileTags(source).length;
+      expect(tilesWithoutTone(source), file).toEqual([]);
     }
+    // Плитки найдены вовсе — иначе сторож молча ничего не проверял бы.
+    expect(seen).toBeGreaterThan(10);
   });
 
-  it("сторож ловит буквальный вариант (проверен поломкой)", () => {
-    expect(literalTileVariants('<RhTile key="x" variant="ink" icon="flame" label="Горит" value={0} />')).toBe(1);
-    expect(literalTileVariants('<RhTile\n  variant="brand"\n  icon="x" />')).toBe(1);
-    expect(literalTileVariants('<RhTile variant={tileTone("urgent", n)} icon="x" />')).toBe(0);
-    expect(literalTileVariants('<RhTile to={go(() => 1)} label="a" variant="crit" />')).toBe(1);
-    expect(literalTileVariants('<RhTile variant={v} /><RhRow variant="x" />')).toBe(0);
-    expect(literalTileVariants('<RhTile to={go(() => 1)} label="a" variant="crit" />')).toBe(1);
-    expect(literalTileVariants('<RhTile variant={v} /><RhRow variant="x" />')).toBe(0);
+  it("сторож ловит строку, {\"ink\"}, тернарник и переменную (проверен поломкой)", () => {
+    const bad = [
+      '<RhTile key="x" variant="ink" icon="flame" label="Горит" value={0} />',
+      '<RhTile\n  variant="brand"\n  icon="x" />',
+      '<RhTile variant={"ink"} icon="x" />',
+      '<RhTile variant={x > 0 ? "ink" : "plain"} icon="x" />',
+      '<RhTile to={go(() => 1)} label="a" variant={(n) > 1 ? "crit" : "calm"} />',
+      '<RhTile variant={v} icon="x" />',
+      '<RhTile icon="x" label="без варианта" />',
+    ];
+    for (const tag of bad) expect(tilesWithoutTone(tag), tag).toHaveLength(1);
+    const good = [
+      '<RhTile variant={tileTone("urgent", n)} icon="x" />',
+      '<RhTile to={go(() => 1)} note={a > b ? "x" : "y"} variant={tileTone("info", (a ?? 0) > 1 ? 1 : 0)} />',
+    ];
+    for (const tag of good) expect(tilesWithoutTone(tag), tag).toEqual([]);
+    // Соседние теги и похожие имена не путаются с плиткой.
+    expect(rhTileTags('<RhTiles variant="x" /><RhTile variant={tileTone("good", 1)} /><RhRow variant="x" />')).toHaveLength(1);
   });
 
   it("список «ещё не переведены» не содержит файлов, которые уже переведены (только убывает)", () => {
     for (const file of NOT_YET) {
       const source = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
-      expect(literalTileVariants(source), `${file} уже без буквальных вариантов — перенесите его в GUARDED`).toBeGreaterThan(0);
+      expect(tilesWithoutTone(source).length, `${file} уже весь на tileTone — перенесите его в GUARDED`).toBeGreaterThan(0);
     }
   });
 });

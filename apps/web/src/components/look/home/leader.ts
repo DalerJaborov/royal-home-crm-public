@@ -30,20 +30,24 @@ export function commissionTrend(fact: number, previous: number | null | undefine
 }
 
 /**
- * Подпись периода сравнения по Душанбе: 20 ноября → «1–20 октября», 31 марта →
- * «1–28 февраля» (прошлый месяц короче), 1-е число → «1 октября». То же правило,
- * что у сервера (lib/dashboardInsights.ts::computePreviousMonthCommission).
+ * Подпись периода сравнения по Душанбе — ровно то, что считает сервер
+ * (lib/dashboardInsights.ts::computePreviousMonthCommission: прошлый месяц с 1-го числа
+ * до той же точки месяца, с точностью до минуты): 20 ноября 14:00 → «1–20 октября до
+ * 14:00»; 31 марта → «1–28 февраля» (прошлый месяц короче — он целиком, без часа);
+ * 1-е число → «1 октября до 09:00».
  */
 export function previousMonthPeriod(now: Date = new Date()): { range: string; month: string } {
   const wall = new Date(now.getTime() + OFFSET_MS);
   const y = wall.getUTCFullYear();
   const m = wall.getUTCMonth();
   const prevDays = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const whole = wall.getUTCDate() > prevDays;
   const day = Math.min(wall.getUTCDate(), prevDays);
   // Полдень по Душанбе — день не уезжает ни в каком поясе устройства.
   const at = new Date(Date.UTC(y, m - 1, day, 7));
   const dayMonth = dushanbeDate(at, { day: "numeric", month: "long" });
-  return { range: day === 1 ? dayMonth : `1–${dayMonth}`, month: dushanbeDate(at, { month: "long" }) };
+  const range = day === 1 ? dayMonth : `1–${dayMonth}`;
+  return { range: whole ? range : `${range} до ${dushanbeTime(now)}`, month: dushanbeDate(at, { month: "long" }) };
 }
 
 /** «40 мин», «1 ч 20 мин», «2 дн.» — сколько ждёт. */
@@ -64,6 +68,10 @@ export interface LeaderAgentInput {
   pendingAccept: number;
   takesLeads?: boolean;
   overdueTasks?: number;
+  /** Дел за сегодня (звонки, показы, задачи, сообщения) — сервер считает по каждому агенту. */
+  actionsToday?: number;
+  /** Сегодня у него выходной (общий, личный, праздник компании). */
+  dayOffToday?: boolean;
 }
 
 export interface LeaderAgentStatus {
@@ -91,8 +99,6 @@ function sameDushanbeDay(a: Date, b: Date): boolean {
 export function agentStatus(agent: LeaderAgentInput, opts: {
   /** Заявок, которые он не принял вовремя (живая сводка команды). */
   lateLeads: number;
-  /** Дел за сегодня (звонки, показы, задачи, сообщения); null — неизвестно. */
-  actionsToday: number | null;
   workdayStartAt?: string;
   now: Date;
 }): LeaderAgentStatus {
@@ -104,12 +110,16 @@ export function agentStatus(agent: LeaderAgentInput, opts: {
     : seenToday ? `заходил в ${dushanbeTime(last)}`
     : `заходил ${dushanbeDate(last, { day: "numeric", month: "long" })}`;
 
-  const workdayStarted = !!opts.workdayStartAt && now.getTime() >= Date.parse(opts.workdayStartAt);
+  // Начало дня — сегодняшнее по Душанбе (снимок мог прийти вчера и лежать в кэше вкладки),
+  // и уже наступило; в выходной агента «не заходил» не тревога.
+  const start = opts.workdayStartAt ? new Date(opts.workdayStartAt) : null;
+  const workdayStarted = !!start && !Number.isNaN(start.getTime()) && sameDushanbeDay(start, now) && now.getTime() >= start.getTime()
+    && agent.dayOffToday !== true;
   const paused = agent.takesLeads === false;
   if (opts.lateLeads > 0) {
     return { seen, rank: 0, flag: { tone: "crit", text: `не принял вовремя: ${opts.lateLeads} ${pluralizeRu(opts.lateLeads, ["заявка", "заявки", "заявок"])}` } };
   }
-  if (!paused && workdayStarted && !seenToday && opts.actionsToday === 0) {
+  if (!paused && workdayStarted && !seenToday && agent.actionsToday === 0) {
     return { seen, rank: 0, flag: { tone: "crit", text: "сегодня не заходил" } };
   }
   if ((agent.overdueTasks ?? 0) > 0) {

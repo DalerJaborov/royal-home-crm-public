@@ -118,6 +118,9 @@ export interface PreviousMonthCommission {
  * Те же правила денег, что у computePlanForecast: закрытые сделки (COMPLETED) по
  * closedAt, суммы в сомони через toTjs, границы месяцев по Душанбе.
  */
+/** Потолок выборки сделок прошлого месяца (защита от аварии). */
+export const PREVIOUS_MONTH_DEALS_CAP = 5000;
+
 export async function computePreviousMonthCommission(now: Date = new Date()): Promise<PreviousMonthCommission> {
   const thisStart = dushanbeStartOfMonth(now);
   const prevStart = dushanbeStartOfMonth(new Date(thisStart.getTime() - 1));
@@ -128,7 +131,10 @@ export async function computePreviousMonthCommission(now: Date = new Date()): Pr
       where: { stage: "COMPLETED", closedAt: { gte: prevStart, lt: thisStart } },
       select: { commissionAmount: true, currency: true, closedAt: true },
       // Сделок за месяц у агентства десятки; потолок — от аварии, а не рабочий режим.
-      take: 5000,
+      // Порядок по дате закрытия — чтобы при упоре в потолок отрезались поздние сделки
+      // месяца, а сравнение «на ту же точку» оставалось полным.
+      orderBy: [{ closedAt: "asc" }, { id: "asc" }],
+      take: PREVIOUS_MONTH_DEALS_CAP,
     }),
   ]);
   let toDate = 0;

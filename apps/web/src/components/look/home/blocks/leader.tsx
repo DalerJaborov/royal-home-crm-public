@@ -121,28 +121,23 @@ export function LeaderTeam({ id, className, to = "/team", limit = 8 }: { id?: st
   }
   // Агентов нет вовсе — показывать нечего (а не «пустая команда» строкой).
   if (!Array.isArray(team.agents) || team.agents.length === 0) return null;
-  const dayRows = team.day?.rows ?? null;
-  // Список дел за день сервер режет до 12 строк: кого в нём нет при полном списке — неизвестно, а не ноль.
-  const dayKnown = (id: string) => dayRows !== null && (dayRows.length < 12 || dayRows.some((r) => r.agentId === id));
   const lateById = new Map((Array.isArray(live.data?.agents) ? live.data.agents : []).map((a) => [a.id, a.escalated ?? 0]));
-  const rows = team.agents.map((agent) => {
-    const day = dayRows?.find((r) => r.agentId === agent.id);
-    const known = dayKnown(agent.id);
-    const status = agentStatus(agent, {
-      lateLeads: lateById.get(agent.id) ?? 0,
-      actionsToday: known ? day?.total ?? 0 : null,
-      workdayStartAt: team.workdayStartAt,
-      now,
-    });
-    return { agent, day, known, status };
-  }).sort((a, b) => a.status.rank - b.status.rank || b.agent.activeLoad - a.agent.activeLoad);
+  // Звонки и дела за день сервер отдаёт по каждому агенту (team.agents), а не обрезанным списком «Дня команды».
+  const rows = team.agents.map((agent) => ({
+    agent,
+    status: agentStatus(agent, { lateLeads: lateById.get(agent.id) ?? 0, workdayStartAt: team.workdayStartAt, now }),
+  })).sort((a, b) => a.status.rank - b.status.rank || b.agent.activeLoad - a.agent.activeLoad);
   const shown = rows.slice(0, limit);
   return (
     <RhSection id={id} title="Команда сегодня" to={to} className={className}>
       <RhGroup>
-        {shown.map(({ agent, day, known, status }) => {
+        {shown.map(({ agent, status }) => {
           const parts = [status.seen];
-          if (known) parts.push(`звонков ${num(day?.calls ?? 0)}`);
+          if (typeof agent.callsToday === "number") parts.push(`звонков ${num(agent.callsToday)}`);
+          // Плитки РОП ведут сюда: «просрочено» и «не принял вовремя» видны у каждого, даже когда пометка справа о другом.
+          const late = lateById.get(agent.id) ?? 0;
+          if (late > 0 && !status.flag?.text.startsWith("не принял")) parts.push(`не принял вовремя ${num(late)}`);
+          if ((agent.overdueTasks ?? 0) > 0 && !status.flag?.text.startsWith("просрочено")) parts.push(`просрочено задач ${num(agent.overdueTasks ?? 0)}`);
           parts.push(`в работе ${num(agent.activeLoad)}`);
           return (
             <RhRow key={agent.id} to={`/team/${agent.id}`}
