@@ -1,3 +1,4 @@
+import { RuTimeField } from "../../components/look/fields/RuFields";
 import { useEffect, useRef, useState } from "react";
 import { GEMINI_VOICES, voiceGenderLabel } from "@royal-home/shared";
 import { api } from "../../lib/api";
@@ -1587,9 +1588,8 @@ function PublishWindowFields() {
           </span>
         </div>
         <div className="acts">
-          <input
+          <RuTimeField
             className="inp"
-            type="time"
             style={{ maxWidth: 120 }}
             aria-label="Начало окна публикаций"
             value={minToTime(startMin)}
@@ -1599,9 +1599,8 @@ function PublishWindowFields() {
               if (min !== null && min !== startMin) updateSettings.mutate({ publishScheduleWindowStartMin: min });
             }}
           />
-          <input
+          <RuTimeField
             className="inp"
-            type="time"
             style={{ maxWidth: 120 }}
             aria-label="Конец окна публикаций"
             value={minToTime(endMin)}
@@ -2604,8 +2603,7 @@ function IncomingHoursSetting() {
               ] as const
             ).map(({ field, label, value }) => (
               <span className="nf" key={field}>
-                <input
-                  type="time"
+                <RuTimeField
                   defaultValue={value}
                   key={value}
                   onBlur={(e) => save(field, e.target.value)}
@@ -2977,8 +2975,7 @@ function NightModeSetting() {
 function TimeField({ label, value, onSave }: { label: string; value: string; onSave: (v: string) => void }) {
   return (
     <span className="nf">
-      <input
-        type="time"
+      <RuTimeField
         defaultValue={value}
         aria-label={label}
         onBlur={(e) => e.target.value && e.target.value !== value && onSave(e.target.value)}

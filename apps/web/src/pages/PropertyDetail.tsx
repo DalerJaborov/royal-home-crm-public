@@ -1,3 +1,4 @@
+import { RuDateField } from "../components/look/fields/RuFields";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
@@ -2052,8 +2053,7 @@ function AgentFieldsCard({
 
         <label className="fld">
           <span className="lab">Дата принятия объекта</span>
-          <input
-            type="date"
+          <RuDateField
             // День по Душанбе, а не по UTC: вечерний приём (после 19:00 UTC)
             // иначе показывался в поле вчерашним числом.
             defaultValue={property.listingAcceptedAt ? dushanbeDayKey(property.listingAcceptedAt) : undefined}

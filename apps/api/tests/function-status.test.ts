@@ -80,7 +80,9 @@ describe("реестр функций и расчёт состояния", () =>
     const photos = item("bot-photos");
     expect(photos.state).toBe("off");
     expect(photos.attention).toBe(true);
-    expect(photos.reason).toContain("CUSTOMER_PROPERTY_MEDIA_EXECUTION_MODE");
+    // имя переменной — не в тексте причины, а в envNames («Для разработчика»)
+    expect(photos.reason).not.toContain("CUSTOMER_PROPERTY_MEDIA_EXECUTION_MODE");
+    expect(photos.envNames).toContain("CUSTOMER_PROPERTY_MEDIA_EXECUTION_MODE");
     expect(photos.detail).toContain("не больше 5");
   });
 
@@ -154,7 +156,8 @@ describe("реестр функций и расчёт состояния", () =>
     vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "");
     const waiting = item("narration");
     expect(waiting.state).toBe("preview");
-    expect(waiting.reason).toContain("CRM_NARRATION_EXECUTION_MODE");
+    expect(waiting.reason).not.toContain("CRM_NARRATION_EXECUTION_MODE");
+    expect(waiting.envNames).toContain("CRM_NARRATION_EXECUTION_MODE");
     vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "LIVE");
     expect(item("narration").state).toBe("working");
     expect(item("narration", input({}, { narrationAutoGenerate: false })).state).toBe("off");
@@ -333,5 +336,18 @@ describe("Отправка в Meta: метки «Meta не пропускает�
     }] }));
     expect(due.reason).toContain("код 10/1893063");
     expect(due.reason).toContain("проба — при следующей отправке");
+  });
+
+  it("причины и пояснения без имён переменных сервера — они только в envNames (К17, ревью #340)", () => {
+    const sets = [
+      input(),
+      input({ env: { CUSTOMER_AGENT_SAY_MODE: "live", CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_CHANNEL_SHADOW: "website" } }),
+      input({ env: { CUSTOMER_AGENT_ANSWER_MODE: "off", CUSTOMER_AGENT_CHANNEL_CORE: "website", CUSTOMER_AGENT_CHANNEL_OFF: "instagram" } }),
+    ];
+    for (const one of sets) {
+      for (const it of evaluateFunctions(one).items) {
+        expect(`${it.reason} ${it.detail ?? ""}`, it.key).not.toMatch(/[A-Z][A-Z0-9]*_[A-Z0-9_]+/);
+      }
+    }
   });
 });

@@ -1,3 +1,4 @@
+import { RuDateField, RuTimeField } from "./look/fields/RuFields";
 import { useState } from "react";
 import { showingCancelSchema, showingRescheduleSchema } from "@royal-home/shared";
 import { useCancelShowing, useCompleteTask, useRescheduleShowing } from "../hooks/useCalendar";
@@ -44,7 +45,7 @@ export function ClientShowingActions({ id, scheduledAt }: { id: string; schedule
     </ConfirmDialog>}
     {(mode === "move" || mode === "cancel") && <Rh2Sheet title={mode === "move" ? "Перенести показ" : "Отменить показ"} onClose={close} onSubmit={() => void save()}
       footer={<><button type="button" className="pill ghost" disabled={busy} onClick={close}>Назад</button><button type="submit" className="pill" disabled={busy}>{busy ? "Сохранение…" : "Сохранить"}</button></>}>
-      {mode === "move" && <div className="fgrid"><label className="fld"><span className="lab">Дата</span><input type="date" required min={dushanbeTodayKey()} value={date} onChange={e => setDate(e.target.value)} /></label><label className="fld"><span className="lab">Время</span><input type="time" required value={time} onChange={e => setTime(e.target.value)} /></label></div>}
+      {mode === "move" && <div className="fgrid"><label className="fld"><span className="lab">Дата</span><RuDateField required min={dushanbeTodayKey()} value={date} onChange={e => setDate(e.target.value)} /></label><label className="fld"><span className="lab">Время</span><RuTimeField required value={time} onChange={e => setTime(e.target.value)} /></label></div>}
       <label className="fld"><span className="lab">Причина</span><textarea required value={reason} onChange={e => setReason(e.target.value)} /></label>
       {error && <p role="alert">{error}</p>}
     </Rh2Sheet>}

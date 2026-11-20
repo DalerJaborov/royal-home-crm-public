@@ -1,3 +1,4 @@
+import { RuDateField } from "./look/fields/RuFields";
 import { useEffect, useState } from "react";
 import { claimStepUp } from "../lib/stepUpOwners";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -193,8 +194,7 @@ export function FreezeAgentModal({
       </div>
       <label className="fld">
         <span className="lab">Дата выхода — необязательно</span>
-        <input
-          type="date"
+        <RuDateField
           value={until}
           min={dushanbeDayKey(new Date(Date.now() + 864e5))}
           onChange={(e) => setUntil(e.target.value)}

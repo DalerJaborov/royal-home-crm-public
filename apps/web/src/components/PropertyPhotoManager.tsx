@@ -345,7 +345,7 @@ export function PropertyPhotoManager({
               disabled={archiving}
               title="Скачать все фото одним архивом"
             >
-              {archiving ? "Архивируем…" : "Скачать всё (.zip)"}
+              {archiving ? "Архивируем…" : "Скачать все фото"}
             </button>
           )}
           {!readOnly && (

@@ -1,3 +1,4 @@
+import { RhAudioPlayer } from "./look/RhAudioPlayer";
 import { useEffect, useState } from "react";
 import {
   CALL_TRANSCRIPTION_STAGE_LABELS,
@@ -217,7 +218,7 @@ export function CallRecording({ interactionId, createdAt }: { interactionId: str
     // этого плеер распирал карточку на телефоне, а страница уезжала вбок.
     <div className="player">
       <div className="tl">
-        <audio controls preload="metadata" src={url} style={{ width: "100%", minWidth: 0, height: 36 }} />
+        <RhAudioPlayer src={url} speeds preload="metadata" label="Запись разговора" className="w-full" />
         <div className="ts">
           {/* Дата в имени файла — душанбинская: slice(0, 10) резал ISO-строку в UTC,
               и разговор в 02:00 по Душанбе скачивался со вчерашним числом. */}
