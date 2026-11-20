@@ -36,20 +36,24 @@ export function looksLikeMp3(audio: Buffer): boolean {
 }
 export async function normalizeNarrationVoice(audio: Buffer, label: string): Promise<Buffer> {
   if (!looksLikeMp3(audio)) return audio;
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "narration-loud-"));
-  const input = path.join(dir, `${randomUUID()}-in.mp3`);
-  const output = path.join(dir, `${randomUUID()}-out.mp3`);
+  // ВСЁ внутри try, и временная папка тоже (ревью #348): на полном диске mkdtemp падает, а озвучка уже
+  // оплачена — бросить здесь значило бы потерять mp3 и оставить версию в GENERATING. Любой сбой —
+  // исходный (тихий) голос дальше и запись в журнал. Эта функция не бросает никогда.
+  let dir: string | null = null;
   try {
+    dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "narration-loud-"));
+    const input = path.join(dir, `${randomUUID()}-in.mp3`);
+    const output = path.join(dir, `${randomUUID()}-out.mp3`);
     await fs.promises.writeFile(input, audio);
     await runFfmpeg({ args: ["-y", "-hide_banner", "-loglevel", "error", "-i", input, "-af", NARRATION_LOUDNESS.voice, "-ar", "44100", "-c:a", "libmp3lame", "-b:a", "192k", output],
       timeoutMs: 90_000, label: "громкость озвучки" });
     const out = await fs.promises.readFile(output);
     return out.length ? out : audio;
   } catch (err) {
-    void logSystemError("api", `Озвучка ${label}: громкость не выровнена, монтажёр получит исходный (тихий) голос. ${err instanceof Error ? err.message.slice(0, 300) : String(err)}`,
+    void logSystemError("api", `Озвучка ${label}: громкость не выровнена, сохранён исходный (тихий) голос. ${err instanceof Error ? err.message.slice(0, 300) : String(err)}`,
       { dedupKey: "narration-loudness-failed", dedupWindowMs: 6 * 60 * 60_000 });
     return audio;
   } finally {
-    await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+    if (dir) await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }

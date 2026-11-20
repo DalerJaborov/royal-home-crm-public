@@ -2,7 +2,7 @@ import { z } from "zod";
 import { tajikCardinal, tajikOrdinal, tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
 import { russianSpeechNumbers } from "./russianSpeechNumbers.js";
 import { numberToWords, russianGenitive, russianOrdinal } from "./spokenNumber.js";
-import { apartmentPriceCurrencySuspect, convertToTjs } from "./money.js";
+import { apartmentPriceCurrencySuspect, propertyPriceTjs } from "./money.js";
 
 /**
  * ОЗВУЧКА РОЛИКА ОБЪЕКТА — ОДИН ИСТОЧНИК ПРАВИЛ ТЕКСТА (11.11.2026).
@@ -328,11 +328,8 @@ function rubPlural(n: number, one: string, few: string, many: string): string {
  * сумма по курсу дня точной не бывает, а «сто сорок четыре сомони» в конце только мешают слушать.
  */
 export function narrationSpokenPriceTjs(price: string | null | undefined, currency: string | null | undefined, usdToTjs?: number | null): number | null {
-  const amount = Number(price);
-  if (!price || !Number.isFinite(amount) || amount <= 0) return null;
-  if (currency !== "USD") return Math.round(amount);
-  if (!usdToTjs || !Number.isFinite(usdToTjs) || usdToTjs <= 0) return null;
-  return Math.round(convertToTjs(amount, "USD", usdToTjs) / 1000) * 1000;
+  // Одно число на голос, монтажёра, обложку и плашку — `propertyPriceTjs` (ревью #348).
+  return propertyPriceTjs(price, currency, usdToTjs);
 }
 /** Почему `{цена}` не прозвучит (для журнала): NO_RATE — доллары без курса; CURRENCY_SUSPECT — валюта карточки похожа на перепутанную. */
 export function narrationPriceProblem(facts: NarrationFacts): "NO_RATE" | "CURRENCY_SUSPECT" | null {
@@ -354,10 +351,15 @@ export function narrationPriceWords(facts: NarrationFacts, lang: NarrationLang):
  * СТОРОЖ ВАЛЮТЫ В ТЕКСТЕ ОЗВУЧКИ (21.11.2026): доллары в ElevenLabs не уходят ни из шаблона, ни из текста,
  * который агент написал руками. Второй слой к `narrationPriceWords` (запрет «никогда» — правилом и кодом).
  */
-// Без взгляда назад (Safari < 16.4 его не знает, сторож noRegexLookbehind): «usd» отдельным словом латиницы.
-const DOLLAR_WORDS = /доллар|\$|(?:^|[^a-z])usd(?:[^a-z]|$)|долл\.|бакс/iu;
-export function narrationCurrencyError(text: string): string | null {
-  return DOLLAR_WORDS.test(text) ? "Цену в озвучке говорим только в сомони: уберите доллары из текста, цену подставит {цена}" : null;
+// Без взгляда назад (Safari < 16.4 его не знает, сторож noRegexLookbehind): «usd»/«usdt» отдельным словом латиницы.
+// «долл» ловит и «доллар», и «долл.» без точки; «долар» — частая опечатка; «у.е.» — «условные единицы» (ревью #348).
+const DOLLAR_WORDS = /долл|долар|dollar|\$|(?:^|[^a-z])usdt?(?:[^a-z]|$)|бакс|у\.\s?е\./iu;
+/** `template` — текст шаблона или концовки в Настройках: там цену подставляет {цена}. Свой текст агента — без {цена}. */
+export function narrationCurrencyError(text: string, opts: { template?: boolean } = {}): string | null {
+  if (!DOLLAR_WORDS.test(text)) return null;
+  return opts.template
+    ? "Цену в озвучке говорим только в сомони: уберите доллары из текста, цену подставит {цена}"
+    : "Цену в озвучке говорим только в сомони: уберите доллары или напишите цену в сомони словами";
 }
 const TYPE_WORDS: Record<NarrationLang, Record<string, string>> = {
   tg: { APARTMENT: "квартира", HOUSE: "ҳавлӣ", LAND: "замин", COMMERCIAL: "ҷои тиҷоратӣ" },
@@ -435,7 +437,7 @@ export function narrationTemplateRulesError(text: string, lang?: NarrationLang):
     : "В таджикском тексте цифры не пишем: числа только словами, например «се», а не «3». Цифры из объекта подставляют слова в фигурных скобках";
   if (/direct/iu.test(text)) return "Слово Direct пишем по-русски: «Директ». Латиницей озвучка прочтёт его неверно";
   if (/брон/iu.test(text)) return "Слово «брон» в текстах озвучки не используем: замените, например, на «вақт интихоб кунед»";
-  return narrationCurrencyError(text);
+  return narrationCurrencyError(text, { template: true });
 }
 /** Все проверки сразу (новый или изменённый текст шаблона и концовки). */
 export function narrationTemplateError(text: string, lang?: NarrationLang): string | null {

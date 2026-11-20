@@ -56,7 +56,9 @@ let configBefore: unknown = null;
 const propertyIds: string[] = [];
 const env = { mode: process.env.CRM_NARRATION_EXECUTION_MODE };
 const longT = { id: "ru-sep-long", name: "Длинный", lang: "ru" as const, text: "В продаже {вид}, светлая и тёплая, с хорошим ремонтом и видом на горы. Площадь {площадь} метров. Цена {цена}. Звоните, покажем в любое время." };
-const shortT = { id: "ru-sep-short", name: "Короткий", lang: "ru" as const, text: "{вид}, {площадь} метров, {цена}." };
+// Цена — отдельным предложением (ревью #348): у долларового объекта без курса {цена} выпадает вместе со своим
+// предложением, и шаблон из одной фразы с ценой опустел бы — пустоту не озвучиваем.
+const shortT = { id: "ru-sep-short", name: "Короткий", lang: "ru" as const, text: "{вид}, {площадь} метров. Цена {цена}." };
 // previewBeforeRepublish: false — здесь проверяется сам перемикс и подмена; «прослушать перед выпуском» — narration-preview.test.ts.
 const baseConfig = { modelId: "eleven_v4", voices: [{ id: "voiceA", name: "А" }], templates: [longT, shortT], autoGenerate: true, previewBeforeRepublish: false };
 

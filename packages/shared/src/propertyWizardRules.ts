@@ -59,11 +59,6 @@ export function propertyWizardStepErrors(
     const price = str(v.price);
     if (!positive(price)) errors.price = "Укажите цену";
     else if (Number(price) < PROPERTY_MIN_PLAUSIBLE_PRICE) errors.price = "Проверьте цену — сумма выглядит слишком маленькой";
-    else {
-      // Перепутанная валюта (21.11.2026, объект 213: доллары записаны сомони и ушли в подпись, монтажёру и в озвучку).
-      const suspect = apartmentPriceCurrencySuspect({ type, price, currency: str(v.currency) || "TJS", areaSqm: str(v.areaSqm) });
-      if (suspect) errors.price = apartmentPriceCurrencyHint(suspect);
-    }
     if (type === "LAND") {
       if (!positive(str(v.landAreaSotka))) errors.landAreaSotka = "Укажите площадь участка в сотках";
     } else if (!positive(str(v.areaSqm))) {
@@ -99,7 +94,6 @@ export function propertyWizardStepErrors(
   if (step === "place" && !v.offSite) {
     if (!v.districtId) errors.districtId = "Выберите район";
     if (str(v.address).trim().length < 2) errors.address = "Укажите адрес";
-    else if (!meaningfulPropertyAddress(str(v.address))) errors.address = "Напишите адрес полностью: улицу и дом или ориентир, а не одно слово";
   }
 
   if (step === "seller") {
@@ -111,6 +105,58 @@ export function propertyWizardStepErrors(
   }
 
   return errors;
+}
+
+/**
+ * ПРЕДУПРЕЖДЕНИЯ МАСТЕРА (21.11.2026, объект №213; ревью #348). Не ошибки: сохранить можно всегда, иначе
+ * правка фото у старого объекта или настоящая дешёвая квартира не сохранялись бы вовсе. Мастер показывает
+ * предупреждение у самого поля, на его шаге, с кнопкой «Цена верная» / «Адрес верный». Подтверждение
+ * действует на ЭТИ значения (`propertyWizardWarningSignature`): поменяли цену, валюту или площадь — спросим снова.
+ *  · price — валюта цены квартиры похожа на перепутанную (`apartmentPriceCurrencySuspect`);
+ *  · address — адрес из одного слова-заготовки («улица», `meaningfulPropertyAddress`).
+ */
+export type PropertyWizardWarningField = "price" | "address";
+export type PropertyWizardWarnings = Partial<Record<PropertyWizardWarningField, string>>;
+/** Что подтвердил человек: поле → подпись значений на момент нажатия. */
+export type PropertyWizardWarningConfirmations = Partial<Record<PropertyWizardWarningField, string>>;
+export const PROPERTY_WIZARD_WARNING_STEP: Record<PropertyWizardWarningField, PropertyWizardStepKey> = { price: "main", address: "place" };
+export const PROPERTY_WIZARD_WARNING_CONFIRM: Record<PropertyWizardWarningField, string> = { price: "Цена верная", address: "Адрес верный" };
+
+export function propertyWizardWarningSignature(field: PropertyWizardWarningField, v: PropertyWizardDraftValues): string {
+  return field === "price"
+    ? [v.type ?? "", str(v.price).trim(), str(v.currency) || "TJS", str(v.areaSqm).trim()].join("|")
+    : str(v.address).trim();
+}
+
+function rawWarnings(v: PropertyWizardDraftValues): PropertyWizardWarnings {
+  const warnings: PropertyWizardWarnings = {};
+  const suspect = apartmentPriceCurrencySuspect({ type: v.type, price: str(v.price), currency: str(v.currency) || "TJS", areaSqm: str(v.areaSqm) });
+  if (suspect) warnings.price = apartmentPriceCurrencyHint(suspect);
+  const address = str(v.address).trim();
+  if (!v.offSite && address.length >= 2 && !meaningfulPropertyAddress(address)) {
+    warnings.address = "Похоже, адрес не дописан: одно слово не покажем ни в подписи, ни монтажёру. Напишите улицу и дом или ориентир";
+  }
+  return warnings;
+}
+
+/** Предупреждения шага (только поля этого шага), без уже подтверждённых для тех же значений. */
+export function propertyWizardStepWarnings(
+  step: PropertyWizardStepKey,
+  v: PropertyWizardDraftValues,
+  confirmed: PropertyWizardWarningConfirmations = {}
+): PropertyWizardWarnings {
+  const out: PropertyWizardWarnings = {};
+  for (const [field, text] of Object.entries(rawWarnings(v)) as [PropertyWizardWarningField, string][]) {
+    if (PROPERTY_WIZARD_WARNING_STEP[field] !== step) continue;
+    if (confirmed[field] === propertyWizardWarningSignature(field, v)) continue;
+    out[field] = text;
+  }
+  return out;
+}
+
+/** Все предупреждения разом — для карточки «Проверьте объект» у помощницы в Telegram. */
+export function propertyWizardWarnings(v: PropertyWizardDraftValues, confirmed: PropertyWizardWarningConfirmations = {}): PropertyWizardWarnings {
+  return { ...propertyWizardStepWarnings("main", v, confirmed), ...propertyWizardStepWarnings("place", v, confirmed) };
 }
 
 /** Все шаги разом — то, что блокирует «Сохранить». */

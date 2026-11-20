@@ -18,7 +18,7 @@
 import { TYPE_RU, CONDITION_RU, formatPrice } from "../ai/seoGenerator.js";
 // MARKET_TYPE_LABELS — тот же словарь, что подписывает объект на карточке:
 // второго перевода «NEW_BUILD → Новостройка» в проекте быть не должно.
-import { MARKET_TYPE_LABELS, meaningfulPropertyAddress, propertyHasCondition, visiblePropertyFacts } from "@royal-home/shared";
+import { MARKET_TYPE_LABELS, meaningfulPropertyAddress, propertyHasCondition, propertyPriceTjs, visiblePropertyFacts } from "@royal-home/shared";
 import { toTjs, type MoneyContext } from "./money.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import {
@@ -384,6 +384,17 @@ export function priceInTjsOnly(
   const amount = Number(price.toString());
   if (currency !== "USD" || !money) return formatPrice(amount, currency);
   return formatPrice(toTjs(amount, "USD", money), "TJS");
+}
+
+/**
+ * ЦЕНА В СОМОНИ ТЕКСТОМ — монтажёру и на плашку ролика (ревью #348). Число — общее `propertyPriceTjs`
+ * (то же, что говорит голос и пишет обложка); курс — только из Настроек. null — доллары без курса:
+ * цену не пишем вовсе (вызывающий пишет причину в журнал), а не по выдуманному курсу.
+ * Подпись под постом (`buildPriceDisplay`, «сомони ($)») — отдельное решение владельца, здесь не трогается.
+ */
+export function propertyPriceTjsText(price: unknown, currency: string, usdToTjs: number | null | undefined): string | null {
+  const tjs = propertyPriceTjs(price, currency, usdToTjs);
+  return tjs === null ? null : formatPrice(tjs, "TJS");
 }
 
 /** Фаза новостройки словами для подписи; null — вторичка или фаза не выбрана. */

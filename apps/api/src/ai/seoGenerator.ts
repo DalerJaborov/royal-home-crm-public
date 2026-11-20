@@ -1,4 +1,4 @@
-import { PROPERTY_STAGE_LABELS, propertyHasCondition, visiblePropertyFacts, type MarketType, type PropertyStage } from "@royal-home/shared";
+import { meaningfulPropertyAddress, PROPERTY_STAGE_LABELS, propertyHasCondition, visiblePropertyFacts, type MarketType, type PropertyStage } from "@royal-home/shared";
 import { callAiText } from "./client.js";
 
 export interface SeoSourceParams {
@@ -213,11 +213,13 @@ function fallbackTemplate(raw: SeoSourceParams): SeoFields {
   const title = [roomsPart, typeRu, `${p.areaSqm} м²`, `в районе ${p.districtName}`].filter(Boolean).join(" ");
   const priceStr = formatPrice(p.price, p.currency);
   const conditionRu = propertyHasCondition(p.type) ? (CONDITION_RU[p.condition] ?? "") : "";
+  // Адрес-заготовка («улица», объект №213, 21.11.2026) на сайт не выходит — одно правило с подписью и монтажёром.
+  const address = meaningfulPropertyAddress(p.address);
   const floorPart = p.floor && p.totalFloors ? `${p.floor}/${p.totalFloors} этаж` : p.type === "HOUSE" && p.totalFloors ? `этажей: ${p.totalFloors}` : "";
   const parts = [
     `Продаётся ${title}.`,
     [floorPart, conditionRu].filter(Boolean).join(", ") + ".",
-    `Адрес: ${p.address}.`,
+    address ? `Адрес: ${address}.` : "",
     `Цена: ${priceStr}.`,
     p.urgent ? "Срочная продажа." : "",
   ]
@@ -231,7 +233,7 @@ function fallbackTemplate(raw: SeoSourceParams): SeoFields {
     metaTitle: `${title}, ${priceStr}`.slice(0, 70),
     metaDescription: `Продажа: ${title}. ${conditionRu}. Цена ${priceStr}. Агентство недвижимости Royal Home, Душанбе.`.slice(0, 160),
     h1: `${title} на продажу`,
-    seoDesc: `Продажа ${typeGenitive} ${p.areaSqm} м² в районе ${p.districtName}, ${p.address}. ${conditionRu}. Актуальная цена и фото на сайте Royal Home.`,
+    seoDesc: `Продажа ${typeGenitive} ${p.areaSqm} м² в районе ${p.districtName}${address ? `, ${address}` : ""}. ${conditionRu}. Актуальная цена и фото на сайте Royal Home.`,
   };
 }
 
@@ -259,7 +261,7 @@ export async function generateSeoFields(
     p.floor == null && p.totalFloors ? `Этажей в доме: ${p.totalFloors}` : "",
     `Цена: ${formatPrice(p.price, p.currency)}`,
     `Район: ${p.districtName}`,
-    `Адрес: ${p.address}`,
+    meaningfulPropertyAddress(p.address) ? `Адрес: ${meaningfulPropertyAddress(p.address)}` : "",
     propertyHasCondition(p.type) ? `Состояние: ${conditionRu}` : "",
     p.amenities.length ? `Удобства: ${p.amenities.join(", ")}` : "",
     // Подпись, а не ключ базы: модели уходило «Стадия строительства: SHELL».

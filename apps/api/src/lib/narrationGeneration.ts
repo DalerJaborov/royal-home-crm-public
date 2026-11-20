@@ -6,7 +6,7 @@ import { logSystemError } from "./systemError.js";
 import { localVideoDelete, localVideoUpload } from "./localVideoStorage.js";
 import { clipCountsAsPublished } from "./publishedClip.js";
 import { normalizeNarrationVoice } from "./narrationLoudness.js";
-import { generateNarrationAudio, narrationFactsCurrent, narrationHash, NARRATION_QUOTA_EXCEEDED, type NarrationAudioResult } from "./propertyNarration.js";
+import { generateNarrationAudio, narrationFactsCurrent, narrationHash, NARRATION_PRICE_NOT_IN_TJS, NARRATION_QUOTA_EXCEEDED, type NarrationAudioResult } from "./propertyNarration.js";
 
 /** Пауза после «кредиты кончились»: раз в час одна проверка, пока владелец не пополнит. */
 export const NARRATION_QUOTA_PAUSE_MS = 60 * 60_000;
@@ -139,9 +139,11 @@ export async function generateNarrationVersion(input: {
   const row = claimed.row;
   const script = narrationSpeechText(row.script, (row.language as NarrationLang | null) ?? null);
   // Текст объекта с долларами в ElevenLabs не уходит (21.11.2026, владелец: цена только в сомони) — даже версия,
-  // сохранённая до сторожа: денег не тратим, версия падает с понятным кодом, новую соберёт шаблон.
+  // сохранённая до сторожа: денег не тратим, версия падает с кодом PRICE_NOT_IN_TJS. Обход озвучек
+  // (narrationAutoFlow.ts::generateDueNarrations) ловит такой черновик ещё раньше и пересобирает текст из шаблона;
+  // эта проверка — вторая дверь для ручного «Озвучить».
   const result: NarrationAudioResult = narrationCurrencyError(row.script)
-    ? { status: "FAILED", errorCode: "PRICE_NOT_IN_TJS" }
+    ? { status: "FAILED", errorCode: NARRATION_PRICE_NOT_IN_TJS }
     : await generateNarrationAudio({ script, voiceId: row.voiceId!, config, apiKey: input.key, lang: row.language === "tg" || row.language === "ru" ? row.language : null });
   const guard = { id: row.id, status: "GENERATING", generationStartedAt: row.generationStartedAt };
   if (result.status !== "READY") {
@@ -154,7 +156,8 @@ export async function generateNarrationVersion(input: {
   }
   const storageKey = `${input.propertyId}/${row.id}.mp3`;
   // Голос ElevenLabs тише ленты на 8–10 дБ — выравниваем один раз здесь: этот же файл получает монтажёр (21.11.2026).
-  const audio = await normalizeNarrationVoice(result.audio, `версии ${row.revision}`);
+  // Не бросает (сбой — исходный mp3 и журнал); .catch — вторая страховка: оплаченный голос не теряется.
+  const audio = await normalizeNarrationVoice(result.audio, `версии ${row.revision}`).catch(() => result.audio);
   try {
     await localVideoUpload(storageKey, audio);
     const saved = await prisma.$transaction(async (tx) => {

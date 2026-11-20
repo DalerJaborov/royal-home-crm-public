@@ -78,6 +78,23 @@ export function convertToTjs(
   return fromCents(centsToTjs(toCents(amount), currency, usdToTjs));
 }
 
+/**
+ * ЦЕНА ОБЪЕКТА В СОМОНИ — ОДНО ЧИСЛО ДЛЯ ГОЛОСА, МОНТАЖЁРА, ОБЛОЖКИ И ПЛАШКИ НА РОЛИКЕ (21.11.2026, ревью #348).
+ * Раньше было три правила: голос округлял до тысячи, монтажёр получал точную сумму, обложка брала запасной курс.
+ *  · сомони карточки — как есть (целые);
+ *  · доллары — по курсу из Настроек (`usdToTjs`) и до тысячи: курс меняется каждый день, точность до сомони —
+ *    ложная, а голос и плашка на ролике должны говорить одно и то же число;
+ *  · курса нет — null: цену не говорим и не пишем НИГДЕ (запасного курса здесь нет и быть не должно).
+ * Речь и текст — разные записи одного этого числа (словами или «1 179 000 с.»), а не разные округления.
+ */
+export function propertyPriceTjs(price: unknown, currency: Currency | string | null | undefined, usdToTjs: number | null | undefined): number | null {
+  const amount = Number(price === null || price === undefined ? NaN : String(price));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (currency !== "USD") return Math.round(amount);
+  if (!usdToTjs || !Number.isFinite(usdToTjs) || usdToTjs <= 0) return null;
+  return Math.round(convertToTjs(amount, "USD", usdToTjs) / 1000) * 1000;
+}
+
 /** Округление уже посчитанной суммы до копейки — для итогов, собранных сложением. */
 export function roundMoney(value: number): number {
   return Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;

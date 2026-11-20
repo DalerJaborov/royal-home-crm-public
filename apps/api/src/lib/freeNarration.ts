@@ -188,7 +188,7 @@ export async function executeFreeNarration(claim: FreeNarrationClaim, fetcher?: 
   const storageKey = `${FREE_NARRATION_FOLDER}/${claim.id}.mp3`;
   let stored: string | null = storageKey;
   // Та же громкость, что у озвучки объекта (21.11.2026): голос ElevenLabs тише ленты на 8–10 дБ.
-  const audio = await normalizeNarrationVoice(result.audio, "своего текста");
+  const audio = await normalizeNarrationVoice(result.audio, "своего текста").catch(() => result.audio);
   try { await localVideoUpload(storageKey, audio); } catch (err) {
     stored = null;
     void logSystemError("api", `Озвучка текста: файл не сохранён: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration:persist" });

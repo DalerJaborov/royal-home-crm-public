@@ -36,6 +36,8 @@ const manager = (agent?: { permissions: ReadonlySet<string> } | null) => hasMark
 const configuration = loadNarrationConfiguration;
 /** Образец объекта для проверки шаблона при сохранении: цена и ошибки ловятся до первой оплаты. */
 const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "790000", currency: "TJS" };
+/** Те же факты, когда цену сказать нельзя: доллары, а курса нет — `{цена}` выпадает вместе со своим предложением. */
+const SAMPLE_FACTS_NO_PRICE = { ...SAMPLE_FACTS, price: "85000", currency: "USD" };
 /** Видна ли кнопка «Утвердить»: права на объект (одна дверь с Шабнам), разовый проход — владелец, текст маркетинга — маркетинг. */
 async function canApproveAudioFor(agentId: string, role: string, propertyId: string, source: string | null): Promise<boolean> {
   const access = await narrationAccessForAgent(agentId, propertyId);
@@ -173,7 +175,9 @@ narrationRouter.put("/narration-settings", async (req, res) => {
     return narrationTemplateStructureError(item.text) ?? (unchanged ? null : narrationTemplateRulesError(item.text, item.lang));
   };
   for (const template of parsed.data.templates ?? []) {
-    const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS));
+    // И вариант «цену сказать нельзя» (доллары без курса): шаблон не должен пустеть (ревью #348).
+    const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS))
+      ?? (narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS_NO_PRICE)) ? "без цены (нет курса доллара) от шаблона не остаётся ни одного предложения — добавьте фразу без {цена}" : null);
     if (problem) return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
   }
   for (const ending of parsed.data.endings ?? []) {

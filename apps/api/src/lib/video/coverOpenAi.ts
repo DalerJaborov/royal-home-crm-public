@@ -38,7 +38,7 @@ import { propertyCoversDir, uploadsDir } from "../../upload.js";
 import { logSystemError } from "../systemError.js";
 import { describeError } from "../describeError.js";
 import { dushanbeStartOfToday } from "../dushanbeTime.js";
-import { loadMoneyContext } from "../money.js";
+import { loadUsdRateInfo } from "../money.js";
 import { estimateCostUsd } from "../../ai/pricing.js";
 import { resyncPhotosIfPublished } from "../siteSync.js";
 import {
@@ -55,7 +55,7 @@ import {
   resolveOpenAiKey,
   type OpenAiImageQuality,
 } from "../../ai/openaiClient.js";
-import { buildCoverPosterValues, renderCoverPosterImage, type CoverPosterValues } from "./coverPoster.js";
+import { buildCoverPosterValues, CoverPriceUnavailable, coverPriceTjs, renderCoverPosterImage, type CoverPosterValues } from "./coverPoster.js";
 import { listCoverTemplates, pickCoverTemplate } from "./coverRegistry.js";
 import { DEFAULT_LOCAL_RETOUCH_LEVEL, retouchCoverPhoto } from "./coverPhotoRetouch.js";
 import { redrawCoverPhoto } from "./coverPhotoRedraw.js";
@@ -1469,6 +1469,13 @@ export async function createPropertyCover(
   const mainPhoto = property.photos[0];
   if (!mainPhoto) return fail("Нет фото в карточке объекта", started);
 
+  // Курс — только из Настроек (ревью #348): долларовая цена без курса — обложку не рисуем ни ChatGPT, ни шаблоном.
+  const coverRate = property.currency === "USD" ? (await loadUsdRateInfo()).rate : null;
+  if (coverPriceTjs(property.price, property.currency, coverRate) === null) {
+    const reason = new CoverPriceUnavailable().message;
+    void logSystemError("storage", `Обложка объекта ${property.id}: ${reason}`, { dedupKey: `cover-no-rate:${property.id}`, dedupWindowMs: 24 * 60 * 60_000 });
+    return fail(reason, started);
+  }
   const values = buildCoverPosterValues(
     {
       // Этаж и комнаты на обложке — только там, где они есть у типа
@@ -1482,7 +1489,7 @@ export async function createPropertyCover(
       districtName: property.district?.name ?? null,
       address: property.address,
     },
-    await loadMoneyContext()
+    { usdToTjs: coverRate }
   );
   // Явный provider (кнопка пробы, добор) тоже не ходит в OpenAI, если он выключен рубильником.
   const provider = settings.openaiEnabled ? (options.provider ?? settings.coverProvider) : "TEMPLATE";

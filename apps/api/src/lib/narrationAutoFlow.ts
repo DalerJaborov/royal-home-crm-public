@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { narrationFitsType, narrationLengthCheck, narrationLengthLine, narrationTextOverlay,
+import { narrationCurrencyError, narrationFitsType, narrationLengthCheck, narrationLengthLine, narrationTextOverlay,
   chooseNarration, hasVideoHistory, narrationDraftText, narrationLimits, narrationMixByCrm, narrationModelSupportsTajik, narrationWizardChoiceSchema, pickNarrationVoice,
   type NarrationConfig, type NarrationFacts, type NarrationWizardChoice,
 } from "@royal-home/shared";
@@ -13,8 +13,7 @@ import { mixFromStoredMaster } from "./narrationMaster.js";
 import { buildMusicBed, buildPictureBase, chooseMusicTrack, MUSIC_BASE_SOURCE, ownMusicReady } from "./narrationMusic.js";
 import { dropNarrationMaster, storeNarrationMaster } from "./narrationMaster.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
-import { loadMoneyContext } from "./money.js";
-import { priceInTjsOnly } from "./reelsCaptionTemplate.js";
+import { propertyPriceTjsText } from "./reelsCaptionTemplate.js";
 import os from "node:os";
 import { mixNarrationOntoMaster, narrationFitNote, planNarrationFit, type NarrationMixResult } from "./narrationMix.js";
 import { dropReplacedClipFiles, placeMixedClip, type PlacedMix } from "./narrationPreview.js";
@@ -27,7 +26,7 @@ import { logAgentAudit } from "./audit.js";
 import { sendBackToMontajer } from "./publishedVideoFix.js";
 import { NarrationDeliveryRefused, narrationDeliveryAttemptBudgetMs, narrationDeliveryRefusalIsExpected, narrationDeliveryStalled, prepareNarrationDeliveryPlan, type NarrationDeliveryRefusalCode } from "./narrationDelivery.js";
 import { generateNarrationVersion, loadNarrationConfiguration, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS, speechChars } from "./narrationGeneration.js";
-import { NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
+import { NARRATION_PRICE_NOT_IN_TJS, NARRATION_PRICE_NOT_IN_TJS_TEXT, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 import { narrationFacts, narrationFactsCurrent, narrationHash, narrationRate, narrationScriptError, reportNarrationPriceProblem, snapshotNarrationRate, withNarrationRate } from "./propertyNarration.js";
 import { logSystemError } from "./systemError.js";
 import { NARRATION_CLOSED_STATUSES as CLOSED_STATUSES, retireNarrationsOfClosedProperties, setPropertyNarrationOff } from "./narrationOptOut.js";
@@ -132,7 +131,8 @@ export async function requestAutoNarration(input: {
     if (latest && ["GENERATING", "UNKNOWN"].includes(latest.status)) return { status: "BUSY" };
     const facts = narrationFacts(property);
     const factsHash = narrationHash(facts);
-    if (input.source === "AUTO" && latest && narrationFactsCurrent(latest, property) && latest.source !== "MANUAL") return { status: "UNCHANGED" };
+    // Текст с долларами (сохранён до сторожа 21.11.2026) «не изменившимся» не считается: автоозвучка пересобирает его из шаблона.
+    if (input.source === "AUTO" && latest && narrationFactsCurrent(latest, property) && latest.source !== "MANUAL" && !narrationCurrencyError(latest.script)) return { status: "UNCHANGED" };
     // Шаблон и концовку выбирает одно ядро (shared chooseNarration, 16.11.2026): выбор человека уважается; иначе
     // шаблон и концовка прошлой версии остаются (смена цены даёт тот же текст), а у нового объекта и при «Другой
     // шаблон» они случайные и не равны прошлым. Дальше всё хранится кодами в версии, случайности больше нет.
@@ -311,6 +311,8 @@ async function startNarrationDelivery(propertyId: string, versionId: string): Pr
     const refusal: NarrationDeliveryRefusal = err instanceof NarrationDeliveryRefused
       ? { code: err.code, message: err.message, shortId: owner?.shortId ?? null }
       : { code: "UNEXPECTED", message: `сбой подготовки: ${err instanceof Error ? err.message : String(err)}`, shortId: owner?.shortId ?? null };
+    // Голос с долларами (21.11.2026) не идёт и запасными путями ниже — ни перемиксом CRM, ни возвратом монтажёру.
+    if (refusal.code === "PRICE_NOT_IN_TJS") return { status: "NOT_READY", refusal };
     // Объект не у монтажёра. Есть ролик без голоса — CRM сама наложит новую озвучку и заменит
     // вышедший ролик (обход remixFromMasters, в течение минуты); монтажёр не нужен.
     // Ролика без голоса нет, но включена своя музыка и треки есть — то же «CRM сама», режим MUSIC (18.11.2026).
@@ -355,6 +357,9 @@ async function queueNarrationDelivery(propertyId: string, versionId: string, pre
 /** Монтажёру по-старому: голос вклеен им — заменить только голос; ролик сдан без голоса и не вышел —
  *  «вклейте голос». Зовёт одобрение, когда пути без монтажёра нет, и перемикс «голос длиннее ролика». */
 export async function sendNarrationToMontajer(propertyId: string, versionId: string, opts: { voiceLonger?: boolean } = {}): Promise<NarrationDeliveryStart> {
+  // Та же дверь валюты, что у prepareNarrationDeliveryPlan: голос с долларами монтажёру не возвращается.
+  const voiced = await prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { script: true } });
+  if (!voiced || narrationCurrencyError(voiced.script)) return "NOT_READY";
   const remake = await requestNarrationSoundRemake(propertyId, versionId, opts);
   if (remake === "QUEUED") return "SOUND_REMAKE";
   // Ролик сдан без голоса раньше одобрения и ещё не вышел — вернуть «вклейте голос».
@@ -654,6 +659,8 @@ async function remixWanted(propertyId: string) {
   }
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
   if (!latest || latest.status !== "READY" || !latest.approvedAt || !latest.storageKey || !narrationFactsCurrent(latest, p)) return null;
+  // Голос с долларами (одобрен до сторожа 21.11.2026) в вышедший ролик не сводится.
+  if (narrationCurrencyError(latest.script)) return null;
   // Своя музыка — только озвучки, одобренные после включения (ревью 18.11); прежние — по-старому, руками.
   if (mode === "MUSIC" && musicSince && latest.approvedAt.getTime() < new Date(musicSince).getTime()) return null;
   if (latest.id === p.videoMasterNarrationVersionId || latest.id === p.videoMasterMixErrorVersionId) return null;
@@ -732,7 +739,9 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
   // ЦЕНА И СУБТИТРЫ НА РОЛИКЕ (18.11.2026, рубильник textOverlay): цена — из карточки сейчас, в сомони (как монтажёру),
   // субтитры — текст этой версии озвучки. Сменилась цена — новый ролик несёт новую плашку.
   const textOverlay = narrationTextOverlay((await loadNarrationConfiguration()).config)
-    ? { price: priceInTjsOnly(p.price, p.currency, await loadMoneyContext()), script: latest.script } : undefined;
+    // Число — то же, что сказал голос этой версии (`propertyPriceTjs`, курс из её снимка), курс — только из
+    // Настроек: нет курса — плашки с ценой нет (ревью #348, без запасного курса).
+    ? { price: propertyPriceTjsText(p.price, p.currency, p.currency === "USD" ? snapshotNarrationRate(latest.factsSnapshot) ?? await narrationRate() : null), script: latest.script } : undefined;
   try {
     return await mixAndPlace();
   } finally {
@@ -1045,6 +1054,26 @@ export async function refreshNarrationDrafts(config: NarrationConfig, now: Date)
   return drafted;
 }
 
+/**
+ * ЧЕРНОВИК С ДОЛЛАРАМИ (21.11.2026, ревью #348). Версия, собранная до сторожа валюты, падает с кодом
+ * PRICE_NOT_IN_TJS (денег не тратили), причина — в журнал, и автоозвучка тут же собирает новую версию из
+ * того же шаблона с ценой в сомони. Пересобрать нельзя (объект закрыт, курс не задан, шаблонов нет) —
+ * версия остаётся с этим кодом, карточка объясняет агенту, что делать.
+ */
+async function retireDollarNarration(row: { id: string; propertyId: string }, config: NarrationConfig, now: Date): Promise<void> {
+  const retired = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "DRAFT" },
+    data: { status: "FAILED", errorCode: NARRATION_PRICE_NOT_IN_TJS, generateAfter: null } });
+  if (!retired.count) return;
+  const p = await prisma.property.findUnique({ where: { id: row.propertyId }, select: { shortId: true, assignedAgentId: true, intakeAgentId: true, createdById: true } });
+  const actorId = p?.assignedAgentId ?? p?.intakeAgentId ?? p?.createdById ?? "system";
+  const rebuilt = await requestAutoNarration({ propertyId: row.propertyId, actorId, source: "AUTO", config, now, debounceMs: 0 })
+    .catch((err: unknown) => ({ status: "ERROR", error: err instanceof Error ? err.message : String(err) }) as const);
+  void logSystemError("ai", `Озвучка объекта №${p?.shortId ?? "?"}: ${NARRATION_PRICE_NOT_IN_TJS_TEXT}. ${rebuilt.status === "QUEUED"
+    ? "Новая версия собрана и ждёт озвучки."
+    : `Новую собрать не вышло (${rebuilt.status}${"error" in rebuilt && rebuilt.error ? `: ${rebuilt.error}` : ""}) — агенту: «Другой шаблон» в карточке.`}`,
+    { dedupKey: `narration-price-usd:${row.id}` });
+}
+
 async function generateDueNarrations(config: NarrationConfig, key: string, now: Date): Promise<number> {
   const started = Date.now();
   let generated = 0;
@@ -1060,6 +1089,13 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
     const owner = await prisma.property.findUnique({ where: { id: row.propertyId }, select: { deletedAt: true, status: true, narrationOff: true } });
     if (!owner || owner.deletedAt || owner.narrationOff || (CLOSED_STATUSES as readonly string[]).includes(owner.status)) {
       await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "DRAFT" }, data: { generateAfter: null } });
+      continue;
+    }
+    // ЦЕНА В ДОЛЛАРАХ ДО ОПЛАТЫ (21.11.2026, ревью #348): черновик, собранный до сторожа валюты, в ElevenLabs не уходит.
+    // Версия падает с честным кодом, причина — в журнал, а текст тут же пересобирается из шаблона с ценой в сомони
+    // (requestAutoNarration не считает долларовый текст «неизменным»). Агент видит в карточке новую версию.
+    if (narrationCurrencyError(row.script)) {
+      await retireDollarNarration(row, config, now);
       continue;
     }
     // ДЛИНА ДО ОПЛАТЫ (18.11.2026): текст длиннее ролика в ElevenLabs не уходит — версия «не получилась», агент
@@ -1112,7 +1148,9 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
     }
     if (outcome.status === "FAILED" || outcome.status === "UNKNOWN" || outcome.status === "PERSIST_FAILED") {
       const code = "errorCode" in outcome ? outcome.errorCode : "AUDIO_PERSISTENCE_FAILED";
-      void logSystemError("ai", `Озвучка объекта не получена (${code}). Автоповтора нет: ${outcome.status === "FAILED" ? "проверьте ключ, модель и голос" : "сверьте историю ElevenLabs в карточке объекта"}`, { dedupKey: `narration-failed:${row.id}` });
+      const why = code === NARRATION_PRICE_NOT_IN_TJS ? NARRATION_PRICE_NOT_IN_TJS_TEXT
+        : outcome.status === "FAILED" ? "автоповтора нет: проверьте ключ, модель и голос" : "автоповтора нет: сверьте историю ElevenLabs в карточке объекта";
+      void logSystemError("ai", `Озвучка объекта не получена (${code}): ${why}`, { dedupKey: `narration-failed:${row.id}` });
     }
   }
   return generated;
@@ -1183,6 +1221,8 @@ async function resumeWaitingNarrationDeliveries(): Promise<number> {
       // Версию сменила новая или факты поменялись — эту не шлём (новую отправит обход сам).
       if (err instanceof NarrationDeliveryRefused && (err.code === "VERSION_STALE" || err.code === "PROPERTY_GONE" || err.code === "NARRATION_OFF")) {
         await cancel(row.id, "Озвучка этой версии устарела — голос монтажёру не отправлен");
+      } else if (err instanceof NarrationDeliveryRefused && err.code === "PRICE_NOT_IN_TJS") {
+        await cancel(row.id, err.message);
       }
       // Остальное (монтажёр без Telegram, отключён) — ждём; сторож ниже скажет, если затянется.
       continue;

@@ -61,11 +61,17 @@ function narrationScriptLengthError(text: string): string | null {
 export function narrationScriptError(text: string): string | null {
   const length = narrationScriptLengthError(text);
   if (length) return length;
+  // Пустоту не озвучиваем (ревью #348): шаблон из одной фразы про цену пустеет, когда цену сказать нельзя.
+  if (!text.trim()) return "Текст озвучки пустой: в шаблоне не осталось ни одного предложения (цену сказать нельзя — нет курса доллара или валюта под сомнением). Выберите другой шаблон";
   // Price may be spoken since 11.11.2026 (owner: «Да, говорить цену»), only in somoni since 21.11.2026:
   // no dollars ever reach ElevenLabs, from a template or from a hand-written text.
   return narrationCurrencyError(text);
 }
 export const NARRATION_QUOTA_EXCEEDED = "PROVIDER_QUOTA_EXCEEDED";
+/** Код версии, отклонённой сторожем валюты (21.11.2026): в тексте цена в долларах, в ElevenLabs не ушла, денег нет. */
+export const NARRATION_PRICE_NOT_IN_TJS = "PRICE_NOT_IN_TJS";
+/** Одна строка причины — в журнал, агенту и в отказ передачи. */
+export const NARRATION_PRICE_NOT_IN_TJS_TEXT = "в тексте озвучки цена в долларах — такой голос не озвучиваем и монтажёру не отправляем; озвучка будет собрана заново из шаблона с ценой в сомони";
 export type NarrationAudioResult = { status: "READY"; audio: Buffer; requestId: string | null } | { status: "FAILED" | "UNKNOWN"; errorCode: string };
 /** Official POST /v1/text-to-speech/:voice_id. One attempt only: a timeout may have incurred cost. */
 export async function generateNarrationAudio(input: { script: string; voiceId: string; config: NarrationConfig; apiKey: string; lang?: NarrationLang | null }, fetcher: typeof fetch = fetch): Promise<NarrationAudioResult> {

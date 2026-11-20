@@ -52,7 +52,7 @@ import {
   generateReelsCaptionFromTemplates,
   withPostFooter,
   applyContactFooter,
-  priceInTjsOnly,
+  propertyPriceTjsText,
   buildPriceDisplay,
 } from "./reelsCaptionTemplate.js";
 import { replaceCaptionPriceLines } from "./captionPriceLine.js";
@@ -199,11 +199,10 @@ export async function propertyFactsForMontajer(propertyId: string): Promise<stri
    */
   // Курс — только из Настроек (21.11.2026, владелец: цена только в сомони по нашему курсу). Нет курса —
   // долларовую цену монтажёру не даём вовсе (он набрал бы доллары или сумму по выдуманному курсу) и пишем в журнал.
+  // Число — общее `propertyPriceTjs` (ревью #348): то же, что говорит голос и пишет обложка.
   const rate = property.currency === "USD" ? (await loadUsdRateInfo()).rate : null;
-  const priceForMontajer = property.currency === "USD" && !rate
-    ? null
-    : priceInTjsOnly(property.price, property.currency, rate ? { usdToTjs: rate, verified: true } : undefined);
-  if (property.currency === "USD" && !rate) {
+  const priceForMontajer = propertyPriceTjsText(property.price, property.currency, rate);
+  if (priceForMontajer === null && property.currency === "USD") {
     void logSystemError("video-handoff", `Объект №${property.shortId}: цена в долларах, а курс доллара в Настройках не задан — монтажёру цена не передана. Задайте курс.`,
       { dedupKey: `montajer-price-no-rate:${property.shortId}`, dedupWindowMs: 24 * 60 * 60_000 });
   }

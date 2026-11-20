@@ -16,6 +16,9 @@ import { musicBedFilter } from "../src/lib/narrationMusic.js";
  */
 const ffmpeg = process.env.FFMPEG_BIN || "ffmpeg";
 const hasFfmpeg = spawnSync(ffmpeg, ["-version"], { shell: process.platform === "win32" }).status === 0;
+// Без ffmpeg замер не пропускается молча (ревью #348): на сервере и в CI ffmpeg есть, его пропажа — поломка.
+// Локально без ffmpeg — явно: NARRATION_LOUDNESS_ALLOW_NO_FFMPEG=1.
+const skipMeasure = !hasFfmpeg && process.env.NARRATION_LOUDNESS_ALLOW_NO_FFMPEG === "1";
 const run = (args: string[]) => {
   const r = spawnSync(ffmpeg, ["-hide_banner", "-nostats", ...args], { encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(r.stderr.slice(-800));
@@ -36,7 +39,25 @@ describe("громкость озвучки", () => {
     expect(looksLikeMp3(Buffer.from([0x49, 0x44, 0x33, 0x04]))).toBe(true);
   });
 
-  it.skipIf(!hasFfmpeg)("тихий голос (−26 LUFS) после выравнивания ≈ −14; сведение: голос громкий, музыка под голосом не громче голоса − 12 дБ", async () => {
+  it("ffmpeg есть (иначе голос монтажёру уходит тихим, а замер ниже ничего не проверяет)", () => {
+    if (skipMeasure) return;
+    expect(hasFfmpeg, `ffmpeg не найден (${ffmpeg}). Поставьте ffmpeg или FFMPEG_BIN; локально пропустить — NARRATION_LOUDNESS_ALLOW_NO_FFMPEG=1`).toBe(true);
+  });
+
+  it("полный диск: временная папка не создалась — оплаченный голос сохраняется как есть, в журнал запись, без исключения", async () => {
+    const audio = Buffer.concat([Buffer.from("ID3"), Buffer.alloc(64, 1)]);
+    const { logSystemError } = await import("../src/lib/systemError.js");
+    vi.mocked(logSystemError).mockClear();
+    const spy = vi.spyOn(fs.promises, "mkdtemp").mockRejectedValueOnce(Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }));
+    try {
+      await expect(normalizeNarrationVoice(audio, "теста")).resolves.toBe(audio);
+      expect(vi.mocked(logSystemError)).toHaveBeenCalledWith("api", expect.stringMatching(/громкость не выровнена.*ENOSPC/su), expect.anything());
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it.skipIf(skipMeasure)("тихий голос (−26 LUFS) после выравнивания ≈ −14; сведение: голос громкий, музыка под голосом не громче голоса − 12 дБ", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "narr-loud-"));
     try {
       const quietVoice = path.join(dir, "voice.mp3");

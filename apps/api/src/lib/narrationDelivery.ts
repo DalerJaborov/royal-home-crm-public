@@ -1,11 +1,11 @@
 import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
-import { narrationConfigSchema, narrationMixByCrm } from "@royal-home/shared";
+import { narrationConfigSchema, narrationCurrencyError, narrationMixByCrm } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { buildMontajerDelivery, EDITOR_HOLDER_WHERE } from "./videoHandoff.js";
 import { usableMontajerWhere } from "./montajerHandover.js";
-import { narrationFactsCurrent, narrationHash } from "./propertyNarration.js";
+import { NARRATION_PRICE_NOT_IN_TJS_TEXT, narrationFactsCurrent, narrationHash } from "./propertyNarration.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
 import { sendDocumentFile, sendMessage, TELEGRAM_BOT_SEND_LIMIT_BYTES, TELEGRAM_CAPTION_MAX_CHARS } from "../telegram/api.js";
@@ -115,7 +115,9 @@ export type NarrationDeliveryRefusalCode =
   /** У назначенного монтажёра не подключён Telegram. */
   | "MONTAJER_NO_TELEGRAM"
   /** Просили с исходниками, а исходников нет. */
-  | "NO_SOURCES";
+  | "NO_SOURCES"
+  /** В тексте версии цена в долларах (21.11.2026): такой голос монтажёру не уходит. */
+  | "PRICE_NOT_IN_TJS";
 export class NarrationDeliveryRefused extends Error {
   constructor(readonly code: NarrationDeliveryRefusalCode, message: string) {
     super(message);
@@ -142,6 +144,8 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   // штатное ожидание, а не тревога директору.
   if (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince) throw new NarrationDeliveryRefused("NOT_WITH_MONTAJER", "Сначала передайте объект в работу монтажёру через существующую очередь монтажа");
   if (!version || version.propertyId !== p.id || !version.storageKey || version.status !== "READY" || !narrationFactsCurrent(version, p)) throw new NarrationDeliveryRefused("VERSION_STALE", "Нужна актуальная озвучка");
+  // Одобренная до сторожа версия с долларами (21.11.2026) монтажёру не уходит ни одним путём.
+  if (narrationCurrencyError(version.script)) throw new NarrationDeliveryRefused("PRICE_NOT_IN_TJS", `Озвучка не отправлена: ${NARRATION_PRICE_NOT_IN_TJS_TEXT}`);
   if (!editorId || editorId !== settings?.videoMontajerAgentId) throw new NarrationDeliveryRefused("MONTAJER_NOT_ASSIGNED", "Сначала назначьте монтажёра в существующих настройках монтажа");
   // Монтажёр — назначенный в Настройках и не отключённый; роль не важна (lib/montajerHandover.ts::usableMontajerWhere).
   const editor = await prisma.agent.findFirst({ where: usableMontajerWhere(editorId), select: { telegramChatId: true } });

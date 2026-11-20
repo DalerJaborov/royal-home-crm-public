@@ -509,3 +509,35 @@ describe("templates by property type, endings and random choice without repeat (
     expect(s.versions[0]).toMatchObject({ templateId: "tg-short", endingId: null, script: "Квартира барои фурӯш. Ду ҳуҷра. Масоҳаташ шасту ду метри мураббаъ." });
   });
 });
+
+/** Ревью #348 (21.11.2026): версии с долларами, собранные до сторожа валюты. */
+describe("старые версии с ценой в долларах", () => {
+  const PRICED = [{ id: "tg-short", name: "Кӯтоҳ", lang: "tg", text: "{вид} барои фурӯш. Нархаш {цена}." }];
+  const DOLLAR_SCRIPT = "Квартира барои фурӯш. Нархаш ҳаштоду панҷ ҳазор доллар.";
+
+  it("черновик в очереди не уходит в ElevenLabs: честная причина в журнал, текст пересобран из шаблона в сомони", async () => {
+    s.config = { ...baseConfig(), templates: PRICED };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    s.versions[0].script = DOLLAR_SCRIPT;
+    await runNarrationAutoFlow({ now: later(1_000) });
+    expect(s.versions[0]).toMatchObject({ status: "FAILED", errorCode: "PRICE_NOT_IN_TJS" });
+    expect(s.versions).toHaveLength(2);
+    expect(s.versions[1]).toMatchObject({ templateId: "tg-short", source: "AUTO" });
+    expect(s.versions[1].script).toBe("Квартира барои фурӯш. Нархаш ҳафтсаду ҳаштоду ҳашт ҳазор сомонӣ.");
+    expect(s.audio.mock.calls.every(([input]) => !/доллар/u.test(input.script))).toBe(true);
+    expect(s.log).toHaveBeenCalledWith("ai", expect.stringMatching(/цена в долларах.*Новая версия собрана/su), expect.anything());
+    expect(s.log.mock.calls.some(([, text]) => /проверьте ключ, модель и голос/u.test(String(text)))).toBe(false);
+  });
+
+  it("одобренная версия с долларами монтажёру не уходит и запасными путями: ни возврата монтажёру, ни перемикса", async () => {
+    s.config = { ...baseConfig(), templates: PRICED };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    await runNarrationAutoFlow({ now });
+    Object.assign(s.versions[0], { script: DOLLAR_SCRIPT, approvedAt: now, approvedById: "agent" });
+    s.prepare.mockRejectedValueOnce(new NarrationDeliveryRefused("PRICE_NOT_IN_TJS", "Озвучка не отправлена: в тексте озвучки цена в долларах"));
+    expect(await afterNarrationApproved(propertyId, s.versions[0].id)).toBe("NOT_READY");
+    expect(s.sendBack).not.toHaveBeenCalled();
+    expect(s.deliveries).toHaveLength(0);
+    expect(s.log).toHaveBeenCalledWith("api", expect.stringMatching(/цена в долларах/u), expect.objectContaining({ dedupKey: expect.stringContaining("PRICE_NOT_IN_TJS") }));
+  });
+});
