@@ -644,6 +644,13 @@
       }
     },
     {
+      "path": "/ui-check",
+      "component": "UiCheck",
+      "file": "apps/web/src/pages/UiCheck.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
       "path": "/vacancies",
       "component": "Vacancies",
       "file": "apps/web/src/pages/Vacancies.tsx",

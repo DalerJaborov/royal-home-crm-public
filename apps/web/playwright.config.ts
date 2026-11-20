@@ -74,10 +74,19 @@ export default defineConfig({
     // проекта наперегонки обновляют один токен — проигравший улетает на /login.
     { name: "setup-chromium", testMatch: /.*\.setup\.ts/ },
     { name: "setup-mobile", testMatch: /.*\.setup\.ts/ },
+    // WebKit как у iPhone — только для вёрстки, которую ломает именно Safari (клавиатура,
+    // safe-area, шторки). Гоняет лишь свои спеки (testMatch ниже): весь набор на WebKit не нужен.
+    { name: "setup-webkit", use: { ...devices["iPhone 13"] }, testMatch: /.*\.setup\.ts/ },
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"], storageState: "playwright/.auth/chromium.json" },
       dependencies: ["setup-chromium"],
+    },
+    {
+      name: "webkit",
+      use: { ...devices["iPhone 13"], storageState: "playwright/.auth/webkit.json" },
+      dependencies: ["setup-webkit"],
+      testMatch: /(look-chat-sheets)\.spec\.ts/,
     },
     {
       // Мобильный проход: половина замечаний владельца была именно про телефон,

@@ -12,7 +12,7 @@
   "other": "Прочие экраны, открываются изнутри"
  },
  "totals": {
-  "screens": 49,
+  "screens": 50,
   "paths": 788,
   "cron": 143,
   "jobs": 34,
@@ -149,7 +149,7 @@
   "!target.success || !intents.success || target.data.inquiryId !== row.inquiryId || target.data.nativeId !== ro…",
   "!task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt || task.decl…",
   "!telegramDirectBotReplyEnabled()",
-  "!text.trim()",
+  "!text || !text.trim()",
   "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
   "!verifyState(state)",
@@ -9053,6 +9053,16 @@
      "conf": "через часть экрана"
     }
    ]
+  },
+  {
+   "path": "/ui-check",
+   "title": "Ui проверка",
+   "group": "other",
+   "parent": null,
+   "file": "apps/web/src/pages/UiCheck.tsx",
+   "inMenu": false,
+   "redirect": null,
+   "eps": []
   },
   {
    "path": "/vacancies",
@@ -61055,24 +61065,31 @@
      ]
     },
     {
-     "t": "если text не задан",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если !text.trim()",
+     "t": "если есть failed",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: так нельзя: «Речь не распознана — похоже, запись пустая»",
+       "t": "ответ 424",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если !text || !text.trim()",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: так нельзя: «Речь не распознана. Скажите ещё раз, чуть громче и ближе к микрофону.»",
        "k": "do",
        "a": [],
        "c": []
       }
      ],
-     "raw": "!text.trim()"
+     "raw": "!text || !text.trim()"
     },
     {
      "t": "всё хорошо, отвечает данными",
