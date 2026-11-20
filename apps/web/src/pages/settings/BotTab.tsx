@@ -1144,9 +1144,11 @@ function SpamFilteredList() {
           </span>
         )}
         {items?.map((item) => (
-          <div key={item.id} className="row" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
-            <Link to={`/messages?open=${item.id}`} style={{ overflowWrap: "anywhere" }}>{item.name || "Без имени"}</Link>
-            <span className="quiet" style={{ whiteSpace: "nowrap" }}>{channelLabel(item.channel)} · {item.turns} раз</span>
+          <div key={item.id} style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", minWidth: 0, padding: "8px 0" }}>
+            <Link to={`/messages?open=${item.id}`} style={{ overflowWrap: "anywhere", fontWeight: 600 }}>{item.name || "Без имени"}</Link>
+            <span className="note" style={{ whiteSpace: "nowrap" }}>
+              {channelLabel(item.channel)} · {item.turns} {pluralizeRu(item.turns, ["раз", "раза", "раз"])}
+            </span>
             <button
               type="button"
               className="pill"
