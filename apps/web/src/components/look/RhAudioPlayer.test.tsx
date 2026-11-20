@@ -2,18 +2,21 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RhAudioPlayer } from "./RhAudioPlayer";
+import { claimAudio } from "./rhAudio";
 
 /** jsdom не умеет играть звук: подменяем play/pause и длительность, остальное — настоящий <audio>. */
 let playSpy: ReturnType<typeof vi.fn>;
 let pauseSpy: ReturnType<typeof vi.fn>;
 const durations = new WeakMap<HTMLMediaElement, number>();
 const times = new WeakMap<HTMLMediaElement, number>();
+const pausedState = new WeakMap<HTMLMediaElement, boolean>();
 
 beforeEach(() => {
-  playSpy = vi.fn(function (this: HTMLMediaElement) { this.dispatchEvent(new Event("play")); return Promise.resolve(); });
-  pauseSpy = vi.fn(function (this: HTMLMediaElement) { this.dispatchEvent(new Event("pause")); });
+  playSpy = vi.fn(function (this: HTMLMediaElement) { pausedState.set(this, false); this.dispatchEvent(new Event("play")); return Promise.resolve(); });
+  pauseSpy = vi.fn(function (this: HTMLMediaElement) { pausedState.set(this, true); this.dispatchEvent(new Event("pause")); });
   Object.defineProperty(HTMLMediaElement.prototype, "play", { configurable: true, value: playSpy });
   Object.defineProperty(HTMLMediaElement.prototype, "pause", { configurable: true, value: pauseSpy });
+  Object.defineProperty(HTMLMediaElement.prototype, "paused", { configurable: true, get() { return pausedState.get(this) ?? true; } });
   Object.defineProperty(HTMLMediaElement.prototype, "duration", { configurable: true, get() { return durations.get(this) ?? NaN; } });
   Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
     configurable: true,
@@ -98,5 +101,49 @@ describe("RhAudioPlayer (К01: серый системный плеер «00:00�
     act(() => { audioOf(container).dispatchEvent(new Event("error")); });
     expect(screen.getByTestId("rh-audio-failed").textContent).toContain("Запись не открылась");
     expect((screen.getByText("Открыть файл") as HTMLAnchorElement).getAttribute("href")).toBe("/broken.mp3");
+  });
+
+  it("играющую запись не дёргаем прыжком в конец: Infinity на ходу ждёт конца (preload=none, webm)", () => {
+    const { container } = render(<RhAudioPlayer src="/a.webm" preload="none" label="Голосовое" />);
+    const el = audioOf(container);
+    fireEvent.click(screen.getByRole("button", { name: "Голосовое: слушать" }));
+    act(() => { el.currentTime = 3; el.dispatchEvent(new Event("timeupdate")); });
+    setDuration(el, Infinity);
+    expect(el.currentTime).toBe(3); // не прыгнули
+    expect(screen.getByTestId("rh-audio-clock").textContent).toBe("0:03");
+    // запись доиграла: длина известна по концу воспроизведения
+    act(() => { el.currentTime = 8.4; el.dispatchEvent(new Event("ended")); });
+    expect(screen.getByTestId("rh-audio-clock").textContent).toBe("0:00 / 0:08");
+  });
+
+  it("ползунок не дёргается, пока его тянут: timeupdate во время перетаскивания игнорируется", () => {
+    const { container } = render(<RhAudioPlayer src="/a.mp3" />);
+    const el = audioOf(container);
+    setDuration(el, 30);
+    const slider = screen.getByRole("slider");
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: "20" } });
+    act(() => { el.currentTime = 5; el.dispatchEvent(new Event("timeupdate")); });
+    expect(screen.getByTestId("rh-audio-clock").textContent).toBe("0:20 / 0:30");
+    fireEvent.pointerUp(slider);
+    act(() => { el.currentTime = 21; el.dispatchEvent(new Event("timeupdate")); });
+    expect(screen.getByTestId("rh-audio-clock").textContent).toBe("0:21 / 0:30");
+  });
+
+  it("общий реестр: плеер на new Audio (озвучка) гасит этот, и наоборот", () => {
+    render(<RhAudioPlayer src="/a.mp3" label="Запись" />);
+    fireEvent.click(screen.getByRole("button", { name: "Запись: слушать" }));
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    const external = vi.fn();
+    act(() => { claimAudio(external); }); // стартовал внешний плеер
+    expect(pauseSpy).toHaveBeenCalledTimes(1); // наш поставлен на паузу
+    fireEvent.click(screen.getByRole("button", { name: "Запись: слушать" }));
+    expect(external).toHaveBeenCalledTimes(1); // внешний погашен нашим стартом
+  });
+
+  it("кнопка ▶ меняет подпись, а не держит aria-pressed", () => {
+    render(<RhAudioPlayer src="/a.mp3" label="Запись" />);
+    const btn = screen.getByRole("button", { name: "Запись: слушать" });
+    expect(btn.hasAttribute("aria-pressed")).toBe(false);
   });
 });

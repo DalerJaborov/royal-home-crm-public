@@ -104,11 +104,10 @@ describe("20.11: блок в карточке — короткий статус,
     expect(title).toBe("Послушайте новую озвучку");
     expect(html).not.toMatch(/Послушайте и одобрите/);
   });
-  it("запасной вариант плеера — общий RhAudioPlayer (не серый системный) без ссылки на blob в новой вкладке", () => {
+  it("запасной вариант плеера — штатный <audio controls> без ссылки на blob в новой вкладке", () => {
     const source = readFileSync(`${process.cwd()}/src/components/PropertyNarrationManager.tsx`, "utf8");
     const fallback = source.slice(source.indexOf('state === "fallback"'), source.indexOf("const buttonLabel"));
-    expect(fallback).toContain("<RhAudioPlayer src={url.current}");
-    expect(fallback).not.toContain("controls");
+    expect(fallback).toContain('<audio className="w-full" controls src={url.current} />');
     expect(fallback).not.toContain("target=");
     expect(source).not.toContain("aria-pressed={playing}");
   });

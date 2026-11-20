@@ -23,6 +23,12 @@ export default defineConfig({
   reporter: "list",
   use: { baseURL, serviceWorkers: "block", actionTimeout: 15_000, navigationTimeout: 45_000, screenshot: "only-on-failure" },
   projects: [
+    {
+      // Компьютер с английским Chrome: «Ноябрь 2026» по-русски и там (владелец и сотрудники на ПК).
+      name: "chromium-desktop-en",
+      grep: /Деньги/,
+      use: { ...devices["Desktop Chrome"], locale: "en-US" },
+    },
     { name: "webkit-iphone", use: { ...devices["iPhone 14"], viewport: { width: 390, height: 844 }, locale: "en-US" } },
     {
       // Chromium с телефонным UA и касанием: date/time поддержаны, подпись включается по UA.

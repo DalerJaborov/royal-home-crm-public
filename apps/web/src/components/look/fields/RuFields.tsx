@@ -10,20 +10,16 @@ import {
  * ПОЛЯ ДАТЫ, МЕСЯЦА И ВРЕМЕНИ ПО-РУССКИ (20.11.2026, класс К01/К17 аудита, кадр владельца с iPhone).
  *
  * `RuDateField`, `RuMonthField`, `RuTimeField`, `RuDateTimeField` — замена голому
- * `<input type="date|month|time|datetime-local">`. Это тот же родной `<input>` (выбор на
- * телефоне остаётся системным и удобным, `value`/`onChange`/`min`/`max`/`required` и всё
- * остальное — как у обычного поля), но видимый текст всегда по-русски:
- * «20 ноября 2026», «Ноябрь 2026», «14:30», «20 ноября 2026, 14:30»; пустое — «Выберите дату».
+ * `<input type="date|month|time|datetime-local">`. Это тот же родной `<input>` (выбор остаётся системным,
+ * `value`/`onChange`/`min`/`max`/`required` и всё остальное — как у обычного поля), но видимый текст всегда
+ * по-русски: «20 ноября 2026», «Ноябрь 2026», «14:30», «20 ноября 2026, 14:30»; пустое — «Выберите дату».
  *
- * Три режима, выбираются один раз на первой отрисовке:
- *  - телефон/планшет (touch или iPhone/iPad/Android в UA): родной текст поля прозрачный,
- *    рядом стоит наша подпись ровно поверх поля (размеры и шрифт берутся у самого поля) — она не
- *    перехватывает нажатия, и системный выбор открывается как раньше. Обёртки вокруг поля НЕТ: вёрстка
- *    экрана не меняется; родителю, если он не позиционирован, ставится `position: relative`;
- *  - компьютер: поле остаётся родным (значение набирают по частям, подпись поверх мешала бы),
- *    только `lang="ru"`;
- *  - браузер без родного поля (Safari на Mac у `month`, старый Firefox): обычное текстовое
- *    поле с подсказкой формата, а не «пустая коробка».
+ * Два режима, выбираются один раз на первой отрисовке:
+ *  - родное поле поддержано (и телефон, и компьютер): поле и наша подпись лежат в одной ячейке сетки
+ *    (обёртка `grid`/`inline-grid`), родной текст прозрачный, подпись не перехватывает нажатия. Ни замеров,
+ *    ни правок родителя: размер ячейки задаёт само поле. Шрифт и отступы подпись один раз берёт у поля.
+ *    На компьютере, пока поле в фокусе, подпись прячется и виден родной текст — значение набирают по частям;
+ *  - родного поля нет (Safari на Mac у `month`, старый Firefox): обычное текстовое поле с подсказкой формата.
  *
  * Пояс: значения — «стенные часы» без пояса, как у самих полей; в Душанбе их переводят
  * `dushanbeInputToIso`/`toLocalDateTimeInput` (`lib/date.ts`), «сегодня» и «сейчас» берут из
@@ -38,33 +34,28 @@ type RuFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "value"
   defaultValue?: string;
   /** Выравнивание подписи: по умолчанию как у текста самого поля. */
   align?: "start" | "center";
+  /** Поле в строке текста (а не отдельной строкой): обёртка `inline-grid`, а не блок. */
+  inline?: boolean;
 };
 
-type Mode = "native" | "overlay" | "text";
-
-function detectMode(kind: RuFieldKind): Mode {
-  if (!supportsNativeField(kind)) return "text";
-  return wantsRuOverlay() ? "overlay" : "native";
-}
+type Mode = "overlay" | "text";
 
 const HIDDEN_NATIVE_TEXT: CSSProperties = {
   color: "transparent", WebkitTextFillColor: "transparent", WebkitAppearance: "none", appearance: "none",
 };
 
-interface Box { left: number; top: number; width: number; height: number; paddingLeft: string; paddingRight: string;
-  fontFamily: string; fontSize: string; fontWeight: string; lineHeight: string; letterSpacing: string; textAlign: string }
+/** Вид текста поля, снятый один раз: подпись должна выглядеть как родной текст. */
+interface Look {
+  paddingLeft: string; paddingRight: string; fontFamily: string; fontSize: string; fontWeight: string;
+  lineHeight: string; letterSpacing: string; textAlign: string;
+}
 
-function measure(input: HTMLInputElement): Box {
+function readLook(input: HTMLInputElement): Look {
   const cs = getComputedStyle(input);
   return {
-    left: input.offsetLeft, top: input.offsetTop, width: input.offsetWidth, height: input.offsetHeight,
     paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight, fontFamily: cs.fontFamily, fontSize: cs.fontSize,
     fontWeight: cs.fontWeight, lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing, textAlign: cs.textAlign,
   };
-}
-
-function sameBox(a: Box | null, b: Box): boolean {
-  return !!a && (Object.keys(b) as (keyof Box)[]).every((key) => a[key] === b[key]);
 }
 
 function useMerged<T>(inner: React.MutableRefObject<T | null>, outer: Ref<T>) {
@@ -77,12 +68,15 @@ function useMerged<T>(inner: React.MutableRefObject<T | null>, outer: Ref<T>) {
 
 function makeField(kind: RuFieldKind) {
   const Field = forwardRef<HTMLInputElement, RuFieldProps>(function RuField(
-    { value, defaultValue, align, style, className, title, onChange, ...rest }, ref,
+    { value, defaultValue, align, inline, style, className, title, onChange, onFocus, onBlur, ...rest }, ref,
   ) {
-    const [mode] = useState<Mode>(() => detectMode(kind));
+    const [mode] = useState<Mode>(() => (supportsNativeField(kind) ? "overlay" : "text"));
+    // Телефон и планшет: выбор колесом/окном, печатать нечем — подпись всегда. Компьютер: на время набора поле родное.
+    const [touch] = useState(() => wantsRuOverlay());
     const inputRef = useRef<HTMLInputElement | null>(null);
     const setRef = useMerged(inputRef, ref);
-    const [box, setBox] = useState<Box | null>(null);
+    const [look, setLook] = useState<Look | null>(null);
+    const [focused, setFocused] = useState(false);
     // Поле без состояния: подпись следует за тем, что выбрал человек.
     const [typed, setTyped] = useState(defaultValue ?? "");
     const controlled = value !== undefined;
@@ -93,45 +87,38 @@ function makeField(kind: RuFieldKind) {
       onChange?.(event);
     };
 
-    // Подпись стоит ровно поверх поля: размеры, поля и шрифт берём у самого поля (экраны красят его по-своему).
+    // Один раз на вид поля (класс), не на каждый рендер и без наблюдателей за размером.
     useLayoutEffect(() => {
-      if (mode !== "overlay") return;
-      const input = inputRef.current;
-      if (!input) return;
-      const parent = input.parentElement;
-      const restore = parent && getComputedStyle(parent).position === "static" ? parent.style.position : null;
-      if (parent && restore !== null) parent.style.position = "relative";
-      const update = () => {
-        const next = measure(input);
-        setBox((prev) => (sameBox(prev, next) ? prev : next));
-      };
-      update();
-      const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-      observer?.observe(input);
-      return () => {
-        observer?.disconnect();
-        if (parent && restore !== null) parent.style.position = restore;
-      };
-    });
+      if (mode !== "overlay" || !inputRef.current) return;
+      setLook(readLook(inputRef.current));
+    }, [mode, className]);
 
     const zoneTitle = title ?? (kind === "time" || kind === "datetime-local" ? "Время по Душанбе" : undefined);
 
     if (mode === "text") {
       const hint = ruFieldFormatHint(kind);
       return (
-        <input {...rest} ref={setRef} type="text" inputMode="numeric" autoComplete="off" lang="ru" className={className} style={style}
-          {...valueProps} onChange={handleChange} placeholder={rest.placeholder ?? hint.split(",")[0]} title={zoneTitle ?? hint} />
+        <input
+          {...rest} ref={setRef} type="text" inputMode="text" autoComplete="off" lang="ru" className={className} style={style}
+          {...valueProps} onChange={handleChange} onFocus={onFocus} onBlur={onBlur}
+          placeholder={rest.placeholder ?? hint.split(",")[0]} title={zoneTitle ?? hint}
+        />
       );
     }
 
-    if (mode === "native") {
-      return <input {...rest} ref={setRef} type={kind} lang="ru" className={className} style={style} {...valueProps} onChange={handleChange} title={zoneTitle} />;
-    }
-
     const { text, empty } = ruFieldText(kind, shown);
-    const centered = (align ?? (box?.textAlign === "center" ? "center" : "start")) === "center";
+    const revealed = focused && !touch;
+    const { width: styleWidth, maxWidth, minWidth, flex, margin, ...inputStyle } = style ?? {};
+    const centered = (align ?? (look?.textAlign === "center" ? "center" : "start")) === "center";
     return (
-      <>
+      <span
+        className="ru-field"
+        data-ru-field={kind}
+        style={{
+          display: inline ? "inline-grid" : "grid", gridTemplateColumns: "minmax(0, 1fr)", width: styleWidth, maxWidth,
+          minWidth: minWidth ?? 0, flex, margin, verticalAlign: inline ? "middle" : undefined,
+        }}
+      >
         <input
           {...rest}
           ref={setRef}
@@ -141,24 +128,30 @@ function makeField(kind: RuFieldKind) {
           title={zoneTitle}
           {...valueProps}
           onChange={handleChange}
-          style={{ ...style, ...HIDDEN_NATIVE_TEXT }}
+          onFocus={(event) => { setFocused(true); onFocus?.(event); }}
+          onBlur={(event) => { setFocused(false); onBlur?.(event); }}
+          style={{
+            ...inputStyle, gridArea: "1 / 1", justifySelf: "start", ...(revealed ? null : HIDDEN_NATIVE_TEXT),
+            ...(styleWidth !== undefined ? { width: "100%" } : null),
+          }}
         />
         <span
           aria-hidden="true"
           data-ru-field-text={kind}
           data-empty={empty || undefined}
           style={{
-            position: "absolute", left: box?.left ?? 0, top: box?.top ?? 0, width: box?.width ?? 0, height: box?.height ?? 0,
-            display: "flex", alignItems: "center", justifyContent: centered ? "center" : "flex-start",
-            boxSizing: "border-box", paddingLeft: box?.paddingLeft, paddingRight: box?.paddingRight,
-            fontFamily: box?.fontFamily, fontSize: box?.fontSize, fontWeight: box?.fontWeight, lineHeight: box?.lineHeight,
-            letterSpacing: box?.letterSpacing, pointerEvents: "none", zIndex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis",
+            gridArea: "1 / 1", alignSelf: "stretch", display: "flex", alignItems: "center",
+            justifyContent: centered ? "center" : "flex-start", boxSizing: "border-box",
+            visibility: revealed ? "hidden" : "visible", opacity: rest.disabled ? 0.55 : undefined,
+            paddingLeft: look?.paddingLeft, paddingRight: look?.paddingRight, fontFamily: look?.fontFamily, fontSize: look?.fontSize,
+            fontWeight: look?.fontWeight, lineHeight: look?.lineHeight, letterSpacing: look?.letterSpacing,
+            pointerEvents: "none", zIndex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", minWidth: 0,
             color: empty ? "var(--muted, rgba(120,120,128,.9))" : "var(--rh-ui-text, var(--ink, currentColor))",
           }}
         >
           {text}
         </span>
-      </>
+      </span>
     );
   });
   Field.displayName = `Ru${kind === "datetime-local" ? "DateTime" : kind[0]!.toUpperCase() + kind.slice(1)}Field`;

@@ -19,7 +19,11 @@ const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const IMPLEMENTATION = ["components/look/fields/RuFields.tsx", "components/look/RhAudioPlayer.tsx"];
 
 /** Исключения: файл → причина. Список только убывает. */
-const AUDIO_EXCEPTIONS: Record<string, string> = {};
+const AUDIO_EXCEPTIONS: Record<string, string> = {
+  // Запасной вариант озвучки объекта, когда её собственный плеер не справился (формат не поддержан плеером):
+  // штатный <audio controls> играет blob на iPhone, а ссылка на blob в новой вкладке не открывается (решение ревью #340).
+  "components/PropertyNarrationManager.tsx": "запасной штатный плеер, когда свой не справился",
+};
 const FIELD_EXCEPTIONS: Record<string, string> = {};
 
 function sourceFiles(dir: string): string[] {
@@ -67,7 +71,10 @@ function withoutComments(source: string): string {
 const NATIVE_TYPE = /\btype=(?:"|'|\{["'`])(?:date|month|time|datetime-local)(?:"|'|["'`]\})/;
 
 function nativeFieldOffences(source: string): string[] {
-  return tagsOf(withoutComments(source), "input").filter(({ tag }) => NATIVE_TYPE.test(tag)).map(({ tag }) => tag.slice(0, 60).replace(/\s+/g, " "));
+  // Любой тег с таким type — и `<input>`, и `<TextInput type="date">`, и `<Field type="month">`.
+  const clean = withoutComments(source);
+  const names = new Set([...clean.matchAll(/<([A-Za-z][\w.]*)/g)].map((m) => m[1]!));
+  return [...names].flatMap((name) => tagsOf(clean, name)).filter(({ tag }) => NATIVE_TYPE.test(tag)).map(({ tag }) => tag.slice(0, 60).replace(/\s+/g, " "));
 }
 function nativeAudioOffences(source: string): string[] {
   return tagsOf(withoutComments(source), "audio").filter(({ tag }) => /\scontrols\b/.test(tag)).map(({ tag }) => tag.slice(0, 60).replace(/\s+/g, " "));
@@ -104,6 +111,7 @@ describe("родные контролы Safari (К01)", () => {
     expect(nativeFieldOffences('<input className="inp" type="date" value={v} onChange={(e) => set(e.target.value)} />')).toHaveLength(1);
     expect(nativeFieldOffences("<input\n  type='month'\n  value={m}\n/>")).toHaveLength(1);
     expect(nativeFieldOffences('<input type={"time"} />')).toHaveLength(1);
+    expect(nativeFieldOffences('<TextInput className="x" type="date" value={v} />')).toHaveLength(1);
     expect(nativeFieldOffences('<input type="text" /><input type="checkbox" />')).toHaveLength(0);
     expect(nativeAudioOffences('<audio controls preload="none" src={u} />')).toHaveLength(1);
     expect(nativeAudioOffences("<audio\n  src={u}\n  onEnded={() => x()}\n  controls\n/>")).toHaveLength(1);

@@ -8,6 +8,7 @@ import {
   type FunctionStatusResponse,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { describeFunctionError } from "./functionErrorText.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { customerAgentAnswerLiveChannels, customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { customerAgentCoreChannels, customerAgentShadowChannels } from "./customerAgentChannelSwitch.js";
@@ -442,6 +443,7 @@ function toCron(row: FunctionStatusInput["heartbeats"][number], now: Date): Func
     lastRunAt: row.lastRunAt?.toISOString() ?? null,
     lastOkAt: row.lastOkAt?.toISOString() ?? null,
     lastError: row.lastError ? maskPhonesInFreeText(row.lastError).slice(0, 200) : null,
+    humanError: describeFunctionError(row.lastError),
     health: cronHealth(row, now),
   };
 }
@@ -474,7 +476,7 @@ export function evaluateFunctions(input: FunctionStatusInput): FunctionStatusRes
       envNames: [...(def.env ?? [])],
       settingsTab: def.settingsTab ?? null,
       crons: own,
-      lastError: lastError ? { at: lastError.createdAt.toISOString(), message: maskPhonesInFreeText(lastError.message).slice(0, 200) } : null,
+      lastError: lastError ? { at: lastError.createdAt.toISOString(), message: maskPhonesInFreeText(lastError.message).slice(0, 200), humanMessage: describeFunctionError(lastError.message) } : null,
     };
   });
 

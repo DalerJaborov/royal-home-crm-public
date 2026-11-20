@@ -620,6 +620,10 @@ html[data-theme="royal-home-2026-night"] {
 .rh2 .fs-err { display: block; margin-top: 4px; font-size: var(--fs-13); color: var(--crit); overflow-wrap: anywhere; }
 .rh2 .fs-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; }
 .rh2 .fs-env { font-size: var(--fs-13); color: var(--muted); display: inline-flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.rh2 .fs-dev { margin-top: 6px; font-size: var(--fs-13); color: var(--muted); }
+.rh2 .fs-dev summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.rh2 .fs-dev dl { margin: 4px 0 0; }
+.rh2 .fs-dev dd { margin: 0 0 6px; overflow-wrap: anywhere; }
 .rh2 .fs-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted);
   background: var(--soft); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
 .rh2 .fs-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }

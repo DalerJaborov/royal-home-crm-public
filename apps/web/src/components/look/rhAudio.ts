@@ -30,3 +30,18 @@ export function nextAudioSpeed(current: number): AudioSpeed {
 export function audioSpeedLabel(speed: number): string {
   return `${String(speed).replace(".", ",")}×`;
 }
+
+/**
+ * ОДИН ИГРАЮЩИЙ ЗВУК НА ВСЕХ (20.11.2026): общий реестр для `RhAudioPlayer` и для плееров на `new Audio`
+ * (озвучка объекта). Новый запуск гасит прежний — каждый плеер отдаёт сюда свою «паузу».
+ */
+let activeStop: (() => void) | null = null;
+
+export function claimAudio(stop: () => void): void {
+  if (activeStop && activeStop !== stop) activeStop();
+  activeStop = stop;
+}
+
+export function releaseAudio(stop: () => void): void {
+  if (activeStop === stop) activeStop = null;
+}

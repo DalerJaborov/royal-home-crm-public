@@ -80,14 +80,37 @@ describe("поля даты по-русски (К01)", () => {
     expect(container.querySelector("[data-ru-field-text]")?.textContent).toBe("18:45");
   });
 
-  it("компьютер: поле родное, без подписи поверх (значение набирают по частям)", () => {
+  it("компьютер: подпись по-русски тоже (английский Chrome), но на время набора поле родное", () => {
     setUa(DESKTOP);
-    const { container } = render(<RuDateField value="2026-11-20" onChange={() => {}} />);
-    expect(container.querySelector("[data-ru-field-text]")).toBeNull();
+    const { container } = render(<RuMonthField value="2026-11" onChange={() => {}} />);
+    const label = container.querySelector("[data-ru-field-text]") as HTMLElement;
+    expect(label.textContent).toBe("Ноябрь 2026");
     const input = container.querySelector("input") as HTMLInputElement;
-    expect(input.type).toBe("date");
-    expect(input.getAttribute("lang")).toBe("ru");
+    expect(input.style.color).toBe("transparent");
+    fireEvent.focus(input);
     expect(input.style.color).toBe("");
+    expect(label.style.visibility).toBe("hidden");
+    fireEvent.blur(input);
+    expect(label.style.visibility).toBe("visible");
+  });
+
+  it("телефон: подпись не прячется и в фокусе (там колесо, печатать нечем)", () => {
+    setUa(IPHONE);
+    const { container } = render(<RuDateField value="2026-11-20" onChange={() => {}} />);
+    const input = container.querySelector("input") as HTMLInputElement;
+    fireEvent.focus(input);
+    expect((container.querySelector("[data-ru-field-text]") as HTMLElement).style.visibility).toBe("visible");
+    expect(input.style.color).toBe("transparent");
+  });
+
+  it("поле и подпись в одной ячейке сетки, родителю ничего не правим; выключенное тускнеет", () => {
+    setUa(IPHONE);
+    const { container } = render(<div id="p"><RuTimeField value="" disabled onChange={() => {}} /></div>);
+    const wrap = container.querySelector(".ru-field") as HTMLElement;
+    expect(wrap.style.display).toBe("grid");
+    expect((container.querySelector("#p") as HTMLElement).style.position).toBe("");
+    expect((wrap.querySelector("input") as HTMLElement).style.gridArea).toBe("1 / 1");
+    expect((wrap.querySelector("[data-ru-field-text]") as HTMLElement).style.opacity).toBe("0.55");
   });
 
   it("браузер без родного month: обычное текстовое поле с подсказкой формата", () => {

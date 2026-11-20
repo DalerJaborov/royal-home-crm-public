@@ -49,17 +49,38 @@ const { FunctionStatus } = await import("../FunctionStatus");
 const html = () => renderToString(<MemoryRouter><FunctionStatus /></MemoryRouter>).replace(/<!-- -->/g, "");
 
 describe("экран «Состояние функций»", () => {
-  it("директор видит состояние, причину без имени переменной, ссылку на вкладку и последний запуск", () => {
+  it("директор видит состояние, причину, имя переменной, ссылку на вкладку и последний запуск", () => {
     role = "DIRECTOR";
     const out = html();
     expect(out).toContain("Фото объектов в чате");
     expect(out).toContain("Выключено");
     expect(out).toContain("Обратите внимание");
     expect(out).toContain("сервер не разрешает");
-    expect(out).not.toContain("X_MODE"); // имя переменной — не для экрана (К17)
-    expect(out).toContain("настройка сервера");
+    expect(out).toContain("X_MODE");
     expect(out).toContain("/settings?tab=bot");
     expect(out).toContain("в порядке");
+  });
+
+  it("сбой: по-человечески от сервера, сырой текст и имена — только в «Для разработчика» (К17)", () => {
+    role = "DIRECTOR";
+    const item = DATA.items[0]!;
+    const saved = { lastError: item.lastError, crons: item.crons };
+    item.lastError = { at: "2026-11-14T08:00:00.000Z", message: "Gemini 429 RESOURCE_EXHAUSTED: quota exceeded", humanMessage: "Кончился лимит Gemini — подождите или пополните счёт." };
+    item.crons = [{ name: "bot-pause-watch", lastRunAt: null, lastOkAt: null, lastError: "fetch failed UND_ERR_CONNECT_TIMEOUT (api.telegram.org)", humanError: "Telegram не отвечает — проверьте позже.", health: "failing" }];
+    try {
+      const out = html();
+      expect(out).toContain("Кончился лимит Gemini");
+      expect(out).toContain("Telegram не отвечает — проверьте позже.");
+      expect(out).toContain("Для разработчика");
+      // сырой текст есть, но только внутри свёрнутого блока
+      const outside = out.replace(/<details[\s\S]*?<\/details>/g, "");
+      expect(outside).not.toContain("RESOURCE_EXHAUSTED");
+      expect(outside).not.toContain("UND_ERR");
+      expect(outside).not.toContain("bot-pause-watch");
+    } finally {
+      item.lastError = saved.lastError;
+      item.crons = saved.crons;
+    }
   });
 
   it("сотрудник без прав видит заглушку и не запрашивает данные", () => {

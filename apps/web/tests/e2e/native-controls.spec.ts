@@ -139,7 +139,10 @@ test("Чат: голосовое — свой плеер с кнопкой, вр
     // WebKit для Windows (у Playwright) не проигрывает blob-аудио вовсе (MEDIA_ERR_SRC_NOT_SUPPORTED, проверено
     // на пустой странице): настоящий iPhone играет. Здесь проверяется честная ветка отказа — строка и ссылка
     // на файл вместо вечного «00:00»; весь путь с игрой и скоростью — в проекте chromium-phone.
-    if (await failed.isVisible()) {
+    // Ошибка источника приходит, когда браузер пробует файл: нажимаем ▶ (если плеер ещё не заменён строкой отказа).
+    await player.getByRole("button", { name: /слушать/ }).click({ timeout: 3_000 }).catch(() => undefined);
+    const gotFailed = await failed.waitFor({ timeout: 8_000 }).then(() => true, () => false);
+    if (gotFailed) {
       await expect(failed).toContainText("Запись не открылась");
       await expect(failed.getByRole("link", { name: "Открыть файл" })).toBeVisible();
       await shot(page, `${testInfo.project.name}-chat-voice-failed-branch`);
