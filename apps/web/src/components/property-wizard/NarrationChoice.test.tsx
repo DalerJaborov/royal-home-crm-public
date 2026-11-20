@@ -48,7 +48,7 @@ describe("wizard narration choice", () => {
     const client = new QueryClient();
     client.setQueryData(["narration-options"], { ...options, lastChoice: { voiceId: "f1", templateId: "ru-short" } });
     const html = renderToStaticMarkup(<QueryClientProvider client={client}><NarrationChoice facts={facts} value={{}} onChange={() => {}} /></QueryClientProvider>);
-    expect(html).toContain("последний раз выбран");
+    expect(html).toContain("вы выбирали в прошлый раз");
     expect(html).toContain("В продаже квартира. Площадь шестьдесят два метров.");
     expect(html).toMatch(/value="f1"[^>]*checked|checked[^>]*value="f1"/);
   });
