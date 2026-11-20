@@ -247,7 +247,8 @@ describe("блоки ролей на данных прежних главных"
     expect([...container.querySelectorAll('[data-block="securityLinks"] a')].map((a) => a.getAttribute("href"))).toEqual(["/clients", "/properties"]);
   });
 
-  it.each(["MANAGER", "SHAREHOLDER"])("%s: потерянная и «никто не принял» — смыслом; отказ сводки — не «все приняты»", (role) => {
+  // Акционер с 20.11.2026 — своя главная (деньги и тренды), см. blocks/leader.test.tsx.
+  it.each(["MANAGER"])("%s: потерянная и «никто не принял» — смыслом; отказ сводки — не «все приняты»", (role) => {
     h.role = role;
     h.team = { ...h.team, data: {
       agents: [{ id: "g1", fullName: "Бону Саидова", avatarUrl: null, activeLoad: 0, pendingAccept: 0, acceptedToday: 2, escalated: 0 }],
