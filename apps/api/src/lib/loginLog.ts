@@ -32,9 +32,11 @@ export async function recordLogin(req: Request, agent: { id: string; fullName: s
     if (isNewDevice) {
       const body = `${label}${ip ? `, IP ${ip}` : ""}`;
       // Самому сотруднику — вдруг это не он.
+      // Сотруднику — без IP (пачка D1, 20.11.2026): «IP ::1» в уведомлении агенту ничего не
+      // говорит и выглядит поломкой. IP остаётся в журнале входов и в копии директору.
       void sendPushToAgent(agent.id, {
         title: "🔐 Вход с нового устройства",
-        body: `В вашу учётку вошли с нового устройства: ${body}. Если это не вы — смените пароль.`,
+        body: `В вашу учётку вошли с нового устройства: ${label}. Если это не вы — смените пароль.`,
         url: "/profile",
         tag: `new-device-${agent.id}`,
       }).catch((err) => console.error("[loginLog] Push агенту не отправлен:", err instanceof Error ? err.message : err));

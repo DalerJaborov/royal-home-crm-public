@@ -54,6 +54,7 @@ function initials(name: string) {
  */
 export function RoyalClientRow({ id, name, href, avatar, identity, request, source, nextAction, nextActionDate, lastContact, staleContact = false, showAgent, agentName, agentAssigned, actions, deleted }: RoyalClientRowProps) {
   const deadline = nextAction && nextActionDate ? exactDateTime(nextActionDate) : "";
+  const overdue = !!deadline && new Date(nextActionDate!).getTime() < Date.now();
   const agent = agentName || (agentAssigned ? "Агент назначен" : "Не назначен");
   const who = <>
     <span className="ry-crow-name">{name}</span>
@@ -74,13 +75,13 @@ export function RoyalClientRow({ id, name, href, avatar, identity, request, sour
       </div>
       <div className="ry-crow-next">
         {nextAction ? <span className="ry-crow-step">{nextAction}</span> : <span className="ry-crow-step ry-crow-hint">Следующий шаг не назначен</span>}
-        <span className="ry-crow-when">
-          {deadline && <span className="ry-crow-text ry-crow-deadline"><span className="ry-crow-label-phone">Срок: </span>{deadline}</span>}
-          <span className="ry-crow-hint ry-crow-last" data-tone={staleContact ? "crit" : undefined}>
-            {staleContact && <span className="ry-crow-label-phone">Давно не связывались · </span>}
-            <span className="ry-crow-label-phone">Последний контакт: </span>
-            <span className="ry-crow-nowrap">{lastContact}</span>
-          </span>
+        {/* Одна дата с глаголом (пачка D1): есть срок шага — срок («срок …» / «просрочено · …»),
+            нет — когда связывались. Две даты столбиком без подписи читались загадкой
+            (critic-uiux P1-3); последний контакт при сроке есть в карточке клиента. */}
+        <span className="ry-crow-when" data-tone={overdue || (!deadline && staleContact) ? "crit" : undefined}>
+          {deadline
+            ? <span className="ry-crow-text ry-crow-deadline">{overdue ? "просрочено · " : "срок "}<span className="ry-crow-nowrap">{deadline}</span></span>
+            : <span className="ry-crow-hint ry-crow-last">{staleContact ? "давно не связывались · " : "связывались "}<span className="ry-crow-nowrap">{lastContact}</span></span>}
         </span>
       </div>
       {showAgent && (

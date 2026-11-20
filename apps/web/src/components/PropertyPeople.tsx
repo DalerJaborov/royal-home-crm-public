@@ -81,7 +81,7 @@ export function PropertyPeople({
           идти за номером, видно и так.
           С 18.11.2026 полный номер видит только директор; тот, кто ведёт объект, видит
           продавца именем и номером маской (`ownerContactMasked`) и звонит кнопкой. */}
-      {showOwner && (!property.ownerContactHidden || !!property.ownerContactMasked || !!property.sellerClient) && (
+      {showOwner && ownerVisible(property) && (
         <>
           <h3 className="sec-t">Собственник</h3>
           <OwnerRow property={property} phoneInField={ownerPhoneInField} />
@@ -91,7 +91,13 @@ export function PropertyPeople({
   );
 }
 
-function OwnerRow({
+/** Виден ли собственник этому сотруднику — решает сервер (маска, `ownerContactHidden`, `sellerClient`). */
+export function ownerVisible(property: Pick<Property, "ownerContactHidden" | "ownerContactMasked" | "sellerClient">): boolean {
+  return !property.ownerContactHidden || !!property.ownerContactMasked || !!property.sellerClient;
+}
+
+/** Строка собственника: имя, номер (полный или маской — как отдал сервер) и «Позвонить» через CRM. */
+export function OwnerRow({
   property,
   phoneInField = false,
 }: {

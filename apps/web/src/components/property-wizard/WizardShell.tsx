@@ -167,8 +167,6 @@ export function WizardShell({
           <div className="wizard-draft-actions wizard-header-actions">
             {onSaveAndExit && <button type="button" className="wizard-secondary-action" data-testid="wizard-save-exit"
               onClick={onSaveAndExit} disabled={controlsBusy || closeDisabled || status?.state === "saving"}>Сохранить и выйти</button>}
-            {onDeleteDraft && <button type="button" className="wizard-text-action wizard-delete-action" data-testid="wizard-delete-draft"
-              onClick={onDeleteDraft} disabled={controlsBusy}>{deleteDraftPending ? "Удаляю черновик…" : "Удалить черновик"}</button>}
           </div>
           </div>
 
@@ -206,7 +204,16 @@ export function WizardShell({
         <section className="wizard-main" aria-labelledby="wizard-current-section">
           <div className="wizard-form-sheet">
           <div className="wizard-section-heading"><span className="wizard-section-icon"><WizIcon icon={SectionIcon} size={28} strokeWidth={1.7} aria-hidden="true" /></span><div><h2 className="wizard-step-title" id="wizard-current-section">{DESKTOP_SECTIONS[step.key].title}</h2></div></div>
-          <div className="wbody">{children}</div>
+          <div className="wbody">{children}
+            {/* «Удалить черновик» — опасное действие, отдельно от «Сохранить и выйти» (пачка D1,
+                20.11.2026): раньше стояло вплотную к нему в шапке, и промахнуться было легко
+                (critic-agent-newbie, P0). Теперь — внизу формы, красным, и всегда через окно
+                подтверждения «Удалить черновик?» (PropertyWizard → ConfirmDialog). */}
+            {onDeleteDraft && <div className="wizard-danger-zone">
+              <button type="button" className="wizard-text-action wizard-delete-action" data-variant="danger" data-testid="wizard-delete-draft"
+                onClick={onDeleteDraft} disabled={controlsBusy}>{deleteDraftPending ? "Удаляю черновик…" : "Удалить черновик"}</button>
+            </div>}
+          </div>
           </div>
         </section>
 

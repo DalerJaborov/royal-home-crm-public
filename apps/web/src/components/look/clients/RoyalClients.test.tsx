@@ -27,10 +27,30 @@ const words = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&nbsp;|·
   .split(/\s+/).filter(Boolean).filter((w) => !["Следующее", "действие", "Ответственный"].includes(w));
 
 describe("строка клиента нового вида", () => {
+  it("одна дата с глаголом: срок шага или когда связывались (пачка D1)", () => {
+    const withDeadline = royal({ nextActionDate: "2099-01-01T08:00:00.000Z" });
+    expect(withDeadline).toContain("срок ");
+    expect(withDeadline).not.toContain("2 дня назад");
+    expect(royal({ nextActionDate: "2020-01-01T08:00:00.000Z" })).toContain("просрочено");
+    const noDeadline = royal({ nextAction: null });
+    expect(noDeadline).toContain("связывались ");
+    expect(noDeadline).toContain("2 дня назад");
+    expect(royal({ nextAction: null, staleContact: true })).toContain("давно не связывались");
+  });
   it("показывает всё, что показывает строка Clean (ничего не теряется)", () => {
+    // Исключение одно и намеренное (пачка D1, 20.11.2026): при сроке шага строка нового вида
+    // показывает ОДНУ дату — срок; «последний контакт» и подписи «Срок / Последний контакт /
+    // Давно не связывались» остаются в карточке клиента и в строке без срока.
+    const dropped = (props: Partial<RoyalClientRowProps>) => {
+      const p = { ...fixture, ...props };
+      const words = new Set(["Срок", "Последний", "контакт", "Давно", "не", "связывались"]);
+      if (p.nextAction && p.nextActionDate) for (const w of p.lastContact.split(/\s+/)) words.add(w);
+      return words;
+    };
     for (const props of [{}, { staleContact: true }, { nextAction: null }, { agentName: null, agentAssigned: false }, { showAgent: false }]) {
       const mine = new Set(words(royal(props)));
-      for (const w of words(clean(props))) expect(mine, `потеряно «${w}» при ${JSON.stringify(props)}`).toContain(w);
+      const allowed = dropped(props);
+      for (const w of words(clean(props))) if (!allowed.has(w)) expect(mine, `потеряно «${w}» при ${JSON.stringify(props)}`).toContain(w);
     }
   });
   it("та же ссылка в карточку, тот же признак строки для смахивания и звонка", () => {

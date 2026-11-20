@@ -1,7 +1,7 @@
 import type { PropertyStageState, PropertyStatus } from "@royal-home/shared";
 import { dushanbeTime } from "./date";
 import { plannedStatusLabel } from "./publishPlanned";
-import { statusChipLabel } from "./theme2026";
+import { stageLabelFor } from "./theme2026";
 import type { ChipTone } from "../components/rh2/Chip";
 import type { Property } from "../types";
 
@@ -29,8 +29,10 @@ const STAGE_TONE: Record<PropertyStatus, ChipTone> = {
 export function propertyStageChip(
   p: Pick<Property, "status" | "pipeline" | "videoHandoffFinalPath" | "scheduledPublishAt" | "videoHandoffStatus" | "publishedChannels">,
   now: number = Date.now(),
+  /** Роль смотрящего: агенту этап бытовыми словами («Готовим видео» вместо «На монтаже»). */
+  role?: string,
 ): { tone: ChipTone; label: string } {
   const stage: PropertyStageState | null | undefined = p.pipeline;
-  const label = plannedStatusLabel(p, now, dushanbeTime) ?? statusChipLabel(p.status, stage);
+  const label = plannedStatusLabel(p, now, dushanbeTime) ?? stageLabelFor(p.status, stage, role);
   return { tone: stage?.overdue === true ? "crit" : STAGE_TONE[p.status], label };
 }

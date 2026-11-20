@@ -1,3 +1,4 @@
+import { messageTimeText } from "../lib/messageTime";
 import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, type ItemProps, type ListProps } from "react-virtuoso";
 import { Download, MessageCircle, SendHorizonal, User, X } from "lucide-react";
@@ -129,9 +130,8 @@ export function replyTargetLabels(channels: string[]): string[] {
   });
 }
 
-export function messageTimeText(at: string | null | undefined): string {
-  return at ? dushanbeTime(at) : "Время сообщения неизвестно";
-}
+// Одно правило на три экрана чата — lib/messageTime.ts (пачка D1).
+export { messageTimeText };
 
 export function messageRenderKey(message: ConversationMessage, index: number): string {
   const localKey = message.mid ?? `idx:${message.sourceMessageIndex ?? index}`;

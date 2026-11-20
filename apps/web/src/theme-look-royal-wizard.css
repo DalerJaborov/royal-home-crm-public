@@ -142,7 +142,9 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-text-action {
   min-height: 44px; padding: 0 4px; font-size: 15px; font-weight: 600; color: var(--rh-ui-primary-ink);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-delete-action { color: var(--rh-ui-hint); }
+/* «Удалить черновик» — внизу формы, отдельно от «Сохранить и выйти», красным (пачка D1). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-danger-zone { display: flex; margin: 8px 0 0; padding-top: 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wizard-delete-action { color: var(--rh-ui-crit-text); }
 
 /* Полосы шагов (телефон): толще и скруглённые; пройдено — синим, сейчас — тёмным. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .bars { gap: 6px; margin-top: 16px; }

@@ -1,3 +1,4 @@
+import { messageTimeText } from "../../lib/messageTime";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -37,9 +38,8 @@ export function replySourceLabels(channels: Array<string | null>): string[] {
   });
 }
 
-export function messageTimeText(at: string | null | undefined): string {
-  return at ? dushanbeTime(at) : "Время сообщения неизвестно";
-}
+// Одно правило на три экрана чата — lib/messageTime.ts (пачка D1).
+export { messageTimeText };
 
 export function messageRenderKey(message: ConversationMessage, index: number): string {
   const localKey = message.mid ?? `idx:${message.sourceMessageIndex ?? index}`;

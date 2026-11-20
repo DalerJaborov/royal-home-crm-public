@@ -7,6 +7,7 @@ import { buildShowings } from "../../../../lib/agentDay";
 import { RhAvatar, RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
 import { HomeBars, num } from "../charts";
 import { FullScreenToggle } from "./full";
+import { CallClientButton } from "../../../CallClientButton";
 
 /**
  * ГЛАВНАЯ АГЕНТА — блоки ядра (перенесены из pages/TodayRoyal.tsx, home-core 20.11.2026).
@@ -91,13 +92,20 @@ export function AgentFirstCalls() {
       <RhGroup>
         {due.slice(0, 6).map((row) => {
           const late = Date.parse(row.dueAt) < now;
+          // Звонок прямо из строки (пачка D1): раньше агенту надо было открыть карточку и
+          // искать «Позвонить» там. Кнопка — соседка ссылки, а не внутри неё (кнопка в ссылке
+          // открывала бы карточку вместо звонка). Номер не печатаем: решение владельца 19.11.
           return (
-            <RhRow key={row.id} to={`/clients/${row.shortId}`}
-              lead={<RhCircle icon={late ? "hourglass" : "phone-call"} tone={late ? "crit" : "warn"} filled={late} />}
-              title={row.fullName}
-              sub={late ? ["срок первого звонка прошёл", row.afterDue].filter(Boolean).join(" · ") : `первый звонок до ${dushanbeTime(row.dueAt)}`}
-              subTone={late ? "crit" : "warn"}
-              right={<span className="ry-row-time" data-tone={late ? "crit" : undefined}>{dushanbeTime(row.dueAt)}</span>} />
+            <div key={row.id} className="ry-agent-call-row">
+              <RhRow to={`/clients/${row.shortId}`}
+                lead={<RhCircle icon={late ? "hourglass" : "phone-call"} tone={late ? "crit" : "warn"} filled={late} />}
+                title={row.fullName}
+                sub={late ? ["срок вышел, позвоните сейчас", row.afterDue].filter(Boolean).join(" · ") : `первый звонок до ${dushanbeTime(row.dueAt)}`}
+                subTone={late ? "crit" : "warn"}
+                right={<span className="ry-row-time" data-tone={late ? "crit" : undefined}>{dushanbeTime(row.dueAt)}</span>} />
+              <CallClientButton clientId={row.id} phone={row.phone} variant="icon" label={`Позвонить: ${row.fullName}`}
+                title="Позвонить через CRM" className="ry-agent-call-btn" stopPropagation={false} />
+            </div>
           );
         })}
         {assigned.slice(0, 4).map((row) => (

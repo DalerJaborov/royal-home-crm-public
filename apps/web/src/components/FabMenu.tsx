@@ -20,6 +20,8 @@ import { hapticTap } from "../lib/haptics";
 import { RH2_ROW_BUTTON, Rh2Portal } from "./rh2/Rh2Scope";
 import { ShowingQuickForm } from "./ShowingQuickForm";
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
+import { WIZARD_STEPS } from "./property-wizard/types";
+import { pluralizeRu } from "@royal-home/shared";
 
 /**
  * Всплывающее меню кнопки «+» нижней навигации — по прототипу design_handoff
@@ -70,10 +72,18 @@ const TINTS = {
   green: { bg: "#e5f6ee", fg: "#2f9068" },
 };
 
+/** «форма в 5 шагов» — число из списка шагов мастера, второй копии числа нет. */
+export function wizardStepsLabel(): string {
+  const n = WIZARD_STEPS.length;
+  return `форма в ${n} ${pluralizeRu(n, ["шаг", "шага", "шагов"])}`;
+}
+
 export function buildItems(role: string | undefined, can: (p: PermissionId) => boolean, readOnly = false): FabMenuItem[] {
   const objectNew: FabMenuItem = {
     label: "Новый объект",
-    sub: "форма в 4 шага",
+    // Число шагов — из того же списка, что рисует сам мастер (WIZARD_STEPS): подпись
+    // «форма в 4 шага» разошлась с «Шаг 1 из 5» в мастере (пачка D1, 20.11.2026).
+    sub: wizardStepsLabel(),
     icon: Home,
     tint: TINTS.green.bg,
     fg: TINTS.green.fg,

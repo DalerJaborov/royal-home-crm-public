@@ -66,6 +66,7 @@ import {
   CLIENT_SOURCE_LABELS,
   DEFAULT_CLIENT_SORT,
   clientSortOptionsFor,
+  clientDisplayName,
   formatClientCode,
   formatClientName,
 } from "../lib/clientFormat";
@@ -953,7 +954,9 @@ function ClientRow({
   const visibleNextStep = !isTrashed && !c.hiddenReason && !pending ? c.nextStep : null;
   const cleanRowProps = clean && !inSheet ? {
     id: c.id,
-    name,
+    // «Новый вид»: имя отдельно от запроса (пачка D1). `displayName` склеивает «Имя · ищет …»,
+    // а запрос и так стоит второй строкой — склейка обрезала имя до «Сорбон Абду…».
+    name: royal ? clientDisplayName([c.fullName, c.lastName].filter(Boolean).join(" ")) : name,
     href: isTrashed ? undefined : `/clients/${c.shortId}`,
     avatar: <ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />,
     identity: [formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · "),

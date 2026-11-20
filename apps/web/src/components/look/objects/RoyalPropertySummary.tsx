@@ -7,6 +7,7 @@ import { propertyStageChip } from "../../../lib/propertyStageChip";
 import { ObjIcon, type ObjIconName } from "./ObjIcon";
 import { ObjStatusPill } from "./RoyalPropertyItem";
 import { toneFromChipTone } from "./objectTone";
+import { OwnerRow, ownerVisible } from "../../PropertyPeople";
 
 /**
  * ГЛАВНЫЙ БЛОК КАРТОЧКИ ОБЪЕКТА — «Новый вид» (18.11.2026).
@@ -33,10 +34,16 @@ export function royalPropertyFacts(property: Parameters<typeof propertyParams>[0
     .map(({ label, value }) => ({ label, value, icon: FACT_ICON[label] ?? "building-2" }));
 }
 
-export function RoyalPropertySummary({ property, place, onSchedule, onEdit, onMore, children }: {
+export function RoyalPropertySummary({ property, place, onSchedule, onEdit, onMore, children, viewerRole }: {
   property: Property; place?: string; onSchedule: (() => void) | null; onEdit: (() => void) | null; onMore: () => void; children?: ReactNode;
+  /** Роль смотрящего — агенту этап бытовыми словами («Готовим видео»). Приходит от карточки. */
+  viewerRole?: string;
 }) {
-  const stage = propertyStageChip(property);
+  const stage = propertyStageChip(property, Date.now(), viewerRole);
+  // Продавец — в главном блоке, рядом с ценой (пачка D1): агент открывает объект, чтобы
+  // позвонить продавцу или показать клиенту. Кому номер закрыт, блока нет (решает сервер:
+  // полный номер видит директор, тот, кто ведёт объект, — маской и звонит через станцию).
+  const showSeller = ownerVisible(property);
   const facts = royalPropertyFacts(property);
   const sub = [Number(property.areaSqm) > 0 ? formatPricePerSqm(property.price, property.areaSqm, property.currency) : null, property.district?.name].filter(Boolean).join(" · ");
   return (
@@ -56,6 +63,12 @@ export function RoyalPropertySummary({ property, place, onSchedule, onEdit, onMo
           ))}
         </ul>
       )}
+      {showSeller && (
+        <div className="ry-obj-seller" data-testid="property-seller">
+          <p className="ry-obj-seller-label">Продавец</p>
+          <OwnerRow property={property} />
+        </div>
+      )}
       <div className="ry-obj-actions">
         {onSchedule && <button type="button" className="ry-btn" data-variant="primary" onClick={onSchedule}><ObjIcon name="calendar-plus" />Назначить показ</button>}
         {onEdit && <button type="button" className="ry-btn" data-variant={onSchedule ? "gray" : "primary"} onClick={onEdit}><ObjIcon name="pencil" />Изменить</button>}
@@ -71,7 +84,8 @@ export function RoyalObjectBack({ code }: { code: string }) {
   return (
     <header className="ry-obj-head">
       <Link to="/properties" className="ry-obj-back"><ObjIcon name="back" />Объекты</Link>
-      <b className="ry-obj-head-code">{code}</b>
+      {/* Номер одним видом: «№19» в заголовках и речи, длинный код — мелко, для поиска и копирования. */}
+      <span className="ry-obj-head-code" title="Номер объекта для поиска">{code}</span>
     </header>
   );
 }
