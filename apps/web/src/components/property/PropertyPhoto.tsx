@@ -41,6 +41,8 @@ export interface PropertyPhotoProps {
    * (кадр владельца с iPhone, 20.11.2026). Размытая копия — тот же адрес, браузер берёт его из кэша.
    */
   contain?: boolean;
+  /** Адрес для размытой подложки (`contain`): лёгкая миниатюра, а не полноразмерный снимок (ревью #338). Нет — берётся основной. */
+  backdropSource?: string | null;
 }
 
 export function photoCandidates(sources: PropertyPhotoProps["sources"]): string[] {
@@ -63,6 +65,7 @@ export function PropertyPhoto({
   style,
   eager = false,
   contain = false,
+  backdropSource,
 }: PropertyPhotoProps) {
   const candidates = photoCandidates(sources);
   const key = candidates.join("|");
@@ -77,7 +80,7 @@ export function PropertyPhoto({
       <span className={className} style={{ ...box, ...style }} data-property-photo="">
         {contain && (
           <img
-            src={source}
+            src={backdropSource?.trim() || source}
             alt=""
             aria-hidden="true"
             data-photo-backdrop=""

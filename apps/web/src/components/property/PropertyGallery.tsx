@@ -109,7 +109,8 @@ export function PropertyGallery({ photos, thumbs = false }: {
               aria-label={`Открыть фото ${i + 1} из ${total} во весь экран`}
             >
               {/* Битая ссылка — общая заглушка «Фото недоступно» (PropertyPhoto), а не значок без слов. */}
-              <PropertyPhoto fill contain eager={i === 0} sources={[near ? ph.url : ph.thumbUrl, ph.thumbUrl, ph.url]} />
+              {/* Только «Новый вид»: фото целиком на размытой подложке (по миниатюре). Прежний вид остаётся как был. */}
+              <PropertyPhoto fill contain={thumbs} backdropSource={ph.thumbUrl} eager={i === 0} sources={[near ? ph.url : ph.thumbUrl, ph.thumbUrl, ph.url]} />
             </button>
           );
         })}

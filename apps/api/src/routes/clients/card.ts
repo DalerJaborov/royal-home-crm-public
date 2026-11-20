@@ -686,7 +686,7 @@ cardRouter.get("/:id/conversation-export", requireAuth, async (req, res) => {
   // открыть то, что закрыто экрану — до приёма лида и после передачи клиента.
   const access = await resolveClientCardAccess(req, client);
   if (access === "denied") return res.status(403).json({ error: "Недостаточно прав" });
-  if (access === "nameOnly") return res.status(403).json({ error: "Лид ещё не принят — переписка не открыта" });
+  if (access === "nameOnly") return res.status(403).json({ error: "Заявка ещё не принята — переписка не открыта" });
   if (access === "transferred") {
     return res.status(403).json({ error: "Клиент передан другому агенту — переписка закрыта" });
   }
@@ -1149,7 +1149,7 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   if (ownAgentId && !existing.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
   // Правка чужой карточки — только закреплённому агенту и руководству, см.
   // foreignWriteDenied: «видеть все» само по себе права писать не даёт.

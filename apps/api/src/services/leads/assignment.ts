@@ -594,8 +594,8 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
     const reason = client.ownPropertyLead
       ? "Лид по объекту агента отклонён — передать другому нельзя, эскалация руководителю"
       : allDeclined
-        ? "Лид отклонён — все доступные агенты уже отказались от него, эскалация руководителю"
-        : "Лид отклонён — других агентов, принимающих лиды, сейчас нет, эскалация руководителю";
+        ? "Заявка отклонена — все доступные агенты уже отказались от неё, эскалация руководителю"
+        : "Заявка отклонена — других агентов, принимающих заявки, сейчас нет, эскалация руководителю";
     const n = await prisma.$transaction(async (tx) => {
       // Условие по escalatedAt из снимка — арбитр двойного клика: первый запрос
       // ставит новую отметку, второй по старому значению уже никого не находит.
@@ -621,7 +621,7 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
     if (n === null) return { ok: false, reason: "not_own" };
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "⚠️ Лид отклонён, эскалация",
+      title: "⚠️ Заявка отклонена, эскалация",
       body: client.ownPropertyLead
         ? `${client.fullName}: агент объекта отказался — назначьте вручную`
         : allDeclined

@@ -387,7 +387,7 @@ export function MobileAgentHome() {
           <div className="card-s">
             <p className="hint">
               {clientDisplayName(noContact[0].fullName)} — {NO_CONTACT_TEXT.item}.
-              Короткий звонок сегодня дешевле, чем новый лид завтра.
+              Короткий звонок сегодня дешевле, чем новая заявка завтра.
             </p>
             <div className="chips">
               <CallClientButton

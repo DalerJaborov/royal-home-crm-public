@@ -25,7 +25,7 @@ async function editableClient(req: Request, res: Response) {
   if (!canAccessAssignedAgent(req, client.assignedAgentId) || foreignWriteDenied(req, client, ownAgentId) || req.agent!.role === "SHAREHOLDER") {
     res.status(403).json({ error: "Карточку изменяет ответственный агент или руководитель" }); return null;
   }
-  if (ownAgentId && !client.acceptedAt) { res.status(403).json({ error: "Сначала примите лид" }); return null; }
+  if (ownAgentId && !client.acceptedAt) { res.status(403).json({ error: "Сначала примите заявку" }); return null; }
   return client;
 }
 
@@ -64,42 +64,14 @@ intentsRouter.post("/:id/intents", requireAuth, async (req, res) => {
   res.json(presentClient(current, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 });
 
-/**
- * ПРЕДЛОЖЕНИЕ «ВЗЯТЬ ИЗ РАЗГОВОРА» (20.11.2026): что из сводки клиента («Ищет: …») можно записать в пустые поля запроса
- * покупателя. Только читает и ничего не пишет; без нового вызова ИИ. Права те же, что у записи (`editableClient`):
- * кому менять карточку нельзя, тому и предлагать нечего. Записывает человек обычным `POST …/buyer-requirements`.
- */
-intentsRouter.get("/:id/requirements-suggestion", requireAuth, async (req, res) => {
-  const client = await editableClient(req, res);
-  if (!client) return;
-  const none = { available: false, fields: {}, labels: [] as string[] };
-  const stale = client.requirementsFieldsKind != null && client.requirementsFieldsKind !== "BUYER";
-  if (stale || !confirmedClientIntents(client).buys || !client.aiInsight) return res.json(none);
-  const [districts, places] = await Promise.all([
-    prisma.district.findMany({ select: { id: true, name: true }, take: 200 }),
-    prisma.clientDesiredPlace.count({ where: { clientId: client.id } }),
-  ]);
-  const suggestion = suggestRequirements(phoneSafeText(client.aiInsight, can(req, "clients.viewPhone")), {
-    desiredType: client.desiredType, desiredRooms: client.desiredRooms, budgetMin: client.budgetMin, budgetMax: client.budgetMax,
-    desiredDistrictId: client.desiredDistrictId, hasDesiredPlaces: places > 0, requirementsNotes: client.requirementsNotes,
-  }, districts);
-  if (!suggestion) return res.json(none);
-  const { labels, ...fields } = suggestion;
-  res.json({ available: true, fields, labels });
-});
+type BuyerRequirementsInput = z.infer<typeof clientBuyerRequirementsSchema>;
+type EditableClient = NonNullable<Awaited<ReturnType<typeof editableClient>>>;
 
-intentsRouter.post("/:id/buyer-requirements", requireAuth, async (req, res) => {
-  const input = clientBuyerRequirementsSchema.safeParse(req.body);
-  if (!input.success) return res.status(400).json({ error: "Проверьте пожелания покупателя", details: input.error.flatten() });
-  const client = await editableClient(req, res);
-  if (!client) return;
-  if (!confirmedClientIntents(client).buys) return res.status(409).json({ error: "Сначала подтвердите, что клиент покупает недвижимость" });
-  const data = input.data;
-  if (typeof data.requirementsNotes === "string" && !can(req, "clients.viewPhone")) {
-    const restored = restoreMaskedNotes(data.requirementsNotes, client.requirementsNotes);
-    if (restored === null) return res.status(400).json({ error: "Нельзя изменять строку со скрытым контактом. Остальные пожелания можно уточнить" });
-    data.requirementsNotes = restored;
-  }
+/**
+ * Запись пожеланий покупателя — ОДНА ДВЕРЬ для ручной правки и для «Взять из разговора». null — карточка сменилась за это
+ * время (сравнение по updatedAt и ревизии): ни одна запись не затирает чужую правку.
+ */
+async function writeBuyerRequirements(req: Request, client: EditableClient, data: BuyerRequirementsInput) {
   const stale = client.requirementsFieldsKind != null && client.requirementsFieldsKind !== "BUYER";
   const updated = await prisma.$transaction(async tx => {
     const changed = await tx.client.updateMany({ where: { id: client.id, assignedAgentId: client.assignedAgentId, kind: client.kind, acceptedAt: client.acceptedAt, deletedAt: null,
@@ -120,8 +92,70 @@ intentsRouter.post("/:id/buyer-requirements", requireAuth, async (req, res) => {
       notes: `Уточнены пожелания покупателя${previous ? `. Прежние параметры другой роли сохранены в истории: ${previous}` : ""}`, tx });
     return tx.client.findUniqueOrThrow({ where: { id: client.id } });
   });
-  if (!updated) return res.status(409).json({ error: "Роли карточки изменились. Обновите карточку и повторите" });
+  if (!updated) return null;
   logAudit(req, "UPDATE", "Client", client.id, { requirementsFieldsKind: "BUYER" });
   publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
+  return updated;
+}
+
+/**
+ * «ВЗЯТЬ ИЗ РАЗГОВОРА» (20.11.2026; ревью #338): что из сводки клиента («Ищет: …») можно записать в пустые поля запроса
+ * покупателя. GET только ГОВОРИТ, что предлагается (короткие подписи для кнопки): ни заметок клиента, ни цифр, ни самих
+ * значений он не отдаёт — заметки приходят в карточку замаскированными (presentClient), и предложение не должно их обходить.
+ * Запись — отдельный POST `…/apply`: сервер заново считает предложение по ТЕКУЩЕЙ карточке из базы и пишет его сам, дописывая
+ * слова клиента к заметкам, которые лежат в базе сейчас (а не к тем, что видел экран). Права те же, что у записи пожеланий
+ * (`editableClient`): кому менять карточку нельзя, тому и предлагать нечего. Без нового вызова ИИ.
+ */
+async function currentSuggestion(client: EditableClient) {
+  const stale = client.requirementsFieldsKind != null && client.requirementsFieldsKind !== "BUYER";
+  if (stale || !confirmedClientIntents(client).buys || !client.aiInsight) return null;
+  const [districts, places] = await Promise.all([
+    prisma.district.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" }, take: 200 }),
+    prisma.clientDesiredPlace.count({ where: { clientId: client.id } }),
+  ]);
+  return suggestRequirements(client.aiInsight, {
+    desiredType: client.desiredType, desiredRooms: client.desiredRooms, budgetMin: client.budgetMin, budgetMax: client.budgetMax,
+    desiredDistrictId: client.desiredDistrictId, hasDesiredPlaces: places > 0, requirementsNotes: client.requirementsNotes,
+  }, districts);
+}
+
+intentsRouter.get("/:id/requirements-suggestion", requireAuth, async (req, res) => {
+  const client = await editableClient(req, res);
+  if (!client) return;
+  const suggestion = await currentSuggestion(client);
+  if (!suggestion) return res.json({ available: false, labels: [] as string[] });
+  // Подписи могут нести слова из сводки (район вне справочника): без права на номера — с маской, как сама сводка.
+  res.json({ available: true, labels: suggestion.labels.map((label) => phoneSafeText(label, can(req, "clients.viewPhone"))) });
+});
+
+intentsRouter.post("/:id/requirements-suggestion/apply", requireAuth, async (req, res) => {
+  const client = await editableClient(req, res);
+  if (!client) return;
+  if (!confirmedClientIntents(client).buys) return res.status(409).json({ error: "Сначала подтвердите, что клиент покупает недвижимость" });
+  const suggestion = await currentSuggestion(client);
+  if (!suggestion) return res.status(409).json({ error: "Из разговора больше нечего взять: поля уже заполнены или сводка изменилась" });
+  const notes = client.requirementsNotes?.trim() ?? "";
+  const merged = suggestion.notesLine ? (notes ? `${notes}\n${suggestion.notesLine}` : suggestion.notesLine) : null;
+  const input = clientBuyerRequirementsSchema.safeParse({ ...suggestion.fields, ...(merged !== null ? { requirementsNotes: merged } : {}) });
+  if (!input.success) return res.status(400).json({ error: "Пожелания не поместились в карточку. Уточните их вручную" });
+  const updated = await writeBuyerRequirements(req, client, input.data);
+  if (!updated) return res.status(409).json({ error: "Карточка изменилась. Обновите её и повторите" });
+  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
+});
+
+intentsRouter.post("/:id/buyer-requirements", requireAuth, async (req, res) => {
+  const input = clientBuyerRequirementsSchema.safeParse(req.body);
+  if (!input.success) return res.status(400).json({ error: "Проверьте пожелания покупателя", details: input.error.flatten() });
+  const client = await editableClient(req, res);
+  if (!client) return;
+  if (!confirmedClientIntents(client).buys) return res.status(409).json({ error: "Сначала подтвердите, что клиент покупает недвижимость" });
+  const data = input.data;
+  if (typeof data.requirementsNotes === "string" && !can(req, "clients.viewPhone")) {
+    const restored = restoreMaskedNotes(data.requirementsNotes, client.requirementsNotes);
+    if (restored === null) return res.status(400).json({ error: "Нельзя изменять строку со скрытым контактом. Остальные пожелания можно уточнить" });
+    data.requirementsNotes = restored;
+  }
+  const updated = await writeBuyerRequirements(req, client, data);
+  if (!updated) return res.status(409).json({ error: "Роли карточки изменились. Обновите карточку и повторите" });
   res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 });

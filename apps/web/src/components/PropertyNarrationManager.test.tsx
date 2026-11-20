@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -102,6 +103,13 @@ describe("20.11: блок в карточке — короткий статус,
     const title = /<h3[^>]*>([^<]*)<\/h3>/.exec(html)?.[1] ?? "";
     expect(title).toBe("Послушайте новую озвучку");
     expect(html).not.toMatch(/Послушайте и одобрите/);
+  });
+  it("запасной вариант плеера — штатный <audio controls> без ссылки на blob в новой вкладке", () => {
+    const source = readFileSync(`${process.cwd()}/src/components/PropertyNarrationManager.tsx`, "utf8");
+    const fallback = source.slice(source.indexOf('state === "fallback"'), source.indexOf("const buttonLabel"));
+    expect(fallback).toContain('<audio className="w-full" controls src={url.current} />');
+    expect(fallback).not.toContain("target=");
+    expect(source).not.toContain("aria-pressed={playing}");
   });
   it("правка: свой заголовок и «Назад к прослушиванию»; поменяли текст — «Озвучить заново» без вопросов", async () => {
     postsReturn({ id: "v2", revision: 2, queued: true });

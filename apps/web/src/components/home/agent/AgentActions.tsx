@@ -114,7 +114,7 @@ export function PendingLeadActions({ client, compact }: { client: Client; compac
             setConfirming(false);
             decline.mutate(undefined, {
               onSuccess: (res) =>
-                toast.success(res.reassignedTo ? "Отклонён: заявка ушла следующему агенту" : "Отклонён: заявка ушла руководителю"),
+                toast.success(res.reassignedTo ? "Отклонена: заявка ушла следующему агенту" : "Отклонена: заявка ушла руководителю"),
               // Пока агент решал, лид успел принять кто-то другой или права поменялись: список надо перечитать.
               onError: (err) => {
                 if (err instanceof ApiError && [403, 404, 409].includes(err.status)) {

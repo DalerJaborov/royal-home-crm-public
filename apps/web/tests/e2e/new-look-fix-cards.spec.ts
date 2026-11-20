@@ -41,7 +41,14 @@ for (const [label, width, height] of [["m390", 390, 844], ["d1440", 1440, 900]] 
     test.setTimeout(120_000);
     await withShell(page); await fakePhotos(page);
     await page.setViewportSize({ width, height });
-    await openFirstObject(page);
+    // Плашка этапа в списке и в карточке — один тон и один текст (одна функция).
+    await page.goto("/properties");
+    const listPill = page.locator(".ry-obj-card").first().locator(".ry-obj-pill, .ry-obj-state").locator("visible=true").first();
+    await expect(listPill).toBeVisible();
+    const listTone = await listPill.getAttribute("data-tone");
+    const listText = (await listPill.innerText()).trim();
+    await page.locator(".ry-obj-card .ry-obj-link").first().click();
+    await expect(page.locator(".ry-obj-summary")).toBeVisible();
     await page.waitForTimeout(1200);
 
     // 1. Фото целиком (contain) поверх размытой подложки того же снимка.
@@ -49,10 +56,15 @@ for (const [label, width, height] of [["m390", 390, 844], ["d1440", 1440, 900]] 
     await expect(slide.locator("img[data-photo-backdrop]")).toHaveCount(1);
     expect(await slide.locator("img:not([data-photo-backdrop])").evaluate((el) => getComputedStyle(el).objectFit)).toBe("contain");
     expect(await slide.locator("img[data-photo-backdrop]").evaluate((el) => getComputedStyle(el).filter)).toContain("blur");
+    // Подложка берёт лёгкую миниатюру, а не полноразмерный снимок.
+    const [backdropSrc, mainSrc] = await Promise.all([slide.locator("img[data-photo-backdrop]").getAttribute("src"), slide.locator("img:not([data-photo-backdrop])").getAttribute("src")]);
+    expect(backdropSrc).not.toBe(mainSrc);
     // 3. Плашка этапа: без «, N дн.» через запятую.
     const pill = page.getByTestId("property-stage");
     await expect(pill).toBeVisible();
     expect((await pill.innerText()).trim()).not.toMatch(/,\s*\d+\s*дн\.$/);
+    expect(await pill.getAttribute("data-tone")).toBe(listTone);
+    expect((await pill.innerText()).trim()).toBe(listText);
     // 2. Район — не больше одного раза в главном блоке (заголовок или строка адреса), без повторов под ценой.
     const summary = page.locator(".ry-obj-summary");
     const district = (await page.evaluate(async () => {
@@ -80,8 +92,9 @@ for (const [label, width, height] of [["m390", 390, 844], ["d1440", 1440, 900]] 
         desiredType: null, desiredRooms: null, budgetMin: null, budgetMax: null, desiredDistrictId: null, desiredDistrict: null, requirementsFieldsKind: "BUYER" });
       await route.fulfill({ response: res, json: body });
     });
-    await page.route(/\/requirements-suggestion$/, (r) => r.fulfill({ json: { available: true, fields: { desiredType: "HOUSE", requirementsNotes: "дом/участок, 3-4 сотки, район Назди Сомон" }, labels: ["дом", "Назди Сомон"] } }));
-    await page.route(/\/buyer-requirements$/, async (r) => { written.push(r.request().postDataJSON()); await r.fallback(); });
+    // GET отдаёт только подписи; запись — POST …/apply без тела (сервер сам считает предложение по текущей карточке).
+    await page.route(/\/requirements-suggestion$/, (r) => r.fulfill({ json: { available: true, labels: ["дом", "Назди Сомон"] } }));
+    await page.route(/\/requirements-suggestion\/apply$/, async (r) => { written.push(r.request().postDataJSON()); await r.fulfill({ json: {} }); });
     await page.setViewportSize({ width, height });
     await page.goto("/clients");
     await page.locator("a[href^='/clients/']").first().click();
@@ -101,7 +114,7 @@ for (const [label, width, height] of [["m390", 390, 844], ["d1440", 1440, 900]] 
     await shot(page, `client-${label}`);
     await take.click();
     await expect.poll(() => written.length).toBe(1);
-    expect(written[0]).toMatchObject({ desiredType: "HOUSE" });
+    expect(written[0]).toEqual({});
   });
 }
 
@@ -133,4 +146,15 @@ test("карточки: последний блок не прячется под
   await page.goto("/clients");
   await page.locator("a[href^='/clients/']").first().click();
   await page.waitForTimeout(1500); await check("карточка клиента");
+  // Липкая панель «Отправить выбранные» (если она липкая) стоит над меню: её нижний край не ниже верха меню.
+  const toolbar = page.locator(".client-match-toolbar").first();
+  if (await toolbar.count()) {
+    const clear = await page.evaluate(() => {
+      const nav = document.querySelector("nav[data-bottomnav]") as HTMLElement;
+      const bar = document.querySelector(".client-match-toolbar") as HTMLElement;
+      const style = getComputedStyle(bar);
+      return { sticky: style.position === "sticky", bottom: parseFloat(style.bottom), need: window.innerHeight - nav.getBoundingClientRect().top };
+    });
+    if (clear.sticky) expect(clear.bottom, "панель выше нижнего меню").toBeGreaterThanOrEqual(clear.need);
+  }
 });

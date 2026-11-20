@@ -3,10 +3,9 @@ import { Link } from "react-router-dom";
 import type { Property } from "../../../types";
 import { formatMoney, formatPricePerSqm } from "../../../lib/format";
 import { propertyParams } from "../../../lib/propertyParams";
-import { propertyStageChip } from "../../../lib/propertyStageChip";
 import { ObjIcon, type ObjIconName } from "./ObjIcon";
 import { ObjStatusPill } from "./RoyalPropertyItem";
-import { districtOnce, stagePillView } from "./objectTone";
+import { districtOnce, propertyStagePill } from "./objectTone";
 import { OwnerRow, ownerVisible } from "../../PropertyPeople";
 
 /**
@@ -41,14 +40,13 @@ export function RoyalPropertySummary({ property, onSchedule, onEdit, onMore, chi
   /** Продавец не записан — тихая строка и это действие (открыть правку «кто ведёт и контакты»); без права — нет действия. */
   onAddSeller?: (() => void) | null;
 }) {
-  const stage = propertyStageChip(property, Date.now(), viewerRole);
   // Продавец — в главном блоке, рядом с ценой (пачка D1): агент открывает объект, чтобы
   // позвонить продавцу или показать клиенту. Кому номер закрыт, блока нет (решает сервер:
   // полный номер видит директор, тот, кто ведёт объект, — маской и звонит через станцию).
   const showSeller = ownerVisible(property);
   const sellerKnown = !!property.sellerClient || !!property.ownerContact?.trim() || !!property.ownerContactMasked?.trim();
   const facts = royalPropertyFacts(property);
-  const pill = stagePillView(stage, property.pipeline);
+  const pill = propertyStagePill(property, viewerRole);
   // Район — один раз (заголовок или строка адреса); под ценой только цена за метр.
   const sub = Number(property.areaSqm) > 0 ? formatPricePerSqm(property.price, property.areaSqm, property.currency) : "";
   const where = districtOnce(property.title, property.district?.name, property.address, property.landmark);

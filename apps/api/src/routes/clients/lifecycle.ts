@@ -84,14 +84,14 @@ lifecycleRouter.post("/:id/decline", requireAuth, async (req, res) => {
   // отказов ВЛАДЕЛЬЦА — руководитель или служба безопасности, нажав «Отклонить»
   // на чужом лиде, штрафовали агента, который ничего не делал (аудит 23.09.2026, №39).
   if (client.assignedAgentId !== req.agent!.id) {
-    return res.status(403).json({ error: "Отклонить лид может только тот, кому он отдан. Передать другому — кнопкой «Назначить»." });
+    return res.status(403).json({ error: "Отклонить заявку может только тот, кому она отдана. Передать другому — кнопкой «Назначить»." });
   }
 
   const result = await declineLead(req.params.id, client.assignedAgentId);
   if (!result.ok) {
     if (result.reason === "not_found") return res.status(404).json({ error: "Клиент не найден" });
     if (result.reason === "already_accepted") {
-      return res.status(409).json({ error: "Лид уже принят — отклонить его больше нельзя, используйте отказ от работы" });
+      return res.status(409).json({ error: "Заявка уже принята — отклонить её больше нельзя, используйте отказ от работы" });
     }
     return res.status(409).json({ error: LEAD_TAKEN_ERROR });
   }
@@ -256,7 +256,7 @@ lifecycleRouter.post("/:id/transfer", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
   {
     const denied = foreignWriteDenied(req, client, ownAgentId);
@@ -337,7 +337,7 @@ lifecycleRouter.post("/:id/refuse", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
   {
     const denied = foreignWriteDenied(req, client, ownAgentId);

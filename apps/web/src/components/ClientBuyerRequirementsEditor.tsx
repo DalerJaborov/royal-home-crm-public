@@ -37,8 +37,8 @@ export function buyerRequirementsPayload(form: BuyerRequirementsDraft) {
   };
 }
 
-/** Предложение «Взять из разговора» (сервер разбирает строку «Ищет:» сводки клиента; ничего не пишет). */
-interface RequirementsSuggestion { available: boolean; fields: Partial<ClientBuyerRequirementsInput>; labels: string[] }
+/** Предложение «Взять из разговора»: сервер говорит только короткие подписи (ни заметок, ни цифр не отдаёт); пишет сам по нажатию. */
+interface RequirementsSuggestion { available: boolean; labels: string[] }
 
 /**
  * «ВЗЯТЬ ИЗ РАЗГОВОРА» (20.11.2026): «Всё о клиенте» говорит «Ищет: дом, район Назди Сомон», а запрос ниже — «Тип не указан».
@@ -53,7 +53,8 @@ export function TakeFromConversation({ client, enabled }: { client: Client; enab
     enabled: enabled && !!client.aiInsight, retry: false, staleTime: 60_000,
   });
   const apply = useMutation({
-    mutationFn: (fields: Partial<ClientBuyerRequirementsInput>) => api(`/clients/${client.id}/buyer-requirements`, { method: "POST", body: fields }),
+    // Запись — одна дверь сервера: он заново считает предложение по текущей карточке и дописывает слова клиента к заметкам из базы.
+    mutationFn: () => api(`/clients/${client.id}/requirements-suggestion/apply`, { method: "POST", body: {} }),
     onSuccess: async () => {
       await Promise.all([query.invalidateQueries({ queryKey: ["client"] }), query.invalidateQueries({ queryKey: ["clients"] }),
         query.invalidateQueries({ queryKey: ["client-match", client.id] }), query.invalidateQueries({ queryKey: ["client-requirements-suggestion", client.id] })]);
@@ -62,7 +63,7 @@ export function TakeFromConversation({ client, enabled }: { client: Client; enab
   const data = suggestion.data;
   if (!enabled || !data?.available || !data.labels.length) return null;
   return <div className="client-take-from-talk" data-testid="take-from-conversation">
-    <button type="button" className="pill sm" disabled={apply.isPending} onClick={() => apply.mutate(data.fields)}>
+    <button type="button" className="pill sm" disabled={apply.isPending} onClick={() => apply.mutate()}>
       {apply.isPending ? "Записываем…" : `Взять из разговора: ${data.labels.join(", ")}`}
     </button>
     {apply.isError && <p role="alert" className="state err">Не удалось записать. {apply.error instanceof Error ? apply.error.message : ""}</p>}
@@ -85,7 +86,7 @@ export function ClientBuyerRequirementsEditor({ client, locked }: { client: Clie
     <div className="client-request"><b>Запрос покупателя</b>{current ? <ul className="client-request-chips">{chips.map((chip, index) => <li key={`${index}:${chip}`}>{chip}</li>)}</ul> : <p>Уточните параметры покупки: прежние сведения относятся к другой роли.</p>}</div>
     {current && !locked && !client.pendingAcceptance && !!client.aiInsight && <TakeFromConversation client={client} enabled />}
     {!locked && !client.pendingAcceptance && <button type="button" className="pill ghost sm" onClick={() => setOpen(true)}>Уточнить пожелания</button>}
-    {current && client.requirementsNotes && <details className="client-request-notes"><summary>Пожелания словами клиента</summary><p>{softenShouting(client.requirementsNotes)}</p></details>}
+    {current && client.requirementsNotes && <details className="client-request-notes"><summary>Из разговора и пожелания клиента</summary><p>{softenShouting(client.requirementsNotes)}</p></details>}
     {open && !locked && !client.pendingAcceptance && <BuyerRequirementsForm key={`${client.id}:${client.requirementsFieldsKind ?? "legacy"}`} client={client} locked={locked} onClose={() => setOpen(false)} />}
   </div>;
 }
@@ -99,7 +100,8 @@ function BuyerRequirementsForm({ client, locked, onClose }: { client: Client; lo
   const save = useMutation({
     mutationFn: (body: ClientBuyerRequirementsInput) => api(`/clients/${client.id}/buyer-requirements`, { method: "POST", body }),
     onSuccess: async () => {
-      await Promise.all([query.invalidateQueries({ queryKey: ["client"] }), query.invalidateQueries({ queryKey: ["clients"] }), query.invalidateQueries({ queryKey: ["client-match", client.id] })]);
+      await Promise.all([query.invalidateQueries({ queryKey: ["client"] }), query.invalidateQueries({ queryKey: ["clients"] }), query.invalidateQueries({ queryKey: ["client-match", client.id] }),
+        query.invalidateQueries({ queryKey: ["client-requirements-suggestion", client.id] })]);
       onClose();
     },
   });

@@ -197,12 +197,12 @@ export function NarrationPlayer({ load, knownSec, primary, disabled, prefetch, l
   }
   const total = dur ?? knownSec ?? null;
   const playing = state === "playing";
-  // Системный серый плеер больше не показываем (на iPhone он писал «00:27 … 00:00»): запись не заиграла — честный текст
-  // и ссылка на сам файл, а не чужой вид элемента.
+  // Запасной вариант (ревью #338) — штатный <audio controls>: он работает на любом устройстве и в любом браузере, а ссылка на
+  // blob в новой вкладке на iPhone не играет. Основной плеер выше — свой; сюда попадаем, только когда он не заиграл.
   if (state === "fallback" && url.current) return (
     <div className="space-y-2">
       <p className="text-base text-[var(--muted)]">{hint}</p>
-      <a className="pill min-h-12! text-base! no-underline" href={url.current} target="_blank" rel="noreferrer">Открыть запись</a>
+      <audio className="w-full" controls src={url.current} />
     </div>
   );
   const buttonLabel = state === "loading" ? "Загружаем…" : playing ? "Пауза" : state === "paused" && pos > 0 ? "Дальше" : label;
@@ -211,7 +211,7 @@ export function NarrationPlayer({ load, knownSec, primary, disabled, prefetch, l
   return (
     <div className="space-y-2" data-testid="narration-player">
       <div className="flex items-center gap-3 rounded-2xl bg-[var(--soft)] p-2 pr-4">
-        <button type="button" aria-label={buttonLabel} aria-pressed={playing} disabled={disabled || state === "loading"} onClick={toggle}
+        <button type="button" aria-label={buttonLabel} disabled={disabled || state === "loading"} onClick={toggle}
           className={`grid h-14 w-14 flex-none place-items-center rounded-full text-xl ${primary ? "bg-blue text-on-accent" : "bg-[var(--card)] shadow-sm"} disabled:opacity-60`}>
           <span aria-hidden>{state === "loading" ? "…" : playing ? "❚❚" : "▶"}</span>
         </button>
