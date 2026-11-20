@@ -68,7 +68,7 @@ describe("слово «лид» в текстах для сотрудников"
     }
     const apiSrc = path.resolve(srcDir, "../../api/src");
     for (const file of walk(apiSrc, (f) => f.endsWith(".ts") && !f.endsWith(".d.ts"))) {
-      const hits = codeLines(readFileSync(file, "utf8")).filter((l) => WORD.test(l.text) && SERVER_TEXT_FIELD.test(l.text)).length;
+      const hits = codeLines(readFileSync(file, "utf8")).filter((l) => WORD.test(l.text) && SERVER_TEXT_FIELD.test(l.text) && !/(contains|startsWith|endsWith)\s*:/.test(l.text)).length;
       if (hits) out[`api/${path.relative(apiSrc, file).split(path.sep).join("/")}`] = hits;
     }
     return out;

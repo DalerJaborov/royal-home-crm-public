@@ -73,12 +73,12 @@ export function LeadPauseAgentModal({
   if (paused) {
     return (
       <ConfirmDialog
-        title={`Вернуть в раздачу лидов: ${agent.fullName}`}
+        title={`Вернуть в раздачу заявок: ${agent.fullName}`}
         description={[
-          `Новые лиды не выдаются до ${dushanbeDateTime(agent.leadsPausedUntil!)}.`,
+          `Новые заявки не выдаются до ${dushanbeDateTime(agent.leadsPausedUntil!)}.`,
           agent.leadsPausedByName ? `Паузу поставил ${agent.leadsPausedByName}.` : "Паузу включил сам сотрудник.",
           agent.leadsPausedReason ? `Причина: «${agent.leadsPausedReason}».` : "",
-          "После снятия новые лиды снова пойдут к нему.",
+          "После снятия новые заявки снова пойдут к нему.",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -98,8 +98,8 @@ export function LeadPauseAgentModal({
 
   return (
     <ConfirmDialog
-      title={`Пауза лидов: ${agent.fullName}`}
-      description="Сотрудник не получает новых лидов до конца срока. Текущие клиенты и звонки остаются у него, KPI считается как обычно. Непринятые лиды сразу уходят другим. Снять паузу сам он не сможет, только руководитель."
+      title={`Пауза заявок: ${agent.fullName}`}
+      description="Сотрудник не получает новых заявок до конца срока. Текущие клиенты и звонки остаются у него, KPI считается как обычно. Непринятые заявки сразу уходят другим. Снять паузу сам он не сможет, только руководитель."
       confirmLabel={pause.isPending ? "Ставим…" : "Поставить паузу"}
       danger={false}
       confirmDisabled={pause.isPending}

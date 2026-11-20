@@ -69,7 +69,7 @@ export const SHOWING_CONFIRM_ON_TEXT =
 /** Почему просьба подтвердить показ не уходит, хотя смотрящий тумблер включён. */
 export function showingConfirmBlockedBy(s: ShowingConfirmSwitches, from: "bot" | "leads"): string | null {
   if (from === "bot" && !(s.askClientsToConfirmShowings ?? false)) {
-    return "Сейчас просьбы не уходят: во вкладке «Лиды» → «Уведомления» выключено «Просить клиента подтвердить показ». Нужны оба тумблера.";
+    return "Сейчас просьбы не уходят: во вкладке «Заявки» → «Уведомления» выключено «Просить клиента подтвердить показ». Нужны оба тумблера.";
   }
   if (from === "leads" && !(s.botCanConfirmShowings ?? true)) {
     return "Сейчас просьбы не уходят: во вкладке «Бот» → «Что бот умеет» выключено «Просить подтверждение встречи». Нужны оба тумблера.";

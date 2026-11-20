@@ -91,7 +91,7 @@ export function RoyalArchiveRow({ deal, kind, onOpen, actions }: {
         </span>
         {/* Отказной лид: агентская часть комиссии делится 70/30 — условие обычной строкой со значком, не подсказкой и не таблеткой. */}
         {done && deal.refusedLeadSplit && (
-          <span className="ry-deal-note"><RoyalIcon name="users" size={18} />Отказной лид: 70% продавшему, 30% приведшему</span>
+          <span className="ry-deal-note"><RoyalIcon name="users" size={18} />Отказная заявка: 70% продавшему, 30% приведшему</span>
         )}
         {!done && deal.annulledAt && deal.annulReason && <span className="ry-deal-reason">Причина: {deal.annulReason}</span>}
       </div>

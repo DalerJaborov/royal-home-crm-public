@@ -113,7 +113,7 @@ function headerSubtitle(roleLabel: string, live: AgentLive | undefined, member: 
     if (device) parts.push(device);
   }
   if (member?.frozen) parts.push(absenceLabel(member));
-  else if (member && leadsPaused(member)) parts.push(`пауза лидов до ${dushanbeDateTime(member.leadsPausedUntil!)}`);
+  else if (member && leadsPaused(member)) parts.push(`пауза заявок до ${dushanbeDateTime(member.leadsPausedUntil!)}`);
   // Личные выходные (11.10.2026) — одной строкой и на ПК, и на телефоне (подзаголовок общий).
   if (member?.weeklyDaysOff?.length) parts.push(daysOffSentenceRu(member.weeklyDaysOff));
   return parts.join(" · ");
@@ -411,7 +411,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                     <>
                       {canPauseLeads(member) && (
                         <button className="pill ghost" type="button" onClick={() => setShowLeadPause(true)}>
-                          {leadsPaused(member) ? "Вернуть в раздачу лидов" : "Пауза лидов"}
+                          {leadsPaused(member) ? "Вернуть в раздачу заявок" : "Пауза заявок"}
                         </button>
                       )}
                       <button className="pill ghost" type="button" onClick={() => setShowFreeze(true)}>
@@ -719,7 +719,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
               ) : (
                 <div className="tiles">
                   <Link className="tile" to={`/clients?agentId=${id}`}>
-                    <span className="hd">Лидов в работе</span>
+                    <span className="hd">Заявок в работе</span>
                     <b>{liveData.leads.inWork}</b>
                     {/* «из N» снято 16.11.2026: лимитов заявок больше нет. */}
                   </Link>
@@ -927,7 +927,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
             {/* 11. KPI за последние дни */}
             <div className="sec">
               <div className="sec-h">
-                <h2>KPI за последние дни</h2>
+                <h2>Показатели за последние дни</h2>
               </div>
               <div className="card">
                 {data.kpiHistory.length === 0 ? (
@@ -1079,7 +1079,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                 <div className="qa" role="group" aria-label="Действия руководителя" style={{ gridTemplateColumns: "repeat(2,1fr)", marginTop: 8 }}>
                   {canPauseLeads(member) && (
                     <button type="button" onClick={() => setShowLeadPause(true)}>
-                      {leadsPaused(member) ? "Вернуть в раздачу лидов" : "Пауза лидов"}
+                      {leadsPaused(member) ? "Вернуть в раздачу заявок" : "Пауза заявок"}
                     </button>
                   )}
                   <button type="button" onClick={() => setShowFreeze(true)}>
@@ -1384,7 +1384,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                     <Link className="tile" to={`/clients?agentId=${id}`}>
                       <div className="v">{liveData.leads.inWork}</div>
                       {/* «из N» снято 16.11.2026: лимитов заявок больше нет. */}
-                      <div className="l">лидов в работе</div>
+                      <div className="l">заявок в работе</div>
                     </Link>
                     <Link className="tile" to={`/calls?agentId=${id}`}>
                       <div className="v">{liveData.calls.weekTotal}</div>
@@ -1622,7 +1622,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
               {/* 11. KPI за последние дни */}
               <section className="sec">
                 <div className="sec-t">
-                  <h2>KPI за последние дни</h2>
+                  <h2>Показатели за последние дни</h2>
                 </div>
                 {data.kpiHistory.length === 0 ? (
                   <div className="card-s">

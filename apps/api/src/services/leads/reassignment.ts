@@ -277,7 +277,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         // (владелец 20.09.2026, см. lib/notifications.ts::notifyFeedOnly).
         await notifyFeedOnly(supervisors, {
           kind: "lead",
-          title: "Лид по объекту не принят вовремя",
+          title: "Заявка по объекту не принят вовремя",
           body: `${lead.fullName}: хозяин объекта не принял заявку за ${minutes * 2} мин — переназначить может только руководитель`,
           url: `/clients/${lead.shortId}`,
           tag: `lead-escalated-${lead.id}`,
@@ -336,7 +336,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         if (!alreadyNotifiedFullCircle) {
           await notifyFeedOnly(supervisors, {
             kind: "lead",
-            title: "Лид прошёл всех агентов",
+            title: "Заявка прошла всех агентов",
             body: `${lead.fullName}: никто не принял за полный круг — назначьте вручную, карусель продолжает крутиться`,
             url: `/clients/${lead.shortId}`,
             tag: fullCircleTag,
@@ -458,7 +458,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
        * нём и получит минус. Убрано только «📤 Карточка передана» прежнему агенту.
        */
       sendLeadPush(nextAgentId, lead.id, {
-        title: "🤝 Лид переназначен вам",
+        title: "🤝 Заявка переназначена вам",
         body: `${lead.fullName} — предыдущий агент не принял заявку вовремя`,
         url: `/clients/${lead.shortId}`,
         tag: `lead-${lead.id}`,

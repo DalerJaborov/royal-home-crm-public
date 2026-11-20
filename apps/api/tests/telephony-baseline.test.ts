@@ -182,12 +182,14 @@ describe("текст для журнала", () => {
       },
     ]);
     expect(text).toContain("Куда идёт входящий");
-    expect(text).toContain("extension");
-    expect(text).toContain("queue");
+    // Значения — словами, а не именами режимов станции (владелец 20.11.2026: «простыми словами»).
+    expect(text).toContain("один аппарат");
+    expect(text).toContain("очередь операторов");
+    expect(text).not.toMatch(/\b(extension|queue|kpi_queue|dedicated_operator|PJSIP|RH_CRM_VERDICT|эталон)\b/i);
     expect(text).toContain("тридцати дней тишины");
     // Читающему нужно знать не только «разошлось», но и что делать дальше — без
     // пути к файлу в тексте для человека (ночная проверка 24.09.2026, №9а).
-    expect(text).toContain("разработчика");
+    expect(text).toContain("разработчику");
     expect(text).not.toMatch(/\.[jt]sx?\b/);
   });
 });

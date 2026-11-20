@@ -59,8 +59,8 @@ function notifyOwnerUnavailable(agentName: string, status: OwnerAgentStatus): vo
   findAgentsWithPermission("clients.assign")
     .then((supervisors) =>
       sendPushToAgents(supervisors, {
-        title: "⏸️ Лид по объекту — хозяин недоступен",
-        body: `${agentName} ${reason}, но лид всё равно закреплён за ним по своему объекту`,
+        title: "⏸️ Заявка по объекту — хозяин недоступен",
+        body: `${agentName} ${reason}, но заявка всё равно закреплена за ним по своему объекту`,
         url: "/team",
         tag: `own-property-unavailable-${agentName}-${Date.now()}`,
       })
@@ -106,8 +106,8 @@ function notifyNoEligibleOwner(property: { id: string; shortId: number }): void 
     .then((supervisors) =>
       notifyFeedOnly(supervisors, {
         kind: "lead",
-        title: "⚠️ Лид по объекту без хозяина",
-        body: `Клиент пришёл по объекту №${property.shortId}, но агента у объекта нет (отключён или не агент) — лид ушёл в общую очередь. Передайте объект действующему агенту.`,
+        title: "⚠️ Заявка по объекту без хозяина",
+        body: `Клиент пришёл по объекту №${property.shortId}, но агента у объекта нет (отключён или не агент) — заявка ушла в общую очередь. Передайте объект действующему агенту.`,
         url: `/properties/${property.shortId}`,
         tag: `own-property-no-owner-${property.id}`,
       })

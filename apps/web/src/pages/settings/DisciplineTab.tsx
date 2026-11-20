@@ -99,9 +99,9 @@ export function DisciplineSection() {
           waitingCheckAfterMinutes/waitingCheckMaxRepeats остаются в базе. */}
       <section className="card">
         <div className="sec-h stack">
-          <h2>Пауза «не принимаю лиды»</h2>
+          <h2>Пауза «не принимаю заявки»</h2>
           <span className="note">
-            Агент выключает выдачу новых лидов сам — болезнь, отпуск, завал. KPI при этом идёт как обычно:
+            Агент выключает выдачу новых заявок сам — болезнь, отпуск, завал. KPI при этом идёт как обычно:
             иначе пауза станет способом прятать просрочки
           </span>
         </div>

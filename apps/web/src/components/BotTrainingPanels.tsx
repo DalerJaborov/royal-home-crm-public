@@ -45,7 +45,7 @@ export function GuardStatsPanel() {
     <section className="card">
       <div className="sec-h stack">
         <h2>Срабатывания фильтров за {data?.days ?? 14} дней</h2>
-        <span className="note">Сколько раз фильтр исправил ответ или отсеял нецелевой лид</span>
+        <span className="note">Сколько раз фильтр исправил ответ или отсеял нецелевую заявку</span>
       </div>
 
       {isLoading ? (

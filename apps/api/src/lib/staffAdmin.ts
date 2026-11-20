@@ -8,6 +8,7 @@ import {
   normalizeOverrides,
   parsePermissionOverrides,
   permissionOverridesSchema,
+  pluralizeRu,
   resolvePermissions,
   PERMISSIONS,
   ROLE_LABELS,
@@ -974,8 +975,8 @@ export async function freezeStaffMember(actor: StaffActor, targetId: string, raw
     await sendPushToAgents(
       directors.map((d) => d.id),
       {
-        title: "Заморозка агента: лиды в очереди",
-        body: `${agent.fullName}: ${releasedLeads.length} лид(ов) снято и возвращено в очередь — ${names}${more}`,
+        title: "Заморозка агента: заявки в очереди",
+        body: `${agent.fullName}: ${releasedLeads.length} ${pluralizeRu(releasedLeads.length, ["заявка", "заявки", "заявок"])} снято и возвращено в очередь — ${names}${more}`,
         url: "/team",
         tag: `agent-freeze-${agent.id}`,
       }

@@ -209,7 +209,7 @@ function RecurringEdit({ row, onDone }: { row: RecurringExpense; onDone: () => v
       )}
       {((needsSource && !source) || (needsAgent && !agentId)) && (
         <p className="state">
-          {needsSource ? "Канал не выбран: расход заведётся без канала и не попадёт в стоимость лида." : "Сотрудник не выбран: расход заведётся без сотрудника."}
+          {needsSource ? "Канал не выбран: расход заведётся без канала и не попадёт в стоимость заявки." : "Сотрудник не выбран: расход заведётся без сотрудника."}
         </p>
       )}
       {formError && (

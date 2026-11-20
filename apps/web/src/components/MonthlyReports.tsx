@@ -284,7 +284,7 @@ export function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit
               <thead>
                 <tr>
                   <th scope="col">Агент</th>
-                  <th scope="col" className="num">Лиды</th>
+                  <th scope="col" className="num">Заявки</th>
                   <th scope="col" className="num">Показы</th>
                   <th scope="col" className="num">Сделки</th>
                   {seesMoney && <th scope="col" className="num">Комиссия</th>}
@@ -320,8 +320,8 @@ export function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit
             />
             <p className="state">
               {seesMoney
-                ? "Полоса это комиссия за месяц. Лиды, показы и сделки видно на компьютере."
-                : "Полоса это закрытые сделки за месяц. Лиды и показы видно на компьютере."}
+                ? "Полоса это комиссия за месяц. Заявки, показы и сделки видно на компьютере."
+                : "Полоса это закрытые сделки за месяц. Заявки и показы видно на компьютере."}
             </p>
           </div>
         </>

@@ -8701,7 +8701,7 @@
   },
   {
    "path": "/sources",
-   "title": "Источники лидов",
+   "title": "Источники заявок",
    "group": "money",
    "parent": null,
    "file": "apps/web/src/pages/Sources.tsx",

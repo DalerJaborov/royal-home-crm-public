@@ -161,7 +161,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
             : list.length === 0 ? <div className="ry-state">В команде пока никого нет</div> : (
               <div className="ry-group ry-members" role="list" aria-label="Сотрудники">
                 <div className="ry-mhead" aria-hidden="true">
-                  <span>Сотрудник</span><span>В работе</span><span>Лиды</span><span>Показы</span><span>Сделки</span>
+                  <span>Сотрудник</span><span>В работе</span><span>Заявки</span><span>Показы</span><span>Сделки</span>
                   {p.seesMoney && <span>Комиссия</span>}<span>Баллы</span><span>Место</span><span />
                 </div>
                 {p.visible.map((m) => {
@@ -177,7 +177,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
                         </span>
                         <span className="ry-mrow-stats">
                         <Stat label="В работе" value={m.role === "AGENT" ? m.activeLoad : "нет"} />
-                        <Stat label="Лиды" value={m.month.leads} />
+                        <Stat label="Заявки" value={m.month.leads} />
                         <Stat label="Показы" value={m.month.showings} />
                         <Stat label="Сделки" value={m.month.dealsCompleted} />
                         {p.seesMoney && <Stat label="Комиссия" value={formatMoney(m.month.commission ?? 0, "TJS")} wide />}

@@ -19,9 +19,9 @@ export interface SettingsTabMeta {
 export const SETTINGS_TABS: SettingsTabMeta[] = [
   { id: "agency", label: "Агентство", hint: "Название, логотип, районы", icon: Building2 },
   { id: "money", label: "Деньги", hint: "Комиссия и курс доллара", icon: Banknote },
-  { id: "leads", label: "Лиды", hint: "Кому достаётся клиент, лимиты и уведомления", icon: Inbox },
+  { id: "leads", label: "Заявки", hint: "Кому достаётся клиент, лимиты и уведомления", icon: Inbox },
   { id: "matching", label: "Подбор объектов", hint: "Автоподбор, допуски совпадения, радиус по карте", icon: Search },
-  { id: "team", label: "Сотрудники", hint: "Люди, права, распределение лидов", icon: Users },
+  { id: "team", label: "Сотрудники", hint: "Люди, права, распределение заявок", icon: Users },
   { id: "channels", label: "Каналы связи", hint: "Instagram, WhatsApp, Telegram", icon: MessageSquare },
   {
     id: "bot",

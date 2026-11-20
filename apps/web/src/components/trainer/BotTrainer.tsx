@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Send } from "lucide-react";
 import { useBotTrainerDecide, useBotTrainerQueue, useBotTrainerVariants, type BotTrainerItem } from "../../hooks/useBotTrainer";
 import { relativeTime } from "../../lib/format";
 import { shownVariants } from "./trainerVariants";
@@ -399,7 +400,7 @@ function TrainerConversation({
         ))}
         <div className="tr-b in">{item.q}</div>
         <div className="tr-b target">
-          <span className="lbl">ответ бота</span>
+          <span className="lbl" style={{ textTransform: "none", letterSpacing: 0, fontSize: 13 }}>Ответ бота</span>
           {item.a}
           <span className="t">{relativeTime(item.at)}</span>
         </div>
@@ -432,8 +433,8 @@ function TrainerConversation({
               if (e.key === "Enter") onSendNote();
             }}
           />
-          <button type="button" className="send" disabled={!note.trim()} onClick={onSendNote} title="Отправить (Enter)">
-            ➤
+          <button type="button" className="send" disabled={!note.trim()} onClick={onSendNote} title="Отправить (Enter)" aria-label="Отправить">
+            <Send size={16} aria-hidden="true" />
           </button>
         </div>
       )}
@@ -443,10 +444,10 @@ function TrainerConversation({
           <div className="tr-ask">Бот ответил правильно?</div>
           <div className="tr-acts">
             <button type="button" className="tr-act good" onClick={onGood}>
-              👍 Верно
+              Верно
             </button>
             <button type="button" className="tr-act bad" onClick={onBadStart}>
-              👎 Неверно
+              Неверно
             </button>
           </div>
           <button type="button" className="tr-mute-lnk" onClick={onMute}>

@@ -1984,7 +1984,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         <div className="suggest">
           <span className="dot warn"></span>
           <span className="txt">
-            Клиент не писал больше суток — WhatsApp/Instagram не пропустят свободный текст. Позвоните
+            Клиент не писал больше суток, поэтому ваше сообщение уже не дойдёт. Позвоните
             {conversation?.clientPhone ? (
               <>
                 {" "}

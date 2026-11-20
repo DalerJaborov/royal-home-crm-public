@@ -84,7 +84,7 @@ export function AppearanceSettings() {
       <div className="mod">
         <div className="t">
           <b>Звуки уведомлений</b>
-          <span>Мягкие тона на новый лид, сообщение, звонок, сохранение и ошибку.</span>
+          <span>Мягкие тона на новую заявку, сообщение, звонок, сохранение и ошибку.</span>
         </div>
         <div className="acts">
           <ProtoToggle on={aiSoundsEnabled} label="Звуки уведомлений" onToggle={setAiSoundsEnabled} />

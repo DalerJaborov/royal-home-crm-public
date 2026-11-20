@@ -16,8 +16,8 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
   ],
   money: [
     { title: "Структура комиссии сделки" }, { title: "Курс доллара к сомони" },
-    { title: "Сроки и лимиты по лидам" }, { title: "Сроки подготовки объекта, дни" },
-    { title: "Резерв объекта на сделке" }, { title: "Пауза «не принимаю лиды»", aliases: ["Дисциплина"] },
+    { title: "Сроки и лимиты по заявкам" }, { title: "Сроки подготовки объекта, дни" },
+    { title: "Резерв объекта на сделке" }, { title: "Пауза «не принимаю заявки»", aliases: ["Дисциплина"] },
     { title: "Застой сделки" }, { title: "Светофор неактивных клиентов" },
     { title: "Возврат потерянного или неактивного клиента" }, { title: "Продавец без объекта" },
     { title: "Покупатель думает (медленный трек)" },
@@ -25,7 +25,7 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
   leads: [
     { title: "Свой объект: свой клиент", aliases: ["Распределение клиентов"] },
     { title: "Занятость агента в раздаче" }, { title: "Передача как признак конфликта" },
-    { title: "Лимит активных лидов", aliases: ["Лимиты агентов"] },
+    { title: "Лимит активных заявок", aliases: ["Лимиты агентов"] },
     { title: "Уведомления", aliases: ["Напоминания о показах"] },
     { title: "Когда агент уходит из компании" }, { title: "Реактивация старых клиентов" },
   ],
@@ -34,7 +34,7 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
     { title: "Радиус по карте" }, { title: "Отложенные клиенты" },
   ],
   team: [
-    { title: "Люди", aliases: ["Сотрудники и права"] }, { title: "Распределение лидов" },
+    { title: "Люди", aliases: ["Сотрудники и права"] }, { title: "Распределение заявок" },
     { title: "Royal Score — рубильник модуля", aliases: ["RoyalScore"] },
     { title: "Из чего складывается KPI", aliases: ["Веса KPI"] }, { title: "Royal Score", aliases: ["События рейтинга"] },
   ],

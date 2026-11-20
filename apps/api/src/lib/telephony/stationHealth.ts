@@ -886,7 +886,7 @@ export async function runStationHealthTick(now: Date = new Date()): Promise<Stat
     const drift = await collectBaselineDrift(amiCreds ?? null);
     if (drift.length > 0) {
       checks.push({
-        name: "Настройки телефонии: рабочий эталон",
+        name: "Настройки телефонии изменились",
         ok: false,
         detail: describeDrift(drift),
         cls: "config",

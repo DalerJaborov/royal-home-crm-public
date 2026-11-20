@@ -97,10 +97,10 @@ export function notifyAgentAboutSupervisorPause(
 ): void {
   const payload = pause
     ? {
-        title: "Новые лиды вам временно не выдаются",
+        title: "Новые заявки вам временно не выдаются",
         body: `${actorName} поставил паузу до ${pauseUntilLabel(pause.until)}.${pause.reason?.trim() ? ` Причина: ${pause.reason.trim()}.` : ""} Текущие клиенты остаются у вас.`,
       }
-    : { title: "Вы снова в раздаче лидов", body: `${actorName} снял паузу: новые лиды снова идут к вам.` };
+    : { title: "Вы снова в раздаче заявок", body: `${actorName} снял паузу: новые заявки снова идут к вам.` };
   void sendPushToAgent(agentId, { ...payload, url: "/profile", tag: `lead-pause-${agentId}` }).catch((err) =>
     console.error("[lead-pause] пуш агенту не отправлен:", err)
   );

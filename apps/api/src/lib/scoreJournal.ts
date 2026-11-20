@@ -315,7 +315,7 @@ export type RoyalScoreCategoryKey = "sales" | "speed" | "crm" | "properties" | "
 
 export const ROYAL_SCORE_CATEGORIES: { key: RoyalScoreCategoryKey; label: string; weightPercent: number }[] = [
   { key: "sales", label: "Продажи", weightPercent: 40 },
-  { key: "speed", label: "Скорость обработки лидов", weightPercent: 20 },
+  { key: "speed", label: "Скорость обработки заявок", weightPercent: 20 },
   { key: "crm", label: "Работа с CRM", weightPercent: 15 },
   { key: "properties", label: "Работа с объектами", weightPercent: 10 },
   { key: "tasks", label: "Выполнение задач", weightPercent: 10 },

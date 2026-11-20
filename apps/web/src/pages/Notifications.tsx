@@ -21,6 +21,7 @@ import { groupNotifications, notificationLevel as levelOf, PINNED_NOTIFICATION_L
 import type { AppNotification } from "../types";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { MhQuiet } from "../components/home/mh/MhScreen";
+import { plainTitle } from "../lib/softenShouting";
 import { ChevronLeft } from "lucide-react";
 import { useClients, useAcceptLead } from "../hooks/useClients";
 import { MutationError } from "../components/MutationError";
@@ -133,8 +134,8 @@ function leadShortId(n: AppNotification): number | null {
  * (409) — тоже плашка по статусу сервера, а не ошибка.
  */
 const OFFER_STATUS_LABEL: Record<string, { text: string; done: boolean }> = {
-  WILL_SEND: { text: "✅ Отправлю клиенту", done: true },
-  NOT_SUITABLE: { text: "🙅 Не подходит", done: false },
+  WILL_SEND: { text: "Отправлю клиенту", done: true },
+  NOT_SUITABLE: { text: "Не подходит", done: false },
   CLOSED: { text: "Клиент уже у другого агента", done: false },
 };
 
@@ -401,7 +402,7 @@ export function Notifications() {
               <div className="t">
                 <b>
                   <button className="lk" type="button" onClick={() => open(n)}>
-                    {n.title}
+                    {plainTitle(n.title)}
                   </button>
                 </b>
                 <span>{n.body}</span>
@@ -475,7 +476,7 @@ export function Notifications() {
                   <Icon className="i" width={16} height={16} strokeWidth={1.5} aria-hidden="true" />
                 </span>
                 <span className="t">
-                  <span className="n">{n.title}</span>
+                  <span className="n">{plainTitle(n.title)}</span>
                   <span className="s">
                     {n.body}
                     {n.count > 1 ? ` · ${n.count} раз, последний в ${dushanbeTime(n.createdAt)}` : ""}
@@ -522,7 +523,7 @@ export function Notifications() {
               <RhCircle icon={n.retiredAt ? "bell" : circle.icon} tone={n.retiredAt ? "a0" : circle.tone} />
               <div className="ry-ntf-t">
                 <button className="ry-ntf-title" type="button" onClick={() => open(n)}>
-                  {n.title}
+                  {plainTitle(n.title)}
                 </button>
                 <span className="ry-ntf-body">{n.body}</span>
                 <span className="ry-ntf-meta">

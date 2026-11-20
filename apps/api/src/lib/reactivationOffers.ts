@@ -227,7 +227,7 @@ export async function releaseReactivationOffer(
   if (nextAgentId) {
     sendPushToAgent(nextAgentId, {
       title: "🔔 Новая заявка",
-      body: `${client.fullName} — предложение реактивации снято с прежнего агента, лид передан вам`,
+      body: `${client.fullName} — предложение реактивации снято с прежнего агента, заявка передана вам`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${client.id}`,
     }).catch((err) => console.error("[push] снятие предложения реактивации — новый агент:", err));

@@ -285,7 +285,7 @@ function ClientMatchPanel({
         {!overviewLimit && requirementsCurrent && client.requirementsNotes && <details className="client-request-notes"><summary>Пожелания клиента</summary><p>{softenShouting(client.requirementsNotes)}</p></details>}
         {!requirementsCurrent && <p className="quiet warn">Предыдущие условия относятся к другой роли. Уточните, что клиент хочет купить.</p>}
         {!readOnly && <details className="client-match-delivery" open={selected.size > 0 || !!failure?.fallback}>
-          <summary>Способ отправки{target.data?.channel ? ` · ${CHANNEL_WORD[target.data.channel] ?? target.data.channel}` : ""}</summary>
+          <summary>Куда отправить{target.data?.channel ? ` · ${CHANNEL_WORD[target.data.channel] ?? target.data.channel}` : ""}</summary>
           <label className="client-match-channel">Канал отправки
             <select className="inp" value={chosenConversation} disabled={busy} onChange={event => { setChosenConversation(event.target.value); setFailure(null); }}>
               <option value="">Автоматически по переписке</option>
@@ -299,10 +299,10 @@ function ClientMatchPanel({
         <label>Объекты <select className="inp" aria-label="Ответственный за объекты" value={scope} disabled={source === "catalog"} onChange={event => { setScope(event.target.value as "all" | "mine"); setPage(1); }}>
           <option value="all">Вся база</option><option value="mine">Только мои</option>
         </select></label>
-        <button type="button" className="lnk" onClick={() => { setSource(source === "match" ? "catalog" : "match"); setExpanded(source === "match"); }}>{source === "match" ? "Открыть каталог без подбора" : "Вернуться к подбору"}</button>
+        <button type="button" className="lnk" onClick={() => { setSource(source === "match" ? "catalog" : "match"); setExpanded(source === "match"); }}>{source === "match" ? "Показать все объекты" : "Вернуться к подбору"}</button>
       </div>
       {source === "match" && <>
-        {matchQuery.data && <p className="client-match-count">Показано {visibleItems.length} из {total} вариантов{scope === "mine" ? " среди моих объектов" : ""}. Проверено в базе: {matchQuery.data.scanned}. Сначала — лучшее соответствие запросу.</p>}
+        {matchQuery.data && <p className="client-match-count">Показано {visibleItems.length} из {total}{scope === "mine" ? " среди моих объектов" : ""}. Сначала самые подходящие.</p>}
         {unfiltered && <p className="quiet warn" role="status">Требования ещё не заполнены. Эти варианты нужно уточнить с клиентом.</p>}
       </>}
       {!readOnly && <SelectedMatchProperties items={[...selected].map(id => ({ id, label: selectedNames[id] ?? "Выбранный объект" }))} disabled={busy} onRemove={id => toggleSelected(id)} />}

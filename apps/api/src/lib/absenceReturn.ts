@@ -71,7 +71,7 @@ export async function runAbsenceReturnTick(now: Date = new Date()): Promise<{ re
 
       void sendPushToAgent(agent.id, {
         title: "👋 С возвращением",
-        body: "Отпуск закончился — новые лиды и входящие звонки снова идут к вам.",
+        body: "Отпуск закончился — новые заявки и входящие звонки снова идут к вам.",
         url: "/",
         tag: `absence-return-${agent.id}`,
       }).catch(() => {});
@@ -87,7 +87,7 @@ export async function runAbsenceReturnTick(now: Date = new Date()): Promise<{ re
     const recipients = await findAgentsWithPermission("agents.manage");
     void sendPushToAgents(recipients, {
       title: "👋 Сотрудник вышел",
-      body: `${names} — отсутствие закончилось, лиды снова распределяются на него.`,
+      body: `${names} — отсутствие закончилось, заявки снова распределяются на него.`,
       url: "/team",
       tag: `absence-return-batch-${dushanbeDayKey(now)}`,
     }).catch(() => {});

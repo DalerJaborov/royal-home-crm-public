@@ -87097,7 +87097,7 @@
             },
             {
              "k": "do",
-             "t": "void sendPushToAgent(agent.id, { title: \"👋 С возвращением\", body: \"Отпуск закончился — новые лиды и входящие…",
+             "t": "void sendPushToAgent(agent.id, { title: \"👋 С возвращением\", body: \"Отпуск закончился — новые заявки и входящ…",
              "a": [
               "push-уведомление"
              ],
@@ -87137,7 +87137,7 @@
           },
           {
            "k": "do",
-           "t": "void sendPushToAgents(recipients, { title: \"👋 Сотрудник вышел\", body: `${names} — отсутствие закончилось, ли…",
+           "t": "void sendPushToAgents(recipients, { title: \"👋 Сотрудник вышел\", body: `${names} — отсутствие закончилось, за…",
            "a": [
             "push-уведомление"
            ],
@@ -101072,7 +101072,7 @@
                 },
                 {
                  "k": "do",
-                 "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Лид по объекту не принят вовремя\", body: `${lead.fu…",
+                 "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Заявка по объекту не принят вовремя\", body: `${lead…",
                  "a": [
                   "зовёт notifyFeedOnly()"
                  ],
@@ -101138,7 +101138,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Лид прошёл всех агентов\", body: `${lead.fullName}: …",
+                   "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Заявка прошла всех агентов\", body: `${lead.fullName…",
                    "a": [
                     "зовёт notifyFeedOnly()"
                    ],
@@ -101295,7 +101295,7 @@
               },
               {
                "k": "do",
-               "t": "sendLeadPush(nextAgentId, lead.id, { title: \"🤝 Лид переназначен вам\", body: `${lead.fullName} — предыдущий а…",
+               "t": "sendLeadPush(nextAgentId, lead.id, { title: \"🤝 Заявка переназначена вам\", body: `${lead.fullName} — предыдущ…",
                "a": [
                 "зовёт sendLeadPush()"
                ],
@@ -107321,7 +107321,7 @@
           },
           {
            "k": "do",
-           "t": "const payload = { kind: \"oversight\" as const, title: `📵 Лид без карточки: ${who}`, body: `${dushanbeDateTime…",
+           "t": "const payload = { kind: \"oversight\" as const, title: `📵 Заявка без карточки: ${who}`, body: `${dushanbeDateT…",
            "a": [
             "зовёт dushanbeDateTimeString()"
            ],
@@ -115766,7 +115766,7 @@
            "c": [
             {
              "k": "do",
-             "t": "checks.push({ name: \"Настройки телефонии: рабочий эталон\", ok: false, detail: describeDrift(drift), cls: \"con…",
+             "t": "checks.push({ name: \"Настройки телефонии изменились\", ok: false, detail: describeDrift(drift), cls: \"config\",…",
              "a": [
               "дословно из кода"
              ],
