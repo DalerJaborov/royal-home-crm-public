@@ -90,8 +90,8 @@ import { RhAvatar } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
 import { chatQuickReplies } from "../lib/chatQuickReplies";
 import { Bot, Building2, Check, Flame, Info, MoreHorizontal } from "lucide-react";
-import { autoReplySourceId, chatTitle, isGroupTail } from "../components/look/chats/chatThread";
-import { RoyalMessageInfo, RoyalTicks, useLongPress } from "../components/look/chats/RoyalMessageInfo";
+import { autoReplySourceId, chatTitle, isGroupTail, sameSide } from "../components/look/chats/chatThread";
+import { isLongPressTarget, RoyalMessageInfo, RoyalTicks, useLongPress } from "../components/look/chats/RoyalMessageInfo";
 
 /** Сколько последних сообщений рендерим сразу; более ранние — по кнопке сверху,
  *  чтобы диалог на тысячи реплик не подвешивал страницу. История хранится целиком. */
@@ -937,6 +937,12 @@ const ConversationMessageList = memo(function ConversationMessageList({
   onOpenPhoto: (absoluteMessageIndex: number, imageIndexInMessage: number) => void;
 }) {
   const viewerAgentId = useAuthStore((s) => s.agent?.id);
+  // Новый вид: какие реплики вообще рисуются (пустая служебная — нет). Хвостик и
+  // слитый отступ считаются по СОСЕДНЕЙ ВИДИМОЙ реплике, а не по соседу в массиве.
+  const shown = useMemo(
+    () => (royal ? visibleMessages.map((m) => !!humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user" }) || !!m.attachments?.length) : []),
+    [royal, visibleMessages],
+  );
   return (
     <>
       {hiddenCount > 0 && (
@@ -1004,7 +1010,14 @@ const ConversationMessageList = memo(function ConversationMessageList({
           // и сотрудника — одинаковые пузыри справа, без подписи «бот» и без
           // «Верно/Неверно»; кто ответил и оценка — в «Сведениях о сообщении».
           // Хвостик — у последней реплики группы одной стороны.
-          const tail = isGroupTail(m, visibleMessages[i + 1], (a, b) => dushanbeDate(a) === dushanbeDate(b));
+          const sameDay = (a: string, b: string) => dushanbeDate(a) === dushanbeDate(b);
+          let next = i + 1;
+          while (next < visibleMessages.length && !shown[next]) next++;
+          let prev = i - 1;
+          while (prev >= 0 && !shown[prev]) prev--;
+          // Один признак на хвостик и на слитый отступ — сторона разговора и день.
+          const tail = isGroupTail(m, visibleMessages[next], sameDay);
+          const cont = !showDay && sameSide(visibleMessages[prev], m, sameDay);
           const showChannel = !!m.sourceChannel && (multiChannel || (!!prevMsg?.sourceChannel && prevMsg.sourceChannel !== m.sourceChannel));
           return (
             <Fragment key={messageRenderKey(m, absoluteIndex)}>
@@ -1017,19 +1030,24 @@ const ConversationMessageList = memo(function ConversationMessageList({
                   if (el) messageRefs.current.set(absoluteIndex, el);
                   else messageRefs.current.delete(absoluteIndex);
                 }}
-                className={`bub${m.role === "user" ? "" : " me"}${tail ? " ry-tail" : ""}${sameGroupAsPrev ? " ry-cont" : ""}${isActiveSearchMatch ? " ring-2 ring-amber" : ""}`}
+                className={`bub${m.role === "user" ? "" : " me"}${tail ? " ry-tail" : ""}${cont ? " ry-cont" : ""}${isActiveSearchMatch ? " ring-2 ring-amber" : ""}`}
               >
                 <span className="sr-only">{m.role === "user" ? "Клиент:" : "Мы:"}</span>
                 <MessageQuote quoted={quotedMessage(allMessages, m.replyToMid, allMessages.indexOf(m), m.sourceConversationId)} />
                 {m.sourceChannel && (showChannel
                   ? <span className="meta" data-message-channel style={{ display: "inline-block", marginRight: 6 }}>{channelMeta(m.sourceChannel).label}</span>
                   : <span className="sr-only" data-message-channel>{channelMeta(m.sourceChannel).label}</span>)}
-                {!hasVoiceAttachment(m.attachments) &&
-                  (m.sourceChannel === "TELEGRAM_DIRECT" ? <span>{content}</span> : searchQuery ? (
-                    highlightText(content, searchQuery, isActiveSearchMatch)
-                  ) : (
-                    <TranslatableMessageText content={content} message={m} conversationId={m.sourceConversationId ?? conversationId} clientId={clientId} readOnly={readOnly} quietMask />
-                  ))}
+                {/* Текст — в своей обёртке: на нём долгое нажатие выделяет слова (как
+                    везде), а «Сведения» открывает нажатие на пустом месте пузыря и стрелка. */}
+                {!hasVoiceAttachment(m.attachments) && (
+                  <span className="ry-msg-text">
+                    {m.sourceChannel === "TELEGRAM_DIRECT" ? content : searchQuery ? (
+                      highlightText(content, searchQuery, isActiveSearchMatch)
+                    ) : (
+                      <TranslatableMessageText content={content} message={m} conversationId={m.sourceConversationId ?? conversationId} clientId={clientId} readOnly={readOnly} quietMask />
+                    )}
+                  </span>
+                )}
                 <MessageAttachments attachments={m.attachments} onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
                 {(m.at || (m.role === "assistant" && m.deliveryStatus)) && (
                   <span className="tm">
@@ -1194,7 +1212,11 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     () => (royal && isGroupedEntry ? autoReplySourceId(allMessages, conversation?.sources) : ""),
     [royal, isGroupedEntry, allMessages, conversation?.sources],
   );
-  const chosenReplySource = selectedReplySource || autoReplySource;
+  // Во время набора канал не меняется сам (ревью #332): начал печатать в
+  // Instagram — пришло сообщение в WhatsApp — ответ всё равно уйдёт в Instagram.
+  // Фиксируется на первом символе, отпускается, когда поле снова пустое.
+  const [typingLockSource, setTypingLockSource] = useState("");
+  const chosenReplySource = selectedReplySource || typingLockSource || autoReplySource;
   const replySource = conversation?.sources?.find((source) => source.id === chosenReplySource && source.canReply);
   const replyTargetId = isGroupedEntry ? (replySource?.id ?? null) : id;
   const customerRequestConversationIds = callbackRequestConversationIds(isGroupedEntry
@@ -1255,8 +1277,17 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const botState = conversationBotState({ id, grouped: isGroupedEntry, pausedUntil: conversation?.pausedUntil,
     sources: conversation?.sources, selectedSourceId: chosenReplySource });
-  const resume = useResumeConversationBot(botState.controlId);
-  const pause = usePauseConversationBot(botState.controlId);
+  // Новый вид (ревью #332): пауза из «⋯» в общем чате клиента — сразу во ВСЕХ
+  // каналах разговора, куда CRM отвечает, а не в одном выбранном молча.
+  const royalBotIds = useMemo(
+    () => (!royal ? [] : isGroupedEntry ? (conversation?.sources ?? []).filter((source) => source.canReply).map((source) => source.id) : [id]),
+    [royal, isGroupedEntry, conversation?.sources, id],
+  );
+  const royalPausedCount = !royal ? 0 : isGroupedEntry
+    ? (conversation?.sources ?? []).filter((source) => source.canReply && !!source.pausedUntil && Date.parse(source.pausedUntil) > Date.now()).length
+    : (conversation?.pausedUntil && Date.parse(conversation.pausedUntil) > Date.now() ? 1 : 0);
+  const resume = useResumeConversationBot(royal ? royalBotIds : botState.controlId);
+  const pause = usePauseConversationBot(royal ? royalBotIds : botState.controlId);
   // Меню «Пауза» в шапке (TASKS.md 10.09 «с обзора прода глазами», п.6): тот же
   // приём, что уже применён на телефоне (MobileChatView.tsx, «Раньше здесь
   // стояли пять контролов... нативный select паузы») — пилюля-триггер вместо
@@ -1280,6 +1311,13 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   const longPress = useLongPress(openInfoAt);
   const navigate = useNavigate();
   const [text, setText] = useState("");
+  // Идёт запись голосового — кнопку не меняем на «Отправить» и поле не трогаем,
+  // иначе набранная буква сняла бы запись вместе с кнопкой (ревью #332).
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  useEffect(() => {
+    if (!royal || !isGroupedEntry) return;
+    setTypingLockSource((current) => (text.trim() ? current || autoReplySource : ""));
+  }, [royal, isGroupedEntry, text, autoReplySource]);
   useEffect(() => setSelectedReplySource(""), [id]);
   useEffect(() => {
     const input = composerRef.current;
@@ -1333,7 +1371,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
 
   const paused = botState.paused;
   // Управление ботом — только руководству. См. комментарий у самого блока ниже.
-  const canManageBot = useCan()("messages.view") && !readOnly && !!botState.controlId;
+  const canManageBot = useCan()("messages.view") && !readOnly && (royal ? royalBotIds.length > 0 : !!botState.controlId);
+  const allChannelsWord = royalBotIds.length > 1 ? " во всех каналах" : "";
 
   // Новый диалог — сбрасываем окно истории, панель и поиск.
   useEffect(() => {
@@ -1387,12 +1426,13 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     const value = text.trim();
     if (readOnly || !value || reply.isPending || !replyTargetId || (clean && !conversation)) return;
     try {
-      // Новый вид: срок паузы не выбирается в окне вовсе (владелец 20.11.2026) —
-      // запрос уходит без него, и паузу ставит сервер по своему правилу
-      // (OPERATOR_REPLY_PAUSE_MS, lib/conversationDelivery.ts; «Эстафета» меняет
-      // именно его). Прежний вид — как был, со сроком из выбора под полем.
+      // Срок паузы уходит ВСЕГДА (ревью #332). В новом виде выбора в окне нет, и
+      // pauseOptionIndex остаётся «Бессрочно» — как было по умолчанию. Без срока
+      // сервер (defaultPauseForSender, lib/conversationDelivery.ts) дал бы
+      // директору/незакреплённому агенту 10 минут, и бот писал бы поверх человека.
+      // «Эстафета» поменяет это одним местом — когда придёт.
       const minutes = customPauseMinutes ?? PAUSE_OPTIONS[pauseOptionIndex].minutesFromNow();
-      await reply.mutateAsync(royal ? { text: value } : { text: value, pausedUntil: pausedUntilIso(minutes) });
+      await reply.mutateAsync({ text: value, pausedUntil: pausedUntilIso(minutes) });
       // Не стираем текст, набранный, пока шёл запрос (WEB-PAGES02).
       setText((cur) => clearIfUnchanged(cur, value));
       if (clean) reading.jumpToLatest();
@@ -1545,11 +1585,12 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
                 )}
                 {/* Бот — только руководству (право messages.view, как и на сервере).
                     Агенту в окне про бота нет ничего: решение владельца 20.11.2026. */}
-                {canManageBot && (paused ? (
+                {canManageBot && royalPausedCount > 0 && (
                   <button type="button" role="menuitem" disabled={resume.isPending} onClick={() => resume.mutate()}>
-                    <Bot aria-hidden="true" />Вернуть боту
+                    <Bot aria-hidden="true" />Вернуть боту{allChannelsWord}
                   </button>
-                ) : (
+                )}
+                {canManageBot && royalPausedCount < royalBotIds.length && (
                   <button
                     type="button"
                     role="menuitem"
@@ -1557,13 +1598,13 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
                     disabled={pause.isPending}
                     onClick={(event) => { event.stopPropagation(); setMoreView("pause"); }}
                   >
-                    <Bot aria-hidden="true" />Поставить бота на паузу…
+                    <Bot aria-hidden="true" />Поставить бота на паузу{allChannelsWord}…
                   </button>
-                ))}
+                )}
               </div>
             )}
-            {moreMenu.open && moreView === "pause" && canManageBot && !paused && (
-              <div role="menu" aria-label="Поставить бота на паузу" className="ry-menu" onClick={() => moreMenu.setOpen(false)}>
+            {moreMenu.open && moreView === "pause" && canManageBot && royalPausedCount < royalBotIds.length && (
+              <div role="menu" aria-label={`Поставить бота на паузу${allChannelsWord}`} className="ry-menu" onClick={() => moreMenu.setOpen(false)}>
                 <button type="button" role="menuitem" onClick={(event) => { event.stopPropagation(); setMoreView("main"); }}>
                   <ChevronLeft aria-hidden="true" />Назад
                 </button>
@@ -1861,6 +1902,14 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           ...longPress,
           // Правая кнопка мыши (и долгое нажатие на Android) — «Сведения о сообщении».
           onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => {
+            const native = event.nativeEvent as MouseEvent & { pointerType?: string };
+            const touch = native.pointerType ? native.pointerType !== "mouse" : !!window.matchMedia?.("(hover: none)").matches;
+            if (touch) {
+              // Палец: по тексту — системное выделение; вне текста шторку откроет
+              // таймер долгого нажатия (useLongPress), здесь только глушим меню.
+              if (isLongPressTarget(event.target)) event.preventDefault();
+              return;
+            }
             const target = (event.target as HTMLElement).closest<HTMLElement>("[data-chat-message]");
             if (!target || (event.target as HTMLElement).closest("a, audio, video, img")) return;
             event.preventDefault();
@@ -2072,6 +2121,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           <textarea
             ref={composerRef}
             value={text}
+            readOnly={voiceBusy}
             onChange={(e) => {
               const value = e.target.value;
               setText(value);
@@ -2083,6 +2133,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !narrow) {
                 e.preventDefault();
+                // Открыто меню скрепки («/» — быстрые ответы): Enter не отправляет «/».
+                if (attachMenu.open) return;
                 handleSend();
               }
             }}
@@ -2111,24 +2163,30 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               onOpenChange={setPropertyPickerOpen}
             />
           )}
-          {text.trim() ? (
-            <button
-              type="button"
-              className="ry-round ry-chat-send"
-              onClick={handleSend}
-              disabled={reply.isPending || !replyTargetId}
-              title="Отправить (Enter)"
-              aria-label="Отправить"
-            >
-              <RoyalIcon name="send" />
-            </button>
-          ) : (
-            <VoiceRecordButton
-              send={(blob) => voiceMessage.mutateAsync(blob)}
-              onError={setVoiceError}
-              disabled={reply.isPending || !replyTargetId}
-            />
-          )}
+          {/* Одна круглая кнопка; на ней — значок канала, куда уйдёт ответ, если
+              каналов несколько: виден и во время набора, когда подсказки уже нет. */}
+          <span className="ry-send-wrap">
+            {text.trim() && !voiceBusy ? (
+              <button
+                type="button"
+                className="ry-round ry-chat-send"
+                onClick={handleSend}
+                disabled={reply.isPending || !replyTargetId || (attachMenu.open && text.trim() === "/")}
+                title="Отправить (Enter)"
+                aria-label={replySource && replyableSources.length > 1 ? `Отправить в ${channelMeta(replySource.channel).label}` : "Отправить"}
+              >
+                <RoyalIcon name="send" />
+              </button>
+            ) : (
+              <VoiceRecordButton
+                send={(blob) => voiceMessage.mutateAsync(blob)}
+                onError={setVoiceError}
+                onBusyChange={setVoiceBusy}
+                disabled={reply.isPending || !replyTargetId}
+              />
+            )}
+            {replySource && replyableSources.length > 1 && !voiceBusy && <RoyalChannelBadge channel={replySource.channel} />}
+          </span>
           </>}
         </form>
       ) : (

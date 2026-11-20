@@ -55,13 +55,12 @@ async function noOverflow(page: Page, width: number, selectors: string) {
   expect(wide, `элементы шире окна или своей карточки на ${width}px`).toEqual([]);
 }
 
-test("новый вид, чаты: список без горизонтальной прокрутки на всех ширинах @smoke", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium", "ширины перебираются в десктопном проекте");
-  // Девять полных заходов подряд: на занятом dev-сервере 30 секунд на всё не хватало
-  // (стенд 20.11.2026 — шестая ширина ещё грузилась), а это таймаут, не поломка.
-  test.setTimeout(120_000);
-  await stub(page, true);
-  for (const width of WIDTHS) {
+// По тесту на ширину (ревью #332): девять заходов в одном тесте не укладывались в
+// 30 секунд на занятом стенде — теперь у каждой ширины свой тест и свой таймаут.
+for (const width of WIDTHS) {
+  test(`новый вид, чаты: список без горизонтальной прокрутки на ${width}px${width === 390 ? " @smoke" : ""}`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "ширины перебираются в десктопном проекте");
+    await stub(page, true);
     // Каждая ширина — свой заход: на широком экране инбокс сам открывает первый
     // разговор (прежнее поведение), и сужение окна показало бы уже переписку.
     await page.setViewportSize({ width, height: 900 });
@@ -70,8 +69,8 @@ test("новый вид, чаты: список без горизонтальн�
     await expect(page.locator(".ry-chats-head h1")).toHaveText("Чаты", { timeout: 20_000 });
     await expect(page.locator(".ry-chat-row").first()).toBeVisible();
     await noOverflow(page, width, ".ry-chats-head, .ry-chats-switch, .ry-chats-filters, .ry-chat-row, .ry-chats-alert");
-  }
-});
+  });
+}
 
 test("новый вид, чаты: открытая переписка без горизонтальной прокрутки на всех ширинах", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "ширины перебираются в десктопном проекте");
@@ -110,8 +109,11 @@ test("новый вид, чаты: окно как в мессенджере —
     await compose.getByLabel("Текст ответа").fill(`Добрый день ${width}`);
     await compose.getByRole("button", { name: "Отправить" }).click();
     await expect.poll(() => bodies.length).toBeGreaterThan(0);
-    // Срок паузы бота из окна не уходит: паузу ставит сервер своим правилом.
-    expect(bodies.pop()).toEqual({ text: `Добрый день ${width}` });
+    // Срок паузы уходит молча, «бессрочно», как раньше (ревью #332): без него
+    // сервер дал бы директору 10 минут, и бот писал бы поверх человека.
+    const body = bodies.pop() as { text: string; pausedUntil?: string };
+    expect(body.text).toBe(`Добрый день ${width}`);
+    expect(Date.parse(body.pausedUntil ?? "")).toBeGreaterThan(Date.now() + 5 * 365 * 24 * 3_600_000);
     await noOverflow(page, width, ".ry-chat-head, .ry-chat-compose, .clean-conversation .bub");
   }
 });

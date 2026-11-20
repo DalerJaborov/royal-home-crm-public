@@ -35,6 +35,7 @@ const DIRECTOR = new Set(["messages.view", "settings.manage"]);
 const h = vi.hoisted(() => ({
   readOnly: false, narrow: false, mutation: vi.fn(), pausedUntil: null as string | null, grouped: null as unknown,
   perms: new Set<string>(), replyTarget: undefined as string | null | undefined,
+  pauseIds: null as unknown, messages: null as unknown[] | null, api: vi.fn(), requests: [] as unknown[],
 }));
 vi.mock("../../lib/permissions", () => ({ useCan: () => (p: string) => h.perms.has(p), useIsReadOnly: () => h.readOnly }));
 vi.mock("../../store/auth", () => ({ useAuthStore: Object.assign((select: (state: unknown) => unknown) => select({ agent: { id: "actor", role: h.readOnly ? "SHAREHOLDER" : "MANAGER" }, sessionEpoch: 1 }), { getState: () => ({ agent: { id: "actor" }, sessionEpoch: 1 }), subscribe: () => () => {} }) }));
@@ -50,7 +51,7 @@ vi.mock("../../hooks/useConversations", async (importOriginal) => {
     useConversation: () => ({ data: {
       id: conversationId, name: "Продавец ПР-000894", profileName: null, channel: "INSTAGRAM", clientId: "client", clientShortId: "7",
       clientPhone: "+992900000099", firstContactAt: now, pausedUntil: h.pausedUntil, shieldPause: null, contact: null, subscriberId: "peer",
-      messages: [
+      messages: h.messages ?? [
         { role: "user", content: `Квартира ещё продаётся? Мой номер ${MESSAGE_PHONE_MASK}`, at: now },
         { role: "assistant", content: "Да, могу прислать фото", at: now, by: { kind: "bot" }, deliveryStatus: "read" },
         { role: "assistant", content: "Добрый день, это Азиз", at: now, by: { kind: "agent", agentId: "a", agentName: "Азиз" }, deliveryStatus: "delivered" },
@@ -60,20 +61,24 @@ vi.mock("../../hooks/useConversations", async (importOriginal) => {
     useGroupedConversation: () => ({ data: h.grouped, isLoading: false, isError: false, error: null, refetch: h.mutation }),
     useReplyToConversation: (id: string | null) => { h.replyTarget = id; return mutation(); },
     useSendVoiceMessage: mutation, useResumeConversationBot: mutation,
-    usePauseConversationBot: mutation, useUploadConversationMediaWithProgress: () => ({ start: h.mutation, retry: h.mutation, cancel: h.mutation }),
+    usePauseConversationBot: (ids: unknown) => { h.pauseIds = ids; return mutation(); }, useUploadConversationMediaWithProgress: () => ({ start: h.mutation, retry: h.mutation, cancel: h.mutation }),
     useReplyFeedback: mutation,
     isWindowClosedError: () => false,
   };
 });
 vi.mock("../../components/CallClientButton", () => ({ CallClientButton: () => createElement("button", null, "Позвонить") }));
-vi.mock("../../components/VoiceRecordButton", () => ({ VoiceRecordButton: () => createElement("button", { title: "Записать голосовое" }, "Голосовое") }));
+// Подмена кнопки голоса умеет «начать запись»: так проверяется, что набор текста
+// во время записи не подменяет её на «Отправить» (ревью #332).
+vi.mock("../../components/VoiceRecordButton", () => ({ VoiceRecordButton: ({ onBusyChange }: { onBusyChange?: (busy: boolean) => void }) =>
+  createElement("button", { title: "Записать голосовое", onClick: () => onBusyChange?.(true) }, "Голосовое") }));
+vi.mock("../../lib/api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../lib/api")>()), api: h.api }));
 vi.mock("../../components/ChatPropertySend", () => ({ ChatPropertySend: ({ open }: { open?: boolean }) => (open ? createElement("div", null, "Окно подбора") : null) }));
 vi.mock("../../hooks/useContactProfile", () => ({ useSetContactCategory: () => ({ mutate: h.mutation, isPending: false, isError: false }) }));
 import { ConversationView } from "../Messages";
 
 function tree(id: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["customer-requests", conversationId, "actor"], []);
+  client.setQueryData(["customer-requests", conversationId, "actor"], h.requests);
   client.setQueryData(["customer-requests", instagramSource, "actor"], []);
   return createElement(QueryClientProvider, { client },
     createElement(MemoryRouter, null, createElement(ConversationView, { id, onBack: () => {}, clean: true, royal: true })) as ReactNode);
@@ -86,6 +91,7 @@ function mount(id = conversationId) {
   host = document.createElement("div");
   document.body.appendChild(host);
   root = ReactDomClient.createRoot(host);
+  currentId = id;
   act(() => root!.render(tree(id)));
   return host;
 }
@@ -98,12 +104,15 @@ function unmount() {
 afterEach(() => {
   unmount();
   h.readOnly = false; h.narrow = false; h.pausedUntil = null; h.grouped = null; h.perms = new Set(); h.mutation.mockReset();
+  h.pauseIds = null; h.messages = null; h.api.mockReset(); h.requests = [];
 });
 const click = (el: Element | null | undefined) => { expect(el, "кнопка на месте").toBeTruthy(); act(() => (el as HTMLElement).click()); };
 const byLabel = (label: string) => document.querySelector(`[aria-label="${label}"]`);
 const menuText = () => [...document.querySelectorAll('[role="menu"]')].map((m) => m.textContent).join(" | ");
 const item = (role: string, text: string) => [...document.querySelectorAll(`[role="${role}"]`)].find((b) => b.textContent?.includes(text));
 const bubble = (text: string) => [...document.querySelectorAll("[data-chat-message]")].find((b) => b.textContent?.includes(text));
+let currentId = conversationId;
+function rerender() { act(() => root!.render(tree(currentId))); }
 function type(textarea: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
   act(() => { setter.call(textarea, value); textarea.dispatchEvent(new Event("input", { bubbles: true })); });
@@ -141,7 +150,7 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(h.mutation).not.toHaveBeenCalled();
   });
 
-  it("one round button: microphone while empty, «send» once there is text — and the reply carries no pause term", () => {
+  it("one round button: microphone while empty, «send» once there is text — the reply still carries the open-ended pause", () => {
     h.perms = AGENT;
     mount();
     expect(byLabel("Отправить")).toBeNull();
@@ -150,7 +159,59 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(document.querySelector('[title="Записать голосовое"]')).toBeNull();
     h.mutation.mockResolvedValue({ ok: true });
     click(byLabel("Отправить"));
-    expect(h.mutation).toHaveBeenCalledWith({ text: "Здравствуйте" });
+    // Ревью #332: без срока сервер дал бы директору/чужому агенту 10 минут, и бот
+    // писал бы поверх человека. Срок уходит молча — «бессрочно», как и было.
+    const body = h.mutation.mock.calls[0][0] as { text: string; pausedUntil?: string };
+    expect(body.text).toBe("Здравствуйте");
+    expect(Date.parse(body.pausedUntil ?? "")).toBeGreaterThan(Date.now() + 5 * 365 * 24 * 3_600_000);
+  });
+
+  it("typing during a voice recording keeps the recording: the button stays and the field is locked", () => {
+    h.perms = AGENT;
+    mount();
+    click(document.querySelector('[title="Записать голосовое"]'));
+    const field = byLabel("Текст ответа") as HTMLTextAreaElement;
+    expect(field.readOnly).toBe(true);
+    type(field, "буква");
+    expect(document.querySelector('[title="Записать голосовое"]')).toBeTruthy();
+    expect(byLabel("Отправить")).toBeNull();
+  });
+
+  it("«/» with the quick replies open is not sent by Enter", () => {
+    h.perms = AGENT;
+    mount();
+    const field = byLabel("Текст ответа") as HTMLTextAreaElement;
+    type(field, "/");
+    expect(menuText()).toContain("Быстрые ответы");
+    act(() => { field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+    expect(h.mutation).not.toHaveBeenCalled();
+  });
+
+  it("grouping follows the next VISIBLE message: an empty service record does not break the client's group", () => {
+    h.perms = AGENT;
+    h.messages = [
+      { role: "user", content: "Первое", at: now },
+      { role: "assistant", content: "", at: now, by: { kind: "bot" } },
+      { role: "user", content: "Второе", at: now },
+    ];
+    const thread = markup();
+    expect(thread.match(/ry-tail/g)?.length).toBe(1);
+    expect(thread.match(/ry-cont/g)?.length).toBe(1);
+  });
+
+  it("the client's request line: «Закрыть» asks first", async () => {
+    h.perms = AGENT;
+    h.requests = [{ id: "rq1", conversationId, requestKind: "HUMAN", lifecycleStatus: "QUEUED", lifecycleRevision: "r1", topic: "Хочет поговорить", requestedAt: now, assignedAgentId: null }];
+    h.api.mockResolvedValue({ ok: true });
+    mount();
+    const line = document.querySelector(".ry-service")!;
+    expect(line.textContent).toContain("Клиент ждёт сотрудника");
+    click([...line.querySelectorAll("button")].find((b) => b.textContent === "Закрыть"));
+    expect(h.api).not.toHaveBeenCalled();
+    expect(document.querySelector(".ry-service")!.textContent).toContain("Закрыть запрос?");
+    click([...document.querySelectorAll(".ry-service button")].find((b) => b.textContent === "Да, закрыть"));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(h.api).toHaveBeenCalledWith("/me/callback-requests/rq1/transition", expect.objectContaining({ body: expect.objectContaining({ action: "close" }) }));
   });
 
   it("attach menu: photo, object from the base and quick replies; «/» opens it too", () => {
@@ -248,6 +309,54 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     click(item("menuitemradio", "WhatsApp"));
     expect((byLabel("Текст ответа") as HTMLTextAreaElement).placeholder).toBe("Сообщение в WhatsApp");
     expect(h.replyTarget).toBe(conversationId);
+  });
+
+  it("auto channel is frozen while typing and shown on the send button", () => {
+    h.perms = AGENT;
+    const msg = (content: string, source: string, channel: string) => ({ role: "user", content, at: now, sourceConversationId: source, sourceChannel: channel });
+    const group = (messages: unknown[]) => ({
+      id: "client:client", clientId: "client", clientShortId: "1", name: "Клиент Нигина", profileName: null, channel: "MULTI",
+      clientPhone: null, firstContactAt: now, pausedUntil: null, contact: null, subscriberId: null,
+      sources: [
+        { id: conversationId, channel: "WHATSAPP", canReply: true, pausedUntil: null },
+        { id: instagramSource, channel: "INSTAGRAM", canReply: true, pausedUntil: null },
+      ],
+      messages,
+    });
+    h.grouped = group([msg("Первое", conversationId, "WHATSAPP"), msg("Второе", instagramSource, "INSTAGRAM")]);
+    mount("client:client");
+    type(byLabel("Текст ответа") as HTMLTextAreaElement, "Добрый день");
+    // Значок канала — на самой кнопке, виден и во время набора.
+    expect(byLabel("Отправить в Instagram")).toBeTruthy();
+    expect(document.querySelector('.ry-send-wrap [aria-label="Канал: Instagram"]')).toBeTruthy();
+    // Пока агент печатает, клиент написал в WhatsApp — ответ всё равно в Instagram.
+    h.grouped = group([msg("Первое", conversationId, "WHATSAPP"), msg("Второе", instagramSource, "INSTAGRAM"), msg("Третье", conversationId, "WHATSAPP")]);
+    rerender();
+    expect(h.replyTarget).toBe(instagramSource);
+    expect(byLabel("Отправить в Instagram")).toBeTruthy();
+    // Поле опустело — выбор снова сам: туда, где клиент писал последним.
+    type(byLabel("Текст ответа") as HTMLTextAreaElement, "");
+    expect(h.replyTarget).toBe(conversationId);
+  });
+
+  it("director in a grouped chat: the pause goes to EVERY channel of the conversation and says so", () => {
+    h.perms = DIRECTOR;
+    h.grouped = {
+      id: "client:client", clientId: "client", clientShortId: "1", name: "Клиент Нигина", profileName: null, channel: "MULTI",
+      clientPhone: null, firstContactAt: now, pausedUntil: null, contact: null, subscriberId: null,
+      sources: [
+        { id: conversationId, channel: "WHATSAPP", canReply: true, pausedUntil: null },
+        { id: instagramSource, channel: "INSTAGRAM", canReply: true, pausedUntil: null },
+        { id: "td_1", channel: "TELEGRAM_DIRECT", canReply: false, pausedUntil: null },
+      ],
+      messages: [{ role: "user", content: "Первое", at: now, sourceConversationId: conversationId, sourceChannel: "WHATSAPP" }],
+    };
+    mount("client:client");
+    expect(h.pauseIds).toEqual([conversationId, instagramSource]);
+    click(byLabel("Ещё"));
+    click(item("menuitem", "Поставить бота на паузу во всех каналах"));
+    click(item("menuitem", "Пауза: 2 часа"));
+    expect(h.mutation).toHaveBeenCalledTimes(1);
   });
 
   it("shareholder sees history only: no composer, no bot control", () => {

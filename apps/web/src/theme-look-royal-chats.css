@@ -447,10 +447,11 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub:hover > .ry-msg-more,
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more:focus-visible { opacity: 1; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 1px; }
+/* Палец: наведения нет — стрелка видна всегда, приглушённо; текст выделяется как
+   обычно (ревью #332), «Сведения» — стрелкой или долгим нажатием вне текста. */
 @media (hover: none) {
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more:not(:focus-visible) { pointer-events: none; }
-  /* Долгое нажатие открывает «Сведения» (там «Копировать текст»), а не системное меню. */
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .ry-msg-more { opacity: .6; width: 28px; height: 28px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub { padding-right: 30px; }
 }
 
 /* Служебная строка по центру ленты, как в Telegram: запрос клиента, щит бота. */
@@ -461,9 +462,9 @@
   font-size: 14px; font-weight: 500; line-height: 1.35; text-align: center; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-lines > .ry-service { margin: 0; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-acts { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-acts { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-acts button {
-  min-height: 36px; padding: 0 10px; border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-primary-ink);
+  min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--rh-ui-primary-ink);
   font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-service-acts button:hover:not(:disabled) { background: var(--rh-ui-hover); }
@@ -489,10 +490,13 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .ry-attach { order: 0; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .ry-attach .ry-round { color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .ry-attach .ry-round:disabled { opacity: .5; }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > button[title="Записать голосовое"] {
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > .ry-send-wrap { position: relative; display: inline-flex; flex: none; order: 3; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-send-wrap > button[title="Записать голосовое"] {
   background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
 }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-compose > button[title="Записать голосовое"]:hover:not(:disabled) { background: var(--rh-ui-primary-hover); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-send-wrap > button[title="Записать голосовое"]:hover:not(:disabled) { background: var(--rh-ui-primary-hover); color: var(--rh-ui-primary-fg); }
+/* Значок канала ответа на круглой кнопке (общий чат с несколькими каналами). */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-send-wrap > .ry-chat-ch { right: -2px; bottom: -2px; pointer-events: none; }
 
 /* Сведения о контакте: объект продавца — блоком, без полосы над перепиской. */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-contact-object > .pane-b {

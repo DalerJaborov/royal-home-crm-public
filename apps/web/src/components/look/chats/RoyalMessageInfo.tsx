@@ -85,11 +85,48 @@ export function RoyalTicks({ status }: { status: ConversationMessage["deliverySt
 
 const LONG_PRESS_MS = 450;
 const MOVE_TOLERANCE = 10;
+/** Сколько ждать «отпускания» после долгого нажатия: дольше палец не держат. */
+const SWALLOW_CLICK_MS = 1500;
+
+/**
+ * Долгое нажатие ВНЕ текста (а с текстом долгое нажатие выделяет слова, как везде —
+ * ревью #332): по пустому месту пузыря, по времени, по стрелке. Значит, «Сведения»
+ * открываются только когда это и задумано.
+ */
+export function isLongPressTarget(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  if (target.closest(".ry-msg-text, a, button, audio, video, img, input, textarea")) return null;
+  return target.closest<HTMLElement>("[data-chat-message]");
+}
+
+/**
+ * Первый click после долгого нажатия гасится. iOS Safari, отпуская палец, шлёт
+ * click в то, что ТЕПЕРЬ под пальцем, — а там уже фон открытой шторки, и шторка
+ * закрывалась сразу же (ревью #332). Перехват — в фазе захвата на документе,
+ * ровно один click и не дольше SWALLOW_CLICK_MS.
+ */
+export function swallowNextClick(doc: Document = document, ms = SWALLOW_CLICK_MS): () => void {
+  let done = false;
+  const stop = () => {
+    if (done) return;
+    done = true;
+    doc.removeEventListener("click", onClick, true);
+    window.clearTimeout(timer);
+  };
+  const onClick = (event: Event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    stop();
+  };
+  doc.addEventListener("click", onClick, true);
+  const timer = window.setTimeout(stop, ms);
+  return stop;
+}
 
 /**
  * Долгое нажатие пальцем — без таймеров на каждый пузырь заранее: таймер
  * заводится только на касание и гаснет при сдвиге (прокрутка ленты не должна
- * открывать шторку). Мышь не нужна — у неё правая кнопка и «⌄».
+ * открывать шторку). Мышь не нужна — у неё правая кнопка и стрелка.
  */
 export function useLongPress(onLongPress: (target: HTMLElement) => void) {
   const timer = useRef<number | null>(null);
@@ -102,12 +139,14 @@ export function useLongPress(onLongPress: (target: HTMLElement) => void) {
   return {
     onPointerDown(event: ReactPointerEvent<HTMLElement>) {
       if (event.pointerType === "mouse") return;
-      const target = (event.target as HTMLElement).closest<HTMLElement>("[data-chat-message]");
-      if (!target || (event.target as HTMLElement).closest("a, button, audio, video, input, textarea")) return;
+      const target = isLongPressTarget(event.target);
+      if (!target) return;
       clear();
       start.current = { x: event.clientX, y: event.clientY };
       timer.current = window.setTimeout(() => {
         timer.current = null;
+        start.current = null;
+        swallowNextClick();
         onLongPress(target);
       }, LONG_PRESS_MS);
     },

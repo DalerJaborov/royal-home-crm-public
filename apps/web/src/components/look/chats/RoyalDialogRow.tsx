@@ -4,6 +4,7 @@ import type { ConversationListItem } from "../../../hooks/useConversations";
 import { exactDateTime, listTime } from "../../../lib/format";
 import { RhAvatar } from "../ui";
 import { RoyalChannelBadge } from "./RoyalChannelBadge";
+import { useAuthStore } from "../../../store/auth";
 
 /**
  * Сколько ждёт живого человека и насколько это срочно (тот же порог, что в
@@ -48,7 +49,7 @@ function pauseWaitHours(c: ConversationListItem, now: number): number | null {
  * memo: строка перерисовывается, только когда пришли новые данные этого
  * разговора или сменился выбор, а не при каждом вводе в поиск/ответ.
  */
-export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, selected, showAccount, onSelect, now, showBotState = true }: {
+export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, selected, showAccount, onSelect, now, showBotState = false }: {
   conversation: ConversationListItem;
   selected: boolean;
   showAccount: boolean;
@@ -65,10 +66,12 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
   const unread = c.unread ? (c.unreadCount && c.unreadCount > 0 ? (c.unreadCount > 99 ? "99+" : String(c.unreadCount)) : "") : null;
   const accountLabel = showAccount ? c.accountTitle : null;
   const attention = !!c.agentAttentionRequestedAt;
+  const viewerAgentId = useAuthStore((state) => state.agent?.id);
   const last = c.lastMessage
-    // Наш ответ — «Вы:», будь то бот или сотрудник: как у бизнес-аккаунта WhatsApp
-    // (владелец 20.11.2026). Кто именно — в «Сведениях о сообщении» в переписке.
-    ? `${c.lastMessage.role === "assistant" ? "Вы: " : ""}${c.lastMessage.content}`
+    // «Вы:» — только своё сообщение того, кто смотрит (ревью #332). Ответ бота или
+    // коллеги — просто текст, без подписи: как у бизнес-аккаунта WhatsApp, кто
+    // именно ответил — в «Сведениях о сообщении» в переписке.
+    ? `${c.lastMessage.role === "assistant" && c.lastMessage.by?.kind === "agent" && !!viewerAgentId && c.lastMessage.by.agentId === viewerAgentId ? "Вы: " : ""}${c.lastMessage.content}`
     : "";
   return (
     <button

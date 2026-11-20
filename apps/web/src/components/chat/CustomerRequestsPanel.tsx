@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { callbackRequestViewSchema } from "@royal-home/shared";
 import { api } from "../../lib/api";
@@ -21,6 +22,8 @@ export function CustomerRequestsPanel({ conversationId, conversationIds, variant
 }) {
   const can = useCan(), agentId = useAuthStore(state => state.agent?.id), qc = useQueryClient();
   const readOnly = useIsReadOnly();
+  // Служебная строка нового вида: «Закрыть» — с подтверждением, это не отменить.
+  const [closing, setClosing] = useState<string | null>(null);
   const enabled = !!agentId && (can("messages.view") || can("messages.viewOwn"));
   const ids = callbackRequestConversationIds(conversationIds ?? (conversationId ? [conversationId] : []));
   const requestQueries = useQueries({ queries: ids.map(sourceId => ({
@@ -60,7 +63,11 @@ export function CustomerRequestsPanel({ conversationId, conversationIds, variant
         {!readOnly && <span className="ry-service-acts">
           {queued && <button type="button" disabled={transition.isPending} onClick={() => act("accept")}>Принять</button>}
           {!queued && mine && <button type="button" disabled={transition.isPending} onClick={() => act("return")}>Вернуть в очередь</button>}
-          {(queued || mine) && <button type="button" disabled={transition.isPending} onClick={() => act("close")}>Закрыть</button>}
+          {(queued || mine) && (closing === request.id ? <>
+            <span>Закрыть запрос?</span>
+            <button type="button" disabled={transition.isPending} onClick={() => { setClosing(null); act("close"); }}>Да, закрыть</button>
+            <button type="button" onClick={() => setClosing(null)}>Нет</button>
+          </> : <button type="button" disabled={transition.isPending} onClick={() => setClosing(request.id)}>Закрыть</button>)}
         </span>}
       </p>;
     })}

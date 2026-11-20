@@ -2,6 +2,7 @@ import { clientDisplayName, type ClientSource } from "@royal-home/shared";
 import type { ConversationMessage } from "../../../types";
 import { senderPrefix } from "../../MessageSenderBadge";
 import { dushanbeDayLabel, dushanbeTime } from "../../../lib/date";
+import { isMessagingWindowClosed } from "../../../lib/messagingWindow";
 
 /**
  * ПЕРЕПИСКА «КАК В МЕССЕНДЖЕРЕ» (новый вид, владелец 20.11.2026: «всё как в
@@ -44,24 +45,46 @@ export function chatTitle(name: string | null | undefined, channel: string | nul
 type ReplySource = { id: string; channel: string | null; canReply: boolean };
 
 /**
- * КАНАЛ ОТВЕТА ПО УМОЛЧАНИЮ в общем чате клиента: тот, где клиент писал
- * последним (так отвечают в любом мессенджере — туда, откуда спросили). Нет
- * входящих из доступного канала — последний канал, куда вообще можно ответить.
- * Ручной выбор остаётся в «⋯» и всегда важнее этого.
+ * КАНАЛ ОТВЕТА ПО УМОЛЧАНИЮ в общем чате клиента — так отвечают в любом
+ * мессенджере: туда, откуда спросили. Порядок (ревью #332):
+ *  1) только каналы, куда CRM вообще умеет отвечать (`canReply`);
+ *  2) среди них — где клиент писал последним И окно ответа ещё открыто
+ *     (WhatsApp/Instagram/Messenger не пропускают свободный текст позже суток);
+ *  3) открытых нет — где клиент писал последним (строка о закрытом окне
+ *     объяснит, что делать), затем — последний канал вообще.
+ * Ручной выбор в «⋯» всегда важнее; во время набора выбор не меняется (Messages.tsx).
  */
-export function autoReplySourceId(messages: readonly ConversationMessage[], sources: readonly ReplySource[] | undefined): string {
+export function autoReplySourceId(
+  messages: readonly ConversationMessage[],
+  sources: readonly ReplySource[] | undefined,
+  now: Date = new Date(),
+): string {
   const replyable = (sources ?? []).filter((source) => source.canReply);
   if (replyable.length === 0) return "";
-  const ids = new Set(replyable.map((source) => source.id));
+  const channelOf = new Map(replyable.map((source) => [source.id, source.channel]));
+  const lastInbound = new Map<string, string | null>();
+  const inboundOrder: string[] = [];
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m.role === "user" && m.sourceConversationId && ids.has(m.sourceConversationId)) return m.sourceConversationId;
+    if (m.role !== "user" || !m.sourceConversationId || !channelOf.has(m.sourceConversationId)) continue;
+    if (lastInbound.has(m.sourceConversationId)) continue;
+    lastInbound.set(m.sourceConversationId, m.at ?? null);
+    inboundOrder.push(m.sourceConversationId);
   }
+  const open = inboundOrder.find((id) => !isMessagingWindowClosed(channelOf.get(id), lastInbound.get(id) ?? null, now));
+  if (open) return open;
+  if (inboundOrder.length) return inboundOrder[0];
   for (let i = messages.length - 1; i >= 0; i--) {
     const id = messages[i].sourceConversationId;
-    if (id && ids.has(id)) return id;
+    if (id && channelOf.has(id)) return id;
   }
   return replyable[replyable.length - 1].id;
+}
+
+/** Одна сторона разговора в один день: бот и сотрудник — одна сторона («мы»). */
+export function sameSide(a: ConversationMessage | undefined, b: ConversationMessage | undefined, sameDay: (x: string, y: string) => boolean): boolean {
+  if (!a || !b || a.role !== b.role) return false;
+  return !(a.at && b.at && !sameDay(a.at, b.at));
 }
 
 /**
@@ -70,10 +93,7 @@ export function autoReplySourceId(messages: readonly ConversationMessage[], sour
  * видно только в «Сведениях о сообщении», как у бизнес-аккаунта WhatsApp.
  */
 export function isGroupTail(current: ConversationMessage, next: ConversationMessage | undefined, sameDay: (a: string, b: string) => boolean): boolean {
-  if (!next) return true;
-  if (next.role !== current.role) return true;
-  if (current.at && next.at && !sameDay(current.at, next.at)) return true;
-  return false;
+  return !sameSide(current, next, sameDay);
 }
 
 const DELIVERY_WORDS: Record<NonNullable<ConversationMessage["deliveryStatus"]>, string> = {
