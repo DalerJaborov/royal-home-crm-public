@@ -83,7 +83,7 @@ export function TransferPropertyModal({
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} />
         <span className="msg">
           Это прочитает новый хозяин перед тем, как принять объект. Продавец этого объекта, если он у прежнего
-          агента, перейдёт вместе с объектом как новый лид.
+          агента, перейдёт вместе с объектом как новая заявка.
         </span>
       </label>
 

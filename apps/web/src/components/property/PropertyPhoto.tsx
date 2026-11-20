@@ -35,6 +35,12 @@ export interface PropertyPhotoProps {
   className?: string;
   style?: CSSProperties;
   eager?: boolean;
+  /**
+   * Фото целиком по центру, а за ним то же фото размытое и затемнённое (как в каталогах). Нужно там, где рамка не
+   * совпадает с пропорцией снимка: горизонтальное фото в высокой рамке иначе обрезается или тонет в чёрных полях
+   * (кадр владельца с iPhone, 20.11.2026). Размытая копия — тот же адрес, браузер берёт его из кэша.
+   */
+  contain?: boolean;
 }
 
 export function photoCandidates(sources: PropertyPhotoProps["sources"]): string[] {
@@ -56,6 +62,7 @@ export function PropertyPhoto({
   className,
   style,
   eager = false,
+  contain = false,
 }: PropertyPhotoProps) {
   const candidates = photoCandidates(sources);
   const key = candidates.join("|");
@@ -68,13 +75,25 @@ export function PropertyPhoto({
   if (source) {
     return (
       <span className={className} style={{ ...box, ...style }} data-property-photo="">
+        {contain && (
+          <img
+            src={source}
+            alt=""
+            aria-hidden="true"
+            data-photo-backdrop=""
+            loading={eager ? "eager" : "lazy"}
+            decoding="async"
+            draggable={false}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", filter: "blur(24px) brightness(0.55)", transform: "scale(1.2)" }}
+          />
+        )}
         <img
           src={source}
           alt={alt}
           loading={eager ? "eager" : "lazy"}
           decoding="async"
           draggable={false}
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          style={{ position: "relative", width: "100%", height: "100%", objectFit: contain ? "contain" : "cover", display: "block" }}
           onError={() => setFailed({ key, count: attempt + 1 })}
         />
       </span>

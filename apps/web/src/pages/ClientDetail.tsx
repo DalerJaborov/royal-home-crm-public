@@ -673,8 +673,8 @@ function ClientDetailCard() {
     solveRows.push(
       <div className="solve" key="accept">
         <span className="t">
-          <b>Новый лид назначен вам.</b> Телефон и работа с карточкой откроются после принятия. Не примете
-          вовремя, лид уйдёт {client.ownPropertyLead ? "руководителю" : "следующему агенту"}.
+          <b>Новая заявка назначена вам.</b> Телефон и работа с карточкой откроются после принятия. Не примете
+          вовремя, заявка уйдёт {client.ownPropertyLead ? "руководителю" : "следующему агенту"}.
           {client.leadReason && (
             <>
               {" "}
@@ -730,7 +730,7 @@ function ClientDetailCard() {
             </>
           ) : (
             <>
-              <b>Лид ждёт принятия.</b> Назначен агенту {client.assignedAgent?.fullName}. Можно назначить
+              <b>Заявка ждёт принятия.</b> Назначен агенту {client.assignedAgent?.fullName}. Можно назначить
               агента вручную: заявка сразу станет принятой, без таймера.
             </>
           )}
@@ -1122,8 +1122,8 @@ function ClientDetailCard() {
    */
   const commonMiddle = (
     <>
-      <MutationError mutation={acceptLead} fallback="Не удалось принять лид" />
-      <MutationError mutation={declineLead} fallback="Не удалось отклонить лид" />
+      <MutationError mutation={acceptLead} fallback="Не удалось принять заявку" />
+      <MutationError mutation={declineLead} fallback="Не удалось отклонить заявку" />
       <MutationError mutation={updateClient} fallback="Не удалось сохранить изменение" />
       {deleteError && (
         <div className="card tight">
@@ -1319,8 +1319,8 @@ function ClientDetailCard() {
       )}
       {!accountReadOnly && confirmDecline && (
         <ConfirmDialog
-          title="Отклонить лид?"
-          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Лид сразу уйдёт следующему свободному агенту, а если отдать некому или лид по вашему объекту — руководителю. Эту карточку вы больше не увидите."
+          title="Отклонить заявку?"
+          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Заявка сразу уйдёт следующему свободному агенту, а если отдать некому или заявка по вашему объекту — руководителю. Эту карточку вы больше не увидите."
           confirmLabel="Отклонить"
           onConfirm={() => {
             setConfirmDecline(false);
@@ -1599,7 +1599,7 @@ function ClientDetailCard() {
                     {client.kind && !isOther && <span className="chip mute">{clientKindLabel(client)}</span>}
                     {client.isPersonalLead && (
                       <span className="chip" title="Агент привёл клиента сам, не через каналы компании">
-                        Личный лид
+                        Личная заявка
                       </span>
                     )}
                     {lastPropertiesSent && (
@@ -1795,7 +1795,7 @@ function ClientDetailCard() {
               {!royal && overviewNextStep}
 
               {pending && locked ? (
-                <p className="state">Запрос клиента, бюджет и история откроются, когда вы примете лид.</p>
+                <p className="state">Запрос клиента, бюджет и история откроются, когда вы примете заявку.</p>
               ) : (
                 <>
                   {/* «Где ищет» (12.09.2026, docs/geo-match-plan-12-09.md) — карта мест,
@@ -1834,7 +1834,7 @@ function ClientDetailCard() {
             >
               {mobile && <div className="sec-t">Переписка</div>}
               {pending && locked ? (
-                <p className="state">История и переписка откроются, когда вы примете лид.</p>
+                <p className="state">История и переписка откроются, когда вы примете заявку.</p>
               ) : conversations.length > 0 ? (
                 <ClientChatCard
                   conversations={conversations}
@@ -1869,7 +1869,7 @@ function ClientDetailCard() {
             >
               {mobile && <div className="sec-t">Звонки</div>}
               {pending && locked ? (
-                <p className="state">История и переписка откроются, когда вы примете лид.</p>
+                <p className="state">История и переписка откроются, когда вы примете заявку.</p>
               ) : callsCount > 0 ? (
                 <InteractionTimeline
                   interactions={interactions.filter((i) => i.type === "CALL")}
@@ -1918,7 +1918,7 @@ function ClientDetailCard() {
                   этой подписи агент увидел бы обычное «Взаимодействий пока нет» и
                   решил, что у клиента и правда пусто. */}
               {pending && locked ? (
-                <p className="state">История и переписка откроются, когда вы примете лид.</p>
+                <p className="state">История и переписка откроются, когда вы примете заявку.</p>
               ) : (
                 <InteractionTimeline
                   interactions={interactions}

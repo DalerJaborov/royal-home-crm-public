@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **784**. Развилок в самих путях: **2493**; вместе с задачами по расписанию и фоновыми заданиями — **4182**. Модулей: **88**.
+Путей: **785**. Развилок в самих путях: **2496**; вместе с задачами по расписанию и фоновыми заданиями — **4185**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3668,6 +3668,27 @@
 - await enqueueDirectorAlert({ title: "♻️ Просьба восстановить карточку", body: `${author?.fullName ?? "Агент"}…
   · зовёт enqueueDirectorAlert()
 - res.json({ ok: true, message: "Просьба отправлена — карточку восстановит директор или админ, если согласится"…
+  · ответ 200
+
+### GET /api/v1/clients/:id/requirements-suggestion
+
+`apps/api/src/routes/clients/intents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !client
+  - return;
+    · дальше не идёт, ничего не меняя
+- если stale || !confirmedClientIntents(client).buys || !client.aiInsight
+  - return res.json(none);
+    · ответ 200
+- const [districts, places] = await Promise.all([ prisma.district.findMany({ select: { id: true, name: true }, …
+  · читает в базе: district
+  · считает в базе: clientDesiredPlace
+- const suggestion = suggestRequirements(phoneSafeText(client.aiInsight, can(req, "clients.viewPhone")), { desi…
+  · зовёт suggestRequirements()
+- если !suggestion
+  - return res.json(none);
+    · ответ 200
+- res.json({ available: true, fields, labels });
   · ответ 200
 
 ### POST /api/v1/clients/:id/restore

@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { clientBuyerRequirementsSchema, clientIntents, type PropertyType, type ClientBuyerRequirementsInput } from "@royal-home/shared";
 import { useDistricts } from "../hooks/useDistricts";
+import { softenShouting } from "../lib/softenShouting";
 import { api } from "../lib/api";
 import { formatMoney, PROPERTY_TYPE_LABELS } from "../lib/format";
 import type { Client } from "../types";
@@ -36,6 +37,38 @@ export function buyerRequirementsPayload(form: BuyerRequirementsDraft) {
   };
 }
 
+/** Предложение «Взять из разговора» (сервер разбирает строку «Ищет:» сводки клиента; ничего не пишет). */
+interface RequirementsSuggestion { available: boolean; fields: Partial<ClientBuyerRequirementsInput>; labels: string[] }
+
+/**
+ * «ВЗЯТЬ ИЗ РАЗГОВОРА» (20.11.2026): «Всё о клиенте» говорит «Ищет: дом, район Назди Сомон», а запрос ниже — «Тип не указан».
+ * Кнопка стоит там, где запрос пуст, а сводка знает ответ; поля заполняются ТОЛЬКО по нажатию, обычной записью пожеланий
+ * (та же проверка прав на сервере), после неё подбор пересчитывается. Автоматически без нажатия ничего не пишется.
+ */
+export function TakeFromConversation({ client, enabled }: { client: Client; enabled: boolean }) {
+  const query = useQueryClient();
+  const suggestion = useQuery({
+    queryKey: ["client-requirements-suggestion", client.id, client.aiInsight ?? "", client.desiredType ?? "", client.desiredRooms ?? "", client.budgetMax ?? "", client.budgetMin ?? "", client.desiredDistrictId ?? ""],
+    queryFn: () => api<RequirementsSuggestion>(`/clients/${client.id}/requirements-suggestion`),
+    enabled: enabled && !!client.aiInsight, retry: false, staleTime: 60_000,
+  });
+  const apply = useMutation({
+    mutationFn: (fields: Partial<ClientBuyerRequirementsInput>) => api(`/clients/${client.id}/buyer-requirements`, { method: "POST", body: fields }),
+    onSuccess: async () => {
+      await Promise.all([query.invalidateQueries({ queryKey: ["client"] }), query.invalidateQueries({ queryKey: ["clients"] }),
+        query.invalidateQueries({ queryKey: ["client-match", client.id] }), query.invalidateQueries({ queryKey: ["client-requirements-suggestion", client.id] })]);
+    },
+  });
+  const data = suggestion.data;
+  if (!enabled || !data?.available || !data.labels.length) return null;
+  return <div className="client-take-from-talk" data-testid="take-from-conversation">
+    <button type="button" className="pill sm" disabled={apply.isPending} onClick={() => apply.mutate(data.fields)}>
+      {apply.isPending ? "Записываем…" : `Взять из разговора: ${data.labels.join(", ")}`}
+    </button>
+    {apply.isError && <p role="alert" className="state err">Не удалось записать. {apply.error instanceof Error ? apply.error.message : ""}</p>}
+  </div>;
+}
+
 export function ClientBuyerRequirementsEditor({ client, locked }: { client: Client; locked: boolean }) {
   const [open, setOpen] = useState(false);
   if (!clientIntents(client).buys) return null;
@@ -50,8 +83,9 @@ export function ClientBuyerRequirementsEditor({ client, locked }: { client: Clie
   ].filter(Boolean) : [];
   return <div className="client-buyer-summary">
     <div className="client-request"><b>Запрос покупателя</b>{current ? <ul className="client-request-chips">{chips.map((chip, index) => <li key={`${index}:${chip}`}>{chip}</li>)}</ul> : <p>Уточните параметры покупки: прежние сведения относятся к другой роли.</p>}</div>
+    {current && !locked && !client.pendingAcceptance && !!client.aiInsight && <TakeFromConversation client={client} enabled />}
     {!locked && !client.pendingAcceptance && <button type="button" className="pill ghost sm" onClick={() => setOpen(true)}>Уточнить пожелания</button>}
-    {current && client.requirementsNotes && <details className="client-request-notes"><summary>Пожелания словами клиента</summary><p>{client.requirementsNotes}</p></details>}
+    {current && client.requirementsNotes && <details className="client-request-notes"><summary>Пожелания словами клиента</summary><p>{softenShouting(client.requirementsNotes)}</p></details>}
     {open && !locked && !client.pendingAcceptance && <BuyerRequirementsForm key={`${client.id}:${client.requirementsFieldsKind ?? "legacy"}`} client={client} locked={locked} onClose={() => setOpen(false)} />}
   </div>;
 }

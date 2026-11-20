@@ -360,7 +360,8 @@
 }
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-track { aspect-ratio: 4 / 3; max-height: 560px !important; border-radius: 0; }
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-slide { border-radius: 0; }
-:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-slide img { width: 100%; height: 100%; object-fit: cover; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-slide img { width: 100%; height: 100%; object-fit: contain; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-slide img[data-photo-backdrop] { object-fit: cover; }
 :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-count {
   top: auto; right: 12px; bottom: 12px; left: auto; padding: 4px 12px; border-radius: 999px;
   background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: 14px; font-weight: 700; box-shadow: 0 2px 8px rgba(14, 15, 18, .18);
@@ -506,9 +507,11 @@
 :root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-objects-head h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 :root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-objects-head-acts { margin-left: auto; }
 :root[data-ui-look="royal"][data-mobile-ux] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-toolbar > .inp { flex-basis: 100%; }
-:root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-slot[data-record-area="gallery"] { margin-inline: -16px; }
-:root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery { border-radius: 0; }
-:root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .ry-gal-thumbs { padding-inline: 16px; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-slot[data-record-area="gallery"] { margin-inline: 0; }
+/* Фото на телефоне — такая же карточка с отступами и скруглением, как соседние блоки (владелец 20.11.2026: фото шло во всю ширину без
+   скругления, остальное карточками). */
+:root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery { border-radius: var(--rh-ui-r-card); }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .ry-gal-thumbs { padding-inline: 3px; }
 :root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-obj-summary { padding: 16px; }
 :root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-obj-bigprice { font-size: 34px; }
 :root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .card { padding: 16px; }

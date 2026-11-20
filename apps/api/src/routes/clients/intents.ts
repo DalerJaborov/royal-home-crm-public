@@ -11,6 +11,8 @@ import { foreignWriteDenied, presentClient, restoreMaskedNotes } from "./shared.
 import { resolveClientIntentsAutomatically } from "../../lib/clientIntentResolution.js";
 import { logSystemError } from "../../lib/systemError.js";
 import { describeError } from "../../lib/describeError.js";
+import { phoneSafeText } from "../../lib/clientPhone.js";
+import { suggestRequirements } from "../../lib/requirementsFromSummary.js";
 
 export const intentsRouter = Router();
 
@@ -60,6 +62,30 @@ intentsRouter.post("/:id/intents", requireAuth, async (req, res) => {
   publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
   const current = automatic ? await prisma.client.findUniqueOrThrow({ where: { id: client.id } }) : updated;
   res.json(presentClient(current, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
+});
+
+/**
+ * ПРЕДЛОЖЕНИЕ «ВЗЯТЬ ИЗ РАЗГОВОРА» (20.11.2026): что из сводки клиента («Ищет: …») можно записать в пустые поля запроса
+ * покупателя. Только читает и ничего не пишет; без нового вызова ИИ. Права те же, что у записи (`editableClient`):
+ * кому менять карточку нельзя, тому и предлагать нечего. Записывает человек обычным `POST …/buyer-requirements`.
+ */
+intentsRouter.get("/:id/requirements-suggestion", requireAuth, async (req, res) => {
+  const client = await editableClient(req, res);
+  if (!client) return;
+  const none = { available: false, fields: {}, labels: [] as string[] };
+  const stale = client.requirementsFieldsKind != null && client.requirementsFieldsKind !== "BUYER";
+  if (stale || !confirmedClientIntents(client).buys || !client.aiInsight) return res.json(none);
+  const [districts, places] = await Promise.all([
+    prisma.district.findMany({ select: { id: true, name: true }, take: 200 }),
+    prisma.clientDesiredPlace.count({ where: { clientId: client.id } }),
+  ]);
+  const suggestion = suggestRequirements(phoneSafeText(client.aiInsight, can(req, "clients.viewPhone")), {
+    desiredType: client.desiredType, desiredRooms: client.desiredRooms, budgetMin: client.budgetMin, budgetMax: client.budgetMax,
+    desiredDistrictId: client.desiredDistrictId, hasDesiredPlaces: places > 0, requirementsNotes: client.requirementsNotes,
+  }, districts);
+  if (!suggestion) return res.json(none);
+  const { labels, ...fields } = suggestion;
+  res.json({ available: true, fields, labels });
 });
 
 intentsRouter.post("/:id/buyer-requirements", requireAuth, async (req, res) => {

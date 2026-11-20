@@ -400,7 +400,7 @@ function IncomingLeadDialog({
               </button>
             </div>
             {acceptMinutes !== null ? (
-              <p className="li-note">Не ответите за {acceptMinutes} мин, лид передадут дальше</p>
+              <p className="li-note">Не ответите за {acceptMinutes} мин, заявку передадут дальше</p>
             ) : (
               <p className="quiet" style={{ marginTop: 10 }}>
                 <span className="txt">Нет данных: срок принятия виден только руководителю</span>
@@ -421,7 +421,7 @@ function IncomingLeadDialog({
               <MutationError
                 variant="rh2"
                 mutation={acceptLead.isError ? acceptLead : declineLead}
-                fallback={acceptLead.isError ? "Не удалось принять лид" : "Не удалось отклонить лид"}
+                fallback={acceptLead.isError ? "Не удалось принять заявку" : "Не удалось отклонить заявку"}
               />
             )}
           </div>
@@ -430,8 +430,8 @@ function IncomingLeadDialog({
 
       {confirmDecline && (
         <ConfirmDialog
-          title="Отклонить лид?"
-          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Лид сразу уйдёт следующему свободному агенту, а если отдать некому или лид по вашему объекту — руководителю. Эту карточку вы больше не увидите."
+          title="Отклонить заявку?"
+          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Заявка сразу уйдёт следующему свободному агенту, а если отдать некому или заявка по вашему объекту — руководителю. Эту карточку вы больше не увидите."
           confirmLabel="Отклонить"
           layer="above-incoming"
           onConfirm={() => {
@@ -439,7 +439,7 @@ function IncomingLeadDialog({
             declineLead.mutate(undefined, {
               onSuccess: (res) => {
                 onClose();
-                toast.success(res.reassignedTo ? "Отклонён: лид ушёл следующему агенту" : "Отклонён: лид ушёл руководителю");
+                toast.success(res.reassignedTo ? "Отклонён: заявка ушла следующему агенту" : "Отклонён: заявка ушла руководителю");
               },
               // Пока агент решал «Отклонить», лид уже принял кто-то другой
               // (409 «уже принят»), карточку/права успели поменять (403/404) —

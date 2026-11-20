@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
  * с причиной. Список только убывает (лишняя или устаревшая запись тоже краснит).
  */
 const IMG_ALLOWED: Record<string, { count: number; why: string }> = {
-  "components/property/PropertyPhoto.tsx": { count: 1, why: "сама дверь" },
+  "components/property/PropertyPhoto.tsx": { count: 2, why: "сама дверь: фото и его размытая подложка (contain)" },
   // не фото объекта
   "components/MessageAttachments.tsx": { count: 2, why: "вложения переписки" },
   "pages/Messages.tsx": { count: 2, why: "вложения и загрузка в чате" },

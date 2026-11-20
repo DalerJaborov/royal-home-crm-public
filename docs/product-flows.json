@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 784,
-  "forks": 4182,
+  "endpoints": 785,
+  "forks": 4185,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -15992,6 +15992,94 @@
     {
      "k": "do",
      "t": "res.json({ ok: true, message: \"Просьба отправлена — карточку восстановит директор или админ, если согласится\"…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/requirements-suggestion",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/requirements-suggestion",
+   "file": "apps/api/src/routes/clients/intents.ts",
+   "router": "intentsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "stale || !confirmedClientIntents(client).buys || !client.aiInsight",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(none);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const [districts, places] = await Promise.all([ prisma.district.findMany({ select: { id: true, name: true }, …",
+     "a": [
+      "читает в базе: district",
+      "считает в базе: clientDesiredPlace"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const suggestion = suggestRequirements(phoneSafeText(client.aiInsight, can(req, \"clients.viewPhone\")), { desi…",
+     "a": [
+      "зовёт suggestRequirements()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!suggestion",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(none);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ available: true, fields, labels });",
      "a": [
       "ответ 200"
      ],
