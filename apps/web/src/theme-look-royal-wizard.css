@@ -391,7 +391,7 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-search,
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .f .rh-select input.rh-select-search {
   min-height: 52px; padding: 0 16px; border: 0; border-bottom: 1px solid var(--rh-ui-sep); border-radius: 0; background: transparent;
-  font-size: var(--rh-fs-md); color: var(--rh-ui-text); outline: 0; box-shadow: inset 0 0 0 1px var(--rh-ui-field-line);
+  font-size: var(--rh-fs-md); color: var(--rh-ui-text); outline: 0; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-opt { min-height: 48px; padding: 0 16px; font-size: var(--rh-fs-md); color: var(--rh-ui-text); border-bottom: 1px solid var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .rh-select .rh-select-opt:is(:hover, [aria-selected="true"]) { background: var(--rh-ui-hover); }

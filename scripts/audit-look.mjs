@@ -34,6 +34,7 @@
  *   node scripts/audit-look.mjs --list     # все нарушения с номерами строк
  *   node scripts/audit-look.mjs --shrink   # сжать базу до фактических чисел
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,58 +94,102 @@ export function parseCss(css) {
   return { decls, media };
 }
 
-const COLOR_RE = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch)\(|\b(?:white|black)\b/;
-const SIZE_RE = /-?\d*\.?\d+(?:px|rem|pt)\b/;
+/** Все именованные цвета CSS: цвет словом — тот же литерал, что #hex (ревью #337). */
+const NAMED_COLORS = "aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen".split(" ");
+const COLOR_RE = new RegExp(String.raw`#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color)\(|(?<![\w-])(?:${NAMED_COLORS.join("|")})(?![\w-])`, "i");
+const FS_NAMES = "(?:xs|sm|md|lg|xl|2xl|3xl|4xl)";
+const FS_TOKEN = new RegExp(`^var\\(--rh-fs-${FS_NAMES}\\)$`);
+const FS_ANY = new RegExp(`var\\(--rh-fs-${FS_NAMES}\\)`);
+const R_TOKEN = /^var\(--rh-r-(?:sm|md|lg|full)\)$/;
+const KEYWORD = /^(?:inherit|initial|unset|revert)$/;
 const isZero = (t) => /^-?0(?:\.0+)?(?:px)?$/.test(t);
+/** Значение без строк в кавычках и url(): там цвет — часть текста или картинки. */
+const bare = (v) => v.replace(/"[^"]*"|'[^']*'/g, '""').replace(/url\([^)]*\)/g, "url()");
 
-/** Слой тени с размытием, заданный числом (а не токеном). */
-export function blurredShadowLayer(layer) {
+/**
+ * Слой тени, который НЕ является токеном тени или тонкой линией: число с размытием, своя
+ * переменная мимо токенов (`var(--x)`), слой без длин. Токен тени — переменная из файла токенов
+ * с «shadow» в имени; линия — `[inset] x y 0 [spread] <цвет через var()>` (это граница).
+ */
+export function badShadowLayer(layer, shadowTokens = null) {
   const l = layer.replace(/!important/g, "").trim();
-  if (/^(none|inherit|initial|unset)$/.test(l) || /^var\(--[\w-]+\)$/.test(l)) return false;
-  const parts = l.replace(/\([^()]*(\([^()]*\)[^()]*)*\)/g, "X").split(/\s+/).filter((p) => p && p !== "inset");
+  if (/^(none|inherit|initial|unset)$/.test(l)) return false;
+  const only = /^var\((--[\w-]+)\)$/.exec(l);
+  if (only) return !/shadow/.test(only[1]) || (shadowTokens ? !shadowTokens.has(only[1]) : false);
+  const parts = l.replace(/\([^()]*(\([^()]*\)[^()]*)*\)/g, (m) => m.replace(/\s+/g, "")).split(/\s+/).filter((p) => p && p !== "inset");
   const lengths = parts.filter((p) => /^-?\d*\.?\d+(px)?$/.test(p));
+  if (lengths.length < 2) return true;
   return lengths.length >= 3 && !isZero(lengths[2]);
+}
+/** Прежнее имя (тесты): слой с размытием числом. */
+export const blurredShadowLayer = (layer) => badShadowLayer(layer);
+
+/** Признак ширины в @media: только `(min-width: N px)` и `(max-width: N-0,02 px)` из списка. */
+function mediaWidthFindings(head) {
+  const bad = [];
+  for (const m of head.matchAll(/\(([^()]*\bwidth\b[^()]*)\)/g)) {
+    const f = m[1].trim();
+    const ok = /^(min|max)-width:\s*([\d.]+)px$/.exec(f);
+    if (!ok) { bad.push(`(${f})`); continue; }
+    const fine = ok[1] === "min" ? MIN_OK.has(ok[2]) : MAX_OK.has(Number(ok[2]).toFixed(2)) && /\.98$/.test(ok[2]);
+    if (!fine) bad.push(`(${f})`);
+  }
+  return bad;
 }
 
 /** Нарушения одного файла слоя: [{ kind, value, line }]. */
-export function cssFindings(css, { tokenFile = false } = {}) {
+export function cssFindings(css, { tokenFile = false, shadowTokens = null } = {}) {
   const { decls, media } = parseCss(css);
   const out = [];
   for (const { prop, value, line } of decls) {
-    const v = value.replace(/\s*!important\s*$/, "");
+    const v = value.replace(/\s*!important\s*$/, "").trim();
     if (prop.startsWith("--")) {
-      if (!tokenFile && COLOR_RE.test(v)) out.push({ kind: "color", value: `${prop}: ${v}`, line });
+      if (!tokenFile && COLOR_RE.test(bare(v))) out.push({ kind: "color", value: `${prop}: ${v}`, line });
       continue;
     }
-    if (!/mask/.test(prop) && COLOR_RE.test(v.replace(/url\([^)]*\)/g, ""))) out.push({ kind: "color", value: v, line });
-    if (prop === "font-size" || prop === "font") {
-      if (SIZE_RE.test(v)) out.push({ kind: "font-size", value: v, line });
+    if (!/mask/.test(prop) && COLOR_RE.test(bare(v))) out.push({ kind: "color", value: v, line });
+    if (prop === "font-size") {
+      // Только ступень шкалы: ни px/em/%/vw, ни слова (small, larger), ни своя переменная.
+      if (!FS_TOKEN.test(v) && !KEYWORD.test(v)) out.push({ kind: "font-size", value: v, line });
+    } else if (prop === "font") {
+      if (!KEYWORD.test(v) && !FS_ANY.test(v)) out.push({ kind: "font-size", value: v, line });
     } else if (/radius$/.test(prop)) {
-      if (SIZE_RE.test(v) || /\d%/.test(v.replace(/\b50%/g, ""))) out.push({ kind: "radius", value: v, line });
-    } else if (prop === "box-shadow" || prop === "-webkit-box-shadow") {
-      if (splitTop(v).some(blurredShadowLayer)) out.push({ kind: "shadow", value: v, line });
+      const parts = v.split(/\s*\/\s*|\s+/).filter(Boolean);
+      if (!KEYWORD.test(v) && !parts.every((p) => isZero(p) || p === "50%" || R_TOKEN.test(p))) out.push({ kind: "radius", value: v, line });
+    } else if (prop === "box-shadow" || prop === "-webkit-box-shadow" || prop === "text-shadow") {
+      if (splitTop(v).some((layer) => badShadowLayer(layer, shadowTokens))) out.push({ kind: "shadow", value: v, line });
+    } else if (/(^|-)filter$/.test(prop) && /drop-shadow\(/.test(v) && !/drop-shadow\(\s*var\(--[\w-]*shadow[\w-]*\)\s*\)/.test(v)) {
+      out.push({ kind: "shadow", value: v, line });
     }
   }
-  for (const { head, line } of media) {
-    for (const m of head.matchAll(/\((min|max)-width:\s*([\d.]+)px\)/g)) {
-      const ok = m[1] === "min" ? MIN_OK.has(m[2]) : MAX_OK.has(Number(m[2]).toFixed(2)) && /\.98$/.test(m[2]);
-      if (!ok) out.push({ kind: "media", value: m[0], line });
-    }
-    if (/width\s*[<>]=?/.test(head)) out.push({ kind: "media", value: head, line });
-  }
+  for (const { head, line } of media) for (const value of mediaWidthFindings(head)) out.push({ kind: "media", value, line });
   return out;
 }
 
-/** Нарушения во встроенных стилях деталей нового вида (TSX). */
+/** Имена теней из файла токенов: только они годятся слоем тени `var(--…)`. */
+export function shadowTokensOf(tokenCss) {
+  const names = new Set();
+  for (const m of stripComments(tokenCss).matchAll(/(--[\w-]*shadow[\w-]*)\s*:/g)) names.add(m[1]);
+  return names;
+}
+
+/**
+ * Нарушения деталей нового вида (TSX): цвет литералом в строке (hex, rgb/hsl), произвольные
+ * значения tailwind (`text-[11px]`, `bg-[#fff]`, `rounded-[3px]`, `shadow-[…]`), мелкий
+ * `text-xs`, fontSize/borderRadius/boxShadow встроенного стиля не токеном — в том числе на
+ * нескольких строках (проверка идёт по всему тексту, а не построчно).
+ */
 export function tsxFindings(src) {
-  const text = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1");
+  const text = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
   const out = [];
-  const lines = text.split("\n");
-  lines.forEach((l, i) => {
-    if (/["'`]\s*#[0-9a-fA-F]{3,8}\s*["'`]|\brgba?\(/.test(l)) out.push({ kind: "color", value: l.trim().slice(0, 80), line: i + 1 });
-    if (/\b(fontSize|borderRadius)\s*:\s*["'`]?\d/.test(l)) out.push({ kind: "inline-size", value: l.trim().slice(0, 80), line: i + 1 });
-    if (/\bboxShadow\s*:\s*["'`](?!var\()/.test(l)) out.push({ kind: "shadow", value: l.trim().slice(0, 80), line: i + 1 });
-  });
+  const lineAt = (i) => text.slice(0, i).split("\n").length;
+  const push = (kind, i, value) => out.push({ kind, value: value.replace(/\s+/g, " ").slice(0, 80), line: lineAt(i) });
+  for (const m of text.matchAll(/["'`][^"'`\n]*?(#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|oklch|oklab)\()/g)) push("color", m.index, m[0]);
+  for (const m of text.matchAll(/(?<![\w-])(?:[a-z0-9]+:)*(?:text|bg|border(?:-[trblxy])?|ring|outline|fill|stroke|from|via|to|decoration|shadow|rounded(?:-[a-z]{1,2})?|leading|tracking)-\[(?!var\(--rh-)[^\]\s"'`]+\]/g)) push("tailwind", m.index, m[0]);
+  for (const m of text.matchAll(/(?<![\w-])(?:[a-z0-9]+:)*text-xs(?![\w-])/g)) push("font-size", m.index, m[0]);
+  for (const m of text.matchAll(/\bfontSize\s*:(?!\s*["'`]var\(--rh-fs-(?:xs|sm|md|lg|xl|2xl|3xl|4xl)\)["'`])\s*([^,}\n]+)/g)) push("inline-size", m.index, m[0]);
+  for (const m of text.matchAll(/\bborderRadius\s*:(?!\s*["'`]var\(--rh-r-(?:sm|md|lg|full)\)["'`]|0\b)\s*([^,}\n]+)/g)) push("inline-size", m.index, m[0]);
+  for (const m of text.matchAll(/\b(?:boxShadow|textShadow)\s*:(?!\s*["'`](?:none|var\(--[\w-]*shadow[\w-]*\))["'`])\s*([^,}\n]+)/g)) push("shadow", m.index, m[0]);
   return out;
 }
 
@@ -162,9 +207,10 @@ function walkTsx(dir, acc = []) {
 
 export function collect() {
   const files = {};
+  const shadowTokens = shadowTokensOf(readFileSync(join(SRC, TOKEN_FILE), "utf8"));
   for (const name of readdirSync(SRC).filter((f) => LOOK_FILE.test(f)).sort()) {
     const css = readFileSync(join(SRC, name), "utf8");
-    files[`apps/web/src/${name}`] = cssFindings(css, { tokenFile: name === TOKEN_FILE });
+    files[`apps/web/src/${name}`] = cssFindings(css, { tokenFile: name === TOKEN_FILE, shadowTokens });
   }
   for (const p of walkTsx(LOOK_DIR)) files[relative(ROOT, p).replace(/\\/g, "/")] = tsxFindings(readFileSync(p, "utf8"));
   return files;
@@ -198,6 +244,33 @@ export function compare(files, baseline) {
   return { errors, shrinkable, badBase };
 }
 
+/**
+ * «БАЗА ТОЛЬКО УБЫВАЕТ» — проверка, а не обещание (ревью #337): база ветки сверяется с базой
+ * `origin/main`. Новый ключ или выросшее число — красное. На main базы нет — значит, она пустая.
+ * Рост объявляется вслух: строкой `Look-Audit-Base-Growth: <причина>` в сообщении коммита ветки
+ * (облачная проверка ship меток PR не видит) или локально LOOK_AUDIT_BASE_GROWTH=1.
+ */
+export function baselineGrowth(current, main) {
+  const grown = [];
+  for (const [file, entry] of Object.entries(current.files ?? {})) {
+    const before = main.files?.[file]?.counts ?? {};
+    for (const [key, n] of Object.entries(entry.counts ?? {})) {
+      const was = before[key] ?? 0;
+      if (n > was) grown.push(`${file}  ${key}  (${was} -> ${n})`);
+    }
+  }
+  return grown;
+}
+
+export function commitsDeclareGrowth(log) {
+  return /^Look-Audit-Base-Growth:[ \t]*\S/m.test(log ?? "");
+}
+
+function git(args) {
+  const r = spawnSync("git", args, { cwd: ROOT, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  return r.status === 0 ? r.stdout : null;
+}
+
 export function shrink(files, baseline) {
   const next = { ...baseline, files: {} };
   for (const [file, entry] of Object.entries(baseline.files ?? {})) {
@@ -227,6 +300,18 @@ function main() {
     return;
   }
   const { errors, shrinkable, badBase } = compare(files, baseline);
+  const mainText = git(["show", "origin/main:.look-audit-baseline.json"]);
+  const mainBase = mainText ? JSON.parse(mainText) : { files: {} };
+  const growth = baselineGrowth(baseline, mainBase);
+  const declared = process.env.LOOK_AUDIT_BASE_GROWTH === "1" || commitsDeclareGrowth(git(["log", "--format=%B", "origin/main..HEAD"]));
+  if (growth.length && declared) {
+    console.log(`audit:look: база исключений выросла против main (${growth.length}) — объявлено вслух, пропускаю.`);
+  } else if (growth.length) {
+    badBase.push(`база выросла против main: ${growth.length} ключей`);
+    for (const g of growth.slice(0, 10)) badBase.push(`  ${g}`);
+    if (growth.length > 10) badBase.push(`  … ещё ${growth.length - 10}`);
+    badBase.push("База только убывает. Рост объявляется строкой «Look-Audit-Base-Growth: <причина>» в коммите ветки (локально LOOK_AUDIT_BASE_GROWTH=1).");
+  }
   const total = Object.values(files).reduce((s, f) => s + f.length, 0);
   if (shrinkable.length) {
     console.log(`audit:look: в базе больше, чем в коде (${shrinkable.length}) — сожми: npm run audit:look -- --shrink`);

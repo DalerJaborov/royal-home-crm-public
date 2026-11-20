@@ -239,7 +239,7 @@
 :root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .list > button.row .s { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .calendar-task-row .act :is(button, a) { min-height: 44px; }
 
-@media (max-width: 1023.98px) {
+@media (max-width: 819.98px) {
   :root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .pg-h h1 { font-size: var(--rh-fs-2xl); }
   :root[data-ui-look="royal"] .ry-calendar.rh2.screens[data-ry-section="calendar"] .card { padding: 16px; }
 }

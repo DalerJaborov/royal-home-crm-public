@@ -35,6 +35,8 @@ const OWNER_SCREENS: Screen[] = [
   { url: `/messages?open=${LOOK_CONVERSATION_ID}`, ready: ".bub", kinds: ["ghostCall", "blur"] },
   { url: "/", ready: ".ry-today" },
   { url: "/clients", ready: '[data-ry-section="clients"]' },
+  // Настройки: квадрат-рамка внутри капсулы поиска (ревью #337) — двойная рамка поля и мелкий текст.
+  { url: "/settings", ready: ".ry-search", kinds: ["fieldFrame", "smallText", "selectClip"] },
 ];
 
 type Device = { name: string; widths: readonly number[]; options: (width: number) => BrowserContextOptions };
@@ -182,6 +184,7 @@ test("новый вид, сторож геометрии ловит каждую
     // Конституция оболочки (пачка C): текст мельче 13, цель нажатия меньше 44, обрезанный список.
     { url: "/clients", ready: ".ry-crow .ry-crow-name", kind: "smallText", css: `${R} [data-ry-section="clients"] .ry-crow-name { font-size: 11px !important; }` },
     { url: "/", ready: ".ry-section-link", kind: "smallTap", css: `${R} .ry-section-link { min-width: 0 !important; min-height: 20px !important; padding: 0 !important; }` },
+    { url: "/settings", ready: ".ry-search input", kind: "fieldFrame", css: `${R} .ry-search input { box-shadow: inset 0 0 0 1px var(--rh-ui-field-line) !important; }` },
     { url: "/", ready: ".ry-today", kind: "selectClip", optional: true, css: `${R} .clean-shell .clean .clean-decision-select { field-sizing: fixed !important; width: 72px !important; flex: none !important; }` },
   ];
   for (const b of breaks) {

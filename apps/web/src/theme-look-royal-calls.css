@@ -416,10 +416,10 @@
 
 /* ================================ телефон ================================ */
 
-@media (max-width: 1439.98px) {
+@media (max-width: 1023.98px) {
   :root[data-ui-look="royal"] .ry-telephony.rh2.screens[data-ry-section="calls"] .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 1023.98px) {
+@media (max-width: 819.98px) {
   :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-head h1 { font-size: var(--rh-fs-2xl); }
   :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-chats-switch a { width: 48px; }
   :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-row { padding: 12px 16px; }

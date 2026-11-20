@@ -109,49 +109,61 @@ export function RhTile({ variant, icon, label, value, unit, to, alert, note }: {
 }
 
 /**
- * КНОПКА — четыре вида (конституция оболочки, пачка C): `primary` — главное действие, одна на
- * блок; `secondary` — обычное; `ghost` — только текст; `danger` — необратимое. Прежние `soft` и
- * `gray` — синонимы `secondary`, `dark` — `primary` (старые вызовы не ломаются, вид один).
+ * КНОПКА (конституция оболочки, пачка C): `primary` — главное действие, одна на блок; `soft` —
+ * обычное, мягкий синий (по умолчанию, как было); `secondary` — второстепенное, серый тон
+ * (прежнее имя `gray`); `ghost` — только текст; `danger` — необратимое; `dark` — тёмная.
  * `disabledReason` — кнопка выключена, причина видна подписью под ней и озвучивается чтецом:
  * выключенная кнопка без причины для новичка выглядит сломанной (critic-uiux P1-11).
  */
-export type RhButtonVariant = "primary" | "secondary" | "ghost" | "danger";
-type RhButtonVariantInput = RhButtonVariant | "soft" | "gray" | "dark";
-export function rhButtonVariant(variant: RhButtonVariantInput = "secondary"): RhButtonVariant {
-  return variant === "soft" || variant === "gray" ? "secondary" : variant === "dark" ? "primary" : variant;
+export type RhButtonVariant = "primary" | "soft" | "secondary" | "ghost" | "danger" | "dark";
+type RhButtonVariantInput = RhButtonVariant | "gray";
+export function rhButtonVariant(variant: RhButtonVariantInput = "soft"): RhButtonVariant {
+  return variant === "gray" ? "secondary" : variant;
 }
 
-export function RhButton({ variant = "secondary", disabledReason, children, ...rest }: {
+export function RhButton({ variant = "soft", disabledReason, children, ...rest }: {
   variant?: RhButtonVariantInput;
   /** Причина, почему кнопка выключена. Есть причина — кнопка выключена всегда. */
   disabledReason?: string | null;
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const reasonId = useId();
+  // Своя связь («описано там-то») не затирается, а дополняется причиной.
+  const describedBy = [rest["aria-describedby"], disabledReason ? reasonId : undefined].filter(Boolean).join(" ") || undefined;
   const button = (
     <button type="button" {...rest}
       disabled={rest.disabled || !!disabledReason}
       title={disabledReason || rest.title}
-      aria-describedby={disabledReason ? reasonId : rest["aria-describedby"]}
+      aria-describedby={describedBy}
       className={`ry-btn${rest.className ? ` ${rest.className}` : ""}`} data-variant={rhButtonVariant(variant)}>{children}</button>
   );
   if (!disabledReason) return button;
   return <span className="ry-btn-hold">{button}<span id={reasonId} className="ry-btn-reason">{disabledReason}</span></span>;
 }
 
-export function RhLinkButton({ to, variant = "secondary", children, label }: { to: string; variant?: RhButtonVariantInput; children: ReactNode; label?: string }) {
+export function RhLinkButton({ to, variant = "soft", children, label }: { to: string; variant?: RhButtonVariantInput; children: ReactNode; label?: string }) {
   return <Link to={to} className="ry-btn" data-variant={rhButtonVariant(variant)} aria-label={label}>{children}</Link>;
 }
 
-/** Следующий вариант по клавише: стрелки по кругу, Home/End; из невидимого значения — с края. */
-export function rhStepByKey<Id extends string>(ids: readonly Id[], current: Id | undefined, key: string): Id | undefined {
+/**
+ * Следующий вариант по клавише: стрелки по кругу, Home/End; из невидимого значения — с края.
+ * `axis: "horizontal"` — только влево/вправо (вкладки: вверх/вниз прокручивают страницу).
+ */
+export function rhStepByKey<Id extends string>(ids: readonly Id[], current: Id | undefined, key: string, axis: "both" | "horizontal" = "both"): Id | undefined {
   if (!ids.length) return undefined;
   if (key === "Home") return ids[0];
   if (key === "End") return ids[ids.length - 1];
-  const step = key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
+  const vertical = axis === "both";
+  const step = key === "ArrowRight" || (vertical && key === "ArrowDown") ? 1 : key === "ArrowLeft" || (vertical && key === "ArrowUp") ? -1 : 0;
   if (!step) return undefined;
   const index = current === undefined ? -1 : ids.indexOf(current);
   const from = index < 0 ? (step > 0 ? -1 : 0) : index;
   return ids[(from + step + ids.length) % ids.length];
+}
+
+/** Какой вариант в порядке Tab: выбранный, если он доступен, иначе первый доступный. */
+export function rhTabStop<Id extends string>(choices: readonly { id: Id; disabled?: boolean }[], value: Id | undefined): Id | undefined {
+  const selected = choices.find((c) => c.id === value && !c.disabled);
+  return (selected ?? choices.find((c) => !c.disabled))?.id;
 }
 
 export type RhChoice<Id extends string> = {
@@ -175,7 +187,7 @@ export function RhSegmented<Id extends string>({ value, options, onChange, label
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const ids = options.filter((o) => !o.disabled).map((o) => o.id);
-  const checked = options.findIndex((o) => o.id === value);
+  const tabStop = rhTabStop(options, value);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const next = rhStepByKey(ids, value, event.key);
     if (!next) return;
@@ -185,10 +197,10 @@ export function RhSegmented<Id extends string>({ value, options, onChange, label
   };
   return (
     <div ref={ref} role="radiogroup" aria-label={label} className={`ry-seg${className ? ` ${className}` : ""}`} onKeyDown={onKeyDown}>
-      {options.map((o, index) => (
+      {options.map((o) => (
         <button key={o.id} type="button" role="radio" {...o.attrs} data-rh-choice={o.id}
           aria-checked={o.id === value} aria-label={o.ariaLabel} disabled={o.disabled}
-          tabIndex={index === (checked < 0 ? 0 : checked) ? 0 : -1}
+          tabIndex={o.id === tabStop ? 0 : -1}
           onClick={() => onChange(o.id)}>
           {o.label}
         </button>
@@ -207,15 +219,16 @@ export function RhTabs<Id extends string>({ value, tabs, onChange, label, idPref
   idPrefix: string; className?: string; tabClassName?: string;
 }) {
   const ids = tabs.filter((t) => !t.disabled).map((t) => t.id);
+  const tabStop = rhTabStop(tabs, value);
   return (
     <div role="tablist" aria-label={label} className={`ry-tabs${className ? ` ${className}` : ""}`}>
       {tabs.map((t) => (
         <button key={t.id} type="button" role="tab" {...t.attrs} id={`${idPrefix}-tab-${t.id}`}
           aria-selected={t.id === value} aria-label={t.ariaLabel} aria-controls={`${idPrefix}-panel-${t.id}`}
-          tabIndex={t.id === value ? 0 : -1} disabled={t.disabled} className={tabClassName}
+          tabIndex={t.id === tabStop ? 0 : -1} disabled={t.disabled} className={tabClassName}
           onClick={(event) => { onChange(t.id); event.currentTarget.scrollIntoView?.({ block: "nearest", inline: "nearest" }); }}
           onKeyDown={(event) => {
-            const next = rhStepByKey(ids, t.id, event.key);
+            const next = rhStepByKey(ids, t.id, event.key, "horizontal");
             if (!next) return;
             event.preventDefault();
             onChange(next);

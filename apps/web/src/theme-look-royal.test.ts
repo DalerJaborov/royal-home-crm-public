@@ -164,8 +164,11 @@ describe("theme-look-royal*.css", () => {
 export function normalizeClassAttr(css: string): string {
   return css.replace(/\[\s*class\s*~=\s*(["']?)([\w-]+)\1(?:\s+[is])?\s*\]/gi, ".$2");
 }
-/** Исключения: кнопки с Tailwind-фоном (`bg-…`) исключаются из перекраски — это не класс, а семейство. */
-const CLASS_ATTR_ALLOWED = new Set(['[class*="bg-"]']);
+/**
+ * Исключения — семейства Tailwind, а не классы: кнопки с фоном (`bg-…`) исключаются из перекраски,
+ * поля с рамкой (`border…`) — из общей границы поля (пачка C, ревью #337: двойная рамка).
+ */
+const CLASS_ATTR_ALLOWED = new Set(['[class*="bg-"]', '[class*="border"]']);
 /** Формы атрибута класса, которые сторожа не умеют читать как класс: в слоях их быть не должно. */
 export function classAttributeForms(css: string): string[] {
   const text = normalizeClassAttr(css.replace(/\/\*[\s\S]*?\*\//g, ""));
@@ -1142,16 +1145,30 @@ describe("конституция оболочки: шкалы токенов и 
   const lum = (hex: string) => { const [r, g, b] = rgb(hex).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
   const contrast = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
 
-  it("шрифт: 8 ступеней, мельче 13 нет, на телефоне и под пальцем текст ≥ 15/16", () => {
-    const sizes = Object.entries(light).filter(([k]) => /^--rh-fs-/.test(k)).map(([, v]) => parseFloat(v));
-    expect(sizes).toHaveLength(8);
-    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(13);
+  it("шрифт: 8 ступеней × личный масштаб, мельче 13 нет; на телефоне текст 17, вторичный 15, строка 18", () => {
+    const steps = Object.entries(light).filter(([k]) => /^--rh-fs-[\w]+-base$/.test(k)).map(([, v]) => parseFloat(v));
+    expect(steps).toHaveLength(8);
+    expect(Math.min(...steps)).toBeGreaterThanOrEqual(13);
+    for (const name of ["xs", "sm", "md", "lg", "xl", "2xl", "3xl", "4xl"]) {
+      expect(light[`--rh-fs-${name}`]).toBe(`calc(var(--rh-fs-${name}-base) * var(--rh-text-scale))`);
+    }
     const phone = /@media \(max-width: 767\.98px\) \{\s*:root\[data-ui-look="royal"\] \{([^}]*)\}/.exec(base)?.[1] ?? "";
     const touch = /:root\[data-ui-look="royal"\]\[data-mobile-ux\] \{([^}]*)\}/.exec(base)?.[1] ?? "";
     for (const block of [phone, touch]) {
-      expect(parseFloat(/--rh-fs-sm:\s*([\d.]+)px/.exec(block)?.[1] ?? "0")).toBeGreaterThanOrEqual(15);
-      expect(parseFloat(/--rh-fs-md:\s*([\d.]+)px/.exec(block)?.[1] ?? "0")).toBeGreaterThanOrEqual(16);
+      expect(parseFloat(/--rh-fs-sm-base:\s*([\d.]+)px/.exec(block)?.[1] ?? "0")).toBeGreaterThanOrEqual(15);
+      expect(parseFloat(/--rh-fs-md-base:\s*([\d.]+)px/.exec(block)?.[1] ?? "0")).toBe(17);
+      expect(parseFloat(/--rh-fs-lg-base:\s*([\d.]+)px/.exec(block)?.[1] ?? "0")).toBe(18);
     }
+    expect(base).toMatch(/:root\[data-ui-look="royal"\]\[data-text-size="large"\] \{ --rh-text-scale: 1\.12; \}/);
+    expect(base).toMatch(/:root\[data-ui-look="royal"\]\[data-text-size="xlarge"\] \{ --rh-text-scale: 1\.25; \}/);
+  });
+  it.each([["светлая", light], ["тёмная", night]] as const)("%s тема: серый вторичный текст ≥ 4,5:1 к карточке, фону и подложке", (_, vars) => {
+    const hint = resolve(vars, "var(--rh-ui-hint)");
+    for (const surface of ["--rh-ui-card", "--rh-ui-bg", "--rh-ui-raised"]) {
+      expect(contrast(hint, resolve(vars, `var(${surface})`)), `${hint} к ${surface}`).toBeGreaterThanOrEqual(4.5);
+    }
+    // Тройка для tailwind text-g500/g600 — тот же цвет.
+    expect(vars["--rh-ui-hint-rgb"].split(/\s+/).map(Number)).toEqual(rgb(hint).map((c) => Math.round(c * 255)));
   });
   it("скругления — четыре, тени — три", () => {
     expect(Object.keys(light).filter((k) => /^--rh-r-/.test(k)).sort()).toEqual(["--rh-r-full", "--rh-r-lg", "--rh-r-md", "--rh-r-sm"]);

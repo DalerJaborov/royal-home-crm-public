@@ -4,7 +4,7 @@ import * as ReactDomClient from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
-import { RhButton, RhNavTabs, RhSegmented, RhTabs, rhButtonVariant, rhStepByKey } from "./ui";
+import { RhButton, RhNavTabs, RhSegmented, RhTabs, rhButtonVariant, rhStepByKey, rhTabStop } from "./ui";
 
 /**
  * ОБЩИЕ ДЕТАЛИ КОНСТИТУЦИИ (пачка C, 20.11.2026): один Segmented, один Tabs, четыре вида кнопки,
@@ -33,6 +33,16 @@ describe("rhStepByKey — одно правило клавиш на перекл
     expect(rhStepByKey(ids, "b", "Home")).toBe("a");
     expect(rhStepByKey(ids, "a", "End")).toBe("c");
     expect(rhStepByKey(ids, "a", "x")).toBeUndefined();
+  });
+  it("вкладки: только влево/вправо, вверх/вниз прокручивают страницу", () => {
+    expect(rhStepByKey(ids, "a", "ArrowDown", "horizontal")).toBeUndefined();
+    expect(rhStepByKey(ids, "a", "ArrowUp", "horizontal")).toBeUndefined();
+    expect(rhStepByKey(ids, "a", "ArrowRight", "horizontal")).toBe("b");
+  });
+  it("выбранный выключен — в порядке Tab первый доступный", () => {
+    expect(rhTabStop([{ id: "a", disabled: true }, { id: "b" }, { id: "c" }], "a")).toBe("b");
+    expect(rhTabStop([{ id: "a" }, { id: "b" }], "zz")).toBe("a");
+    expect(rhTabStop([{ id: "a" }, { id: "b" }], "b")).toBe("b");
   });
   it("значение вне вариантов: вправо — первый, влево — последний", () => {
     expect(rhStepByKey(ids, "zz" as never, "ArrowRight")).toBe("a");
@@ -76,6 +86,22 @@ describe("RhTabs и RhNavTabs", () => {
     expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
     expect(html).toContain('class="ry-tabs"');
   });
+  it("стрелка вниз во вкладках не перехватывается", () => {
+    let value = "short";
+    const el = mount(createElement(RhTabs<string>, {
+      value, idPrefix: "v", label: "x", onChange: (v) => { value = v; },
+      tabs: [{ id: "short", label: "А" }, { id: "hist", label: "Б" }],
+    }));
+    key(el.querySelector("#v-tab-short")!, "ArrowDown");
+    expect(value).toBe("short");
+  });
+  it("выбранная вкладка выключена — Tab попадает на первую доступную", () => {
+    const html = renderToStaticMarkup(createElement(RhTabs<string>, {
+      value: "a", idPrefix: "d", label: "x", onChange: () => {},
+      tabs: [{ id: "a", label: "А", disabled: true }, { id: "b", label: "Б" }],
+    }));
+    expect(html).toMatch(/id="d-tab-b"[^>]*tabindex="0"/);
+  });
   it("клавиша End выбирает последнюю вкладку", () => {
     let value = "short";
     const el = mount(createElement(RhTabs<string>, {
@@ -96,13 +122,17 @@ describe("RhTabs и RhNavTabs", () => {
 });
 
 describe("RhButton — четыре вида, выключенная с причиной", () => {
-  it("прежние имена — синонимы четырёх видов", () => {
-    expect(rhButtonVariant("soft")).toBe("secondary");
+  it("по умолчанию — мягкий синий (как было), gray — синоним secondary", () => {
+    expect(rhButtonVariant()).toBe("soft");
     expect(rhButtonVariant("gray")).toBe("secondary");
-    expect(rhButtonVariant("dark")).toBe("primary");
-    expect(rhButtonVariant()).toBe("secondary");
-    const html = renderToStaticMarkup(createElement(RhButton, { variant: "gray" }, "Повторить"));
-    expect(html).toContain('data-variant="secondary"');
+    expect(rhButtonVariant("dark")).toBe("dark");
+    expect(renderToStaticMarkup(createElement(RhButton, null, "Повторить"))).toContain('data-variant="soft"');
+    expect(renderToStaticMarkup(createElement(RhButton, { variant: "gray" }, "Повторить"))).toContain('data-variant="secondary"');
+  });
+  it("своё aria-describedby не затирается причиной, а дополняется", () => {
+    const html = renderToStaticMarkup(createElement(RhButton, { "aria-describedby": "hint-1", disabledReason: "Нет связи" }, "Отправить"));
+    expect(html).toMatch(/aria-describedby="hint-1 [^"]+"/);
+    expect(renderToStaticMarkup(createElement(RhButton, { "aria-describedby": "hint-1" }, "Ок"))).toContain('aria-describedby="hint-1"');
   });
   it("есть причина — кнопка выключена, причина видна и связана с кнопкой", () => {
     const html = renderToStaticMarkup(createElement(RhButton, { variant: "primary", disabledReason: "Выберите объекты — 0 из 5" }, "Отправить"));

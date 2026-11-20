@@ -23,7 +23,8 @@
   --rh-ui-card: #ffffff;
   --rh-ui-raised: #e9eaee;
   --rh-ui-text: #0e0f12;
-  --rh-ui-hint: #5a6070;
+  --rh-ui-hint: #4f5565;
+  --rh-ui-hint-rgb: 79 85 101;
   --rh-ui-sep: rgba(14, 15, 18, .08);
   --rh-ui-ring: rgba(14, 15, 18, .06);
   --rh-ui-press: rgba(90, 96, 112, .13);
@@ -94,7 +95,8 @@
   --rh-ui-card: #161a21;
   --rh-ui-raised: #1d222b;
   --rh-ui-text: #eceef3;
-  --rh-ui-hint: #a3aabb;
+  --rh-ui-hint: #b2b9c8;
+  --rh-ui-hint-rgb: 178 185 200;
   --rh-ui-sep: rgba(255, 255, 255, .08);
   --rh-ui-ring: rgba(255, 255, 255, .07);
   --rh-ui-press: rgba(255, 255, 255, .08);
@@ -150,11 +152,11 @@
  * точку перелома вне списка. Разбор и было → стало — docs/design/look-constitution.md.
  *
  * ШРИФТ — 6 ступеней текста + 2 для цифр и заголовка страницы ПК:
- *   xs 13  подписи, время, коды, значки-счётчики (мельче 13 не бывает нигде)
+ *   xs 13  только метки и значки: счётчик, чип, код, время в пузыре (мельче 13 не бывает нигде)
  *   sm 14  вторичный текст; на телефоне и под пальцем — 15
- *   md 15  основной текст, кнопки, поля; на телефоне и под пальцем — 16
- *          (16 в поле ввода — меньше iOS увеличивает страницу при фокусе)
- *   lg 17  название строки, карточки
+ *   md 15  основной текст, кнопки, поля; на телефоне и под пальцем — 17 (решение владельца 20.11;
+ *          в поле ввода меньше 16 iOS увеличивает страницу при фокусе)
+ *   lg 17  название строки, карточки; на телефоне и под пальцем — 18
  *   xl 20  заголовок раздела, окна
  *   2xl 28 заголовок страницы на телефоне, цифра плитки
  *   3xl 32 заголовок страницы на ПК, крупная цифра
@@ -169,14 +171,26 @@
  *   меню), 1440 (широкий). Вид «max-width» — на 0,02 меньше: 389.98, 767.98, …
  */
 :root[data-ui-look="royal"] {
-  --rh-fs-xs: 13px;
-  --rh-fs-sm: 14px;
-  --rh-fs-md: 15px;
-  --rh-fs-lg: 17px;
-  --rh-fs-xl: 20px;
-  --rh-fs-2xl: 28px;
-  --rh-fs-3xl: 32px;
-  --rh-fs-4xl: 40px;
+  /* Шрифт = ступень × личный масштаб «Размер текста» (Профиль → Оформление: обычный / крупный
+     +12% / очень крупный +25%, data-text-size на <html>, store/uiPrefs.ts). Ступени — -base,
+     слои экранов берут только итоговые --rh-fs-* (сторож audit:look). */
+  --rh-text-scale: 1;
+  --rh-fs-xs-base: 13px;
+  --rh-fs-sm-base: 14px;
+  --rh-fs-md-base: 15px;
+  --rh-fs-lg-base: 17px;
+  --rh-fs-xl-base: 20px;
+  --rh-fs-2xl-base: 28px;
+  --rh-fs-3xl-base: 32px;
+  --rh-fs-4xl-base: 40px;
+  --rh-fs-xs: calc(var(--rh-fs-xs-base) * var(--rh-text-scale));
+  --rh-fs-sm: calc(var(--rh-fs-sm-base) * var(--rh-text-scale));
+  --rh-fs-md: calc(var(--rh-fs-md-base) * var(--rh-text-scale));
+  --rh-fs-lg: calc(var(--rh-fs-lg-base) * var(--rh-text-scale));
+  --rh-fs-xl: calc(var(--rh-fs-xl-base) * var(--rh-text-scale));
+  --rh-fs-2xl: calc(var(--rh-fs-2xl-base) * var(--rh-text-scale));
+  --rh-fs-3xl: calc(var(--rh-fs-3xl-base) * var(--rh-text-scale));
+  --rh-fs-4xl: calc(var(--rh-fs-4xl-base) * var(--rh-text-scale));
   --rh-r-sm: 8px;
   --rh-r-md: 16px;
   --rh-r-lg: 24px;
@@ -213,11 +227,19 @@
   --rh-tab-on: var(--rh-ui-primary-soft);
   --rh-tab-on-fg: var(--rh-ui-primary-soft-fg);
 }
-/* Телефон и любой экран под пальцем: текст на ступень крупнее (конституция: ≥ 15 для текста). */
+/* Телефон и любой экран под пальцем — решение владельца 20.11 («слишком мелкий шрифт»): основной
+   текст 17, вторичный 15, 13 — только метки и значки, название строки 18. */
 @media (max-width: 767.98px) {
-  :root[data-ui-look="royal"] { --rh-fs-sm: 15px; --rh-fs-md: 16px; }
+  :root[data-ui-look="royal"] { --rh-fs-sm-base: 15px; --rh-fs-md-base: 17px; --rh-fs-lg-base: 18px; }
 }
-:root[data-ui-look="royal"][data-mobile-ux] { --rh-fs-sm: 15px; --rh-fs-md: 16px; }
+:root[data-ui-look="royal"][data-mobile-ux] { --rh-fs-sm-base: 15px; --rh-fs-md-base: 17px; --rh-fs-lg-base: 18px; }
+:root[data-ui-look="royal"][data-text-size="large"] { --rh-text-scale: 1.12; }
+:root[data-ui-look="royal"][data-text-size="xlarge"] { --rh-text-scale: 1.25; }
+/* Серый вторичный текст прежней разметки (.rh2 --muted/--faint, tailwind text-g500/g600, подсказка
+   в поле) — тот же --rh-ui-hint: ≥ 4,5:1 к карточке, фону и подложке в обеих темах (тест). */
+:root[data-ui-look="royal"] :is(.rh2, .rh2 .mh, .rh2 .wiz) { --muted: var(--rh-ui-hint); --faint: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] { --rgb-g500: var(--rh-ui-hint-rgb); --rgb-g600: var(--rh-ui-hint-rgb); }
+:root[data-ui-look="royal"] ::placeholder { color: var(--rh-ui-hint); opacity: 1; }
 
 /* ============================== оболочка ============================== */
 
@@ -400,7 +422,7 @@
   min-height: 52px; gap: 3px; border-radius: var(--rh-r-full); color: var(--rh-ui-cap-fg); transition: none;
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab[aria-current="page"] {
-  background: var(--rh-ui-cap-pill); color: var(--rh-ui-cap-pill-fg); box-shadow: var(--rh-ui-shadow-sm);
+  background: var(--rh-ui-cap-pill); color: var(--rh-ui-cap-pill-fg); box-shadow: var(--rh-ui-cap-pill-shadow);
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab [data-tab-icon] { display: grid; place-items: center; width: 28px; height: 26px; background: transparent; box-shadow: none; }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-icon] svg { width: 24px; height: 24px; }
@@ -567,23 +589,23 @@
   color: var(--rh-ui-primary-ink); text-decoration: none;
 }
 
-/* Кнопки: таблетка, высота 48; одна синяя на экран. ЧЕТЫРЕ вида (пачка C, critic-uiux P1-11):
-   primary — главное действие (одно на блок); secondary — обычное (серый тон);
-   ghost — только текст; danger — необратимое (красная). Прежние имена gray/soft/dark —
-   синонимы (soft, gray -> secondary; dark -> primary), чтобы старые экраны не ломались. */
+/* Кнопки: таблетка, высота 48; одна синяя на экран (пачка C, critic-uiux P1-11). Смыслы:
+   primary — главное действие (одно на блок); soft — обычное, мягкий синий (вид по умолчанию,
+   как было); secondary — второстепенное, серый тон (прежнее имя gray); ghost — только текст;
+   danger — необратимое (красная); dark — тёмная (как было). */
 :root[data-ui-look="royal"] .ry-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 20px;
   border: 0; border-radius: var(--rh-r-full); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none; cursor: pointer;
-  background: var(--rh-ui-press); color: var(--rh-ui-text);
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
   transition: transform 90ms cubic-bezier(.23, 1, .32, 1), background-color 160ms;
 }
 /* Выключенная кнопка не отзывается ни на нажатие, ни на наведение (18.11): иначе она
    «живая» под пальцем и мышью. Сторож — disabledReactions в theme-look-royal.test.ts. */
 :root[data-ui-look="royal"] .ry-btn:active:not(:disabled) { transform: scale(.97); }
-:root[data-ui-look="royal"] .ry-btn:is([data-variant="primary"], [data-variant="dark"]) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
-:root[data-ui-look="royal"] .ry-btn:is([data-variant="primary"], [data-variant="dark"]):hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
-:root[data-ui-look="royal"] .ry-btn:is([data-variant="secondary"], [data-variant="gray"], [data-variant="soft"]) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-btn:is([data-variant="secondary"], [data-variant="gray"], [data-variant="soft"]):hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-press) 80%, var(--rh-ui-hint)); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="primary"] { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="primary"]:hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="dark"] { background: var(--rh-ui-text); color: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .ry-btn:is([data-variant="secondary"], [data-variant="gray"]) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-btn[data-variant="ghost"] { background: transparent; color: var(--rh-ui-primary-ink); padding: 0 12px; }
 :root[data-ui-look="royal"] .ry-btn[data-variant="ghost"]:hover:not(:disabled) { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .ry-btn[data-variant="danger"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
@@ -593,7 +615,7 @@
 /* Выключенная кнопка с причиной (RhButton disabledReason): причина подписью под кнопкой —
    на телефоне наведения нет, одной всплывающей подсказки мало. */
 :root[data-ui-look="royal"] .ry-btn-hold { display: inline-grid; justify-items: center; gap: 4px; min-width: 0; max-width: 100%; }
-:root[data-ui-look="royal"] .ry-btn-reason { font-size: var(--rh-fs-xs); line-height: 1.3; color: var(--rh-ui-hint); text-align: center; text-wrap: balance; }
+:root[data-ui-look="royal"] .ry-btn-reason { font-size: var(--rh-fs-sm); line-height: 1.3; color: var(--rh-ui-hint); text-align: center; text-wrap: balance; }
 
 /* Переключатель 56×34, бегунок 28; «вкл» — синий. */
 :root[data-ui-look="royal"] .ry-switch {
@@ -632,7 +654,7 @@
 :root[data-ui-look="royal"] .ry-tile-label { position: relative; display: flex; align-items: center; gap: 8px; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.2; }
 :root[data-ui-look="royal"] .ry-tile-label svg { flex: none; }
 :root[data-ui-look="royal"] .ry-tile-value { font-size: var(--rh-fs-4xl); line-height: 1; }
-:root[data-ui-look="royal"] .ry-tile-value small { margin-left: 4px; font-size: .5em; letter-spacing: 0; }
+:root[data-ui-look="royal"] .ry-tile-value small { margin-left: 4px; font-size: var(--rh-fs-xl); letter-spacing: 0; }
 :root[data-ui-look="royal"] .ry-tile-alert { width: 12px; height: 12px; flex: none; margin-left: auto; border-radius: var(--rh-r-full); background: var(--rh-ui-crit); box-shadow: 0 0 0 2px var(--rh-ui-on-color); }
 
 /* Состояния блоков: коротко и безлично. */
@@ -704,7 +726,7 @@
 }
 :root[data-ui-look="royal"] .ry-team-person:hover { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .ry-team-person b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--rh-fs-md); font-weight: 600; }
-:root[data-ui-look="royal"] .ry-team-status { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: var(--rh-fs-xs); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-team-status { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-team-status[data-tone="warn"] { color: var(--rh-ui-warn); }
 
 :root[data-ui-look="royal"] .ry-bar-row .ry-row-text { gap: 8px; }
@@ -843,12 +865,18 @@
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):is([aria-selected="true"], [aria-current="page"]):is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
 
 /* Поля: видимая граница >= 3:1 (было: серая заливка без рамки на белом — 1,2:1, critic-uiux P1-10).
-   Линия — внутренней тенью: слои экранов ставят border: 0, а фокус рисуют обводкой (outline). */
-:root[data-ui-look="royal"] :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="hidden"], [type="submit"], [type="button"], [type="image"]), select, textarea) {
+   Линия — внутренней тенью: слои экранов ставят border: 0, а фокус рисуют обводкой (outline).
+   Правило целиком в :where() — нулевой вес: любое правило слоя или детали с своей рамкой
+   его перебивает. Не рисуется (ревью #337): у поля со своей рамкой (класс border*), у поля
+   внутри обёртки-капсулы (подпись со значком — поиск; выпадающий список; шторка вопроса; ответ;
+   форма помощника) — там рамку рисует обёртка. Сторож — вид геометрии fieldFrame. */
+:root[data-ui-look="royal"] :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="hidden"], [type="submit"], [type="button"], [type="image"]), select, textarea):where(:not([class*="border"])):where(:not(:is(.ry-search, .clean-settings-search, .rh-select, .qsheet, .lf-reply, .ai-q-form, .srch, [role="search"], label:has(> svg)) *)) {
   box-shadow: inset 0 0 0 1px var(--rh-ui-field-line);
 }
 /* Выпадающий список не режет выбранное: ширина по содержимому, не шире строки. */
-:root[data-ui-look="royal"] select { min-width: 0; max-width: 100%; text-overflow: clip; field-sizing: content; }
+/* Ширина по содержимому (field-sizing), но не уже 12em: короткие пункты не дёргают ширину при
+   выборе, а где field-sizing нет (Safari) — список держит ту же ширину-запас. */
+:root[data-ui-look="royal"] :where(select) { min-width: min(100%, 12em); max-width: 100%; text-overflow: clip; field-sizing: content; }
 :root[data-ui-look="royal"] .clean-shell .clean .clean-decision-select { max-width: 100%; font-size: var(--rh-fs-md); text-overflow: clip; field-sizing: content; }
 :root[data-ui-look="royal"] .clean-shell .clean .clean-decision-actions > .clean-decision-select { flex: 1 1 auto; }
 

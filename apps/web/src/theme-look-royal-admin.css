@@ -203,7 +203,7 @@
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr h3,
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet h3 { margin: 16px 0 4px; font-size: var(--rh-fs-lg); font-weight: 700; line-height: 1.3; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr :is(p, label, small, blockquote),
-:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet :is(p, label, small, blockquote) { font-size: max(1em, var(--rh-fs-sm)); line-height: 1.5; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet :is(p, label, small, blockquote) { font-size: var(--rh-fs-md); line-height: 1.5; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr p.sub,
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] .sheet p.sub { margin: 6px 0 8px; font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-hint); text-wrap: pretty; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr blockquote,
@@ -228,7 +228,7 @@
 /* Подсказка «только на телефоне» (.only-narrow) остаётся скрытой на ПК правилом прежней темы:
    форму строки ей даём, а видимость — только на узком экране. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet:not(.only-narrow) { display: flex; }
-@media (max-width: 1023.98px) {
+@media (max-width: 819.98px) {
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet.only-narrow { display: flex; }
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .quiet {
@@ -533,7 +533,7 @@
   position: sticky; left: 0; z-index: 1; padding-left: 0; padding-right: 12px; background: var(--rh-ui-card);
 }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr > td.nm > b { font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr > td.nm > span { display: block; margin-top: 2px; font-size: var(--rh-fs-xs); line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr > td.nm > span { display: block; margin-top: 2px; font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr.grp > td { height: auto; padding: 24px 0 8px; border-top: 0; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .rmx > tbody > tr.grp > td > b {
   font-size: var(--rh-fs-md); font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);

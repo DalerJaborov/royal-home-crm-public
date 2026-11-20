@@ -56,7 +56,7 @@
   margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
-@media (max-width: 1439.98px) and (min-width: 820px) {
+@media (max-width: 1023.98px) and (min-width: 820px) {
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] { --ry-chat-list-w: 300px; }
 }
 
@@ -291,7 +291,7 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-note[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-note svg { width: 18px; height: 18px; flex: none; }
 
-/* Рабочее поле разговора и данные клиента рядом (≥1180 — колонкой справа). */
+/* Рабочее поле разговора и данные клиента рядом (с 1440 — колонкой справа; уже — поверх, пачка C). */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation-workspace { background: var(--rh-ui-bg); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-contact-details {
   padding: 16px 20px !important; border: 0 !important; background: var(--rh-ui-card); box-shadow: 0 1px 0 var(--rh-ui-sep);
@@ -329,7 +329,7 @@
   position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .tm { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; font-size: var(--rh-fs-xs); color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .meta { font-size: var(--rh-fs-xs); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .meta { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) :is(.who, .tm, .meta, .note) { color: color-mix(in srgb, var(--rh-ui-on-color) 86%, transparent); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) :is(a, .lnk, .tm svg) { color: var(--rh-ui-on-color); }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) .who { background: transparent; border: 0; padding: 0; }

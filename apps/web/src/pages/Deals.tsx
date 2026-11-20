@@ -863,7 +863,7 @@ export function Deals() {
                       {canComplete ? (
                         <button
                           className="ry-btn ry-deal-close"
-                          data-variant="secondary"
+                          data-variant="soft"
                           type="button"
                           disabled={updateDeal.isPending}
                           onClick={(e) => {

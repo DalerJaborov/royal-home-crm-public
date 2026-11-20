@@ -21,7 +21,7 @@ test("литералы вне токенов ловятся по каждому 
 });
 
 test("токены, круг, линия-обводка и маска — не нарушения", () => {
-  const ok = `${R} { font-size: var(--rh-fs-md); font-size: .5em; border-radius: var(--rh-r-lg); border-radius: 50%; border-radius: 0;
+  const ok = `${R} { font-size: var(--rh-fs-md); border-radius: var(--rh-r-lg); border-radius: 50%; border-radius: 0;
     box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); box-shadow: inset 0 -1px 0 var(--rh-ui-sep); box-shadow: none !important;
     color: color-mix(in srgb, var(--rh-ui-crit) 86%, var(--rh-ui-mix-dark)); mask-image: linear-gradient(90deg, #000 80%, transparent); }
     @media (max-width: 767.98px) and (min-width: 390px) { ${R} { color: var(--rh-ui-text); } }
@@ -77,4 +77,63 @@ test("сжатие базы только уменьшает", () => {
   const next = shrink(files, base);
   assert.deepEqual(next.files["a.css"].counts, { "color #111": 1 });
   assert.deepEqual(countKeys(files["a.css"]), { "color #111": 1, "color #333": 2 });
+});
+
+/* ───── обходы, найденные ревью #337: каждый обязан краснеть ───── */
+import { baselineGrowth, badShadowLayer, commitsDeclareGrowth, shadowTokensOf } from "./audit-look.mjs";
+
+test("шрифт: своя переменная, em/%/vw, слова, calc — всё мимо шкалы", () => {
+  for (const v of ["var(--x)", ".62em", "120%", "4vw", "small", "larger", "calc(var(--rh-fs-md) + 1px)", "max(1em, var(--rh-fs-sm))", "var(--rh-fs-md-base)"]) {
+    assert.deepEqual(kinds(`${R} { font-size: ${v}; }`), ["font-size"], v);
+  }
+  assert.deepEqual(kinds(`${R} { font: 600 11px/1.2 Onest; }`), ["font-size"]);
+  assert.deepEqual(cssFindings(`${R} { font-size: var(--rh-fs-lg) !important; font: inherit; }`), []);
+});
+
+test("скругление: своя переменная и посторонние единицы", () => {
+  assert.deepEqual(kinds(`${R} { border-radius: var(--x); }`), ["radius"]);
+  assert.deepEqual(kinds(`${R} { border-radius: 1em; }`), ["radius"]);
+  assert.deepEqual(cssFindings(`${R} { border-radius: var(--rh-r-lg) var(--rh-r-lg) 0 0; }`), []);
+});
+
+test("цвет словом, hsl(), color()", () => {
+  for (const v of ["red", "White", "rebeccapurple", "hsl(0 0% 100%)", "color(srgb 1 0 0)"]) assert.deepEqual(kinds(`${R} { color: ${v}; }`), ["color"], v);
+  assert.deepEqual(cssFindings(`${R} { color: currentColor; background: transparent; content: "red"; white-space: normal; }`), []);
+});
+
+test("тень: text-shadow, drop-shadow, своя переменная, чужая «тень»", () => {
+  const tokens = shadowTokensOf(":root { --rh-ui-shadow: 0 1px 2px #000; --rh-ui-shadow-lg: none; }");
+  const k = (css) => cssFindings(css, { shadowTokens: tokens }).map((f) => f.kind);
+  assert.deepEqual(k(`${R} { text-shadow: 0 1px 2px var(--rh-ui-sep); }`), ["shadow"]);
+  assert.deepEqual(k(`${R} { filter: drop-shadow(0 2px 4px var(--rh-ui-sep)); }`), ["shadow"]);
+  assert.deepEqual(k(`${R} { box-shadow: var(--my-glow); }`), ["shadow"]);
+  assert.deepEqual(k(`${R} { box-shadow: var(--fake-shadow); }`), ["shadow"]);
+  assert.deepEqual(k(`${R} { box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-ring); }`), []);
+  assert.equal(badShadowLayer("var(--rh-ui-shadow)", tokens), false);
+});
+
+test("@media: запись диапазоном и em — мимо списка", () => {
+  for (const q of ["(900px <= width)", "(width >= 768px)", "(min-width: 48em)", "(max-width: 767px)", "(768px <= width <= 1023.98px)"]) {
+    assert.deepEqual(kinds(`@media ${q} { ${R} { color: var(--rh-ui-text); } }`), ["media"], q);
+  }
+});
+
+test("TSX: tailwind с числом, text-xs, стиль на нескольких строках, hsl", () => {
+  assert.equal(tsxFindings(`<b className="text-[11px]" />`).length, 1);
+  assert.equal(tsxFindings(`<b className="bg-[#fff] p-2" />`).length, 2); // и цвет, и произвольное значение
+  assert.equal(tsxFindings(`<b className="rounded-[3px]" />`).length, 1);
+  assert.equal(tsxFindings(`<b className="md:text-xs" />`).length, 1);
+  assert.equal(tsxFindings(`<b style={{\n  color: "hsl(0 0% 100%)",\n}} />`).length, 1);
+  assert.equal(tsxFindings(`<b style={{\n  fontSize:\n    14,\n}} />`).length, 1);
+  assert.equal(tsxFindings(`<b style={{ borderRadius: "var(--rh-r-md)", fontSize: "var(--rh-fs-sm)" }} className="bg-[var(--rh-ui-card)]" />`).length, 0);
+});
+
+test("база против main: новый ключ и рост — красное, сжатие — нет; объявление вслух", () => {
+  const main = { files: { "a.css": { reason: "r", counts: { "color #111": 2 } } } };
+  assert.deepEqual(baselineGrowth({ files: { "a.css": { reason: "r", counts: { "color #111": 1 } } } }, main), []);
+  assert.equal(baselineGrowth({ files: { "a.css": { reason: "r", counts: { "color #111": 3 } } } }, main).length, 1);
+  assert.equal(baselineGrowth({ files: { "a.css": { reason: "r", counts: { "color #222": 1 } } } }, main).length, 1);
+  assert.equal(baselineGrowth({ files: { "b.css": { reason: "r", counts: { "color #111": 1 } } } }, { files: {} }).length, 1);
+  assert.equal(commitsDeclareGrowth("feat: x\n\nLook-Audit-Base-Growth: первая база\n"), true);
+  assert.equal(commitsDeclareGrowth("Look-Audit-Base-Growth:   \n"), false);
 });

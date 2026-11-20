@@ -29,14 +29,17 @@ import type { Page } from "@playwright/test";
  *                флажок внутри подписи считается по подписи;
  *  - selectClip — выбранный пункт выпадающего списка шире самого списка (обрезан: «Мадина
  *                Каримова · 2 в р…» на 320/768).
+ *  - fieldFrame — поле с двойной рамкой: своя граница и внутренняя обводка разом, или поле с
+ *                рамкой внутри обёртки-капсулы со своей рамкой (квадрат в капсуле поиска
+ *                Настроек, ревью #337).
  *
  * Каждая находка — строка «вид: что и где», чтобы сообщение теста называло место.
  * Без импортов в браузерной части: функция уходит в page.evaluate целиком.
  */
-export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea" | "smallText" | "smallTap" | "selectClip";
-export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea", "smallText", "smallTap", "selectClip"];
+export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea" | "smallText" | "smallTap" | "selectClip" | "fieldFrame";
+export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea", "smallText", "smallTap", "selectClip", "fieldFrame"];
 /** Виды конституции оболочки (critic-uiux.md §9): цель нажатия ≥ 44, текст ≥ 13, список не режет выбранное. */
-export const CONSTITUTION_KINDS: readonly GeometryKind[] = ["smallText", "smallTap", "selectClip"];
+export const CONSTITUTION_KINDS: readonly GeometryKind[] = ["smallText", "smallTap", "selectClip", "fieldFrame"];
 
 /** Пропустить заведомо задуманное: селекторы, внутри которых проверка не идёт. */
 export type GeometryOptions = { skip?: string; kinds?: readonly GeometryKind[] };
@@ -344,6 +347,38 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         }
         const box = host ? host.getBoundingClientRect() : label && label !== el && visible(label) ? label.getBoundingClientRect() : r;
         if (Math.min(box.width, box.height) < 44 - 0.5) out.push(`smallTap: ${name(el)} — ${Math.round(box.width)}×${Math.round(box.height)}`);
+      }
+    }
+    // ---- fieldFrame: двойная рамка у поля ----
+    if (want.has("fieldFrame")) {
+      const clear = (c: string) => /^transparent$|rgba\([^)]*,\s*0\)$/.test(c.trim());
+      const frame = (el: Element) => {
+        const s = getComputedStyle(el);
+        const border = (["Top", "Right", "Bottom", "Left"] as const).some((side) =>
+          parseFloat(s.getPropertyValue(`border-${side.toLowerCase()}-width`)) > 0 && s.getPropertyValue(`border-${side.toLowerCase()}-style`) !== "none" && !clear(s.getPropertyValue(`border-${side.toLowerCase()}-color`)));
+        // Видимая обводка тенью: хотя бы один слой с непрозрачным цветом.
+        const layers = s.boxShadow === "none" ? [] : s.boxShadow.split(/,(?![^()]*\))/);
+        const ring = layers.some((l) => !/rgba\([^)]*,\s*0\)/.test(l));
+        const inset = layers.some((l) => /inset/.test(l) && !/rgba\([^)]*,\s*0\)/.test(l));
+        const fill = !clear(s.backgroundColor);
+        return { border, ring, inset, fill, radius: parseFloat(s.borderTopLeftRadius) || 0 };
+      };
+      const fields = root.querySelectorAll<HTMLElement>('input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="file"], [type="color"], [type="submit"], [type="button"]), select, textarea');
+      for (const field of fields) {
+        if (!visible(field) || skipped(field)) continue;
+        const own = frame(field);
+        if (own.border && own.inset) { out.push(`fieldFrame: ${name(field)} — своя рамка и обводка разом`); continue; }
+        if (!own.border && !own.ring) continue;
+        const fr = field.getBoundingClientRect();
+        for (let p = field.parentElement, depth = 0; p && depth < 3 && p !== root; p = p.parentElement, depth++) {
+          const pr = p.getBoundingClientRect();
+          if (pr.height > fr.height + 24) break; // обёртка выше поля — это форма или карточка, не капсула
+          const wrap = frame(p);
+          if ((wrap.border || wrap.ring || wrap.fill) && wrap.radius >= 12 && pr.width < fr.width + 120) {
+            out.push(`fieldFrame: ${name(field)} — рамка внутри обёртки ${name(p)}`);
+            break;
+          }
+        }
       }
     }
     // ---- selectClip: выбранный пункт шире самого списка ----
