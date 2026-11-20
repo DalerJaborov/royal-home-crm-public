@@ -45,7 +45,7 @@ interactionsRouter.post("/:id/interactions", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
   {
     const denied = foreignWriteDenied(req, client, ownAgentId);

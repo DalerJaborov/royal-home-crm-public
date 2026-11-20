@@ -309,7 +309,7 @@ export async function assignClientManually(input: AssignClientManuallyInput): Pr
   }
   publishLeadAccepted(row.id, toAgentId);
   // Прежний держатель заявки (если был и это не тот же агент) не должен видеть
-  // у себя в шторке «🔔 Новый лид» по карточке, которую руководитель только что
+  // у себя в шторке «🔔 Новая заявка» по карточке, которую руководитель только что
   // забрал/передал дальше — владелец 19.08.2026.
   if (row.assignedAgentId && row.assignedAgentId !== toAgentId) {
     closeLeadPushNotification(row.assignedAgentId, `lead-${row.id}`).catch((err) =>

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **786**. Развилок в самих путях: **2495**; вместе с задачами по расписанию и фоновыми заданиями — **4186**. Модулей: **88**.
+Путей: **788**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **4192**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1311,8 +1311,8 @@
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если scopeToOwnAgent(req) && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - const fill = await buildCardFillSuggestion(client.id);
   · зовёт buildCardFillSuggestion()
 - res.json({ ...fill, notes: phoneSafeText(fill.notes, canSeePhone), evidence: fill.evidence.map((quote)
@@ -1416,8 +1416,8 @@
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если scopeToOwnAgent(req) && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - const draft = await buildPropertyDraftSuggestion(client.id);
   · зовёт buildPropertyDraftSuggestion()
 - res.json({ ...draft, address: phoneSafeText(draft.address, canSeePhone), evidence: draft.evidence.map((quote)
@@ -2810,33 +2810,9 @@
   - если restored === null
     - return res.status(400).json({ error: "Нельзя изменять строку со скрытым контактом. Остальные пожелания можно …
       · ответ 400 — «Нельзя изменять строку со скрытым контактом. Остальные пожелания…»
-- const updated = await prisma.$transaction(async tx
-  · всё внутри — одной транзакцией
-  · меняет в базе: client
-  · читает в базе: clientDesiredPlace
-  · удаляет в базе: clientDesiredPlace
-  · читает в базе: client
-  - const changed = await tx.client.updateMany({ where: { id: client.id, assignedAgentId: client.assignedAgentId,…
-    · меняет в базе: client
-  - если !changed.count
-    - return null;
-      · дословно из кода
-  - const previousPlaces = stale ? await tx.clientDesiredPlace.findMany({ where: { clientId: client.id }, select:…
-    · читает в базе: clientDesiredPlace
-  - если stale
-    - await tx.clientDesiredPlace.deleteMany({ where: { clientId: client.id } });
-      · удаляет в базе: clientDesiredPlace
-  - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", no…
-    · зовёт logTimeline()
-  - return tx.client.findUniqueOrThrow({ where: { id: client.id } });
-    · читает в базе: client
 - если !updated
   - return res.status(409).json({ error: "Роли карточки изменились. Обновите карточку и повторите" });
     · ответ 409 — «Роли карточки изменились. Обновите карточку и повторите»
-- logAudit(req, "UPDATE", "Client", client.id, { requirementsFieldsKind: "BUYER" });
-  · зовёт logAudit()
-- publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
-  · зовёт publishClientUpdated()
 - res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationV…
   · ответ 200
 
@@ -2927,8 +2903,8 @@
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если scopeToOwnAgent(req) && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - const history = await suggestionHistoryFor(client.id);
   · зовёт suggestionHistoryFor()
 - res.json( history.map((suggestion)
@@ -2952,8 +2928,8 @@
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если access === "nameOnly"
-  - return res.status(403).json({ error: "Лид ещё не принят — переписка не открыта" });
-    · ответ 403 — «Лид ещё не принят — переписка не открыта»
+  - return res.status(403).json({ error: "Заявка ещё не принята — переписка не открыта" });
+    · ответ 403 — «Заявка ещё не принята — переписка не открыта»
 - если access === "transferred"
   - return res.status(403).json({ error: "Клиент передан другому агенту — переписка закрыта" });
     · ответ 403 — «Клиент передан другому агенту — переписка закрыта»
@@ -2999,8 +2975,8 @@
   - return res.status(409).json({ error: LEAD_TAKEN_ERROR });
     · ответ 409
 - если client.assignedAgentId !== req.agent!.id
-  - return res.status(403).json({ error: "Отклонить лид может только тот, кому он отдан. Передать другому — кнопк…
-    · ответ 403 — «Отклонить лид может только тот, кому он отдан. Передать другому —…»
+  - return res.status(403).json({ error: "Отклонить заявку может только тот, кому она отдана. Передать другому — …
+    · ответ 403 — «Отклонить заявку может только тот, кому она отдана. Передать другому…»
 - const result = await declineLead(req.params.id, client.assignedAgentId);
   · зовёт declineLead()
 - если !result.ok
@@ -3008,8 +2984,8 @@
     - return res.status(404).json({ error: "Клиент не найден" });
       · ответ 404 — «Клиент не найден»
   - если result.reason === "already_accepted"
-    - return res.status(409).json({ error: "Лид уже принят — отклонить его больше нельзя, используйте отказ от рабо…
-      · ответ 409 — «Лид уже принят — отклонить его больше нельзя, используйте отказ от…»
+    - return res.status(409).json({ error: "Заявка уже принята — отклонить её больше нельзя, используйте отказ от р…
+      · ответ 409 — «Заявка уже принята — отклонить её больше нельзя, используйте отказ от…»
   - return res.status(409).json({ error: LEAD_TAKEN_ERROR });
     · ответ 409
 - logAudit(req, "LEAD_DECLINE", "Client", req.params.id, { agentId: client.assignedAgentId, declineCount: resul…
@@ -3184,8 +3160,8 @@
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если ownAgentId && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - const denied = foreignWriteDenied(req, client, ownAgentId);
   · зовёт foreignWriteDenied()
 - если denied
@@ -3291,8 +3267,8 @@
   - return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
     · ответ 409 — «Карточка в Корзине — сначала восстановите её»
 - если ownAgentId && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - если parsed.data.propertyId
   - const property = await prisma.property.findUnique({ where: { id: parsed.data.propertyId }, select: { rooms: t…
     · читает в базе: property
@@ -3423,8 +3399,8 @@
   - return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
     · ответ 409 — «Карточка в Корзине — сначала восстановите её»
 - если ownAgentId && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - const target = await resolveSendTarget(client.id, conversationId.data);
   · зовёт resolveSendTarget()
 - если target === undefined
@@ -3469,8 +3445,8 @@
   - return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
     · ответ 409 — «Карточка в Корзине — сначала восстановите её»
 - если ownAgentId && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - const target = await resolveSendTarget(client.id, parsed.data.conversationId);
   · зовёт resolveSendTarget()
 - если target === undefined
@@ -3550,8 +3526,8 @@
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если access === "nameOnly"
-  - return res.status(403).json({ error: "Сначала примите лид" });
-    · ответ 403 — «Сначала примите лид»
+  - return res.status(403).json({ error: "Сначала примите заявку" });
+    · ответ 403 — «Сначала примите заявку»
 - если access === "transferred"
   - return res.json({ items: [], total: 0, page: query.data.page, pageSize } satisfies ClientPropertyActivity);
     · ответ 200
@@ -3626,8 +3602,8 @@
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если ownAgentId && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - const denied = foreignWriteDenied(req, client, ownAgentId);
   · зовёт foreignWriteDenied()
 - если denied
@@ -3668,6 +3644,46 @@
 - await enqueueDirectorAlert({ title: "♻️ Просьба восстановить карточку", body: `${author?.fullName ?? "Агент"}…
   · зовёт enqueueDirectorAlert()
 - res.json({ ok: true, message: "Просьба отправлена — карточку восстановит директор или админ, если согласится"…
+  · ответ 200
+
+### POST /api/v1/clients/:id/requirements-suggestion/apply
+
+`apps/api/src/routes/clients/intents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !client
+  - return;
+    · дальше не идёт, ничего не меняя
+- если !confirmedClientIntents(client).buys
+  - return res.status(409).json({ error: "Сначала подтвердите, что клиент покупает недвижимость" });
+    · ответ 409 — «Сначала подтвердите, что клиент покупает недвижимость»
+- если !suggestion
+  - return res.status(409).json({ error: "Из разговора больше нечего взять: поля уже заполнены или сводка изменил…
+    · ответ 409 — «Из разговора больше нечего взять: поля уже заполнены или сводка…»
+- если seen !== suggestionFingerprint(suggestion)
+  - return res.status(409).json({ error: "Предложение обновилось, посмотрите ещё раз" });
+    · ответ 409 — «Предложение обновилось, посмотрите ещё раз»
+- const input = clientBuyerRequirementsSchema.safeParse({ ...suggestion.fields, ...(merged !== null ? { require…
+  · проверяет данные схемой clientBuyerRequirementsSchema
+- если !input.success
+  - return res.status(400).json({ error: "Пожелания не поместились в карточку. Уточните их вручную" });
+    · ответ 400 — «Пожелания не поместились в карточку. Уточните их вручную»
+- если !updated
+  - return res.status(409).json({ error: "Карточка изменилась. Обновите её и повторите" });
+    · ответ 409 — «Карточка изменилась. Обновите её и повторите»
+- res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationV…
+  · ответ 200
+
+### GET /api/v1/clients/:id/requirements-suggestion
+
+`apps/api/src/routes/clients/intents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !client
+  - return;
+    · дальше не идёт, ничего не меняя
+- если !suggestion
+  - return res.json({ available: false, labels: [] as string[] });
+    · ответ 200
+- res.json({ available: true, fingerprint: suggestionFingerprint(suggestion), labels: suggestion.labels.map((la…
   · ответ 200
 
 ### POST /api/v1/clients/:id/restore
@@ -3828,8 +3844,8 @@
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если scopeToOwnAgent(req) && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - const isSeller = isSellerClient(client);
   · зовёт isSellerClient()
 - если !isSeller
@@ -4061,8 +4077,8 @@
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если ownAgentId && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - const denied = foreignWriteDenied(req, client, ownAgentId);
   · зовёт foreignWriteDenied()
 - если denied
@@ -4223,8 +4239,8 @@
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если ownAgentId && !existing.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
+  - return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
+    · ответ 403 — «Сначала примите заявку — до принятия карточка закрыта»
 - const patchDenied = foreignWriteDenied(req, existing, ownAgentId);
   · зовёт foreignWriteDenied()
 - если patchDenied
@@ -4727,7 +4743,7 @@
 - logAudit(req, "CLIENT_AGENT_CHANGE", "Client", client.id, { source: "client.create", from: null, to: assigned…
   · зовёт logAudit()
 - если !acceptedAt
-  - sendLeadPush(assignedAgentId, client.id, { title: "🔔 Новый лид", body: `${client.fullName} — примите заявку,…
+  - sendLeadPush(assignedAgentId, client.id, { title: "🔔 Новая заявка", body: `${client.fullName} — примите заяв…
     · зовёт sendLeadPush()
 - res.status(201).json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), inv…
   · ответ 201
@@ -14486,7 +14502,7 @@
   - const result = await declineLead(consumed.clientId, consumed.agentId);
     · зовёт declineLead()
   - если result.ok
-    - return res.json({ ok: true, message: result.reassignedTo ? "Лид отклонён и передан следующему агенту" : "Лид …
+    - return res.json({ ok: true, message: result.reassignedTo ? "Заявка отклонена и передана следующему агенту" : …
       · ответ 200
   - return res.json({ ok: false, message, url } satisfies PushActionResult);
     · ответ 200
@@ -22447,7 +22463,7 @@
             · переходит к следующему
         - await recordAssignReason(lead.id, agentId, assignment);
           · зовёт recordAssignReason()
-        - sendLeadPush(agentId, lead.id, { title: "🔔 Новый лид с ночи", body: `${lead.fullName} — примите заявку`, url…
+        - sendLeadPush(agentId, lead.id, { title: "🔔 Новая заявка с ночи", body: `${lead.fullName} — примите заявку`, …
           · зовёт sendLeadPush()
       - если сорвалось
         - reportCronRowError("Утренняя раздача заявки", lead.shortId, err);
@@ -22541,7 +22557,7 @@
           - await logTimeline({ clientId: client.id, actor: { kind: "system", source: "first-call-reassign", subjectAgent…
             · зовёт logTimeline()
       - если reassignResult.ok
-        - sendLeadPush(nextAgentId, client.id, { title: "🔔 Новый лид", body: `${client.fullName} — передан вам`, url: …
+        - sendLeadPush(nextAgentId, client.id, { title: "🔔 Новая заявка", body: `${client.fullName} — передан вам`, ur…
           · зовёт sendLeadPush()
   - если handled > 0
     - console.log(`[cron] Первый звонок сорван: ${handled}`);
@@ -28129,7 +28145,7 @@
   - если !outcome.agentId || client.assignedAgentId !== outcome.agentId
     - return;
       · дальше не идёт, ничего не меняя
-  - await sendLeadPush(outcome.agentId, client.id, { title: "🔔 Новый лид", body: `${client.fullName} — примите з…
+  - await sendLeadPush(outcome.agentId, client.id, { title: "🔔 Новая заявка", body: `${client.fullName} — примит…
     · зовёт sendLeadPush()
     - publishLeadPending(clientId, agentId);
       · зовёт publishLeadPending()
@@ -28169,7 +28185,7 @@
   - если !recipients.length
     - throw new Error("Customer unassigned intake has no supervisors");
       · ошибка Error — «Customer unassigned intake has no supervisors»
-  - await sendPushToAgents(recipients, { title: "⏳ Лид ждёт назначения", body: `${client.fullName} — назначьте аг…
+  - await sendPushToAgents(recipients, { title: "⏳ Заявка ждёт назначения", body: `${client.fullName} — назначьте…
     · push-уведомление
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление о сохранённой новой заявке не подтверждено; карточка ост…

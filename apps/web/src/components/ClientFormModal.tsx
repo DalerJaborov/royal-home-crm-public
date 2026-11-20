@@ -543,7 +543,7 @@ export function ClientFormModal({
     },
     ...(isSeller ? [{ label: "Адрес объекта", value: form.address || "не указано", to: 3 }] : []),
     { label: "Заметки", value: form.requirementsNotes || "не указано", to: 3 },
-    ...(form.isPersonalLead ? [{ label: "Личный лид", value: "Да", to: 0 }] : []),
+    ...(form.isPersonalLead ? [{ label: "Личная заявка", value: "Да", to: 0 }] : []),
   ];
 
   return (
@@ -755,7 +755,7 @@ export function ClientFormModal({
                 checked={form.isPersonalLead}
                 onChange={(e) => set("isPersonalLead", e.target.checked)}
               />
-              Личный лид: {isSeller ? "продавца" : "клиента"} привёл я сам
+              Личная заявка: {isSeller ? "продавца" : "клиента"} привёл я сам
             </label>
             <p className="state">
               Не через каналы компании. За заполненную карточку начисляются баллы KPI.

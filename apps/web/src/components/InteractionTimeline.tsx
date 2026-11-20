@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { softenShouting } from "../lib/softenShouting";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import {
@@ -288,7 +289,7 @@ function TimelineRow({ i, firstOfDay }: { i: Interaction; firstOfDay: boolean })
   const isSystem = i.type === "SYSTEM";
   // humanNote — чтобы служебный код источника (`[lifecycle.assign]` и подобные)
   // не доезжал до экрана; в базе он остаётся, см. lib/clientFormat.ts.
-  const title = isSystem && i.notes ? humanNote(i.notes) : (INTERACTION_TYPE_LABELS[i.type] ?? i.type);
+  const title = isSystem && i.notes ? softenShouting(humanNote(i.notes)) : (INTERACTION_TYPE_LABELS[i.type] ?? i.type);
   const gist = isSystem ? null : i.notes;
   /**
    * КТО ДЕЙСТВОВАЛ — В ЗАГОЛОВКЕ, БЕЗ РАСКРЫТИЯ (П-10, 17.09.2026, владелец:
@@ -441,7 +442,7 @@ function TimelineRow({ i, firstOfDay }: { i: Interaction; firstOfDay: boolean })
               <div className="ev-l">
                 <span className="kind">Заметка</span>
                 <span className="txt" style={{ overflowWrap: "anywhere" }}>
-                  {i.notes}
+                  {softenShouting(i.notes)}
                 </span>
               </div>
             )}

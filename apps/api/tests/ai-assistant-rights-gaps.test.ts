@@ -313,7 +313,7 @@ describe("запись в карточку — то же правило, что 
     if (isReadOnlyRole(role)) return READ_ONLY_ROLE_RESPONSE.error; // requireAuth
     const own = scopeToOwnAgent(req);
     if (own && client.assignedAgentId !== own) return "Недостаточно прав";
-    if (own && !client.acceptedAt) return "Сначала примите лид";
+    if (own && !client.acceptedAt) return "Сначала примите заявку";
     return foreignWriteDenied(req, client, own);
   }
 

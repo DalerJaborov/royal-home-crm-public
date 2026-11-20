@@ -222,7 +222,7 @@ export async function buildMonthlyMetrics(periodStart: Date): Promise<MonthlyMet
   return {
     publicInteractionScopeVersion: 1,
     funnel: [
-      { key: "leads", label: "Новые лиды", count: newLeads },
+      { key: "leads", label: "Новые заявки", count: newLeads },
       { key: "contacted", label: "На контакте", count: contacted.length },
       { key: "showings", label: "Показы", count: showingClients.size },
       { key: "negotiations", label: "Переговоры", count: negotiations },

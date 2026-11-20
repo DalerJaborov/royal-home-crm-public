@@ -35,7 +35,7 @@ export function ClientPropertyWorkspace({ client, locked, canCreate, onCreate, o
   const gated = !!client.pendingAcceptance && locked;
   const seller = useProperties({ sellerClientId: client.id, page }, sells && portfolio && !gated);
   const activity = useClientPropertyActivity(client.id, section, page, !portfolio && !gated);
-  if (gated) return <p className="state">Объекты и история отправок откроются после принятия лида.</p>;
+  if (gated) return <p className="state">Объекты и история отправок откроются после принятия заявки.</p>;
   if (portfolio && !sells) return null;
   const selected = portfolio ? seller : activity;
   const total = selected.data?.total ?? 0;

@@ -33,13 +33,15 @@ const TEXT_TOO_LONG = "TEXT_LONGER_THAN_CLIP";
  *  старше 15 минут сервер считает брошенной (NARRATION_MIX_CLAIM_STALE_MS) и берёт ролик заново. */
 const SLOW_GENERATION_MIN = 5;
 const SLOW_MIX_MIN = 15;
+/** Наложение дольше этого — «дольше обычного» и кнопка «Проверить» (обычно 2–3 минуты). */
+const LONG_MIX_MIN = 6;
 /** Якорь блока: ссылка «Озвучка ждёт вашего одобрения» и ссылки из Шабнам (…/properties/<id>#rh-narration). */
 export const NARRATION_ANCHOR = "rh-narration";
 
 const CHANNEL_NAME: Record<string, string> = { INSTAGRAM: "Instagram", FACEBOOK: "Facebook", YOUTUBE: "YouTube", TELEGRAM: "Telegram", TIKTOK: "TikTok", THREADS: "Threads" };
 
 function approvedMessage(delivery: string | undefined): string {
-  if (delivery === "CRM_REMIX") return "Утверждено. CRM накладывает новую озвучку, ролик сразу уйдёт в соцсети.";
+  if (delivery === "CRM_REMIX") return "Утверждено. Накладываем новую озвучку, ролик сразу уйдёт в соцсети.";
   if (delivery === "SOUND_REMAKE") return "Утверждено. Ролик уже вышел: монтажёр заменит в нём только звук.";
   if (delivery === "ADD_VOICE") return "Утверждено. Ролик уже смонтирован: монтажёр вклеит в него голос, потом ролик выйдет.";
   if (delivery === "DISABLED") return "Для объекта выбрано «Без озвучки»: монтажёру ничего не уходит.";
@@ -155,9 +157,12 @@ export function NarrationPlayer({ load, knownSec, primary, disabled, prefetch, l
   function audioFor(u: string): HTMLAudioElement {
     if (el.current) return el.current;
     const audio = new Audio(u);
-    audio.preload = "auto";
+    audio.preload = "metadata";
     audio.ontimeupdate = () => setPos(audio.currentTime);
-    audio.onloadedmetadata = () => { if (Number.isFinite(audio.duration) && audio.duration > 0) setDur(audio.duration); };
+    // Длина у части записей приходит как Infinity или NaN — такие значения игнорируем, остаётся длина от сервера (audioSec).
+    const syncDuration = () => { if (Number.isFinite(audio.duration) && audio.duration > 0) setDur(audio.duration); };
+    audio.onloadedmetadata = syncDuration;
+    audio.ondurationchange = syncDuration;
     audio.onplay = () => setState("playing");
     audio.onpause = () => setState((s) => (s === "playing" ? "paused" : s));
     audio.onended = () => { setState("paused"); setPos(0); audio.currentTime = 0; };
@@ -192,23 +197,32 @@ export function NarrationPlayer({ load, knownSec, primary, disabled, prefetch, l
   }
   const total = dur ?? knownSec ?? null;
   const playing = state === "playing";
+  // Запасной вариант (ревью #338) — штатный <audio controls>: он работает на любом устройстве и в любом браузере, а ссылка на
+  // blob в новой вкладке на iPhone не играет. Основной плеер выше — свой; сюда попадаем, только когда он не заиграл.
   if (state === "fallback" && url.current) return (
     <div className="space-y-2">
       <p className="text-base text-[var(--muted)]">{hint}</p>
       <audio className="w-full" controls src={url.current} />
     </div>
   );
+  const buttonLabel = state === "loading" ? "Загружаем…" : playing ? "Пауза" : state === "paused" && pos > 0 ? "Дальше" : label;
+  const shown = state === "idle" || state === "ready" ? 0 : pos;
+  const percent = total ? Math.min(100, Math.max(0, (shown / total) * 100)) : 0;
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-3">
-        <button type="button" className={`pill min-h-12! flex-none justify-center text-base! ${primary ? "bg-blue! text-on-accent! font-bold" : "ghost"}`} disabled={disabled || state === "loading"}
-          aria-pressed={playing} onClick={toggle}>
-          {state === "loading" ? "Загружаем…" : playing ? "❚❚ Пауза" : state === "paused" && pos > 0 ? "▶ Дальше" : `▶ ${label}`}
+    <div className="space-y-2" data-testid="narration-player">
+      <div className="flex items-center gap-3 rounded-2xl bg-[var(--soft)] p-2 pr-4">
+        <button type="button" aria-label={buttonLabel} disabled={disabled || state === "loading"} onClick={toggle}
+          className={`grid h-14 w-14 flex-none place-items-center rounded-full text-xl ${primary ? "bg-blue text-on-accent" : "bg-[var(--card)] shadow-sm"} disabled:opacity-60`}>
+          <span aria-hidden>{state === "loading" ? "…" : playing ? "❚❚" : "▶"}</span>
         </button>
-        <input type="range" className="min-w-0 flex-1 accent-[rgb(var(--rgb-accent))]" min={0} max={total ?? 0} step={0.1} value={Math.min(pos, total ?? 0)}
-          disabled={!el.current || !total} aria-label="Перемотать запись" aria-valuetext={`${narrationClock(pos)} из ${narrationClock(total ?? 0)}`}
-          onChange={(e) => seek(Number(e.target.value))} />
-        {total ? <span className="flex-none text-base tabular-nums text-[var(--muted)]">{state === "idle" || state === "ready" ? narrationClock(total) : `${narrationClock(pos)} из ${narrationClock(total)}`}</span> : null}
+        <div className="min-w-0 flex-1 space-y-1">
+          <input type="range" className="block w-full accent-[rgb(var(--rgb-accent))]" min={0} max={total ?? 0} step={0.1} value={Math.min(pos, total ?? 0)}
+            style={{ background: "transparent" }} data-percent={percent.toFixed(0)}
+            disabled={!el.current || !total} aria-label="Перемотать запись" aria-valuetext={`${narrationClock(pos)} из ${narrationClock(total ?? 0)}`}
+            onChange={(e) => seek(Number(e.target.value))} />
+          <p className="flex justify-between text-base tabular-nums text-[var(--muted)]"><span>{buttonLabel === label || state === "loading" ? label : buttonLabel}</span>
+            <span data-testid="narration-clock">{total ? `${narrationClock(shown)} / ${narrationClock(total)}` : narrationClock(shown)}</span></p>
+        </div>
       </div>
       {hint && <p className="text-base text-[var(--muted)]">{hint}</p>}
     </div>
@@ -384,7 +398,8 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
       case "failed": return { title: "Озвучка не получилась", tone: "warn",
         line: latest?.errorCode === QUOTA_EXCEEDED ? "Закончились кредиты ElevenLabs. Руководство уже видит это." : "Попробуйте ещё раз: проверьте голос и текст и нажмите «Озвучить»." };
       case "tooLong": return { title: "Текст длиннее ролика", line: "Озвучку не заказывали, кредиты не потрачены. Сократите текст и нажмите «Озвучить».", tone: "warn" };
-      case "awaiting": return { title: "Новая озвучка готова", line: published ? "Послушайте. Если всё верно, утвердите: ролик с ней сразу выйдет." : "Послушайте и одобрите. Монтажёр получит её вместе с заданием на ролик." };
+      // Заголовок зовёт послушать, строка говорит, что будет после одобрения: два раза одно и то же не пишем (владелец 20.11).
+      case "awaiting": return { title: "Послушайте новую озвучку", line: published ? "Если всё верно, утвердите: ролик с ней сразу выйдет." : "Если всё верно, одобрите: монтажёр получит её вместе с заданием на ролик." };
       case "marketingReview": return { title: "Аудио готово", line: "Его проверяет маркетинг." };
       case "draftSaved": return data.autoGenerate
         ? { title: "Текст сохранён", line: "Озвучки по нему ещё нет. Откройте и нажмите «Озвучить»." }
@@ -392,9 +407,10 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
       case "noAudio": return { title: "Файл озвучки не найден", tone: "warn", line: "Запись не сохранилась на сервере. Озвучьте заново." };
       case "stale": return { title: "Озвучка устарела", line: `Данные объекта изменились.${data.autoGenerate ? " Новая подготовится сама через минуту." : " Озвучьте заново, чтобы цифры были верными."}`, tone: "warn" };
       case "mixing": return { title: "Накладываем озвучку на ролик",
-        line: release?.since == null ? "Озвучка утверждена. Ролик в очереди на наложение, CRM возьмёт его в ближайшие минуты."
-          : mixingMin !== null && mixingMin >= SLOW_MIX_MIN ? "Это дольше обычного. CRM попробует ещё раз сама; не получится — здесь появится кнопка повтора."
-          : "CRM накладывает утверждённую озвучку на ролик. Обычно пара минут." };
+        line: release?.since == null ? "Озвучка утверждена. Ролик в очереди на наложение, возьмём его в ближайшие минуты."
+          : mixingMin !== null && mixingMin >= SLOW_MIX_MIN ? "Это дольше обычного. Мы попробуем ещё раз сами; не получится — здесь появится кнопка повтора."
+          : mixingMin !== null && mixingMin >= LONG_MIX_MIN ? "Дольше обычного, ещё немного. Если не дождётесь, нажмите «Проверить»."
+          : "Накладываем озвучку на ролик, обычно 2–3 минуты." };
       case "scheduled": {
         const when = release?.at ? narrationReleaseTime(release.at) : null;
         return { title: when ? `Ролик выйдет ${when.startsWith("в ") ? "сегодня " : ""}${when}` : "Ролик выйдет в ближайшее время", line: release?.reason ?? undefined };
@@ -434,7 +450,11 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
             {message && <p className="text-base">{message}</p>}
           </div>
           {changesLine && !composerOpen && (state === "pending" || awaiting) && <p className="text-base text-[var(--muted)]">{changesLine}</p>}
-          {!composerOpen && (generatingMin !== null || mixingMin !== null) && <p className="text-[15px] text-[var(--muted)]">Идёт {Math.max(1, (generatingMin ?? mixingMin) ?? 1)} мин</p>}
+          {!composerOpen && (generatingMin !== null || mixingMin !== null) && <p className="text-[15px] text-[var(--muted)]" data-testid="narration-progress-note">
+            {state === "mixing" && release?.since ? `Начали ${narrationReleaseTime(release.since)} · идёт ${Math.max(1, mixingMin ?? 1)} мин` : `Идёт ${Math.max(1, (generatingMin ?? mixingMin) ?? 1)} мин`}</p>}
+          {!composerOpen && state === "mixing" && mixingMin !== null && mixingMin >= LONG_MIX_MIN && (
+            <button type="button" className="pill min-h-12! text-base!" disabled={busy} onClick={() => void client.invalidateQueries({ queryKey: key })}>Проверить</button>
+          )}
         </div>
       </div>
 

@@ -99,7 +99,7 @@ describe("Сообщение клиенту из карточки", () => {
   it("непринятому лиду — нельзя, карточка до принятия закрыта", async () => {
     const res = await send(ownToken, clientPendingId, "Привет");
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/примите лид/i);
+    expect(res.body.error).toMatch(/примите заявку/i);
   });
 
   it("клиенту без переписки — понятный отказ", async () => {

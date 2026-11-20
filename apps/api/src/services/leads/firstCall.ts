@@ -379,7 +379,7 @@ export async function handleMissedFirstCalls(now: Date = new Date()): Promise<{ 
       if (ownLeadKept) {
         sendPushToAgents([agentId], {
           title: "⏰ Клиент по вашему объекту ждёт звонка",
-          body: `${client.fullName}: позвоните сейчас — объект №${objectNo} ваш, другому агенту лид не уйдёт`,
+          body: `${client.fullName}: позвоните сейчас — объект №${objectNo} ваш, другому агенту заявка не уйдёт`,
           url: `/clients/${client.shortId}`,
           tag: `lead-call-due-${client.id}`,
         }).catch((err) => console.error("[push] срыв первого звонка по своему объекту:", err));
@@ -541,13 +541,13 @@ export async function handleMissedFirstCalls(now: Date = new Date()): Promise<{ 
     });
     if (reassignResult.ok) {
       sendLeadPush(nextAgentId, client.id, {
-        title: "🔔 Новый лид",
+        title: "🔔 Новая заявка",
         body: `${client.fullName} — передан вам`,
         url: `/clients/${client.shortId}`,
         tag: `lead-${client.id}`,
       }).catch((err) => console.error("[push] передача после срыва звонка:", err));
       // «📤 Карточка передана» прежнему агенту убрана (владелец 02.10.2026):
-      // ни пуша, ни записи в ленту. «🔔 Новый лид» новому агенту остаётся.
+      // ни пуша, ни записи в ленту. «🔔 Новая заявка» новому агенту остаётся.
     }
     handled++;
   }

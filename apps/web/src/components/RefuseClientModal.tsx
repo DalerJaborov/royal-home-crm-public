@@ -63,7 +63,7 @@ export function RefuseClientModal({ client, onClose }: { client: Client; onClose
       return;
     }
     if (!reason) {
-      setError("Выберите причину, без неё передать лид нельзя");
+      setError("Выберите причину, без неё передать заявку нельзя");
       return;
     }
     // Инициатор решает, уйдёт карточка в службу безопасности или следующему агенту

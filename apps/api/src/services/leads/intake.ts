@@ -1331,7 +1331,7 @@ async function assignKindChangedLead(existing: Client, input: ChannelLeadInput):
     if (!(await supervisorsNeedRepeatPush(existing, input))) return null;
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "🔔 Обращение стало лидом — нужен агент",
+      title: "🔔 Обращение стало заявкой — нужен агент",
       body: `${existing.fullName} — назвал(а) свой запрос, назначьте агента`,
       url: `/clients/${existing.shortId}`,
       tag: `lead-${existing.id}`,
@@ -1362,7 +1362,7 @@ async function assignKindChangedLead(existing: Client, input: ChannelLeadInput):
   });
   await recordAssignReason(existing.id, agentId, assignment);
   sendLeadPush(agentId, existing.id, {
-    title: `🔔 Новый лид: ${label}`,
+    title: `🔔 Новая заявка: ${label}`,
     body: `${existing.fullName} — примите заявку, иначе её передадут другому агенту`,
     url: `/clients/${existing.shortId}`,
     tag: `lead-${existing.id}`,
@@ -1729,7 +1729,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
 
   if (agentId) {
     sendLeadPush(agentId, client.id, {
-      title: input.source === "WEBSITE" ? "🔔 Новая заявка с сайта" : `🔔 Новый лид: ${label}`,
+      title: input.source === "WEBSITE" ? "🔔 Новая заявка с сайта" : `🔔 Новая заявка: ${label}`,
       body: `${client.fullName}${leadGist(input.requirementsNotes)} — примите заявку, иначе её передадут другому агенту`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${client.id}`,
@@ -1741,7 +1741,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
     // молча зависнуть навсегда, никто её не увидит.
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "⏳ Лид ждёт назначения",
+      title: "⏳ Заявка ждёт назначения",
       body: `${client.fullName} — назначьте агента вручную`,
       url: `/clients/${client.shortId}`,
       tag: `lead-unassigned-${client.id}`,
@@ -1854,7 +1854,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
     if (!claimed) return;
     await recordAssignReason(clientId, agentId, assignment);
     sendLeadPush(agentId, clientId, {
-      title: "🔔 Новый лид",
+      title: "🔔 Новая заявка",
       body: `${client.fullName} — примите заявку, иначе её передадут другому агенту`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${clientId}`,
@@ -1862,7 +1862,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
   } else {
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "⏳ Лид ждёт назначения",
+      title: "⏳ Заявка ждёт назначения",
       body: `${client.fullName} — назначьте агента вручную`,
       url: `/clients/${client.shortId}`,
       tag: `lead-unassigned-${clientId}`,
