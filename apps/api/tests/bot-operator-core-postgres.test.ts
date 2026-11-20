@@ -342,7 +342,7 @@ describe("ревью 19.11: недостающие тесты подключен
 
   it("Т2: Instagram — условия и один вопрос по делу (номер не первым ответом, SPEC п. 8), номер следующим ходом, заявка продавца", async () => {
     const f = await coreFixture("Хочу продать квартиру", "INSTAGRAM");
-    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, что продаёте и в каком районе, и агент с вами свяжется.");
+    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, что продаёте и в каком районе, и расскажем подробнее.");
     expect(await intakeJob(f.eventKey)).toBeNull();
     await settle(f.eventKey);
     const second = await f.receive("918 22 33 49");

@@ -191,3 +191,75 @@ describe("8. место объекта — только район и город
     expect(ok!.text).toContain("Сино, Душанбе");
   });
 });
+
+describe("второй круг слепого ревью #345", () => {
+  const answer = (over: Record<string, unknown>) => ({ role: "none", roleQuote: "", question: "none", aboutThisProperty: false,
+    rooms: "", district: "", budget: "", area: "", floor: "", renovation: "", price: "", units: "", callbackWhen: "", callbackQuote: "",
+    textOnly: false, noCall: false, language: "tg", bargain: false, rude: false, botQuestion: false, offTopic: false, complaint: false,
+    jobPosition: "", outsidePlace: "", ...over });
+
+  it.each(["Ин хона фурухта аст?", "Фурухта?", "алакай фурухта?", "Хона хануз фурухта нест?", "in xona furuxta?"])(
+    "«%s» на рекламе объекта в WhatsApp — покупатель объекта: цена и предложение звонка, без комиссии и заявки продавца", text => {
+      const [t] = dialog(WA_AD(), [text]);
+      expect(t!.d.state.role, text).toBe("buyer_property");
+      expect(t!.text, text).not.toMatch(/2%|комисси/iu);
+      expect(leadsOf([t!]).filter(lead => lead.type === "accept_lead" && lead.role === "seller"), text).toEqual([]);
+    });
+
+  it("«Хонаи худам нест, барои писарам мехарам» — покупатель; «Хонаи маро мефурушед?» — продавец", () => {
+    expect(dialog(ctx(), ["Хонаи худам нест, барои писарам мехарам"])[0]!.d.state.role).toBe("buyer");
+    expect(dialog(ctx(), ["Хонаи маро мефурушед?"])[0]!.d.state.role).toBe("seller");
+  });
+
+  it.each(["сколько стоит ваша квартира", "Квартира продается?", "Хона дорам, иваз мекунед?"])(
+    "«%s» на рекламе известного объекта в WhatsApp — вопрос об этом объекте: цена и предложение звонка, не общая заявка", text => {
+      const [t] = dialog(WA_AD(), [text]);
+      expect(t!.u.aboutThisProperty, text).toBe(true);
+      expect(t!.d.state.role, text).toBe("buyer_property");
+      expect(t!.keys, text).toContain("property_price");
+    });
+
+  it("«бо савдо мешавад?» первым сообщением на рекламе известного объекта в WhatsApp — заявка агенту ЭТОГО объекта", () => {
+    const [t] = dialog(WA_AD(), ["бо савдо мешавад?"]);
+    expect(t!.u.aboutThisProperty).toBe(true);
+    expect(leadsOf([t!])).toMatchObject([{ type: "accept_lead", role: "buyer", propertyId: PROPERTY_ID }]);
+  });
+
+  it("модель назвала «продавца» на рекламе объекта, а слов продажи нет — не принимаем: покупатель объекта", () => {
+    for (const text of ["Ин хона фурухта шуд?", "бо савдо мешавад?", "Сколько стоит?"]) {
+      const got = understandingFromModel(answer({ role: "seller", roleQuote: text }), { current: text }, initialOperatorState(), IG_AD())!;
+      expect(got.understanding.role, text).not.toBe("seller");
+      const d = decide(initialOperatorState(), got.understanding, IG_AD());
+      expect(d.state.role, text).toBe("buyer_property");
+    }
+  });
+
+  it("вопрос по делу до номера — без обещания «агент с вами свяжется»", () => {
+    for (const text of ["Мне нужна квартира", "Хочу продать квартиру"]) {
+      expect(dialog(ctx(), [text])[0]!.text, text).not.toMatch(/свяжется|тамос мегирад/u);
+    }
+  });
+
+  it("Instagram: «хорошо / ладно / хоп» сразу на просьбу номера — одна короткая просьба «куда позвонить», дальше по правилу", () => {
+    for (const ok of ["хорошо", "ладно", "хоп", "Ок"]) {
+      const turns = dialog(ctx(), ["Мне нужна квартира", "3 комнаты в Сино", ok, ok]);
+      expect(turns[1]!.keys, ok).toEqual(["ask_phone"]);
+      expect(turns[2]!.keys, ok).toEqual(["phone_where"]);
+      expect(turns[3]!.keys.some(key => key === "phone_where" || PHONE_ASK(key)), ok).toBe(false);
+      expect(turns[2]!.d.state.asked.phone, ok).toBe(1);
+    }
+  });
+
+  it("отказ после предложения звонка (разные формы) против вопросов на «на / не / нет»", () => {
+    for (const text of ["не", "нет", "Нет спасибо", "лозим нест", "холо не", "даркор не", "Не надо", "пока не нужно", "намехохам"]) {
+      const turns = dialog(IG_AD(), ["Нархаш чанд?", text]);
+      expect(turns[1]!.keys.some(PHONE_ASK), text).toBe(false);
+      expect(turns[1]!.u.agrees, text).toBe(false);
+    }
+    for (const text of ["На каком этаже?", "На сколько комнат?", "Не далеко от центра?", "Нет, а цена окончательная?", "Не дорого?"]) {
+      const turns = dialog(IG_AD(), ["Нархаш чанд?", text]);
+      expect(turns[1]!.u.declines, text).toBe(false);
+      expect(turns[1]!.keys.some(PHONE_ASK), text).toBe(true);
+    }
+  });
+});

@@ -27,7 +27,7 @@ const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
   media_received: {}, property_place: { id: 164, place: "Сино, Душанбе" },
   property_place_price: { id: 164, place: "Сино, Душанбе", price: "520 000 сомони" }, place_by_agent: {}, details_by_agent: {},
   offer_call: {}, got_it: {}, ask_phone_seller: {}, role_details_buyer: {}, role_details_seller: {},
-  role_details_missing: { missing: ["district", "budget"] },
+  role_details_missing: { missing: ["district", "budget"] }, phone_where: {},
 };
 const LANGUAGES: readonly OperatorLanguage[] = ["ru", "tg"];
 /** Вопрос («?») — только у вопроса о роли: тогда в ответе из двух шагов вопрос всегда один. */

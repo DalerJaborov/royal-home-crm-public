@@ -20,7 +20,7 @@ import { askLeadOnlyModel, leadOnlyIntentFallback, leadOnlyQuoteFound, leadOnlyS
   type LeadOnlyIntentModel } from "../leadOnlyIntent.js";
 import { leadOnlyAgencyFeeQuestion, leadOnlyPhoneRefused } from "../leadOnlyMode.js";
 import { clientOwnWords } from "../untrustedContent.js";
-import { customerRoleSignals, foldCustomerText } from "../customerAgentRole.js";
+import { customerRoleSignals, foldCustomerText, foldCustomerTextForRole } from "../customerAgentRole.js";
 import { customerDmDialogueLanguage, groundedCustomerDmLanguage, isNeutralShortReply, resolveCustomerDmLanguage } from "../customerDmLanguage.js";
 import { detectOutsideCoverage } from "../coverageGuard.js";
 import { isAckOnlyMessage, isThanksOnlyMessage } from "../ackOnly.js";
@@ -260,11 +260,19 @@ function roleByQuestion(role: Understanding["role"], question: OperatorQuestion,
  * Своё жильё («хонаи ман», «моя квартира») сюда не попадает, кроме обмена на наш объект.
  */
 function focusPropertyQuestion(code: ReturnType<typeof codeFacts>, ctx: OperatorContext): boolean {
-  if (!ctx.focus || code.fee || !HOUSE_WORD.test(code.folded)) return false;
-  if (!/[?؟]/u.test(code.own) && !PRICE_WORD.test(code.folded)) return false;
+  if (!ctx.focus || code.fee) return false;
+  // Торг, цена, статус («бо савдо мешавад?», «нархаш чанд?», «фурӯхта шуд?») при известном объекте — о нём, даже без слова
+  // о жилье (слепое ревью #345, второй круг: «бо савдо мешавад?» в WhatsApp уходил общей заявкой без объекта).
+  // Латиница («in xona furuxta?») — тем же свёрнутым кириллическим алфавитом, что и роль.
+  const folded = foldCustomerTextForRole(code.own);
+  const topic = HOUSE_WORD.test(folded) || PRICE_WORD.test(folded) || STATUS_OR_BARGAIN.test(folded) ||
+    customerPolicyTermAsked("negotiation", code.own);
+  if (!topic) return false;
+  if (!/[?؟]/u.test(code.own) && !PRICE_WORD.test(folded) && !customerPolicyTermAsked("negotiation", code.own)) return false;
   const signals = customerRoleSignals(code.own);
   return !signals.strong && (!signals.ownHouse || EXCHANGE_WORD.test(code.folded));
 }
+const STATUS_OR_BARGAIN = new RegExp(`${BW}(?:савдо|торг${TAIL}|скидк${TAIL}|фурухта|продан${TAIL}|продает${TAIL}|продаёт${TAIL})${EW}`, "u");
 const EXCHANGE_WORD = new RegExp(`${BW}(?:иваз${TAIL}|обмен${TAIL}|поменя${TAIL})`, "u");
 
 /** Вопрос о месте — это вопрос об объекте, когда рядом слово о жилье или клиент пришёл с рекламы объекта / объект в фокусе. */
@@ -390,6 +398,11 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
   let role: Understanding["role"] = answer.role === "none" ? null : answer.role;
   let roleConflict = false;
   if (role && !leadOnlyQuoteFound(answer.roleQuote.slice(0, 200), clientTexts)) { rejected.push("role"); role = null; }
+  // Реклама объекта: «продавца» от модели без единого слова продажи в тексте клиента не принимаем (слепое ревью #345, второй
+  // круг) — покупатель с рекламы объекта не получает комиссию 2 % и заявку продавца по догадке модели.
+  if (role === "seller" && !strong && (ctx.focus || ctx.ad.topic === "property") && !customerRoleSignals(code.own).sell) {
+    rejected.push("role"); role = null;
+  }
   const side = (value: Understanding["role"]) => value === "buyer" || value === "seller";
   if (strong && !code.job && !code.rent) { if (role && role !== strong) rejected.push("role"); role = strong; }
   else if (role && side(role) && side(fallback.role) && role !== fallback.role) { rejected.push("role"); role = null; roleConflict = true; }

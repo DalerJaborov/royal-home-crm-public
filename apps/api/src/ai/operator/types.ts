@@ -51,7 +51,7 @@ export const OPERATOR_PHRASE_KEYS = [
   // Сначала предложить звонок агента, номер — когда клиент проявил интерес (владелец 21.11.2026: «слишком быстро он номер берет»).
   "offer_call", "got_it",
   // Явная роль без номера — тёплый ответ и один вопрос по делу, номер следующим ходом; продавцу номер — «оценит и обсудит» (21.11.2026).
-  "ask_phone_seller", "role_details_buyer", "role_details_seller", "role_details_missing",
+  "ask_phone_seller", "role_details_buyer", "role_details_seller", "role_details_missing", "phone_where",
   // Только проверяющему из Настроек: «сброс» — разговор с нуля (lib/botReviewers.ts).
   "reviewer_reset",
 ] as const;

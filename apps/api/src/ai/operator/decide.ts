@@ -471,6 +471,12 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       else if (!flow.length && !answers.length) signal("no_phone");
       return;
     }
+    if (s.asked.phone < phoneAsksMax || said("ask_phone") || said("ask_phone_seller")) {
+      // «Хорошо / ладно / хоп» сразу на просьбу номера, а номера нет — согласие: одна короткая просьба «куда позвонить» (это
+      // продолжение того же шага, не новая просьба; слепое ревью #345). Дальше — по правилу пауз.
+      const justAsked = s.asked.phone > 0 && s.step === "contact" && (s.flags.clientTurns ?? 0) - (s.flags.phoneAskTurn ?? 0) <= 1;
+      if (justAsked && (u.agrees || u.ackOnly) && !u.declines && !said("phone_where")) { flow.push(draft("phone_where")); return; }
+    }
     if (s.asked.phone < phoneAsksMax) {
       if (!phoneAskCooled()) {
         // Пауза между просьбами номера: на слова по делу — короткое «понял» (детали уйдут в заявку), без той же просьбы.

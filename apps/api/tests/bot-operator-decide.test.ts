@@ -343,7 +343,7 @@ describe("пределы и запреты", () => {
     expect(partial.text).toBe("Спасибо, передаю агенту, он позвонит вам в ближайшее время, а пока можете добавить район и бюджет.");
     // Номера нет (21.11.2026): первым ответом — один вопрос только про недостающее, номер — следующим ходом.
     const ig = one(IG(), ru({ role: "buyer", details: { rooms: "2" }, hasDetails: true }));
-    expect(ig.text).toBe("Напишите, пожалуйста, район и бюджет, и агент с вами свяжется.");
+    expect(ig.text).toBe("Напишите, пожалуйста, район и бюджет, и расскажем подробнее.");
     expect(ig.state.details.rooms).toBe("2");
     const full = one(ctx(), ru({ role: "buyer", details: { rooms: "2", district: "Сино", budget: "60000$" }, hasDetails: true }));
     expect(full.keys).toEqual(["lead_known_phone"]);
@@ -366,7 +366,8 @@ describe("пределы и запреты", () => {
     expect(turns[2]!.keys).toEqual(["got_it"]);
     expect(turns[3]!.keys).toEqual(["ask_phone_seller"]);
     expect(turns[3]!.text).toBe("Оставьте номер, и агент сам вам позвонит, оценит и всё обсудит.");
-    expect(turns[4]!.text).toBe("Можете позвонить нам сами: +992 00 000 00 02.");
+    // «Ок» сразу на просьбу — согласие без номера: одна короткая просьба «куда позвонить» (слепое ревью #345, второй круг).
+    expect(turns[4]!.text).toBe("Напишите, пожалуйста, номер, куда позвонить.");
     expect(turns.slice(0, 5).flatMap(t => t.actions)).toEqual([]);
     // Вопрос о деталях уже звучал первым ответом: строка заявки его не повторяет.
     expect(turns[5]!.keys).toEqual(["phone_received"]);
@@ -393,11 +394,13 @@ describe("пределы и запреты", () => {
     const turns = run(c, [ru({ adOpener: true }), ru({ question: "other" }), ru({ ackOnly: true }), ru({ ackOnly: true })]);
     expect(turns[0]!.keys).toEqual(["property_price", "offer_call"]);
     expect(turns[1]!.keys).toEqual(["details_by_agent", "ask_phone"]);
-    expect(turns[2]!.silent).toBe(true);
+    // «Ок» сразу на просьбу номера — одна короткая просьба «куда позвонить» (это тот же шаг), ещё «ок» — тишина.
+    expect(turns[2]!.keys).toEqual(["phone_where"]);
     expect(turns[3]!.silent).toBe(true);
     expect(turns[3]!.state.asked.phone).toBe(1);
-    const strict = run(IG({ maxPhoneAsks: 1 }), [ru({ role: "buyer", details: { rooms: "2", district: "Сино", budget: "1" }, hasDetails: true }), ru({ ackOnly: true })]);
-    expect(strict[1]!.keys).toEqual(["office_phone"]);
+    const strict = run(IG({ maxPhoneAsks: 1 }), [ru({ role: "buyer", details: { rooms: "2", district: "Сино", budget: "1" }, hasDetails: true }), ru({ ackOnly: true }), ru({ ackOnly: true })]);
+    expect(strict[1]!.keys).toEqual(["phone_where"]);
+    expect(strict[2]!.keys).toEqual(["office_phone"]);
     // Номер после передачи сотруднику — всё равно заявка.
     expect(leads(run(c, [ru({ phone: "+992935551234" })], turns[3]!.state))).toHaveLength(1);
   });
