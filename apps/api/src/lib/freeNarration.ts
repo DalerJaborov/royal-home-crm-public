@@ -6,6 +6,7 @@ import { loadAgentAccess } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
+import { normalizeNarrationVoice } from "./narrationLoudness.js";
 import { localVideoDelete, localVideoFilePath, localVideoUpload } from "./localVideoStorage.js";
 import { budgetAllows, loadNarrationConfiguration, narrationProviderReady } from "./narrationGeneration.js";
 import { rememberNarrationChoice } from "./narrationLastChoice.js";
@@ -186,13 +187,15 @@ export async function executeFreeNarration(claim: FreeNarrationClaim, fetcher?: 
   }
   const storageKey = `${FREE_NARRATION_FOLDER}/${claim.id}.mp3`;
   let stored: string | null = storageKey;
-  try { await localVideoUpload(storageKey, result.audio); } catch (err) {
+  // Та же громкость, что у озвучки объекта (21.11.2026): голос ElevenLabs тише ленты на 8–10 дБ.
+  const audio = await normalizeNarrationVoice(result.audio, "своего текста");
+  try { await localVideoUpload(storageKey, audio); } catch (err) {
     stored = null;
     void logSystemError("api", `Озвучка текста: файл не сохранён: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration:persist" });
   }
   const done = await prisma.freeNarration.update({ where: { id: claim.id }, data: { status: "READY", storageKey: stored, providerRequestId: result.requestId, errorCode: stored ? null : "AUDIO_PERSISTENCE_FAILED" } });
   await rememberNarrationChoice(claim.agentId, { voiceId: claim.voiceId }).catch(() => {});
-  return { status: "READY", row: done, voiceName: claim.voiceName, storageKey: stored, audio: result.audio };
+  return { status: "READY", row: done, voiceName: claim.voiceName, storageKey: stored, audio };
 }
 
 /** Занять и сразу довести (REST): то же, что Telegram делает в два приёма. */

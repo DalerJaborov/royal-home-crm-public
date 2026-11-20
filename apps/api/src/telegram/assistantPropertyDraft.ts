@@ -65,6 +65,7 @@ import {
 } from "./assistantPhotoQuality.js";
 import { isTelegramCompressed } from "../lib/photoQuality.js";
 import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
+import { narrationRate } from "../lib/propertyNarration.js";
 
 type Lang = "ru" | "tg";
 type Values = PropertyWizardDraftValues;
@@ -583,6 +584,8 @@ async function review(ctx: Context, draft: DraftRecord) {
     type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || "",
     floor: Number(values.floor) || null, totalFloors: Number(values.totalFloors) || null, district: district?.name ?? null,
     price: values.price ? String(values.price) : null, currency: values.currency ?? null,
+    // Цена в озвучке только в сомони (21.11.2026): долларовую переводит общий курс из Настроек.
+    usdToTjs: values.currency === "USD" ? await narrationRate() : null,
   }).text : null;
   const lines = [
     c.title,

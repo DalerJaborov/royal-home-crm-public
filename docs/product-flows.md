@@ -11283,6 +11283,8 @@
 
 - const facts = narrationFacts(p);
   · зовёт narrationFacts()
+- const usdToTjs = await narrationRate();
+  · зовёт narrationRate()
 - const versions = await prisma.propertyNarrationVersion.findMany({ where: { propertyId: p.id, ...(req.agent!.r…
   · читает в базе: propertyNarrationVersion
 - если ["ADMIN", "DIRECTOR"].includes(req.agent!.role)

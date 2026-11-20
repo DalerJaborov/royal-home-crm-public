@@ -28,7 +28,7 @@ import { sendBackToMontajer } from "./publishedVideoFix.js";
 import { NarrationDeliveryRefused, narrationDeliveryAttemptBudgetMs, narrationDeliveryRefusalIsExpected, narrationDeliveryStalled, prepareNarrationDeliveryPlan, type NarrationDeliveryRefusalCode } from "./narrationDelivery.js";
 import { generateNarrationVersion, loadNarrationConfiguration, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS, speechChars } from "./narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
-import { narrationFacts, narrationFactsCurrent, narrationHash, narrationScriptError } from "./propertyNarration.js";
+import { narrationFacts, narrationFactsCurrent, narrationHash, narrationRate, narrationScriptError, reportNarrationPriceProblem, snapshotNarrationRate, withNarrationRate } from "./propertyNarration.js";
 import { logSystemError } from "./systemError.js";
 import { NARRATION_CLOSED_STATUSES as CLOSED_STATUSES, retireNarrationsOfClosedProperties, setPropertyNarrationOff } from "./narrationOptOut.js";
 import { narrationLastChoiceFor, rememberNarrationChoice } from "./narrationLastChoice.js";
@@ -112,6 +112,8 @@ export async function requestAutoNarration(input: {
     ? await prisma.property.findUnique({ where: { id: input.propertyId }, select: { videoMasterStorageKey: true, videoHandoffFinalPath: true } }) : null;
   const clipSec = clipOf ? await narrationClipSec(clipOf) : null;
   const cps = clipSec ? await measuredNarrationCharsPerSec() : null;
+  // Курс для {цена} (21.11.2026: цена в озвучке только в сомони) — до замка, как и замеры выше.
+  const usdToTjs = await narrationRate();
   const outcome = await prisma.$transaction(async (tx): Promise<AutoNarrationOutcome> => {
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${input.propertyId} FOR UPDATE`;
     const property = await tx.property.findUnique({ where: { id: input.propertyId }, include: { district: true } });
@@ -138,7 +140,9 @@ export async function requestAutoNarration(input: {
     const noEnding = input.endingId === null || (input.script !== undefined && input.endingId === undefined);
     const chosen = chooseNarration(config, facts.type, { templateId: input.templateId, endingId: input.endingId ?? undefined, noEnding, reroll: input.reroll,
       previous: latest ? { templateId: latest.templateId, endingId: latest.endingId } : null, avoid: latest ? null : input.avoid });
-    const drafted = narrationDraftText(config, facts, chosen.templateId, chosen.endingId);
+    const priced = withNarrationRate(facts, usdToTjs);
+    const drafted = narrationDraftText(config, priced, chosen.templateId, chosen.endingId);
+    if (input.script === undefined) reportNarrationPriceProblem(property.shortId, priced);
     const script = input.script ?? drafted.text;
     const error = narrationScriptError(script);
     if (error) return { status: "INVALID", error };
@@ -152,7 +156,8 @@ export async function requestAutoNarration(input: {
     if (drafted.lang === "tg" && !narrationModelSupportsTajik(config.modelId)) return { status: "INVALID", error: "Модель озвучки не знает таджикского. Руководству: выберите eleven_v4 или eleven_v4_turbo в настройках." };
     const voiceId = pickNarrationVoice(config, input.voiceId ?? latest?.voiceId);
     if (!voiceId) return { status: "INVALID", error: "Голоса озвучки не настроены" };
-    const data = { script, factsSnapshot: facts, factsHash, voiceId, modelId: config.modelId, templateId: drafted.templateId, endingId: drafted.endingId, language: drafted.lang, generateAfter };
+    // Курс хранится в снимке (сверка текста версии с шаблоном), в хэш фактов не входит.
+    const data = { script, factsSnapshot: priced, factsHash, voiceId, modelId: config.modelId, templateId: drafted.templateId, endingId: drafted.endingId, language: drafted.lang, generateAfter };
     // Дребезг: несколько правок подряд правят одну ожидающую версию, пауза сдвигается.
     if (input.source === "AUTO" && latest && latest.status === "DRAFT" && !latest.approvedAt && latest.source !== "MANUAL" && latest.generateAfter) {
       await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data });
@@ -518,7 +523,7 @@ export async function autoApproveSameChoice(versionId: string, config: Narration
     // Ролик уже вышел (18.11.2026, владелец): утверждение = выпуск в соцсети, поэтому только человек.
     if (await clipCountsAsPublished(property.id, property, tx)) return null;
     const facts = narrationFacts(property);
-    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
+    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, withNarrationRate(facts, snapshotNarrationRate(v.factsSnapshot)), v.templateId, v.endingId).text !== v.script) return null;
     // Укороченная под длину ролика версия (16.11.2026): другой шаблон, но заказала её CRM вместо уже
     // одобренной — одобряется на того же человека, иначе ролик ждал бы агента.
     if (v.shortenedFromId) {
@@ -827,8 +832,8 @@ export async function requestShorterNarration(propertyId: string, versionId: str
     const property = await tx.property.findUnique({ where: { id: propertyId }, include: { district: true } });
     const v = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
     if (!property || property.deletedAt || property.narrationOff || !v || v.id !== versionId || v.shortenedFromId || !v.templateId || !v.voiceId) return null;
-    const facts = narrationFacts(property);
-    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
+    const facts = withNarrationRate(narrationFacts(property), snapshotNarrationRate(v.factsSnapshot));
+    if (v.factsHash !== narrationHash(narrationFacts(property)) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
     const lang = v.language === "tg" || v.language === "ru" ? v.language : null;
     const nowRank = FIT_RANK[planNarrationFit(voiceSec, masterSec).tier];
     const chars = Math.max(1, speechChars(v.script, lang));

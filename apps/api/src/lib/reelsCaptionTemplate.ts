@@ -18,7 +18,7 @@
 import { TYPE_RU, CONDITION_RU, formatPrice } from "../ai/seoGenerator.js";
 // MARKET_TYPE_LABELS — тот же словарь, что подписывает объект на карточке:
 // второго перевода «NEW_BUILD → Новостройка» в проекте быть не должно.
-import { MARKET_TYPE_LABELS, propertyHasCondition, visiblePropertyFacts } from "@royal-home/shared";
+import { MARKET_TYPE_LABELS, meaningfulPropertyAddress, propertyHasCondition, visiblePropertyFacts } from "@royal-home/shared";
 import { toTjs, type MoneyContext } from "./money.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import {
@@ -442,7 +442,8 @@ export function reelsCaptionValuesFromProperty(p: {
     price: buildPriceDisplay(p.price, p.currency, p.money),
     phone: p.phone,
     agentName: p.agentName ?? null,
-    address: p.address ?? null,
+    // «улица» одним словом — не адрес: строка «Адрес:» выпадает (21.11.2026, объект 213).
+    address: meaningfulPropertyAddress(p.address),
     documents: p.documents ?? null,
     windowCount: p.windowCount != null ? String(p.windowCount) : null,
     bathroom: bathroomFromDetails(p.details),

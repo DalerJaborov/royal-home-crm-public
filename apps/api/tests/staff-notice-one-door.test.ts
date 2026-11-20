@@ -33,7 +33,7 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "lib/montageObservers.ts": { calls: 3, why: "задание монтажёру и копия наблюдателю — рабочий канал монтажа" },
   "lib/videoHandoff.ts": { calls: 3, why: "передача исходников монтажёру — рабочий канал монтажа" },
   "lib/videoHandoffStaleAlarm.ts": { calls: 1, why: "копия напоминания монтажа наблюдателям (sendMontageCopies) — рабочий канал монтажа" },
-  "lib/narrationDelivery.ts": { calls: 2, why: "файл озвучки и её текст монтажёру (текст длиннее подписи — отдельным сообщением) — рабочий канал монтажа" },
+  "lib/narrationDelivery.ts": { calls: 4, why: "файл озвучки и её текст монтажёру (текст длиннее подписи — отдельным сообщением) и их копия наблюдателям через sendMontageCopies — рабочий канал монтажа" },
   "telegram/assistantNarration.ts": { calls: 14, why: "озвучка агенту на одобрение — рабочая карточка с кнопками, раз на версию без напоминаний (#149, решение владельца 10.11); ответы на «Править текст», включая «отмену»" },
   "telegram/assistantFreeNarration.ts": { calls: 12, why: "«озвучь текст»: кнопки голосов и файл в ответ на просьбу самого человека, без напоминаний (16.11.2026)" },
   "telegram/staffClip.ts": { calls: 11, why: "ответы сотруднику на присланный им ролик и кнопки выбора объекта (#149)" },

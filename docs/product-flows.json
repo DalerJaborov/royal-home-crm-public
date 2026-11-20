@@ -49919,6 +49919,14 @@
     },
     {
      "k": "do",
+     "t": "const usdToTjs = await narrationRate();",
+     "a": [
+      "зовёт narrationRate()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const versions = await prisma.propertyNarrationVersion.findMany({ where: { propertyId: p.id, ...(req.agent!.r…",
      "a": [
       "читает в базе: propertyNarrationVersion"

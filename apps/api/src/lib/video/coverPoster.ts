@@ -59,7 +59,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { propertyFieldShown } from "@royal-home/shared";
+import { meaningfulPropertyAddress, propertyFieldShown } from "@royal-home/shared";
 import sharp, { type OverlayOptions, type Sharp } from "sharp";
 import { prisma } from "../../db.js";
 import { uploadsDir } from "../../upload.js";
@@ -164,7 +164,7 @@ export function buildCoverPosterValues(property: {
     floor: property.floor != null ? `${property.floor} ошёна` : null,
     city: CITY_LABEL,
     district: property.districtName || null,
-    landmark: property.address || null,
+    landmark: meaningfulPropertyAddress(property.address),
   };
 }
 export interface CoverPosterResult {

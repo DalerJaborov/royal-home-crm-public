@@ -57,7 +57,7 @@ import {
 } from "./reelsCaptionTemplate.js";
 import { replaceCaptionPriceLines } from "./captionPriceLine.js";
 import { makePropertyCover } from "./video/coverOpenAi.js";
-import { loadMoneyContext } from "./money.js";
+import { loadMoneyContext, loadUsdRateInfo } from "./money.js";
 import { videoHandoffDir } from "../upload.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { legacyHandoffCoverPath } from "./diskCleanup.js";
@@ -197,7 +197,16 @@ export async function propertyFactsForMontajer(propertyId: string): Promise<stri
    * Публичная подпись под постом продолжает показывать обе (buildPriceDisplay) —
    * это разные тексты для разных людей, и различие здесь намеренное.
    */
-  const priceForMontajer = priceInTjsOnly(property.price, property.currency, await loadMoneyContext());
+  // Курс — только из Настроек (21.11.2026, владелец: цена только в сомони по нашему курсу). Нет курса —
+  // долларовую цену монтажёру не даём вовсе (он набрал бы доллары или сумму по выдуманному курсу) и пишем в журнал.
+  const rate = property.currency === "USD" ? (await loadUsdRateInfo()).rate : null;
+  const priceForMontajer = property.currency === "USD" && !rate
+    ? null
+    : priceInTjsOnly(property.price, property.currency, rate ? { usdToTjs: rate, verified: true } : undefined);
+  if (property.currency === "USD" && !rate) {
+    void logSystemError("video-handoff", `Объект №${property.shortId}: цена в долларах, а курс доллара в Настройках не задан — монтажёру цена не передана. Задайте курс.`,
+      { dedupKey: `montajer-price-no-rate:${property.shortId}`, dedupWindowMs: 24 * 60 * 60_000 });
+  }
   // Владелец 16.09.2026 (второй заход) — назвал ровно семь фактов, каждый
   // отдельной строкой, теми же названиями, что в карточке объекта: Район,
   // Адрес, Этаж, Этажность (отдельно от этажа, не "X из Y" одной строкой),

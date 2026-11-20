@@ -82,3 +82,35 @@ export function convertToTjs(
 export function roundMoney(value: number): number {
   return Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;
 }
+
+/**
+ * ЦЕНА КВАРТИРЫ В ЧУЖОЙ ВАЛЮТЕ (21.11.2026, объект №213). Агент вписал «107 400»
+ * с валютой «сомони», а это были доллары: 1 200 сомони за м² (≈130 $) в Душанбе не
+ * бывает. Цена ушла в подпись, в задание монтажёру и в озвучку. Пороги грубые нарочно:
+ * ловят перепутанную валюту, а не дешёвые и дорогие варианты.
+ *  · сомони дешевле APARTMENT_MIN_TJS_PER_SQM за м² — похоже на доллары;
+ *  · доллары дороже APARTMENT_MAX_USD_PER_SQM за м² — похоже на сомони.
+ * Только квартира с площадью: у дома площадь стройки, у участка сотки, у коммерции разброс.
+ */
+export const APARTMENT_MIN_TJS_PER_SQM = 2_000;
+export const APARTMENT_MAX_USD_PER_SQM = 5_000;
+export function apartmentPriceCurrencySuspect(p: {
+  type: string | null | undefined;
+  price: unknown;
+  currency: Currency | string | null | undefined;
+  areaSqm: unknown;
+}): "LOOKS_USD" | "LOOKS_TJS" | null {
+  if (p.type !== "APARTMENT") return null;
+  const price = Number(p.price ?? 0), area = Number(p.areaSqm ?? 0);
+  if (!Number.isFinite(price) || !Number.isFinite(area) || price <= 0 || area <= 0) return null;
+  const perSqm = price / area;
+  if (p.currency === "USD") return perSqm > APARTMENT_MAX_USD_PER_SQM ? "LOOKS_TJS" : null;
+  return perSqm < APARTMENT_MIN_TJS_PER_SQM ? "LOOKS_USD" : null;
+}
+
+/** Текст для агента: одна строка, без технических слов. */
+export function apartmentPriceCurrencyHint(suspect: "LOOKS_USD" | "LOOKS_TJS"): string {
+  return suspect === "LOOKS_USD"
+    ? "Проверьте валюту: за квартиру такая цена в сомони слишком мала. Если это доллары, выберите «Доллары»"
+    : "Проверьте валюту: за квартиру такая цена в долларах слишком велика. Если это сомони, выберите «Сомони»";
+}

@@ -3,6 +3,8 @@ import { propertyDetailShown, propertyFieldRequired, propertyFieldShown, propert
 import { PROPERTY_DETAIL_LABELS } from "./labels.js";
 import { PROPERTY_DETAIL_KEYS, type PropertyDetailKey, type PropertyType } from "./enums.js";
 import { DETAIL_NOT_SET, type PropertyWizardDraftValues } from "./propertyWizardDraft.js";
+import { apartmentPriceCurrencyHint, apartmentPriceCurrencySuspect } from "./money.js";
+import { meaningfulPropertyAddress } from "./propertyAddress.js";
 
 /**
  * ПРАВИЛА МАСТЕРА ОБЪЕКТА — ОДНО МЕСТО ДЛЯ CRM И TELEGRAM (10.11.2026).
@@ -57,6 +59,11 @@ export function propertyWizardStepErrors(
     const price = str(v.price);
     if (!positive(price)) errors.price = "Укажите цену";
     else if (Number(price) < PROPERTY_MIN_PLAUSIBLE_PRICE) errors.price = "Проверьте цену — сумма выглядит слишком маленькой";
+    else {
+      // Перепутанная валюта (21.11.2026, объект 213: доллары записаны сомони и ушли в подпись, монтажёру и в озвучку).
+      const suspect = apartmentPriceCurrencySuspect({ type, price, currency: str(v.currency) || "TJS", areaSqm: str(v.areaSqm) });
+      if (suspect) errors.price = apartmentPriceCurrencyHint(suspect);
+    }
     if (type === "LAND") {
       if (!positive(str(v.landAreaSotka))) errors.landAreaSotka = "Укажите площадь участка в сотках";
     } else if (!positive(str(v.areaSqm))) {
@@ -92,6 +99,7 @@ export function propertyWizardStepErrors(
   if (step === "place" && !v.offSite) {
     if (!v.districtId) errors.districtId = "Выберите район";
     if (str(v.address).trim().length < 2) errors.address = "Укажите адрес";
+    else if (!meaningfulPropertyAddress(str(v.address))) errors.address = "Напишите адрес полностью: улицу и дом или ориентир, а не одно слово";
   }
 
   if (step === "seller") {

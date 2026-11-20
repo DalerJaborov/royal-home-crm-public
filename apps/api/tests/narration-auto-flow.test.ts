@@ -67,7 +67,7 @@ vi.mock("../src/db.js", async (importOriginal) => {
     videoRemakeRequest: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
     // Последний выбор голоса сотрудника (12.11.2026): у подделки его нет.
     agent: { findUnique: vi.fn(async () => null), update: vi.fn(async () => ({})) },
-    settings: { findUnique: vi.fn(async () => ({ propertyNarrationConfig: s.config, elevenLabsApiKey: "test-key" })) },
+    settings: { findUnique: vi.fn(async () => ({ propertyNarrationConfig: s.config, elevenLabsApiKey: "test-key", usdToTjsRate: "9.27" })) },
     propertyNarrationVersion: versionModel, propertyNarrationDelivery: deliveryModel,
     // Образцы голосов (11.11.2026) считаются в том же дневном потолке; здесь их нет.
     narrationVoiceSample: { findMany: vi.fn(async () => []) },
@@ -284,11 +284,11 @@ describe("spoken price (owner 11.11.2026): new version on price change, sound-on
     s.config = { ...baseConfig(), templates: PRICED };
     await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
     await runNarrationAutoFlow({ now });
-    expect(s.versions[0].script).toBe("Квартира барои фурӯш. Нархаш ҳаштоду панҷ ҳазор доллар.");
+    expect(s.versions[0].script).toBe("Квартира барои фурӯш. Нархаш ҳафтсаду ҳаштоду ҳашт ҳазор сомонӣ.");
     await approvedAt("82000", later(10_000));
     await approvedAt("80000", later(70_000));
     expect(s.versions).toHaveLength(2);
-    expect(s.versions[1].script).toBe("Квартира барои фурӯш. Нархаш ҳаштод ҳазор доллар.");
+    expect(s.versions[1].script).toBe("Квартира барои фурӯш. Нархаш ҳафтсаду чилу ду ҳазор сомонӣ.");
     await runNarrationAutoFlow({ now: later(70_000 + 3 * 60_000 + 1) });
     expect(s.audio).toHaveBeenCalledTimes(2);
     expect(s.versions[1]).toMatchObject({ status: "READY", approvedAt: null });
@@ -404,7 +404,7 @@ describe("templates by property type, endings and random choice without repeat (
   };
   const ending = (id: string) => TYPED.endings.find((e) => e.id === id)!.text;
   const draftOf = (v: Row) => narrationDraftText(s.config as never, { type: s.property!.type, rooms: s.property!.rooms, areaSqm: s.property!.areaSqm, floor: s.property!.floor,
-    totalFloors: s.property!.totalFloors, district: s.property!.district.name, price: s.property!.price, currency: s.property!.currency }, v.templateId, v.endingId).text;
+    totalFloors: s.property!.totalFloors, district: s.property!.district.name, price: s.property!.price, currency: s.property!.currency, usdToTjs: 9.27 }, v.templateId, v.endingId).text;
   beforeEach(() => { s.config = { ...baseConfig(), ...TYPED }; });
 
   it("a new apartment gets an apartment template and an apartment ending; the text equals body + ending rebuilt from the saved codes", async () => {
@@ -428,7 +428,7 @@ describe("templates by property type, endings and random choice without repeat (
   it("the agent's own choice is respected, even a template of another type, together with the chosen ending", async () => {
     await startNarrationForNewProperty(propertyId, "agent", { templateId: "house-a", endingId: "end-3" });
     expect(s.versions[0]).toMatchObject({ templateId: "house-a", endingId: "end-3" });
-    expect(s.versions[0].script).toBe(`Ҳавлии нав дар фурӯш аст. Нархаш ҳаштоду панҷ ҳазор доллар. ${ending("end-3")}`);
+    expect(s.versions[0].script).toBe(`Ҳавлии нав дар фурӯш аст. Нархаш ҳафтсаду ҳаштоду ҳашт ҳазор сомонӣ. ${ending("end-3")}`);
   });
 
   it("«Другой шаблон»: a new random template and a new random ending, never the previous ones", async () => {
@@ -453,7 +453,7 @@ describe("templates by property type, endings and random choice without repeat (
     await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now: later(60_000), debounceMs: 0 });
     const second = s.versions[1];
     expect(second).toMatchObject({ templateId: first.templateId, endingId: first.endingId });
-    expect(second.script).toBe(first.script.replace("ҳаштоду панҷ ҳазор", "навад ҳазор"));
+    expect(second.script).toBe(first.script.replace("ҳафтсаду ҳаштоду ҳашт ҳазор", "ҳаштсаду сиву чор ҳазор"));
     await runNarrationAutoFlow({ now: later(120_000) });
     expect(s.versions[1]).toMatchObject({ status: "READY", approvedById: "agent" });
   });
