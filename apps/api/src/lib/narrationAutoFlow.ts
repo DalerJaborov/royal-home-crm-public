@@ -526,7 +526,8 @@ export async function narrationAfterVideoIssued(propertyId: string, editorId: st
   let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;
   try { prepared = await prepareNarrationDeliveryPlan(propertyId, latest.id, "AUDIO_ONLY"); }
   catch (err) {
-    if (!(err instanceof NarrationDeliveryRefused && narrationDeliveryRefusalIsExpected(err.code))) {
+    // Цену поменяли, новая версия ещё готовится (VERSION_STALE) — штатно: новую отправит обход, тревоги нет (ревью 21.11).
+    if (!(err instanceof NarrationDeliveryRefused && (narrationDeliveryRefusalIsExpected(err.code) || err.code === "VERSION_STALE"))) {
       const shortId = (await prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true } }))?.shortId ?? "?";
       void logSystemError("api", `Озвучка объекта №${shortId}: видео у монтажёра, а голос следом не передан — ${err instanceof Error ? err.message : String(err)}`,
         { dedupKey: `narration-delivery-refused:${propertyId}:${err instanceof NarrationDeliveryRefused ? err.code : "UNEXPECTED"}`, dedupWindowMs: NARRATION_DELIVERY_ALARM_WINDOW_MS });
@@ -1430,7 +1431,10 @@ async function resumeWaitingNarrationDeliveries(): Promise<number> {
     }
     const ok = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${row.propertyId} FOR UPDATE`;
-      if (await tx.propertyNarrationDelivery.count({ where: { propertyId: row.propertyId, versionId: row.versionId, status: "SENT" } })) {
+      // «Уже у монтажёра» — в ТЕКУЩЕЙ выдаче видео (ревью 21.11): голос, ушедший раньше этого видео, не в счёт —
+      // иначе ждущая передача гасла бы, а голос за новым видео не уходил.
+      const issuedAt = await videoIssuedToEditorAt(tx, row.propertyId, prepared.editorId);
+      if (await tx.propertyNarrationDelivery.count({ where: { propertyId: row.propertyId, versionId: row.versionId, editorId: prepared.editorId, status: "SENT", ...(issuedAt ? sinceIssue(issuedAt) : {}) } })) {
         await tx.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "WAITING" }, data: { status: "CANCELLED", lastError: "Голос этой версии уже у монтажёра — второй раз не отправляю" } });
         return false;
       }

@@ -45,10 +45,12 @@ delete process.env.TELEGRAM_BOT_TOKEN;
 const { prisma } = await import("../src/db.js");
 const vh = await import("../src/lib/videoHandoff.js");
 const { afterNarrationApproved, narrationAfterVideoIssued, narrationsOwedToMontajer, runNarrationAutoFlow } = await import("../src/lib/narrationAutoFlow.js");
-const { executeNarrationDelivery, executeQueuedNarrationDeliveries } = await import("../src/lib/narrationDelivery.js");
+const { executeNarrationDelivery, executeQueuedNarrationDeliveries, prepareNarrationDeliveryPlan, retryTelegramRateLimit, NARRATION_WAITS_FOR_VIDEO_TEXT } = await import("../src/lib/narrationDelivery.js");
+const { TelegramApiError } = await import("../src/telegram/api.js");
 const { narrationFacts, narrationHash } = await import("../src/lib/propertyNarration.js");
 const { localVideoFilePath, localVideoUpload, localVideoDelete } = await import("../src/lib/localVideoStorage.js");
 const { runVideoHandoffRedeliveryTick } = await import("../src/lib/videoHandoffRedelivery.js");
+const { waitForSettled } = await import("./helpers/waitFor.js");
 
 const runId = Date.now();
 const MONTAJER_CHAT = String(764000000 + (runId % 1_000_000));
@@ -97,6 +99,11 @@ function sendsFor(p: Seeded, chat = MONTAJER_CHAT) {
     ...tg.sendMessageWithButtons.mock.calls.map((c, i) => ({ c, order: tg.sendMessageWithButtons.mock.invocationCallOrder[i]! }))]
     .filter(({ c }) => c[0] === chat && String(c[1]).startsWith("Отправлено") && String(c[1]).includes(`№${p.shortId}`)).map((x) => x.order);
   return { video: video.sort((a, b) => a - b), voice: voice.sort((a, b) => a - b), control: control.sort((a, b) => a - b) };
+}
+/** Тексты итогового «отправлено N из N» объекта. */
+function controlTexts(p: Seeded, chat = MONTAJER_CHAT): string[] {
+  return [...tg.sendMessage.mock.calls, ...tg.sendMessageWithButtons.mock.calls]
+    .filter((c) => c[0] === chat && String(c[1]).startsWith("Отправлено") && String(c[1]).includes(`№${p.shortId}`)).map((c) => String(c[1]));
 }
 const deliveries = (p: Seeded) => prisma.propertyNarrationDelivery.findMany({ where: { propertyId: p.id }, orderBy: { createdAt: "asc" } });
 
@@ -155,7 +162,9 @@ describe("одобрено до выдачи видео", () => {
     expect(s.voice).toHaveLength(1);
     expect(s.voice[0]!).toBeGreaterThan(s.video.at(-1)!);
     expect(s.control).toHaveLength(1);
-    expect(s.voice[0]!).toBeLessThan(s.control[0]!);
+    // «следующим сообщением» — правда: mp3 идёт сразу за итогом, в котором это сказано.
+    expect(s.voice[0]!).toBeGreaterThan(s.control[0]!);
+    expect(controlTexts(p).at(-1)).toContain("🎙 Озвучка — следующим сообщением, вклейте её сами.");
     expect((await deliveries(p)).filter((d) => d.status === "SENT")).toHaveLength(1);
   });
 
@@ -289,15 +298,162 @@ describe("голос ушёл раньше видео (как №211)", () => {
 });
 
 describe("строка монтажёру", () => {
-  it("одобрена — «следующим сообщением»; готовится — «как будет готова»; выключена отправка — без «следующим»", async () => {
+  it("одобрена и уйдёт сейчас — «сразу после файлов»; готовится — «как будет готова»; выключена отправка — без обещания «сразу»", async () => {
     const p = await seedProperty("строка");
     const v = await approvedVoice(p);
-    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка — следующим сообщением, вклейте её сами.");
+    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка одобрена: mp3 придёт сразу после файлов ролика — вклейте её сами.");
     vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "PREVIEW");
-    expect(await vh.buildMontajerMessageText(p.id, null)).not.toContain("следующим сообщением");
+    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка придёт сюда, как будет готова, — вклейте её сами.");
     vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "LIVE");
     await prisma.propertyNarrationVersion.update({ where: { id: v.id }, data: { status: "DRAFT", approvedAt: null, approveAsId: approverId } });
     expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка готовится и придёт сюда, как будет готова, — вклейте её сами.");
+  });
+
+  it("цену поменяли после одобрения: ни «сразу», ни «следующим»; файлы ушли, mp3 нет, тревоги в журнале нет", async () => {
+    const p = await seedProperty("цена сменилась");
+    await approvedVoice(p);
+    await prisma.property.update({ where: { id: p.id }, data: { areaSqm: 99 } }); // факты озвучки разошлись
+    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка придёт сюда, как будет готова");
+    await vh.queueVideoHandoff(p.id);
+    await vh.settleBackgroundHandoffDispatches();
+    expect(sendsFor(p).video).toHaveLength(1);
+    expect(sendsFor(p).voice).toHaveLength(0);
+    expect(controlTexts(p).at(-1)).not.toContain("Озвучка");
+    // Журнал пишется «в отрыве» (logSystemError) — ждём, пока запись осядет, и только тогда считаем.
+    expect(await waitForSettled(() => prisma.errorLog.count({ where: { dedupKey: { startsWith: `narration-delivery-refused:${p.id}:` } } }))).toBe(0);
+  });
+
+  it("цена в долларах в одобренном тексте: «следующим» не обещается", async () => {
+    const p = await seedProperty("доллары");
+    const v = await approvedVoice(p);
+    await prisma.propertyNarrationVersion.update({ where: { id: v.id }, data: { script: "Квартира за восемьдесят пять тысяч долларов." } });
+    expect(await vh.buildMontajerMessageText(p.id, null)).not.toContain("сразу после файлов");
+    await vh.queueVideoHandoff(p.id);
+    await vh.settleBackgroundHandoffDispatches();
+    expect(controlTexts(p).at(-1)).not.toContain("Озвучка");
+    expect(sendsFor(p).voice).toHaveLength(0);
+  });
+});
+
+describe("лимит Telegram", () => {
+  it("mp3 — после той же паузы, что между файлами одного чата", async () => {
+    const at: Array<{ what: string; t: number }> = [];
+    tg.sendDocumentFile.mockImplementation(async (_c: string, _f: unknown, name: string) => { at.push({ what: name, t: Date.now() }); return { message_id: 1, document: { file_id: `fid-${name}` } }; });
+    tg.sendMessageWithButtons.mockImplementation(async (_c: string, text: string) => { at.push({ what: text, t: Date.now() }); return { message_id: 1 }; });
+    vh.setMontajerSendPauseMsForTests(300);
+    try {
+      const p = await seedProperty("пауза");
+      await approvedVoice(p);
+      await vh.queueVideoHandoff(p.id);
+      await vh.settleBackgroundHandoffDispatches();
+      const control = at.find((x) => x.what.startsWith("Отправлено"));
+      const voice = at.find((x) => x.what.endsWith(".mp3"));
+      expect(control && voice).toBeTruthy();
+      expect(voice!.t - control!.t).toBeGreaterThanOrEqual(280);
+    } finally {
+      vh.setMontajerSendPauseMsForTests(0);
+      tg.sendDocumentFile.mockImplementation(async (_c: string, _f: unknown, name: string) => ({ message_id: 1, document: { file_id: `fid-${name}` } }));
+      tg.sendMessageWithButtons.mockImplementation(async () => ({ message_id: 1 }));
+    }
+  });
+
+  it("Telegram ответил 429 на mp3 — ждём retry_after и шлём ещё раз: голос дошёл, передача SENT", async () => {
+    const p = await seedProperty("429");
+    await approvedVoice(p);
+    let refused = 0;
+    tg.sendDocumentFile.mockImplementation(async (_c: string, _f: unknown, name: string) => {
+      if (name.endsWith(".mp3") && refused++ === 0) throw new TelegramApiError(429, "sendDocument", "Too Many Requests: retry after 0", { retry_after: 0 });
+      return { message_id: 1, document: { file_id: `fid-${name}` } };
+    });
+    try {
+      await vh.queueVideoHandoff(p.id);
+      await vh.settleBackgroundHandoffDispatches();
+    } finally {
+      tg.sendDocumentFile.mockImplementation(async (_c: string, _f: unknown, name: string) => ({ message_id: 1, document: { file_id: `fid-${name}` } }));
+    }
+    expect(refused).toBe(2);
+    expect(sendsFor(p).voice).toHaveLength(2); // отказ и повтор
+    const rows = await deliveries(p);
+    expect(rows.map((d) => d.status)).toEqual(["SENT"]);
+  });
+
+  it("429 не прошёл и после повторов — голос точно не дошёл: FAILED («передайте вручную»), а не «неизвестно»", async () => {
+    const p = await seedProperty("429 всегда");
+    await approvedVoice(p);
+    tg.sendDocumentFile.mockImplementation(async (_c: string, _f: unknown, name: string) => {
+      if (name.endsWith(".mp3")) throw new TelegramApiError(429, "sendDocument", "Too Many Requests: retry after 600", { retry_after: 600 });
+      return { message_id: 1, document: { file_id: `fid-${name}` } };
+    });
+    try {
+      await vh.queueVideoHandoff(p.id);
+      await vh.settleBackgroundHandoffDispatches();
+    } finally {
+      tg.sendDocumentFile.mockImplementation(async (_c: string, _f: unknown, name: string) => ({ message_id: 1, document: { file_id: `fid-${name}` } }));
+    }
+    const [row] = await deliveries(p);
+    expect(row).toMatchObject({ status: "FAILED" });
+    expect(row!.lastError).toContain("передайте вручную");
+  });
+
+  it("повтор только на 429 и только когда просят подождать не дольше минуты; другие ошибки — без повтора", async () => {
+    const waits: number[] = [];
+    const wait = async (ms: number) => { waits.push(ms); };
+    let n = 0;
+    expect(await retryTelegramRateLimit(async () => { if (n++ < 2) throw new TelegramApiError(429, "x", "slow", { retry_after: 3 }); return "ok"; }, wait)).toBe("ok");
+    expect(waits).toEqual([4000, 4000]);
+    n = 0;
+    await expect(retryTelegramRateLimit(async () => { n++; throw new TelegramApiError(429, "x", "slow", { retry_after: 3 }); }, wait)).rejects.toThrow("slow");
+    expect(n).toBe(3); // две попытки повтора, не больше
+    n = 0;
+    await expect(retryTelegramRateLimit(async () => { n++; throw new TelegramApiError(429, "x", "flood", { retry_after: 600 }); }, wait)).rejects.toThrow("flood");
+    // Ожидание с новой попыткой не влезает в бюджет файла (сторож зависших счёл бы живую отправку зависшей) — без повтора.
+    n = 0;
+    await expect(retryTelegramRateLimit(async () => { n++; throw new TelegramApiError(429, "x", "busy", { retry_after: 30 }); }, wait)).rejects.toThrow("busy");
+    expect(n).toBe(1);
+    n = 0;
+    await expect(retryTelegramRateLimit(async () => { n++; throw new Error("timeout"); }, wait)).rejects.toThrow("timeout");
+    expect(n).toBe(1);
+    n = 0;
+    await expect(retryTelegramRateLimit(async () => { n++; throw new TelegramApiError(400, "x", "Bad Request"); }, wait)).rejects.toThrow("Bad Request");
+    expect(n).toBe(1);
+  });
+});
+
+describe("ручная передача с исходниками — аварийный путь, видео не ждёт", () => {
+  it("видео не дошло: только голос — отказ с подсказкой; с исходниками — готовится и уходит", async () => {
+    const p = await seedProperty("вручную", { videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date(), videoHandoffDeliveredAt: null });
+    const v = await approvedVoice(p);
+    await expect(prepareNarrationDeliveryPlan(p.id, v.id, "AUDIO_ONLY")).rejects.toThrow(NARRATION_WAITS_FOR_VIDEO_TEXT);
+    expect(NARRATION_WAITS_FOR_VIDEO_TEXT).toContain("вместе с исходниками");
+    const { editorId, plan } = await prepareNarrationDeliveryPlan(p.id, v.id, "WITH_SOURCES");
+    const row = await prisma.propertyNarrationDelivery.create({ data: { propertyId: p.id, versionId: v.id, editorId, mode: "WITH_SOURCES", requestKey: randomUUID(), createdById: approverId,
+      plan, status: "QUEUED", executionMode: "LIVE" } });
+    expect(await executeNarrationDelivery(row.id)).toEqual({ status: "SENT" });
+    expect(sendsFor(p).voice).toHaveLength(1);
+  });
+});
+
+describe("ждущая передача и прежняя выдача", () => {
+  it("голос этой версии уходил в ПРЕЖНЕЙ выдаче — ждущую передачу не гасим, она уходит за новым видео", async () => {
+    const p = await seedProperty("ждёт", { videoHandoffStatus: "QUEUED", videoHandoffSentAt: new Date(), videoHandoffQueueOrder: 1 });
+    const v = await approvedVoice(p);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60_000);
+    await prisma.propertyNarrationDelivery.create({ data: { propertyId: p.id, versionId: v.id, editorId: montajerId, mode: "AUDIO_ONLY", requestKey: `old:${v.id}`,
+      createdById: approverId, status: "SENT", executionMode: "LIVE", createdAt: dayAgo, deliveredAt: dayAgo } });
+    // План ждущей передачи обход всё равно пересоберёт свежим, когда видео дойдёт.
+    const waiting = await prisma.propertyNarrationDelivery.create({ data: { propertyId: p.id, versionId: v.id, editorId: montajerId, mode: "AUDIO_ONLY", requestKey: `wait:${v.id}`,
+      createdById: approverId, plan: { factsHash: v.factsHash, recipientHash: "x", sourcesHash: "x", files: [{ id: v.id, storageKey: v.storageKey!, filename: "v.mp3", caption: "c" }] }, status: "WAITING", executionMode: "LIVE" } });
+    // Видео выдано без крючка (крючок ставит свою передачу и гасит ждущую — здесь проверяется сам обход ждущих).
+    vh.setVideoIssuedToMontajerHook(null);
+    try {
+      await vh.queueVideoHandoff(p.id);
+      await vh.settleBackgroundHandoffDispatches();
+    } finally { vh.setVideoIssuedToMontajerHook(narrationAfterVideoIssued); }
+    await runNarrationAutoFlow({});
+    expect((await prisma.propertyNarrationDelivery.findUniqueOrThrow({ where: { id: waiting.id } })).status).not.toBe("CANCELLED");
+    await executeQueuedNarrationDeliveries();
+    expect(sendsFor(p).voice).toHaveLength(1);
+    expect((await prisma.propertyNarrationDelivery.findUniqueOrThrow({ where: { id: waiting.id } })).status).toBe("SENT");
   });
 });
 

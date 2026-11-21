@@ -230,7 +230,7 @@ describe("монтажёру — один готовый файл и текст 
     const { p, version } = await propertyWithApprovedVoice({ withFile: true });
     // Задание монтажёру с исходниками.
     const task = await buildMontajerMessageText(p.id, null);
-    expect(task).toContain("🎙 Озвучка — следующим сообщением, вклейте её сами.");
+    expect(task).toContain("🎙 Озвучка одобрена: mp3 придёт сразу после файлов ролика — вклейте её сами.");
     // Голос: одно mp3, подпись с текстом.
     expect(await afterNarrationApproved(p.id, version.id)).toBe("QUEUED");
     const delivery = await prisma.propertyNarrationDelivery.findFirstOrThrow({ where: { propertyId: p.id } });

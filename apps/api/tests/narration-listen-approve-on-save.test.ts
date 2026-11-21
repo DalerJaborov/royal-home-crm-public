@@ -219,7 +219,8 @@ describe("перемонтаж и строка монтажёру", () => {
     const heard = await listenNarration({ agentId: author, script: await textFor(p.id), voiceId: "voiceA", lang: "ru" });
     await startNarrationForNewProperty(p.id, author, { templateId: TEMPLATE.id, voiceId: "voiceA", listenId: heard.status === "READY" ? heard.id : undefined });
     tts.audio.mockClear();
-    const line = await narrationLineForMontajer(p.id);
+    // «Одобрена: придёт сразу после файлов» обещается, только когда голос правда уйдёт (отправка включена, ревью 21.11).
+    const line = await withLive(() => narrationLineForMontajer(p.id));
     expect(line).toContain("одобрена");
     expect(line).not.toContain("ждёт одобрения");
     expect(tts.audio).not.toHaveBeenCalled();
@@ -232,7 +233,7 @@ describe("перемонтаж и строка монтажёру", () => {
     expect(line).not.toContain("ждёт одобрения");
     const id = await generate(p.id);
     expect(await approveNarrationAsSaved(id)).toBe("AUDIO_APPROVED");
-    expect(await narrationLineForMontajer(p.id)).toContain("одобрена");
+    expect(await withLive(() => narrationLineForMontajer(p.id))).toContain("одобрена");
   });
 });
 
