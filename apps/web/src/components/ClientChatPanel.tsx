@@ -89,7 +89,11 @@ import { inboxConversationId } from "../lib/inboxLink";
 const VirtuosoList = forwardRef<HTMLDivElement, ListProps>(function VirtuosoList(props, ref) {
   // `.thread` прототипа — колонка с зазором и внутренним отступом; здесь его
   // держит сам список Virtuoso, потому что прокруткой владеет она.
-  return <div {...props} ref={ref} className="thread" />;
+  // ПРОКРУТКА ВВЕРХ НА ПК (21.11.2026): `.thread` темы — это прокручиваемый контейнер (overflow-y:auto) с
+  // `overscroll-behavior: contain`. Здесь он лишь содержимое списка Virtuoso, высотой во всю историю, но колесо
+  // мыши над пузырём попадало в него и НЕ передавалось настоящему прокручиваемому родителю — лента не
+  // листалась вовсе. Поэтому свой прокрутчик у этого слоя отключён: прокруткой владеет только Virtuoso.
+  return <div {...props} ref={ref} className="thread" style={{ ...props.style, overflow: "visible", overscrollBehavior: "auto" }} />;
 });
 
 /** paddingBottom вместо `gap` на List: элементы ленты — сиблинги в обычном
@@ -285,7 +289,7 @@ const ChatMessageList = memo(function ChatMessageList({
               {/* На что этот ответ — ищем по всей ленте, `index` уже абсолютный
                   (Virtuoso всегда передаёт позицию в полном массиве `data`). */}
               <MessageQuote quoted={quotedMessage(messages, m.replyToMid, index, m.sourceConversationId)} rh2 />
-              {m.sourceChannel && <span className="meta" data-message-channel style={{ display: "inline-block", marginRight: 6 }}>{channelLabel(m.sourceChannel)}</span>}
+              {/* Метку канала («WhatsApp») в пузыре не показываем: владелец 21.11.2026 — «нам не важно, откуда клиент». */}
               {/* Текст расшифровки голосового агенту и в CRM не показываем (решение
                   владельца 16.08.2026) — только сам звук: расшифровка бывает выдумана
                   (тихая запись даёт Gemini повод сочинить фразу), а в базе она всё
@@ -394,8 +398,12 @@ export function ClientChatPanel({
   const [exporting, setExporting] = useState(false);
   const [text, setText] = useState("");
   const [confirmClose, setConfirmClose] = useState(false);
-  const [selectedSendTarget, setSelectedSendTarget] = useState("");
+  const [pickedSendTarget, setSelectedSendTarget] = useState("");
   const sendableConversations = conversations.filter((c) => c.canReply !== false);
+  // Канал один — выбирать нечего: ответ уходит в него сразу, список не показываем.
+  const selectedSendTarget = pickedSendTarget || (sendableConversations.length === 1
+    ? inboxConversationId(sendableConversations[0].channel, sendableConversations[0].id)
+    : "");
   const sendTargetLabels = replyTargetLabels(sendableConversations.map((source) => source.channel));
   const selectedConversation = sendableConversations.find((c) => inboxConversationId(c.channel, c.id) === selectedSendTarget);
   const sendConversationId = selectedConversation ? selectedSendTarget : undefined;
@@ -522,7 +530,7 @@ export function ClientChatPanel({
                 {clientName}
               </b>
               <span className="note">
-                Переписка · {conversations.length} канал(а)
+                Переписка
               </span>
             </div>
             <button
@@ -589,10 +597,11 @@ export function ClientChatPanel({
             className="compose"
             style={{ flexWrap: "wrap" }}
           >
-            <label className="sr-only" htmlFor="client-chat-target">Канал ответа</label>
-            <select
+            {sendableConversations.length > 1 && <label className="sr-only" htmlFor="client-chat-target">Канал ответа</label>}
+            {sendableConversations.length > 1 && <select
               id="client-chat-target"
               className="inp"
+              style={{ flex: "1 1 100%", minWidth: 0 }}
               value={selectedSendTarget}
               onChange={(event) => setSelectedSendTarget(event.target.value)}
               required
@@ -604,7 +613,7 @@ export function ClientChatPanel({
                   {sendTargetLabels[index]}
                 </option>
               ))}
-            </select>
+            </select>}
             {/* Предупреждение ДО отправки — тем же правилом, что применит сервер.
                 Тихой строкой `.quiet`, не карточкой (договор §6.1). */}
             {hasMaskablePhone(text) && (
@@ -646,7 +655,8 @@ export function ClientChatPanel({
                   }
                 }}
                 maxLength={2000}
-              placeholder={selectedConversation ? `Написать в ${channelLabel(selectedConversation.channel)}…` : "Сначала выберите канал"}
+                style={{ flex: "1 1 0%", minWidth: 0 }}
+              placeholder={selectedConversation ? "Написать клиенту…" : "Сначала выберите канал"}
             />
             <VoiceRecordButton
               send={(blob) => voiceMessage.mutateAsync(blob)}

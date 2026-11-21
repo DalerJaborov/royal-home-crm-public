@@ -33,9 +33,15 @@ import { currentActorId } from "./lib/requestActor.js";
  *  - вложенные записи (deal.update({ client: { update: ... } })) не ловятся —
  *    в коде так статусы не меняют (проверено поиском на 26.08).
  */
+/**
+ * `source` (21.11.2026, ТЗ дашборда директора п.15 «история смены источника»):
+ * ловится только на ИЗМЕНЕНИИ. Источник задаётся при создании каждой карточки —
+ * запись «null → Instagram» на каждое создание была бы шумом, а первый источник
+ * и так лежит в самой карточке. Поэтому у полей есть отдельный список для create.
+ */
 const TRACKED = {
-  client: { entityType: "CLIENT", fields: ["status", "workStatus"] as const },
-  deal: { entityType: "DEAL", fields: ["stage"] as const },
+  client: { entityType: "CLIENT", fields: ["status", "workStatus", "source"] as const, createFields: ["status", "workStatus"] as const },
+  deal: { entityType: "DEAL", fields: ["stage"] as const, createFields: ["stage"] as const },
 } as const;
 
 /**
@@ -198,7 +204,7 @@ function makeHooks(model: keyof typeof TRACKED) {
      *  (NEW/ACTIVE без явного поля в data) журналу не нужны — они и так дефолт;
      *  пишем только явно заданные, чтобы не плодить строку на каждый сид. */
     async create({ args, query }: UpdateHook) {
-      const changes = changesOf(args.data);
+      const changes = changesOf(args.data).filter((c) => (cfg.createFields as readonly string[]).includes(c.field));
       const result = (await query(args)) as { id?: string } | null;
       if (changes.length && result && typeof result.id === "string") {
         recordEvents(
@@ -293,8 +299,27 @@ async function fixInvertedBudget(
     .catch((err) => console.error("[budget-guard] запись в журнал:", err instanceof Error ? err.message : err));
 }
 
+/**
+ * Бюджет 0 или меньше не бывает (21.11.2026): «до 0 с.» отсекало всю базу в подборе. Любая запись нуля
+ * (разбор разговора, форма, бот) превращается в «не указан» (null) здесь, в одной двери записи.
+ */
+function nullifyNonPositiveBudget(data: Record<string, unknown> | undefined): void {
+  if (!data) return;
+  for (const field of ["budgetMin", "budgetMax"]) {
+    if (!(field in data)) continue;
+    const raw = data[field];
+    const value = raw && typeof raw === "object" && "set" in (raw as object) ? (raw as { set: unknown }).set : raw;
+    if (value == null) continue;
+    const num = Number(value);
+    if (!Number.isFinite(num) || num > 0) continue;
+    if (raw && typeof raw === "object" && "set" in (raw as object)) (raw as { set: unknown }).set = null;
+    else data[field] = null;
+  }
+}
+
 const budgetGuard = {
   async update({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined);
     const data = (args.data ?? {}) as Record<string, unknown>;
     const touchesMin = "budgetMin" in data;
     const touchesMax = "budgetMax" in data;
@@ -319,6 +344,7 @@ const budgetGuard = {
     return result;
   },
   async create({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined);
     const result = (await query(args)) as { id?: string } | null;
     const data = (args.data ?? {}) as Record<string, unknown>;
     const min = plannedNumber(data, "budgetMin");
@@ -329,6 +355,15 @@ const budgetGuard = {
       await fixInvertedBudget(result.id, min, max, true, true, openScope());
     }
     return result;
+  },
+  async updateMany({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined);
+    return query(args);
+  },
+  async upsert({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget((args as { create?: Record<string, unknown> }).create);
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined ?? (args as { update?: Record<string, unknown> }).update);
+    return query(args);
   },
 };
 
