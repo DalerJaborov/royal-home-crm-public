@@ -83,7 +83,7 @@ import { presentProperty, stripOwnerContact } from "../../lib/ownerContact.js";
 
 import { publishPropertyUpdated } from "../../lib/livePublish.js";
 import { closeAutoTasks } from "../../lib/autoTasks.js";
-import { autoLinkPropertyById } from "../../lib/constructionRegistry/link.js";
+import { autoLinkPropertyById } from "../../lib/constructionRegistry/autoLinkOnSave.js";
 import { SELF_CREATED_ASSIGN_REASON } from "../../services/leads/firstCall.js";
 
 export const crudRouter = Router();
