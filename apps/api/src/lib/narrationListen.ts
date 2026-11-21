@@ -10,7 +10,6 @@ import {
 import { narrationAutoEnabled } from "./narrationPlan.js";
 import { NARRATION_QUOTA_EXCEEDED, narrationScriptError } from "./propertyNarration.js";
 import { FREE_NARRATION_FOLDER } from "./freeNarration.js";
-import { rememberNarrationChoice } from "./narrationLastChoice.js";
 import { logSystemError } from "./systemError.js";
 
 /**
@@ -30,6 +29,8 @@ import { logSystemError } from "./systemError.js";
 /** Сколько раз в сутки один сотрудник может прослушать НОВЫЙ звук (повтор того же бесплатен). ОЦЕНКА: на объект
  *  уходит одно-три прослушивания, в день сотрудник заводит несколько объектов. */
 export const NARRATION_LISTEN_PER_PERSON_DAILY = 30;
+/** Прослушивания берут общий дневной потолок озвучки только до этой доли: последние 30% — звуку роликов (ревью 21.11). */
+export const NARRATION_LISTEN_BUDGET_CEILING_PERCENT = 70;
 /** Генерация, не закончившаяся за это время, считается оборванной: можно попробовать снова. */
 const LISTEN_STALE_MS = 3 * 60_000;
 
@@ -78,7 +79,7 @@ export async function listenNarration(input: { agentId: string; script: string; 
   try {
     claimed = await prisma.$transaction(async (tx) => {
       // Общий замок и потолок с озвучкой роликов: две генерации разом не проскочат мимо дневного предела.
-      if (!await budgetAllows(tx, speech.length, config, now)) return "BUDGET" as const;
+      if (!await budgetAllows(tx, speech.length, config, now, undefined, NARRATION_LISTEN_BUDGET_CEILING_PERCENT)) return "BUDGET" as const;
       const used = await tx.freeNarration.count({ where: { agentId: input.agentId, source: NARRATION_LISTEN_SOURCE, generationStartedAt: { gte: dushanbeStartOfToday(now) } } });
       if (used >= NARRATION_LISTEN_PER_PERSON_DAILY) return "LIMIT_PERSON" as const;
       return tx.freeNarration.create({ data: { agentId: input.agentId, source: NARRATION_LISTEN_SOURCE, status: "GENERATING", script, lang: input.lang,
@@ -108,8 +109,8 @@ export async function listenNarration(input: { agentId: string; script: string; 
     void logSystemError("api", `Прослушивание озвучки в мастере: файл не сохранён: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-listen:persist" });
     return { status: "FAILED", quota: false };
   }
+  // «Последний выбор голоса» пишет только сохранение (ревью 21.11): прослушать — ещё не выбрать.
   await prisma.freeNarration.updateMany({ where: guard, data: { status: "READY", storageKey, providerRequestId: result.requestId, errorCode: null } });
-  await rememberNarrationChoice(input.agentId, { voiceId: input.voiceId }).catch(() => {});
   return { status: "READY", id: claimed.id, cached: false };
 }
 

@@ -40,7 +40,7 @@ import { registerWork } from "../../lib/workGuard";
 import { setDraftReminder } from "../../lib/draftReminder";
 import { toast } from "../../store/toast";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { canCloseWizard, decideSave, skippedMediaCount, skippedMediaMessage } from "./saveDecision";
+import { canCloseWizard, decideSave, skippedMediaCount, skippedMediaMessage, narrationTextRejected, narrationTextRejectedMessage } from "./saveDecision";
 import { SaveProgressOverlay } from "./SaveProgressOverlay";
 import { UploadProblemSheet } from "./UploadProblemSheet";
 import { draftMediaConflict, draftMediaConflictTitle } from "./draftMediaConflict";
@@ -599,6 +599,9 @@ export function PropertyWizard({
       // /properties с `media: { attached, skipped }`); пока поля нет — молчим.
       const skipped = skippedMediaCount(saved);
       if (skipped > 0) toast.error(skippedMediaMessage(skipped));
+      // Текст озвучки агента не принят (ревью 21.11): сказать честно, почему, и что будет дальше.
+      const narrationRejected = narrationTextRejected(saved);
+      if (narrationRejected) toast.error(narrationTextRejectedMessage(narrationRejected));
 
       // Черновик сервер удалил сам вместе с переносом файлов; здесь убираем
       // только запасную копию в браузере и плитки текущего мастера.

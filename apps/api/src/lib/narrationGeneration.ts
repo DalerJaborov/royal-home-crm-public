@@ -126,11 +126,15 @@ export async function freeNarrationUsage(db: Pick<Tx, "freeNarration">, now = ne
  * `freeSharePercent` (озвучка свободного текста): сверх общего потолка эти озвучки ещё и не выедают больше
  * этой доли знаков и озвучек за сутки, чтобы чужие тексты не оставили озвучку роликов без бюджета.
  */
-export async function budgetAllows(tx: Tx, chars: number, config: NarrationConfig, now: Date, freeSharePercent?: number): Promise<boolean> {
+export async function budgetAllows(tx: Tx, chars: number, config: NarrationConfig, now: Date, freeSharePercent?: number, ceilingPercent?: number): Promise<boolean> {
   await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext('property-narration-budget'))) AS budget_lock`;
   const limits = narrationLimits(config);
   const used = await narrationBudgetUsage(tx, now);
   if (!(used.usedGenerations + 1 <= limits.dailyGenerations && used.usedChars + chars <= limits.dailyChars)) return false;
+  // `ceilingPercent` (прослушивание в мастере, ревью 21.11): берёт общий потолок только до этой доли — остаток
+  // дня остаётся звуку роликов, который идёт и после.
+  if (ceilingPercent !== undefined && !(used.usedGenerations + 1 <= Math.floor(limits.dailyGenerations * ceilingPercent / 100)
+    && used.usedChars + chars <= Math.floor(limits.dailyChars * ceilingPercent / 100))) return false;
   if (freeSharePercent === undefined) return true;
   const free = await freeNarrationUsage(tx, now);
   const maxChars = Math.floor(limits.dailyChars * freeSharePercent / 100);

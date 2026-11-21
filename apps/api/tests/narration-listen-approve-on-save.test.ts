@@ -17,17 +17,20 @@ import { randomUUID } from "node:crypto";
  *  — одна дверь синтеза: generateNarrationAudio зовут только synthesizeNarrationSpeech и образцы голосов.
  */
 const tts = vi.hoisted(() => ({ audio: vi.fn(async () => ({ status: "READY" as const, audio: Buffer.from("synthetic-mp3"), requestId: "req-1" })) }));
+const ch = vi.hoisted(() => ({ tgOn: false, telegram: vi.fn(async () => ({})), push: vi.fn(async () => 0), feed: vi.fn(async () => ({})) }));
 vi.mock("../src/lib/propertyNarration.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/propertyNarration.js")>()), generateNarrationAudio: tts.audio }));
 vi.mock("../src/lib/narrationLoudness.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/narrationLoudness.js")>()), normalizeNarrationVoice: async (audio: Buffer) => audio }));
 vi.mock("../src/ai/liveVoiceProvider.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/liveVoiceProvider.js")>()), resolveElevenLabsKey: () => "test-key" }));
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
-  sendMessage: vi.fn(async () => ({})), sendMessageWithButtons: vi.fn(async () => ({})), sendDocumentFile: vi.fn(async () => ({})), isTelegramEnabled: () => false }));
-vi.mock("../src/push.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/push.js")>()), sendPushToAgent: vi.fn(async () => 0), sendPushToAgents: vi.fn(async () => 0) }));
+  sendMessage: vi.fn(async () => ({})), sendMessageWithButtons: ch.telegram, sendDocumentFile: vi.fn(async () => ({})), isTelegramEnabled: () => ch.tgOn }));
+vi.mock("../src/push.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/push.js")>()), sendPushToAgent: ch.push, sendPushToAgents: vi.fn(async () => 0) }));
+vi.mock("../src/lib/notifications.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/notifications.js")>()), createNotification: ch.feed }));
 
 const { narrationDraftText } = await import("@royal-home/shared");
 const { prisma } = await import("../src/db.js");
 const { listenNarration, NARRATION_LISTEN_PER_PERSON_DAILY } = await import("../src/lib/narrationListen.js");
-const { startNarrationForNewProperty, approveNarrationAsSaved, requestAutoNarration, runNarrationAutoFlow } = await import("../src/lib/narrationAutoFlow.js");
+const { startNarrationForNewProperty, approveNarrationAsSaved, requestAutoNarration, runNarrationAutoFlow, requestNarrationAfterEdit, remakeRedeliveries, wizardNarrationTextRejection } = await import("../src/lib/narrationAutoFlow.js");
+const { notifyNarrationApproval } = await import("../src/telegram/assistantNarration.js");
 const { generateNarrationVersion, loadNarrationConfiguration, narrationBudgetUsage } = await import("../src/lib/narrationGeneration.js");
 const { narrationFacts } = await import("../src/lib/propertyNarration.js");
 const { narrationLineForMontajer } = await import("../src/lib/narrationMontajerNote.js");
@@ -82,7 +85,11 @@ beforeAll(async () => {
   author = await makeAgent(1);
   stranger = await makeAgent(2);
 }, 60_000);
-beforeEach(() => { tts.audio.mockClear(); });
+beforeEach(() => { tts.audio.mockClear(); ch.telegram.mockClear(); ch.push.mockClear(); ch.feed.mockClear(); ch.tgOn = false; });
+async function withLive<T>(fn: () => Promise<T>): Promise<T> {
+  process.env.CRM_NARRATION_EXECUTION_MODE = "LIVE";
+  try { return await fn(); } finally { process.env.CRM_NARRATION_EXECUTION_MODE = "PREVIEW"; }
+}
 afterAll(async () => {
   process.env.CRM_NARRATION_EXECUTION_MODE = modeBefore;
   const files = [
@@ -91,6 +98,7 @@ afterAll(async () => {
   ];
   for (const f of files) if (f.storageKey) await fs.rm(localVideoFilePath(f.storageKey)!, { force: true });
   await prisma.propertyNarrationDelivery.deleteMany({ where: { propertyId: { in: propertyIds } } });
+  await prisma.videoRemakeRequest.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.propertyNarrationVersion.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.freeNarration.deleteMany({ where: { agentId: { in: agentIds } } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
@@ -231,5 +239,93 @@ describe("одна дверь синтеза", () => {
     await walk(src);
     // narrationGeneration.ts: synthesizeNarrationSpeech и generateVoiceSamples; propertyNarration.ts: само объявление.
     expect(hits.sort()).toEqual(["lib/narrationGeneration.ts:2", "lib/propertyNarration.ts:1"]);
+  });
+});
+
+describe("ревью 21.11", () => {
+  it("вышедший ролик + правка цены человеком → новая озвучка одобрена им; правил не человек → ждёт", async () => {
+    const p = await seedProperty({ publishedChannels: ["FACEBOOK"] });
+    await startNarrationForNewProperty(p.id, author, { templateId: TEMPLATE.id, voiceId: "voiceA" });
+    expect(await approveNarrationAsSaved(await generate(p.id))).toBe("AUDIO_APPROVED");
+    // Площадь звучит в шаблоне: правка факта = новая озвучка.
+    await prisma.property.update({ where: { id: p.id }, data: { areaSqm: 99 } });
+    expect(await withLive(() => requestNarrationAfterEdit(p.id, new Date(), author))).toMatchObject({ status: "QUEUED" });
+    expect((await latestOf(p.id)).approveAsId).toBe(author);
+    expect(await approveNarrationAsSaved(await generate(p.id))).toBe("AUDIO_APPROVED");
+    expect((await latestOf(p.id)).approvedById).toBe(author);
+    // Обход фактов (не человек): approveAsId нет — одобрять некому, версия ждёт.
+    await prisma.property.update({ where: { id: p.id }, data: { areaSqm: 101 } });
+    expect(await withLive(() => requestNarrationAfterEdit(p.id, new Date()))).toMatchObject({ status: "QUEUED" });
+    const id = await generate(p.id);
+    expect((await latestOf(p.id)).approveAsId).toBeNull();
+    expect(await approveNarrationAsSaved(id)).toBeNull();
+    await runNarrationAutoFlow({});
+    expect((await latestOf(p.id)).approvedAt).toBeNull();
+  });
+
+  it("текст агента не принят: шаблон без одобрения, причина в ответ, просьба — только туда, где завели (CRM / Шабнам)", async () => {
+    const dollars = { templateId: TEMPLATE.id, voiceId: "voiceA", script: "Квартира за восемьдесят пять тысяч долларов, звоните." };
+    expect(wizardNarrationTextRejection(dollars)).toMatch(/сомони/u);
+    expect(wizardNarrationTextRejection({ templateId: TEMPLATE.id })).toBeNull();
+    await prisma.agent.update({ where: { id: author }, data: { telegramChatId: String(700_000_000 + (runId % 1_000_000)) } });
+    ch.tgOn = true;
+    for (const askVia of ["CRM", "TELEGRAM"] as const) {
+      ch.telegram.mockClear(); ch.push.mockClear(); ch.feed.mockClear();
+      const p = await seedProperty();
+      await startNarrationForNewProperty(p.id, author, dollars, askVia);
+      const v = await latestOf(p.id);
+      expect(v).toMatchObject({ approveAsId: null, askVia, script: await textFor(p.id) });
+      await generate(p.id);
+      expect(await approveNarrationAsSaved(v.id)).toBeNull();
+      await notifyNarrationApproval(v.id);
+      if (askVia === "CRM") { expect(ch.push).toHaveBeenCalled(); expect(ch.telegram).not.toHaveBeenCalled(); }
+      else { expect(ch.telegram).toHaveBeenCalled(); expect(ch.push).not.toHaveBeenCalled(); expect(ch.feed).not.toHaveBeenCalled(); }
+    }
+    await prisma.agent.update({ where: { id: author }, data: { telegramChatId: null } });
+  });
+
+  it("обход перемонтажа решает по времени: голос ушёл раньше перемонтажа — слать; ушёл (любым ключом) после — не слать", async () => {
+    const p = await seedProperty();
+    await startNarrationForNewProperty(p.id, author, { templateId: TEMPLATE.id, voiceId: "voiceA" });
+    const vid = await generate(p.id);
+    expect(await approveNarrationAsSaved(vid)).toBe("AUDIO_APPROVED");
+    const t = (min: number) => new Date(Date.now() - 60 * 60_000 + min * 60_000);
+    const told = (key: string, at: Date) => prisma.propertyNarrationDelivery.create({ data: { propertyId: p.id, versionId: vid, editorId: null, mode: "AUDIO_ONLY", status: "SENT",
+      requestKey: key, createdById: author, executionMode: "LIVE", deliveredAt: at, createdAt: at } });
+    await told(`auto:${vid}:x-${runId}`, t(0));
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "SENT_TO_EDITOR", videoRemakeCount: 1 } });
+    await prisma.videoRemakeRequest.create({ data: { propertyId: p.id, reason: "OTHER", requestedById: author, createdAt: t(10) } });
+    expect((await remakeRedeliveries()).map((r) => r.id)).toContain(vid);
+    // Старый ключ без номера перемонтажа, но уже ПОСЛЕ его начала (до выката) — дубля нет.
+    await told(`manual:${vid}:${runId}`, t(20));
+    expect((await remakeRedeliveries()).map((r) => r.id)).not.toContain(vid);
+  });
+
+  it("прослушивания не берут последние 30% общего дневного предела; звук роликов идёт и дальше", async () => {
+    const used = (await narrationBudgetUsage()).usedGenerations;
+    const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { propertyNarrationConfig: true } });
+    const cfg = before.propertyNarrationConfig as Record<string, unknown>;
+    // used + 2: ролику место есть, а прослушиванию (не выше 70%) уже нет — при used ≥ 5.
+    for (let i = 0; i < 5; i++) await prisma.freeNarration.create({ data: { agentId: stranger, source: "API", status: "READY", chars: 1, generationStartedAt: new Date() } });
+    const now = (await narrationBudgetUsage()).usedGenerations;
+    expect(now).toBeGreaterThanOrEqual(used + 5);
+    await prisma.settings.update({ where: { id: "singleton" }, data: { propertyNarrationConfig: { ...cfg, dailyGenerationLimit: now + 2 } } });
+    try {
+      const p = await seedProperty();
+      expect((await listenNarration({ agentId: author, script: `${await textFor(p.id)} Новый текст.`, voiceId: "voiceB", lang: "ru" })).status).toBe("BUDGET");
+      expect(tts.audio).not.toHaveBeenCalled();
+      await startNarrationForNewProperty(p.id, author, { templateId: TEMPLATE.id, voiceId: "voiceA" });
+      await generate(p.id);
+      expect(tts.audio).toHaveBeenCalledTimes(1);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { propertyNarrationConfig: cfg as object } });
+    }
+  });
+
+  it("удачное прослушивание не меняет «последний выбор голоса» — его пишет только сохранение", async () => {
+    const before = (await prisma.agent.findUniqueOrThrow({ where: { id: stranger }, select: { narrationLastChoice: true } })).narrationLastChoice;
+    const p = await seedProperty();
+    expect((await listenNarration({ agentId: stranger, script: await textFor(p.id), voiceId: "voiceB", lang: "ru" })).status).toBe("READY");
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: stranger }, select: { narrationLastChoice: true } })).narrationLastChoice).toEqual(before);
   });
 });

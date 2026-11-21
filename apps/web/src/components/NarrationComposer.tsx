@@ -77,6 +77,14 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
   canListen?: boolean;
 }) {
   const { templateId, endingId, lang, fromTemplate, text, edited, voiceId } = resolveNarrationDraft({ templates, endings, facts, value, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript });
+  // Ответ «Прослушать» приходит через 10–30 секунд (ревью 21.11): применяется к ТЕКУЩЕМУ выбору, а не к тому, что был
+  // при нажатии, — иначе затёр бы правки, сделанные за время ожидания. Текст, голос или язык уже другие — не применяется.
+  const live = useRef({ value, text, voiceId, lang });
+  useLayoutEffect(() => { live.current = { value, text, voiceId, lang }; });
+  const applyListened = (heard: NarrationListened) => {
+    const now = live.current;
+    if (narrationListenFresh(heard, now)) onChange({ ...now.value, listened: heard });
+  };
   const langs = narrationTemplateLangs(templates);
   const variants = narrationVariants(templates, lang, facts.type);
   // Шаблон «только вручную» несёт свой призыв: концовка с него снимается; с него обратно на обычный — возвращается умолчание.
@@ -134,7 +142,7 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
           {edited && !disabled && <button type="button" className="pill min-h-12! text-base! ghost" onClick={() => pickTemplate(templateId)}>Вернуть текст шаблона</button>}
         </div>
         {canListen && <NarrationListen text={text} voiceId={voiceId} lang={lang} listened={value.listened} disabled={disabled || (!!lengthCheck && !lengthCheck.fits)}
-          onListened={(listened) => onChange({ ...value, listened })} />}
+          onListened={applyListened} />}
       </div>
     </div>
   );

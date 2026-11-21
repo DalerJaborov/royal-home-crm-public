@@ -71,6 +71,23 @@ describe("кнопка «Прослушать»", () => {
     expect((screen.getByRole("button", { name: "▶ Прослушать" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("ответ пришёл после правки текста (ревью 21.11): правка не затирается, устаревший звук не применяется", async () => {
+    let answer: (v: unknown) => void = () => {};
+    api.mockImplementation((_url: string, opts?: { method?: string; responseType?: string }) => {
+      if (opts?.method === "POST") return new Promise((resolve) => { answer = resolve; });
+      return Promise.resolve(new Blob(["mp3"], { type: "audio/mpeg" }));
+    });
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "▶ Прослушать" }));
+    fireEvent.change(screen.getByLabelText("Текст озвучки"), { target: { value: `${TEXT} Правка во время ожидания.` } });
+    await act(async () => { answer({ id: "22222222-2222-4222-8222-222222222222", fileUrl: "/f", cached: false }); });
+    expect((screen.getByLabelText("Текст озвучки") as HTMLTextAreaElement).value).toBe(`${TEXT} Правка во время ожидания.`);
+    expect(changes.at(-1)?.listened).toBeUndefined();
+    expect(changes.at(-1)?.script).toBe(`${TEXT} Правка во время ожидания.`);
+    expect(screen.queryByText("✓ Прослушано")).toBeNull();
+    expect(screen.getByText(/этот звук устарел/u)).toBeTruthy();
+  });
+
   it("без автоозвучки кнопки нет (слушать нечего: звук ролика готовится в карточке)", () => {
     render(<Harness canListen={false} />);
     expect(screen.queryByRole("button", { name: "▶ Прослушать" })).toBeNull();

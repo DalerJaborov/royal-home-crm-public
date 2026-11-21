@@ -6,7 +6,7 @@ import { narrationCurrencyError, narrationFitsType, narrationLengthCheck, narrat
   type NarrationConfig, type NarrationFacts, type NarrationWizardChoice,
 } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { videoHandoffDir } from "../upload.js";
 import { legacyHandoffCoverPath } from "./diskCleanup.js";
 import { mixFromStoredMaster } from "./narrationMaster.js";
@@ -81,6 +81,8 @@ import { backfillNarrationWhere, firstNarrationBaseWhere, freshNarrationWhere, n
 
 /** BACKFILL (12.11.2026) — разовый проход по очереди монтажа: одобряет владелец, не агент. */
 export type AutoNarrationSource = "WIZARD" | "AUTO" | "AGENT" | "BACKFILL";
+/** Канал, где завели объект: CRM или Шабнам в Telegram (поле версии askVia). */
+export type NarrationAskVia = "CRM" | "TELEGRAM";
 export type AutoNarrationOutcome =
   | { status: "QUEUED"; versionId: string; revision: number; coalesced: boolean; templateId?: string | null; endingId?: string | null }
   /** DISABLED — у объекта выбрано «Без озвучки» (12.11.2026). */
@@ -102,6 +104,8 @@ export async function requestAutoNarration(input: {
   expectedRevision?: number; requestKey?: string; debounceMs?: number;
   /** Кто одобряет версию сразу по готовности (21.11.2026, «сверх быстро»): сохранил мастер, нажал «Озвучить», поменял цену. */
   approveAsId?: string;
+  /** Одобрить сразу нельзя — куда слать «прослушайте и одобрите» (CRM или Шабнам). Нет — в оба места, как раньше. */
+  askVia?: NarrationAskVia;
   config?: NarrationConfig; now?: Date;
 }): Promise<AutoNarrationOutcome> {
   const config = input.config ?? (await loadNarrationConfiguration()).config;
@@ -170,7 +174,7 @@ export async function requestAutoNarration(input: {
     }
     await tx.propertyNarrationVersion.updateMany({ where: { propertyId: property.id, status: "DRAFT", generateAfter: { not: null } }, data: { generateAfter: null } });
     const created = await tx.propertyNarrationVersion.create({ data: { ...data, propertyId: property.id, revision: (latest?.revision ?? 0) + 1,
-      createdById: input.actorId, requestKey: input.requestKey ?? randomUUID(), source: input.source, ...(input.approveAsId ? { approveAsId: input.approveAsId } : {}) } });
+      createdById: input.actorId, requestKey: input.requestKey ?? randomUUID(), source: input.source, ...(input.approveAsId ? { approveAsId: input.approveAsId } : {}), ...(input.askVia ? { askVia: input.askVia } : {}) } });
     return { status: "QUEUED", versionId: created.id, revision: created.revision, coalesced: false, templateId: drafted.templateId, endingId: drafted.endingId };
   });
   // Выбор сотрудника запоминаем на нём (lib/narrationLastChoice.ts): голос и тот шаблон с концовкой, что реально встали, —
@@ -197,7 +201,7 @@ export const NARRATION_LISTEN_HOLD_MS = 2 * 60_000;
  * Одобрение сразу там же должно быть, чтобы сверх быстро всё»): версия одобряется этим сотрудником, как только готова
  * (approveAsId), и сразу уходит монтажёру. Просьбы «прослушайте и одобрите» после мастера нет.
  */
-export async function startNarrationForNewProperty(propertyId: string, actorId: string, rawChoice?: unknown): Promise<AutoNarrationOutcome | null> {
+export async function startNarrationForNewProperty(propertyId: string, actorId: string, rawChoice?: unknown, askVia?: NarrationAskVia): Promise<AutoNarrationOutcome | null> {
   try {
     const parsed = narrationWizardChoiceSchema.safeParse(rawChoice ?? {});
     const choice: NarrationWizardChoice = parsed.success ? parsed.data : {};
@@ -216,8 +220,9 @@ export async function startNarrationForNewProperty(propertyId: string, actorId: 
     const { autoPicked, listenId, ...forRequest } = filled;
     let outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", ...forRequest, templateAuto: autoPicked === true, avoid,
       debounceMs: listenId ? NARRATION_LISTEN_HOLD_MS : 0, approveAsId: actorId, config });
-    // Текст агента не прошёл проверку (например, вписал цену) — озвучка всё равно готовится по шаблону.
-    if (outcome.status === "INVALID" && choice.script) outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", templateId: choice.templateId, endingId: choice.endingId, voiceId: filled.voiceId, avoid, debounceMs: 0, approveAsId: actorId, config });
+    // Текст агента не прошёл проверку (например, вписал цену) — озвучка всё равно готовится по шаблону. Но этот текст
+    // человек не одобрял (ревью 21.11): approveAsId не ставится, версия ждёт его, просьба — туда, где заводили объект.
+    if (outcome.status === "INVALID" && choice.script) outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", templateId: choice.templateId, endingId: choice.endingId, voiceId: filled.voiceId, avoid, debounceMs: 0, askVia, config });
     // Прослушал в мастере: тот же текст и голос — версия сразу готова на прослушанном файле и одобрена им, без второй
     // оплаты. Не совпало — пауза снимается, версия озвучивается обычным путём и одобряется им же по готовности.
     else if (outcome.status === "QUEUED" && listenId) await adoptListenedNarration({ propertyId, versionId: outcome.versionId, listenId, actorId });
@@ -233,6 +238,12 @@ export async function startNarrationForNewProperty(propertyId: string, actorId: 
  * без расширения: автор объекта (createdById) уже вправе им управлять (canManagePropertyAs), значит, и одобрить
  * озвучку, которую сам выбрал в мастере. Нет прав (ушёл в «только просмотр», уволен) — версия ждёт человека, как раньше.
  */
+/** Текст агента из мастера, который сервер не примет (доллары, пустой, длиннее 5000): причина — сразу в ответ сохранения. */
+export function wizardNarrationTextRejection(rawChoice: unknown): string | null {
+  const parsed = narrationWizardChoiceSchema.safeParse(rawChoice ?? {});
+  return parsed.success && !parsed.data.none && parsed.data.script ? narrationScriptError(parsed.data.script) : null;
+}
+
 export async function narrationApproverFor(agentId: string, propertyId: string): Promise<NarrationClicker | null> {
   return narrationAccessForAgent(agentId, propertyId);
 }
@@ -242,6 +253,11 @@ export async function narrationApproverFor(agentId: string, propertyId: string):
  * (сохранил мастер, нажал «Озвучить», поменял цену) одобряется от его имени той же функцией одобрения, как только звук
  * готов, и сразу уходит монтажёру. Цена в долларах (#348), конфликт версии, нет прав — не одобряется, ждёт человека
  * как раньше. null — одобрять некому.
+ *
+ * РОЛИК УЖЕ ВЫШЕЛ И ЦЕНУ ПОМЕНЯЛ ЧЕЛОВЕК (решение владельца 21.11.2026, последствие сказано ему прямо, возражений нет:
+ * «не прослушали — ничего страшного, это вина агента, он должен слушать»): новая озвучка одобряется правившим, и
+ * утверждение здесь — это выпуск: CRM сразу накладывает голос и ставит ролик в сети. Правил не человек (обход фактов,
+ * импорт) — approveAsId нет, версия ждёт человека, как раньше (autoApproveSameChoice на вышедшем ролике не одобряет).
  */
 export async function approveNarrationAsSaved(versionId: string): Promise<NarrationApproval | null> {
   const v = await prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { id: true, propertyId: true, revision: true, status: true, approvedAt: true, approveAsId: true, source: true } });
@@ -454,8 +470,11 @@ async function queueNarrationDelivery(propertyId: string, versionId: string, pre
     // новый перемонтаж — новая передача того же mp3 (генерации нет), повтор того же перемонтажа — тот же ключ, второй нет.
     const remake = (await tx.property.findUnique({ where: { id: propertyId }, select: { videoRemakeCount: true } }))?.videoRemakeCount ?? 0;
     const requestKey = narrationDeliveryKey(versionId, prepared.editorId, remake);
-    // Первый монтаж — прежнее правило: этот голос этому монтажёру уже ушёл любым ключом (и вручную) — второй раз не шлём.
-    if (remake === 0 && await tx.propertyNarrationDelivery.count({ where: { propertyId, versionId, editorId: prepared.editorId, mode: "AUDIO_ONLY", status: { in: ["SENT", "CANCELLED"] } } })) return "ALREADY";
+    // Уже ушло — решает время, а не ключ (ревью 21.11): голос этому монтажёру ушёл любым ключом (и старым, без номера
+    // перемонтажа, и вручную) после начала текущего перемонтажа — второй раз не шлём. Первый монтаж — с начала времён.
+    const since = remake > 0 ? await currentRemakeStartedAt(tx, propertyId) : null;
+    if (await tx.propertyNarrationDelivery.count({ where: { propertyId, versionId, editorId: prepared.editorId, mode: "AUDIO_ONLY", status: { in: ["SENT", "CANCELLED"] },
+      ...(since ? { createdAt: { gte: since } } : {}) } })) return "ALREADY";
     if (await tx.propertyNarrationDelivery.count({ where: { propertyId, status: { in: ["QUEUED", "SENDING", "UNKNOWN"] } } })) return "BUSY";
     const existing = await tx.propertyNarrationDelivery.findUnique({ where: { requestKey } });
     // Ждущие возврата объекта передачи (WAITING, 19.11.2026) другим ключом — гасим: голос уйдёт одной передачей.
@@ -474,6 +493,11 @@ async function queueNarrationDelivery(propertyId: string, versionId: string, pre
       createdById: latest.approvedById ?? "system", plan: prepared.plan, status: "QUEUED", executionMode: "LIVE" } });
     return "QUEUED";
   });
+}
+
+/** Начало текущего перемонтажа: каждый возврат монтажёру пишет строку VideoRemakeRequest (lib/remakeRequests.ts). */
+async function currentRemakeStartedAt(db: Pick<TxClient, "videoRemakeRequest">, propertyId: string): Promise<Date | null> {
+  return (await db.videoRemakeRequest.findFirst({ where: { propertyId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }))?.createdAt ?? null;
 }
 
 /** Ключ передачи голоса монтажёру: версия + монтажёр, с перемонтажа — ещё и его номер (Property.videoRemakeCount). */
@@ -1394,20 +1418,9 @@ async function deliverApprovedNarrations(): Promise<number> {
     where: { status: "READY", approvedAt: { not: null }, source: { not: "MANUAL" }, deliveries: { none: { status: { notIn: ["PREVIEW", "WAITING"] } } }, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR" } },
     orderBy: { approvedAt: "asc" }, take: 20, select: { id: true, propertyId: true },
   });
-  // Перемонтаж без смены озвучки (21.11.2026): одобренный голос уже уходил раньше, но этому перемонтажу — ещё нет.
-  const remakes = await prisma.propertyNarrationVersion.findMany({
-    where: { status: "READY", approvedAt: { not: null }, source: { not: "MANUAL" }, deliveries: { some: { status: { notIn: ["PREVIEW", "WAITING"] } } },
-      property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR", videoRemakeCount: { gt: 0 } } },
-    orderBy: { approvedAt: "desc" }, take: 40,
-    select: { id: true, propertyId: true, revision: true, property: { select: { videoRemakeCount: true } }, deliveries: { select: { requestKey: true } } },
-  });
-  for (const row of remakes) {
-    if (approved.length >= 40) break;
-    const remake = row.property?.videoRemakeCount ?? 0;
-    if (!remake || (row.deliveries ?? []).some((d) => d.requestKey.endsWith(`:r${remake}`))) continue;
-    const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
-    if (latest?.id === row.id) approved.push({ id: row.id, propertyId: row.propertyId });
-  }
+  // Перемонтаж без смены озвучки (21.11.2026): одобренный голос уже уходил раньше, а после начала ТЕКУЩЕГО перемонтажа —
+  // ещё нет. Одним запросом: последняя версия, объект у монтажёра, ни одной передачи этой версии позже начала перемонтажа.
+  approved.push(...await remakeRedeliveries());
   for (const row of approved) {
     try {
       const { status, refusal } = await startNarrationDelivery(row.propertyId, row.id);
@@ -1420,6 +1433,21 @@ async function deliverApprovedNarrations(): Promise<number> {
   await watchStuckVoiceDeliveries().catch((err) =>
     logSystemError("api", `Озвучка: сторож зависших передач не отработал: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-stuck-watch" }));
   return delivered;
+}
+
+/** Одобренные последние версии объектов на перемонтаже у монтажёра, которым в этом перемонтаже голос ещё не уходил. */
+export async function remakeRedeliveries(): Promise<Array<{ id: string; propertyId: string }>> {
+  const rows = await prisma.$queryRaw<Array<{ id: string; propertyId: string }>>`
+    SELECT v.id, v."propertyId" FROM "PropertyNarrationVersion" v JOIN "Property" p ON p.id = v."propertyId"
+    WHERE v.status = 'READY' AND v."approvedAt" IS NOT NULL AND v.source <> 'MANUAL'
+      AND p."deletedAt" IS NULL AND p."narrationOff" = false AND p."videoRemakeCount" > 0
+      AND p."videoHandoffStatus"::text = 'SENT_TO_EDITOR' AND p.status::text NOT IN (${Prisma.join([...CLOSED_STATUSES])})
+      AND v.revision = (SELECT max(x.revision) FROM "PropertyNarrationVersion" x WHERE x."propertyId" = v."propertyId")
+      AND EXISTS (SELECT 1 FROM "PropertyNarrationDelivery" d WHERE d."versionId" = v.id AND d.status NOT IN ('PREVIEW', 'WAITING'))
+      AND NOT EXISTS (SELECT 1 FROM "PropertyNarrationDelivery" d WHERE d."versionId" = v.id AND d.status NOT IN ('PREVIEW', 'WAITING')
+        AND d."createdAt" >= (SELECT max(r."createdAt") FROM "VideoRemakeRequest" r WHERE r."propertyId" = v."propertyId"))
+    ORDER BY v."approvedAt" ASC LIMIT 20`;
+  return rows ?? [];
 }
 
 /** Итоги обхода, при которых голос ушёл, уходит или уже у монтажёра — сторожу молчать (BUSY — только если не зависла). */

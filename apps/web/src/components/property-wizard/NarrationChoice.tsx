@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { chooseNarration, narrationFitsType, pickNarrationVoice, type NarrationFacts, type NarrationOptionsView, type NarrationWizardChoice } from "@royal-home/shared";
+import { chooseNarration, narrationCurrencyError, narrationFitsType, pickNarrationVoice, type NarrationFacts, type NarrationOptionsView, type NarrationWizardChoice } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { NarrationComposer, narrationListenFresh, resolveNarrationDraft, type NarrationListened } from "../NarrationComposer";
 
@@ -81,6 +81,9 @@ export function NarrationChoice({ facts, value, onChange }: {
         <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data?.voices ?? []} samples={data?.samples} facts={shownFacts}
           value={value} onChange={(next) => onChange({ ...next })} defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} lastPickedVoiceId={last.voiceId ?? null}
           canListen={!!data?.autoGenerate} />
+        {/* Свой текст с долларами сервер не примет (#348): сказать сразу, до сохранения, а не после. */}
+        {value.script && narrationCurrencyError(value.script) && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="alert">
+          {narrationCurrencyError(value.script)}. Если сохранить так, озвучка соберётся по шаблону и придёт вам на прослушивание.</p>}
         {/* Правда о том, что будет (21.11.2026, владелец: «одобрение сразу там же»): «Сохранить» = одобрить, просьб потом нет. */}
         <p className="rounded-lg bg-blue/10 p-3 text-sm">
           {data?.autoGenerate
