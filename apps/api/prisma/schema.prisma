@@ -3075,6 +3075,10 @@ model PropertyNarrationVersion {
   generationAttempts Int @default(0)
   /// Агенту ушло одно сообщение «прослушайте и одобрите»; повторов нет.
   approvalNotifiedAt DateTime?
+  /// Одобрить сразу, как будет готова, от имени этого сотрудника (21.11.2026, владелец: «одобрение сразу там же, чтобы
+  /// сверх быстро»): он сохранил выбор озвучки в мастере, нажал «Озвучить» в карточке, поменял цену или отправил на
+  /// перемонтаж. Одобряет та же approveNarrationVersionIn; доллары (#348) не одобряются. null — как раньше, ждёт человека.
+  approveAsId String?
   approvalChatId String?
   /// Агент нажал «Править текст» в Шабнам: следующий его текст в течение 15 минут — новый текст озвучки.
   editRequestedAt DateTime?
@@ -12019,7 +12023,8 @@ enum RobotCallStopSource {
 model FreeNarration {
   id                  String    @id @default(uuid())
   agentId             String
-  /// TELEGRAM | API
+  /// TELEGRAM | API | LISTEN («▶ Прослушать» в мастере объекта, 21.11.2026: lib/narrationListen.ts, свой предел на человека,
+  /// requestKey = «listen:<сотрудник>:<отпечаток звука>» — тот же текст и голос второй раз не оплачиваются)
   source              String
   chatId              String?
   /// AWAITING_TEXT | AWAITING_VOICE | GENERATING | READY | FAILED | UNKNOWN

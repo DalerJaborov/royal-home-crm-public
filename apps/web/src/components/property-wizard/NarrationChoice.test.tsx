@@ -27,7 +27,10 @@ describe("wizard narration choice", () => {
     const html = render();
     expect(html).toContain("Квартира барои фурӯш. Ду ҳуҷра. Масоҳаташ шасту ду метри мураббаъ.");
     expect(html).toContain("Женские"); expect(html).toContain("Мужские");
-    expect(html).toContain("придёт вам на прослушивание");
+    // «Сохранить» = одобрить (21.11.2026): подпись говорит правду, просьб «прослушайте» потом нет.
+    expect(html).toContain("Озвучка уйдёт монтажёру сразу после сохранения. Послушайте её здесь перед сохранением.");
+    expect(html).not.toContain("в CRM и в Шабнам");
+    expect(html).toContain("▶ Прослушать");
   });
   it("switches language with the template and keeps the agent's own text", () => {
     expect(render({ templateId: "ru-short" })).toContain("В продаже квартира. Площадь шестьдесят два метров.");

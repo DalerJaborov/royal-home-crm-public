@@ -1477,6 +1477,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     resyncReason: "правка карточки (PATCH)",
     awaitPriceSync: false,
     priceCaptionStage: priceDelivery?.caption,
+    actorId: req.agent!.id,
   });
 
   // АВТОПУБЛИКАЦИЯ (см. autoPublishFromEditing выше) — тот же код-путь, что и

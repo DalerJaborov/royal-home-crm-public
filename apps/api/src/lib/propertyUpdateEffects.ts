@@ -115,6 +115,8 @@ export interface PostUpdateEffectsInput {
   awaitPriceSync: boolean;
   /** Подпись, описание и цели уже записаны в транзакции цены. */
   priceCaptionStage?: PriceCaptionStage;
+  /** Кто правил (21.11.2026): новая озвучка после правки фактов одобряется им сразу. Нет — ждёт человека, как раньше. */
+  actorId?: string;
 }
 
 export interface PostUpdateEffectsResult {
@@ -163,7 +165,7 @@ export async function runPostUpdateEffects(input: PostUpdateEffectsInput): Promi
   // через минуту обхода; карточка тут же показывает «Готовим озвучку». Ремонт, ориентир, документы ролик не трогают:
   // хэш фактов озвучки от них не зависит. Импорт динамический — без цикла через ролики и публикацию.
   // Ждём (это одна запись в базу): ответ на правку возвращается, когда черновик уже есть, и карточка его видит.
-  await import("./narrationAutoFlow.js").then((m) => m.requestNarrationAfterEdit(updated.id)).catch((err) =>
+  await import("./narrationAutoFlow.js").then((m) => m.requestNarrationAfterEdit(updated.id, new Date(), input.actorId)).catch((err) =>
     console.error("[озвучка] черновик после правки:", err instanceof Error ? err.message : err));
 
   let captionRewritten = input.priceCaptionStage?.captionRewritten ?? null;

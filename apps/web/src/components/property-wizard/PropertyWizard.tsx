@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRetryKey } from "../../hooks/useRetryKey";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import type { NarrationWizardChoice, PropertyDraftView, PropertyWizardWarningConfirmations, PropertyWizardWarningField } from "@royal-home/shared";
+import type { PropertyDraftView, PropertyWizardWarningConfirmations, PropertyWizardWarningField } from "@royal-home/shared";
 import { propertyWizardStepWarnings, propertyWizardWarningSignature } from "@royal-home/shared";
-import { narrationChoiceForCreate } from "./NarrationChoice";
+import { narrationChoiceForCreate, type WizardNarrationValue } from "./NarrationChoice";
 import { useDistricts } from "../../hooks/useDistricts";
 import { useCreateProperty } from "../../hooks/useProperties";
 import { PROPERTY_DRAFT_QUERY_KEY } from "../../hooks/usePropertyDraft";
@@ -164,7 +164,7 @@ export function PropertyWizard({
    *  сохранении, DuplicatePropertyError в routes/properties/crud.ts). Живой
    *  проверки заранее нет, поэтому появляется только ПОСЛЕ попытки сохранить. */
   const [duplicate, setDuplicate] = useState<{ shortId: number; message: string } | null>(null);
-  const [narration, setNarration] = useState<NarrationWizardChoice>({});
+  const [narration, setNarration] = useState<WizardNarrationValue>({});
   const [saving, setSaving] = useState(false);
   const [waitingUploads, setWaitingUploads] = useState(false);
   /**

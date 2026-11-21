@@ -39,7 +39,7 @@ export function voicelessCopyHint(): string {
 export async function narrationLineForMontajer(propertyId: string): Promise<string | null> {
   const [p, latest, { config, key }] = await Promise.all([
     prisma.property.findUnique({ where: { id: propertyId }, select: { narrationOff: true, videoMasterStorageKey: true } }),
-    prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { status: true, approvedAt: true, source: true } }),
+    prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { status: true, approvedAt: true, source: true, approveAsId: true } }),
     loadNarrationConfiguration(),
   ]);
   if (!p) return null;
@@ -54,6 +54,10 @@ export async function narrationLineForMontajer(propertyId: string): Promise<stri
   if (latest.status === "READY" && latest.approvedAt) return `🎙 Озвучка одобрена и придёт (или уже пришла) отдельным mp3 — вклейте её сами.${voicelessCopyHint()}`;
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && (await narrationQuotaExceededSince())) {
     return "🎙 Озвучка задерживается: сервис озвучки на паузе. Придёт сюда отдельным mp3, как только будет готова.";
+  }
+  // Одобрена уже при сохранении (21.11.2026, approveAsId): ждать некого, только пока готовится звук.
+  if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && latest.approveAsId) {
+    return `🎙 Озвучка готовится и придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint()}`;
   }
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status)) {
     return `🎙 Озвучка ждёт одобрения и придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint()}`;

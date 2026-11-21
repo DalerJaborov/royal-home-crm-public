@@ -71,12 +71,53 @@ export async function narrationBudgetUsage(db: Pick<Tx, "propertyNarrationVersio
 
 /** Длина текста, который уйдёт в синтез (цифры словами), — по ней потолок символов. */
 export function speechChars(script: string, language: string | null | undefined): number {
-  return narrationSpeechText(script, language === "tg" || language === "ru" ? language : null).length;
+  return narrationSpeechText(script, speechLang(language)).length;
 }
+function speechLang(language: string | null | undefined): NarrationLang | null {
+  return language === "tg" || language === "ru" ? language : null;
+}
+
+/**
+ * ОДИН ПУТЬ ЗВУКА (21.11.2026, владелец: «прослушать прямо тут»). Звук ролика (generateNarrationVersion),
+ * «▶ Прослушать» в мастере (lib/narrationListen.ts) и озвучка своего текста (lib/freeNarration.ts) делаются
+ * только здесь: один запрос в ElevenLabs с теми же настройками голоса, языком и словарём произношения
+ * (narrationTtsOptions: непроверенные носителем чтения туда не попадают, #318) и одно выравнивание громкости.
+ * Иначе человек одобрил бы на слух не то, что услышит зритель. `speech` — текст УЖЕ для голоса (числа словами:
+ * objectNarrationSpeech у озвучки объекта; свой текст переводит freeNarration при захвате). Не бросает.
+ */
+export async function synthesizeNarrationSpeech(input: { speech: string; voiceId: string; lang: NarrationLang | null; config: NarrationConfig; apiKey: string; label: string },
+  fetcher?: typeof fetch): Promise<NarrationAudioResult> {
+  const result = await generateNarrationAudio({ script: input.speech, voiceId: input.voiceId, config: input.config, apiKey: input.apiKey, lang: input.lang }, fetcher);
+  if (result.status !== "READY") return result;
+  // Голос ElevenLabs тише ленты на 8–10 дБ — выравниваем один раз здесь: этот же файл получает монтажёр (21.11.2026).
+  // Не бросает (сбой — исходный mp3 и журнал); .catch — вторая страховка: оплаченный голос не теряется.
+  const audio = await normalizeNarrationVoice(result.audio, input.label).catch(() => result.audio);
+  return { ...result, audio };
+}
+
+/** Текст озвучки ОБЪЕКТА для голоса: числа словами. Одно место для звука ролика, прослушивания и отпечатка. */
+export function objectNarrationSpeech(script: string, language: string | null | undefined): string {
+  return narrationSpeechText(script, speechLang(language));
+}
+
+/**
+ * ОТПЕЧАТОК ЗВУКА: всё, от чего зависит звук озвучки объекта, — текст для голоса, язык, голос, модель и настройки
+ * синтеза (в них номер словаря произношения и его версия). Совпал отпечаток — звук тот же: прослушанный в мастере
+ * файл годится для ролика, а повторное «▶ Прослушать» не платит второй раз.
+ */
+export function narrationSoundKey(input: { script: string; language: string | null | undefined; voiceId: string; config: NarrationConfig }): string {
+  const lang = speechLang(input.language);
+  return narrationHash({ v: 1, speech: objectNarrationSpeech(input.script.trim(), lang), lang, voiceId: input.voiceId, modelId: input.config.modelId,
+    tts: narrationTtsOptions(input.config, input.voiceId, lang) });
+}
+
+/** Источник строк FreeNarration у «▶ Прослушать» мастера: у него свой предел на человека, долю «своего текста» он не ест. */
+export const NARRATION_LISTEN_SOURCE = "LISTEN";
 
 /** Расход свободных текстов («озвучь текст», 16.11.2026) за сутки по Душанбе: своя доля общего потолка. */
 export async function freeNarrationUsage(db: Pick<Tx, "freeNarration">, now = new Date()) {
-  const rows = await db.freeNarration.findMany({ where: { generationStartedAt: { gte: dushanbeStartOfToday(now) } }, select: { chars: true }, take: 5000 });
+  // Прослушивание в мастере (LISTEN) — это озвучка объекта, а не свой текст: в общий потолок идёт, долю своего текста не ест.
+  const rows = await db.freeNarration.findMany({ where: { generationStartedAt: { gte: dushanbeStartOfToday(now) }, source: { not: NARRATION_LISTEN_SOURCE } }, select: { chars: true }, take: 5000 });
   return { usedChars: (rows ?? []).reduce((sum, r) => sum + r.chars, 0), usedGenerations: (rows ?? []).length };
 }
 
@@ -137,14 +178,13 @@ export async function generateNarrationVersion(input: {
   if (claimed.kind === "BUDGET") return { status: "BUDGET" };
   if (claimed.kind === "ALREADY") return { status: "ALREADY", current: claimed.current };
   const row = claimed.row;
-  const script = narrationSpeechText(row.script, (row.language as NarrationLang | null) ?? null);
   // Текст объекта с долларами в ElevenLabs не уходит (21.11.2026, владелец: цена только в сомони) — даже версия,
   // сохранённая до сторожа: денег не тратим, версия падает с кодом PRICE_NOT_IN_TJS. Обход озвучек
   // (narrationAutoFlow.ts::generateDueNarrations) ловит такой черновик ещё раньше и пересобирает текст из шаблона;
   // эта проверка — вторая дверь для ручного «Озвучить».
   const result: NarrationAudioResult = narrationCurrencyError(row.script)
     ? { status: "FAILED", errorCode: NARRATION_PRICE_NOT_IN_TJS }
-    : await generateNarrationAudio({ script, voiceId: row.voiceId!, config, apiKey: input.key, lang: row.language === "tg" || row.language === "ru" ? row.language : null });
+    : await synthesizeNarrationSpeech({ speech: objectNarrationSpeech(row.script, row.language), voiceId: row.voiceId!, config, apiKey: input.key, lang: speechLang(row.language), label: `версии ${row.revision}` });
   const guard = { id: row.id, status: "GENERATING", generationStartedAt: row.generationStartedAt };
   if (result.status !== "READY") {
     // Автоозвучка при кончившихся кредитах не теряет версию: она снова ждёт (через час), агенту ничего.
@@ -155,9 +195,7 @@ export async function generateNarrationVersion(input: {
     return { status: result.status, errorCode: result.errorCode, recorded: saved.count > 0 };
   }
   const storageKey = `${input.propertyId}/${row.id}.mp3`;
-  // Голос ElevenLabs тише ленты на 8–10 дБ — выравниваем один раз здесь: этот же файл получает монтажёр (21.11.2026).
-  // Не бросает (сбой — исходный mp3 и журнал); .catch — вторая страховка: оплаченный голос не теряется.
-  const audio = await normalizeNarrationVoice(result.audio, `версии ${row.revision}`).catch(() => result.audio);
+  const audio = result.audio;
   try {
     await localVideoUpload(storageKey, audio);
     const saved = await prisma.$transaction(async (tx) => {
