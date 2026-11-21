@@ -105,3 +105,27 @@ export async function hasOpenMessagingChannel(clientId: string, now: Date = new 
   if (telegram || telegramDirect) return true;
   return metaConversations.some((c) => c.lastMessageAt && now.getTime() - c.lastMessageAt.getTime() < WINDOW_MS);
 }
+
+/**
+ * Отказ доставки WhatsApp «вне окна» по статусу `failed` из вебхука (21.11.2026).
+ *
+ * WhatsApp Cloud API принимает свободный текст синхронно (200) и сообщает отказ
+ * позже, статусом: код 131047 «Re-engagement message» («прошло больше 24 часов с
+ * последнего ответа клиента», документация Meta, Cloud API → Error codes).
+ * Это штатное правило платформы, а не поломка системы: в Журнал ошибок оно не
+ * идёт. Другие коды (131026 «номер не в WhatsApp», 131049, 131053) сюда не
+ * входят — это настоящие причины недоставки.
+ */
+export function isWhatsAppWindowFailure(errorCode: number | undefined, errorText: string | undefined): boolean {
+  if (errorCode === 131047) return true;
+  if (errorCode !== undefined) return false;
+  return isMessagingWindowClosedError(errorText ?? "");
+}
+
+/** Текст сотруднику, когда свободный текст вне окна не отправлен. */
+export function windowClosedStaffText(channel: string): string {
+  if (channel === "WHATSAPP") {
+    return "Прошло больше 24 часов, напишите клиенту шаблоном «Написать в WhatsApp».";
+  }
+  return "Клиент не писал последние 24 часа — Instagram и Messenger запрещают отправлять свободный текст, пока он не напишет первым. Дождитесь его сообщения или позвоните.";
+}

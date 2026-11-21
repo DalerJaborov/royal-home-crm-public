@@ -16,10 +16,10 @@
   "paths": 788,
   "cron": 144,
   "jobs": 34,
-  "conditions": 4182,
+  "conditions": 4183,
   "untranslatedUnique": 477,
   "untranslatedTotal": 613,
-  "partialUnique": 1129,
+  "partialUnique": 1130,
   "translatedShare": 85
  },
  "untranslated": [
@@ -63735,8 +63735,14 @@
          ]
         },
         {
-         "t": "если статус — «failed»",
+         "t": "если статус — «failed» и это whats app окно failure",
          "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "иначе если статус — «failed»",
+         "k": "elseif",
          "a": [],
          "c": [
           {

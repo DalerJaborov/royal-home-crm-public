@@ -29,7 +29,7 @@ import {
 } from "../messengers/meta.js";
 // Из отдельного модуля, а не из meta.js: чистая проверка, которую тест доставки
 // теперь берёт настоящую вместо копии (см. lib/messagingWindow.ts).
-import { isMessagingWindowClosedError } from "./messagingWindow.js";
+import { isMessagingWindowClosedError, isMessagingWindowOpen, windowClosedStaffText } from "./messagingWindow.js";
 import { isMetaSendBlockError, metaSendBlockStaffText } from "./metaSendBlock.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
@@ -301,6 +301,34 @@ export type DeliveryResult =
   | { ok: false; status: number; error: string; code?: "window_closed" };
 
 /**
+ * ОКНО 24 ЧАСА ПРОВЕРЯЕТСЯ ДО ОТПРАВКИ (21.11.2026).
+ *
+ * WhatsApp Cloud API принимает свободный текст вне окна синхронно (200) и «не
+ * доставил» сообщает потом, статусом из вебхука (код 131047) — поэтому catch у
+ * отправки его не видел, а в Журнал ошибок падала запись «WhatsApp не доставил
+ * наш ответ». Теперь смотрим время последней реплики клиента заранее и не шлём.
+ * Сотруднику — понятный текст (windowClosedStaffText), автоматике — тот же
+ * `window_closed`, который её вызывающие уже умеют обрабатывать, и тихая строка
+ * в консоль вместо ошибки. Неизвестно, когда клиент писал последний раз (нет
+ * отметки времени) — не блокируем: решит Meta, а её отказ журнал не засоряет.
+ * Один дверной проём для текста, голосового и медиа.
+ */
+async function windowClosedBeforeSend(
+  target: DeliveryTarget,
+  sender: MessageSender | undefined
+): Promise<{ ok: false; status: number; error: string; code: "window_closed" } | null> {
+  if (target.kind !== "bot") return null;
+  const channel = target.channel;
+  if (channel !== "WHATSAPP" && channel !== "INSTAGRAM" && channel !== "FACEBOOK") return null;
+  const lastAt = await lastClientMessageAt(target);
+  if (!lastAt || isMessagingWindowOpen(channel, lastAt)) return null;
+  if (!sender || sender.kind === "system" || sender.kind === "bot") {
+    console.log(`[окно] ${channel}: клиент ${target.subscriberId} не писал больше суток — сообщение не отправлено`);
+  }
+  return { ok: false, status: 409, code: "window_closed", error: windowClosedStaffText(channel) };
+}
+
+/**
  * Отправка сообщения клиенту в тот канал, откуда он писал.
  *
  * Вынесено из POST /conversations/:id/reply, чтобы тем же путём могла ходить отправка
@@ -362,6 +390,9 @@ export async function deliverToConversation(
           : `Канал ${target.kind === "bot" ? target.channel : ""} больше не поддерживается: отвечать можно в WhatsApp, Instagram, Messenger и Telegram.`,
     };
   }
+
+  const windowClosed = await windowClosedBeforeSend(target, options?.sender);
+  if (windowClosed) return windowClosed;
 
   // Снимок последней реплики бота — ДО того, как допишем ответ оператора: после
   // дописывания последним окажется сам оператор, и учиться будет не на чем.
@@ -462,8 +493,7 @@ export async function deliverToConversation(
         ok: false,
         status: 502,
         code: "window_closed",
-        error:
-          "Клиент не писал последние 24 часа — WhatsApp и Instagram запрещают отправлять свободный текст, пока он не напишет первым. Дождитесь его сообщения или позвоните.",
+        error: windowClosedStaffText(target.channel),
       };
     }
     // Часть вызовов сюда — фоновые (напоминания о показе, ответ на «уточню у
@@ -665,6 +695,9 @@ export async function deliverVoiceToConversation(
     };
   }
 
+  const windowClosed = await windowClosedBeforeSend(target, options.sender);
+  if (windowClosed) return windowClosed;
+
   // Фоновое голосовое бота идёт ВДОГОНКУ уже отправленному тексту, и пока оно
   // готовится (перекодирование, расшифровка, проверка), оператор может взять диалог
   // (CHANNEL-NEW-09). Проверяем до дорогих шагов и ещё раз перед паузой и отправкой.
@@ -807,8 +840,7 @@ export async function deliverVoiceToConversation(
         ok: false,
         status: 502,
         code: "window_closed",
-        error:
-          "Клиент не писал последние 24 часа — WhatsApp и Instagram запрещают отправлять свободные сообщения, пока он не напишет первым.",
+        error: windowClosedStaffText(target.channel),
       };
     }
     void logSystemError(isTelegram ? "telegram" : "meta", `Голосовое сотрудника не отправлено: ${describeError(err)}`);
@@ -1009,6 +1041,9 @@ export async function deliverMediaToConversation(
     };
   }
 
+  const windowClosed = await windowClosedBeforeSend(target, options.sender);
+  if (windowClosed) return windowClosed;
+
   const isImage = media.mimetype.startsWith("image/");
   const isVideo = media.mimetype.startsWith("video/");
   if (!isImage && !isVideo) {
@@ -1131,8 +1166,7 @@ export async function deliverMediaToConversation(
         ok: false,
         status: 502,
         code: "window_closed",
-        error:
-          "Клиент не писал последние 24 часа — WhatsApp и Instagram запрещают отправлять свободные сообщения, пока он не напишет первым.",
+        error: windowClosedStaffText(target.channel),
       };
     }
     void logSystemError(isTelegram ? "telegram" : "meta", `${isImage ? "Фото" : "Видео"} сотрудника не отправлено: ${describeError(err)}`);

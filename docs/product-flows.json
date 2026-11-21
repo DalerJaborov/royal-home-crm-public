@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4209,
+  "forks": 4210,
   "mounts": 88,
   "cron": 144,
   "jobs": 34,
@@ -83696,6 +83696,21 @@
         },
         {
          "k": "if",
+         "t": "s.status === \"failed\" && isWhatsAppWindowFailure(s.errorCode, s.error)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.info(`[окно] WhatsApp ${s.recipientId}: вне 24 часов — свободный текст не доставлен (код ${s.errorCod…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "elseif",
          "t": "s.status === \"failed\"",
          "a": [],
          "c": [
