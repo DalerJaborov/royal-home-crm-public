@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
-import { ROLE_LABELS, type UiShellRollout, type UiShellRolloutConfig } from "@royal-home/shared";
+import { ROLE_LABELS } from "@royal-home/shared";
 import type { McLive } from "../../src/hooks/useMissionControl";
 import { SECTIONS } from "./pages/crm.page";
 import { stepUpByCode } from "./pages/codeLogin";
@@ -740,7 +740,6 @@ test("Clean section links keep the shell mounted without document reload", async
   expect(documents).toBe(0);
 });
 const directorPhone = process.env.E2E_PHONE ?? "+992900000000";
-let originalRollout: UiShellRollout | undefined;
 
 async function login(page: Page, phone = directorPhone) {
   const base = new URL(process.env.E2E_BASE_URL ?? "http://invalid");
@@ -805,17 +804,6 @@ async function elevatedHeaders(page: Page) {
   return headers;
 }
 
-async function writeRollout(page: Page, headers: Record<string, string>, value: UiShellRollout) {
-  const current = await page.request.get("/api/v1/ui-shell/config", { headers });
-  expect(current.ok()).toBe(true);
-  const snapshot = await current.json() as UiShellRolloutConfig;
-  return page.request.put("/api/v1/ui-shell/config", {
-    maxRedirects: 0,
-    headers: { ...headers, "If-Match": `"${snapshot.version}"` },
-    data: { enabled: value.enabled, agentIds: value.agentIds, roles: value.roles },
-  });
-}
-
 async function liveFixture(page: Page, update: (data: McLive) => void) {
   const response = await page.request.get("/api/v1/dashboard/mission-control/live", { headers: { Authorization: `Bearer ${accessTokens.get(page)}` } });
   expect(response.ok()).toBe(true);
@@ -835,33 +823,9 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async ({ browser, baseURL }, testInfo) => {
   test.setTimeout(60_000);
   const target = new URL(baseURL ?? "http://invalid");
-  test.skip(target.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(target.hostname) || !target.port || target.port === "5284" || process.env.E2E_ISOLATED_SEED !== "1" || process.env.E2E_ALLOW_ROLLOUT_WRITES !== "1", "explicit isolated seed stand and rollout-write authorization required");
+  test.skip(target.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(target.hostname) || !target.port || target.port === "5284" || process.env.E2E_ISOLATED_SEED !== "1" , "explicit isolated seed stand required");
   test.skip(Boolean(testInfo.project.use.isMobile), "phone paths are covered by this suite's role matrix");
-  const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] }, serviceWorkers: "block" });
-  try {
-    const page = await context.newPage();
-    await login(page);
-    const headers = await elevatedHeaders(page);
-    const response = await page.request.get("/api/v1/ui-shell/config", { headers });
-    expect(response.ok()).toBe(true);
-    originalRollout = await response.json() as UiShellRollout;
-    const configured = await writeRollout(page, headers,
-      { enabled: true, agentIds: originalRollout.agentIds, roles: [...new Set<UiShellRollout["roles"][number]>([...originalRollout.roles, "DIRECTOR", "ADMIN", "AGENT", "MANAGER", "SHAREHOLDER"])] });
-    expect(configured.ok()).toBe(true);
-  } finally { await context.close(); }
-});
-test.afterAll(async ({ browser, baseURL }) => {
-  if (!originalRollout) return;
-  test.setTimeout(60_000);
-  // A fresh session avoids restoring with an expired test token/elevation.
-  const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] }, serviceWorkers: "block" });
-  try {
-    const page = await context.newPage();
-    await login(page);
-    const headers = await elevatedHeaders(page);
-    const restored = await writeRollout(page, headers, originalRollout);
-    expect(restored.ok()).toBe(true);
-  } finally { await context.close(); }
+  // С 21.11.2026 новый интерфейс включён всем (UI_SHELL_FOR_EVERYONE): рубильника и его записи больше нет.
 });
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "wait" });
@@ -875,70 +839,6 @@ test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.title.startsWith("clean: reports draft") || testInfo.title.startsWith("clean: work queues") || testInfo.title.startsWith("clean: detail navigation") || testInfo.title.startsWith("clean: personal navigation")) return;
   if (/clean: (director|admin|agent|manager) desktop/.test(testInfo.title)) return;
   await login(page);
-});
-
-test("clean: server switch survives navigation and cannot be bypassed by URL", async ({ page }, testInfo) => {
-  test.skip(!/^http:\/\/(localhost|127\.0\.0\.1):/.test(testInfo.project.use.baseURL ?? ""), "local seeded stand only");
-  const headers = { Authorization: `Bearer ${accessTokens.get(page)}` };
-  const original = await page.request.get("/api/v1/ui-shell/config", { headers });
-  expect(original.ok()).toBe(true);
-  expect(original.headers()["cache-control"]).toContain("no-store");
-  const config = await original.json();
-  const publicSettings = await page.request.get("/api/v1/settings", { headers });
-  expect(publicSettings.ok()).toBe(true);
-  expect(await publicSettings.json()).not.toHaveProperty("uiShellRollout");
-  await stepUpByCode(page.request, headers);
-  try {
-    await page.goto("/settings?tab=system&task=workspace&shell=clean");
-    const section = page.locator(".shell-rollout");
-    await expect(section).toBeVisible();
-    const toggle = section.getByRole("checkbox", { name: "Включить новый интерфейс для выбранных ниже" });
-    await toggle.uncheck();
-    const update = page.waitForResponse((res) => res.url().endsWith("/ui-shell/config") && res.request().method() === "PUT");
-    await section.getByRole("button", { name: "Сохранить доступ" }).click();
-    expect((await update).ok()).toBe(true);
-    await expect(page.locator(".clean-header")).toHaveCount(0);
-    await page.goto("/?shell=clean");
-    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
-    await expect(page.locator("html")).not.toHaveAttribute("data-shell", "clean");
-    const effective = await page.request.get("/api/v1/ui-shell", { headers });
-    expect(await effective.json()).toEqual({ enabled: false });
-    await page.goto("/settings?tab=agency");
-    await expect(section).toBeVisible();
-    await toggle.check();
-    const enable = page.waitForResponse((res) => res.url().endsWith("/ui-shell/config") && res.request().method() === "PUT");
-    await section.getByRole("button", { name: "Сохранить доступ" }).click();
-    expect((await enable).ok()).toBe(true);
-    await expect(page.locator(".clean-header")).toBeVisible();
-  } finally {
-    const restored = await writeRollout(page, headers, config);
-    expect(restored.ok()).toBe(true);
-  }
-});
-
-test("clean: concurrent settings change keeps the draft and requires review", async ({ page }) => {
-  const headers = await elevatedHeaders(page);
-  const response = await page.request.get("/api/v1/ui-shell/config", { headers });
-  const initial = await response.json() as UiShellRolloutConfig;
-  try {
-    await page.goto("/settings?tab=system&task=workspace&shell=clean");
-    const section = page.locator(".shell-rollout");
-    const agent = section.getByRole("checkbox", { name: "Агент", exact: true });
-    const editor = section.getByRole("checkbox", { name: ROLE_LABELS.EDITOR, exact: true });
-    await expect(agent).toBeChecked({ checked: initial.roles.includes("AGENT") });
-    await agent.setChecked(!initial.roles.includes("AGENT"));
-    const roles = initial.roles.includes("EDITOR") ? initial.roles.filter((role) => role !== "EDITOR") : [...initial.roles, "EDITOR" as const];
-    expect((await writeRollout(page, headers, { ...initial, roles })).ok()).toBe(true);
-    const write = page.waitForResponse((res) => res.url().endsWith("/ui-shell/config") && res.request().method() === "PUT");
-    await section.getByRole("button", { name: "Сохранить доступ" }).click();
-    expect((await write).status()).toBe(409);
-    await expect(section.getByRole("alert")).toContainText("другим администратором");
-    await expect(section.getByText(/Ваши правки перенесены/)).toBeVisible();
-    await expect(agent).toBeChecked({ checked: !initial.roles.includes("AGENT") });
-    await expect(editor).toBeChecked({ checked: !initial.roles.includes("EDITOR") });
-    const current = await page.request.get("/api/v1/ui-shell/config", { headers });
-    expect((await current.json()).roles.includes("AGENT")).toBe(initial.roles.includes("AGENT"));
-  } finally { expect((await writeRollout(page, headers, initial)).ok()).toBe(true); }
 });
 
 test("clean: critical notices respect dialogs and persist personal decisions", async ({ page }) => {
@@ -1026,73 +926,6 @@ test("clean: partial approval failure stays visible and team events are not clip
   await expect(page.getByText("В загруженных данных срочных нарушений нет.", { exact: false })).toHaveCount(0);
 });
 
-test("clean: rollout draft survives step-up expiry", async ({ page }) => {
-  const headers = { Authorization: `Bearer ${accessTokens.get(page)}` };
-  await stepUpByCode(page.request, headers);
-  await page.goto("/settings?tab=system&task=workspace&shell=clean");
-  const initialUrl = page.url();
-  const section = page.locator(".shell-rollout");
-  const agentRole = section.getByRole("checkbox", { name: "Агент", exact: true });
-  await expect(agentRole).toBeVisible();
-  const wasChecked = await agentRole.isChecked();
-  await agentRole.setChecked(!wasChecked);
-  await page.evaluate(() => window.dispatchEvent(new Event("step-up-required")));
-  await expect(page.getByRole("heading", { name: "Подтвердите, что это вы" })).toBeVisible();
-  await expect(page).toHaveURL(initialUrl);
-  await expect(page.getByRole("textbox", { name: /Код из/ })).toHaveValue(/^\d{6}$/,{ timeout: 10_000 });
-  const confirmation = page.waitForResponse((response) => response.url().endsWith("/auth/step-up") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "Подтвердить", exact: true }).click();
-  const confirmed = await confirmation;
-  expect(confirmed.ok(), `Draft reauthentication HTTP ${confirmed.status()}`).toBe(true);
-  await expect(page).toHaveURL(initialUrl);
-  await expect(agentRole).toBeVisible();
-  await expect(agentRole).toBeChecked({ checked: !wasChecked });
-  await section.getByRole("button", { name: "Отменить изменения" }).click();
-  await expect(agentRole).toBeChecked({ checked: wasChecked });
-});
-
-test("clean: cold policy load does not mount temporary legacy controls", async ({ page }) => {
-  let release!: () => void;
-  let arrived!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  const requestArrived = new Promise<void>((resolve) => { arrived = resolve; });
-  await page.route("**/api/v1/ui-shell", async (route) => {
-    arrived();
-    await gate;
-    await route.fulfill({ json: { enabled: true } });
-  });
-  try {
-    await page.goto("/?shell=clean", { waitUntil: "domcontentloaded" });
-    await requestArrived;
-    await expect(page.getByLabel("Загрузка раздела")).toBeVisible();
-    await expect(page.locator("[data-topbar-search-wide]")).toHaveCount(0);
-    await expect(page.locator(".clean-header")).toHaveCount(0);
-  } finally { release(); }
-  await expect(page.locator(".clean-header")).toBeVisible();
-});
-
-test("clean: polling error retains layout, explicit off and pult alias respect rollout", async ({ page }) => {
-  await page.clock.install();
-  await page.goto("/?shell=clean");
-  await expect(page.locator(".clean-header")).toBeVisible();
-  await page.route("**/api/v1/ui-shell", (route) => route.fulfill({ status: 500, json: { error: "TEST_UNAVAILABLE" } }));
-  const failed = page.waitForResponse((response) => response.url().endsWith("/ui-shell") && response.status() === 500);
-  await page.clock.fastForward(31_000);
-  await failed;
-  await page.clock.fastForward(5_000);
-  await expect(page.locator(".clean-header")).toBeVisible();
-  await page.unroute("**/api/v1/ui-shell");
-  await page.route("**/api/v1/ui-shell", (route) => route.fulfill({ json: { enabled: false } }));
-  const disabled = page.waitForResponse((response) => response.url().endsWith("/ui-shell") && response.ok());
-  await page.clock.fastForward(31_000);
-  await disabled;
-  await expect(page.locator(".clean-header")).toHaveCount(0);
-  await page.goto("/pult?shell=clean");
-  await expect(page).toHaveURL(/\/pult\?shell=clean$/);
-  await expect(page.locator(".clean-header")).toHaveCount(0);
-  await expect(page.locator("html")).not.toHaveAttribute("data-shell", "clean");
-});
-
 test("clean: existing sections and responsive breakpoints remain usable", async ({ page }) => {
   test.skip((page.viewportSize()?.width ?? 1440) < 820, "Desktop rollout only; mobile legacy is checked separately");
   test.setTimeout(180_000);
@@ -1134,7 +967,7 @@ test("clean: flag, navigation, search, creation and legacy escape hatch", async 
   // The existing creation wizard intentionally occupies its own full screen.
   await expect(page.getByRole("button", { name: "Закрыть мастер" })).toBeVisible();
   await expect(page.locator("input").first()).toBeVisible();
-  await page.goto("/?shell=legacy");
+  await page.goto("/?look=legacy");
   await expect(page.locator(".clean-header")).toHaveCount(0);
   await expect(page.locator("html")).not.toHaveAttribute("data-shell", "clean");
   expect(errors).toEqual([]);
@@ -1501,7 +1334,7 @@ for (const width of [1440, 390]) test(`Clean settings tasks separate daily rules
   const original = await page.locator("html").getAttribute("data-theme");
   let settingsWrites = 0;
   page.on("request", request => {
-    if (!["GET", "HEAD", "OPTIONS"].includes(request.method()) && /\/api\/v1\/(settings|ui-shell\/config|customer-agent\/.*|.*\/dial)(?:\?|$)/.test(request.url())) settingsWrites += 1;
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method()) && /\/api\/v1\/(settings|customer-agent\/.*|.*\/dial)(?:\?|$)/.test(request.url())) settingsWrites += 1;
   });
   const tasks = [
     ["agency", "company", "Компания"], ["agency", "locations", "Районы"],

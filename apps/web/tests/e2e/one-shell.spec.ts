@@ -207,42 +207,24 @@ test("одна оболочка: группа бокового меню раск
   }
 });
 
-test("телефон агента: без запомненного вида не ждёт /ui-shell и не меняет оболочку посреди работы", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium", "устройство задаётся в десктопном проекте");
-  test.setTimeout(90_000);
-  const { context, page } = await royalPage(browser, "AGENT", WIDTHS[1], { rememberGrant: false, answer: { delayMs: 6_000 } });
-  try {
-    const started = Date.now();
-    await page.goto("/");
-    // Первый экран — прежний телефонный интерфейс, без ожидания сервера (ответ идёт 6 с,
-    // в пределах таймаута запроса 8 с — иначе он не пришёл бы вовсе).
-    await expect(page.locator("main#main")).toBeVisible({ timeout: 5_000 });
-    expect(Date.now() - started, "экран не ждал ответа /ui-shell").toBeLessThan(5_500);
-    await expect(page.locator("html")).not.toHaveAttribute("data-ui-look", /.+/);
-    // Ответ с видом пришёл — экран не перестраивается, вид запомнен до следующего запуска.
-    await page.waitForTimeout(8_000);
-    await expect(page.locator("html")).not.toHaveAttribute("data-ui-look", /.+/);
-    const remembered = await page.evaluate(() => {
-      const id = (JSON.parse(localStorage.getItem("royal-home-auth") ?? "{}") as { state?: { agent?: { id?: string } } }).state?.agent?.id;
-      return localStorage.getItem(`rh-look-granted:${id}`);
-    });
-    expect(remembered).toBe("1");
-    // Следующий запуск — сразу новый вид.
-    await page.reload();
-    await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal", { timeout: 20_000 });
-  } finally {
-    await context.close();
-  }
-});
-
-test("телефон агента: сбой /ui-shell при запомненном виде не вешает экран", async ({ browser }, testInfo) => {
+test("телефон агента: новый вид всем (21.11.2026) — сразу, без запроса /ui-shell, даже когда сервер его не отдаёт", async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "устройство задаётся в десктопном проекте");
   test.setTimeout(60_000);
-  const { context, page } = await royalPage(browser, "AGENT", WIDTHS[1], { answer: { abort: true } });
+  // Ответ /ui-shell обрывается: решение больше не зависит от него вовсе.
+  const { context, page } = await royalPage(browser, "AGENT", WIDTHS[1], { rememberGrant: false, answer: { abort: true } });
+  let asked = 0;
+  page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/v1/ui-shell") asked += 1; });
   try {
     await page.goto("/");
     await expect(page.locator("main#main")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("html")).toHaveAttribute("data-shell", "clean");
+    await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
+    expect(asked, "новый клиент не спрашивает /ui-shell").toBe(0);
+    // Личный аварийный выход — только адресом и только на эту вкладку.
+    await page.goto("/?look=legacy");
     await expect(page.locator("html")).not.toHaveAttribute("data-ui-look", /.+/);
+    await page.goto("/?look=royal");
+    await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal");
   } finally {
     await context.close();
   }
