@@ -10,10 +10,10 @@
 
 | Что | Сколько |
 |---|---|
-| Экранов (адресов в интерфейсе) | 72 |
-| Из них видно в меню | 33 |
+| Экранов (адресов в интерфейсе) | 73 |
+| Из них видно в меню | 34 |
 | Модулей сервера | 88 |
-| Адресов сервера всего | 781 |
+| Адресов сервера всего | 785 |
 | Задач по расписанию | 137 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -51,6 +51,7 @@
 | `/dev/pult-tiles` | — | только по ссылке | — |
 | `/dev/sheets-port` | — | только по ссылке | — |
 | `/dev/system-sheets-port` | — | только по ссылке | — |
+| `/director` | DirectorDashboard | **Дашборд директора** | `apps/web/src/pages/DirectorDashboard.tsx` |
 | `/finance` | Finance | **Финансы** | `apps/web/src/pages/Finance.tsx` |
 | `/funnel` | Funnel | **Воронка** | `apps/web/src/pages/Funnel.tsx` |
 | `/hall-of-fame` | Team | только по ссылке | `apps/web/src/pages/Team.tsx` |
@@ -120,6 +121,7 @@
 | team | Вакансии | `/vacancies` | всем |
 | team | Служба безопасности | `/security` | всем |
 | money | Финансы | `/finance` | всем |
+| money | Дашборд директора | `/director` | всем |
 | money | Отчёты | `/reports` | всем |
 | money | Источники заявок | `/sources` | всем |
 | money | Инсайты от ИИ | `/insights` | всем |
@@ -174,7 +176,7 @@
 | `/api/v1/live-voice` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/liveVoiceListen.ts` |
 | `/api/v1/ai` | Запросы к ИИ из интерфейса | 13 | да (3 мест) | `apps/api/src/routes/ai.ts` |
 | `/api/v1/transcribe` | Диктовка голосом в полях CRM | 1 | да (1 мест) | `apps/api/src/routes/transcribe.ts` |
-| `/api/v1/reports` | Отчёты за период | 20 | да (4 мест) | `apps/api/src/routes/reports.ts` |
+| `/api/v1/reports` | Отчёты за период | 24 | да (5 мест) | `apps/api/src/routes/reports.ts` |
 | `/api/v1/report-pdf` | **без подписи** | 2 | нет | `apps/api/src/routes/reportPdf.ts` |
 | `/api/v1/telephony/whisper` | Станция забирает подсказки оператору | 2 | нет | `apps/api/src/routes/telephonyWhisper.ts` |
 | `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (11 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
