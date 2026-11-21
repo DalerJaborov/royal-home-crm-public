@@ -43,7 +43,7 @@ export function percent(part: number | null | undefined, whole: number | null | 
 }
 
 export function percentLabel(value: number | null | undefined): string {
-  return value === null || value === undefined || !Number.isFinite(value) ? "—" : `${value.toLocaleString("ru-RU")} %`;
+  return value === null || value === undefined || !Number.isFinite(value) ? "—" : `${value.toLocaleString("ru-RU")} %`;
 }
 
 /** Минуты по-человечески: «45 мин», «2 ч 10 мин», «1 д 3 ч»; нет данных — «—». */

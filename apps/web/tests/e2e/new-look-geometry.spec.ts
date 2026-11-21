@@ -37,6 +37,8 @@ const OWNER_SCREENS: Screen[] = [
   { url: "/clients", ready: '[data-ry-section="clients"]' },
   // Настройки: квадрат-рамка внутри капсулы поиска (ревью #337) — двойная рамка поля и мелкий текст.
   { url: "/settings", ready: ".ry-search", kinds: ["fieldFrame", "smallText", "selectClip"] },
+  // Дашборд директора (21.11.2026): ответы подменены (stubDirectorDashboard в lookVisualFixtures) — длинное имя менеджера, нули, деньги.
+  { url: "/director", ready: ".dd-head" },
 ];
 
 type Device = { name: string; widths: readonly number[]; options: (width: number) => BrowserContextOptions };
@@ -271,7 +273,7 @@ test("новый вид, сторож геометрии ловит каждую
  */
 const ALL_SCREENS: Record<"DIRECTOR" | "MANAGER" | "AGENT", string[]> = {
   DIRECTOR: ["/", "/clients", "/sellers", "/properties", "/deals", "/calendar", "/messages", "/calls", "/ads", "/marketing", "/social-videos",
-    "/finance", "/reports", "/team", "/oversight", "/mission-control", "/settings", "/profile", "/notifications", "/archive", "/vacancies",
+    "/finance", "/reports", "/director", "/team", "/oversight", "/mission-control", "/settings", "/profile", "/notifications", "/archive", "/vacancies",
     "/security", "/activity", "/pult", "/funnel", "/sources", "/insights", "/health", "/comments", "/site-changes", "/market", "/more",
     "/hall-of-fame", "/lead-funnel", "/hot-clients", "/lost-clients", "/inactive-clients", "/deferred-clients", "/other-inquiries",
     "/clients/all-mine", "/telephony", "/integrations", "/backups", "/stuck-work", "/ai-learning", "/bot-training", "/pipeline", "/settings/roles"],
