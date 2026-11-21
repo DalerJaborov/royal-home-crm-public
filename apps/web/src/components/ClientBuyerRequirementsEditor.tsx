@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { clientBuyerRequirementsSchema, clientIntents, type PropertyType, type ClientBuyerRequirementsInput } from "@royal-home/shared";
+import { positiveBudget, clientBuyerRequirementsSchema, clientIntents, type PropertyType, type ClientBuyerRequirementsInput } from "@royal-home/shared";
 import { useDistricts } from "../hooks/useDistricts";
 import { softenShouting } from "../lib/softenShouting";
 import { api } from "../lib/api";
@@ -79,7 +79,7 @@ export function ClientBuyerRequirementsEditor({ client, locked }: { client: Clie
   const chips = current ? [
     client.desiredType ? PROPERTY_TYPE_LABELS[client.desiredType] : "Тип не указан",
     client.desiredRooms ? `${client.desiredRooms} комн.` : null,
-    client.budgetMin && client.budgetMax ? `${formatMoney(client.budgetMin, client.currency)} — ${formatMoney(client.budgetMax, client.currency)}` : client.budgetMax ? `До ${formatMoney(client.budgetMax, client.currency)}` : client.budgetMin ? `От ${formatMoney(client.budgetMin, client.currency)}` : "Бюджет не указан",
+    positiveBudget(client.budgetMin) && positiveBudget(client.budgetMax) ? `${formatMoney(client.budgetMin!, client.currency)} — ${formatMoney(client.budgetMax!, client.currency)}` : positiveBudget(client.budgetMax) ? `До ${formatMoney(client.budgetMax!, client.currency)}` : positiveBudget(client.budgetMin) ? `От ${formatMoney(client.budgetMin!, client.currency)}` : "Бюджет не указан",
     client.desiredDistrict?.name ?? (!(client.desiredPlaces?.length) ? "Район не указан" : null),
     ...(client.desiredPlaces ?? []).map(place => `${place.label || "Место на карте"} · радиус ${place.radiusM} м`),
     client.desiredAreaMin ? `От ${client.desiredAreaMin} м²` : null,
