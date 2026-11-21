@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useScrollLock } from "../../hooks/useScrollLock";
 import { WIZARD_STEPS, type WizardStepKey } from "./types";
 import type { WizardDraftStatus } from "./draftAutosave";
 import { WizardDraftNotice } from "./WizardDraftNotice";
@@ -106,6 +107,7 @@ export function WizardShell({
   const section = useRoyalSectionName();
   const [modeOpen, setModeOpen] = useState(false);
   const modeRef = useFocusTrap<HTMLDivElement>(modeOpen);
+  useScrollLock(modeOpen);
   const controlsBusy = busy || deleteDraftPending;
   const status = draftStatus ?? (draftSaved ? { state: "server" as const } : undefined);
   useEffect(() => {

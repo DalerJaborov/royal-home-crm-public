@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { scrollBoxesFrom, shouldBlockTouchMove, touchIsExempt } from "../lib/touchScrollTrap";
 
 /**
  * Пока открыто окно, страница под ним не прокручивается.
@@ -22,6 +23,41 @@ import { useEffect } from "react";
 let lockCount = 0;
 let savedScrollY = 0;
 let stopOverhang: (() => void) | null = null;
+let stopTouchTrap: (() => void) | null = null;
+
+/** Заблокирована ли сейчас страница каким-нибудь окном. Жесты страницы (потянуть-обновить) спрашивают здесь. */
+export function isScrollLocked(): boolean {
+  return lockCount > 0;
+}
+
+/**
+ * Палец двигает только ленту, которой есть куда ехать (lib/touchScrollTrap.ts). Слушатель на документе и
+ * НЕ пассивный: только такой может отменить движение. Направление берём от прошлого движения, а не от
+ * точки касания — палец, развернувшийся посреди жеста, меряется по текущему направлению.
+ */
+function trapTouchMoves(): () => void {
+  let lastX = 0;
+  let lastY = 0;
+  const onStart = (event: TouchEvent) => {
+    const t = event.touches[0];
+    if (t) { lastX = t.clientX; lastY = t.clientY; }
+  };
+  const onMove = (event: TouchEvent) => {
+    const t = event.touches[0];
+    if (!t || !event.cancelable || touchIsExempt(event)) return;
+    const dx = t.clientX - lastX;
+    const dy = t.clientY - lastY;
+    lastX = t.clientX;
+    lastY = t.clientY;
+    if (shouldBlockTouchMove(dx, dy, scrollBoxesFrom(event.target))) event.preventDefault();
+  };
+  document.addEventListener("touchstart", onStart, { passive: true, capture: true });
+  document.addEventListener("touchmove", onMove, { passive: false, capture: true });
+  return () => {
+    document.removeEventListener("touchstart", onStart, { capture: true });
+    document.removeEventListener("touchmove", onMove, { capture: true });
+  };
+}
 
 /**
  * ШТОРКА НЕ ДОХОДИЛА ДО НИЗА ЭКРАНА НА iPhone (кадры владельца 20.11.2026: серая полоса ~62 px под
@@ -71,6 +107,7 @@ function lock() {
   lockCount += 1;
   if (lockCount > 1) return;
   stopOverhang = trackViewportOverhang();
+  stopTouchTrap = trapTouchMoves();
   savedScrollY = window.scrollY;
   const body = document.body;
   body.style.position = "fixed";
@@ -85,6 +122,8 @@ function unlock() {
   if (lockCount > 0) return;
   stopOverhang?.();
   stopOverhang = null;
+  stopTouchTrap?.();
+  stopTouchTrap = null;
   const body = document.body;
   body.style.position = "";
   body.style.top = "";

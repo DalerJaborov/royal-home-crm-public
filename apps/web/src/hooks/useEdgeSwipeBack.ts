@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useGoBack } from "./useGoBack";
 import { useMobileUx } from "./useMobileUx";
+import { needsOwnEdgeSwipe } from "../lib/goBack";
 
 /**
  * Свайп от левого края экрана — «назад», как в любом телефонном приложении.
@@ -51,7 +52,8 @@ export function useEdgeSwipeBack(): void {
   const mobile = useMobileUx();
 
   useEffect(() => {
-    if (!mobile) return;
+    // Свой жест — только там, где у системы его нет (lib/goBack.ts → needsOwnEdgeSwipe): иначе два «назад» разом.
+    if (!mobile || !needsOwnEdgeSwipe(navigator as Navigator & { standalone?: unknown })) return;
 
     let startX = 0;
     let startY = 0;

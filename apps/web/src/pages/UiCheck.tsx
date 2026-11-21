@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
+import { useScrollLock } from "../hooks/useScrollLock";
+import { layoutViewportHeight, readKeyboard } from "../lib/keyboardInset";
 
 /**
  * «ПРОВЕРКА ЭКРАНА» (20.11.2026): цифры, по которым видно, почему на iPhone нижняя шторка не доходит до низа
@@ -29,6 +31,10 @@ function readSnapshot(probe: HTMLElement | null): Snapshot {
     "Отступ safe-area: снизу": safe?.paddingBottom ?? "нет",
     "Выше низа видимой области (vv.top + vv.h − innerHeight)": vv ? num(vv.offsetTop + vv.height - window.innerHeight) : "нет",
     "Режим «на экране Домой» (standalone)": standalone ? "да" : "нет",
+    "Высота страницы (clientHeight)": String(document.documentElement.clientHeight),
+    "Прокрутка страницы (scrollY)": num(window.scrollY),
+    "Клавиатура по новому расчёту": vv ? (readKeyboard(layoutViewportHeight(), vv).open ? "открыта" : "закрыта") : "нет",
+    "Клавиатура по старому расчёту (innerHeight)": vv ? (readKeyboard(window.innerHeight, vv).open ? "открыта" : "закрыта") : "нет",
     "--rh-vv-over (запас шторки)": rootStyle.getPropertyValue("--rh-vv-over").trim() || "не задан (шторка закрыта)",
     "--clean-viewport-top": rootStyle.getPropertyValue("--clean-viewport-top").trim() || "не задан",
     "--clean-viewport-height": rootStyle.getPropertyValue("--clean-viewport-height").trim() || "не задан",
@@ -37,7 +43,67 @@ function readSnapshot(probe: HTMLElement | null): Snapshot {
   };
 }
 
+/**
+ * ПРОБНАЯ ПЕРЕПИСКА С КЛАВИАТУРОЙ (21.11.2026). Тот же каркас, что у переписки на телефоне: слой на весь
+ * экран по `--clean-viewport-top`/`--clean-viewport-height` (hooks/useCleanViewport.ts), страница под ним
+ * заблокирована (useScrollLock). Цифры — крупно в верхней части, над клавиатурой: владелец нажимает в поле,
+ * клавиатура открывается, и один снимок экрана показывает, где стоит поле и есть ли пустота под ним.
+ */
+function KeyboardProbe({ onClose }: { onClose: () => void }) {
+  useScrollLock(true);
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const [rows, setRows] = useState<[string, string][]>([]);
+  useEffect(() => {
+    const update = () => {
+      const vv = window.visualViewport;
+      const field = fieldRef.current?.getBoundingClientRect();
+      const visibleBottom = vv ? vv.height : window.innerHeight;
+      const kb = vv ? readKeyboard(layoutViewportHeight(), vv) : null;
+      const r = (n: number | undefined) => (n === undefined ? "нет" : String(Math.round(n)));
+      setRows([
+        ["Пустота под полем, px", field ? r(visibleBottom - field.bottom) : "нет"],
+        ["Верх поля от верха экрана, px", r(field?.top)],
+        ["Видимая область: высота / сдвиг", vv ? `${r(vv.height)} / ${r(vv.offsetTop)}` : "нет"],
+        ["Окно: innerHeight / clientHeight", `${window.innerHeight} / ${document.documentElement.clientHeight}`],
+        ["Клавиатура: новый / старый расчёт", kb && vv ? `${kb.open ? "да" : "нет"} / ${readKeyboard(window.innerHeight, vv).open ? "да" : "нет"}` : "нет"],
+        ["Каркас: верх / высота", `${getComputedStyle(document.documentElement).getPropertyValue("--clean-viewport-top").trim() || "—"} / ${getComputedStyle(document.documentElement).getPropertyValue("--clean-viewport-height").trim() || "—"}`],
+        ["Прокрутка страницы", r(window.scrollY)],
+      ]);
+    };
+    update();
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
+    const timer = window.setInterval(update, 300);
+    return () => { vv?.removeEventListener("resize", update); vv?.removeEventListener("scroll", update); window.clearInterval(timer); };
+  }, []);
+  return (
+    <div data-ui-check-keyboard role="dialog" aria-modal="true" aria-label="Пробная переписка"
+      style={{ position: "fixed", zIndex: 70, left: 0, right: 0, top: "var(--clean-viewport-top, 0px)", height: "var(--clean-viewport-height, 100dvh)", display: "flex", flexDirection: "column", background: "var(--rh-ui-bg, white)", color: "var(--rh-ui-text, inherit)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "calc(8px + env(safe-area-inset-top, 0px)) 12px 8px" }}>
+        <button type="button" onClick={onClose} style={{ minHeight: 44, padding: "0 16px", borderRadius: 999, border: "1px solid rgba(0,0,0,.15)", background: "transparent", fontSize: 16 }}>Закрыть</button>
+        <b style={{ fontSize: 18 }}>Пробная переписка</b>
+      </div>
+      <div data-ui-check-feed style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", padding: "0 12px" }}>
+        <dl style={{ margin: 0, display: "grid", gap: 6 }}>
+          {rows.map(([label, value]) => (
+            <div key={label}>
+              <dt style={{ fontSize: 14, color: "var(--rh-ui-hint, gray)" }}>{label}</dt>
+              <dd style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <div style={{ padding: "8px 12px calc(8px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid rgba(0,0,0,.08)" }}>
+        <textarea ref={fieldRef} rows={1} aria-label="Пробное поле" placeholder="Нажмите сюда — откроется клавиатура"
+          style={{ width: "100%", minHeight: 44, fontSize: 16, borderRadius: 22, padding: "10px 16px", border: "1px solid rgba(0,0,0,.2)", resize: "none" }} />
+      </div>
+    </div>
+  );
+}
+
 export function UiCheck() {
+  const [keyboardProbe, setKeyboardProbe] = useState(false);
   const probeRef = useRef<HTMLDivElement>(null);
   const [snapshot, setSnapshot] = useState<Snapshot>({});
   const [sheet, setSheet] = useState(false);
@@ -65,10 +131,14 @@ export function UiCheck() {
       <div ref={probeRef} aria-hidden="true" style={{ position: "absolute", visibility: "hidden", paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }} />
       <h1 style={{ fontSize: 28, fontWeight: 700, margin: "0 0 8px" }}>Проверка экрана</h1>
       <p style={{ fontSize: 16, lineHeight: 1.5, margin: "0 0 16px" }}>
-        Нажмите «Открыть пробную шторку», сделайте снимок экрана и пришлите. Ничего никуда не отправляется, цифры остаются только на этом экране.
+        Нажмите «Открыть пробную шторку» или «Открыть поле с клавиатурой», затем нажмите в поле, сделайте снимок экрана и пришлите. Ничего никуда не отправляется, цифры остаются только на этом экране.
       </p>
       <button type="button" onClick={() => setSheet(true)} style={{ minHeight: 48, padding: "0 20px", borderRadius: 999, border: 0, background: "var(--rh-ui-primary, rgb(43 89 255))", color: "var(--rh-ui-primary-fg, white)", fontSize: 16, fontWeight: 600, marginBottom: 20 }}>
         Открыть пробную шторку
+      </button>
+      {" "}
+      <button type="button" onClick={() => setKeyboardProbe(true)} style={{ minHeight: 48, padding: "0 20px", borderRadius: 999, border: 0, background: "var(--rh-ui-primary, rgb(43 89 255))", color: "var(--rh-ui-primary-fg, white)", fontSize: 16, fontWeight: 600, marginBottom: 20 }}>
+        Открыть поле с клавиатурой
       </button>
       <dl style={{ margin: 0, display: "grid", gap: 12 }}>
         {Object.entries(snapshot).map(([label, value]) => (
@@ -78,6 +148,7 @@ export function UiCheck() {
           </div>
         ))}
       </dl>
+      {keyboardProbe && <KeyboardProbe onClose={() => setKeyboardProbe(false)} />}
       {sheet && (
         <Rh2Sheet title="Пробная шторка" onClose={() => setSheet(false)} footer={<button type="button" className="pill" onClick={() => setSheet(false)}>Готово</button>}>
           <p style={{ fontSize: 16, lineHeight: 1.5 }}>
