@@ -47,8 +47,14 @@ interface AppUpdateState {
   /** Когда впервые понадобилось применить обновление — точка отсчёта для
    *  MAX_DEFER_MS, не сбрасывается повторными вызовами requestApply. */
   deferStart: number | null;
+  /** Версия сайта на сервере из version.json, к которой идём; "" — не знаем. */
+  targetVersion: string;
   setNeedRefresh: (value: boolean) => void;
   setStaleBuild: (value: boolean) => void;
+  /** Канал version.json: на сервере версия сайта `value` — пора (или снова пора) обновляться. */
+  noteSiteVersion: (value: string) => void;
+  /** Лестница сдалась и страница осталась: снять «идёт подмена», чтобы следующая версия сайта смогла попробовать снова. */
+  settle: () => void;
   /**
    * Центральное решение «применить сейчас или подождать» — вызывается при
    * каждом сигнале (появление needRefresh/staleBuild, переход между разделами,
@@ -69,8 +75,11 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
   staleBuild: false,
   applying: false,
   deferStart: null,
+  targetVersion: "",
   setNeedRefresh: (value) => set({ needRefresh: value }),
   setStaleBuild: (value) => set({ staleBuild: value }),
+  noteSiteVersion: (value) => set({ staleBuild: true, targetVersion: value }),
+  settle: () => set({ applying: false, deferStart: null }),
   requestApply: (busy, options = {}) => {
     const { now = Date.now(), navigating = false } = options;
     const state = get();
@@ -85,5 +94,5 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
     }
     return true;
   },
-  reset: () => set({ needRefresh: false, staleBuild: false, applying: false, deferStart: null }),
+  reset: () => set({ needRefresh: false, staleBuild: false, applying: false, deferStart: null, targetVersion: "" }),
 }));

@@ -63,6 +63,16 @@ export function reportEmptyListGuard(message: string): void {
   report(message);
 }
 
+/**
+ * Сдача лестницы обновления (lib/appUpdateReload.ts, 21.11.2026). Снимок среды
+ * передаётся ЯВНО вторым полем, а не через error.stack: Safari и Chrome на iOS
+ * отдают в stack только адреса, и подробности с телефонов терялись. Сообщение —
+ * ключ дедупа, поэтому переменные факты живут в `details`.
+ */
+export function reportUpdateGiveUp(message: string, details: string): void {
+  report(message, details);
+}
+
 export function initErrorReporter() {
   window.addEventListener("error", (e) => {
     report(e.message || "Неизвестная ошибка", e.error instanceof Error ? e.error.stack : undefined);

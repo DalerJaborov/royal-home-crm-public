@@ -23,17 +23,71 @@
  *    таймеры, а проверка на возврате даёт более свежий ответ, чем разбуженный
  *    таймер.
  */
+import { acknowledgeServerBuild, onServerBuildStale } from "./appVersion";
+
 const POLL_INTERVAL_MS = 10_000;
 
 let polling = false;
 
-export function startAppVersionPoll(onStale: () => void): () => void {
+function tabVersion(): string {
+  return typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "";
+}
+
+/** Версия сайта на сервере из `/version.json`; null — не узнали (сеть, ошибка ответа). */
+export async function fetchSiteVersion(fetchImpl: typeof fetch = fetch): Promise<string | null> {
+  try {
+    const res = await fetchImpl(`/version.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { version?: string };
+    return data.version || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * КАНАЛ X-App-Build — ТОЛЬКО ПОВОД СПРОСИТЬ version.json (21.11.2026, ревью #380).
+ *
+ * Заголовок — время запуска процесса API (apps/api/src/app.ts), а не версия сайта.
+ * Выкат одного сервера (ops/auto-deploy.sh пересобирает только api/worker, если сайт
+ * не тронут) раньше сразу ставил «вышла новая версия»: вкладка тратила попытку
+ * лестницы на перезагрузку в ту же сборку, а после трёх таких выкатов подряд
+ * (14–15.11 их было по пять) глохла насовсем и не обновлялась уже никогда. Теперь
+ * сигнал только запускает сверку с version.json; версия сайта та же — заголовок
+ * принимается новой точкой отсчёта, попытка не тратится.
+ */
+export function startServerBuildWatch(
+  onStale: (siteVersion: string) => void,
+  deps: { fetchVersion?: () => Promise<string | null>; currentVersion?: string } = {},
+): () => void {
+  const fetchVersion = deps.fetchVersion ?? (() => fetchSiteVersion());
+  const current = deps.currentVersion ?? tabVersion();
   let stopped = false;
-  let decided = false;
+  const off = onServerBuildStale(() => {
+    acknowledgeServerBuild();
+    void fetchVersion().then((siteVersion) => {
+      if (!stopped && siteVersion && siteVersion !== current) onStale(siteVersion);
+    });
+  });
+  return () => {
+    stopped = true;
+    off();
+  };
+}
+
+/**
+ * Опрос version.json. С 21.11.2026 не останавливается после первого расхождения:
+ * вкладка, у которой лестница обновления сдалась, должна узнать о СЛЕДУЮЩЕЙ версии
+ * сайта и попробовать снова (appUpdateReload.ts, isUpdateLoopSuppressed). Подписчик
+ * получает версию и зовётся только при её смене.
+ */
+export function startAppVersionPoll(onStale: (siteVersion: string) => void): () => void {
+  let stopped = false;
+  let reported: string | null = null;
   let timer: number | undefined;
 
   function schedule() {
-    if (stopped || decided) return;
+    if (stopped) return;
     window.clearTimeout(timer);
     // Вкладка в фоне — не тикаем: браузер душит фоновые таймеры, а на возврате
     // сработает checkNow и даст более свежий ответ.
@@ -42,25 +96,18 @@ export function startAppVersionPoll(onStale: () => void): () => void {
   }
 
   async function check() {
-    if (stopped || decided) return;
-    try {
-      const res = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
-      if (res.ok) {
-        const data = (await res.json()) as { version?: string };
-        if (data.version && data.version !== __APP_VERSION__) {
-          decided = true; // дальше не опрашиваем — решение принято
-          onStale();
-          return;
-        }
-      }
-    } catch {
-      // сеть недоступна/CORS/офлайн — не считается «есть обновление», молчим
+    if (stopped) return;
+    // сеть недоступна/CORS/офлайн — null, не считается «есть обновление»
+    const siteVersion = await fetchSiteVersion();
+    if (!stopped && siteVersion && siteVersion !== tabVersion() && siteVersion !== reported) {
+      reported = siteVersion;
+      onStale(siteVersion);
     }
     schedule();
   }
 
   function checkNow() {
-    if (stopped || decided) return;
+    if (stopped) return;
     window.clearTimeout(timer);
     void check();
   }

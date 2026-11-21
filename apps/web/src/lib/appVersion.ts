@@ -20,11 +20,13 @@
 type Listener = () => void;
 
 let seenBuild: string | null = null;
+let lastBuild: string | null = null;
 let stale = false;
 const listeners = new Set<Listener>();
 
 export function noteServerBuild(build: string | null): void {
   if (!build) return;
+  lastBuild = build;
   if (seenBuild === null) {
     seenBuild = build;
     return;
@@ -50,17 +52,26 @@ export function isServerBuildStale(): boolean {
  * порядка монтирования нельзя.
  */
 export function onServerBuildStale(listener: Listener): () => void {
-  if (stale) {
-    listener();
-    return () => {};
-  }
   listeners.add(listener);
+  if (stale) listener();
   return () => listeners.delete(listener);
+}
+
+/**
+ * «ЭТО БЫЛ ВЫКАТ ТОЛЬКО СЕРВЕРА» (21.11.2026, ревью #380). X-App-Build — время запуска
+ * процесса API (apps/api/src/app.ts), а не версия сайта: выкат одного сервера меняет
+ * его, хотя сборка вкладки та же. Проверивший version.json подписчик принимает новый
+ * заголовок точкой отсчёта — следующий перезапуск сервера снова даст сигнал.
+ */
+export function acknowledgeServerBuild(): void {
+  seenBuild = lastBuild;
+  stale = false;
 }
 
 /** Только для тестов: вернуть модуль в исходное состояние. */
 export function resetServerBuildState(): void {
   seenBuild = null;
+  lastBuild = null;
   stale = false;
   listeners.clear();
 }

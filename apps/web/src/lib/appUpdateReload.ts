@@ -43,11 +43,24 @@ const WORKER_POLL_MS = 300;
  *  жёстком выходе: он не относится к сборке, а весит десятки мегабайт. */
 const KEEP_CACHE = "uploads-cache";
 
+/**
+ * СДАЧА НЕ НАВСЕГДА (21.11.2026, ревью #380). Раньше заглушённая вкладка не
+ * пробовала больше никогда: счётчик сбрасывался только при смене версии САМОЙ
+ * вкладки, а она-то и не менялась. Телефон владельца так прожил на сборке старше
+ * 17.11 до 21.11. Теперь лестница начинается заново, когда на сервере появилась
+ * ДРУГАЯ версия сайта, чем та, к которой шли, — или через час.
+ */
+const SUPPRESS_MS = 60 * 60_000;
+
 interface AttemptRecord {
   /** Версия сборки, из которой пытались обновиться. */
   from: string;
   /** Сколько раз уже пытались уйти именно с неё. */
   count: number;
+  /** Версия сайта на сервере, к которой шли (version.json); "" — не знали. */
+  target: string;
+  /** Когда была последняя попытка. */
+  at: number;
 }
 
 function readAttempts(): AttemptRecord | null {
@@ -56,7 +69,12 @@ function readAttempts(): AttemptRecord | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AttemptRecord>;
     if (typeof parsed?.from !== "string" || typeof parsed?.count !== "number") return null;
-    return { from: parsed.from, count: parsed.count };
+    return {
+      from: parsed.from,
+      count: parsed.count,
+      target: typeof parsed.target === "string" ? parsed.target : "",
+      at: typeof parsed.at === "number" ? parsed.at : 0,
+    };
   } catch {
     // приватный режим/переполненное хранилище — считаем, что попыток не было
     return null;
@@ -88,11 +106,16 @@ export function resetAttemptsIfUpdated(currentVersion: string): void {
   if (record && record.from !== currentVersion) clearUpdateAttempts();
 }
 
-/** Номер текущей попытки (1 — первая) для данной версии сборки. */
-export function noteUpdateAttempt(currentVersion: string): number {
+/** Та же лестница: та же сборка вкладки, та же цель и не прошёл час с прошлой попытки. */
+function sameLadder(record: AttemptRecord | null, currentVersion: string, target: string, now: number): record is AttemptRecord {
+  return !!record && record.from === currentVersion && record.target === target && now - record.at < SUPPRESS_MS;
+}
+
+/** Номер текущей попытки (1 — первая) для данной версии сборки и цели обновления. */
+export function noteUpdateAttempt(currentVersion: string, targetVersion = "", now = Date.now()): number {
   const record = readAttempts();
-  const count = record && record.from === currentVersion ? record.count + 1 : 1;
-  writeAttempts({ from: currentVersion, count });
+  const count = sameLadder(record, currentVersion, targetVersion, now) ? record.count + 1 : 1;
+  writeAttempts({ from: currentVersion, count, target: targetVersion, at: now });
   return count;
 }
 
@@ -106,11 +129,12 @@ export function noteUpdateAttempt(currentVersion: string): number {
  * пишет сдачу в журнал, — не случался НИКОГДА: телефон оставался на старой сборке
  * молча. Так и было: 21.11 вкладка Chrome на iPhone работала на сборке старше
  * 17.11 (падение главной `t.count`, починенное #319), а в журнале — ни одной сдачи.
- * Теперь три рабочие попытки, затем ровно одна запись о сдаче, затем тишина.
+ * Теперь три рабочие попытки, затем ровно одна запись о сдаче, затем тишина —
+ * до новой версии сайта на сервере или до истечения часа (см. SUPPRESS_MS).
  */
-export function isUpdateLoopSuppressed(currentVersion: string): boolean {
+export function isUpdateLoopSuppressed(currentVersion: string, targetVersion = "", now = Date.now()): boolean {
   const record = readAttempts();
-  return !!record && record.from === currentVersion && record.count > MAX_ATTEMPTS;
+  return sameLadder(record, currentVersion, targetVersion, now) && record.count > MAX_ATTEMPTS;
 }
 
 /**
@@ -238,6 +262,26 @@ async function collectUpdateDiagnostics(currentVersion: string): Promise<string>
     facts.push(`version.json=недоступен (${error instanceof Error ? error.message : "ошибка"})`);
   }
 
+  // Сама оболочка «/» — то, что на деле получает навигация. version.json может быть
+  // свежим, а index.html прийти старым (воркер, HTTP-кэш, прокси): метка app-version
+  // (vite.config.ts) и имя главного скрипта показывают, какую сборку отдают.
+  try {
+    const res = await Promise.race([
+      fetch(`/?rh-diag=${Date.now()}`, { cache: "no-store" }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("таймаут")), DIAGNOSTICS_TIMEOUT_MS)
+      ),
+    ]);
+    const html = await res.text();
+    facts.push(
+      `«/»: код=${res.status}`,
+      `«/» app-version=${/<meta[^>]+name="app-version"[^>]+content="([^"]*)"/.exec(html)?.[1] ?? "нет метки"}`,
+      `«/» скрипт=${/<script[^>]+src="([^"]*\/index-[^"]*\.js)"/.exec(html)?.[1] ?? "?"}`
+    );
+  } catch (error) {
+    facts.push(`«/»=недоступна (${error instanceof Error ? error.message : "ошибка"})`);
+  }
+
   return facts.join("\n");
 }
 
@@ -259,20 +303,29 @@ function reportHardReset(currentVersion: string, attempt: number): void {
   );
 }
 
-/** Лестница кончилась, обновление так и не применилось — это настоящая поломка. */
-function reportGiveUp(currentVersion: string, attempt: number): void {
+/** Куда уходит запись о сдаче: errorReporter.reportUpdateGiveUp (в тестах — подмена). */
+export type GiveUpReporter = (message: string, details: string) => void;
+
+const defaultGiveUpReporter: GiveUpReporter = (message, details) => {
+  // Динамически: errorReporter тянет api и стор сессии, лестнице они не нужны.
+  void import("./errorReporter").then((m) => m.reportUpdateGiveUp(message, details)).catch(() => {});
+};
+
+/**
+ * Лестница кончилась, обновление так и не применилось — это настоящая поломка.
+ *
+ * ДИАГНОСТИКА ИДЁТ ЯВНЫМ ПОЛЕМ, А НЕ ЧЕРЕЗ error.stack (21.11.2026, ревью #380):
+ * Safari и Chrome на iOS кладут в stack только адреса строк, текст ошибки-носителя
+ * туда не попадает, и снимок среды терялся ровно на тех телефонах, ради которых он
+ * собирается.
+ */
+function reportGiveUp(currentVersion: string, attempt: number, reporter: GiveUpReporter): void {
   // attempt - 1: сама сдача попыткой не была, она лишь подвела итог сделанным.
   const message = `[update] Сдача: обновление не применилось за ${attempt - 1} попытки подряд, вкладка осталась на сборке ${currentVersion}`;
   console.error(message);
-  // errorReporter слушает window "error" — факт попадёт в «Здоровье системы»,
-  // а не только в консоль вкладки, до которой никто не доберётся.
-  if (typeof ErrorEvent === "undefined") return;
   void collectUpdateDiagnostics(currentVersion)
     .catch(() => "диагностика не собралась")
-    .then((details) => {
-      const carrier = new Error(details);
-      window.dispatchEvent(new ErrorEvent("error", { message, error: carrier }));
-    });
+    .then((details) => reporter(message, details));
 }
 
 export interface ApplyUpdateOptions {
@@ -285,6 +338,10 @@ export interface ApplyUpdateOptions {
   reload?: () => void;
   /** Уход после жёсткого сброса. Подменяется в тестах, см. hardNavigate. */
   navigateFresh?: (url: string) => void;
+  /** Версия сайта на сервере, к которой идём (version.json); пусто — не знаем. */
+  targetVersion?: string;
+  /** Запись о сдаче в журнал. Подменяется в тестах. */
+  reportGiveUp?: GiveUpReporter;
 }
 
 /**
@@ -387,11 +444,13 @@ export async function applyAppUpdate({
   currentVersion,
   reload = () => window.location.reload(),
   navigateFresh = hardNavigate,
+  targetVersion = "",
+  reportGiveUp: reporter = defaultGiveUpReporter,
 }: ApplyUpdateOptions): Promise<"service-worker" | "reload" | "hard-reset" | "gave-up"> {
-  const attempt = noteUpdateAttempt(currentVersion);
+  const attempt = noteUpdateAttempt(currentVersion, targetVersion);
 
   if (attempt > MAX_ATTEMPTS) {
-    reportGiveUp(currentVersion, attempt);
+    reportGiveUp(currentVersion, attempt, reporter);
     return "gave-up";
   }
 

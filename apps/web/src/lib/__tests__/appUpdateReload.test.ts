@@ -91,10 +91,12 @@ describe("счётчик попыток обновления", () => {
 });
 
 describe("applyAppUpdate", () => {
+  const reportGiveUp = vi.fn<(message: string, details: string) => void>();
   beforeEach(() => {
     installStorage();
     installWindow();
     clearUpdateAttempts();
+    reportGiveUp.mockClear();
   });
 
   it("при ждущем воркере идёт штатным путём SKIP_WAITING", async () => {
@@ -121,6 +123,7 @@ describe("applyAppUpdate", () => {
       currentVersion: "aaa",
       reload,
       navigateFresh,
+      reportGiveUp,
     };
 
     expect(await applyAppUpdate(opts)).toBe("reload");
@@ -135,20 +138,13 @@ describe("applyAppUpdate", () => {
     expect(navigateFresh.mock.calls[0][0]).toContain("rh-update=");
     // Жёсткий сброс — рабочая ступень лестницы, а не поломка: в журнал ошибок
     // («Здоровье системы», утреннее уведомление директору) он не уходит.
-    expect(window.dispatchEvent).not.toHaveBeenCalled();
+    expect(reportGiveUp).not.toHaveBeenCalled();
   });
 
   it("после трёх кругов перестаёт перезагружать вкладку и шлёт сдачу с телеметрией", async () => {
-    const updateServiceWorker = vi.fn().mockResolvedValue(undefined);
     const reload = vi.fn();
     const navigateFresh = vi.fn();
-    const opts = {
-      needRefresh: false,
-      updateServiceWorker,
-      currentVersion: "aaa",
-      reload,
-      navigateFresh,
-    };
+    const opts = { needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", reload, navigateFresh, reportGiveUp };
 
     await applyAppUpdate(opts); // 1 — reload
     await applyAppUpdate(opts); // 2 — hard-reset
@@ -159,19 +155,16 @@ describe("applyAppUpdate", () => {
     expect(await applyAppUpdate(opts)).toBe("gave-up");
     expect(reload).not.toHaveBeenCalled();
     expect(navigateFresh).not.toHaveBeenCalled();
-    // А вот сдача — настоящая поломка: она обязана попасть в журнал ошибок.
-    // Снимок среды собирается асинхронно, поэтому событие приходит не сразу.
-    await vi.waitFor(() => expect(window.dispatchEvent).toHaveBeenCalledTimes(1));
-
-    const event = (window.dispatchEvent as unknown as { mock: { calls: [{ init?: { message?: string; error?: Error } }][] } })
-      .mock.calls[0][0];
-    // Слово «сдача» обязано отличаться от текста ступени 2: именно из-за
-    // одинаковых фраз запись «2 попыток» в журнале 11.09 приняли за сдачу.
-    expect(event.init?.message).toContain("Сдача");
-    expect(event.init?.message).toContain("aaa");
-    // Телеметрия едет в error.stack (errorReporter читает именно его), а не в
-    // в message: message служит ключом дедупликации.
-    expect(event.init?.error?.message).toContain("сборка вкладки=aaa");
+    // Сдача — настоящая поломка: обязана попасть в журнал. Снимок среды собирается асинхронно.
+    await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(1));
+    const [message, details] = reportGiveUp.mock.calls[0];
+    // Слово «сдача» отличается от текста ступени 2: из-за одинаковых фраз запись
+    // «2 попыток» в журнале 11.09 приняли за сдачу.
+    expect(message).toContain("Сдача");
+    expect(message).toContain("aaa");
+    // Снимок среды — отдельным полем, а не в error.stack: iOS кладёт туда только адреса.
+    expect(details).toContain("сборка вкладки=aaa");
+    expect(details).toContain("«/»");
   });
 
   /**
@@ -185,15 +178,34 @@ describe("applyAppUpdate", () => {
     const navigateFresh = vi.fn();
     const branches: string[] = [];
     for (let pageLife = 0; pageLife < 6; pageLife++) {
-      if (isUpdateLoopSuppressed("aaa")) continue;
-      branches.push(
-        await applyAppUpdate({ needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", reload, navigateFresh })
-      );
+      if (isUpdateLoopSuppressed("aaa", "site-2")) continue;
+      branches.push(await applyAppUpdate({
+        needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", targetVersion: "site-2", reload, navigateFresh, reportGiveUp,
+      }));
     }
     expect(branches).toEqual(["reload", "hard-reset", "hard-reset", "gave-up"]);
-    await vi.waitFor(() => expect(window.dispatchEvent).toHaveBeenCalledTimes(1));
-    const event = (window.dispatchEvent as unknown as { mock: { calls: [{ init?: { message?: string } }][] } }).mock.calls[0][0];
-    expect(event.init?.message).toContain("Сдача");
+    await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(1));
+    expect(reportGiveUp.mock.calls[0][0]).toContain("Сдача");
+  });
+
+  /**
+   * СДАЧА НЕ НАВСЕГДА (ревью #380): раньше счётчик сбрасывался только сменой версии
+   * самой вкладки, то есть никогда, — телефон прожил на сборке старше 17.11 до 21.11.
+   */
+  it("новая версия сайта на сервере снова открывает лестницу; та же — нет", async () => {
+    const opts = { needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", reload: vi.fn(), navigateFresh: vi.fn(), reportGiveUp };
+    for (let i = 0; i < 4; i++) await applyAppUpdate({ ...opts, targetVersion: "site-2" });
+    expect(isUpdateLoopSuppressed("aaa", "site-2")).toBe(true);
+    expect(isUpdateLoopSuppressed("aaa", "site-3")).toBe(false);
+    expect(await applyAppUpdate({ ...opts, targetVersion: "site-3" })).toBe("reload");
+  });
+
+  it("заглушка снимается через час и без новой версии", () => {
+    const t0 = 1_000_000;
+    for (let i = 0; i < 4; i++) noteUpdateAttempt("aaa", "site-2", t0 + i);
+    expect(isUpdateLoopSuppressed("aaa", "site-2", t0 + 10 * 60_000)).toBe(true);
+    expect(isUpdateLoopSuppressed("aaa", "site-2", t0 + 61 * 60_000)).toBe(false);
+    expect(noteUpdateAttempt("aaa", "site-2", t0 + 61 * 60_000)).toBe(1);
   });
 });
 

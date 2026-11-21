@@ -28,6 +28,12 @@ function versionJsonPlugin(): Plugin {
       this.emitFile({ type: "asset", fileName: "version.json",
         source: JSON.stringify({ version: APP_VERSION, builtAt: new Date().toISOString() }, null, 2) });
     },
+    // Та же версия меткой в самом index.html (21.11.2026): диагностика сдачи обновления
+    // (lib/appUpdateReload.ts) спрашивает «/» и видит, какую оболочку на деле отдают
+    // телефону, а не только что лежит в version.json.
+    transformIndexHtml() {
+      return [{ tag: "meta", attrs: { name: "app-version", content: APP_VERSION }, injectTo: "head" }];
+    },
   };
 }
 

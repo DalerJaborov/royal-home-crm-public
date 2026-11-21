@@ -1,8 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { useRegisterSW } from "virtual:pwa-register/react";
-import { onServerBuildStale } from "../lib/appVersion";
-import { startAppVersionPoll } from "../lib/appUpdate";
+import { startAppVersionPoll, startServerBuildWatch } from "../lib/appUpdate";
 import { consumeUpdateNotice, markUpdateApplied } from "../lib/appUpdateNotice";
 import { prepareAppUpdate } from "../lib/appUpdatePrefetch";
 import {
@@ -93,7 +92,8 @@ export function UpdatePrompt() {
   });
   const { pathname } = useLocation();
   const setNeedRefresh = useAppUpdateStore((s) => s.setNeedRefresh);
-  const setStaleBuild = useAppUpdateStore((s) => s.setStaleBuild);
+  const noteSiteVersion = useAppUpdateStore((s) => s.noteSiteVersion);
+  const targetVersion = useAppUpdateStore((s) => s.targetVersion);
   const applying = useAppUpdateStore((s) => s.applying);
   const requestApply = useAppUpdateStore((s) => s.requestApply);
   const needRefreshStore = useAppUpdateStore((s) => s.needRefresh);
@@ -134,21 +134,24 @@ export function UpdatePrompt() {
 
   // Канал 1 — заголовок сборки в ответах API. Подписка, а не опрос: расхождение
   // становится известно в тот же миг, когда пришёл ответ.
-  useEffect(() => onServerBuildStale(() => setStaleBuild(true)), [setStaleBuild]);
+  // С 21.11.2026 заголовок — только повод сверить version.json: выкат одного сервера
+  // не версия сайта и не должен тратить попытки обновления (lib/appUpdate.ts).
+  useEffect(() => startServerBuildWatch(noteSiteVersion), [noteSiteVersion]);
 
   // Канал 2 — /version.json: не ждёт ни навигации, ни ответа API, ни входа.
-  useEffect(() => startAppVersionPoll(() => setStaleBuild(true)), [setStaleBuild]);
+  useEffect(() => startAppVersionPoll(noteSiteVersion), [noteSiteVersion]);
 
   // Готовим обновление ЗАРАНЕЕ: файлы новой сборки качаются, пока человек
   // работает, чтобы сама подмена не ждала сеть (см. lib/appUpdatePrefetch.ts).
+  // Заглушённая вкладка (лестница сдалась для этой цели) файлы новой сборки не качает.
   useEffect(() => {
-    if (shouldRefresh) void prepareAppUpdate();
-  }, [shouldRefresh]);
+    if (shouldRefresh && !isUpdateLoopSuppressed(__APP_VERSION__, targetVersion)) void prepareAppUpdate();
+  }, [shouldRefresh, targetVersion]);
 
   function tryApply(navigating = false) {
     // Обновление уже не применилось несколько раз подряд — больше не пытаемся:
     // работать на старой сборке лучше, чем крутиться в петле перезагрузок.
-    if (isUpdateLoopSuppressed(__APP_VERSION__)) return;
+    if (isUpdateLoopSuppressed(__APP_VERSION__, useAppUpdateStore.getState().targetVersion)) return;
     // Идёт загрузка файлов (lib/workGuard.ts): перезагрузка страницы оборвала бы
     // отдачу на середине, поэтому ждём без потолка MAX_DEFER_MS — даже при
     // переходе между разделами. Файлы без обновления доедут, с обновлением —
@@ -169,11 +172,11 @@ export function UpdatePrompt() {
     }
   }
 
-  // Сигнал появился — пробуем применить сразу.
+  // Сигнал появился (или на сервере уже другая версия сайта) — пробуем применить сразу.
   useEffect(() => {
     if (shouldRefresh) tryApply();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- реагируем только на появление сигнала обновления
-  }, [shouldRefresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- реагируем только на появление сигнала обновления и смену цели
+  }, [shouldRefresh, targetVersion]);
 
   // Переход между разделами: экран в этот момент перерисовывается целиком, и
   // подмена незаметна — применяем, даже если человек считается занятым.
@@ -224,11 +227,15 @@ export function UpdatePrompt() {
       ]);
       if (cancelled) return;
       markUpdateApplied(__APP_VERSION__);
-      await applyAppUpdate({
+      const branch = await applyAppUpdate({
         needRefresh: needRefreshRef.current,
         updateServiceWorker,
         currentVersion: __APP_VERSION__,
+        targetVersion: useAppUpdateStore.getState().targetVersion,
       });
+      // Сдача: страница остаётся. Снимаем «идёт подмена», иначе следующая версия
+      // сайта (новая цель лестницы) не смогла бы начать заново (21.11.2026).
+      if (branch === "gave-up") useAppUpdateStore.getState().settle();
     }
 
     void run();
