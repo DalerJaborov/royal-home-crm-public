@@ -71,13 +71,13 @@ describe("privacy and content", () => {
   it("preserves the written price and expands it only for Tajik speech", () => {
     const text = "Нархаш 120 000 000 сомонӣ.";
     expect(prepareAssistantReply(text, true)).toMatchObject({
-      text, speech: "Нархаш саду бист миллион сомонӣ.", language: "tg",
+      text, speech: "Нархаш яксаду бист миллион сомонӣ.", language: "tg",
     });
   });
   it("retains a dollar-prefixed amount in text and Tajik speech", () => {
     const text = "Салом, нарх $120000000.";
     expect(prepareAssistantReply(text, true)).toMatchObject({
-      text, speech: "Салом, нарх саду бист миллион доллар.", language: "tg",
+      text, speech: "Салом, нарх яксаду бист миллион доллар.", language: "tg",
     });
   });
   it.each(["99,5 сомонӣ", "03.11.2026", "2026-11-03 09:30", "ОБ-000123", "соати 25:90"])("keeps ambiguous %s as text", async (value) => {
