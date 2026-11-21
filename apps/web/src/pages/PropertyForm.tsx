@@ -1,4 +1,4 @@
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { usableRouteId } from "../lib/routeId";
 import { useGoBack } from "../hooks/useGoBack";
 import { PROPERTY_EDIT_LOCKED_MESSAGE, propertyEditLocked } from "@royal-home/shared";
@@ -87,7 +87,9 @@ function FormShell({
  * счётчиком шагов и полосой прогресса.
  */
 export function PropertyNew() {
-  const navigate = useNavigate();
+  // «Закрыть» мастер — шаг назад туда, откуда пришли (список, карточка клиента), а не новый переход на список:
+  // иначе за списком в истории оставался мастер (21.11.2026, разбор «Назад»).
+  const closeWizard = useGoBack("/properties");
   const [searchParams] = useSearchParams();
   // «Новый вид» (пачка wizard, 20.11.2026). Мастер живёт СНАРУЖИ AppLayout (см.
   // App.tsx), а атрибут `data-ui-look` ставит только AppLayout и снимает при
@@ -106,7 +108,7 @@ export function PropertyNew() {
   return (
     <RoyalSection name={royal ? "wizard" : undefined}>
     <PropertyWizard
-      onClose={() => navigate("/properties")}
+      onClose={closeWizard}
       initialIntakeAgentId={searchParams.get("intake") ?? undefined}
       // Баннер черновика на списке объектов уже спросил «продолжить?» — сюда
       // ведёт кнопкой «Продолжить», и в мастере вопрос повторять не за чем

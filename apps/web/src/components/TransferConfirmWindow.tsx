@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useScrollLock } from "../hooks/useScrollLock";
 import { ArrowRight, Building2, UserRound } from "lucide-react";
 import type { TransferRequestView } from "@royal-home/shared";
 import { Rh2Portal } from "./rh2/Rh2Scope";
@@ -56,6 +57,7 @@ export function TransferConfirmWindow() {
 }
 
 export function TransferDialog({ request, more, onLater }: { request: TransferRequestView; more: number; onLater: () => void }) {
+  useScrollLock();
   const respond = useRespondTransferRequest(request.id);
   const isProperty = request.kind === "PROPERTY";
 
