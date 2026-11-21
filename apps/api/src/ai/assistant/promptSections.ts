@@ -19,9 +19,9 @@ interface SectionLine {
 }
 
 const SECTIONS: SectionLine[] = [
-  { text: "Главная — дашборд: задачи на сегодня, воронка, свежие лиды." },
+  { text: "Главная — дашборд: задачи на сегодня, воронка, свежие заявки." },
   { text: "Объекты — каталог недвижимости: добавление, фото, публикация на сайт." },
-  { text: "Клиенты — база клиентов/лидов, карточка клиента с историей.", visible: ({ isSalesRole }) => isSalesRole },
+  { text: "Клиенты — база клиентов/заявок, карточка клиента с историей.", visible: ({ isSalesRole }) => isSalesRole },
   { text: "Продавцы — собственники, предлагающие объекты.", visible: ({ isSalesRole }) => isSalesRole },
   { text: "Сделки — kanban сделок по этапам.", visible: ({ isSalesRole }) => isSalesRole },
   { text: "Календарь — задачи и встречи по датам." },
@@ -30,7 +30,7 @@ const SECTIONS: SectionLine[] = [
     visible: ({ has }) => has("messages.view") || has("messages.viewOwn"),
   },
   { text: "Отчёты — статистика и KPI.", visible: ({ actor }) => actor.canViewReports },
-  { text: "Источники лидов — аналитика каналов.", visible: ({ actor }) => actor.canViewReports },
+  { text: "Источники заявок — аналитика каналов.", visible: ({ actor }) => actor.canViewReports },
   { text: "Команда — список сотрудников и их показатели." },
   { text: "Прочие обращения — заявки не про недвижимость.", visible: ({ has }) => has("otherInquiries.view") },
   { text: "Финансы — доходы/расходы/зарплаты, бухгалтерия.", visible: ({ actor }) => actor.canViewFinance },

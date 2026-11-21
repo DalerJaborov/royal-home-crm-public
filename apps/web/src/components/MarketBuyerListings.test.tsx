@@ -16,7 +16,7 @@ const ok = (n: number, over: Partial<MarketBuyerListingsResponse> = {}): MarketB
 describe("MarketBuyerListingsView", () => {
   it("подписывает, что объявления чужие, и называет площадку, цену и ссылку", () => {
     const html = renderToStaticMarkup(<MarketBuyerListingsView data={ok(2)} />);
-    expect(html).toContain("С площадок (Somon/Paydo)");
+    expect(html).toContain("С сайтов объявлений");
     expect(html).toContain("не наши объекты");
     expect(html.match(/Чужое/g)).toHaveLength(2);
     expect(html).toContain('href="https://somon.tj/adv/0"');

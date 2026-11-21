@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("../src/db.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/db.js")>(), prisma: { $disconnect: async () => {} } }));
 import {
   narrationConfigSchema, narrationDraftText, narrationSpeechText, narrationTemplateError, narrationTemplateSchema,
-  narrationModelError, narrationPriceWords, pickNarrationTemplate, pickNarrationVoice, renderNarrationTemplate, tajikCardinal, tajikOrdinal, type NarrationFacts,
+  narrationModelError, narrationPriceWords, narrationPriceProblem, narrationSpokenPriceTjs, narrationCurrencyError, apartmentPriceCurrencySuspect, convertToTjs, pickNarrationTemplate, pickNarrationVoice, renderNarrationTemplate, tajikCardinal, tajikOrdinal, type NarrationFacts,
 } from "@royal-home/shared";
 import { generateNarrationAudio, NARRATION_QUOTA_EXCEEDED, narrationScriptError } from "../src/lib/propertyNarration.js";
 import { tajikSpeechNumbers } from "../src/telegram/tajikSpeechNumbers.js";
@@ -80,16 +80,49 @@ describe("narration text rules (one builder for CRM wizard, Shabnam and server)"
     expect(narrationModelError({ modelId: "eleven_multilingual_v2", templates: seeded })).toMatch(/таджикского/u);
     expect(narrationModelError({ modelId: "eleven_flash_v2_5", templates: seeded.filter((t) => t.lang === "ru") })).toBeNull();
   });
-  it("speaks the price in words with the card currency, or «negotiable» without a price", () => {
-    expect(narrationPriceWords("85000", "USD", "tg")).toBe("ҳаштоду панҷ ҳазор доллар");
-    expect(narrationPriceWords("390000.00", "TJS", "tg")).toBe("сесаду навад ҳазор сомонӣ");
-    expect(narrationPriceWords(null, "USD", "tg")).toBe("бо мувофиқа");
-    expect(narrationPriceWords("0", "TJS", "ru")).toBe("договорная");
-    expect(["1", "2", "5", "11", "21", "22"].map((p) => narrationPriceWords(p, "USD", "ru"))).toEqual(["один доллар", "два доллара", "пять долларов", "одиннадцать долларов", "двадцать один доллар", "двадцать два доллара"]);
-    expect(narrationPriceWords("390000", "TJS", "ru")).toBe("триста девяносто тысяч сомони");
-    const text = renderNarrationTemplate({ lang: "tg", text: "Нархаш {цена}." }, apartment);
-    expect(text).toBe("Нархаш ҳаштоду панҷ ҳазор доллар.");
-    expect(/\d/u.test(renderNarrationTemplate(seeded[0], apartment))).toBe(false);
+  it("speaks the price only in somoni: USD is converted by the shared rule, never spoken as dollars (owner 21.11.2026)", () => {
+    // 85 000 $ × 9.27 = 787 950 сомони → округление до тысячи.
+    expect(narrationPriceWords({ ...apartment, usdToTjs: 9.27 }, "tg")).toBe("ҳафтсаду ҳаштоду ҳашт ҳазор сомонӣ");
+    expect(narrationPriceWords({ ...apartment, usdToTjs: 9.27 }, "ru")).toBe("семьсот восемьдесят восемь тысяч сомони");
+    expect(narrationSpokenPriceTjs("85000", "USD", 9.27)).toBe(Math.round(convertToTjs(85000, "USD", 9.27) / 1000) * 1000);
+    expect(narrationPriceWords({ ...apartment, price: "390000.00", currency: "TJS" }, "tg")).toBe("сесаду навад ҳазор сомонӣ");
+    expect(narrationPriceWords({ ...apartment, price: "390000", currency: "TJS" }, "ru")).toBe("триста девяносто тысяч сомони");
+    expect(narrationPriceWords({ ...apartment, price: null }, "tg")).toBe("бо мувофиқа");
+    expect(narrationPriceWords({ ...apartment, price: "0", currency: "TJS" }, "ru")).toBe("договорная");
+    expect(renderNarrationTemplate({ lang: "tg", text: "Нархаш {цена}." }, { ...apartment, usdToTjs: 9.27 })).toBe("Нархаш ҳафтсаду ҳаштоду ҳашт ҳазор сомонӣ.");
+    for (const template of seeded) {
+      const text = renderNarrationTemplate(template, { ...apartment, usdToTjs: 9.27 });
+      expect(text).not.toMatch(/доллар/iu);
+      expect(narrationScriptError(text)).toBeNull();
+    }
+  });
+  it("without a rate the dollar price is not spoken at all: the sentence with {цена} drops, no guessed rate", () => {
+    expect(narrationPriceWords(apartment, "ru")).toBe("");
+    expect(narrationPriceProblem(apartment)).toBe("NO_RATE");
+    expect(renderNarrationTemplate({ lang: "tg", text: "Квартира дар {район}. Нархаш {цена}. Занг занед!" }, apartment)).toBe("Квартира дар Сино. Занг занед!");
+    expect(renderNarrationTemplate({ lang: "ru", text: "Квартира. [Цена {цена}.] Звоните!" }, apartment)).toBe("Квартира. Звоните!");
+  });
+  it("an apartment price that looks like the wrong currency is not spoken (object 213: 107 400 «сомони» for 89.5 m²)", () => {
+    const mixedUp: NarrationFacts = { type: "APARTMENT", rooms: 2, areaSqm: "89.5", floor: 20, totalFloors: 24, district: "Исмоили Сомони", price: "107400", currency: "TJS" };
+    expect(apartmentPriceCurrencySuspect({ type: "APARTMENT", price: "107400", currency: "TJS", areaSqm: "89.5" })).toBe("LOOKS_USD");
+    expect(narrationPriceProblem(mixedUp)).toBe("CURRENCY_SUSPECT");
+    expect(renderNarrationTemplate({ lang: "tg", text: "Нархи хона {цена}. Нависед!" }, mixedUp)).toBe("Нависед!");
+    // Шаблоны прода: «[…предложение.] Нархи хона {цена}.» — выпадает только цена, остальное на месте.
+    expect(renderNarrationTemplate({ lang: "tg", text: "Хонаи худро меҷӯед? [Хона {комнаты} ҳуҷра дорад.] [Хона дар ошёнаи {этаж_пор}и бинои {этажей} ошёна ҷойгир аст.] Нархи хона {цена}. Нависед!" }, mixedUp))
+      .toBe("Хонаи худро меҷӯед? Хона ду ҳуҷра дорад. Хона дар ошёнаи бистуми бинои бисту чор ошёна ҷойгир аст. Нависед!");
+    // Настоящие цены продолжают звучать: 788 000 сомони за 77,5 м², 127 200 $ за 106 м².
+    expect(apartmentPriceCurrencySuspect({ type: "APARTMENT", price: "788000", currency: "TJS", areaSqm: "77.5" })).toBeNull();
+    expect(apartmentPriceCurrencySuspect({ type: "APARTMENT", price: "127200", currency: "USD", areaSqm: "106" })).toBeNull();
+    expect(apartmentPriceCurrencySuspect({ type: "APARTMENT", price: "788000", currency: "USD", areaSqm: "77.5" })).toBe("LOOKS_TJS");
+    expect(apartmentPriceCurrencySuspect({ type: "HOUSE", price: "107400", currency: "TJS", areaSqm: "240" })).toBeNull();
+  });
+  it("the dollar guard stops dollars before ElevenLabs: hand-written text and owner templates", () => {
+    for (const text of ["Нархаш саду бисту ҳафт ҳазор доллар.", "Цена 85 000 $", "Цена 85000 USD", "Цена сто тысяч долларов"]) {
+      expect(narrationScriptError(text)).toMatch(/только в сомони/u);
+      expect(narrationCurrencyError(text)).not.toBeNull();
+    }
+    expect(narrationTemplateError("Нархаш {цена} доллар.", "tg")).toMatch(/только в сомони/u);
+    expect(narrationScriptError("Нархаш ҳафтсад ҳазор сомонӣ. Ба Исмоили Сомони наздик.")).toBeNull();
   });
   it("ElevenLabs «credits are over» gets its own code (no retry, no charge)", async () => {
     const config = { modelId: "eleven_v4", voices: [{ id: "voice", name: "V" }] };

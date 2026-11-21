@@ -15,7 +15,7 @@ describe("Clean settings tasks", () => {
   });
   it.each([
     ["комиссия", "money/commission"], ["курс доллара", "money/currency"],
-    ["Застой сделки", "leads/deadlines"], ["Распределение лидов", "leads/distribution"],
+    ["Застой сделки", "leads/deadlines"], ["Распределение заявок", "leads/distribution"],
     ["ARI", "channels/phone"], ["YouTube Shorts", "channels/publishing"],
     ["WhatsApp", "channels/messengers"], ["Фид каталога", "channels/advertising"],
     ["ElevenLabs", "bot/voice"], ["Ключи моделей", "bot/models"],
@@ -25,7 +25,7 @@ describe("Clean settings tasks", () => {
   });
   it("does not leave client deadlines in money or distribution in employee accounts", () => {
     expect(findCleanSettingsTasks("Застой сделки", "ADMIN").map((task) => task.tab)).toEqual(["leads"]);
-    expect([...new Set(findCleanSettingsTasks("Распределение лидов", "ADMIN").map((task) => task.tab))]).toEqual(["leads"]);
+    expect([...new Set(findCleanSettingsTasks("Распределение заявок", "ADMIN").map((task) => task.tab))]).toEqual(["leads"]);
   });
   it("keeps every existing public setting topic findable after relocation", () => {
     for (const sections of Object.values(SETTINGS_SECTIONS)) for (const section of sections) for (const query of [section.title, ...(section.aliases ?? [])]) {

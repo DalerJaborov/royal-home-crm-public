@@ -37,7 +37,7 @@ export default function CleanClipReviewSheet({ clip, actions, onClose, onDecided
     <Rh2Sheet title={`${formatPropertyCode(clip.shortId)} · проверка ролика`} wide onClose={onClose}>
       <p className="m-0 mb-3 text-[14px] text-gray-600">{clip.title}{clip.montajer ? ` · монтажёр ${clip.montajer.fullName}` : ""}</p>
       {clip.videoUrl
-        ? <video controls playsInline preload="metadata" poster={clip.coverUrl ?? undefined} src={clip.videoUrl}
+        ? <video controls playsInline preload="metadata" poster={clip.coverUrl ?? undefined} src={clip.coverUrl ? clip.videoUrl : `${clip.videoUrl}#t=0.1`}
           aria-label={`Ролик объекта ${clip.title}`} className="mx-auto max-h-[60vh] w-full rounded-[14px] bg-row-alt" />
         : <p role="status" className="m-0 text-gray-600">Файл ролика не найден. Откройте карточку объекта.</p>}
       {rejecting

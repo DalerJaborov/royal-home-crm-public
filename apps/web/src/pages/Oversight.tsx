@@ -1,3 +1,4 @@
+import { RhAudioPlayer } from "../components/look/RhAudioPlayer";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { NO_CONTACT_TEXT, REFUSAL_REASON_LABELS } from "@royal-home/shared";
@@ -658,7 +659,7 @@ function EventLogSlice({
     <Slice
       id={id}
       title={title}
-      note={data ? `журнал, ${data.total} ${pluralizeRu(data.total, ["запись", "записи", "записей"])}` : undefined}
+      note={data && data.total > 0 ? `${data.total} ${pluralizeRu(data.total, ["запись", "записи", "записей"])}` : undefined}
       hint={hint}
     >
       <SliceState
@@ -903,7 +904,7 @@ function ShowingSurveyCallItem({
       )}
       {playerUrl && (
         <>
-          <audio controls autoPlay preload="none" src={playerUrl} style={{ height: 34, maxWidth: 260 }} />
+          <RhAudioPlayer src={playerUrl} autoPlay speeds preload="none" label="Запись разговора" className="w-[300px] max-w-full" />
           <button className="pill ghost sm" type="button" onClick={onClosePlayer}>
             Закрыть запись
           </button>
@@ -947,7 +948,7 @@ function TransferPairs({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
       note={data ? `за ${data.windowDays} дней` : undefined}
       hint={
         data
-          ? `Топ пар «от кого, кому». Пара, повторившаяся ${data.frequentThreshold} раза и больше, отмечена. Смотреть ли внимательнее, решает руководитель.`
+          ? `Какие пары чаще всего передают клиентов друг другу. Если пара повторилась ${data.frequentThreshold} раза и больше, она отмечена. Нужно ли присмотреться, решает руководитель.`
           : undefined
       }
     >

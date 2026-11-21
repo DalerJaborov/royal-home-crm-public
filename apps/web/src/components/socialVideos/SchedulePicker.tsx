@@ -1,3 +1,4 @@
+import { RuDateField, RuTimeField } from "../look/fields/RuFields";
 import { useEffect, useId, useState } from "react";
 import { AlertTriangle, CalendarClock, Send } from "lucide-react";
 import { DUSHANBE_OFFSET_MS, SOCIAL_VIDEO_MIN_SCHEDULE_LEAD_MINUTES } from "@royal-home/shared";
@@ -153,9 +154,8 @@ export function SchedulePicker({ mode, onModeChange, scheduledAt, onScheduledAtC
               <label htmlFor={`${uid}-date`} className="text-[13px] font-semibold text-gray-600">
                 Дата
               </label>
-              <input
+              <RuDateField
                 id={`${uid}-date`}
-                type="date"
                 value={date}
                 min={today}
                 disabled={disabled}
@@ -167,9 +167,8 @@ export function SchedulePicker({ mode, onModeChange, scheduledAt, onScheduledAtC
               <label htmlFor={`${uid}-time`} className="text-[13px] font-semibold text-gray-600">
                 Время (Душанбе, UTC+5)
               </label>
-              <input
+              <RuTimeField
                 id={`${uid}-time`}
-                type="time"
                 value={time}
                 disabled={disabled}
                 onChange={(e) => commit(date, e.target.value)}

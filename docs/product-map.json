@@ -595,7 +595,7 @@
       "redirect": null,
       "nav": {
         "to": "/sources",
-        "label": "Источники лидов",
+        "label": "Источники заявок",
         "group": "money",
         "gate": ""
       }
@@ -787,7 +787,7 @@
     },
     {
       "to": "/sources",
-      "label": "Источники лидов",
+      "label": "Источники заявок",
       "group": "money",
       "gate": ""
     },

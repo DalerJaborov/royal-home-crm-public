@@ -1,3 +1,4 @@
+import { RuDateField } from "../components/look/fields/RuFields";
 import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -199,7 +200,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
   // нему, шаг не больше предыдущего. Нет — старый сервер, прежняя воронка событий.
   const cohort = funnelData?.cohort && funnelData.cohort.length > 0 ? cohortFunnelView(funnelData.cohort) : null;
   const toDeal = cohort ? cohort.toDeal : leads && deals && leads.count > 0 ? Math.round((deals.count / leads.count) * 100) : null;
-  const toDealLabel = cohort ? "заявок периода дошли до сделки" : "сделки / новые лиды за период";
+  const toDealLabel = cohort ? "заявок периода дошли до сделки" : "сделки / новые заявки за период";
   const toNegotiation =
     showings && negotiations && showings.count > 0 ? Math.round((negotiations.count / showings.count) * 100) : null;
 
@@ -383,9 +384,8 @@ function ReportsScreen({ royal }: { royal: boolean }) {
             </div>
             <label className="field">
               <span className="lab">С какого дня</span>
-              <input
+              <RuDateField
                 className="inp"
-                type="date"
                 value={from}
                 style={{ maxWidth: 180 }}
                 onChange={(e) => {
@@ -397,9 +397,8 @@ function ReportsScreen({ royal }: { royal: boolean }) {
             </label>
             <label className="field">
               <span className="lab">По какой день</span>
-              <input
+              <RuDateField
                 className="inp"
-                type="date"
                 value={to}
                 style={{ maxWidth: 180 }}
                 onChange={(e) => {
@@ -521,7 +520,7 @@ function ReportsScreen({ royal }: { royal: boolean }) {
                 <div className="prog-legend" style={{ marginTop: 16 }}>
                   {toDeal !== null && (
                     <span>
-                      <b>{toDeal} %</b>сделки / новые лиды за период
+                      <b>{toDeal} %</b>сделки / новые заявки за период
                     </span>
                   )}
                   {toNegotiation !== null && (

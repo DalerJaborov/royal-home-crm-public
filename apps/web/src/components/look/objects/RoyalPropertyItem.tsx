@@ -94,7 +94,7 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
             <span>{agentName ? agentName.split(" ")[0] : "Без агента"}</span>
           </span>
           {canTogglePublish && (
-            <button type="button" className="ry-btn ry-obj-publish" data-variant="gray" onClick={() => onTogglePublish!(p.id, p.publishedOnSite ? "unpublish" : "publish")}>
+            <button type="button" className="ry-btn ry-obj-publish" data-variant="secondary" onClick={() => onTogglePublish!(p.id, p.publishedOnSite ? "unpublish" : "publish")}>
               {p.publishedOnSite ? "Снять с сайта" : "Опубликовать"}
             </button>
           )}

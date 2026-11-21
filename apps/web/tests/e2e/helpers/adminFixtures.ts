@@ -17,7 +17,7 @@ export const notifications = {
   items: [
     {
       id: "n-approval", agentId: "ag-1", kind: "lead", level: "APPROVAL", count: 1, read: false,
-      title: "Новый лид: Фарзона Каримова-Шарифзода, трёхкомнатная в Сино", body: "Ждёт, когда вы примете заявку. Клиент оставил номер на сайте.",
+      title: "Новая заявка: Фарзона Каримова-Шарифзода, трёхкомнатная в Сино", body: "Ждёт, когда вы примете заявку. Клиент оставил номер на сайте.",
       url: "/clients/900001", createdAt: at(12),
     },
     {
@@ -37,7 +37,7 @@ export const notifications = {
     },
     {
       id: "n-retired", agentId: "ag-1", kind: "lead", level: "OTHER", count: 1, read: true,
-      title: "Лид передан другому агенту", body: "Клиент перешёл к коллеге по решению руководителя.",
+      title: "Заявка передана другому агенту", body: "Клиент перешёл к коллеге по решению руководителя.",
       url: "/clients/900002", createdAt: at(60 * 50), retiredAt: at(60 * 49), retiredReason: "Клиент передан Иванову",
     },
   ],

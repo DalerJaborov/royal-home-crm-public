@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4192,
+  "forks": 4197,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -1200,7 +1200,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await buildAdInsights(month, req.query.force === \"1\");",
+     "t": "const result = await buildAdInsights(month, req.query.force === \"1\", { seesCompanyMoney: req.agent!.permissio…",
      "a": [
       "зовёт buildAdInsights()"
      ],
@@ -3258,7 +3258,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(400, \"Лиды получают только агенты и руководитель продаж\");",
+         "t": "return fail(400, \"Заявки получают только агенты и руководитель продаж\");",
          "a": [
           "дословно из кода"
          ],
@@ -3288,7 +3288,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(409, \"Сотрудник уже заморожен — лиды ему и так не идут\");",
+         "t": "return fail(409, \"Сотрудник уже заморожен — заявки ему и так не идут\");",
          "a": [
           "дословно из кода"
          ],
@@ -23204,7 +23204,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const briefing = await loadBriefing().catch(()",
+     "t": "const briefing = await loadBriefing(new Date(), { seesCompanyMoney: can(req, \"finance.view\") }).catch(()",
      "a": [
       "зовёт loadBriefing()"
      ],
@@ -23307,7 +23307,7 @@
      "c": [
       {
        "k": "do",
-       "t": "res.json(await buildBriefingResponse());",
+       "t": "res.json(await buildBriefingResponse(new Date(), { seesCompanyMoney: can(req, \"finance.view\") }));",
        "a": [
         "ответ 200"
        ],
@@ -43703,7 +43703,7 @@
      "c": [
       {
        "k": "if",
-       "t": "data.home === undefined",
+       "t": "data.home === undefined || data.textSize === undefined",
        "a": [],
        "c": [
         {
@@ -43715,25 +43715,54 @@
          "c": []
         },
         {
-         "k": "do",
-         "t": "const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);",
-         "a": [
-          "проверяет данные схемой homePreferencesSchema"
-         ],
-         "c": []
-        },
-        {
          "k": "if",
-         "t": "kept.success && kept.data",
+         "t": "data.home === undefined",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "data = { ...data, home: kept.data };",
+           "t": "const kept = homePreferencesSchema.safeParse(saved?.home);",
            "a": [
-            "дословно из кода"
+            "проверяет данные схемой homePreferencesSchema"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "kept.success && kept.data",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "data = { ...data, home: kept.data };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "data.textSize === undefined",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "keptSize.success && keptSize.data",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "data = { ...data, textSize: keptSize.data };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         }
@@ -48360,6 +48389,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "outcome === \"PRICE_NOT_IN_TJS\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT });",
+       "a": [
+        "ответ 409"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const delivery = outcome === \"AUDIO_APPROVED\" ? await afterNarrationApproved(p.id, versionId.data) : undefine…",
      "a": [
@@ -49909,6 +49953,14 @@
      "t": "const facts = narrationFacts(p);",
      "a": [
       "зовёт narrationFacts()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const usdToTjs = await narrationRate();",
+     "a": [
+      "зовёт narrationRate()"
      ],
      "c": []
     },
@@ -64127,7 +64179,7 @@
           },
           {
            "k": "do",
-           "t": "const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : \"Лид\";",
+           "t": "const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : \"Заявка\";",
            "a": [
             "зовёт clientNamePhoneSafe()"
            ],
@@ -87121,7 +87173,7 @@
             },
             {
              "k": "do",
-             "t": "void sendPushToAgent(agent.id, { title: \"👋 С возвращением\", body: \"Отпуск закончился — новые лиды и входящие…",
+             "t": "void sendPushToAgent(agent.id, { title: \"👋 С возвращением\", body: \"Отпуск закончился — новые заявки и входящ…",
              "a": [
               "push-уведомление"
              ],
@@ -87161,7 +87213,7 @@
           },
           {
            "k": "do",
-           "t": "void sendPushToAgents(recipients, { title: \"👋 Сотрудник вышел\", body: `${names} — отсутствие закончилось, ли…",
+           "t": "void sendPushToAgents(recipients, { title: \"👋 Сотрудник вышел\", body: `${names} — отсутствие закончилось, за…",
            "a": [
             "push-уведомление"
            ],
@@ -99529,6 +99581,14 @@
        "c": [
         {
          "k": "do",
+         "t": "await autoLinkInstagramPages().catch((err)",
+         "a": [
+          "зовёт autoLinkInstagramPages()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const totals = await checkInstagramSubscriptions();",
          "a": [
           "зовёт checkInstagramSubscriptions()"
@@ -99553,6 +99613,14 @@
            "t": "await logSystemError( \"meta\", `Instagram «${s.title}»: диалоги в CRM не обновлялись с ${last}, хотя у другого…",
            "a": [
             "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await raiseCriticalAlarm({ tag: `ig-account-silent:${s.id}:${last}`, title: \"Instagram: в аккаунт не приходят…",
+           "a": [
+            "зовёт raiseCriticalAlarm()"
            ],
            "c": []
           }
@@ -100098,7 +100166,7 @@
             },
             {
              "k": "do",
-             "t": "const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: \"Лид назначен утренней…",
+             "t": "const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: \"Заявка назначена утре…",
              "a": [
               "зовёт changeClientAgent()"
              ],
@@ -101096,7 +101164,7 @@
                 },
                 {
                  "k": "do",
-                 "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Лид по объекту не принят вовремя\", body: `${lead.fu…",
+                 "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Заявка по объекту не принята вовремя\", body: `${lea…",
                  "a": [
                   "зовёт notifyFeedOnly()"
                  ],
@@ -101162,7 +101230,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Лид прошёл всех агентов\", body: `${lead.fullName}: …",
+                   "t": "await notifyFeedOnly(supervisors, { kind: \"lead\", title: \"Заявка прошла всех агентов\", body: `${lead.fullName…",
                    "a": [
                     "зовёт notifyFeedOnly()"
                    ],
@@ -101319,7 +101387,7 @@
               },
               {
                "k": "do",
-               "t": "sendLeadPush(nextAgentId, lead.id, { title: \"🤝 Лид переназначен вам\", body: `${lead.fullName} — предыдущий а…",
+               "t": "sendLeadPush(nextAgentId, lead.id, { title: \"🤝 Заявка переназначена вам\", body: `${lead.fullName} — предыдущ…",
                "a": [
                 "зовёт sendLeadPush()"
                ],
@@ -104950,6 +105018,68 @@
              ]
             },
             {
+             "k": "if",
+             "t": "channel === \"INSTAGRAM\" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const ours = await ownRepliesInCrm(page.ownIds?.length ? page.ownIds : [page.pageId], body);",
+               "a": [
+                "зовёт ownRepliesInCrm()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "const viaPage = (await instagramRouteForToken(page.token)).kind === \"page\";",
+               "a": [
+                "зовёт instagramRouteForToken()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "viaPage && ours.crmSent > 0 && ours.known === 0",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "void logSystemError(\"meta\", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.l…",
+                 "a": [
+                  "запись в журнал ошибок"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "await raiseCriticalAlarm({ tag: `meta-inbox-mass-missed:${page.pageId}`, title: \"Сверка Instagram: проверьте …",
+                 "a": [
+                  "зовёт raiseCriticalAlarm()"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "await raiseCriticalAlarm({ tag: `meta-inbox-ig-not-delivered:${page.pageId}`, title: \"Входящие Instagram не д…",
+               "a": [
+                "зовёт raiseCriticalAlarm()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "loop",
              "t": "для каждого: const m of missed",
              "a": [],
@@ -107345,7 +107475,7 @@
           },
           {
            "k": "do",
-           "t": "const payload = { kind: \"oversight\" as const, title: `📵 Лид без карточки: ${who}`, body: `${dushanbeDateTime…",
+           "t": "const payload = { kind: \"oversight\" as const, title: `📵 Заявка без карточки: ${who}`, body: `${dushanbeDateT…",
            "a": [
             "зовёт dushanbeDateTimeString()"
            ],
@@ -115782,21 +115912,6 @@
             "зовёт collectBaselineDrift()"
            ],
            "c": []
-          },
-          {
-           "k": "if",
-           "t": "drift.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "checks.push({ name: \"Настройки телефонии: рабочий эталон\", ok: false, detail: describeDrift(drift), cls: \"con…",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
           }
          ]
         },
@@ -115814,6 +115929,14 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "await dropLegacyHealthSnapshots().catch(()",
+         "a": [
+          "зовёт dropLegacyHealthSnapshots()"
+         ],
+         "c": []
         },
         {
          "k": "loop",
@@ -116231,7 +116354,7 @@
          "c": [
           {
            "k": "do",
-           "t": "rows = await prisma.messengerAccount.findMany({ where: { channel: \"INSTAGRAM\" }, select: { id: true, title: t…",
+           "t": "rows = await prisma.messengerAccount.findMany({ where: { channel: \"INSTAGRAM\", accessLostAt: null }, select: …",
            "a": [
             "читает в базе: messengerAccount"
            ],

@@ -129,7 +129,7 @@ export function ObjectsTabs() {
 const MONEY_TABS: ScreenTab[] = [
   { to: "/finance", label: "Финансы", permission: "finance.view", end: true },
   { to: "/reports", label: "Отчёты", permission: "reports.view" },
-  { to: "/sources", label: "Источники лидов", permission: "reports.view" },
+  { to: "/sources", label: "Источники заявок", permission: "reports.view" },
   { to: "/insights", label: "Инсайты от ИИ", permission: "insights.view" },
 ];
 

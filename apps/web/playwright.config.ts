@@ -55,7 +55,7 @@ const apiPort = new URL(apiUrl).port || "4000";
 export default defineConfig({
   // This suite changes a global rollout setting and owns a separate serial config.
   // assistant-confirm-card — своя конфигурация (кадры П4а, вход кодом на каждом прогоне).
-  testIgnore: ["**/clean-shell.spec.ts", "**/audit-finance.spec.ts", "**/audit-client-focus.spec.ts", "**/audit-session-privacy.spec.ts", "**/assistant-confirm-card.spec.ts"],
+  testIgnore: ["**/clean-shell.spec.ts", "**/audit-finance.spec.ts", "**/audit-client-focus.spec.ts", "**/audit-session-privacy.spec.ts", "**/assistant-confirm-card.spec.ts", "**/native-controls.spec.ts"],
   testDir: "./tests/e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

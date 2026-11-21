@@ -81,7 +81,7 @@ export function NarrationSettingsPanel() {
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Как работает</legend>
         <Check checked={autoGenerate ?? !!config.autoGenerate} onChange={setAutoGenerate}>Автоозвучка: аудио готовится само после создания объекта и после правки его данных, агент слушает и одобряет</Check>
-        <Check checked={mixByCrm ?? config.mixByCrm === true} onChange={setMixByCrm}>Голос накладывает CRM: монтажёр присылает только ролик без голоса. Выключено: монтажёр вклеивает mp3 сам</Check>
+        <Check checked={mixByCrm ?? config.mixByCrm === true} onChange={setMixByCrm}>Голос на ролик кладём мы: монтажёр присылает только ролик без голоса. Выключено: монтажёр вклеивает озвучку сам</Check>
         <Check checked={removeOld ?? config.removeOldPostsOnNarration !== false} onChange={setRemoveOld}>Снимать старые посты при новой озвучке: вышел новый ролик, старый в той же сети CRM снимает сама. Выключено: старые посты остаются рядом с новыми</Check>
         <Check checked={textOverlay ?? config.textOverlay === true} onChange={setTextOverlay}>Цену и субтитры на ролике рисует CRM: при перемонтаже CRM сама кладёт плашку с ценой из карточки и субтитры по тексту озвучки</Check>
         <Check checked={backfill ?? config.backfillMontageQueue === true} onChange={setBackfill}>Озвучка к роликам, которые уже в монтаже: готовить по шаблону и голосу по умолчанию, одобряет владелец</Check>

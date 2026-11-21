@@ -780,10 +780,10 @@ describe("Автоматическая карточка по входящему 
       const client = await prisma.client.findUnique({ where: { id: clientId }, select: { assignedAgentId: true } });
       expect(client?.assignedAgentId).not.toBe(owner.id);
       const note = await prisma.interaction.findFirst({
-        where: { clientId, notes: { contains: "Лид ушёл обычной раздачей" } },
+        where: { clientId, notes: { contains: "Заявка ушла обычной раздачей" } },
         select: { notes: true },
       });
-      expect(note?.notes).toContain("агент объекта сейчас не принимает лиды");
+      expect(note?.notes).toContain("агент объекта сейчас не принимает заявки");
     } finally {
       await cleanupListing(clientId, owner, property);
     }

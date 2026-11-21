@@ -90,7 +90,7 @@ export function MarketBuyerListingsView({
   return (
     <section className="card" aria-label="Объявления с площадок" data-testid="market-buyer-listings">
       <div className="sec-h stack">
-        <h2>С площадок (Somon/Paydo)</h2>
+        <h2>С сайтов объявлений</h2>
       </div>
       <p className="sub">
         Чужие объявления с сайтов, не наши объекты. Цены в объявлениях — не цены сделок.
@@ -191,7 +191,7 @@ export function MarketBuyerListings({ clientId }: { clientId: string }) {
   if (isLoading) {
     return (
       <section className="card" aria-busy="true" aria-label="Объявления с площадок">
-        <div className="sec-h stack"><h2>С площадок (Somon/Paydo)</h2></div>
+        <div className="sec-h stack"><h2>С сайтов объявлений</h2></div>
         <p role="status" className="sub">Ищем на площадках…</p>
       </section>
     );
@@ -200,7 +200,7 @@ export function MarketBuyerListings({ clientId }: { clientId: string }) {
   if (!data) {
     return (
       <section className="card" aria-label="Объявления с площадок">
-        <div className="sec-h stack"><h2>С площадок (Somon/Paydo)</h2></div>
+        <div className="sec-h stack"><h2>С сайтов объявлений</h2></div>
         <Rh2ErrorState message="Не удалось загрузить объявления с площадок." onRetry={() => void refetch()} retrying={isFetching} />
       </section>
     );

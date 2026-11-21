@@ -1,3 +1,4 @@
+import { RuMonthField } from "../look/fields/RuFields";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Archive, ChevronLeft, ChevronRight, Download, MoreHorizontal, Plus, SlidersHorizontal } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -14,7 +15,6 @@ import { ClaudeSubscriptions } from "./ClaudeSubscriptions";
 import { ClaudePaymentCalendar } from "./ClaudePaymentCalendar";
 import { ClaudeExpenseTable } from "./ClaudeExpenseTable";
 import { ClaudeCategorySettings } from "./ClaudeCategorySettings";
-import { RU_MONTH_INPUT_STYLE, RuMonthText } from "../ui/RuMonthText";
 
 const TABS: { key: FinanceWorkspace; label: string }[] = [
   { key: "expenses", label: "Расходы" }, { key: "recurring", label: "Подписки" },
@@ -99,7 +99,7 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
   const edit = (expense: ClaudeExpense) => setSheet({ expense });
   const monthControls = <div className="cef-month-controls">
     <button type="button" className="cef-icon-btn" aria-label="Предыдущий месяц" disabled={month <= "1900-01"} onClick={() => onMonthChange(moveMonth(month, -1))}><ChevronLeft /></button>
-    <label className="cef-month-picker" style={{ position: "relative" }}><span className="sr-only">Месяц финансов</span><RuMonthText month={month} /><input type="month" style={RU_MONTH_INPUT_STYLE} value={month} min="1900-01" max="2199-12" onChange={(event) => { if (/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(event.target.value)) onMonthChange(event.target.value); }} /></label>
+    <label className="cef-month-picker" style={{ position: "relative" }}><span className="sr-only">Месяц финансов</span><RuMonthField align="center" value={month} min="1900-01" max="2199-12" onChange={(event) => { if (/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(event.target.value)) onMonthChange(event.target.value); }} /></label>
     <button type="button" className="cef-icon-btn" aria-label="Следующий месяц" disabled={month >= "2199-12"} onClick={() => onMonthChange(moveMonth(month, 1))}><ChevronRight /></button>
   </div>;
   return <div className="cef cef-page">

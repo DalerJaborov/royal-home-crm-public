@@ -125,7 +125,7 @@ export const getStaffCardTool: AssistantReadToolPlugin = {
   description:
     "Карточка сотрудника по agentId (из list_staff): роль, статус, пауза заявок, внутренний номер, включён ли Google Authenticator " +
     "(телефон — только последние 2 цифры: полный номер — логин входа, он виден в CRM), " +
-    "права (что включено сверх роли и что снято, с id прав для set_staff_permissions), «сейчас»: в сети ли, лиды в работе, ближайшая " +
+    "права (что включено сверх роли и что снято, с id прав для set_staff_permissions), «сейчас»: в сети ли, заявки в работе, ближайшая " +
     "задача, звонки за неделю; последние передачи дел с batchId для revert_staff_handover. Видно ровно то, что вам видно в CRM.",
   parameters: { type: "object", properties: { agentId: { type: "string" } }, required: ["agentId"] },
   allowed: (actor) => privateOnly(actor) && (has(actor, "agents.manage") || has(actor, "team.viewFull") || has(actor, "permissions.manage")),
@@ -219,7 +219,7 @@ export const staffNowTool: AssistantReadToolPlugin = {
   statusPhrase: "Смотрю, кто сейчас в работе…",
   description:
     "Кто сейчас в работе: по каждому активному сотруднику — в сети ли (заходил в CRM последние 3 минуты), заморожен, пауза заявок, " +
-    "сколько лидов в работе. Зови на «кто сейчас работает», «кто на месте», «кто в отпуске».",
+    "сколько заявок в работе. Зови на «кто сейчас работает», «кто на месте», «кто в отпуске».",
   allowed: (actor) => privateOnly(actor) && has(actor, "team.viewFull"),
   async run(_raw, { actor }) {
     if (!privateOnly(actor)) return GROUP_REFUSAL;

@@ -273,7 +273,7 @@ async function runLeadAction(action: string, token: string, fallbackUrl: string)
     result = { ok: false, message: "Нет связи — откройте карточку в CRM", url: fallbackUrl };
   }
 
-  await self.registration.showNotification(result.ok ? "✅ Готово" : "⚠️ Не выполнено", {
+  await self.registration.showNotification(result.ok ? "Готово" : "Не выполнено", {
     body: result.message,
     // PNG, а не SVG: см. пояснение у уведомления выше — SVG декодер уведомлений
     // Chromium не читает, значок просто не появлялся бы.

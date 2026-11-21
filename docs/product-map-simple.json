@@ -16,10 +16,10 @@
   "paths": 788,
   "cron": 143,
   "jobs": 34,
-  "conditions": 4165,
+  "conditions": 4170,
   "untranslatedUnique": 476,
   "untranslatedTotal": 612,
-  "partialUnique": 1124,
+  "partialUnique": 1126,
   "translatedShare": 85
  },
  "untranslated": [
@@ -8701,7 +8701,7 @@
   },
   {
    "path": "/sources",
-   "title": "Источники лидов",
+   "title": "Источники заявок",
    "group": "money",
    "parent": null,
    "file": "apps/web/src/pages/Sources.tsx",
@@ -36825,15 +36825,37 @@
      ],
      "c": [
       {
-       "t": "если home не задан",
+       "t": "если home не задан или text size не задан",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "если есть success и есть kept",
+         "t": "если home не задан",
          "k": "if",
          "a": [],
-         "c": []
+         "c": [
+          {
+           "t": "если есть success и есть kept",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если text size не задан",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть success и есть kept size",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
         }
        ]
       },
@@ -40015,6 +40037,19 @@
      "c": [
       {
        "t": "отказ: такое уже есть: «Факты или версия изменились. Подготовьте и проверьте новый текст.»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если ответ — «PRICE_NOT_IN_TJS»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: такое уже есть",
        "k": "do",
        "a": [],
        "c": []
@@ -76894,13 +76929,6 @@
           },
           {
            "t": "если есть silence",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если drift количество больше 0",
            "k": "if",
            "a": [],
            "c": [],

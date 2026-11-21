@@ -88,6 +88,7 @@ describe("реестр инструментов помощника", () => {
       "get_missed_calls",
       "get_team_load",
       "get_stuck_work",
+      "get_construction_registry",
       // «Режим директора» (17.11.2026, tools/directorTools.ts).
       "list_pending_requests",
       "decide_request",

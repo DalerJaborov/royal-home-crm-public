@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **4192**. Модулей: **88**.
+Путей: **788**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4197**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -301,7 +301,7 @@
     · ответ 400 — «Неверный месяц»
 - const month = parsed.data ?? currentMonth();
   · зовёт currentMonth()
-- const result = await buildAdInsights(month, req.query.force === "1");
+- const result = await buildAdInsights(month, req.query.force === "1", { seesCompanyMoney: req.agent!.permissio…
   · зовёт buildAdInsights()
 - res.json(result ?? { text: null, reason: "empty" });
   · ответ 200
@@ -803,13 +803,13 @@
     - return fail(400, "Свою паузу включают в профиле");
       · дословно из кода
   - если !(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)
-    - return fail(400, "Лиды получают только агенты и руководитель продаж");
+    - return fail(400, "Заявки получают только агенты и руководитель продаж");
       · дословно из кода
   - если !agent.isActive
     - return fail(409, "Сотрудник отключён");
       · дословно из кода
   - если agent.frozenAt
-    - return fail(409, "Сотрудник уже заморожен — лиды ему и так не идут");
+    - return fail(409, "Сотрудник уже заморожен — заявки ему и так не идут");
       · дословно из кода
   - const actorRow = await prisma.agent.findUnique({ where: { id: actor.id }, select: { fullName: true } });
     · читает в базе: agent
@@ -5312,7 +5312,7 @@
 
 `apps/api/src/routes/briefing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
-- const briefing = await loadBriefing().catch(()
+- const briefing = await loadBriefing(new Date(), { seesCompanyMoney: can(req, "finance.view") }).catch(()
   · зовёт loadBriefing()
 - const filePath = briefing ? existingBriefingAudioPath(briefing.text) : null;
   · зовёт existingBriefingAudioPath()
@@ -5336,7 +5336,7 @@
 `apps/api/src/routes/briefing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - пробует
-  - res.json(await buildBriefingResponse());
+  - res.json(await buildBriefingResponse(new Date(), { seesCompanyMoney: can(req, "finance.view") }));
     · ответ 200
 - если сорвалось
   - res.status(503).json({ error: "Брифинг сейчас недоступен" });
@@ -9770,14 +9770,19 @@
   · читает в базе: agent
   · меняет в базе: agent
   · проверяет данные схемой homePreferencesSchema
-  - если data.home === undefined
+  - если data.home === undefined || data.textSize === undefined
     - const current = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { preferences: true } });
       · читает в базе: agent
-    - const kept = homePreferencesSchema.safeParse((current?.preferences as { home?: unknown } | null)?.home);
-      · проверяет данные схемой homePreferencesSchema
-    - если kept.success && kept.data
-      - data = { ...data, home: kept.data };
-        · дословно из кода
+    - если data.home === undefined
+      - const kept = homePreferencesSchema.safeParse(saved?.home);
+        · проверяет данные схемой homePreferencesSchema
+      - если kept.success && kept.data
+        - data = { ...data, home: kept.data };
+          · дословно из кода
+    - если data.textSize === undefined
+      - если keptSize.success && keptSize.data
+        - data = { ...data, textSize: keptSize.data };
+          · дословно из кода
   - return tx.agent.update({ where: { id: req.agent!.id }, data: { preferences: data }, select: { preferences: tr…
     · меняет в базе: agent
 - res.json(agent.preferences ?? {});
@@ -10927,6 +10932,9 @@
 - если outcome === "CONFLICT"
   - return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
     · ответ 409 — «Факты или версия изменились. Подготовьте и проверьте новый текст.»
+- если outcome === "PRICE_NOT_IN_TJS"
+  - return res.status(409).json({ error: NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT });
+    · ответ 409
 - const delivery = outcome === "AUDIO_APPROVED" ? await afterNarrationApproved(p.id, versionId.data) : undefine…
   · зовёт afterNarrationApproved()
 - const publishAt = delivery === "CRM_REMIX" ? await estimateNarrationPublishAt(p.id).catch(()
@@ -11284,6 +11292,8 @@
 
 - const facts = narrationFacts(p);
   · зовёт narrationFacts()
+- const usdToTjs = await narrationRate();
+  · зовёт narrationRate()
 - const versions = await prisma.propertyNarrationVersion.findMany({ where: { propertyId: p.id, ...(req.agent!.r…
   · читает в базе: propertyNarrationVersion
 - если ["ADMIN", "DIRECTOR"].includes(req.agent!.role)
@@ -14499,7 +14509,7 @@
     - если outcome.ok
       - const { granted } = await partitionByPermission([consumed.agentId], "clients.viewPhone");
         · зовёт partitionByPermission()
-      - const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : "Лид";
+      - const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : "Заявка";
         · зовёт clientNamePhoneSafe()
       - return res.json({ ok: true, message: `${name} принят — контакты открыты`, url });
         · ответ 200
@@ -19696,7 +19706,7 @@
           · зовёт invalidateAgentAccess()
         - void syncAgentQueuePresence(agent.id).catch(()
           · зовёт syncAgentQueuePresence()
-        - void sendPushToAgent(agent.id, { title: "👋 С возвращением", body: "Отпуск закончился — новые лиды и входящие…
+        - void sendPushToAgent(agent.id, { title: "👋 С возвращением", body: "Отпуск закончился — новые заявки и входящ…
           · push-уведомление
       - если сорвалось
         - console.error("[отсутствие] возврат сотрудника:", err instanceof Error ? err.message : err);
@@ -19704,7 +19714,7 @@
     - если returned > 0
       - const recipients = await findAgentsWithPermission("agents.manage");
         · зовёт findAgentsWithPermission()
-      - void sendPushToAgents(recipients, { title: "👋 Сотрудник вышел", body: `${names} — отсутствие закончилось, ли…
+      - void sendPushToAgents(recipients, { title: "👋 Сотрудник вышел", body: `${names} — отсутствие закончилось, за…
         · push-уведомление
   - если returned > 0
     - console.log(`[cron] Вышли из отсутствия: ${returned}`);
@@ -22340,6 +22350,8 @@
 - пробует
   - const { restored, failed, silent } = await runInstagramSubscriptionWatch();
     · зовёт runInstagramSubscriptionWatch()
+    - await autoLinkInstagramPages().catch((err)
+      · зовёт autoLinkInstagramPages()
     - const totals = await checkInstagramSubscriptions();
       · зовёт checkInstagramSubscriptions()
     - const silent = await findSilentInstagramAccounts();
@@ -22347,6 +22359,8 @@
     - для каждого: const s of silent
       - await logSystemError( "meta", `Instagram «${s.title}»: диалоги в CRM не обновлялись с ${last}, хотя у другого…
         · запись в журнал ошибок
+      - await raiseCriticalAlarm({ tag: `ig-account-silent:${s.id}:${last}`, title: "Instagram: в аккаунт не приходят…
+        · зовёт raiseCriticalAlarm()
   - если restored || failed || silent
     - console.log( `[cron] Подписка Instagram: восстановлено ${restored}, не проверено ${failed}, замолчавших аккау…
       · пишет строку в журнал сервера
@@ -22462,7 +22476,7 @@
         - если !agentId
           - continue;
             · переходит к следующему
-        - const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: "Лид назначен утренней…
+        - const moved = await changeClientAgent({ clientId: lead.id, toAgentId: agentId, reason: "Заявка назначена утре…
           · зовёт changeClientAgent()
         - если !moved.ok
           - continue;
@@ -22675,7 +22689,7 @@
             - если !claimed
               - continue;
                 · переходит к следующему
-            - await notifyFeedOnly(supervisors, { kind: "lead", title: "Лид по объекту не принят вовремя", body: `${lead.fu…
+            - await notifyFeedOnly(supervisors, { kind: "lead", title: "Заявка по объекту не принята вовремя", body: `${lea…
               · зовёт notifyFeedOnly()
             - continue;
               · переходит к следующему
@@ -22689,7 +22703,7 @@
             - const alreadyNotifiedFullCircle = await prisma.notification.findFirst({ where: { tag: fullCircleTag }, select…
               · читает в базе: notification
             - если !alreadyNotifiedFullCircle
-              - await notifyFeedOnly(supervisors, { kind: "lead", title: "Лид прошёл всех агентов", body: `${lead.fullName}: …
+              - await notifyFeedOnly(supervisors, { kind: "lead", title: "Заявка прошла всех агентов", body: `${lead.fullName…
                 · зовёт notifyFeedOnly()
           - let nextAgentId = await pickAgentForLead(withDeclined(triedNow), leadKind);
             · зовёт pickAgentForLead()
@@ -22722,7 +22736,7 @@
           - если !claimed
             - continue;
               · переходит к следующему
-          - sendLeadPush(nextAgentId, lead.id, { title: "🤝 Лид переназначен вам", body: `${lead.fullName} — предыдущий а…
+          - sendLeadPush(nextAgentId, lead.id, { title: "🤝 Заявка переназначена вам", body: `${lead.fullName} — предыдущ…
             · зовёт sendLeadPush()
         - если сорвалось
           - reportCronRowError("Переназначение протухшей заявки", lead.shortId, err);
@@ -23491,6 +23505,20 @@
         - если !missed.length
           - continue;
             · переходит к следующему
+        - если channel === "INSTAGRAM" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length
+          - const ours = await ownRepliesInCrm(page.ownIds?.length ? page.ownIds : [page.pageId], body);
+            · зовёт ownRepliesInCrm()
+          - const viaPage = (await instagramRouteForToken(page.token)).kind === "page";
+            · зовёт instagramRouteForToken()
+          - если viaPage && ours.crmSent > 0 && ours.known === 0
+            - void logSystemError("meta", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.l…
+              · запись в журнал ошибок
+            - await raiseCriticalAlarm({ tag: `meta-inbox-mass-missed:${page.pageId}`, title: "Сверка Instagram: проверьте …
+              · зовёт raiseCriticalAlarm()
+            - continue;
+              · переходит к следующему
+          - await raiseCriticalAlarm({ tag: `meta-inbox-ig-not-delivered:${page.pageId}`, title: "Входящие Instagram не д…
+            · зовёт raiseCriticalAlarm()
         - для каждого: const m of missed
           - byPerson.set(m.fromId, [...(byPerson.get(m.fromId) ?? []), m]);
             · дословно из кода
@@ -24012,7 +24040,7 @@
           · переходит к следующему
       - const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…
         · зовёт maskClientPhone()
-      - const payload = { kind: "oversight" as const, title: `📵 Лид без карточки: ${who}`, body: `${dushanbeDateTime…
+      - const payload = { kind: "oversight" as const, title: `📵 Заявка без карточки: ${who}`, body: `${dushanbeDateT…
         · зовёт dushanbeDateTimeString()
       - пробует
         - await enqueueDirectorAlert({ ...payload, level: "CRITICAL", recipientRoles: ["DIRECTOR", "ADMIN", "HEAD_OF_SA…
@@ -25814,12 +25842,11 @@
           · дословно из кода
       - const drift = await collectBaselineDrift(amiCreds ?? null);
         · зовёт collectBaselineDrift()
-      - если drift.length > 0
-        - checks.push({ name: "Настройки телефонии: рабочий эталон", ok: false, detail: describeDrift(drift), cls: "con…
-          · дословно из кода
     - если сорвалось
       - void logSystemError("telephony", `Сводная проверка телефонии не выполнена целиком: ${describeError(err)}`, { …
         · запись в журнал ошибок
+    - await dropLegacyHealthSnapshots().catch(()
+      · зовёт dropLegacyHealthSnapshots()
     - для каждого: const check of checks
       - await prisma.integrationHealthSnapshot .upsert({ where: { name: `Телефония: ${check.name}` }, create: { name:…
         · создаёт или меняет в базе: integrationHealthSnapshot
@@ -25908,7 +25935,7 @@
         - void logSystemError("meta", `Маркер Instagram (копия в Настройках) не продлён: ${describeError(err)}`);
           · запись в журнал ошибок
     - пробует
-      - rows = await prisma.messengerAccount.findMany({ where: { channel: "INSTAGRAM" }, select: { id: true, title: t…
+      - rows = await prisma.messengerAccount.findMany({ where: { channel: "INSTAGRAM", accessLostAt: null }, select: …
         · читает в базе: messengerAccount
     - если сорвалось
       - void logSystemError( "meta", `Список аккаунтов Instagram не прочитан — продление маркеров пропущено в этом ти…

@@ -748,7 +748,7 @@ export async function runPhoneLeadWatchdogTick(
           : `Клиент прислал «${row.raw}» — на номер похоже, но разобрать нельзя (опечатка?)`;
     const payload = {
       kind: "oversight" as const,
-      title: `📵 Лид без карточки: ${who}`,
+      title: `📵 Заявка без карточки: ${who}`,
       // Когда/откуда(канал)/что — видно без перехода по ссылке.
       body: `${dushanbeDateTimeString(now)}, канал ${channelLabel(row.channel)}: ${what}${row.spamFlagged ? ". Диалог помечен как рассылка — проверьте, не ошибка ли" : ""}`,
       url: `/messages?open=${row.conversationId}`,

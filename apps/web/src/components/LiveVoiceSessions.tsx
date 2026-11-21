@@ -1,3 +1,4 @@
+import { RhAudioPlayer } from "./look/RhAudioPlayer";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -165,7 +166,7 @@ function ListenButton({
   if (player?.id === s.id) {
     return (
       <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        <audio controls autoPlay preload="none" src={player.url} style={{ height: 34, maxWidth: 260 }} />
+        <RhAudioPlayer src={player.url} autoPlay speeds preload="none" label="Запись разговора" className="w-[300px] max-w-full" />
         <button className={className} type="button" onClick={closePlayer}>
           Закрыть запись
         </button>

@@ -167,7 +167,7 @@ describe("declinedAgentIds переживает сброс круга карус
     expect(after?.assignedAgentId).not.toBe(decliner);
   });
 
-  it("честный текст: «все доступные агенты отказались от лида», когда отдать некому кроме отказавшегося", async () => {
+  it("честный текст: «все доступные агенты отказались от заявки», когда отдать некому кроме отказавшегося", async () => {
     // Только держатель и отказавший в очереди (freeze fresh тоже) — исключая
     // держателя и отказавшего, отдать действительно некому.
     await prisma.agent.update({ where: { id: fresh }, data: { frozenAt: new Date() } });
@@ -186,7 +186,7 @@ describe("declinedAgentIds переживает сброс круга карус
       expect(after?.assignedAgentId).toBe(holder); // не переходит к отказавшему
       const interactions = await prisma.interaction.findMany({ where: { clientId: c.id }, select: { notes: true } });
       const text = interactions.map((i) => i.notes ?? "").join("\n");
-      expect(text).toContain("отказались от лида");
+      expect(text).toContain("отказались от заявки");
       expect(text).not.toContain("не осталось вовсе");
     } finally {
       await prisma.agent.update({ where: { id: fresh }, data: { frozenAt: null } });

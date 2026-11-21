@@ -36,11 +36,11 @@ export interface StartPauseInput {
 }
 
 export async function startLeadPause(input: StartPauseInput): Promise<{ released: number }> {
-  const toRelease = await findUnacceptedLeadsOfAgent(input.agentId, "Пауза приёма лидов", { keepOwnProperty: true });
+  const toRelease = await findUnacceptedLeadsOfAgent(input.agentId, "Пауза приёма заявок", { keepOwnProperty: true });
   const reason = input.reason?.trim() || null;
   const why = input.bySupervisor
-    ? `Руководитель ${input.actor.fullName} поставил агенту паузу приёма лидов${reason ? `: «${reason}»` : ""} — лид возвращён в очередь`
-    : "Агент включил паузу приёма лидов — непринятый лид возвращён в очередь";
+    ? `Руководитель ${input.actor.fullName} поставил агенту паузу приёма заявок${reason ? `: «${reason}»` : ""} — заявка возвращена в очередь`
+    : "Агент включил паузу приёма заявок — непринятая заявка возвращена в очередь";
 
   let released: ReleasableLead[] = [];
   await prisma.$transaction(async (tx) => {
@@ -97,10 +97,10 @@ export function notifyAgentAboutSupervisorPause(
 ): void {
   const payload = pause
     ? {
-        title: "Новые лиды вам временно не выдаются",
+        title: "Новые заявки вам временно не выдаются",
         body: `${actorName} поставил паузу до ${pauseUntilLabel(pause.until)}.${pause.reason?.trim() ? ` Причина: ${pause.reason.trim()}.` : ""} Текущие клиенты остаются у вас.`,
       }
-    : { title: "Вы снова в раздаче лидов", body: `${actorName} снял паузу: новые лиды снова идут к вам.` };
+    : { title: "Вы снова в раздаче заявок", body: `${actorName} снял паузу: новые заявки снова идут к вам.` };
   void sendPushToAgent(agentId, { ...payload, url: "/profile", tag: `lead-pause-${agentId}` }).catch((err) =>
     console.error("[lead-pause] пуш агенту не отправлен:", err)
   );

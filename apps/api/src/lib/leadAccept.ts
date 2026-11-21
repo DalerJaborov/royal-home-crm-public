@@ -97,7 +97,7 @@ export async function acceptLead(input: {
       clientId: client.id,
       actor: { kind: "agent", agentId: input.agentId },
       type: "SYSTEM",
-      notes: "Лид принят агентом — контакты открыты",
+      notes: "Заявка принята агентом — контакты открыты",
       tx,
     });
     // Royal Score: «После успешной обработки любого нового лида счётчик отказов

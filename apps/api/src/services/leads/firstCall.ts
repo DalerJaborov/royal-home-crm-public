@@ -361,7 +361,7 @@ export async function handleMissedFirstCalls(now: Date = new Date()): Promise<{ 
           ? `${MISSED_FIRST_CALL_NOTE_PREFIX} ${minutes} мин — клиент пришёл по объекту №${objectNo} этого агента и остаётся у хозяина объекта: автоматически передать его другому агенту нельзя, решает руководитель`
           : notDialableKept
             ? `${MISSED_FIRST_CALL_NOTE_PREFIX} ${minutes} мин — номер клиента не таджикский, CRM его не набирает: клиент остаётся у того же агента, связаться можно перепиской, решает руководитель`
-            : `${MISSED_FIRST_CALL_NOTE_PREFIX} ${minutes} мин — лид остаётся у того же агента, автоматической передачи больше нет`,
+            : `${MISSED_FIRST_CALL_NOTE_PREFIX} ${minutes} мин — заявка остаётся у того же агента, автоматической передачи больше нет`,
       });
       // Руководству — в колокольчик и на дашборд, без звонка телефона
       // (владелец 20.09.2026, см. lib/notifications.ts::notifyFeedOnly).
@@ -533,7 +533,7 @@ export async function handleMissedFirstCalls(now: Date = new Date()): Promise<{ 
           clientId: client.id,
           actor: { kind: "system", source: "first-call-reassign", subjectAgentId: nextAgentId },
           type: "SYSTEM",
-          notes: `Лид снят и переназначен: первый звонок не совершён за ${minutes} мин`,
+          notes: `Заявка снята и переназначена: первый звонок не совершён за ${minutes} мин`,
           tx,
         });
       }

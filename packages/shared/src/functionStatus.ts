@@ -318,6 +318,8 @@ export const functionCronSchema = z.object({
   lastRunAt: isoDate.nullable(),
   lastOkAt: isoDate.nullable(),
   lastError: z.string().nullable(),
+  /** Та же ошибка по-человечески (что за сервис и что делать); сырой текст — только для блока «Для разработчика». */
+  humanError: z.string().nullable().optional(),
   /** Давно не запускался (по расписанию должен был) или последний запуск упал. */
   health: z.enum(["ok", "failing", "stale", "never"]),
 });
@@ -339,7 +341,7 @@ export const functionStatusItemSchema = z.object({
   envNames: z.array(z.string()),
   settingsTab: z.enum(FUNCTION_SETTINGS_TABS).nullable(),
   crons: z.array(functionCronSchema),
-  lastError: z.object({ at: isoDate, message: z.string() }).nullable(),
+  lastError: z.object({ at: isoDate, message: z.string(), humanMessage: z.string().nullable().optional() }).nullable(),
 });
 export type FunctionStatusItem = z.infer<typeof functionStatusItemSchema>;
 

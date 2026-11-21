@@ -21,3 +21,12 @@ export function softenShouting(text: string | null | undefined): string {
   for (const { re, text: soft } of SOFT) out = out.replace(re, soft);
   return out;
 }
+
+/**
+ * Заголовок уведомления без значка в начале: сервер кладёт в заголовки «💬», «📵», «⚠️» (старые записи лежат в базе), а на экране
+ * рядом уже стоит свой значок. Убираем только ведущие значки и пробелы, слова не трогаем.
+ */
+export function plainTitle(title: string | null | undefined): string {
+  if (!title) return "";
+  return title.replace(new RegExp(String.raw`^[${SYMBOLS}\s]+`, "u"), "").trim();
+}

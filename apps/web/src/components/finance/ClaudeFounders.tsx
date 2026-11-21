@@ -1,3 +1,4 @@
+import { RuDateField } from "../look/fields/RuFields";
 import { useMemo, useState, type FormEvent } from "react";
 import { Pencil, Plus, RotateCcw, Trash2, Users, X } from "lucide-react";
 import type { FounderContributionItem, FounderItem, FounderTotalsRow } from "@royal-home/shared";
@@ -164,7 +165,7 @@ function ContributionSheet({ row, month, founders, canManage, onClose, onSaved }
         <label>Сумма<input inputMode="decimal" value={draft.amount} onChange={(e) => set("amount", e.target.value)} placeholder="0" /></label>
         <label>Валюта<select value={draft.currency} onChange={(e) => set("currency", e.target.value as "TJS" | "USD")}><option value="TJS">Сомони</option><option value="USD">Доллары</option></select></label>
         {draft.currency === "USD" && <label>Курс, с. за $, необязательно<input inputMode="decimal" value={draft.exchangeRate} onChange={(e) => set("exchangeRate", e.target.value)} placeholder="Если пусто, возьмём курс CRM" /></label>}
-        <label>Дата<input type="date" max={dushanbeTodayKey()} value={draft.date} onChange={(e) => set("date", e.target.value)} /></label>
+        <label>Дата<RuDateField max={dushanbeTodayKey()} value={draft.date} onChange={(e) => set("date", e.target.value)} /></label>
         <label>Заметка<input maxLength={300} value={draft.note} onChange={(e) => set("note", e.target.value)} placeholder="Например, на рекламу" /></label>
       </fieldset>
     </div>

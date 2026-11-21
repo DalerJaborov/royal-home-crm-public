@@ -130,7 +130,7 @@ export function buildItems(role: string | undefined, can: (p: PermissionId) => b
     to: "/finance",
   };
   const sources: FabMenuItem = {
-    label: "Источники лидов",
+    label: "Источники заявок",
     sub: "откуда пришли",
     icon: Compass,
     tint: TINTS.blueInfo.bg,

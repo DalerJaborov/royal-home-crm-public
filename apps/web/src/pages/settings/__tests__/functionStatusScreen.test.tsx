@@ -61,6 +61,28 @@ describe("экран «Состояние функций»", () => {
     expect(out).toContain("в порядке");
   });
 
+  it("сбой: по-человечески от сервера, сырой текст и имена — только в «Для разработчика» (К17)", () => {
+    role = "DIRECTOR";
+    const item = DATA.items[0]!;
+    const saved = { lastError: item.lastError, crons: item.crons };
+    item.lastError = { at: "2026-11-14T08:00:00.000Z", message: "Gemini 429 RESOURCE_EXHAUSTED: quota exceeded", humanMessage: "Кончился лимит Gemini — подождите или пополните счёт." };
+    item.crons = [{ name: "bot-pause-watch", lastRunAt: null, lastOkAt: null, lastError: "fetch failed UND_ERR_CONNECT_TIMEOUT (api.telegram.org)", humanError: "Telegram не отвечает — проверьте позже.", health: "failing" }];
+    try {
+      const out = html();
+      expect(out).toContain("Кончился лимит Gemini");
+      expect(out).toContain("Telegram не отвечает — проверьте позже.");
+      expect(out).toContain("Для разработчика");
+      // сырой текст есть, но только внутри свёрнутого блока
+      const outside = out.replace(/<details[\s\S]*?<\/details>/g, "");
+      expect(outside).not.toContain("RESOURCE_EXHAUSTED");
+      expect(outside).not.toContain("UND_ERR");
+      expect(outside).not.toContain("bot-pause-watch");
+    } finally {
+      item.lastError = saved.lastError;
+      item.crons = saved.crons;
+    }
+  });
+
   it("сотрудник без прав видит заглушку и не запрашивает данные", () => {
     role = "AGENT";
     enabledSeen.length = 0;

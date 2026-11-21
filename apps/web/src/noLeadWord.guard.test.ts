@@ -1,8 +1,12 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import baseline from "./noLeadWord.baseline.json";
+import { baselineOnMain } from "./baselineVsMain";
+
+/** Версия способа подсчёта: 2 — строки фронта и все строки текста сервера, в том числе многострочные шаблоны. */
+const SCOPE = "multiline-v2";
 
 /**
  * СТОРОЖ СЛОВА «ЛИД» В ТЕКСТАХ ДЛЯ СОТРУДНИКОВ (владелец 20.11.2026: «Лид ждёт принятия» → «Заявка ждёт принятия»; правило
@@ -13,11 +17,12 @@ import baseline from "./noLeadWord.baseline.json";
  *     текст. Файлы, где оно ещё осталось (настройки, финансы, отчёты, источники — разделы других веток), перечислены в
  *     `noLeadWord.baseline.json` с числом строк. Список только убывает: новый файл или лишняя строка краснят; исправили —
  *     уменьшите число или уберите запись (устаревшая запись тоже краснит).
- *  2. Сервер: поля `title:` / `body:` / `message:` / `error:` / `label:` в `apps/api/src` — те же правила и тот же список (ключи
- *     `api/…`); маршруты, приём заявок и уведомления первого звонка в списке быть не могут.
+ *  2. Сервер: каждая строка кода в `apps/api/src` (кроме консольных логов и сравнений со старым текстом), в том числе строки
+ *     многострочных шаблонов, — те же правила и тот же список (ключи `api/…`); маршруты, приём заявок и уведомления первого
+ *     звонка в списке быть не могут.
  */
-/** Поля, в которых сервер кладёт текст для людей: заголовок и тело уведомления, сообщение и ошибка ответа, подпись. */
-const SERVER_TEXT_FIELD = /(?<![.\w])(title|body|message|error|label)\s*:/;
+/** Строки сервера, которые не показываются людям: журнал консоли и сравнения со старым текстом в базе (`contains`, регулярки). Всё остальное в `apps/api/src` — текст для людей, в том числе многострочные шаблоны. */
+const SERVER_NOT_TEXT = /console\.(error|warn|log)|contains\s*:|startsWith|endsWith|\bre:|\.test\(|\.match\(/;
 const WORD = /(?<![а-яёa-z])[Лл]ид(?:а|у|ом|е|ы|ов|ам|ами|ах)?(?![а-яёa-z])/u;
 
 function walk(dir: string, accept: (file: string) => boolean, out: string[] = []): string[] {
@@ -68,20 +73,40 @@ describe("слово «лид» в текстах для сотрудников"
     }
     const apiSrc = path.resolve(srcDir, "../../api/src");
     for (const file of walk(apiSrc, (f) => f.endsWith(".ts") && !f.endsWith(".d.ts"))) {
-      const hits = codeLines(readFileSync(file, "utf8")).filter((l) => WORD.test(l.text) && SERVER_TEXT_FIELD.test(l.text)).length;
+      const hits = codeLines(readFileSync(file, "utf8")).filter((l) => WORD.test(l.text) && !SERVER_NOT_TEXT.test(l.text)).length;
       if (hits) out[`api/${path.relative(apiSrc, file).split(path.sep).join("/")}`] = hits;
     }
     return out;
   }
+  if (process.env.UPDATE_LEAD_WORD_BASELINE) {
+    it("обновляет список исключений", () => {
+      const sorted = Object.fromEntries(Object.entries(found()).sort(([a], [b]) => a.localeCompare(b)));
+      writeFileSync(path.join(srcDir, "noLeadWord.baseline.json"), JSON.stringify({ _scope: SCOPE, ...sorted }, null, 1) + "\n");
+    });
+    return;
+  }
+  /** Список без служебного ключа `_scope`. */
+  const listed = (b: Record<string, unknown>): Record<string, number> => Object.fromEntries(Object.entries(b).filter(([k]) => k !== "_scope")) as Record<string, number>;
+  it("список исключений не вырос по сравнению с origin/main", () => {
+    const res = baselineOnMain<Record<string, unknown>>("apps/web/src/noLeadWord.baseline.json", srcDir);
+    expect(res.ok ? "" : res.why).toBe("");
+    const main = res.ok ? res.main : null;
+    // Способ подсчёта поменялся (ревью #341: считаются и строки многострочных серверных шаблонов): список с другим `_scope`
+    // сравнивать со старым нечестно, он шире по определению. Сверка включается со следующей правки.
+    if (!main || main._scope !== SCOPE) return;
+    const onMain = listed(main);
+    const grew = Object.entries(listed(baseline as Record<string, unknown>)).filter(([file, count]) => count > (onMain[file] ?? 0)).map(([file, count]) => `${file}: ${count} (на origin/main ${onMain[file] ?? 0})`);
+    expect(grew).toEqual([]);
+  });
   it("новых файлов и новых строк со словом нет, список исключений только убывает", () => {
     const now = found();
-    const allowed = baseline as Record<string, number>;
+    const allowed = listed(baseline as Record<string, unknown>);
     const grew = Object.entries(now).filter(([file, count]) => count > (allowed[file] ?? 0)).map(([file, count]) => `${file}: ${count} (разрешено ${allowed[file] ?? 0})`);
     const shrank = Object.entries(allowed).filter(([file, count]) => (now[file] ?? 0) < count).map(([file, count]) => `${file}: в списке ${count}, в коде ${now[file] ?? 0} — обновите noLeadWord.baseline.json`);
     expect({ grew, shrank }).toEqual({ grew: [], shrank: [] });
   });
   it("сервер: в маршрутах (apps/api/src/routes) и в уведомлениях агентам слова «лид» нет совсем", () => {
-    const allowed = Object.keys(baseline as Record<string, number>);
+    const allowed = Object.keys(listed(baseline as Record<string, unknown>));
     expect(allowed.filter((file) => file.startsWith("api/routes/") || /^api\/(services\/leads|jobs)\/.*(intake|firstCall|Notify)/.test(file))).toEqual([]);
   });
   it("сторож проверен поломкой: слово ловится во всех формах и не ловится в «клиент», «солидный»", () => {
