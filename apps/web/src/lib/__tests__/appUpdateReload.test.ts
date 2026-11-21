@@ -6,6 +6,7 @@ import {
   clearUpdateAttempts,
   isUpdateLoopSuppressed,
   MAX_ATTEMPTS,
+  MAX_TOTAL_ATTEMPTS,
   noteUpdateAttempt,
   resetAttemptsIfUpdated,
   UNKNOWN_TARGET,
@@ -170,7 +171,7 @@ describe("applyAppUpdate", () => {
     const updateServiceWorker = vi.fn().mockResolvedValue(undefined);
     const reload = vi.fn();
     const navigateFresh = vi.fn();
-    const reportGiveUp = vi.fn<(message: string, details: string) => void>();
+    const reportGiveUp = vi.fn<(message: string, details: string) => boolean>(() => true);
     const opts = {
       needRefresh: false,
       updateServiceWorker,
@@ -226,6 +227,22 @@ describe("applyAppUpdate", () => {
     expect(reload.mock.calls.length + navigateFresh.mock.calls.length).toBeLessThanOrEqual(MAX_ATTEMPTS);
   });
 
+  /** Две ИЗВЕСТНЫЕ цели вперемешку (ревью #381: 40 перезагрузок из 40) — общий потолок на сборку вкладки. */
+  it("чередование v2/v3 за 40 открытий — не больше общего потолка перезагрузок", async () => {
+    const reload = vi.fn();
+    const navigateFresh = vi.fn();
+    const t0 = 1_000_000;
+    for (let i = 0; i < 40; i += 1) {
+      await applyAppUpdate({
+        needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa",
+        targetVersion: i % 2 ? "v3" : "v2", reload, navigateFresh, now: t0 + i * 1_000, reportGiveUp: vi.fn(async () => true),
+      });
+    }
+    // Число, а не константа модуля: сторож не должен ослабевать вместе с ней.
+    expect(MAX_TOTAL_ATTEMPTS).toBe(6);
+    expect(reload.mock.calls.length + navigateFresh.mock.calls.length).toBeLessThanOrEqual(6);
+  });
+
   it("настоящая новая версия сайта после неизвестной цели и v2 всё ещё запускает лестницу", async () => {
     const reload = vi.fn();
     const navigateFresh = vi.fn();
@@ -247,7 +264,7 @@ describe("applyAppUpdate", () => {
       ? new Response(JSON.stringify({ version: "site-9" }), { status: 200 })
       : new Response(html, { status: 200 }))));
     try {
-      const reportGiveUp = vi.fn<(message: string, details: string) => void>();
+      const reportGiveUp = vi.fn<(message: string, details: string) => boolean>(() => true);
       const opts = { needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", targetVersion: "site-9", reload: vi.fn(), navigateFresh: vi.fn(), reportGiveUp };
       for (let i = 0; i <= MAX_ATTEMPTS; i += 1) await applyAppUpdate(opts);
       await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(1));

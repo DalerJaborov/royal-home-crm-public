@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_WORK_DEFER_MS, useAppUpdateStore } from "../../store/appUpdate";
 import { checkAppVersionNow, startAppVersionPoll, startServiceWorkerUpdatePoll, SW_UPDATE_IDLE_MS, SW_UPDATE_TICK_MS } from "../appUpdate";
 import { runUpdateStep, RETRY_WHILE_BUSY_MS } from "../appUpdateFlow";
-import { ATTEMPT_WINDOW_MS, MAX_ATTEMPTS, noteUpdateAttempt } from "../appUpdateReload";
+import { applyAppUpdate, ATTEMPT_WINDOW_MS, MAX_ATTEMPTS, noteUpdateAttempt, resetGiveUpReportsForTests } from "../appUpdateReload";
 import { noteServerBuild, onServerBuildChange, resetServerBuildState } from "../appVersion";
 
 /**
@@ -166,6 +166,66 @@ describe("перезапуски API не блокируют настоящее 
     const state = useAppUpdateStore.getState();
     expect(state.staleBuild).toBe(false);
     expect(state.blocked).toBe(false);
+  });
+});
+
+/**
+ * ДОКЛАД О СДАЧЕ — ТЕМ ПУТЁМ, ЧТО В БРАУЗЕРЕ (22.11.2026, ревью #381). При закрытом
+ * окне runUpdateStep включает плашку и applyAppUpdate не зовёт; доклад жил только в
+ * applyAppUpdate и потому не уходил никогда. «Жизнь» страницы здесь — как в
+ * UpdatePrompt: новый стор, version.json сказал «v2», шаг решения, подмена.
+ */
+describe("сдача докладывается из шага решения", () => {
+  beforeEach(() => {
+    installBrowserStubs();
+    vi.stubGlobal("window", { ...window, location: { pathname: "/messages", search: "", hash: "" } });
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("нет сети в тесте"); }));
+    useAppUpdateStore.getState().reset();
+    resetGiveUpReportsForTests();
+  });
+  afterEach(() => {
+    useAppUpdateStore.getState().reset();
+    vi.unstubAllGlobals();
+  });
+
+  async function pageLife(now: number, reportGiveUp: (m: string, d: string) => boolean | Promise<boolean>, spies: { reload: () => void; navigateFresh: (u: string) => void }) {
+    const store = useAppUpdateStore.getState();
+    store.reset();
+    store.setServerVersion("v2", MY_BUILD);
+    step({ now, reportGiveUp });
+    if (!useAppUpdateStore.getState().applying) return "blocked";
+    return applyAppUpdate({ needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: MY_BUILD, targetVersion: "v2", now, reportGiveUp, ...spies });
+  }
+
+  it("шесть открытий: reload, сброс, сброс, плашка — ровно одна запись о сдаче", async () => {
+    const reportGiveUp = vi.fn(async (_message: string, _details: string) => true);
+    const spies = { reload: vi.fn(), navigateFresh: vi.fn() };
+    const branches: string[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      branches.push(await pageLife(T0 + i * 1_000, reportGiveUp, spies));
+      await flush();
+    }
+    expect(branches).toEqual(["reload", "hard-reset", "hard-reset", "blocked", "blocked", "blocked"]);
+    await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(1));
+    expect(reportGiveUp.mock.calls[0][0]).toContain("Сдача");
+    expect(reportGiveUp.mock.calls[0][0]).toContain("(сервер: v2)");
+  });
+
+  it("запись не принята (сессия ещё не восстановлена) — доложит в следующий раз", async () => {
+    const reportGiveUp = vi.fn<(m: string, d: string) => Promise<boolean>>()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    const spies = { reload: vi.fn(), navigateFresh: vi.fn() };
+    for (let i = 0; i < 3; i += 1) await pageLife(T0 + i * 1_000, reportGiveUp, spies);
+    await pageLife(T0 + 4_000, reportGiveUp, spies);
+    await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(1));
+    await flush();
+    await pageLife(T0 + 5_000, reportGiveUp, spies);
+    await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(2));
+    await flush();
+    await pageLife(T0 + 6_000, reportGiveUp, spies);
+    await flush();
+    expect(reportGiveUp).toHaveBeenCalledTimes(2);
   });
 });
 

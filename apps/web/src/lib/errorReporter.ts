@@ -25,18 +25,23 @@ function withBuild(stack?: string): string | undefined {
   return stack ? `сборка ${build}\n${stack}` : `сборка ${build}`;
 }
 
-function report(message: string, stack?: string) {
-  if (!useAuthStore.getState().hasSession) return;
-  if (totalSent >= MAX_PER_SESSION) return;
+/** Отправка записи; промис — принял ли её сервер (false — не ушла: нет сессии, предел, повтор, сеть). */
+function send(message: string, stack?: string): Promise<boolean> {
+  if (!useAuthStore.getState().hasSession) return Promise.resolve(false);
+  if (totalSent >= MAX_PER_SESSION) return Promise.resolve(false);
   const key = message.slice(0, 200);
   const last = sentAt.get(key);
-  if (last && Date.now() - last < DEDUPE_MS) return;
+  if (last && Date.now() - last < DEDUPE_MS) return Promise.resolve(false);
   sentAt.set(key, Date.now());
   totalSent++;
-  api("/errors", {
+  return api("/errors", {
     method: "POST",
     body: { message: message.slice(0, 2000), stack: withBuild(stack)?.slice(0, 8000), url: location.pathname },
-  }).catch(() => {});
+  }).then(() => true, () => false);
+}
+
+function report(message: string, stack?: string) {
+  void send(message, stack);
 }
 
 /**
@@ -68,10 +73,12 @@ export function reportEmptyListGuard(message: string): void {
  * передаётся ЯВНО вторым полем, а не через error.stack: Safari и Chrome на iOS
  * отдают в stack только адреса строк, и подробности с телефонов терялись — ровно
  * с тех, ради которых снимок собирается. Сообщение — ключ дедупа, поэтому
- * переменные факты живут в `details`.
+ * переменные факты живут в `details`. Промис — приняли ли запись: без
+ * восстановленной сессии (старт вкладки) она не уходит, и лестница доложит позже
+ * (lib/appUpdateReload.ts, reportUpdateGiveUpOnce ставит отметку только по true).
  */
-export function reportUpdateGiveUp(message: string, details: string): void {
-  report(message, details);
+export function reportUpdateGiveUp(message: string, details: string): Promise<boolean> {
+  return send(message, details);
 }
 
 export function initErrorReporter() {
