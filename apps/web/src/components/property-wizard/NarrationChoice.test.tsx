@@ -5,6 +5,7 @@ import type { NarrationOptionsView } from "@royal-home/shared";
 vi.mock("../../lib/api", () => ({ api: vi.fn() }));
 import { NarrationChoice, narrationChoiceForCreate } from "./NarrationChoice";
 import { parseVoiceLines } from "../settings/NarrationSettingsPanel";
+import { narrationTextRejected, narrationTextRejectedMessage } from "./saveDecision";
 
 const facts = { type: "APARTMENT", rooms: 2, areaSqm: "62", floor: 3, totalFloors: 9, district: "Сино" };
 const options: NarrationOptionsView = {
@@ -27,11 +28,22 @@ describe("wizard narration choice", () => {
     const html = render();
     expect(html).toContain("Квартира барои фурӯш. Ду ҳуҷра. Масоҳаташ шасту ду метри мураббаъ.");
     expect(html).toContain("Женские"); expect(html).toContain("Мужские");
-    expect(html).toContain("придёт вам на прослушивание");
+    // «Сохранить» = одобрить (21.11.2026): подпись говорит правду, просьб «прослушайте» потом нет.
+    expect(html).toContain("Озвучка уйдёт монтажёру сразу после сохранения. Послушайте её здесь перед сохранением.");
+    expect(html).not.toContain("в CRM и в Шабнам");
+    expect(html).toContain("▶ Прослушать");
   });
   it("switches language with the template and keeps the agent's own text", () => {
     expect(render({ templateId: "ru-short" })).toContain("В продаже квартира. Площадь шестьдесят два метров.");
     expect(render({ script: "Свой текст агента про квартиру" })).toContain("Свой текст агента про квартиру");
+  });
+  it("свой текст с долларами (ревью 21.11): предупреждение до сохранения и честная строка после", () => {
+    const html = render({ script: "Квартира за восемьдесят пять тысяч долларов" });
+    expect(html).toContain("Цену в озвучке говорим только в сомони");
+    expect(html).toContain("озвучка соберётся по шаблону и придёт вам на прослушивание");
+    expect(narrationTextRejected({ id: "p", narrationTextRejected: "Цену в озвучке говорим только в сомони" })).toBe("Цену в озвучке говорим только в сомони");
+    expect(narrationTextRejected({ id: "p" })).toBeNull();
+    expect(narrationTextRejectedMessage("Причина")).toBe("Ваш текст озвучки не принят. Причина. Озвучка соберётся по шаблону и придёт вам на прослушивание.");
   });
   it("sends only meaningful choices with the create request", () => {
     expect(narrationChoiceForCreate({})).toBeUndefined();
