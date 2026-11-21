@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 786,
-  "forks": 4200,
+  "endpoints": 787,
+  "forks": 4201,
   "mounts": 88,
   "cron": 144,
   "jobs": 34,
@@ -43187,6 +43187,63 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/seen",
+   "mount": "/api/v1/me/notifications",
+   "full": "/api/v1/me/notifications/seen",
+   "file": "apps/api/src/routes/notifications.ts",
+   "router": "notificationsRouter",
+   "top": "apps/api/src/routes/notifications.ts::notificationsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = seenSchema.safeParse(req.body ?? {});",
+     "a": [
+      "проверяет данные схемой seenSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный список уведомлений\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверный список уведомлений»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.age…",
+     "a": [
+      "меняет в базе: notification"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, count: result.count });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/",
    "mount": "/api/v1/me/notifications",
@@ -43235,7 +43292,7 @@
     },
     {
      "k": "do",
-     "t": "const [items, total, unreadCount, pinned, approvalCount, criticalCount] = await Promise.all([ prisma.notifica…",
+     "t": "const [items, total, unreadCount, unseenCount, pinned, approvalCount, criticalCount] = await Promise.all([ pr…",
      "a": [
       "читает в базе: notification",
       "считает в базе: notification"
@@ -43260,7 +43317,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: itemsWithOffers, unreadCount, pinned: pinnedWithOffers, approvalCount, criticalCount, hasMo…",
+     "t": "res.json({ items: itemsWithOffers, unreadCount, unseenCount, listedAt: listedAt.toISOString(), pinned: pinned…",
      "a": [
       "ответ 200"
      ],
