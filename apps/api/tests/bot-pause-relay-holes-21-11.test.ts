@@ -16,7 +16,18 @@ vi.mock("../src/lib/leadOnlyConfig.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/leadOnlyConfig.js")>();
   return { ...actual, loadLeadOnlyConfig: async () => ({ ...(await actual.loadLeadOnlyConfig()), ...config }) };
 });
-const { deliveryPauseFor, pauseConversationsAfterRealContact, OPERATOR_REPLY_PAUSE_MS } = await import("../src/lib/conversationDelivery.js");
+// Поиск переписки по адресу Meta (пространства адресов, #344) — не предмет этого теста: подставляем найденную переписку.
+const scoped = { id: "" };
+vi.mock("../src/lib/customerConversationScope.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/customerConversationScope.js")>()),
+  findScopedBotConversation: async () => (scoped.id ? { id: scoped.id, accountId: null } : null),
+}));
+const { deliveryPauseFor: deliveryPauseForBase, defaultPauseForSender, pauseConversationsAfterRealContact, OPERATOR_REPLY_PAUSE_MS } =
+  await import("../src/lib/conversationDelivery.js");
+const { pauseBotForOtherThreadOwner } = await import("../src/lib/threadOwnerPause.js");
+// Дверь срока живёт в lib/deliveryPause.ts (вынесена #344, без отправки); срок по умолчанию передаёт отправка — как здесь.
+const deliveryPauseFor = (target: { kind: "bot"; id: string }, override: Date | undefined, sender: typeof agent) =>
+  deliveryPauseForBase(target, override, sender, () => defaultPauseForSender(target as never, sender));
 const { app } = await import("../src/app.js");
 
 const runId = `${Date.now()}`.slice(-7);
@@ -61,6 +72,24 @@ describe("ответ сотрудника: «Бессрочно» из инте�
     config.enabled = false;
     try { expect(await deliveryPauseFor({ kind: "bot", id: wa } as never, forever, agent)).toEqual({ until: forever, keepLonger: false }); }
     finally { config.enabled = true; }
+  });
+});
+
+describe("переписку ведёт другое приложение (#344, lib/threadOwnerPause.ts) — тоже эстафета, и тревога паузы сначала", () => {
+  it("режим «только заявки»: пауза на срок эстафеты, а не 12 часов; отметка тревоги «бот на паузе» сброшена", async () => {
+    const account = await prisma.messengerAccount.create({ data: { channel: "INSTAGRAM", externalId: `holes-acc-${runId}`, title: "Проверка эстафеты", token: "x" } });
+    try {
+      const peer = `holes-peer-${runId}`;
+      const conv = await conversation("INSTAGRAM", { pauseAlertSentAt: new Date() });
+      scoped.id = conv;
+      expect(await pauseBotForOtherThreadOwner({ accountId: account.id, peer, code: 10, subcode: 2018300 })).toEqual({ paused: true });
+      const row = await prisma.botConversation.findUniqueOrThrow({ where: { id: conv }, select: { pausedUntil: true, pauseAlertSentAt: true } });
+      expect(near(row.pausedUntil, RELAY_MS)).toBe(true);
+      expect(row.pauseAlertSentAt).toBeNull();
+    } finally {
+      scoped.id = "";
+      await prisma.messengerAccount.deleteMany({ where: { id: account.id } });
+    }
   });
 });
 
