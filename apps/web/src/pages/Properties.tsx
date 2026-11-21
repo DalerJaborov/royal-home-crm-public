@@ -32,7 +32,7 @@ import { usePropertiesHealth } from "../hooks/usePropertiesHealth";
 import type { PropertyHealthBrief } from "@royal-home/shared";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
-import { Rh2OfflineState, Rh2RetryingNote, loadView } from "../components/rh2/Rh2ErrorState";
+import { Rh2ErrorState, Rh2OfflineState, Rh2RetryingNote, loadView } from "../components/rh2/Rh2ErrorState";
 
 import { Pagination } from "../components/Pagination";
 import { formatMoney, PROPERTY_TYPE_LABELS, pluralizeRu } from "../lib/format";
@@ -80,7 +80,8 @@ export function Properties() {
   const canPublish = can("properties.publish");
   // Вкладка «Изменения на сайте» (перенос меню 15.09.2026) — тот же счётчик и
   // право, что в lib/navigation.ts.
-  const { data: siteNotifications } = useSiteNotifications({ enabled: can("siteChanges.view") });
+  const siteQuery = useSiteNotifications({ enabled: can("siteChanges.view") });
+  const siteNotifications = siteQuery.data;
   // Удаление партией — то же право, что у одиночной корзины на карточке
   // (properties.delete). Галочки в списке нужны обеим кнопкам, поэтому выбор
   // показывается тому, у кого есть хотя бы одна из них.
@@ -91,13 +92,16 @@ export function Properties() {
   // тем же эндпоинтом (properties?status=PENDING_REVIEW), не новым: total даёт
   // честное число без выдумывания, а enabled=canModerate не гоняет его зря.
   const canModerate = can("properties.moderate");
-  const { data: pendingReview } = useProperties({ status: "PENDING_REVIEW" }, canModerate);
+  const pendingQuery = useProperties({ status: "PENDING_REVIEW" }, canModerate);
+  const pendingReview = pendingQuery.data;
   // Сводная плашка (показы за 30 дней, просрочка этапа по всему каталогу) —
   // отдельный лёгкий запрос, не завязан на текущий фильтр списка.
-  const { data: summary } = usePropertiesSummary();
+  const summaryQuery = usePropertiesSummary();
+  const summary = summaryQuery.data;
   // Объекты, переданные мне и ещё не принятые (PropertyOwnerCard.tsx на карточке
   // объекта показывает то же самое, здесь — сводкой над списком и чипом на строке).
-  const { data: handoverPending } = useHandoverPendingProperties();
+  const handoverQuery = useHandoverPendingProperties();
+  const handoverPending = handoverQuery.data;
   const handoverPendingCount = handoverPending?.length ?? 0;
   // Телефон/планшет с пальцем получает экран прототипа design_handoff
   // (mobile-06-objects), десктоп остаётся на таблице — раскладки принципиально
@@ -235,10 +239,11 @@ export function Properties() {
   // кроме самой страницы. Один `data` на обе ветки — мобильную и широкую —
   // они делят один и тот же запрос строкой выше.
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
-  const { data: headPage } = useProperties(
+  const headQuery = useProperties(
     { ...filters, page: 1, q: debouncedQuery, areaMin: debouncedAreaMin, areaMax: debouncedAreaMax, priceMin: debouncedPriceMin, priceMax: debouncedPriceMax },
     (filters.page ?? 1) > 1
   );
+  const headPage = headQuery.data;
   /**
    * Удалённые в Корзину — прячем из ленты сразу (02.10.2026). После удаления
    * перечитываются только открытая страница и первая; средние накопленные
@@ -260,7 +265,14 @@ export function Properties() {
   const feedData = data ? { ...data, items: feedItems } : data;
   // Светофор у каждого объекта ленты — пачками, не по строке (24.09.2026).
   const health = usePropertiesHealth(feedItems.map((p) => p.id));
-  const { data: districts } = useDistricts();
+  const districtsQuery = useDistricts();
+  const districts = districtsQuery.data;
+  // Побочные запросы каталога (счётчики, сводка, районы, первая страница): упали — одна строка словами и «Повторить»,
+  // сам список работает. Есть данные — их не трогаем (loadView даёт error только когда данных нет).
+  const sideViews = [loadView(siteQuery), loadView(pendingQuery), loadView(summaryQuery), loadView(handoverQuery), loadView(headQuery), loadView(districtsQuery)];
+  const retrySide = () => {
+    for (const q of [siteQuery, pendingQuery, summaryQuery, handoverQuery, headQuery, districtsQuery]) if (loadView(q) === "error") void q.refetch();
+  };
   const syncToSite = useSyncToSite();
   const bulkTrash = useBulkTrashProperties();
   const navigate = useNavigate();
@@ -768,6 +780,9 @@ export function Properties() {
 
           {/* Первый запрос не прошёл, идут повторы (окно `RETRY_WINDOW_MS`, lib/queryClient.ts): сразу сказать словами, а не молча
               крутить серые плитки (съёмка экранов 20.11). */}
+          {sideViews.includes("error") && !error && (
+            <Rh2ErrorState message="Часть данных каталога (счётчики, сводка, районы) не загрузилась. Список ниже работает." onRetry={retrySide} />
+          )}
           {isLoading && !error && failureCount > 0 && (
             <Rh2RetryingNote onRetry={() => void refetch()} />
           )}

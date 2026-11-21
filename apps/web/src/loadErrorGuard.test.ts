@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -29,11 +30,12 @@ function walk(dir: URL, accept: (name: string) => boolean, out: string[] = []): 
   return out;
 }
 
-const READ_CALL = /\b(useQuery|useInfiniteQuery|useQueries|useAccumulatedPages)\b/;
+// useAccumulatedPages не запрос: склеивает страницы, уже полученные другими запросами (их ошибку читает сам запрос).
+const READ_CALL = /\b(useQuery|useInfiniteQuery|useQueries)\b/;
 
 /** Имена хуков-чтения: из hooks/ и объявленные в любом файле (в сегменте есть useQuery и т. п.). Мутации не попадают. */
 export function queryHookNames(): Set<string> {
-  const names = new Set<string>(["useQuery", "useInfiniteQuery", "useQueries", "useAccumulatedPages"]);
+  const names = new Set<string>(["useQuery", "useInfiniteQuery", "useQueries"]);
   for (const file of walk(SRC, (n) => /\.tsx?$/.test(n) && !/\.test\./.test(n))) {
     const source = readFileSync(file, "utf8");
     for (const segment of source.split(/^(?=export |function |const use)/m)) {
@@ -111,7 +113,26 @@ const REASONED: Record<string, string> = {
   "components/look/home/blocks/director.tsx": "ошибку снимка пульта блоки показывают через blockState(d) / loadView(d); два счётчика «на проверке» без скелета",
 };
 
+/** Осознанные исключения по ОДНОМУ запросу (ключ «файл::запрос»), с причиной; файловые — в REASONED выше. */
+const REASONED_KEYS: Record<string, string> = {
+  "pages/Properties.tsx::health=usePropertiesHealth": "значок состояния у строки: нет значка — нет значка; упавшие побочные запросы каталога показывает общая строка",
+};
+
 const baseline: Set<string> = new Set(existsSync(BASELINE_URL) ? (JSON.parse(readFileSync(BASELINE_URL, "utf8")) as string[]) : []);
+
+/** База в `origin/main` (как `scripts/audit-look.mjs`): долг растёт только против неё красным. null — main недоступен (нет origin). */
+export function mainBaseline(): Set<string> | null {
+  try {
+    const text = execFileSync("git", ["show", "origin/main:apps/web/src/loadErrorGuard.baseline.json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], cwd: fileURLToPath(SRC) });
+    return new Set(JSON.parse(text) as string[]);
+  } catch {
+    return null;
+  }
+}
+/** Ключи, которых нет в main: рост долга. */
+export function baselineGrowth(current: Iterable<string>, main: Set<string>): string[] {
+  return [...current].filter((key) => !main.has(key));
+}
 
 const rel = (file: string) => file.split("/src/")[1];
 const screens = walk(SRC, (n) => /\.tsx$/.test(n) && !/\.test\./.test(n)).filter((f) => /^(pages|components)\//.test(rel(f)));
@@ -140,12 +161,26 @@ describe("сторож К14, часть 1: каждый запрос данны�
   it("новый запрос без обработки ошибки — красное (кроме долга в baseline и исключений с причиной)", () => {
     expect(readers).toBeGreaterThan(300);
     if (process.env.UPDATE_LOAD_ERROR_BASELINE === "1") {
-      const debt = [...current].filter(([key, ok]) => !ok && !(key.split("::")[0] in REASONED)).map(([key]) => key).sort();
+      // Только СЖАТИЕ: в файл попадает долг, который уже есть в origin/main. Новое молча не вписывается (его надо чинить).
+      const main = mainBaseline();
+      if (!main) throw new Error("origin/main недоступен: обновить базу нельзя (git fetch origin)");
+      const debt = [...current].filter(([key, ok]) => !ok && !(key.split("::")[0] in REASONED) && !(key in REASONED_KEYS) && main.has(key)).map(([key]) => key).sort();
       writeFileSync(BASELINE_URL, JSON.stringify(debt, null, 2) + "\n");
       return;
     }
-    const bad = [...current].filter(([key, ok]) => !ok && !baseline.has(key) && !(key.split("::")[0] in REASONED)).map(([key]) => key);
+    const bad = [...current].filter(([key, ok]) => !ok && !baseline.has(key) && !(key.split("::")[0] in REASONED) && !(key in REASONED_KEYS)).map(([key]) => key);
     expect(bad, "запрос без обработки ошибки: добавьте isError/loadView или (с причиной) REASONED").toEqual([]);
+  });
+
+  it("долг не растёт против origin/main: новых ключей в базе нет", () => {
+    const main = mainBaseline();
+    if (!main) return; // нет origin (клон без remote): сверять не с чем, в CI он есть
+    expect(baselineGrowth(baseline, main), "новый долг вписан в baseline: почините запрос (isError / loadView), а не базу").toEqual([]);
+  });
+
+  it("сверка с main ловит рост (проверена поломкой)", () => {
+    expect(baselineGrowth(["a::x", "b::y"], new Set(["a::x"]))).toEqual(["b::y"]);
+    expect(baselineGrowth(["a::x"], new Set(["a::x", "b::y"]))).toEqual([]);
   });
 
   it("долг только убывает: запись в baseline либо всё ещё без обработки, либо удалена", () => {
@@ -189,24 +224,36 @@ describe("сторож К14, часть 1: каждый запрос данны�
   });
 });
 
-/** Названия, под которыми `isError` запроса читается в файле: `q.isError`, `isError`, `isError: alias`. */
-function errorNames(source: string, hooks: Set<string>): RegExp[] {
-  const names: RegExp[] = [];
+/** Как читается `isError` запроса и как выглядит «данных нет» ЭТОГО ЖЕ запроса (`!q.…` или `!<имя data>`). */
+type ErrorName = { re: RegExp; ok: RegExp };
+function errorNames(source: string, hooks: Set<string>): ErrorName[] {
+  const names: ErrorName[] = [];
   for (const m of source.matchAll(ASSIGN)) {
     if (!hooks.has(m[2])) continue;
     const lhs = m[1];
     if (lhs.startsWith("{")) {
       const found = /\bisError(?:\s*:\s*([A-Za-z_$][\w$]*))?/.exec(lhs);
-      if (found) names.push(new RegExp(`(?<![.\\w$])${esc(found[1] ?? "isError")}\\b`));
-    } else names.push(new RegExp(`\\b${esc(lhs)}\\??\\.isError\\b`));
+      if (!found) continue;
+      const name = esc(found[1] ?? "isError");
+      const dataName = /\bdata(?:\s*:\s*([A-Za-z_$][\w$]*))?/.exec(lhs);
+      const data = dataName ? esc(dataName[1] ?? "data") : null;
+      names.push({
+        re: new RegExp(`(?<![.\\w$])${name}\\b`),
+        // `isError && !data` — данные ЭТОГО запроса; чужая переменная не годится.
+        ok: data ? new RegExp(`(?<![.\\w$])${name}\\s*&&\\s*!\\s*${data}\\b`) : /(?!)/,
+      });
+    } else {
+      const q = esc(lhs);
+      names.push({ re: new RegExp(`\\b${q}\\??\\.isError\\b`), ok: new RegExp(`\\b${q}\\??\\.isError\\s*&&\\s*!\\s*${q}\\b`) });
+    }
   }
   return names;
 }
 
 /**
- * Строки, где ошибка запроса читается мимо общей функции и без «данных нет»: такая проверка прячет уже загруженные
- * данные при фоновой ошибке. Разрешено: через `loadView(` / `blockState(` / `Rh2LoadProblem`, `alert={…}` на плитке
- * (подсветка, данные не прячет), `isError && !…` (явное «данных нет»), саму деструктуризацию.
+ * Строки, где ошибка запроса читается мимо общей функции и без «данных нет» ЭТОГО ЖЕ запроса: такая проверка прячет
+ * уже загруженные данные при фоновой ошибке. Разрешено: `loadView(` / `blockState(` / `Rh2LoadProblem`, `alert={…}` на плитке
+ * (подсветка, данные не прячет), `isError && !<данные того же запроса>`, саму деструктуризацию.
  */
 export function dataHidingErrorLines(source: string, hooks: Set<string>): string[] {
   const names = errorNames(source, hooks);
@@ -214,11 +261,12 @@ export function dataHidingErrorLines(source: string, hooks: Set<string>): string
   const bad: string[] = [];
   source.split("\n").forEach((line, index) => {
     if (/^\s*(\/\/|\*|\/\*|\{\/\*)/.test(line)) return;
-    if (!names.some((re) => re.test(line))) return;
+    const hit = names.filter((n) => n.re.test(line));
+    if (hit.length === 0) return;
     if (/loadView\(|blockState\(|Rh2LoadProblem|alert=/.test(line)) return;
     if (/=\s*use[A-Za-z0-9]+/.test(line)) return;
     if (/^\s*isError(\s*:\s*[\w$]+)?,?\s*$/.test(line)) return;
-    if (/\b(isError|[A-Za-z_$][\w$]*Error)\s*&&\s*!/.test(line)) return;
+    if (hit.every((n) => n.ok.test(line))) return;
     bad.push(`${index + 1}: ${line.trim().slice(0, 140)}`);
   });
   return bad;
@@ -251,6 +299,13 @@ describe("сторож К14, часть 2: ошибка запроса не пр
     expect(dataHidingErrorLines(ok1, hooks)).toEqual([]);
     const ok2 = "const q = useClients({});\nif (q.isError && !q.data) return <Err />;";
     expect(dataHidingErrorLines(ok2, hooks)).toEqual([]);
+    // «Данных нет» должно быть данными ЭТОГО запроса: чужая переменная или чужой запрос — красное.
+    const foreign = "const q = useClients({});\nconst other = useProperty(id);\nif (q.isError && !other.data) return <Err />;";
+    expect(dataHidingErrorLines(foreign, hooks)).toHaveLength(1);
+    const foreignDestructured = "const { data, isError } = useClients({});\nif (isError && !items) return <Err />;";
+    expect(dataHidingErrorLines(foreignDestructured, hooks)).toHaveLength(1);
+    const okAlias = "const { data: team, isError: teamError } = useTeam();\nif (teamError && !team) return <Err />;";
+    expect(dataHidingErrorLines(okAlias, hooks)).toEqual([]);
     const ok3 = "const { data, isError } = useClients({});\nreturn <RhTile alert={isError} />;";
     expect(dataHidingErrorLines(ok3, hooks)).toEqual([]);
   });

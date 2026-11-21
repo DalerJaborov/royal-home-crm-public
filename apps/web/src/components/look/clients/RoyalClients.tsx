@@ -5,7 +5,7 @@ import { cleanClientTabList, type CleanClientTab } from "../../clean/CleanClient
 import { RhTabs } from "../ui";
 import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
-import { pillTone } from "../tileTone";
+import { overdueStepTone, pillTone } from "../tileTone";
 
 /**
  * РАЗДЕЛ «КЛИЕНТЫ» В «НОВОМ ВИДЕ» (пачка clients, 18.11.2026).
@@ -80,7 +80,7 @@ export function RoyalClientRow({ id, name, href, avatar, identity, request, sour
         {/* Одна дата с глаголом (пачка D1): есть срок шага — срок («срок …» / «просрочено · …»),
             нет — когда связывались. Две даты столбиком без подписи читались загадкой
             (critic-uiux P1-3); последний контакт при сроке есть в карточке клиента. */}
-        <span className="ry-crow-when" data-tone={overdue || (!deadline && staleContact) ? pillTone("overdue") : undefined}>
+        <span className="ry-crow-when" data-tone={overdue ? overdueStepTone(Date.now() - new Date(nextActionDate!).getTime()) : !deadline && staleContact ? pillTone("overdue") : undefined}>
           {deadline
             ? <span className="ry-crow-text ry-crow-deadline">{overdue ? "просрочено · " : "срок "}<span className="ry-crow-nowrap">{deadline}</span></span>
             : <span className="ry-crow-hint ry-crow-last">{staleContact ? "Давно не связывались · " : "связывались "}<span className="ry-crow-nowrap">{lastContact}</span></span>}

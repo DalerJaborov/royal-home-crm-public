@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { CALL_NOW_CRIT_AFTER_MS, clientActionPillTone, pillTone, pillToneOf, scorePillTone, type PillMeaning } from "./tileTone";
+import { CALL_NOW_CRIT_AFTER_MS, clientActionPillTone, overdueStepTone, pillTone, pillToneOf, scorePillTone, type PillMeaning } from "./tileTone";
 
 /**
  * ТОН ПИЛЮЛИ — ОДНА ФУНКЦИЯ (К13, аудит 20.11.2026): обычное нейтрально, жёлтое — сегодня, красное — просрочено,
@@ -40,6 +40,10 @@ describe("pillTone", () => {
     expect(clientActionPillTone({ id: "call-now", tone: "warn" })).toBe("warn");
     expect(clientActionPillTone({ id: "call-now", tone: "warn", overdueMs: 3 * 3600_000 })).toBe("warn");
     expect(clientActionPillTone({ id: "call-now", tone: "warn", overdueMs: CALL_NOW_CRIT_AFTER_MS })).toBe("crit");
+    // Дата «просрочено» и чип — одна функция: жёлтый до суток, красный от суток.
+    expect(overdueStepTone(60_000)).toBe("warn");
+    expect(overdueStepTone(CALL_NOW_CRIT_AFTER_MS - 1)).toBe("warn");
+    expect(overdueStepTone(CALL_NOW_CRIT_AFTER_MS)).toBe("crit");
     expect(clientActionPillTone({ id: "reply", tone: "warn" })).toBe("warn");
     expect(clientActionPillTone({ id: "first-call", tone: "warn" })).toBe("warn");
     expect(clientActionPillTone({ id: "accept", tone: "warn" })).toBe("warn");

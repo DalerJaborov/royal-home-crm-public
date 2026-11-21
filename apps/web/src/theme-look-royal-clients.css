@@ -283,6 +283,7 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-deadline] .ry-crow-when { display: block; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-deadline { font-weight: 600; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-when[data-tone="crit"] > * { color: var(--rh-ui-crit-text); font-weight: 600; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-when[data-tone="warn"] > * { color: var(--rh-ui-warn); font-weight: 600; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-stale { display: block; color: var(--rh-ui-crit-text); font-weight: 600; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-label-phone,
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-label {

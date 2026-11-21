@@ -1,4 +1,4 @@
-import { MutationCache, QueryClient } from "@tanstack/react-query";
+import { MutationCache, QueryClient, onlineManager } from "@tanstack/react-query";
 import { toast } from "../store/toast";
 import { ApiError } from "./apiError";
 
@@ -138,3 +138,21 @@ export const queryClient = new QueryClient({
     },
   }),
 });
+
+/**
+ * ХОЛОДНЫЙ СТАРТ БЕЗ СЕТИ (ревью #346, хвост). react-query считает себя «онлайн» с первой секунды и узнаёт об обрыве
+ * только по событию offline; если приложение открыли уже без связи, события не будет, запросы уйдут и упадут ошибкой,
+ * а не встанут на паузу. Берём начальное состояние из navigator.onLine и следим за online/offline сами: без связи
+ * экран сразу говорит «Нет связи» (loadView), а запросы сами уходят, когда она появилась.
+ */
+export function trackOnlineState(target: Pick<Window, "addEventListener" | "removeEventListener"> = window, nav: Pick<Navigator, "onLine"> = navigator): void {
+  onlineManager.setEventListener((setOnline) => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    target.addEventListener("online", on);
+    target.addEventListener("offline", off);
+    return () => { target.removeEventListener("online", on); target.removeEventListener("offline", off); };
+  });
+  onlineManager.setOnline(nav.onLine !== false);
+}
+if (typeof window !== "undefined" && typeof navigator !== "undefined") trackOnlineState();
