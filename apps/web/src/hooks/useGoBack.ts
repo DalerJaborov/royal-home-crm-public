@@ -1,36 +1,28 @@
 import { useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { decideBack } from "../lib/goBack";
 
 /**
- * «Назад», который всегда возвращает В ПРИЛОЖЕНИЕ (21.09.2026).
+ * «Назад», который всегда возвращает В ПРИЛОЖЕНИЕ — единственная дверь (решение и история — lib/goBack.ts).
  *
- * Владелец: «поработай отдельно над всеми кнопками „Назад“ — где заходишь
- * внутрь карточки или ещё где-то делаешь назад, нажимаешь стрелку и так далее».
+ * 21.09.2026: `window.history.length > 1` врал — он считает и страницы ДО приложения, и «Назад» уносил
+ * обратно в Telegram. 21.11.2026: решение вынесено в lib/goBack.ts (номер записи `idx` React Router вместо
+ * одного ключа `"default"`), сюда переведены стрелка шапки, жест от края и переписка.
  *
- * ПОЧЕМУ ПРЕЖНЯЯ ПРОВЕРКА ВРАЛА. Везде стояло `window.history.length > 1 ?
- * navigate(-1) : navigate(fallback)`, а кое-где (PropertyForm.tsx) — голый
- * `navigate(-1)` без всякой проверки. `history.length` считает ВСЮ историю
- * вкладки, включая страницы ДО нашего приложения. Открыли CRM по ссылке из
- * Telegram или из поиска — длина уже больше единицы, и «Назад» уносит из
- * приложения наружу, обратно в мессенджер. В установленном приложении (PWA)
- * это выглядит как «кнопка не работает»: уходить некуда, экран просто стоит.
+ * `fallback` — логичный родитель экрана, обязательный нарочно: «назад» без него и есть та кнопка, которая
+ * иногда никуда не ведёт. `canPop: false` — экран знает, что предыдущая запись истории не его родитель.
  *
- * ЧТО ВМЕСТО. `location.key` у React Router — это метка записи истории. У самой
- * первой записи сессии он равен `"default"`; у всех, куда перешли уже внутри
- * приложения, — случайная строка. То есть ключ отвечает ровно на нужный
- * вопрос: «попали мы сюда переходом внутри CRM или это первый открытый экран?».
- * Первый экран — идём на запасной путь, свой у каждой страницы; всё остальное —
- * обычный шаг назад, с сохранением фильтров и места в списке.
- *
- * Запасной путь — обязательный аргумент нарочно: «назад» без него это и есть
- * та самая кнопка, которая иногда никуда не ведёт.
+ * Здесь же — единственный в приложении шаг по истории назад (`navigate(-1)`); сторож
+ * `src/lib/__tests__/goBackGuard.test.ts` не пускает его ни в один другой файл.
  */
-export function useGoBack(fallback: string): () => void {
+export function useGoBack(fallback: string, options: { canPop?: boolean } = {}): () => void {
   const navigate = useNavigate();
   const location = useLocation();
-  const isFirstEntry = location.key === "default";
+  const canPop = options.canPop ?? true;
   return useCallback(() => {
-    if (isFirstEntry) navigate(fallback, { replace: true });
-    else navigate(-1);
-  }, [isFirstEntry, navigate, fallback]);
+    const state = typeof window !== "undefined" ? (window.history.state as { idx?: unknown } | null) : null;
+    const step = decideBack(state, location.key, fallback, canPop);
+    if (step.kind === "history") navigate(-1);
+    else navigate(step.to, { replace: true });
+  }, [navigate, location.key, fallback, canPop]);
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { touchFromOwnDom } from "../lib/touchScrollTrap";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { isMotionDisabled } from "../lib/motionPolicy";
 
@@ -100,6 +101,8 @@ export function useSwipeToDismiss(enabled: boolean, onClose: () => void): SwipeT
     ref: setNode,
     handlers: {
       onTouchStart: (e) => {
+        // Касание во вложенном окне (портал) всплывает сюда по дереву React: внешнее окно не тянем.
+        if (!touchFromOwnDom(e)) { drag.current = null; return; }
         drag.current = {
           startY: e.touches[0].clientY,
           startTime: performance.now(),

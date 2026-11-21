@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readKeyboard, trackKeyboard } from "../keyboardInset";
+import { layoutViewportHeight, readKeyboard, trackKeyboard, visibleFrame } from "../keyboardInset";
 
 /**
  * Клавиатура телефона (21.11.2026, аудит К07): нижнее меню оставалось над ней на всех экранах с полем,
@@ -120,5 +120,40 @@ describe("trackKeyboard", () => {
     for (let i = 0; i < 6; i++) fire();
     expect(writes).toBe(after);
     off();
+  });
+});
+
+/**
+ * Кадр владельца с iPhone 21.11.2026 (owner-shots-21-11-1931/04-chat-keyboard.png): поле ввода улетело к верху,
+ * под ним пустота до клавиатуры. На iPhone `innerHeight` падает вместе с клавиатурой — по нему клавиатура
+ * «закрыта», и переписка стояла на top: 0 при видимой области, сдвинутой вниз.
+ */
+describe("каркас переписки по видимой области", () => {
+  it("высота layout viewport — большее из innerHeight и clientHeight: клавиатура iPhone innerHeight не обманет", () => {
+    expect(layoutViewportHeight({ innerHeight: 553 }, { documentElement: { clientHeight: 956 } })).toBe(956);
+    expect(readKeyboard(layoutViewportHeight({ innerHeight: 553 }, { documentElement: { clientHeight: 956 } }), { height: 553, offsetTop: 366 }).open).toBe(true);
+    // Старый расчёт по одному innerHeight на тех же цифрах клавиатуры не видел — это и была поломка.
+    expect(readKeyboard(553, { height: 553, offsetTop: 366 }).open).toBe(false);
+  });
+  it("Chrome без адресной строки: innerHeight выше clientHeight — берём innerHeight", () => {
+    expect(layoutViewportHeight({ innerHeight: 900 }, { documentElement: { clientHeight: 844 } })).toBe(900);
+  });
+  it("верх каркаса — сдвиг видимой области, высота — её высота, с клавиатурой и без", () => {
+    expect(visibleFrame({ height: 553, offsetTop: 366 }, 956)).toEqual({ top: 366, height: 553 });
+    expect(visibleFrame({ height: 844, offsetTop: 0 }, 844)).toEqual({ top: 0, height: 844 });
+  });
+  it("хвост закрывшейся клавиатуры (высота уже полная, сдвиг ещё старый) — верх 0, а не за низом окна", () => {
+    expect(visibleFrame({ height: 844, offsetTop: 396 }, 844)).toEqual({ top: 0, height: 844 });
+  });
+  it("резиновая прокрутка (отрицательный сдвиг) — верх 0; без visualViewport — высота окна", () => {
+    expect(visibleFrame({ height: 844, offsetTop: -30 }, 844)).toEqual({ top: 0, height: 844 });
+    expect(visibleFrame(null, 812)).toEqual({ top: 0, height: 812 });
+  });
+  it("экран слоя на телефоне = top − offsetTop: при каркасе по visibleFrame верх слоя всегда у верха экрана, низ — у клавиатуры", () => {
+    for (const vv of [{ height: 553, offsetTop: 366 }, { height: 508, offsetTop: 0 }, { height: 448, offsetTop: 300 }]) {
+      const box = visibleFrame(vv, 956);
+      expect(box.top - vv.offsetTop).toBe(0);
+      expect(box.top - vv.offsetTop + box.height).toBe(vv.height);
+    }
   });
 });
