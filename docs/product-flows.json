@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 793,
-  "forks": 4225,
+  "forks": 4226,
   "mounts": 89,
   "cron": 144,
   "jobs": 34,
@@ -11315,6 +11315,21 @@
      "t": "для каждого: const call of overdue",
      "a": [],
      "c": [
+      {
+       "k": "if",
+       "t": "staffOf(call.phone)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "continue;",
+         "a": [
+          "переходит к следующему"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "if",
        "t": "!calledBackIds.has(call.id)",
