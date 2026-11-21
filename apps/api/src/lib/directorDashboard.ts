@@ -494,7 +494,7 @@ export async function buildDirectorDashboard(q: DirectorDashboardQuery, viewer: 
   const [current, previous, cohort, lossReasons, speed, overdueTasks, agents, sources, plan] = await Promise.all([
     kpisFor(period, f, viewer, now, money),
     kpisFor(period.prev, f, viewer, now, money),
-    buildFunnelCohort(period, { investigationRole: viewer.investigationRole, seesMoney: viewer.seesMoney }, cohortScope(f)),
+    buildFunnelCohort(period, { investigationRole: viewer.investigationRole, seesMoney: viewer.seesMoney }, cohortScope(f), dbGate),
     lossReasonsFor(period, f),
     speedFor(period, f),
     countSpec(drillWhere("overdueTasks", period, f, viewer, now)),
@@ -690,9 +690,17 @@ export async function buildDirectorDrill(
   now: Date = new Date()
 ): Promise<DirectorDrillResponse> {
   const period = resolveDirectorPeriod(q, now);
-  const spec = withoutTrash(drillWhere(q.key, period, filtersOf(q), viewer, now), viewer);
+  const rawSpec = drillWhere(q.key, period, filtersOf(q), viewer, now);
+  const spec = withoutTrash(rawSpec, viewer);
   const money = await loadMoneyContext();
-  const [total, rows] = await Promise.all([countSpec(spec), drillRows(spec, q.limit, q.offset, viewer, money)]);
+  // Сделки и отказы у клиентов из Корзины плитка считает, а список без archive.view их скрывает: разницу
+  // показываем строкой «ещё N в Корзине», чтобы цифра сходилась со списком.
+  const trashKey = q.key === "deals" || q.key === "lost";
+  const [total, rows, rawTotal] = await Promise.all([
+    countSpec(spec),
+    drillRows(spec, q.limit, q.offset, viewer, money),
+    !viewer.seesArchive && trashKey ? countSpec(rawSpec) : Promise.resolve(null),
+  ]);
   const agentIds = [...new Set(rows.map((r) => r.agentId).filter((id): id is string => !!id))];
   const agents = agentIds.length
     ? await prisma.agent.findMany({ where: { id: { in: agentIds } }, select: { id: true, fullName: true }, take: 100 })
@@ -705,6 +713,7 @@ export async function buildDirectorDrill(
     limit: q.limit,
     offset: q.offset,
     hasMore: q.offset + rows.length < total,
+    hiddenInTrash: rawTotal === null ? 0 : Math.max(0, rawTotal - total),
     items: rows.map((r) => {
       const shown = presentName(r.client);
       return {

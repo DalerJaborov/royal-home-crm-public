@@ -217,5 +217,7 @@ export const directorDrillResponseSchema = z.object({
   limit: z.number(),
   offset: z.number(),
   hasMore: z.boolean(),
+  /** Сколько записей скрыто, потому что клиент в Корзине, а у смотрящего нет archive.view (0 — ничего). */
+  hiddenInTrash: z.number().optional(),
 });
 export type DirectorDrillResponse = z.infer<typeof directorDrillResponseSchema>;

@@ -382,3 +382,22 @@ describe("нагрузка и план (ревью #362)", () => {
     expect(tile).not.toBe(step);
   });
 });
+
+describe("Корзина в списке сделок (повторное ревью)", () => {
+  it("без archive.view список прячет сделки удалённого клиента и говорит, сколько их", async () => {
+    const trashed = await prisma.client.create({
+      data: { fullName: `Корзина дашборд ${runId}`, phone: `+99291999${sfx}`, source: "WEBSITE", assignedAgentId: agentB, createdAt: at, deletedAt: new Date() },
+    });
+    ids.clients.push(trashed.id);
+    ids.deals.push((await prisma.deal.create({ data: { clientId: trashed.id, propertyId, agentId: agentB, stage: "COMPLETED", startedAt: at, closedAt: at, commissionAmount: 500, currency: "TJS" } })).id);
+    const base = { preset: "custom" as const, from: DAY, to: DAY, key: "deals" as const, limit: 50, offset: 0 };
+    const viewer = { investigationRole: undefined, seesMoney: true, seesOrigin: true, seesPhone: true };
+    const present = (c: { fullName: string; source: string }) => ({ name: c.fullName, source: c.source, sourceLabel: c.source });
+    const without = await buildDirectorDrill(base, { ...viewer, seesArchive: false }, present);
+    const withArchive = await buildDirectorDrill(base, { ...viewer, seesArchive: true }, present);
+    expect(without.hiddenInTrash).toBe(1);
+    expect(withArchive.hiddenInTrash).toBe(0);
+    expect(withArchive.total).toBe(without.total + 1);
+    expect(without.items.some((i) => i.clientName.startsWith("Корзина дашборд"))).toBe(false);
+  });
+});

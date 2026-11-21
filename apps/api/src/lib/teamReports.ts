@@ -183,13 +183,15 @@ const FUNNEL_COHORT_LABELS: Record<FunnelCohortStep["key"], string> = {
 export async function buildFunnelCohort(
   range: { from: Date; to: Date },
   viewer: ReportViewer,
-  scope: Prisma.ClientWhereInput = {}
+  scope: Prisma.ClientWhereInput = {},
+  /** Исполнитель запросов: по умолчанию прямой вызов («Отчёты» не меняются); дашборд директора подаёт свой ограничитель. */
+  run: <T>(task: () => Promise<T>) => Promise<T> = (task) => task()
 ): Promise<FunnelCohortStep[]> {
   const { from, to } = range;
   const cohort: Prisma.ClientWhereInput = { ...scope, createdAt: { gte: from, lte: to }, deletedAt: null };
   const keys = ["leads", "contacted", "showings", "negotiations", "deals"] as const;
   const counts = await Promise.all(
-    keys.map((key) => prisma.client.count({ where: { AND: [cohort, funnelCohortStepWhere(key, viewer)] } }))
+    keys.map((key) => run(() => prisma.client.count({ where: { AND: [cohort, funnelCohortStepWhere(key, viewer)] } })))
   );
   return keys.map((key, i) => ({ key, label: FUNNEL_COHORT_LABELS[key], count: counts[i] }));
 }

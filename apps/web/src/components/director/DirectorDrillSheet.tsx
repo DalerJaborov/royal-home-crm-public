@@ -52,6 +52,7 @@ export function DirectorDrillSheet({ filters, drill, onClose }: {
                 {query.isFetching ? "Загружаем…" : `Показать ещё ${Math.min(DRILL_PAGE, total - items.length)}`}
               </RhButton>
             )}
+            {(query.data?.hiddenInTrash ?? 0) > 0 && <p className="dd-quiet" role="status">Ещё {nums(query.data?.hiddenInTrash ?? 0)} в Корзине: они входят в цифру плитки, но их видят только те, у кого есть доступ к архиву.</p>}
             <p className="dd-quiet"><Link to="/clients">Все клиенты</Link></p>
           </>
         )}
