@@ -19,7 +19,7 @@ const NOW = new Date();
 const daysAgo = (d: number) => new Date(NOW.getTime() - d * 24 * 60 * 60 * 1000);
 const ID = (n: number) => String(9_988_770_000 + n);
 const AGENT = "stand-somon-backfill-agent";
-const ids = [1, 2, 3, 4, 5, 6, 7, 8].map(ID);
+const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(ID);
 let oldMonitor: Awaited<ReturnType<typeof prisma.somonMonitor.findUnique>> = null;
 
 function listing(n: number, patch: Partial<{ sellerId: string | null; isAgency: boolean; firstSeenAt: Date; isActive: boolean; raw: object }> = {}) {
@@ -118,7 +118,21 @@ describe("Somon: разовый добор из каталога рынка", ()
     expect(parseBackfillArgs([])).toEqual({ days: 5, max: 150, apply: false });
     expect(parseBackfillArgs(["--apply", "--days=3", "--max=40"])).toEqual({ days: 3, max: 40, apply: true });
     expect(() => parseBackfillArgs(["--days=14"])).toThrow();
-    expect(() => parseBackfillArgs(["--max=1000"])).toThrow();
+    expect(() => parseBackfillArgs(["--max=1001"])).toThrow();
+    expect(parseBackfillArgs(["--max=1000"]).max).toBe(1000);
     expect(() => parseBackfillArgs(["--force"])).toThrow();
+  });
+
+  it("монитор уже ушёл вперёд после паузы, а пропуск остался позади — пропуск добирается", async () => {
+    // Живой случай 17.11: после снятия паузы монитор увидел СЕГОДНЯШНЕЕ объявление с самым
+    // большим номером; пропущенные за дни паузы — ниже него и в SomonSeenAdvert их нет.
+    await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ids } } });
+    await prisma.somonSeenAdvert.create({ data: { advertId: ID(9), slug: `${ID(9)}_kvartira-stand`, seenAt: NOW, lastCheckedAt: NOW, status: "DISPATCHED" } });
+    const report = await runSomonBackfill({ days: 5, max: 1000, apply: true, now: new Date(NOW.getTime() + 2000) });
+    expect(report.blocked).toBeNull();
+    expect(BigInt(report.newerThanAdvertId ?? "0")).toBeLessThan(BigInt(ID(1)));
+    const rows = await prisma.somonSeenAdvert.findMany({ where: { advertId: { in: [ID(1), ID(2), ID(3), ID(6)] } }, select: { advertId: true, status: true } });
+    expect(rows.map(r => r.advertId).sort()).toEqual([ID(1), ID(2), ID(3), ID(6)].sort());
+    await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ids } } });
   });
 });

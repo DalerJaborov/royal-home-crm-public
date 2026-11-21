@@ -28,7 +28,7 @@ import { marketCatalogWhere, SOMON_SOURCE } from "../market/somonRubrics.js";
  * проверки продавца). Живёт запись в очереди 3 дня по `seenAt` — как любая.
  *
  * Предосторожности: окно 1–5 дней, предел штук (`--max`, по умолчанию 150 → не больше
- * ~3 запросов к Somon на штуку), только объявления новее всего, что монитор уже видел,
+ * ~3 запросов к Somon на штуку), только объявления новее всего, что монитор видел до начала окна,
  * без флага «бизнес-аккаунт» в каталоге, ещё живые в каталоге. Повторный запуск
  * дублей не создаёт (`createMany skipDuplicates` по `advertId`).
  *
@@ -38,7 +38,7 @@ import { marketCatalogWhere, SOMON_SOURCE } from "../market/somonRubrics.js";
  */
 export const BACKFILL_MAX_DAYS = 5;
 export const BACKFILL_DEFAULT_MAX = 150;
-export const BACKFILL_HARD_MAX = 300;
+export const BACKFILL_HARD_MAX = 1000;
 /** Сколько строк каталога за окно читаем самое большее (≈400 новых квартир Somon в сутки × 5 дней с запасом). */
 export const BACKFILL_SCAN_LIMIT = 5000;
 /** Верхняя оценка запросов к Somon на одно объявление: карточка, телефон, страница автора. */
@@ -101,9 +101,13 @@ export async function runSomonBackfill(options: BackfillOptions): Promise<Backfi
   }
   if (!report.blocked && await isTelegramPortalAlertsPaused()) report.blocked = "включена пауза площадок — добранное не уйдёт, пока её не снимут";
 
-  // Только объявления новее всего, что монитор уже видел: старое (до паузы) он уже разобрал.
+  // Порог — самое свежее объявление, которое монитор видел ДО НАЧАЛА ОКНА: всё, что ниже, он
+  // уже разобрал до перерыва. Брать максимум за всё время нельзя (живой случай 17.11): после
+  // снятия паузы монитор прошёл свежие страницы и поднял максимум до сегодняшнего номера, а
+  // пропущенное за дни паузы осталось НИЖЕ него — пробный прогон дал 0 кандидатов из ~650.
+  // Внутри окна повтор отсекает отдельная проверка «уже есть в SomonSeenAdvert».
   const maxSeen = await prisma.$queryRaw<Array<{ max: bigint | null }>>`
-    SELECT max("advertId"::bigint) AS max FROM "SomonSeenAdvert" WHERE "advertId" ~ '^[0-9]{1,18}$'`;
+    SELECT max("advertId"::bigint) AS max FROM "SomonSeenAdvert" WHERE "advertId" ~ '^[0-9]{1,18}$' AND "seenAt" < ${from}`;
   const newerThan = maxSeen[0]?.max ?? null;
   report.newerThanAdvertId = newerThan === null ? null : String(newerThan);
   // Каталог читается только через правило рубрик (одна дверь `marketCatalogWhere`): аренда,
