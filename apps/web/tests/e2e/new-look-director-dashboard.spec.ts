@@ -11,7 +11,7 @@ import { IPHONE_UA, geometryFindings } from "./helpers/lookGeometry";
  */
 const SIZES = [{ name: "390", width: 390, height: 844 }, { name: "1440", width: 1440, height: 900 }] as const;
 
-async function open(browser: Browser, baseURL: string | undefined, role: RoleName, size: (typeof SIZES)[number], seesMoney: boolean) {
+async function open(browser: Browser, baseURL: string | undefined, role: RoleName, size: (typeof SIZES)[number], seesMoney: boolean, stub = true) {
   const phone = size.width < 820;
   const context = await contextForRole(browser, role, {
     baseURL, serviceWorkers: "block", viewport: { width: size.width, height: size.height },
@@ -19,7 +19,7 @@ async function open(browser: Browser, baseURL: string | undefined, role: RoleNam
   });
   const page = await context.newPage();
   await page.route("**/api/v1/ui-shell", (r) => r.request().method() === "GET" ? r.fulfill({ json: { enabled: true, look: "royal" }, headers: { "cache-control": "no-store" } }) : r.fallback());
-  await stubDirectorDashboard(page, { seesMoney });
+  if (stub) await stubDirectorDashboard(page, { seesMoney });
   await page.goto("/director");
   return { context, page };
 }
@@ -100,5 +100,18 @@ test("дашборд директора: агенту экран закрыт и
   await expect(page.getByText("Нет доступа к этому разделу")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-testid="director-dashboard"]')).toHaveCount(0);
   await expect(page.locator('a[href="/director"]')).toHaveCount(0);
+  await context.close();
+});
+
+test("дашборд директора: живой ответ сервера (без подмены) рисуется без ошибок @smoke", async ({ browser, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
+  const { context, page } = await open(browser, baseURL, "DIRECTOR", SIZES[1], true, false);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const root = page.locator('[data-testid="director-dashboard"]');
+  await expect(root.getByRole("heading", { name: "Дашборд директора", level: 1 })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-kpi="newLeads"]')).toBeVisible({ timeout: 30_000 });
+  await expect(root.getByText("Не загрузилось")).toHaveCount(0);
+  expect(errors).toEqual([]);
   await context.close();
 });

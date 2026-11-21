@@ -8,7 +8,7 @@ import { tileTone, type TileVariant } from "../look/tileTone";
 import { RoyalAmount } from "../look/money/RoyalAmount";
 import { dushanbeDate } from "../../lib/date";
 import {
-  compareDelta, minutesLabel, percent, percentLabel, planRemainder, sortRows,
+  compareDelta, minutesLabel, sharePct, percentLabel, planRemainder, sortRows,
   type DashboardBlock, type DeltaView, type SortDir,
 } from "../../lib/directorFormat";
 
@@ -19,7 +19,7 @@ import {
  */
 
 export const nums = (n: number) => Math.round(n).toLocaleString("ru-RU");
-export const money = (n: number) => `${nums(n)} с.`;
+export const moneyTjs = (n: number) => `${nums(n)} с.`;
 
 const KPI_ICON: Record<string, RoyalIconName> = {
   newLeads: "user-plus", contacted: "phone-call", noContact: "phone-missed", showings: "eye",
@@ -127,7 +127,7 @@ export function ReasonsBlock({ data, onDrill }: { data: DirectorDashboardRespons
                   <span className="dd-reason-name">{r.label}</span>
                   <span className="dd-bar" role="img" aria-label={`${r.label}: ${nums(r.count)}`}><span style={{ "--v": r.count / max } as CSSProperties} /></span>
                   <b className="ry-num">{nums(r.count)}</b>
-                  <span className="dd-reason-share">{percentLabel(percent(r.count, total))}</span>
+                  <span className="dd-reason-share">{percentLabel(sharePct(r.count, total))}</span>
                 </li>
               ))}
             </ul>
@@ -183,8 +183,8 @@ export function SourcesBlock({ data }: { data: DirectorDashboardResponse }) {
         <RhGroup label="Источники заявок">
           {rows.map((r) => (
             <RhRow key={r.source} title={r.label}
-              sub={`${nums(r.leads)} ${r.leads === 1 ? "заявка" : "заявок"} · ${nums(r.deals)} ${r.deals === 1 ? "сделка" : "сделок"}${percent(r.deals, r.leads) !== null ? ` · ${percentLabel(percent(r.deals, r.leads))}` : ""}`}
-              right={data.seesMoney && r.commission !== null ? <b className="ry-num"><RoyalAmount text={money(r.commission)} /></b> : <b className="ry-num">{nums(r.leads)}</b>} />
+              sub={`${nums(r.leads)} ${r.leads === 1 ? "заявка" : "заявок"} · ${nums(r.deals)} ${r.deals === 1 ? "сделка" : "сделок"}${sharePct(r.deals, r.leads) !== null ? ` · ${percentLabel(sharePct(r.deals, r.leads))}` : ""}`}
+              right={data.seesMoney && r.commission !== null ? <b className="ry-num"><RoyalAmount text={moneyTjs(r.commission)} /></b> : <b className="ry-num">{nums(r.leads)}</b>} />
           ))}
         </RhGroup>
       )}
@@ -196,7 +196,7 @@ export function SourcesBlock({ data }: { data: DirectorDashboardResponse }) {
 export function PlanBlock({ data, settingsTo }: { data: DirectorDashboardResponse; settingsTo?: string }) {
   const p = data.plan;
   const hasPlan = p.commissionPlan !== null && p.commissionPlan > 0 && p.fact !== null;
-  const pct = hasPlan ? Math.max(0, Math.round(p.pct ?? percent(p.fact, p.commissionPlan) ?? 0)) : 0;
+  const pct = hasPlan ? Math.max(0, Math.round(p.pct ?? sharePct(p.fact, p.commissionPlan) ?? 0)) : 0;
   const monthName = (() => {
     const [y, m] = p.month.split("-").map(Number);
     return y && m ? dushanbeDate(new Date(Date.UTC(y, m - 1, 15)), { month: "long", year: "numeric" }) : p.month;
@@ -204,6 +204,7 @@ export function PlanBlock({ data, settingsTo }: { data: DirectorDashboardRespons
   return (
     <RhSection title={`План и факт · ${monthName}`} id="dd-plan">
       <div className="dd-card dd-plan">
+        <p className="dd-quiet dd-plan-note">План один на всю компанию, берётся за месяц конца периода; фильтры менеджера, источника и клиентов к нему не применяются.</p>
         {hasPlan ? (
           <>
             <div className="dd-ring" role="img" aria-label={`План выполнен на ${pct} процентов`}>
@@ -214,14 +215,14 @@ export function PlanBlock({ data, settingsTo }: { data: DirectorDashboardRespons
               <b className="ry-num"><span>{pct}</span><small>%</small></b>
             </div>
             <div className="dd-plan-text">
-              <p className="dd-plan-fact"><b className="ry-num"><RoyalAmount text={money(p.fact ?? 0)} /></b> из <RoyalAmount text={money(p.commissionPlan ?? 0)} /></p>
+              <p className="dd-plan-fact"><b className="ry-num"><RoyalAmount text={moneyTjs(p.fact ?? 0)} /></b> из <RoyalAmount text={moneyTjs(p.commissionPlan ?? 0)} /></p>
               <p className="dd-quiet">{planRemainder(p.fact ?? 0, p.commissionPlan ?? 0, "с.")}</p>
             </div>
           </>
         ) : (
           <div className="dd-plan-text">
             <p className="dd-quiet">План комиссии на этот месяц не задан.{settingsTo ? <> Его ставят в <Link to={settingsTo}>Настройках</Link>.</> : " Его ставит администратор в Настройках."}</p>
-            {p.fact !== null && <p className="dd-plan-fact">Комиссия за месяц: <b className="ry-num"><RoyalAmount text={money(p.fact)} /></b></p>}
+            {p.fact !== null && <p className="dd-plan-fact">Комиссия за месяц: <b className="ry-num"><RoyalAmount text={moneyTjs(p.fact)} /></b></p>}
           </div>
         )}
       </div>
@@ -242,7 +243,7 @@ function agentColumns(seesMoney: boolean): AgentCol[] {
     { id: "showings", label: "Показы", get: (a) => a.showings },
     { id: "deals", label: "Сделки", get: (a) => a.deals },
   ];
-  if (seesMoney) cols.push({ id: "commission", label: "Комиссия", get: (a) => a.commission, money: true, text: (a) => (a.commission === null ? "—" : money(a.commission)) });
+  if (seesMoney) cols.push({ id: "commission", label: "Комиссия", get: (a) => a.commission, money: true, text: (a) => (a.commission === null ? "—" : moneyTjs(a.commission)) });
   cols.push(
     { id: "conversion", label: "Конверсия", get: (a) => a.conversion, text: (a) => percentLabel(a.conversion) },
     { id: "overdue", label: "Просрочено", get: (a) => a.overdueTasks },

@@ -6,7 +6,7 @@ import { RhBlockState, RhButton, RhGroup, RhRow } from "../look/ui";
 import { loadView } from "../rh2/Rh2ErrorState";
 import { dushanbeDate } from "../../lib/date";
 import { DRILL_PAGE, useDirectorDrill, type DirectorFilters } from "../../hooks/useDirectorDashboard";
-import { money, nums } from "./DirectorBlocks";
+import { moneyTjs, nums } from "./DirectorBlocks";
 
 /**
  * ШТОРКА «ЧТО СОСТАВЛЯЕТ ЦИФРУ» (ТЗ №11): список записей за плиткой с теми же периодом и
@@ -44,7 +44,7 @@ export function DirectorDrillSheet({ filters, drill, onClose }: {
               {items.map((it) => (
                 <RhRow key={`${it.entity}-${it.id}`} to={`/clients/${it.clientId}`} title={it.clientName || "Без имени"}
                   sub={[dushanbeDate(it.date, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }), it.agentName ?? "без ответственного", it.sourceLabel, it.statusLabel].join(" · ")}
-                  right={it.amount !== null ? <b className="ry-num">{money(it.amount)}</b> : undefined} />
+                  right={it.amount !== null ? <b className="ry-num">{moneyTjs(it.amount)}</b> : undefined} />
               ))}
             </RhGroup>
             {query.data?.hasMore && (

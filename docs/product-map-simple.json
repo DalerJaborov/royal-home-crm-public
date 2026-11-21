@@ -12,7 +12,7 @@
   "other": "Прочие экраны, открываются изнутри"
  },
  "totals": {
-  "screens": 50,
+  "screens": 51,
   "paths": 792,
   "cron": 144,
   "jobs": 34,
@@ -3734,6 +3734,77 @@
      "i": 751,
      "direct": false,
      "conf": "через часть экрана"
+    }
+   ]
+  },
+  {
+   "path": "/director",
+   "title": "Дашборд директора",
+   "group": "money",
+   "parent": null,
+   "file": "apps/web/src/pages/DirectorDashboard.tsx",
+   "inMenu": true,
+   "redirect": null,
+   "eps": [
+    {
+     "i": 21,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 22,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 23,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 26,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 36,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 37,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 38,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 39,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 41,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 579,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 580,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 582,
+     "direct": false,
+     "conf": "через общую часть"
     }
    ]
   },
@@ -10571,6 +10642,7 @@
     "/calls",
     "/clients/:id",
     "/deals",
+    "/director",
     "/properties/:id",
     "/team/:id"
    ],
@@ -10632,6 +10704,7 @@
     "/calls",
     "/clients/:id",
     "/deals",
+    "/director",
     "/properties/:id",
     "/team/:id"
    ],
@@ -10709,6 +10782,7 @@
     "/calls",
     "/clients/:id",
     "/deals",
+    "/director",
     "/properties/:id",
     "/team/:id"
    ],
@@ -11093,6 +11167,7 @@
     "/calls",
     "/clients/:id",
     "/deals",
+    "/director",
     "/properties/:id",
     "/team/:id"
    ],
@@ -11526,6 +11601,7 @@
     "/calls",
     "/clients/:id",
     "/deals",
+    "/director",
     "/properties/:id",
     "/team/:id"
    ],
@@ -11622,6 +11698,7 @@
     "/calls",
     "/clients/:id",
     "/deals",
+    "/director",
     "/properties/:id",
     "/team/:id"
    ],
@@ -11813,6 +11890,7 @@
     "/calls",
     "/clients/:id",
     "/deals",
+    "/director",
     "/properties/:id",
     "/team/:id"
    ],
@@ -11846,6 +11924,7 @@
     "/calls",
     "/clients/:id",
     "/deals",
+    "/director",
     "/properties/:id",
     "/team/:id"
    ],
@@ -11950,6 +12029,7 @@
     "/calls",
     "/clients/:id",
     "/deals",
+    "/director",
     "/properties/:id",
     "/team/:id"
    ],
@@ -51084,7 +51164,9 @@
     "вход выполнен",
     "есть право: reports.view"
    ],
-   "screens": [],
+   "screens": [
+    "/director"
+   ],
    "tree": [
     {
      "t": "если данные заполнены неправильно",
@@ -51115,7 +51197,9 @@
     "вход выполнен",
     "есть право: reports.view"
    ],
-   "screens": [],
+   "screens": [
+    "/director"
+   ],
    "tree": [
     {
      "t": "если данные заполнены неправильно",
@@ -51210,7 +51294,9 @@
     "вход выполнен",
     "есть право: reports.view"
    ],
-   "screens": [],
+   "screens": [
+    "/director"
+   ],
    "tree": [
     {
      "t": "если данные заполнены неправильно",

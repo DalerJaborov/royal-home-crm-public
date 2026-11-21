@@ -123,3 +123,4 @@
 /* Поля выбора: рамку и фон даёт общее правило полей нового вида, здесь только высота под палец. */
 :root[data-ui-look="royal"] [data-ry-section="director"] .dd-filter select { min-height: 48px; }
 :root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring b { display: flex; align-items: center; justify-content: center; gap: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-plan-note { grid-column: 1 / -1; }

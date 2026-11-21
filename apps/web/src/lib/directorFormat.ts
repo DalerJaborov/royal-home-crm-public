@@ -36,7 +36,7 @@ export function compareDelta(
 }
 
 /** Доля в процентах, целым; ноль в знаменателе — null (прочерк), а не «0 %» или «NaN». */
-export function percent(part: number | null | undefined, whole: number | null | undefined): number | null {
+export function sharePct(part: number | null | undefined, whole: number | null | undefined): number | null {
   if (part === null || part === undefined || whole === null || whole === undefined) return null;
   if (!Number.isFinite(part) || !Number.isFinite(whole) || whole <= 0) return null;
   return Math.round((part / whole) * 100);

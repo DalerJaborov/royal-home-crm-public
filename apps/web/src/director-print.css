@@ -1,0 +1,13 @@
+/* Печать «Дашборда директора» (кнопка «Печать» → окно печати браузера; сохранить как PDF — оттуда же).
+ * Остаётся только содержимое экрана: меню, шапка и подсказки не печатаются, таблица — без прокрутки. */
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body:has(.dd) .app-shell { display: block !important; height: auto !important; overflow: visible !important; }
+  body:has(.dd) .app-shell > :not(.clean-frame) { display: none !important; }
+  body:has(.dd) .clean-frame { display: block !important; height: auto !important; overflow: visible !important; padding: 0 !important; }
+  body:has(.dd) .clean-frame > :not(main) { display: none !important; }
+  body:has(.dd) { background: #fff !important; }
+  .dd-acts, .dd-filters, .dd-sortbar { display: none !important; }
+  .dd-table-wrap { overflow: visible !important; }
+  .dd-tile, .dd-card, .dd-agent-card, .ry-section { break-inside: avoid; }
+}

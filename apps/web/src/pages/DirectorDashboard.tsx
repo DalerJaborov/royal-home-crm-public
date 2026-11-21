@@ -5,11 +5,10 @@ import { loadView } from "../components/rh2/Rh2ErrorState";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RhBlockState, RhButton, RhSegmented } from "../components/look/ui";
 import { RuDateField } from "../components/look/fields/RuFields";
-import { ReportPdfActions } from "../components/ReportPdfActions";
 import { DirectorBlocks } from "../components/director/DirectorBlocks";
 import { DirectorDrillSheet } from "../components/director/DirectorDrillSheet";
 import { CLIENT_SOURCE_LABELS } from "../lib/clientFormat";
-import { dushanbeDayKey, dushanbeTime, dushanbeFirstDayOfMonthKey, dushanbeTodayKey } from "../lib/date";
+import { dushanbeTime, dushanbeFirstDayOfMonthKey, dushanbeTodayKey } from "../lib/date";
 import { blockOrder, defaultPeriod } from "../lib/directorFormat";
 import { useCan } from "../lib/permissions";
 import { useAuthStore } from "../store/auth";
@@ -84,8 +83,6 @@ function DirectorScreen({ role }: { role: string | undefined }) {
   const view = loadView(query);
   const updated = data ? dushanbeTime(data.updatedAt) : null;
   const order = blockOrder(role, data?.seesMoney ?? false);
-  // PDF «team» берёт период днями: границы выбранного периода сервер уже посчитал (по Душанбе).
-  const pdfParams = data ? { from: dushanbeDayKey(data.period.from), to: dushanbeDayKey(data.period.to) } : {};
 
   return (
     <Rh2Screen title="Дашборд директора">
@@ -97,7 +94,7 @@ function DirectorScreen({ role }: { role: string | undefined }) {
           </div>
           <div className="dd-acts">
             <RhButton variant="secondary" onClick={exportExcel} disabled={exporting || !!rangeError || !data}>{exporting ? "Готовим Excel…" : "Excel"}</RhButton>
-            <ReportPdfActions kind="team" params={pdfParams} disabled={!!rangeError || !data} buttonClassName="ry-btn" layout="contents" />
+            <RhButton variant="secondary" onClick={() => window.print()} disabled={!!rangeError || !data}>Печать</RhButton>
           </div>
         </header>
         {exportError && <p role="alert" className="dd-quiet">{exportError}</p>}
@@ -115,8 +112,9 @@ function DirectorScreen({ role }: { role: string | undefined }) {
             <label className="dd-filter"><span>Менеджер</span>
               <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
                 <option value="">Все менеджеры</option>
-                {(agents.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {(agents.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}
               </select>
+              {agents.isError && !agents.data && <span className="dd-quiet" role="status">Список менеджеров не загрузился, фильтр по менеджеру недоступен.</span>}
             </label>
             <label className="dd-filter"><span>Источник</span>
               <select value={source} onChange={(e) => setSource(e.target.value)}>

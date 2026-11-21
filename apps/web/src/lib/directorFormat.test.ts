@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockOrder, compareDelta, defaultPeriod, minutesLabel, percent, percentLabel, planRemainder, sortRows } from "./directorFormat";
+import { blockOrder, compareDelta, defaultPeriod, minutesLabel, sharePct, percentLabel, planRemainder, sortRows } from "./directorFormat";
 
 describe("compareDelta", () => {
   it("рост хорошего — зелёный, рост плохого — не зелёный", () => {
@@ -16,9 +16,9 @@ describe("compareDelta", () => {
 });
 
 describe("проценты и время", () => {
-  it("percent без деления на ноль", () => {
-    expect(percent(1, 3)).toBe(33);
-    expect(percent(1, 0)).toBeNull();
+  it("sharePct без деления на ноль", () => {
+    expect(sharePct(1, 3)).toBe(33);
+    expect(sharePct(1, 0)).toBeNull();
     expect(percentLabel(null)).toBe("—");
   });
   it("minutesLabel", () => {
