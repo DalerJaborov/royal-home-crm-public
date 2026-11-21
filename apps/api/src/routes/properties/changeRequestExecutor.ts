@@ -482,6 +482,7 @@ async function executeFieldsChange(a: {
       resyncReason: "заявка на изменение: цена",
       awaitPriceSync: true,
       priceCaptionStage: claim.priceDelivery?.caption,
+      actorId: a.actorId,
     });
     if (claim.priceDelivery?.siteQueued) result.applied.push("Сайт: обновление цены в очереди");
     for (const channel of claim.priceDelivery?.caption.queued ?? []) {
@@ -512,6 +513,7 @@ async function executeFieldsChange(a: {
       resyncSite: claim.before.publishedOnSite,
       resyncReason: "заявка на изменение: данные карточки",
       awaitPriceSync: false,
+      actorId: a.actorId,
     });
     result.applied.push(`Карточка обновлена (полей: ${claim.changedFields.length})`);
     if (claim.before.publishedOnSite) result.applied.push("Сайт: данные отправлены на витрину");
