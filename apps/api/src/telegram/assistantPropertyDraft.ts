@@ -31,6 +31,7 @@ import {
 import { z } from "zod";
 import { BW, EW } from "../ai/wordBoundary.js";
 import { isAiAssistantEnabled } from "../ai/assistant.js";
+import { registerPropertyDraftOpener, type PropertyDraftOpenResult } from "./propertyDraftOpener.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { assistantLimitText } from "../ai/assistant/limitText.js";
@@ -72,7 +73,7 @@ type Values = PropertyWizardDraftValues;
 const kind = "property-draft";
 const expiresAt = () => new Date(Date.now() + 12 * 60 * 60_000);
 /** Что вносим: объект, квартира, дом, участок, коммерция (рус./тадж.). */
-const NEW_THING = String.raw`(?:объект|квартир\p{L}*|дом|домик|частн\p{L}*\s+дом|участ\p{L}*|коммерц\p{L}*|помещени\p{L}*|офис)`;
+const NEW_THING = String.raw`(?:объект|квартир\p{L}*|дом|домик|частн\p{L}*\s+дом|участ\p{L}*|коммерц\p{L}*|помещени\p{L}*|офис|объявлени\p{L}*)`;
 const TJ_THING = String.raw`(?:объект(?:и)?|хона(?:и)?|ҳавлӣ|ҳавлии|квартира(?:и)?|замин(?:и)?)`;
 /**
  * Начало мастера. Три вида фразы (14–15.11.2026):
@@ -86,8 +87,14 @@ const TJ_THING = String.raw`(?:объект(?:и)?|хона(?:и)?|ҳавлӣ|ҳ
  * У явной фразы следующие строки и текст после двоеточия — уже данные объекта
  * («Добавь объект», дальше строка «Цена: 750000»); у «голой» — нет.
  */
-const RU_START_VERB = String.raw`(?:(?:давай(?:те)?|хочу|надо|нужно|можно|могу)\s+)?${BW}(?:добавь(?:те)?|добавим|добавить|создай(?:те)?|создадим|создать|внеси(?:те)?|внесём|внесем|внести|заведи(?:те)?|завести)\s+(?:нов\p{L}*\s+)?${NEW_THING}${EW}`;
-const TJ_START_VERB = String.raw`${TJ_THING}\s+(?:нав\s+)?илова\s+кун(?:ам|ем|ед|им|)?|(?:мехоҳам|биёед)\s+${TJ_THING}(?:\s+нав)?\s+илова\s+кун(?:ам|ем|ед|им|)?`;
+/**
+ * 21.11.2026 (владелец: «чтобы любые похожие все можно было использовать»): ещё «можешь / помоги /
+ * хотела», «запиши / занеси / оформи», «добавь мне ещё один объект», «объявление». Всё, что
+ * регулярка не узнаёт, понимает модель инструментом start_property_draft
+ * (ai/assistant/tools/startPropertyDraftTool.ts) — она открывает этот же мастер.
+ */
+const RU_START_VERB = String.raw`(?:(?:давай(?:те)?|хочу|хотел[аи]?|надо|нужно|можно|могу|можешь|можете|сможешь|сможете|помоги(?:те)?)\s+(?:мне\s+|нам\s+)?)?${BW}(?:добавь(?:те)?|добавим|добавить|добавляй(?:те)?|создай(?:те)?|создадим|создать|внеси(?:те)?|внесём|внесем|внести|заведи(?:те)?|завести|запиши(?:те)?|запишем|записать|занеси(?:те)?|занести|оформи(?:те)?|оформим|оформить)\s+(?:мне\s+|нам\s+)?(?:ещё\s+|еще\s+)?(?:один\s+|одну\s+)?(?:нов\p{L}*\s+)?${NEW_THING}${EW}`;
+const TJ_START_VERB = String.raw`(?:мумкин\s+)?${TJ_THING}\s+(?:нав\s+)?илова\s+кун(?:ам|ем|ед|им|)?|(?:мехоҳам|биёед)\s+${TJ_THING}(?:\s+нав)?\s+илова\s+кун(?:ам|ем|ед|им|)?`;
 const START_SLASH = String.raw`\/(?:new_property|object)(?:@[A-Za-z0-9_]+)?`;
 const START_BARE = String.raw`${BW}нов\p{L}*\s+${NEW_THING}${EW}|${TJ_THING}\s+нав(?:\s+илова\s+кун(?:ам|ем|ед|им|)?)?`;
 const START_TAIL = String.raw`[\s,;—–-]+(?:и|а|да|потом|затем|чтобы|сразу|ва|баъд|сипас|фавран)${EW}[^?\n]{0,100}`;
@@ -95,10 +102,29 @@ const isExplicitStart = new RegExp(`^(?:${START_SLASH}|${RU_START_VERB}|${TJ_STA
 const isBareStart = new RegExp(`^(?:${START_BARE})[.!?]*$`, "iu");
 const isStartWithTail = new RegExp(`^(?:${RU_START_VERB}|${TJ_START_VERB})(?:${START_TAIL})[.!?]*$`, "iu");
 
+/**
+ * Обращение и вежливость вокруг просьбы (21.11.2026): «Шабнам, добавь объект», «Привет! Пожалуйста,
+ * внеси квартиру», «лутфан, объект илова кунед». Срезаются только имя помощницы, приветствие и
+ * «пожалуйста» — сама просьба по-прежнему проверяется целиком.
+ */
+const COURTESY_LEAD = /^(?:(?:шабнам(?:джон|ҷон)?|shabnam|привет|салом|ассалому\s+алейкум|здравствуй(?:те)?|добрый\s+(?:день|вечер)|ну|так|слушай(?:те)?)[\s,!.:—–-]+)*(?:(?:пожалуйста|лутфан|илтимос)[\s,!]+)?/iu;
+/** «пожалуйста» в середине или в конце: «Добавь, пожалуйста, объект.» — так расшифровываются голосовые. */
+const COURTESY_INNER = /[\s,]*,?\s*(?<!\p{L})(?:пожалуйста|лутфан|илтимос)(?!\p{L})\s*,?/giu;
+function stripCourtesy(line: string): string {
+  const stripped = line.replace(COURTESY_LEAD, "").replace(COURTESY_INNER, " ").replace(/\s+([.!?])/gu, "$1").replace(/\s{2,}/gu, " ").trim();
+  return stripped || line;
+}
+
+/** Есть ли в сообщении просьба открыть мастер объекта (тот же разбор, что у текста; нужен голосовым). */
+export function isPropertyDraftStartText(text: string): boolean {
+  const flat = text.trim();
+  return startIntent(flat).start || fromClientStart.test(stripCourtesy(flat));
+}
+
 /** Начало мастера в сообщении; `rest` — то, что идёт после первой строки или двоеточия, данные объекта. */
 function startIntent(text: string): { start: boolean; rest: string } {
   const [first = "", ...others] = text.trim().split(/\r?\n/u);
-  const line = first.trim();
+  const line = stripCourtesy(first.trim());
   const below = others.join("\n").trim();
   if (isExplicitStart.test(line)) return { start: true, rest: below };
   if (!others.length && isBareStart.test(line)) return { start: true, rest: "" };
@@ -139,7 +165,7 @@ const OTHER_REQUEST = new RegExp(
 /** Для тестов: что мастер понимает по фразе без модели. */
 export function draftPhraseForTests(text: string): "start" | "exit" | "other" | null {
   const flat = text.trim();
-  if (startIntent(flat).start || fromClientStart.test(flat)) return "start";
+  if (isPropertyDraftStartText(flat)) return "start";
   if (isExit.test(flat)) return "exit";
   if (OTHER_REQUEST.test(flat)) return "other";
   return null;
@@ -1361,7 +1387,7 @@ export async function handleTelegramPropertyDraft(
   if (msg.chat.type !== "private" || !msg.from || msg.from.id !== msg.chat.id) return false;
   const chatId = String(msg.chat.id);
   const text = (msg.text ?? msg.caption ?? "").trim();
-  const sellerCode = fromClientStart.exec(text)?.[1];
+  const sellerCode = fromClientStart.exec(stripCourtesy(text))?.[1];
   const intent = startIntent(text);
   const start = intent.start || Boolean(sellerCode);
   const state = await getState(prisma, chatId, agent.id);
@@ -1631,3 +1657,38 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
   }
   return true;
 }
+
+/* ─────────────────────────── по просьбе помощницы ─────────────────────────── */
+
+/**
+ * Открыть мастер объекта по решению модели (21.11.2026, владелец: «чтобы любые похожие все можно
+ * было использовать»). Регулярка начала знает десятки фраз, но не все: «у меня новая хата на
+ * продажу, занеси», «оформим двушку?». Раньше такое уходило в общий ответ, у которого не было
+ * инструмента, и помощница отвечала «не могу добавить объект». Теперь модель зовёт
+ * start_property_draft (ai/assistant/tools/startPropertyDraftTool.ts), а здесь мастер открывается
+ * ТЕМ ЖЕ входом, что у фразы «/new_property», в личке сотрудника: права, рубильник помощницы,
+ * занятый чат и черновик — одни и те же. `details` — данные объекта, уже названные сотрудником;
+ * они идут строками после команды и разбираются как у явной фразы.
+ */
+export async function openPropertyDraftForAssistant(
+  agentId: string, details: string,
+): Promise<PropertyDraftOpenResult> {
+  const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { fullName: true, isActive: true, telegramChatId: true, role: true } });
+  if (!agent?.isActive) return { opened: false, reason: "inactive" };
+  // Тот же отказ, что у POST /properties и у фразы: СБ и роли «только просмотр» объекты не заводят.
+  const denied = propertyCreateDeniedReason({ agent: { role: agent.role } } as Parameters<typeof propertyCreateDeniedReason>[0]);
+  if (denied) return { opened: false, reason: "denied", text: denied };
+  const chatId = Number(agent.telegramChatId ?? "");
+  if (!Number.isSafeInteger(chatId) || chatId <= 0) return { opened: false, reason: "no_telegram" };
+  const body = details.trim().slice(0, 3000);
+  const msg: TelegramIncomingMessage = {
+    chat: { id: chatId, type: "private" },
+    from: { id: chatId },
+    text: body ? `/new_property\n${body}` : "/new_property",
+  };
+  // Голоса здесь не бывает: голосовое уже расшифровано до хода модели.
+  const noVoice: Transcribe = async () => ({ error: t("ru").genericError });
+  await handleTelegramPropertyDraft(msg, { id: agentId, fullName: agent.fullName }, noVoice);
+  return { opened: true };
+}
+registerPropertyDraftOpener(openPropertyDraftForAssistant);

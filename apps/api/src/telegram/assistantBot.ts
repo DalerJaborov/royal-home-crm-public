@@ -25,7 +25,7 @@ import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPa
 import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
-import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
+import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback, isPropertyDraftStartText } from "./assistantPropertyDraft.js";
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
 import { handleNarrationPreviewCallback } from "./narrationPreviewBot.js";
@@ -932,6 +932,10 @@ export async function handleAssistantPrivate(
         await send(voice.error);
         return;
       }
+      // «Добавь объект» голосом (21.11.2026): мастер выше видит только текст, и голосовая просьба
+      // уходила в общий ответ, где помощница отвечала «не могу». Расшифровка — тот же разбор фразы.
+      if (!isForwarded && isPropertyDraftStartText(voice.text)
+        && await handleTelegramPropertyDraft({ ...msg, voice: undefined, audio: undefined, text: voice.text, caption: undefined }, agent, transcribeVoice)) return;
       const forwarded = forwardedVoicePrompt(msg, voice.text);
       forwardedEvidence = forwarded !== null;
       text = forwarded ?? voice.text;
