@@ -173,6 +173,9 @@ export function Rh2Sheet({
         aria-modal="true"
         aria-label={ariaLabel ?? (typeof title === "string" ? title : undefined)}
         data-no-sheet=""
+        // Форма (есть подвал или отправка) — её высота выровнена по экрану (п. 8.3 theme-2026-mobile-shell.css);
+        // короткие меню и списки действий остаются по высоте содержимого.
+        data-form={onSubmit || footer ? "" : undefined}
         className={`sheet ${mobile ? "bottom" : "right"}${layer ? ` ${layer}` : ""}${className ? ` ${className}` : ""}`}
         style={wide && !mobile ? { width: "min(980px, calc(100vw - 20px))" } : undefined}
         onSubmit={(e) => {

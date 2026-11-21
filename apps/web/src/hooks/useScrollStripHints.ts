@@ -20,11 +20,30 @@ export function useScrollStripHints(enabled: boolean): void {
       if (next === "none") { if (el.dataset.stripMore) delete el.dataset.stripMore; }
       else if (el.dataset.stripMore !== next) el.dataset.stripMore = next;
     };
+    // Полный перебор — на resize, шрифты и загрузку. На изменение DOM пересчитываем только ряды, которых коснулись:
+    // сам добавленный узел, ряды внутри него и ряд-предок (в ряд добавили плитку).
+    const touched = new Set<HTMLElement>();
+    let full = false;
     const sweep = () => {
       frame = 0;
-      document.querySelectorAll<HTMLElement>(STRIP_SELECTOR).forEach(apply);
+      if (full) { full = false; touched.clear(); document.querySelectorAll<HTMLElement>(STRIP_SELECTOR).forEach(apply); return; }
+      touched.forEach((el) => { if (el.isConnected) apply(el); });
+      touched.clear();
     };
-    const schedule = () => { if (!frame) frame = window.requestAnimationFrame(sweep); };
+    const run = () => { if (!frame) frame = window.requestAnimationFrame(sweep); };
+    const schedule = () => { full = true; run(); };
+    const onMutations = (records: MutationRecord[]) => {
+      for (const r of records) {
+        r.addedNodes.forEach((n) => {
+          if (!(n instanceof HTMLElement)) return;
+          if (n.matches(STRIP_SELECTOR)) touched.add(n);
+          n.querySelectorAll<HTMLElement>(STRIP_SELECTOR).forEach((el) => touched.add(el));
+        });
+        const host = r.target instanceof HTMLElement ? r.target.closest<HTMLElement>(STRIP_SELECTOR) : null;
+        if (host) touched.add(host);
+      }
+      if (touched.size) run();
+    };
     const onScroll = (e: Event) => {
       const el = e.target;
       if (el instanceof HTMLElement && el.matches(STRIP_SELECTOR)) apply(el);
@@ -32,7 +51,7 @@ export function useScrollStripHints(enabled: boolean): void {
     document.addEventListener("scroll", onScroll, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
     window.addEventListener("load", schedule);
-    const observer = new MutationObserver(schedule);
+    const observer = new MutationObserver(onMutations);
     observer.observe(document.body, { childList: true, subtree: true });
     void document.fonts?.ready.then(schedule);
     schedule();

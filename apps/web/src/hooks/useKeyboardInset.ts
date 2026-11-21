@@ -9,7 +9,7 @@ import { trackKeyboard } from "../lib/keyboardInset";
  * шторка (Rh2Sheet — поднимает подвал над клавиатурой) и панель ассистента. Счётчик подписчиков
  * в lib/keyboardInset.ts не даёт одному закрыться и снять переменные у остальных.
  *
- * Порог 80 px отсекает дрожание адресной строки браузера (она тоже меняет visualViewport).
+ * Дрожание адресной строки браузера (она тоже меняет visualViewport) отсекает порог KEYBOARD_MIN_SHRINK в lib/keyboardInset.ts.
  */
 export function useKeyboardInset(active: boolean): void {
   useEffect(() => {

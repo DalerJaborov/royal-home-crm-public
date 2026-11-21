@@ -15,8 +15,6 @@
 
 /** Видимая область ниже окна меньше чем на столько px — это дрожание адресной строки, не клавиатура. */
 export const KEYBOARD_MIN_SHRINK = 140;
-/** Отступ меньше этого — шум округления и адресной строки, шторку не двигаем. */
-export const KEYBOARD_MIN_INSET = 80;
 
 export interface KeyboardReading {
   open: boolean;
@@ -31,8 +29,11 @@ export function readKeyboard(innerHeight: number, vv: { height: number; offsetTo
   // Щипок (zoom) тоже уменьшает видимую область, но клавиатурой не является.
   const zoomed = (vv.scale ?? 1) > 1.02;
   const open = !zoomed && shrink > KEYBOARD_MIN_SHRINK;
+  // Порога на сам отступ нет: если клавиатура уже признана открытой, шторку поднимаем ровно на её высоту,
+  // даже когда Safari сдвинул видимую область почти на всю клавиатуру (остаток в 56 px — это настоящие 56 px).
+  // Дрожание адресной строки отсекает KEYBOARD_MIN_SHRINK выше, а не этот расчёт.
   const raw = Math.max(0, Math.round(shrink - vv.offsetTop));
-  return { open, inset: open && raw >= KEYBOARD_MIN_INSET ? raw : 0, height: Math.round(vv.height) };
+  return { open, inset: open ? raw : 0, height: Math.round(vv.height) };
 }
 
 let subscribers = 0;
@@ -57,12 +58,18 @@ function start(): () => void {
       delete root.dataset.kbOpen;
     }
   };
+  // iOS присылает resize видимой области уже ПОСЛЕ закрытия клавиатуры: через 350 мс после focusout — запасной пересчёт.
+  let lateTimer: ReturnType<typeof setTimeout> | undefined;
+  const onFocusOut = () => { clearTimeout(lateTimer); lateTimer = setTimeout(apply, 350); };
   vv.addEventListener("resize", apply);
   vv.addEventListener("scroll", apply);
+  document.addEventListener("focusout", onFocusOut);
   apply();
   return () => {
+    clearTimeout(lateTimer);
     vv.removeEventListener("resize", apply);
     vv.removeEventListener("scroll", apply);
+    document.removeEventListener("focusout", onFocusOut);
     root.style.removeProperty("--rh-kb-inset");
     root.style.removeProperty("--rh-vv-h");
     delete root.dataset.kbOpen;

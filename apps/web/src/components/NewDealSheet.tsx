@@ -61,7 +61,7 @@ export function NewDealSheet({ client, onClose }: { client?: Client; onClose: ()
         <>
           <p className="state">С кем сделка?</p>
           <label className="fld">
-            <span className="lab">Покупатель</span>
+            <span className="lab">{client ? "Другой покупатель" : "Покупатель"}</span>
             <input
               type="search"
               value={clientQuery}

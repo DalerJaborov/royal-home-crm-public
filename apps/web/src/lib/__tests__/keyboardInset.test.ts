@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { KEYBOARD_MIN_INSET, readKeyboard, trackKeyboard } from "../keyboardInset";
+import { readKeyboard, trackKeyboard } from "../keyboardInset";
 
 /**
  * Клавиатура телефона (21.11.2026, аудит К07): нижнее меню оставалось над ней на всех экранах с полем,
@@ -15,11 +15,12 @@ describe("readKeyboard", () => {
   it("Safari сдвинул видимую область вниз: отступ считается от её низа, а не от высоты", () => {
     expect(readKeyboard(844, { height: 448, offsetTop: 300 }).inset).toBe(96);
   });
-  it("сдвиг почти на всю клавиатуру: открыто, но шторку поднимать не надо", () => {
-    const k = readKeyboard(844, { height: 508, offsetTop: 330 });
-    expect(k.open).toBe(true);
-    expect(k.inset).toBe(0);
-    expect(KEYBOARD_MIN_INSET).toBeGreaterThan(6);
+  it("сдвиг почти на всю клавиатуру: остаток в 56 px поднимаем на настоящие 56 px, не обнуляем", () => {
+    const k = readKeyboard(844, { height: 508, offsetTop: 280 });
+    expect(k).toEqual({ open: true, inset: 56, height: 508 });
+  });
+  it("сдвинули ровно на всю клавиатуру: открыто, подъём 0", () => {
+    expect(readKeyboard(844, { height: 508, offsetTop: 336 })).toMatchObject({ open: true, inset: 0 });
   });
   it("дрожание адресной строки (60 px) клавиатурой не считается", () => {
     expect(readKeyboard(844, { height: 784, offsetTop: 0 })).toMatchObject({ open: false, inset: 0 });
@@ -33,6 +34,7 @@ describe("trackKeyboard", () => {
   const props = new Map<string, string>();
   const dataset: Record<string, string> = {};
   const listeners = new Map<string, Set<() => void>>();
+  const docFocusOut = new Set<() => void>();
   const vv = { height: 844, offsetTop: 0, scale: 1 };
   const fire = () => { for (const t of ["resize", "scroll"]) for (const cb of listeners.get(t) ?? []) cb(); };
 
@@ -49,6 +51,8 @@ describe("trackKeyboard", () => {
       },
     });
     vi.stubGlobal("document", {
+      addEventListener: (t: string, cb: () => void) => { if (t === "focusout") docFocusOut.add(cb); },
+      removeEventListener: (t: string, cb: () => void) => { if (t === "focusout") docFocusOut.delete(cb); },
       documentElement: { dataset, style: { setProperty: (k: string, v: string) => props.set(k, v), removeProperty: (k: string) => props.delete(k) } },
     });
   });
@@ -80,6 +84,21 @@ describe("trackKeyboard", () => {
     expect(dataset.kbOpen).toBeUndefined();
     expect(props.has("--rh-kb-inset")).toBe(false);
     expect(listeners.get("resize")?.size ?? 0).toBe(0);
+  });
+
+  it("запасной пересчёт: resize пришёл после focusout — через 350 мс отступ всё равно снят", () => {
+    vi.useFakeTimers();
+    const off = trackKeyboard();
+    vv.height = 508; fire();
+    expect(dataset.kbOpen).toBe("1");
+    vv.height = 844; // клавиатура закрылась, а resize iOS не прислал
+    for (const cb of docFocusOut) cb();
+    expect(dataset.kbOpen).toBe("1");
+    vi.advanceTimersByTime(350);
+    expect(dataset.kbOpen).toBeUndefined();
+    off();
+    expect(docFocusOut.size).toBe(0);
+    vi.useRealTimers();
   });
 
   it("повторная отписка одного и того же подписчика счётчик не портит", () => {

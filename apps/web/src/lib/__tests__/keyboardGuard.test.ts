@@ -64,6 +64,22 @@ describe("клавиатура: одно место расчёта, одно п�
     expect(offenders).toEqual([]);
   });
 
+  it("`--rh-kb-inset` не пишут и не читают из TSX (инлайн-стиль в обход правила шторки)", () => {
+    const offenders = walk(SRC)
+      .filter((p) => /\.(ts|tsx)$/.test(p) && !/\.test\.tsx?$/.test(p) && rel(p) !== "lib/keyboardInset.ts")
+      .filter((p) => readFileSync(p, "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "").includes("--rh-kb-inset"))
+      .map(rel);
+    expect(offenders, "переменную ставит только lib/keyboardInset.ts, читает только CSS слоя шторки").toEqual([]);
+  });
+
+  it("высота 62% — только у шторок-форм: правило требует data-form, а Rh2Sheet его ставит при подвале или отправке", () => {
+    const shell = readFileSync(join(SRC, "theme-2026-mobile-shell.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...shell.matchAll(/([^{}]+)\{([^{}]*62dvh[^{}]*)\}/g)].map((m) => m[1].trim());
+    expect(rules.length).toBeGreaterThan(0);
+    for (const sel of rules) expect(sel, "62% без [data-form] растянет короткие меню").toContain("[data-form]");
+    expect(readFileSync(join(SRC, "components/rh2/Rh2Sheet.tsx"), "utf8")).toMatch(/data-form=\{onSubmit \|\| footer/);
+  });
+
   it("сторож проверен поломкой: шторка со своим bottom ловится, подвал и padding — нет", () => {
     expect(sheetBottomRules(".rh2 .sheet.bottom { bottom: 0; }")).toEqual([".rh2 .sheet.bottom"]);
     expect(sheetBottomRules(".rh2 .sheet-f { bottom: 0; } .rh2 .sheet.bottom { padding-bottom: 8px; }")).toEqual([]);

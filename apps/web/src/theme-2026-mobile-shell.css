@@ -697,12 +697,13 @@ html[data-mobile-ux][data-kb-open] .rh2 .sheet.bottom .sheet-b:last-child { padd
 }
 
 /* 8.3. Одна высота шторок (К08.2): «Назначить показ» была почти на весь экран, «Записать результат» — на
-   половину. Любая шторка-форма не ниже ~62% экрана (но не выше 520 px), подвал прижат к низу; подтверждения
-   (`alertdialog`) остаются по высоте содержимого. При клавиатуре нижняя граница не выше видимой области. */
-html[data-mobile-ux] .rh2 .scr .sheet.bottom:not([role="alertdialog"]) {
+   половину. Шторка-форма (Rh2Sheet ставит `data-form`, когда есть подвал или отправка) не ниже ~62% экрана (но не выше
+   520 px), подвал прижат к низу; короткие меню (звонок, действия, «Ещё») и подтверждения (`alertdialog`) остаются
+   по высоте содержимого. При клавиатуре нижняя граница не выше видимой области. */
+html[data-mobile-ux] .rh2 .scr .sheet.bottom[data-form]:not([role="alertdialog"]) {
   min-height: min(62dvh, 520px);
 }
-html[data-mobile-ux][data-kb-open] .rh2 .scr .sheet.bottom:not([role="alertdialog"]) {
+html[data-mobile-ux][data-kb-open] .rh2 .scr .sheet.bottom[data-form]:not([role="alertdialog"]) {
   min-height: min(62dvh, 520px, calc(var(--rh-vv-h, 100dvh) - 12px));
 }
 

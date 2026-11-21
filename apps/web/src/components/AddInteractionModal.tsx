@@ -114,7 +114,7 @@ export function AddInteractionModal({
   const readOnlyRef = useRef(accountReadOnly);
   readOnlyRef.current = accountReadOnly;
   // Блок «Показ для клиента: …» нужен, только когда клиента выбрали из списка внутри окна (ShowingQuickForm).
-  // Из карточки клиента и из подбора имя уже в шапке страницы — повтор внутри шторки лишний (аудит К08.3, 21.11.2026).
+  // Из карточки клиента имя уже в шапке страницы — повтор лишний (К08.3, 21.11.2026); из подбора в чате шапки нет, и имя передаёт MatchPanel.
   const showClientContext = clean && !!selectedClientName;
   /**
    * РЕЖИМ ПЛАНИРОВАНИЯ. «Назначить показ» из окна подбора — это будущее событие:
@@ -417,7 +417,7 @@ export function AddInteractionModal({
       >
         <CleanRecordForm enabled={clean}>
         <ReadOnlyRecordFields readOnly={accountReadOnly}>
-        {showClientContext && <CleanInteractionContext name={selectedClientName} isLoading={false} isError={false} onRetry={() => undefined} scheduling={scheduling} />}
+        {showClientContext && <CleanInteractionContext name={selectedClientName} scheduling={scheduling} />}
         {/* Условный рендер, а не hidden: в этом репозитории `hidden` не скрывает
             элемент с классом flex/grid. Состояние полей живёт в useState, поэтому
             размонтирование ничего не теряет. */}
