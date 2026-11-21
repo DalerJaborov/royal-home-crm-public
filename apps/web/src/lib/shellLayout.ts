@@ -5,7 +5,7 @@
  * лишняя ширина только растягивает строки. Признак ставит AppLayout атрибутом
  * `data-ry-wide` на рамке оболочки.
  */
-const WIDE_ROUTES = ["/", "/reports", "/sources", "/insights", "/funnel"];
+const WIDE_ROUTES = ["/", "/reports", "/director", "/sources", "/insights", "/funnel"];
 
 /** Вложенные пути обзорного раздела (`/reports/<срез>`) — тоже широкие; «/» — только сама главная. */
 export function isWideRoute(pathname: string): boolean {

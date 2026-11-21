@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **787**. Развилок в самих путях: **2495**; вместе с задачами по расписанию и фоновыми заданиями — **4204**. Модулей: **88**.
+Путей: **791**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **4210**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -14945,6 +14945,101 @@
 - const counts = await countStuckConversationsByChannel();
   · зовёт countStuckConversationsByChannel()
 - res.json({ channels, totalWaiting: channels.reduce((sum, c)
+  · ответ 200
+
+## /api/v1/reports/director
+
+### GET /api/v1/reports/director/drill
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = directorDrillQuerySchema.safeParse(req.query);
+  · проверяет данные схемой directorDrillQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- const denied = drillPermissionsMissing(req, parsed.data.key);
+  · зовёт drillPermissionsMissing()
+- если denied
+  - return res.status(403).json({ error: denied });
+    · ответ 403
+- const presentName = (client: { fullName: string; source: string })
+  - const shown = withHiddenOrigin({ fullName: client.fullName, source: client.source as string | null }, viewer.…
+    · зовёт withHiddenOrigin()
+  - return { name: clientNamePhoneSafe(shown.fullName, viewer.seesPhone), source, sourceLabel: source ? (CLIENT_S…
+    · зовёт clientNamePhoneSafe()
+- return guarded(res, "список", async ()
+  · ответ 200
+
+### GET /api/v1/reports/director/export.xlsx
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = directorDashboardQuerySchema.safeParse(req.query);
+  · проверяет данные схемой directorDashboardQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- return guarded(res, "выгрузка", async ()
+  · ответ 200
+  · ставит заголовок ответа
+  - const data = await cachedDirectorDashboard(parsed.data, viewerOf(req));
+    · зовёт cachedDirectorDashboard()
+  - const file = writeXlsx(exportSheets(data));
+    · зовёт writeXlsx()
+  - const name = `director-${dushanbeDateString(new Date(data.period.from))}_${dushanbeDateString(new Date(data.p…
+    · зовёт dushanbeDateString()
+  - res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    · ставит заголовок ответа
+  - res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+    · ставит заголовок ответа
+  - res.setHeader("Cache-Control", "no-store");
+    · ставит заголовок ответа
+  - return res.send(file);
+    · ответ 200
+
+### GET /api/v1/reports/director/history
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = historyQuerySchema.safeParse(req.query);
+  · проверяет данные схемой historyQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- если !can(req, "clients.viewAll")
+  - return res.status(403).json({ error: "История доступна тем, кто видит всех клиентов" });
+    · ответ 403 — «История доступна тем, кто видит всех клиентов»
+- return guarded(res, "история", async ()
+  · ответ 200
+  · читает в базе: stageEvent
+  · читает в базе: auditLog
+  · читает в базе: agent
+  - const [events, agentChanges] = await Promise.all([ prisma.stageEvent.findMany({ where: { entityType: "CLIENT"…
+    · читает в базе: stageEvent
+    · читает в базе: auditLog
+  - для каждого: const e of events
+    - if (e.agentId) agentIds.add(e.agentId);
+      · дословно из кода
+  - для каждого: const a of agentChanges
+    - для каждого: const id of [a.agentId, m.fromAgentId, m.toAgentId]
+      - if (id) agentIds.add(id);
+        · дословно из кода
+  - const agents = await prisma.agent.findMany({ where: { id: { in: [...agentIds] } }, select: { id: true, fullNa…
+    · читает в базе: agent
+  - return res.json({ clientId, items });
+    · ответ 200
+
+### GET /api/v1/reports/director
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = directorDashboardQuerySchema.safeParse(req.query);
+  · проверяет данные схемой directorDashboardQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- return guarded(res, "сводка", async ()
   · ответ 200
 
 ## /api/v1/search-console

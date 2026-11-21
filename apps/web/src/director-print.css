@@ -1,0 +1,24 @@
+/* Печать «Дашборда директора» (кнопка «Печать» → окно печати браузера; сохранить как PDF — оттуда же).
+ * Остаётся только содержимое экрана: меню, шапка и подсказки не печатаются, таблица — без прокрутки. */
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body:has(.dd) .app-shell { display: block !important; height: auto !important; overflow: visible !important; }
+  body:has(.dd) .app-shell > :not(.clean-frame) { display: none !important; }
+  body:has(.dd) .clean-frame { display: block !important; height: auto !important; overflow: visible !important; padding: 0 !important; }
+  body:has(.dd) .clean-frame > :not(main) { display: none !important; }
+  body:has(.dd) { background: #fff !important; }
+  .dd-acts, .dd-filters, .dd-sortbar { display: none !important; }
+  .dd-table-wrap { overflow: visible !important; }
+  .dd-tile, .dd-card, .dd-agent-card, .ry-section { break-inside: avoid; }
+}
+
+/* Печать: строка «Период и фильтры» видна только на бумаге; лист альбомный, поля не обрезаны. */
+.dd-print-meta { display: none; }
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  .dd-print-meta { display: block !important; margin: 0 0 8px; font-size: 12px; color: #444; }
+  body:has(.dd) .dd { padding: 0 !important; margin: 0 !important; max-width: none !important; }
+  .dd-table { font-size: 11px !important; width: 100% !important; }
+  .dd-table th, .dd-table td { padding: 4px 6px !important; }
+  .dd-table th:first-child, .dd-table td:first-child { min-width: 0 !important; }
+}

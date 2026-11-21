@@ -122,6 +122,7 @@
 @import './theme-2026-clean-section-surfaces.css';
 @import './theme-2026-clean-surface-integrity.css';
 /* «Новый вид» (облик royal): каждое правило под :root[data-ui-look="royal"], без атрибута не меняет ничего. Последним. */
+@import './director-print.css';
 @import './theme-look-royal.css';
 @import './theme-look-royal-clients.css';
 /* «Новый вид» по разделам — после основы, тот же закон: всё под :root[data-ui-look="royal"]. */
@@ -143,6 +144,8 @@
 @import './theme-look-royal-control.css';
 /* «Новый вид», раздел «Аналитика» (пачка analytics: отчёты, источники, инсайты, воронка, подготовка объектов). */
 @import './theme-look-royal-analytics.css';
+/* «Новый вид», «Дашборд директора» (пачка director: /director для директора и РОП) — только под :root[data-ui-look="royal"] и меткой раздела. */
+@import './theme-look-royal-director.css';
 /* «Новый вид», мастер и форма объекта (пачка wizard: /properties/new, /properties/:id/edit) — только под :root[data-ui-look="royal"] и меткой раздела. */
 @import './theme-look-royal-wizard.css';
 /* «Новый вид», главная остальных ролей (пачка home: монтажёр, маркетинг, СБ, менеджер, акционер). */

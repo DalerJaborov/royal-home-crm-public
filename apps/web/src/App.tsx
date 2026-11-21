@@ -154,6 +154,7 @@ const Activity = lazyWithReload(() => import("./pages/Activity").then((m) => ({ 
 const Deals = lazyWithReload(loadCleanDeals);
 const Calendar = lazyWithReload(() => import("./pages/Calendar").then((m) => ({ default: m.Calendar })));
 const Reports = lazyWithReload(() => import("./pages/Reports").then((m) => ({ default: m.Reports })));
+const DirectorDashboard = lazyWithReload(() => import("./pages/DirectorDashboard").then((m) => ({ default: m.DirectorDashboard })));
 const Sources = lazyWithReload(() => import("./pages/Sources").then((m) => ({ default: m.Sources })));
 const Settings = lazyWithReload(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 const RolesMatrix = lazyWithReload(() =>
@@ -447,6 +448,7 @@ export default function App() {
         <Route path="comments" element={<Comments />} />
         <Route path="funnel" element={<Funnel />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="director" element={<DirectorDashboard />} />
         <Route path="sources" element={<Sources />} />
         <Route path="settings" element={<Settings />} />
         {/* «Права по ролям» — таблица роль на роль по пресетам shared/permissions.ts,
