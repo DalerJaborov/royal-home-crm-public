@@ -39,7 +39,8 @@ export interface EmptyListFacts {
 export function judgeEmptyList(f: EmptyListFacts): EmptyListReason | "pending" | null {
   if (!f.enabled) return null;
   if (f.isLoading || f.isFetching) return "pending";
-  if (f.hasError) return "error";
+  // Данные уже на экране (список не пуст) — фоновая ошибка обновления плашку не вызывает и ничего не прячет (ревью #346).
+  if (f.hasError && !(f.hasData && f.itemCount > 0)) return "error";
   if (f.hasData && f.itemCount === 0 && typeof f.expected === "number" && f.expected > 0) {
     // Список пришёл раньше свежей сводки: число могло устареть, ждём сводку.
     return f.summaryPending ? "pending" : "empty-vs-summary";

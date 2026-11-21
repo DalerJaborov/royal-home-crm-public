@@ -12,6 +12,7 @@ import { PropertyStats } from "../../PropertyStats";
 import { RhAvatar } from "../ui";
 import { ObjIcon } from "./ObjIcon";
 import { propertyStagePill, TONE_ICON, type ObjTone } from "./objectTone";
+import { pillTone, pillToneOf } from "../tileTone";
 
 /**
  * КАРТОЧКА ОБЪЕКТА В СПИСКЕ — «Новый вид» (облик royal, 18.11.2026).
@@ -73,21 +74,20 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
           <PropertyHealthDot health={health} />
           <span title={`Номер для поиска: ${formatPropertyCode(p.shortId)}`}>№{p.shortId}</span>
           <span className="ry-obj-state" data-tone={tone}>{stageLabel}</span>
-          {p.publishedOnSite && <span className="ry-obj-tag" data-tone="ok"><ObjIcon name="globe" size={16} />На сайте</span>}
+          {p.publishedOnSite && <span className="ry-obj-tag" data-tone={pillTone("info")}><ObjIcon name="globe" size={16} />На сайте</span>}
         </p>
         <div className="ry-obj-stats"><PropertyStats property={p} /></div>
         {subline && <div className="ry-obj-subline">{subline}</div>}
         {(awaitingAcceptance || handoff.length > 0) && <div className="ry-obj-tags">
-          {awaitingAcceptance && <span className="ry-obj-tag" data-tone="warn"><ObjIcon name="circle-alert" size={16} />Передан вам · примите</span>}
+          {awaitingAcceptance && <span className="ry-obj-tag" data-tone={pillTone("today")}><ObjIcon name="circle-alert" size={16} />Передан вам · примите</span>}
           {handoff.map((item) => (
-            <span key={item.text} className="ry-obj-tag" data-tone={item.tone === "mute" ? "neutral" : item.tone}>
-              {item.tone === "crit" && <ObjIcon name="flame" size={16} />}
-              {item.tone === "warn" && <ObjIcon name="circle-alert" size={16} />}
+            <span key={item.text} className="ry-obj-tag" data-tone={pillToneOf(item.tone)}>
+              {(item.tone === "crit" || item.tone === "warn") && <ObjIcon name="circle-alert" size={16} />}
               {item.text}
             </span>
           ))}
         </div>}
-        {overdue && <p className="ry-obj-overdue" data-tone={tone === "crit" ? "crit" : "warn"}>{STAGE_OWNER_LABELS[p.pipeline!.owner ?? ""] ?? p.pipeline!.owner ?? "Этап"} задерживает объект: {p.pipeline!.daysInStage} дн. при сроке {p.pipeline!.limitDays ?? "не задан"}.</p>}
+        {overdue && <p className="ry-obj-overdue" data-tone={pillTone(tone === "crit" ? "overdue" : "today")}>{STAGE_OWNER_LABELS[p.pipeline!.owner ?? ""] ?? p.pipeline!.owner ?? "Этап"} задерживает объект: {p.pipeline!.daysInStage} дн. при сроке {p.pipeline!.limitDays ?? "не задан"}.</p>}
         <div className="ry-obj-foot">
           <span className="ry-obj-agent" title={agentTitle}>
             {agentName ? <RhAvatar name={agentName} size={44} /> : null}

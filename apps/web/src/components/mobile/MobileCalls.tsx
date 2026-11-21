@@ -36,7 +36,8 @@ import { mergeCallFeed } from "../../lib/callFeedMerge";
 import { LiveVoiceSessionsMh, useCanSeeLiveVoiceSessions } from "../LiveVoiceSessions";
 import { LiveVoiceListenMh } from "../LiveVoiceListen";
 import { useRoyalLook } from "../../hooks/useRoyalLook";
-import { RoyalCallFlag, RoyalCallListen, RoyalCallRow, scoreFlagTone } from "../look/calls/RoyalCallRow";
+import { RoyalCallFlag, RoyalCallListen, RoyalCallRow } from "../look/calls/RoyalCallRow";
+import { pillTone, scorePillTone } from "../look/tileTone";
 import { CallSourceMark } from "../look/calls/CallSourceMark";
 import { RoyalInboxSwitch } from "../look/chats/RoyalInboxSwitch";
 
@@ -141,9 +142,9 @@ function MhJournalRow({ call, showAgent, royal = false }: { call: CallRow; showA
         ]}
         note={!noAnswer && analysis ? analysis.summary : undefined}
         flags={!noAnswer && (analysis ? <>
-          <RoyalCallFlag tone={scoreFlagTone(scoreTone(analysis.score))}>балл {analysis.score}</RoyalCallFlag>
-          {!analysis.agreedNextStep && <RoyalCallFlag tone="crit">без договорённости</RoyalCallFlag>}
-        </> : <RoyalCallFlag tone="mute">{call.transcriptionStage ? "расшифровываем" : missingAnalysisReason(call.transcript)}</RoyalCallFlag>)}
+          <RoyalCallFlag tone={scorePillTone(analysis.score)}>балл {analysis.score}</RoyalCallFlag>
+          {!analysis.agreedNextStep && <RoyalCallFlag tone={pillTone("info")}>без договорённости</RoyalCallFlag>}
+        </> : <RoyalCallFlag tone={pillTone("info")}>{call.transcriptionStage ? "расшифровываем" : missingAnalysisReason(call.transcript)}</RoyalCallFlag>)}
         action={expandable
           ? <>{callButton}<RoyalCallListen compact open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={formatCallDuration(call.durationSec)} canListen={call.hasRecording && call.canHear !== false} /></>
           : callButton}
@@ -281,12 +282,12 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
         ]}
         flags={<>
           <CallSourceMark source={call.source} look="royal" />
-          {call.irrelevant && <RoyalCallFlag tone="mute">не по делу</RoyalCallFlag>}
-          {needsQualifying && <RoyalCallFlag tone="warn">без разбора</RoyalCallFlag>}
+          {call.irrelevant && <RoyalCallFlag tone={pillTone("info")}>не по делу</RoyalCallFlag>}
+          {needsQualifying && <RoyalCallFlag tone={pillTone("info")}>без разбора</RoyalCallFlag>}
           {!call.answered && (call.callbackAgent
-            ? <RoyalCallFlag tone="warn">перезвонит {call.callbackAgent.fullName}</RoyalCallFlag>
-            : <RoyalCallFlag tone="crit">никто не перезвонил</RoyalCallFlag>)}
-          {call.missingCallback && <RoyalCallFlag tone="crit">без перезвона {call.missedCallbackHours}ч+</RoyalCallFlag>}
+            ? <RoyalCallFlag tone={pillTone("info")}>перезвонит {call.callbackAgent.fullName}</RoyalCallFlag>
+            : <RoyalCallFlag tone={pillTone("today")}>никто не перезвонил</RoyalCallFlag>)}
+          {call.missingCallback && <RoyalCallFlag tone={pillTone("overdue")}>без перезвона {call.missedCallbackHours}ч+</RoyalCallFlag>}
           <BlockCallerButton callId={call.id} known={!!call.client} />
         </>}
         action={!call.answered && (
@@ -1175,7 +1176,7 @@ function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }
         ]}
         flags={(analysis || isWhatsappCallSource(call.source)) && <>
           <CallSourceMark source={call.source} look="royal" />
-          {analysis && <RoyalCallFlag tone={scoreFlagTone(scoreTone(analysis.score))}>балл {analysis.score}</RoyalCallFlag>}
+          {analysis && <RoyalCallFlag tone={scorePillTone(analysis.score)}>балл {analysis.score}</RoyalCallFlag>}
         </>}
         action={expandable
           ? <>{callButton}<RoyalCallListen compact open={open} onToggle={() => setOpen((v) => !v)} controls={detailsId} duration={formatCallDuration(call.durationSec)} canListen={call.hasRecording && call.canHear !== false} /></>

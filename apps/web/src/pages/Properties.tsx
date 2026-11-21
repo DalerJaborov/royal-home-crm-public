@@ -32,6 +32,7 @@ import { usePropertiesHealth } from "../hooks/usePropertiesHealth";
 import type { PropertyHealthBrief } from "@royal-home/shared";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
+import { Rh2OfflineState, Rh2RetryingNote, loadView } from "../components/rh2/Rh2ErrorState";
 
 import { Pagination } from "../components/Pagination";
 import { formatMoney, PROPERTY_TYPE_LABELS, pluralizeRu } from "../lib/format";
@@ -221,7 +222,7 @@ export function Properties() {
   const debouncedAreaMax = useDebouncedValue(filters.areaMax, 350);
   const debouncedPriceMin = useDebouncedValue(filters.priceMin, 350);
   const debouncedPriceMax = useDebouncedValue(filters.priceMax, 350);
-  const { data, isLoading, error, refetch, failureCount } = useProperties({
+  const { data, isLoading, error, fetchStatus, refetch, failureCount } = useProperties({
     ...filters,
     q: debouncedQuery,
     areaMin: debouncedAreaMin,
@@ -765,10 +766,10 @@ export function Properties() {
             </div>
           )}
 
-          {/* Первый запрос не прошёл, идут повторы (до ~30 с): сразу сказать словами, а не молча
+          {/* Первый запрос не прошёл, идут повторы (окно `RETRY_WINDOW_MS`, lib/queryClient.ts): сразу сказать словами, а не молча
               крутить серые плитки (съёмка экранов 20.11). */}
           {isLoading && !error && failureCount > 0 && (
-            <p className="quiet" role="status"><span className="txt">Связь с сервером прерывается, пробуем ещё раз…</span></p>
+            <Rh2RetryingNote onRetry={() => void refetch()} />
           )}
           {isLoading && !error && clean && view === "cards" && (
             <div className={royal ? "ry-obj-grid" : "clean-property-grid"} data-view={royal ? "cards" : undefined} aria-hidden="true">
@@ -797,7 +798,8 @@ export function Properties() {
             </div>
           )}
 
-          {error && (
+          {loadView({ data, isError: !!error, fetchStatus }) === "offline" && <Rh2OfflineState onRetry={() => void refetch()} />}
+          {loadView({ data, isError: !!error, fetchStatus }) === "error" && (
             <div className="empty">
               <span className="ic">
                 <svg className="i" viewBox="0 0 24 24">

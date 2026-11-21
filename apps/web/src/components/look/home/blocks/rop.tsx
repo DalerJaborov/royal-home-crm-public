@@ -9,8 +9,9 @@ import { dushanbeTime } from "../../../../lib/date";
 import { lazyWithReload } from "../../../../lib/lazyWithReload";
 import { useTeamLive } from "../../../../hooks/useTeamLive";
 import { mcOk, useMissionControl } from "../../../../hooks/useMissionControl";
-import { RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
-import { tileTone } from "../../tileTone";
+import { RhCircle, RhGroup, RhRow, RhSection, RhTile, blockState } from "../../ui";
+import { loadView } from "../../../rh2/Rh2ErrorState";
+import { tileTone, pillTone } from "../../tileTone";
 import { HomeBars, num } from "../charts";
 import { waitLabel } from "../leader";
 import type { HomeBlockProps } from "../core";
@@ -57,7 +58,9 @@ export function RopTiles({ role }: HomeBlockProps) {
   const { all: navigation } = useNavigation();
   const { hidden } = useHomeLayoutPrefs(role);
   if (!canView) return null;
-  if (mc.isLoading && !mc.data) return <RhBlockState kind="loading" />;
+  // Нет данных и грузится или нет связи — плашки/«нет связи»; упавший mc при живом live плитки live не прячет.
+  const mcView = loadView(mc);
+  if (mcView === "loading" || mcView === "offline") return blockState(mc);
   const hasRoute = (path: string) => navigation.some((item) => item.to === path);
   // «Команда сегодня» на этой главной: по строке на агента — те же «просрочено» и «не принял вовремя».
   const teamShown = can("team.viewFull") && !hidden.has("ropTeam");
@@ -87,7 +90,11 @@ export function RopTiles({ role }: HomeBlockProps) {
     <RhTile key="late" variant={tileTone("urgent", late)} icon="user-plus" label="Не приняли вовремя" value={late}
       note="заявки, время вышло" to={teamShown ? "#ry-leader-team" : undefined} />,
   );
-  if (tiles.length === 0) return mc.isError || live.isError ? <RhBlockState kind="error" onRetry={() => { void mc.refetch(); void live.refetch(); }} /> : null;
+  if (tiles.length === 0) {
+    const failing = loadView(mc) === "ready" ? live : mc;
+    const view = loadView(failing);
+    return view === "error" || view === "offline" ? blockState(failing, () => { void mc.refetch(); void live.refetch(); }) : null;
+  }
   return <div className="ry-strip ry-strip-tiles" data-tiles={tiles.length}>{tiles}</div>;
 }
 
@@ -101,8 +108,9 @@ export function RopSpread() {
   const canView = can("dashboard.analytics");
   const live = useTeamLive(canView);
   if (!canView) return null;
-  if (live.isPending) return <RhSection title="Распределение заявок" className="ry-col-a"><RhBlockState kind="loading" /></RhSection>;
-  if (live.isError || !live.data) return <RhSection title="Распределение заявок" className="ry-col-a"><RhBlockState kind="error" onRetry={() => void live.refetch()} /></RhSection>;
+  const spreadState = blockState(live);
+  if (spreadState) return <RhSection title="Распределение заявок" className="ry-col-a">{spreadState}</RhSection>;
+  if (!live.data) return null;
   // Ответ без поля — пустое, а не падение блока (класс 18.11.2026).
   const agents = (Array.isArray(live.data.agents) ? live.data.agents : [])
     .map((a) => ({ ...a, activeLoad: a.activeLoad ?? 0, acceptedToday: a.acceptedToday ?? 0, pendingAccept: a.pendingAccept ?? 0 }))
@@ -114,7 +122,7 @@ export function RopSpread() {
     <RhSection title="Распределение заявок" to="/clients?slice=pending" linkLabel="Заявки" className="ry-col-a">
       {queued > 0 && (
         <RhGroup>
-          <RhRow to="/clients?slice=pending" lead={<RhCircle icon="inbox" tone="warn" />}
+          <RhRow to="/clients?slice=pending" lead={<RhCircle icon="inbox" tone={pillTone("today")} />}
             title={`Без агента: ${queued} ${pluralizeRu(queued, ["заявка", "заявки", "заявок"])}`} sub="ждут раздачи" />
         </RhGroup>
       )}
@@ -139,19 +147,20 @@ export function RopSpread() {
 export function RopTasks() {
   const work = useRopWork();
   const tasks = tasksOf(work.data);
+  const workState = blockState(work);
   return (
     <RhSection id="ry-rop-tasks" title="Мои задачи" to="/calendar" linkLabel="Календарь" className="ry-col-b">
-      {work.isPending ? <RhBlockState kind="loading" /> : work.isError ? <RhBlockState kind="error" onRetry={() => void work.refetch()} />
+      {workState ? workState
         : tasks.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Задач нет" /></RhGroup>
         : <RhGroup>{tasks.slice(0, 8).map((task) => {
           const late = !!task.dueAt && Date.parse(task.dueAt) < Date.now();
           return (
             <RhRow key={task.id} to={`/clients/${task.clientShortId}`}
-              lead={<RhCircle icon={late ? "hourglass" : task.responseAction === "ACTION" ? "list-checks" : "inbox"} tone={late ? "crit" : task.responseAction === "RECEIPT" ? "warn" : "a0"} />}
+              lead={<RhCircle icon={late ? "hourglass" : task.responseAction === "ACTION" ? "list-checks" : "inbox"} tone={late ? pillTone("overdue") : task.responseAction === "RECEIPT" ? pillTone("today") : "a0"} />}
               title={task.clientName}
               sub={task.responseAction === "RECEIPT" ? "ждёт принятия" : task.responseAction === "ACTION" ? "нужен отчёт" : task.title}
               subTone={late ? "crit" : undefined}
-              right={task.dueAt ? <span className="ry-row-time" data-tone={late ? "crit" : undefined}>{dushanbeTime(task.dueAt)}</span> : undefined} />
+              right={task.dueAt ? <span className="ry-row-time" data-tone={late ? pillTone("overdue") : undefined}>{dushanbeTime(task.dueAt)}</span> : undefined} />
           );
         })}</RhGroup>}
     </RhSection>

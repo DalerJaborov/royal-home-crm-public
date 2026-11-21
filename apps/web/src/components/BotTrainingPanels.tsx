@@ -196,7 +196,7 @@ export function TrainingSession({ canDecide }: { canDecide: boolean }) {
             <span className="dot crit" />
             {error instanceof ApiError ? error.message : "Вопрос не загрузился. Проверьте связь."}
             <button type="button" className="lk" style={{ color: "inherit", textDecoration: "underline" }} onClick={() => void refetch()}>
-              Попробовать снова
+              Повторить
             </button>
           </div>
         ) : !isFetching && !isError && data?.done ? (

@@ -23,6 +23,8 @@ export interface ClientAction {
   label: string;
   /** Короткая подпись для телефона, где в строке мало места. */
   short: string;
+  /** Только у «позвонить сейчас»: на сколько миллисекунд просрочен шаг (цвет пилюли нового вида идёт по сроку, как дата). */
+  overdueMs?: number;
 }
 
 type ActionInput = Pick<
@@ -56,7 +58,7 @@ export function clientAction(c: ActionInput, nowMs: number, canAccept: boolean):
 
   const due = c.nextStep?.nextActionDate;
   if (due && new Date(due).getTime() < nowMs) {
-    return { id: "call-now", tone: "warn", label: "позвонить сейчас", short: "позвонить" };
+    return { id: "call-now", tone: "warn", label: "позвонить сейчас", short: "позвонить", overdueMs: nowMs - new Date(due).getTime() };
   }
   if (c.unread) return { id: "reply", tone: "warn", label: "ответить", short: "ответить" };
   if (c.status === "NEW" && c.acceptedAt && !c.firstContactAt) {

@@ -31,6 +31,7 @@ import { useRoyalLook } from "../hooks/useRoyalLook";
 import { AdminScreen } from "../components/look/admin/AdminRoot";
 import { RhBlockState, RhButton, RhCircle, type RhTone } from "../components/look/ui";
 import type { RoyalIconName } from "../components/look/royalIconData";
+import { pillTone } from "../components/look/tileTone";
 
 /**
  * `/notifications` — полноэкранная лента уведомлений.
@@ -243,11 +244,11 @@ const ROYAL_KIND: Record<string, { icon: RoyalIconName; tone: RhTone }> = {
   /** Предложение объекта коллегой (10.11.2026). */
   "property-offer": { icon: "building-2", tone: "a3" },
 };
-function royalCircle(n: AppNotification): { icon: RoyalIconName; tone: RhTone } {
+function royalCircle(n: AppNotification): { icon: RoyalIconName; tone: RhTone | "neutral" } {
   const kind = ROYAL_KIND[n.kind] ?? { icon: "bell" as const, tone: "a0" as const };
   const level = levelOf(n);
-  if (level === "CRITICAL") return { icon: "flame", tone: "crit" };
-  if (level === "APPROVAL") return { icon: kind.icon, tone: "warn" };
+  if (level === "CRITICAL") return { icon: "flame", tone: pillTone("overdue") };
+  if (level === "APPROVAL") return { icon: kind.icon, tone: pillTone("today") };
   return kind;
 }
 
@@ -581,8 +582,8 @@ export function Notifications() {
         {isError && (
           <div className="ry-adm-card" role="alert">
             <div className="ry-adm-head">
-              <RhCircle icon="flame" tone="crit" />
-              <p className="ry-adm-text" data-tone="crit">
+              <RhCircle icon="circle-alert" tone={pillTone("info")} />
+              <p className="ry-adm-text">
                 Не удалось загрузить ленту. Это не значит, что уведомлений нет — попробуйте ещё раз.
               </p>
             </div>
@@ -608,7 +609,7 @@ export function Notifications() {
             {royalRows(section)}
             {i === filled.length - 1 && (hasMore || moreError) && (
               <div className="ry-ntf-pager">
-                <span className={moreError ? "ry-adm-text" : "ry-adm-text ry-adm-hint"} data-tone={moreError ? "crit" : undefined}>
+                <span className={moreError ? "ry-adm-text" : "ry-adm-text ry-adm-hint"} data-tone={moreError ? pillTone("today") : undefined}>
                   {moreError ?? `Показано ${items.length}`}
                 </span>
                 <RhButton variant="secondary" disabled={loadingMore} onClick={() => void loadMore()}>
@@ -651,7 +652,7 @@ export function Notifications() {
                   Не удалось загрузить ленту. Это не значит, что уведомлений нет — попробуйте ещё раз.
                 </MhQuiet>
                 <button type="button" className="btn soft sm" onClick={() => refetch()}>
-                  Попробовать снова
+                  Повторить
                 </button>
               </>
             )}

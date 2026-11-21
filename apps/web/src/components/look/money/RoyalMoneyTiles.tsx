@@ -1,6 +1,7 @@
 import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
 import { RoyalAmount } from "./RoyalAmount";
+import { pillTone, type PillTone } from "../tileTone";
 
 /**
  * «НОВЫЙ ВИД» раздела «Деньги» (пачка money, 18.11.2026): итоги месяца плитками
@@ -32,16 +33,16 @@ export function RoyalMoneyTiles({ commission, companyRevenue, operatingExpenses,
         <strong className="ry-money-hero-value ry-num"><RoyalAmount text={commission} /></strong>
       </div>
       <Tile icon="building-2" tone="ok" label="Доход компании" value={companyRevenue} />
-      <Tile icon="stack" tone="warn" label="Операционные расходы" value={operatingExpenses} />
-      <Tile icon={loss ? "circle-alert" : "trend-up"} tone={loss ? "crit" : "ok"} label="Прибыль" value={profit} />
+      <Tile icon="stack" tone={pillTone("today")} label="Операционные расходы" value={operatingExpenses} />
+      <Tile icon={loss ? "circle-alert" : "trend-up"} tone={loss ? pillTone("overdue") : pillTone("good")} label="Прибыль" value={profit} />
     </div>
   );
 }
 
-function Tile({ icon, tone, label, value }: { icon: RoyalIconName; tone: "ok" | "warn" | "crit"; label: string; value: string }) {
+function Tile({ icon, tone, label, value }: { icon: RoyalIconName; tone: PillTone; label: string; value: string }) {
   return (
     <div className="ry-money-tile" data-tone={tone}>
-      <span className="ry-circle" data-tone={tone}><RoyalIcon name={icon} size={24} /></span>
+      <span className="ry-circle" data-tone={tone === "neutral" ? "a0" : tone}><RoyalIcon name={icon} size={24} /></span>
       <span className="ry-money-tile-text">
         <span className="ry-money-tile-label">{label}</span>
         <strong className="ry-money-tile-value ry-num"><RoyalAmount text={value} /></strong>

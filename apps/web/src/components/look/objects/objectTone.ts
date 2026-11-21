@@ -1,12 +1,13 @@
 import type { ObjIconName } from "./ObjIcon";
 import { propertyStageChip } from "../../../lib/propertyStageChip";
+import { pillTone, type PillTone } from "../tileTone";
 
 /**
  * Смысл пилюли состояния в новом виде. Берётся из того же класса чипа, что у
  * прежнего вида (`statusChipClass`/`propertyStageChip`), своих правил нет.
  * Срочное, внимание и норма различаются яркостью и значком, не только оттенком.
  */
-export type ObjTone = "crit" | "warn" | "ok" | "neutral";
+export type ObjTone = PillTone;
 
 export function toneFromChipClass(chipClass: string): ObjTone {
   if (/\bcrit\b/.test(chipClass)) return "crit";
@@ -42,17 +43,17 @@ export function stagePillView(
   chip: { tone: string; label: string },
   stage: { inPipeline?: boolean; daysInStage?: number; limitDays?: number | null; overdue?: boolean } | null | undefined,
 ): { tone: ObjTone; label: string } {
-  const base: ObjTone = chip.tone === "ok" ? "ok" : "neutral";
+  const base: ObjTone = pillTone(chip.tone === "ok" ? "good" : "info");
   const days = stage?.inPipeline ? stage.daysInStage ?? 0 : 0;
   const withoutDays = chip.label.replace(/,\s*\d+\s*дн\.$/, "");
   if (!days || withoutDays === chip.label) return { tone: base, label: chip.label };
   if (!stage?.overdue) return { tone: base, label: `${withoutDays} · ${days} дн.` };
   const limit = stage.limitDays && stage.limitDays > 0 ? stage.limitDays : null;
-  if (!limit) return { tone: "warn", label: `${withoutDays} · срок прошёл` };
+  if (!limit) return { tone: pillTone("today"), label: `${withoutDays} · срок прошёл` };
   const late = Math.max(1, days - limit);
   return days >= limit * 3
-    ? { tone: "crit", label: `${withoutDays} · просрочено на ${late} дн.` }
-    : { tone: "warn", label: `${withoutDays} · срок прошёл на ${late} дн.` };
+    ? { tone: pillTone("overdue"), label: `${withoutDays} · просрочено на ${late} дн.` }
+    : { tone: pillTone("today"), label: `${withoutDays} · срок прошёл на ${late} дн.` };
 }
 
 /** Плашка объекта для списка и карточки: тот же этап, тот же тон, тот же текст. */

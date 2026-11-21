@@ -10,7 +10,7 @@ describe("CallSourceMark", () => {
       expect(html).toContain("WhatsApp");
       expect(html).toContain('title="Клиент позвонил через WhatsApp"');
     }
-    expect(renderToStaticMarkup(<CallSourceMark source="whatsapp" look="royal" />)).toContain('data-tone="ok"');
+    expect(renderToStaticMarkup(<CallSourceMark source="whatsapp" look="royal" />)).toContain('data-tone="neutral"');
     expect(renderToStaticMarkup(<CallSourceMark source="whatsapp" look="chip-xs" />)).toContain('class="chip ok xs"');
   });
 

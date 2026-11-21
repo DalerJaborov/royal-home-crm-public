@@ -11,6 +11,8 @@ import { RhAvatar, RhBlockState, RhButton, RhGroup, RhRow, RhSection, RhTile } f
 import { RoyalIcon } from "../RoyalIcon";
 import { RoyalSection } from "../clients/RoyalSection";
 import type { RoyalIconName } from "../royalIconData";
+import type { LoadView } from "../../rh2/Rh2ErrorState";
+import { pillTone } from "../tileTone";
 
 /**
  * КОМАНДА В «НОВОМ ВИДЕ» (18.11.2026, макет `screenTeam`/`teamTable`).
@@ -24,8 +26,8 @@ type Filter = "all" | "agents" | "managers" | "frozen";
 
 export interface RoyalTeamProps {
   supervisor: boolean;
-  fame: { data: { team: HallOfFameTeammate[] } | undefined; loading: boolean; error: boolean; retry: () => void };
-  team: { data: TeamMember[] | undefined; loading: boolean; error: boolean; retry: () => void };
+  fame: { data: { team: HallOfFameTeammate[] } | undefined; view: LoadView; retry: () => void };
+  team: { data: TeamMember[] | undefined; view: LoadView; retry: () => void };
   visible: TeamMember[];
   counts: Record<Filter, number>;
   online: number;
@@ -88,7 +90,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
           {p.boards}
           <RhSection title="Вся команда">
             <p className="ry-meta">Ваши коллеги. Показатели каждого видит только руководство.</p>
-            {p.fame.loading ? <RhBlockState kind="loading" /> : p.fame.error ? <RhBlockState kind="error" onRetry={p.fame.retry} />
+            {p.fame.view !== "ready" ? <RhBlockState kind={p.fame.view} onRetry={p.fame.retry} />
               : !fame?.team.length ? <div className="ry-state">В команде пока никого нет</div> : (
                 <RhGroup label="Коллеги">
                   {fame.team.map((m) => (
@@ -157,7 +159,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
           {p.showStages && p.stagesNode}
           {/* Что такое «Баллы» и «Место» — одной строкой рядом с таблицей, а не сноской под ней (главные руководителей, 20.11.2026). */}
           {list.length > 0 && <p className="ry-meta">Баллы — оценка работы агента в рейтинге: растут за дела вовремя, сделки и показы, падают за пропуски. Место — среди агентов по баллам.</p>}
-          {p.team.loading ? <RhBlockState kind="loading" /> : p.team.error ? <RhBlockState kind="error" onRetry={p.team.retry} />
+          {p.team.view !== "ready" ? <RhBlockState kind={p.team.view} onRetry={p.team.retry} />
             : list.length === 0 ? <div className="ry-state">В команде пока никого нет</div> : (
               <div className="ry-group ry-members" role="list" aria-label="Сотрудники">
                 <div className="ry-mhead" aria-hidden="true">
@@ -172,7 +174,7 @@ function RoyalTeamBody(p: RoyalTeamProps) {
                         <Person name={m.fullName} src={m.avatarUrl} online={m.online} />
                         <span className="ry-mrow-text">
                           <span className="ry-row-title">{m.fullName}</span>
-                          <span className="ry-row-sub" data-tone={m.frozen ? "warn" : undefined}>{statusLine(m)}</span>
+                          <span className="ry-row-sub" data-tone={m.frozen ? pillTone("today") : undefined}>{statusLine(m)}</span>
                           {p.chips(m)}
                         </span>
                         <span className="ry-mrow-stats">

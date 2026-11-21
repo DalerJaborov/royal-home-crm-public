@@ -6,13 +6,13 @@ import type { EmptyListGuard } from "../hooks/useEmptyListGuard";
  * идиомы `.empty` / `.pill` (ПК) и `.state err` / `.lnk` (телефон, components/mobile).
  */
 export function EmptyListGuardBanner({ guard, variant }: { guard: EmptyListGuard; variant: "desktop" | "mobile" }) {
-  const text = "Список не загрузился. Нажмите «Обновить», мы очистим старые данные и загрузим заново.";
+  const text = "Список не загрузился. Нажмите «Повторить», мы очистим старые данные и загрузим заново.";
   if (variant === "mobile") {
     return (
       <div className="state err" role="alert" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
         {text}
         <button type="button" className="lnk" onClick={() => void guard.repair()} disabled={guard.healing}>
-          {guard.healing ? "Обновляем…" : "Обновить"}
+          {guard.healing ? "Обновляем…" : "Повторить"}
         </button>
       </div>
     );
@@ -24,7 +24,7 @@ export function EmptyListGuardBanner({ guard, variant }: { guard: EmptyListGuard
       </span>
       <p>{text}</p>
       <button className="pill ghost" type="button" onClick={() => void guard.repair()} disabled={guard.healing}>
-        {guard.healing ? "Обновляем…" : "Обновить"}
+        {guard.healing ? "Обновляем…" : "Повторить"}
       </button>
     </div>
   );

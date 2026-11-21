@@ -15,6 +15,7 @@ import { AdminRoot } from "../components/look/admin/AdminRoot";
 import { RhCircle } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
 import { controlTile } from "../components/look/control/controlTileIcon";
+import { pillTone } from "../components/look/tileTone";
 
 /**
  * «Интеграции и каналы» — экран /integrations (перенос мобильного макета
@@ -155,7 +156,7 @@ export function Integrations() {
                     }}
                   >
                     {royal ? (
-                      <RhCircle icon={c.ok === true ? "plug" : c.ok === false ? "flame" : "x-circle"} tone={c.ok === true ? "ok" : c.ok === false ? "crit" : "a0"} />
+                      <RhCircle icon={c.ok === true ? "plug" : c.ok === false ? "flame" : "x-circle"} tone={c.ok === true ? pillTone("good") : c.ok === false ? pillTone("overdue") : "a0"} />
                     ) : (
                       <span
                         className={`dot ${c.ok === true ? "ok" : c.ok === false ? "crit" : ""}`}

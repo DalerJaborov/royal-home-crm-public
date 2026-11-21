@@ -6,7 +6,8 @@ import { formatMoney } from "../../../../lib/format";
 import { mcOk, useMissionControl, type McHero } from "../../../../hooks/useMissionControl";
 import { useTeamLive } from "../../../../hooks/useTeamLive";
 import { RoyalIcon } from "../../RoyalIcon";
-import { RhAvatar, RhBlockState, RhGroup, RhRow, RhSection } from "../../ui";
+import { RhAvatar, RhBlockState, RhGroup, RhRow, RhSection, blockState } from "../../ui";
+import { pillToneOf } from "../../tileTone";
 import { HomeChip } from "../parts";
 import { monthPace, useMinuteNow } from "../time";
 import { agentStatus, commissionTrend, previousMonthPeriod } from "../leader";
@@ -115,8 +116,9 @@ export function LeaderTeam({ id, className, to = "/team", limit = 8 }: { id?: st
   const team = mc.data?.team && mcOk(mc.data.team) ? mc.data.team : null;
   if (!canView) return null;
   if (!team) {
-    if (mc.isLoading) return <RhSection title="Команда" to={to} className={className}><RhBlockState kind="loading" /></RhSection>;
-    if (mc.isError || (mc.data?.team && !mcOk(mc.data.team))) return <RhSection title="Команда" to={to} className={className}><RhBlockState kind="error" onRetry={() => void mc.refetch()} /></RhSection>;
+    const mcState = blockState(mc);
+    if (mcState) return <RhSection title="Команда" to={to} className={className}>{mcState}</RhSection>;
+    if (mc.data?.team && !mcOk(mc.data.team)) return <RhSection title="Команда" to={to} className={className}><RhBlockState kind="error" onRetry={() => void mc.refetch()} /></RhSection>;
     return null;
   }
   // Агентов нет вовсе — показывать нечего (а не «пустая команда» строкой).
@@ -144,7 +146,7 @@ export function LeaderTeam({ id, className, to = "/team", limit = 8 }: { id?: st
               lead={<RhAvatar name={agent.fullName} src={agent.avatarUrl} size={48} />}
               title={agent.fullName}
               sub={parts.join(" · ")}
-              right={status.flag ? <HomeChip tone={status.flag.tone}>{status.flag.text}</HomeChip> : undefined} />
+              right={status.flag ? <HomeChip tone={pillToneOf(status.flag.tone)}>{status.flag.text}</HomeChip> : undefined} />
           );
         })}
       </RhGroup>

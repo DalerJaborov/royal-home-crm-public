@@ -4,8 +4,8 @@ import { useDashboardSummary } from "../../../../hooks/useDashboard";
 import { useTeamLive, type UnacceptedLead } from "../../../../hooks/useTeamLive";
 import { useConversations } from "../../../../hooks/useConversations";
 import { channelBrand } from "../time";
-import { RhAvatar, RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
-import { tileTone } from "../../tileTone";
+import { RhAvatar, RhCircle, RhGroup, RhRow, RhSection, RhTile, blockState } from "../../ui";
+import { pillTone, tileTone } from "../../tileTone";
 import { HomeChip, HomeMore, HomeQuick, useExpandable, type HomeQuickItem } from "../parts";
 
 /**
@@ -54,11 +54,12 @@ export function ManagerFocus() {
   const unaccepted = live?.unaccepted ?? [];
   const agents = live?.agents ?? [];
   const oldest = unaccepted.length ? Math.max(...unaccepted.map((l) => l.waitingMinutes)) : null;
+  const focusState = blockState(team);
   return (
     <RhSection id="ry-home-wait" title="Горит сейчас" to="/clients?slice=pending" linkLabel="Все заявки" className="ry-col-a">
-      {team.isPending ? <RhBlockState kind="loading" />
-        // Отказ сводки — не «все приняты»: вся смена оператора состоит из непринятых заявок.
-        : team.isError || !live ? <RhBlockState kind="error" onRetry={() => void team.refetch()} />
+      {focusState ? focusState
+        // Отказ сводки без данных — не «все приняты»: вся смена оператора состоит из непринятых заявок.
+        : !live ? null
         : <RhGroup>
           {unaccepted[0] ? <LeadRow lead={unaccepted[0]} focus />
             : <RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Все заявки приняты"
@@ -96,10 +97,10 @@ export function ManagerTeam() {
   const team = useTeamLive(true);
   const agents = team.data?.agents ?? [];
   const list = useExpandable(agents, agents.length);
+  const freeState = blockState(team);
   return (
     <RhSection title="Кто сейчас свободен" to="/team" className="ry-col-b">
-      {team.isPending ? <RhBlockState kind="loading" />
-        : team.isError ? <RhBlockState kind="error" onRetry={() => void team.refetch()} />
+      {freeState ? freeState
         : agents.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="users" tone="a0" />} title="Список агентов пуст" /></RhGroup>
         : <RhGroup>
           {list.visible.map((a) => (
@@ -107,9 +108,9 @@ export function ManagerTeam() {
               title={a.fullName}
               sub={`в работе ${a.activeLoad}, ждут ответа ${a.pendingAccept}, принял сегодня ${a.acceptedToday}`}
               subTone={a.pendingAccept > 0 ? "warn" : undefined}
-              right={a.escalated > 0 ? <HomeChip tone="crit">{a.escalated} просрочено</HomeChip>
+              right={a.escalated > 0 ? <HomeChip tone={pillTone("overdue", a.escalated)}>{a.escalated} просрочено</HomeChip>
                 // Решение владельца: «чем занят» не подписываем — честное «свободен/занят» по загрузке.
-                : <HomeChip tone={a.activeLoad > 0 ? "warn" : "ok"}>{a.activeLoad > 0 ? "занят" : "свободен"}</HomeChip>} />
+                : <HomeChip tone={pillTone("info")}>{a.activeLoad > 0 ? "занят" : "свободен"}</HomeChip>} />
           ))}
           <HomeMore rest={list.rest} onClick={list.more} />
         </RhGroup>}
@@ -121,10 +122,10 @@ export function ManagerUnread() {
   const conversations = useConversations({});
   const unread = (conversations.data?.items ?? []).filter((c) => c.unread);
   const list = useExpandable(unread, unread.length);
+  const unreadState = blockState(conversations);
   return (
     <RhSection title="Сообщения без ответа" to="/messages" className="ry-col-a">
-      {conversations.isPending ? <RhBlockState kind="loading" />
-        : conversations.isError ? <RhBlockState kind="error" onRetry={() => void conversations.refetch()} />
+      {unreadState ? unreadState
         : unread.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Все переписки разобраны" /></RhGroup>
         : <RhGroup>
           {list.visible.map((c) => {
@@ -134,7 +135,7 @@ export function ManagerUnread() {
                 lead={brand ? <RhCircle brand={brand} /> : <RhAvatar name={c.name ?? "?"} />}
                 title={c.name ?? "Без имени"}
                 sub={c.lastMessage?.content?.trim() || "новое сообщение"}
-                right={<span className="ry-row-time" data-tone={c.awaitingHumanSince ? "crit" : undefined}>
+                right={<span className="ry-row-time" data-tone={c.awaitingHumanSince ? pillTone("overdue") : undefined}>
                   {relativeTime(c.awaitingHumanSince ?? c.lastMessageAt)}
                 </span>} />
             );
@@ -153,11 +154,11 @@ function LeadRow({ lead, focus = false }: { lead: UnacceptedLead; focus?: boolea
     : `${lead.agentName}, ждёт ${lead.waitingMinutes} мин${lead.reassignCount > 0 ? `, ${transfers}` : focus ? ", дальше клиент решит, что про него забыли" : ""}`;
   return (
     <RhRow to={`/clients/${lead.shortId}`} label={`${lead.fullName}: ${sub}`}
-      lead={<RhCircle icon={lead.lost ? "x-circle" : lead.escalated ? "flame" : "hourglass"} tone={lead.lost ? "a0" : lead.escalated ? "crit" : "warn"} filled={lead.escalated && !lead.lost} />}
+      lead={<RhCircle icon={lead.lost ? "x-circle" : lead.escalated ? "flame" : "hourglass"} tone={lead.lost ? "a0" : pillTone(lead.escalated ? "overdue" : "today")} filled={lead.escalated && !lead.lost} />}
       title={lead.fullName}
       sub={sub}
       subTone={lead.lost ? undefined : lead.escalated ? "crit" : "warn"}
-      right={lead.lost ? <HomeChip tone="muted">потерянный, вручную</HomeChip>
-        : lead.escalated ? <HomeChip tone="crit">никто не принял</HomeChip> : undefined} />
+      right={lead.lost ? <HomeChip tone={pillTone("info")}>потерянный, вручную</HomeChip>
+        : lead.escalated ? <HomeChip tone={pillTone("overdue")}>никто не принял</HomeChip> : undefined} />
   );
 }

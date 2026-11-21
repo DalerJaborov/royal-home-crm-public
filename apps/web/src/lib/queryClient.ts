@@ -10,7 +10,8 @@ import { ApiError } from "./apiError";
  * отвечает вовсе. Умолчание react-query — три повтора с паузами 1/2/4 с, то
  * есть окно примерно в семь секунд: перезапуск в него не укладывается, запрос
  * окончательно падает, и экран показывает «не загрузилось» при живом сервере.
- * Здесь окно растянуто примерно до полуминуты — ровно на длину перезапуска.
+ * Здесь окно растянуто до `RETRY_WINDOW_MS` (около 15 секунд, четыре повтора с паузами 1/2/4/8 с, см. ниже):
+ * перезапуск короче этого окна переживается молча, а более долгий кончается честной ошибкой с «Повторить».
  *
  * 429 в списке НЕТ намеренно. Общий лимитер (apps/api/src/app.ts) считает
  * запросы за пять минут, и повтор по нему — не спасение, а добавка к тому же
@@ -44,8 +45,18 @@ export function isTransientFailure(error: unknown): boolean {
  */
 const MAX_429_RETRY_DELAY_MS = 30_000;
 
-/** Вынесено отдельной функцией ради теста (`__tests__/retryDelay.test.ts`),
+/** Вынесено отдельной функцией ради теста (`__tests__/queryClientRetry.test.ts`),
  *  как isTransientFailure выше. */
+/** Сколько раз повторяется упавший запрос данных (обрыв сети, перезапуск сервера); 429 — один раз. */
+export const QUERY_RETRY_ATTEMPTS = 4;
+
+/**
+ * ОКНО ПОВТОРОВ — ОДНО ЧИСЛО НА ВЕСЬ ПРОЕКТ (ревью #346: в комментариях стояли и «~15 с», и «~30 с»).
+ * Паузы 1 → 2 → 4 → 8 с (без разброса до 30%, он добавляет не больше пяти секунд сверху). Столько экран
+ * показывает серые плашки, прежде чем появится «Не удалось загрузить» (`Rh2ErrorState`). Комментарии ссылаются сюда.
+ */
+export const RETRY_WINDOW_MS = Array.from({ length: QUERY_RETRY_ATTEMPTS }, (_, i) => Math.min(1_000 * 2 ** i, 8_000)).reduce((a, b) => a + b, 0);
+
 export function retryDelayFor(failureCount: number, error: unknown): number {
   if (error instanceof ApiError && error.status === 429) {
     return Math.min(error.retryAfterMs ?? 10_000, MAX_429_RETRY_DELAY_MS);
@@ -100,7 +111,7 @@ export const queryClient = new QueryClient({
       // незачем и добивало бы то же окно лимитера.
       retry: (failureCount, error) => {
         if (error instanceof ApiError && error.status === 429) return failureCount < 1;
-        return isTransientFailure(error) && failureCount < 4;
+        return isTransientFailure(error) && failureCount < QUERY_RETRY_ATTEMPTS;
       },
       // 1 → 2 → 4 → 8 секунд плюс разброс до 30%: без разброса полтора десятка
       // запросов одного экрана, упавших вместе на перезапуске, вместе же и

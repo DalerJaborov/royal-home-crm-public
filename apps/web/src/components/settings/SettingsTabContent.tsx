@@ -10,6 +10,7 @@ import { ChannelsTab } from "../../pages/settings/ChannelsTab";
 import { lazyWithReload } from "../../lib/lazyWithReload";
 import { Skeleton } from "../rh2/Skeleton";
 import { CustomerAgentRolloutSection } from "./CustomerAgentRolloutSection";
+import { SettingsLoadError } from "./SettingsLoadError";
 import {
   AssistantAuditSection,
   ImportSection,
@@ -44,6 +45,10 @@ function BotTab(props: ComponentProps<typeof BotTabChunk>) {
 
 /** Same forms as legacy, composed by employee task rather than implementation history. */
 export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSettingsTask; agentRole?: string }) {
+  return <><SettingsLoadError /><CleanSettingsTaskBody task={task} agentRole={agentRole} /></>;
+}
+
+function CleanSettingsTaskBody({ task, agentRole }: { task: CleanSettingsTask; agentRole?: string }) {
   switch (`${task.tab}/${task.id}`) {
     case "agency/company": return <CompanySection />;
     case "agency/locations": return <><DistrictsSection /><LandmarksSection /></>;
@@ -84,6 +89,10 @@ export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSetti
  * Settings.tsx до выноса.
  */
 export function SettingsTabContent({ tab, agentRole }: { tab: SettingsTabId; agentRole: string | undefined }) {
+  return <><SettingsLoadError /><SettingsTabBody tab={tab} agentRole={agentRole} /></>;
+}
+
+function SettingsTabBody({ tab, agentRole }: { tab: SettingsTabId; agentRole: string | undefined }) {
   if (tab === "agency") {
     return (
       <>

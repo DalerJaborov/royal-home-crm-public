@@ -10,8 +10,9 @@ import { mcOk, useMissionControl, usePropertiesPendingReview, type McFirstLineIt
 import { useProperties } from "../../../../hooks/useProperties";
 import { usePultActionRows, usePultActionStatus } from "../../../pult/PultActions";
 import { CleanDecisionRow } from "../../../clean/CleanDecisionRow";
-import { RH_SEVERITY_ICON, RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
-import { tileTone } from "../../tileTone";
+import { RH_SEVERITY_ICON, RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile, blockState } from "../../ui";
+import { loadView } from "../../../rh2/Rh2ErrorState";
+import { tileTone, pillTone } from "../../tileTone";
 import { channelBrand } from "../time";
 import { HomeColumns, num } from "../charts";
 import { waitLabel } from "../leader";
@@ -67,7 +68,8 @@ function useDirector() {
 export function DirectorMoney({ role }: HomeBlockProps) {
   const d = useDirector();
   if (!d.canView) return <RhGroup><RhRow lead={<RhCircle icon="shield-check" tone="a3" />} title="Раздел доступен только руководству." /></RhGroup>;
-  if (d.isError && !d.data) return <RhBlockState kind="error" onRetry={() => void d.refetch()} />;
+  const dState = blockState(d);
+  if (dState && loadView(d) !== "loading") return dState;
   const { hero, bot, commission12, marketing } = d;
   const showMoney = !!hero?.commission && !!d.data?.seesMoney;
   const shareholder = role === "SHAREHOLDER";
@@ -142,7 +144,7 @@ export function DirectorDecisions() {
   if (!d.canView) return null;
   return (
     <RhSection title="Нужно ваше решение" to={d.hasRoute("/oversight") ? "/oversight" : undefined} className="ry-col-a">
-      {rows === null ? <RhBlockState kind={d.isError || actionStatus.isError ? "error" : "loading"} onRetry={retryFailed} />
+      {rows === null ? <RhBlockState kind={actionStatus.isError || loadView(d) === "error" ? "error" : loadView(d) === "offline" ? "offline" : "loading"} onRetry={retryFailed} />
         : rows.length === 0 ? (actionStatus.isError ? <RhBlockState kind="error" onRetry={retryFailed} />
           : <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Решений нет" /></RhGroup>)
         : <div className="ry-decisions clean">
@@ -170,10 +172,11 @@ function BurningRow({ item }: { item: McFirstLineItem }) {
 export function DirectorBurning() {
   const d = useDirector();
   const { firstLine, firstLineBroken } = d;
-  if (!d.canView || !(firstLine || firstLineBroken || d.isLoading)) return null;
+  if (!d.canView || !(firstLine || firstLineBroken || d.isLoading || loadView(d) === "offline")) return null;
   return (
     <RhSection id="ry-burning" title={firstLine && firstLine.totalCount > 0 ? `Горит сейчас · ${firstLine.totalCount}` : "Горит сейчас"} to={d.hasRoute("/oversight") ? "/oversight" : undefined} className="ry-col-b">
       {firstLineBroken ? <RhBlockState kind="error" onRetry={() => void d.refetch()} />
+        : loadView(d) === "offline" ? <RhBlockState kind="offline" onRetry={() => void d.refetch()} />
         : !firstLine ? <RhBlockState kind="loading" />
         : firstLine.items.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Всё спокойно" /></RhGroup>
         : <RhGroup>{firstLine.items.slice(0, 6).map((item) => <BurningRow key={item.id} item={item} />)}</RhGroup>}
@@ -196,7 +199,7 @@ export function DirectorCheck() {
   if (clientsZone?.deleteRequests && clientsZone.deleteRequests.total > 0 && hasRoute("/archive") && (can("clients.delete") || can("properties.delete")))
     items.push(<RhRow key="delete" to={clientsZone.deleteRequests.clients > 0 && can("clients.delete") ? "/archive#delete-requests" : "/archive"} lead={<RhCircle icon="archive" tone="a4" />} title="Заявки на удаление" right={<b className="ry-num ry-count">{clientsZone.deleteRequests.total}</b>} />);
   if (system && can("auditLog.view") && hasRoute("/health") && (system.errorsToday > 0 || (system.unresolvedTotal ?? 0) > 0))
-    items.push(<RhRow key="errors" to="/health" lead={<RhCircle icon="gauge" tone={system.errorsToday >= 10 ? "crit" : "warn"} />} title="Сбои в работе CRM" sub="за сегодня" right={<b className="ry-num ry-count">{system.errorsToday}</b>} />);
+    items.push(<RhRow key="errors" to="/health" lead={<RhCircle icon="gauge" tone={pillTone(system.errorsToday >= 10 ? "overdue" : "today")} />} title="Сбои в работе CRM" sub="за сегодня" right={<b className="ry-num ry-count">{system.errorsToday}</b>} />);
   return items.length ? <RhSection title="Проверить" className="ry-col-a"><RhGroup>{items}</RhGroup></RhSection> : null;
 }
 

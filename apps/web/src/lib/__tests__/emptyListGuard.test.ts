@@ -58,6 +58,9 @@ describe("judgeEmptyList", () => {
   });
   it("ошибка запроса — поломка", () => {
     expect(judgeEmptyList({ ...base, hasData: false, hasError: true, expected: null })).toBe("error");
+    // Список с данными и упавшее фоновое обновление — не поломка списка: данные на экране, плашки нет.
+    expect(judgeEmptyList({ ...base, hasData: true, hasError: true, itemCount: 5, expected: null })).toBeNull();
+    expect(judgeEmptyList({ ...base, hasData: true, hasError: true, itemCount: 0, expected: null })).toBe("error");
   });
   it("пока грузится или перезапрашивается — судить рано", () => {
     expect(judgeEmptyList({ ...base, isLoading: true })).toBe("pending");

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Rh2ErrorState } from "../../components/rh2/Rh2ErrorState";
 import { Image as ImageIcon, Trash2, Upload } from "lucide-react";
 import { api } from "../../lib/api";
 import { nextEnabledIds } from "../../lib/coverTemplateSelection";
@@ -22,7 +23,7 @@ import {
  */
 export function CoverTemplatesSection({ title = "Обложки для соцсетей" }: { title?: string } = {}) {
   const { data: settings } = useSettings();
-  const { data: list, isLoading, isFetching } = useCoverTemplates();
+  const { data: list, isLoading, isError, refetch, isFetching } = useCoverTemplates();
   const qc = useQueryClient();
   const updateSettings = useUpdateSettings();
   const uploadTemplate = useUploadCoverTemplate();
@@ -154,7 +155,9 @@ export function CoverTemplatesSection({ title = "Обложки для соцс�
         </span>
       </div>
 
-      {isLoading ? (
+      {isError && !list ? (
+        <Rh2ErrorState message="Не удалось загрузить шаблоны обложек. Проверьте связь и нажмите «Повторить»." onRetry={() => void refetch()} retrying={isFetching} />
+      ) : isLoading ? (
         <p className="quiet">Загружаем список…</p>
       ) : (
         <div className="list" style={{ marginTop: 12 }}>

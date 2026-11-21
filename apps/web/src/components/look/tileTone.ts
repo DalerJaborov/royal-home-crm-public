@@ -27,3 +27,57 @@ export function tileTone(meaning: TileMeaning, value: number | null | undefined)
   if (meaning === "good") return "ok";
   return "plain";
 }
+
+/**
+ * ТОН ПИЛЮЛИ, МЕТКИ, КРУЖКА И ПОДПИСИ — ОДНА ФУНКЦИЯ (владелец 20.11.2026, аудит К13: «красная
+ * пилюля с огнём на каждом звонке, янтарная «позвонить» на каждом клиенте, жёлтый «0»,
+ * огромные зелёная и красная «Верно/Неверно»»). Если всё цветное, выделено ничего.
+ * Правило одно, оно же у плитки (`tileTone` выше):
+ *  - по умолчанию нейтрально (`info`, число не важно);
+ *  - `today` — требует внимания сегодня → жёлтая;
+ *  - `overdue` — реально просрочено или потеряно → красная, без огня: причину называет текст;
+ *  - `good` — хороший итог → зелёная;
+ *  - ноль, пусто и «нет числа» — всегда спокойно (`neutral`), каким бы ни был смысл.
+ * Экраны нового вида красят пилюли, метки и кружки только отсюда — сторож `pillTone.test.ts`
+ * не пропускает буквальный `tone="crit"` и красные/янтарные классы мимо этой функции.
+ */
+export type PillTone = "crit" | "warn" | "ok" | "neutral";
+export type PillMeaning = "overdue" | "today" | "good" | "info";
+
+export function pillTone(meaning: PillMeaning, count?: number | null): PillTone {
+  if (count !== undefined && (count === null || !Number.isFinite(count) || count <= 0)) return "neutral";
+  if (meaning === "overdue") return "crit";
+  if (meaning === "today") return "warn";
+  if (meaning === "good") return "ok";
+  return "neutral";
+}
+
+/** Балл разбора звонка: хороший — зелёный, остальное — спокойно (низкий балл — не тревога, а итог разговора). */
+export function scorePillTone(score: number | null | undefined): PillTone {
+  return pillTone(typeof score === "number" && score >= 70 ? "good" : "info");
+}
+
+/**
+ * Слово важности из данных (`crit` / `warn` / `muted` / `ok`, как приходят из чистых функций вроде leader.ts
+ * или с сервера) → тон пилюли. Через эту же функцию тона: свой набор цветов у слова не появляется.
+ */
+export function pillToneOf(severity: "crit" | "warn" | "ok" | "muted" | "mute" | "info" | "neutral" | null | undefined, count?: number | null): PillTone {
+  if (severity === "crit") return pillTone("overdue", count);
+  if (severity === "warn") return pillTone("today", count);
+  if (severity === "ok") return pillTone("good", count);
+  return pillTone("info", count);
+}
+
+/** Шаг клиента просрочен на сутки и больше — красный; свежая просрочка — жёлтая (то же, что «сегодня»). */
+export const CALL_NOW_CRIT_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Чип действия в строке клиента (К13, 13.1; ревью #346). «Позвонить сейчас» — шаг просрочен, и пилюля не может быть
+ * спокойнее «ответить»: цвет идёт по сроку, как дата рядом («просрочено · …»): свежая просрочка жёлтая, от суток
+ * и больше красная. Остальные: «принять заявку», «ответить», «первый звонок» ждут сегодня (жёлтые), красные — только
+ * когда заявку никто не принял вовремя.
+ */
+export function clientActionPillTone(action: { id: string; tone: "warn" | "crit"; overdueMs?: number }): PillTone {
+  if (action.id === "call-now") return pillTone((action.overdueMs ?? 0) >= CALL_NOW_CRIT_AFTER_MS ? "overdue" : "today");
+  return pillTone(action.tone === "crit" ? "overdue" : "today");
+}

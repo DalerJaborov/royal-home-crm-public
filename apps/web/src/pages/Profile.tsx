@@ -1002,7 +1002,7 @@ function PersonalInfoSection() {
         <h2>Личные данные</h2>
         <span className="note">Телефон служит логином</span>
       </div>
-      <form onSubmit={handleSave} className="fgrid">
+      <form onSubmit={handleSave} className="fgrid ry-fgrid-pair">
         <label className="fld">
           <span className="lab">Имя</span>
           <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} aria-label="Имя" />

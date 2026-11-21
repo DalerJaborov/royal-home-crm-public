@@ -3,7 +3,7 @@ import { pluralizeRu } from "../../../../lib/format";
 import { useMobileUx } from "../../../../hooks/useMobileUx";
 import { useEditorQueue, type MarketingQueueRow } from "../../../../hooks/useMarketing";
 import { useAccumulatedPages } from "../../../../hooks/useAccumulatedPages";
-import { RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
+import { RhCircle, RhGroup, RhRow, RhSection, RhTile, blockState } from "../../ui";
 import { firstPhoto, HomeHint, HomeMore, HomeQuick, PropertyLead, PropertyState, useExpandable } from "../parts";
 
 /**
@@ -72,17 +72,17 @@ function useEditorList(kind: "editing" | "upcoming") {
   // Телефон — как прежняя MobileEditorHome: сначала пять, «Показать ещё» раскрывает, потом догружает.
   const list = useExpandable(sorted, total, () => setPage((p) => p + 1), mobile ? 5 : Number.POSITIVE_INFINITY);
   return {
-    list, rows: sorted, loading: query.isLoading && rows.length === 0, failed: query.isError && !data,
-    fetching: query.isFetching, retry: () => void query.refetch(),
+    list, rows: sorted, fetching: query.isFetching,
+    // Данных нет: серые плашки, «нет связи» или «не загрузилось»; есть — не прячем при фоновой ошибке.
+    state: blockState({ data, isError: query.isError, fetchStatus: query.fetchStatus, refetch: query.refetch }),
   };
 }
 
 export function EditorEditing() {
-  const { list, rows, loading, failed, fetching, retry } = useEditorList("editing");
+  const { list, rows, fetching, state } = useEditorList("editing");
   return (
     <RhSection title="На монтаже" to="/properties?status=EDITING" linkLabel="Все объекты" className="ry-col-a">
-      {loading ? <RhBlockState kind="loading" />
-        : failed ? <RhBlockState kind="error" onRetry={retry} />
+      {state ? state
         : rows.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Ничего не ждёт монтажа" /></RhGroup>
         : <RhGroup>
           {list.visible.map((row) => <EditingRow key={row.id} row={row} />)}
@@ -93,11 +93,10 @@ export function EditorEditing() {
 }
 
 export function EditorUpcoming() {
-  const { list, rows, loading, failed, fetching, retry } = useEditorList("upcoming");
+  const { list, rows, fetching, state } = useEditorList("upcoming");
   return (
     <RhSection title="Скоро на монтаж" className="ry-col-b">
-      {loading ? <RhBlockState kind="loading" />
-        : failed ? <RhBlockState kind="error" onRetry={retry} />
+      {state ? state
         : rows.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Пока ничего не снимают" /></RhGroup>
         : <RhGroup>
           {list.visible.map((row) => (

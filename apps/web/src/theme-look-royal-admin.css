@@ -719,6 +719,12 @@
 /* Личные данные (.fgrid/.fld): подпись 14 над полем 48. */
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; margin-top: 8px; }
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fgrid > .wide { grid-column: 1 / -1; }
+/* Личные данные: «Имя | Телефон» парой, «Почта» — во всю строку. Авто-колонки оставляли «Почту» одну в половине строки над кнопкой (К16, 16.3). */
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fgrid.ry-fgrid-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fgrid.ry-fgrid-pair > .fld:nth-of-type(3) { grid-column: 1 / -1; }
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fgrid.ry-fgrid-pair { grid-template-columns: minmax(0, 1fr); }
+}
 :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .scr .fgrid > .wide.wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.fld, .field) { display: grid; gap: 6px; min-width: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="admin"] :is(.fld, .field) > .lab { margin: 0; font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.3; color: var(--rh-ui-hint); }
