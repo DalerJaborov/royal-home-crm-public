@@ -40,10 +40,12 @@ for (const [label, width, height] of [["m390", 390, 844], ["d1440", 1440, 900]] 
 
     await page.goto("/clients");
     await expect(page.locator(".ry-crow").first()).toBeVisible({ timeout: 30_000 });
-    // «позвонить сейчас» (шаг просрочен) не спокойнее «ответить»: жёлтая (свежая просрочка) или красная (от суток), как дата.
+    // Строка клиента говорит только факты (владелец 21.11.2026): чипа «позвонить» нет вовсе,
+    // «ждёт принятия» — жёлтая (дело на сегодня), красной метки в строке нет.
     for (const chip of await page.locator(".ry-crow .ry-crow-step .chip").all()) {
       const text = (await chip.innerText()).trim().toLowerCase();
-      if (text.startsWith("позвонить")) await expect(chip).toHaveClass(/\b(warn|crit)\b/);
+      expect(text.startsWith("позвонить"), text).toBe(false);
+      if (text === "ждёт принятия") await expect(chip).toHaveClass(/\bwarn\b/);
     }
     await shot(page, `clients-${label}`);
 

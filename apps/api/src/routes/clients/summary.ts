@@ -5,7 +5,7 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { can, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
 import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
-import { noContactWhere } from "../../lib/noContact.js";
+import { lastStaffContactAtByClient, noContactWhere } from "../../lib/noContact.js";
 import { pendingDeleteHideWhere } from "../../lib/clientSearchWhere.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { dushanbeDayRange } from "../../lib/dushanbeTime.js";
@@ -57,6 +57,13 @@ export interface ClientsSummary {
   neverContacted: number;
   showings: { today: number; tomorrow: number };
 }
+
+/**
+ * Сколько самых давних непринятых карточек проверять на контакт для строки «ждёт агента».
+ * Непринятых в работе — единицы и десятки; если все проверенные уже с контактом, строки
+ * нет: лучше промолчать, чем назвать неправду.
+ */
+const OLDEST_CANDIDATES = 50;
 
 export const summaryRouter = Router();
 
@@ -111,7 +118,7 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
     newToday,
     newYesterday,
     awaitingCount,
-    oldest,
+    oldestCandidates,
     neverContacted,
     showToday,
     showTomorrow,
@@ -134,13 +141,14 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
       prisma.client.count({ where: { ...base, createdAt: { gte: today.start, lte: today.end } } }),
       prisma.client.count({ where: { ...base, createdAt: { gte: yesterday.start, lte: yesterday.end } } }),
       prisma.client.count({ where: awaitingWhere }),
-      prisma.client.findFirst({
+      prisma.client.findMany({
         where: awaitingWhere,
         // Ждёт с момента, как лид достался агенту (assignedAt), а не с создания
         // карточки: переданный по кругу лид иначе «ждал» бы дни (24.09.2026,
         // пункт 25). Тот же порядок, что у среза в списке — старые первыми.
-        orderBy: { assignedAt: "asc" },
-        select: { id: true, shortId: true, fullName: true, kind: true, assignedAt: true },
+        orderBy: [{ assignedAt: "asc" }, { id: "asc" }],
+        take: OLDEST_CANDIDATES,
+        select: { id: true, shortId: true, fullName: true, kind: true, assignedAt: true, lastAgentAttemptAt: true, lastContactAt: true },
       }),
       // «Не связывались» — одно правило на всю CRM (lib/noContact.ts, packages/shared/src/clientNoContact.ts).
       prisma.client.count({ where: { AND: [base, noContactWhere()] } }),
@@ -150,6 +158,26 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
         ? prisma.client.count({ where: { deletedAt: { not: null }, OR: [{ assignedAgentId: meId }, { lastAgentId: meId }] } })
         : Promise.resolve(null),
     ]);
+
+  /**
+   * «X ЖДЁТ АГЕНТА N ДНЕЙ» — ТОЛЬКО ЕСЛИ С НИМ ПРАВДА НИКТО НЕ СВЯЗЫВАЛСЯ (21.11.2026).
+   *
+   * Кадр владельца: «Шохмурод ждёт агента 54 дня», а с клиентом в тот же день говорили.
+   * Строка брала самую старую НЕПРИНЯТУЮ карточку (acceptedAt пуст) и считала дни от
+   * назначения — контакт сотрудника её не гасил: агент мог звонить и писать, не нажав
+   * «Принять». Теперь строка гаснет, как только после назначения был контакт сотрудника
+   * по правилу всей CRM (lib/noContact.ts — то же правило, что «Не связывались» и «Ждут»
+   * в чатах), или карточку приняли. Число «Ждут принятия» не меняется: это факт о
+   * карточке, и строки списка за ним те же.
+   */
+  const oldest = await (async () => {
+    if (oldestCandidates.length === 0) return null;
+    const contact = await lastStaffContactAtByClient(oldestCandidates);
+    return oldestCandidates.find((c) => {
+      const at = contact.get(c.id);
+      return !at || at.getTime() <= c.assignedAt.getTime();
+    }) ?? null;
+  })();
 
   const summary: ClientsSummary = {
     buyers,

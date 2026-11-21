@@ -8,36 +8,27 @@ type Props = ComponentProps<typeof CleanClientRow>;
 const fixture: Props = {
   id: "client-1", name: "Мадина Каримова", href: "/clients/42", avatar: <span>МК</span>,
   identity: "КЛ-000042 · Покупатель", request: "3 комн · Сино · $55–70 тыс.", source: "Instagram",
-  nextAction: <span>Позвонить сейчас</span>, lastContact: "2 дня назад", showAgent: true,
+  fact: <span>ждёт принятия</span>, lastContact: "последний контакт 19.11", showAgent: true,
   agentName: "Фаррух", agentAssigned: true, actions: <button type="button">Позвонить через CRM</button>, deleted: false,
 };
 const render = (props: Partial<Props> = {}) => renderToStaticMarkup(<MemoryRouter><CleanClientRow {...fixture} {...props} /></MemoryRouter>);
 
 describe("clean client row", () => {
-  it("separates a future action deadline from the last contact time", () => {
-    const html = render({ nextAction: <span>Показ объекта</span>, nextActionDate: "2026-11-03T11:00:00.000Z", lastContact: "30.10 21:36" } as Partial<Props>);
-    expect(html).toContain("Срок: ");
-    expect(html).toContain("03.11");
-    expect(html).toContain("16:00");
-    expect(html).toContain("Последний контакт: ");
-    expect(html).toContain("30.10 21:36");
-  });
-  it("does not invent a deadline for missing, invalid or hidden next steps", () => {
-    for (const props of [{ nextActionDate: null }, { nextActionDate: "invalid" }, { nextAction: null, nextActionDate: "2026-11-03T11:00:00.000Z" }]) {
-      expect(render(props)).not.toContain("Срок: ");
-      expect(render(props)).toContain("Последний контакт: ");
-    }
+  it("shows only facts: the last staff contact, never a step deadline or advice (owner 21.11.2026)", () => {
+    const html = render();
+    expect(html).toContain("последний контакт 19.11");
+    for (const advice of ["Срок: ", "Следующий шаг", "Давно не связывались", "Позвонить сейчас"]) expect(html).not.toContain(advice);
+    expect(render({ lastContact: null })).not.toContain("последний контакт");
+    expect(render({ lastContact: "контакта ещё не было" })).toContain("контакта ещё не было");
   });
   it("keeps identity, request, next action and responsible person distinct", () => {
     const html = render();
-    for (const text of [fixture.name, fixture.identity, fixture.request, fixture.source, "Позвонить сейчас", "Фаррух", "2 дня назад"]) expect(html).toContain(text);
+    for (const text of [fixture.name, fixture.identity, fixture.request, fixture.source, "ждёт принятия", "Фаррух", "последний контакт 19.11"]) expect(html).toContain(text);
     expect(html).toContain('href="/clients/42"');
     expect(html).toContain('data-client-row="client-1"');
   });
-  it("restores the real stale-contact flag without inventing a call date", () => {
-    expect(render({ staleContact: true, lastContact: "20 дней назад" })).toContain("Давно не связывались");
-    expect(render({ staleContact: true, lastContact: "20 дней назад" })).toContain("20 дней назад");
-    expect(render()).not.toContain("Давно не связывались");
+  it("never paints the contact line red", () => {
+    expect(render()).not.toContain("text-red");
   });
   it("does not expose an assigned agent when the caller hides that column", () => {
     expect(render({ showAgent: false })).not.toContain("Фаррух");
