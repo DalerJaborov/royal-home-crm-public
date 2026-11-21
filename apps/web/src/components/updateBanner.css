@@ -1,0 +1,68 @@
+/* Плашка «Есть обновление · Обновить» (components/UpdateBanner.tsx, 21.11.2026).
+ *
+ * Живёт ВНЕ области темы экрана (смонтирована в App.tsx рядом с <Routes>) и
+ * обязана быть видна при любом облике: и на экране входа, и под старой
+ * оболочкой, где токенов нового вида (--rh-ui-*) нет. Поэтому каждое значение —
+ * токен нового вида с запасным значением в скобках. Под :root[data-ui-look=
+ * "royal"] берутся токены (и тёмная тема вместе с ними), без него — запасные. */
+
+.rh-update-pill {
+  position: fixed;
+  z-index: 70;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 6px 6px 18px;
+  border-radius: var(--rh-r-full, 999px);
+  background: var(--rh-ui-ink-tile, #0e0f12);
+  color: var(--rh-ui-ink-tile-fg, #ffffff);
+  box-shadow: var(--rh-ui-shadow-lg, 0 12px 32px -12px rgba(14, 15, 18, .45));
+  font-family: var(--rh-ui-font-num, inherit);
+  font-size: var(--rh-fs-md, 15px);
+  line-height: 1.3;
+}
+
+.rh-update-pill-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.rh-update-pill-btn {
+  flex: none;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--rh-r-full, 999px);
+  background: var(--rh-ui-primary, #2c66f2);
+  color: var(--rh-ui-primary-fg, #ffffff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rh-update-pill-btn:hover:not(:disabled) { background: var(--rh-ui-primary-hover, #2459d6); }
+.rh-update-pill-btn:focus-visible { outline: 2px solid var(--rh-ui-primary-fg, #ffffff); outline-offset: 2px; }
+.rh-update-pill-btn:disabled { opacity: .7; cursor: default; }
+
+/* Телефон: над нижним меню, а не поверх него. Высота меню — общая переменная
+   оболочки --rh-nav-h (theme-look-royal.css, уже с safe-area); плавающие панели
+   встают на 10 px выше неё. Без нового вида переменной нет — запасное значение. */
+:root[data-mobile-ux] .rh-update-pill {
+  bottom: calc(var(--rh-nav-h, calc(80px + env(safe-area-inset-bottom, 0px))) + 10px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rh-update-pill { animation: rh-update-pill-in .2s ease-out both; }
+}
+
+@keyframes rh-update-pill-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}

@@ -29,13 +29,24 @@
  *   2) жёсткий выход: снять регистрацию воркера, вычистить кэши сборки и уйти
  *      на тот же путь с новым параметром `?rh-update=<время>` — мимо и воркера,
  *      и HTTP-кэша, и bfcache (см. buildFreshUrl);
- *   3) сдаться тихо: после MAX_ATTEMPTS кругов оверлей для этой версии больше не
- *      показываем — пусть человек работает на старой сборке, чем смотрит на
- *      бесконечную заставку. Факт уходит в журнал ошибок (errorReporter слушает
- *      window "error").
+ *   3) передышка: MAX_ATTEMPTS попыток за ATTEMPT_WINDOW_MS исчерпаны — вкладку
+ *      сами больше не дёргаем, но и НЕ молчим: UpdatePrompt показывает плашку
+ *      «Есть обновление · Обновить» и сам пробует снова, как только окно
+ *      освободится (раз в десять минут). Факт уходит в журнал ошибок один раз.
+ *
+ * СЧЁТЧИК — ОКНОМ И НА ПАРУ «МОЯ СБОРКА → СБОРКА СЕРВЕРА» (21.11.2026). До этого
+ * он был привязан только к версии вкладки и копился без срока: три ложные
+ * тревоги (перезапуски API, см. lib/appVersion.ts) — и обновление для этой
+ * вкладки глохло НАВСЕГДА, а в Safari sessionStorage живёт днями. iPhone
+ * владельца сутки сидел на старой сборке с «Страница не найдена» на новом
+ * разделе, и ни перезагрузка, ни уход-возврат не спасали. Теперь:
+ *   - попытки старше ATTEMPT_WINDOW_MS не считаются;
+ *   - вышла ещё более новая сборка (другая цель) — счёт с нуля: это другое
+ *     обновление, и прошлые неудачи о нём ничего не говорят.
  */
 const ATTEMPTS_KEY = "rh:update-attempts";
-const MAX_ATTEMPTS = 3;
+export const MAX_ATTEMPTS = 3;
+export const ATTEMPT_WINDOW_MS = 10 * 60_000;
 const WAIT_FOR_WORKER_MS = 8_000;
 const WORKER_POLL_MS = 300;
 
@@ -43,11 +54,18 @@ const WORKER_POLL_MS = 300;
  *  жёстком выходе: он не относится к сборке, а весит десятки мегабайт. */
 const KEEP_CACHE = "uploads-cache";
 
+/** Цель, когда сборка сервера неизвестна (сигнал пришёл только от воркера). */
+export const UNKNOWN_TARGET = "?";
+
 interface AttemptRecord {
   /** Версия сборки, из которой пытались обновиться. */
   from: string;
-  /** Сколько раз уже пытались уйти именно с неё. */
-  count: number;
+  /** Версия сборки сервера, на которую пытались уйти. */
+  to: string;
+  /** Моменты попыток (мс), только свежие — старше окна выбрасываются. */
+  times: number[];
+  /** Сдачу по этой паре уже доложили в журнал — второй раз не шумим. */
+  reported?: boolean;
 }
 
 function readAttempts(): AttemptRecord | null {
@@ -55,8 +73,11 @@ function readAttempts(): AttemptRecord | null {
     const raw = sessionStorage.getItem(ATTEMPTS_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AttemptRecord>;
-    if (typeof parsed?.from !== "string" || typeof parsed?.count !== "number") return null;
-    return { from: parsed.from, count: parsed.count };
+    // Запись старого вида ({ from, count } — без цели и без времени) — та самая
+    // вечная блокировка. Не переносим её: считаем, что попыток не было.
+    if (typeof parsed?.from !== "string" || typeof parsed?.to !== "string" || !Array.isArray(parsed?.times)) return null;
+    const times = parsed.times.filter((t): t is number => typeof t === "number" && Number.isFinite(t));
+    return { from: parsed.from, to: parsed.to, times, reported: parsed.reported === true };
   } catch {
     // приватный режим/переполненное хранилище — считаем, что попыток не было
     return null;
@@ -88,21 +109,55 @@ export function resetAttemptsIfUpdated(currentVersion: string): void {
   if (record && record.from !== currentVersion) clearUpdateAttempts();
 }
 
-/** Номер текущей попытки (1 — первая) для данной версии сборки. */
-export function noteUpdateAttempt(currentVersion: string): number {
+/**
+ * Свежие (внутри окна) попытки именно этой пары сборок. Попытка «из будущего»
+ * (часы телефона перевели назад) тоже считается свежей до конца окна от
+ * текущего момента — иначе её нельзя было бы ни учесть, ни дождаться.
+ */
+function recentAttempts(from: string, to: string, now: number): AttemptRecord {
   const record = readAttempts();
-  const count = record && record.from === currentVersion ? record.count + 1 : 1;
-  writeAttempts({ from: currentVersion, count });
-  return count;
+  if (!record || record.from !== from || record.to !== to) return { from, to, times: [] };
+  const times = record.times
+    .map((t) => Math.min(t, now))
+    .filter((t) => now - t < ATTEMPT_WINDOW_MS);
+  return { ...record, times };
 }
 
-/**
- * Перезагрузка уже не помогала MAX_ATTEMPTS раз подряд — оверлей для этой версии
- * не показываем совсем.
- */
-export function isUpdateLoopSuppressed(currentVersion: string): boolean {
-  const record = readAttempts();
-  return !!record && record.from === currentVersion && record.count >= MAX_ATTEMPTS;
+export interface UpdateGate {
+  /** Можно ли пробовать сейчас. */
+  allowed: boolean;
+  /** Когда освободится место в окне (мс), если сейчас нельзя. */
+  retryAt: number | null;
+  /** Сколько попыток этой пары уже было в окне. */
+  attempts: number;
+}
+
+/** Можно ли сейчас ещё раз попытаться уйти с `from` на `to`. Ничего не пишет. */
+export function updateAttemptGate(from: string, to: string, now = Date.now()): UpdateGate {
+  const { times } = recentAttempts(from, to, now);
+  if (times.length < MAX_ATTEMPTS) return { allowed: true, retryAt: null, attempts: times.length };
+  return { allowed: false, retryAt: Math.min(...times) + ATTEMPT_WINDOW_MS, attempts: times.length };
+}
+
+/** Отметить попытку; возвращает её номер внутри окна (1 — первая). */
+export function noteUpdateAttempt(from: string, to: string, now = Date.now()): number {
+  const record = recentAttempts(from, to, now);
+  const times = [...record.times, now];
+  writeAttempts({ from, to, times, reported: record.reported });
+  return times.length;
+}
+
+/** Попытки пары исчерпаны — сами не пробуем до освобождения окна. */
+export function isUpdateLoopSuppressed(from: string, to: string, now = Date.now()): boolean {
+  return !updateAttemptGate(from, to, now).allowed;
+}
+
+/** Доложить сдачу по паре один раз: true — докладывать (и отметка уже стоит). */
+function claimGiveUpReport(from: string, to: string, now: number): boolean {
+  const record = recentAttempts(from, to, now);
+  if (record.reported) return false;
+  writeAttempts({ ...record, reported: true });
+  return true;
 }
 
 /**
@@ -251,10 +306,13 @@ function reportHardReset(currentVersion: string, attempt: number): void {
   );
 }
 
-/** Лестница кончилась, обновление так и не применилось — это настоящая поломка. */
-function reportGiveUp(currentVersion: string, attempt: number): void {
-  // attempt - 1: сама сдача попыткой не была, она лишь подвела итог сделанным.
-  const message = `[update] Сдача: обновление не применилось за ${attempt - 1} попытки подряд, вкладка осталась на сборке ${currentVersion}`;
+/**
+ * Лестница кончилась, обновление так и не применилось — это настоящая поломка.
+ * Докладывается ОДИН раз на пару сборок (claimGiveUpReport): плашка и повтор
+ * раз в десять минут — штатная работа, а не новая ошибка каждые десять минут.
+ */
+function reportGiveUp(currentVersion: string, targetVersion: string, attempts: number): void {
+  const message = `[update] Сдача: обновление не применилось за ${attempts} попытки подряд, вкладка осталась на сборке ${currentVersion} (сервер: ${targetVersion})`;
   console.error(message);
   // errorReporter слушает window "error" — факт попадёт в «Здоровье системы»,
   // а не только в консоль вкладки, до которой никто не доберётся.
@@ -273,10 +331,14 @@ export interface ApplyUpdateOptions {
   /** updateServiceWorker(true) из useRegisterSW: SKIP_WAITING + перезагрузка. */
   updateServiceWorker: (reloadPage?: boolean) => Promise<void>;
   currentVersion: string;
+  /** Версия фронта на сервере (/version.json); неизвестна — UNKNOWN_TARGET. */
+  targetVersion?: string;
   /** Подменяется в тестах — в браузере это window.location.reload. */
   reload?: () => void;
   /** Уход после жёсткого сброса. Подменяется в тестах, см. hardNavigate. */
   navigateFresh?: (url: string) => void;
+  /** Подменяется в тестах — в браузере это Date.now(). */
+  now?: number;
 }
 
 /**
@@ -371,21 +433,24 @@ export async function swapViaServiceWorker(
 /**
  * Единственная точка применения обновления. Возвращает выбранную ветку — это
  * же значение проверяют тесты (в браузере результат не используется: страница
- * к этому моменту уже перезагружается).
+ * к этому моменту уже перезагружается — кроме ветки "gave-up", её разбирает
+ * UpdatePrompt: плашка и повтор по таймеру).
  */
 export async function applyAppUpdate({
   needRefresh,
   updateServiceWorker,
   currentVersion,
+  targetVersion = UNKNOWN_TARGET,
   reload = () => window.location.reload(),
   navigateFresh = hardNavigate,
+  now = Date.now(),
 }: ApplyUpdateOptions): Promise<"service-worker" | "reload" | "hard-reset" | "gave-up"> {
-  const attempt = noteUpdateAttempt(currentVersion);
-
-  if (attempt > MAX_ATTEMPTS) {
-    reportGiveUp(currentVersion, attempt);
+  const gate = updateAttemptGate(currentVersion, targetVersion, now);
+  if (!gate.allowed) {
+    if (claimGiveUpReport(currentVersion, targetVersion, now)) reportGiveUp(currentVersion, targetVersion, gate.attempts);
     return "gave-up";
   }
+  const attempt = noteUpdateAttempt(currentVersion, targetVersion, now);
 
   // Ждущий воркер есть — штатный путь: SKIP_WAITING и перезагрузка по
   // controllerchange (см. sw.ts и комментарий в UpdatePrompt.tsx).
@@ -398,8 +463,7 @@ export async function applyAppUpdate({
   // возвращает ту же сборку — уходим жёстко, без воркера и кэшей.
   if (attempt >= 2) {
     reportHardReset(currentVersion, attempt);
-    await dropServiceWorkerAndCaches();
-    navigateFresh(buildFreshUrl(window.location));
+    await forceFreshReload(navigateFresh);
     return "hard-reset";
   }
 
@@ -412,4 +476,18 @@ export async function applyAppUpdate({
 
   reload();
   return "reload";
+}
+
+/**
+ * Полный сброс — кнопка «Обновить» на плашке и ступень 2 лестницы: снять
+ * воркер, вычистить кэши сборки (кроме загруженных файлов) и уйти на свежий
+ * адрес. Счётчик попыток не трогает: человек нажал сам — пробуем всегда.
+ *
+ * Это НЕ нарушает правило «смена воркера и перезагрузка — одно движение»
+ * (vite.config.ts): старый воркер снимается, но страница уходит тем же
+ * вызовом, и ни один ленивый раздел старой оболочки между ними не грузится.
+ */
+export async function forceFreshReload(navigateFresh: (url: string) => void = hardNavigate): Promise<void> {
+  await dropServiceWorkerAndCaches();
+  navigateFresh(buildFreshUrl(window.location));
 }
