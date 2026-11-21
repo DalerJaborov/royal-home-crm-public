@@ -11,7 +11,7 @@
 | Что | Сколько |
 |---|---|
 | Экранов (адресов в интерфейсе) | 73 |
-| Из них видно в меню | 34 |
+| Из них видно в меню | 33 |
 | Модулей сервера | 88 |
 | Адресов сервера всего | 787 |
 | Задач по расписанию | 137 |
@@ -51,7 +51,7 @@
 | `/dev/pult-tiles` | — | только по ссылке | — |
 | `/dev/sheets-port` | — | только по ссылке | — |
 | `/dev/system-sheets-port` | — | только по ссылке | — |
-| `/director` | DirectorDashboard | **Дашборд директора** | `apps/web/src/pages/DirectorDashboard.tsx` |
+| `/director` | DirectorDashboard | только по ссылке | `apps/web/src/pages/DirectorDashboard.tsx` |
 | `/finance` | Finance | **Финансы** | `apps/web/src/pages/Finance.tsx` |
 | `/funnel` | Funnel | **Воронка** | `apps/web/src/pages/Funnel.tsx` |
 | `/hall-of-fame` | Team | только по ссылке | `apps/web/src/pages/Team.tsx` |
@@ -121,7 +121,6 @@
 | team | Вакансии | `/vacancies` | всем |
 | team | Служба безопасности | `/security` | всем |
 | money | Финансы | `/finance` | всем |
-| money | Дашборд директора | `/director` | всем |
 | money | Отчёты | `/reports` | всем |
 | money | Источники заявок | `/sources` | всем |
 | money | Инсайты от ИИ | `/insights` | всем |
