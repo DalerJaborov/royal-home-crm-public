@@ -1134,7 +1134,7 @@ const settingsUpdateSchema = z.object({
   incomingNoAnswerSeconds: z.number().int().min(5).max(300).optional(),
   /** Ночной режим: вне рабочих часов очередь пропускается — сразу дежурному или
    *  на автоответчик. Границы "HH:MM"; окно через полночь поддержано станцией. */
-  incomingNightAction: z.enum(["none", "forward", "voicemail"]).optional(),
+  incomingNightAction: z.enum(["none", "forward", "voicemail", "ring"]).optional(),
   incomingNightStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Время в виде ЧЧ:ММ").optional(),
   incomingNightEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Время в виде ЧЧ:ММ").optional(),
   /** Куда идёт входящий в первую очередь: очередь операторов или прямо на аппарат.

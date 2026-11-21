@@ -514,7 +514,7 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
   incomingNoAnswerAction: "none" | "forward" | "voicemail" | "both";
   incomingNoAnswerSeconds: number;
   /** Ночной режим: вне рабочих часов очередь пропускается вовсе. */
-  incomingNightAction: "none" | "forward" | "voicemail";
+  incomingNightAction: "none" | "forward" | "voicemail" | "ring";
   incomingNightStart: string;
   incomingNightEnd: string;
   /** Куда идёт входящий в первую очередь: "queue" — операторам, как было;
