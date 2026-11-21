@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4212**. Модулей: **88**.
+Путей: **789**. Развилок в самих путях: **2506**; вместе с задачами по расписанию и фоновыми заданиями — **4213**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10087,6 +10087,20 @@
 - res.json({ ok: true, count: result.count });
   · ответ 200
 
+### POST /api/v1/me/notifications/seen
+
+`apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = seenSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой seenSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный список уведомлений", details: parsed.error.flatten() });
+    · ответ 400 — «Неверный список уведомлений»
+- const result = await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.age…
+  · меняет в базе: notification
+- res.json({ ok: true, count: result.count });
+  · ответ 200
+
 ### GET /api/v1/me/notifications
 
 `apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -10098,14 +10112,14 @@
     · ответ 400 — «Неверный номер страницы»
 - const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));
   · зовёт loadVisibleNotificationsWhere()
-- const [items, total, unreadCount, pinned, approvalCount, criticalCount] = await Promise.all([ prisma.notifica…
+- const [items, total, unreadCount, unseenCount, pinned, approvalCount, criticalCount] = await Promise.all([ pr…
   · читает в базе: notification
   · считает в базе: notification
 - const shown = <T extends { title: string; body: string }>(rows: T[]): T[]
   · зовёт maskPhonesInText()
 - const [itemsWithOffers, pinnedWithOffers] = await Promise.all([ attachOfferStates(req.agent!.id, shown(items)…
   · зовёт attachOfferStates()
-- res.json({ items: itemsWithOffers, unreadCount, pinned: pinnedWithOffers, approvalCount, criticalCount, hasMo…
+- res.json({ items: itemsWithOffers, unreadCount, unseenCount, listedAt: listedAt.toISOString(), pinned: pinned…
   · ответ 200
 
 ## /api/v1/media
