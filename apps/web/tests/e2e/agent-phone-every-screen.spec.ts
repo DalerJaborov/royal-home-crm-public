@@ -87,7 +87,12 @@ test("агент на телефоне: новый интерфейс на ка�
   if (client) paths.push(client); else findings.push({ path: "/clients", problem: "нет ни одной карточки клиента в списке" });
   if (property) paths.push(property); else findings.push({ path: "/properties", problem: "нет ни одной карточки объекта в списке" });
 
-  for (const path of paths) await inspect(page, path, errors, findings);
+  // Кадры для владельца — только по просьбе: AGENT_SHOTS_DIR=<папка>.
+  const shots = process.env.AGENT_SHOTS_DIR;
+  for (const path of paths) {
+    await inspect(page, path, errors, findings);
+    if (shots) await page.screenshot({ path: `${shots}/${testInfo.project.name}-${path.replace(/\W+/g, "_") || "home"}.png` });
+  }
 
   // Аварийный выход для себя: прежний интерфейс на этой вкладке, `?look=royal` — обратно.
   await page.goto("/?look=legacy");
@@ -96,7 +101,7 @@ test("агент на телефоне: новый интерфейс на ка�
   await expect(page.locator("html")).toHaveAttribute("data-shell", "clean");
 
   await testInfo.attach("agent-phone-screens.json", { body: JSON.stringify({ paths, findings }, null, 2), contentType: "application/json" });
-  console.log(`[${testInfo.project.name}] экранов: ${paths.length + 1}; находок: ${findings.length}\n${findings.map((f) => `  ${f.path}: ${f.problem}`).join("\n")}`);
+  console.log(`[${testInfo.project.name}] экранов: ${paths.length + 1}; находок: ${findings.length}\n  ${paths.join(" ")}\n${findings.map((f) => `  ${f.path}: ${f.problem}`).join("\n")}`);
   await context.close();
   expect(findings, findings.map((f) => `${f.path}: ${f.problem}`).join("\n")).toEqual([]);
 });
