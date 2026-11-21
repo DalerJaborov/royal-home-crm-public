@@ -1062,7 +1062,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
                     )}
                   </span>
                 )}
-                <MessageAttachments attachments={m.attachments} onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
+                <MessageAttachments attachments={m.attachments} inBubble onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
                 {(m.at || (m.role === "assistant" && m.deliveryStatus)) && (
                   <span className="tm">
                     {m.at && <time dateTime={m.at}>{dushanbeTime(m.at)}</time>}
