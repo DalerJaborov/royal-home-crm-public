@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { House } from "lucide-react";
 import type { NavItem } from "../../lib/navigation";
 import type { ActionRowData } from "../pult/ActionRow";
-import { cleanShellEnabled, cleanShellOverride } from "../../hooks/useCleanShell";
+import { cleanShellEnabled } from "../../hooks/useCleanShell";
 
 const state = vi.hoisted(() => ({ create: true, allowed: true, readOnly: false, aiEnabled: false, navigation: { main: [] as NavItem[], all: [] as NavItem[] } }));
 vi.mock("../../lib/navigation", async (importOriginal) => ({ ...await importOriginal<typeof import("../../lib/navigation")>(), useNavigation: () => state.navigation }));
@@ -34,11 +34,6 @@ describe("Royal Clean opt-in and permission boundaries", () => {
       state.readOnly = false;
       expect(render(<CleanShell />)).toContain('aria-label="ИИ-помощник"');
     } finally { state.aiEnabled = false; state.readOnly = false; }
-  });
-  it("reads an exact stored choice, handles blocked storage and the explicit legacy escape hatch", () => {
-    expect(cleanShellOverride("?shell=clean")).toBe(true);
-    expect(cleanShellOverride("?shell=legacy")).toBe(false);
-    expect(cleanShellOverride("?shell=unknown")).toBeUndefined();
   });
   it("preserves every role-filtered registry route exactly once, including overflow", () => {
     for (const count of [0, 4, 9, 28]) {
@@ -78,13 +73,11 @@ describe("Royal Clean opt-in and permission boundaries", () => {
       expect(html).toContain('href="/calls"');
     } finally { state.navigation = { main: [], all: [] }; }
   });
-  it("keeps mobile legacy even with an explicit clean choice", () => {
-    expect(cleanShellEnabled(true, true, "agent", true)).toBe(false);
-    expect(cleanShellEnabled(true, false, "agent", true)).toBe(true);
-    expect(cleanShellEnabled(false, false, "director", true)).toBe(false);
-    expect(cleanShellEnabled(true, false, undefined, true)).toBe(false);
-    expect(cleanShellEnabled(true, false, "director", false)).toBe(false);
-    expect(cleanShellEnabled(true, false, "director")).toBe(false);
+  it("is on for every signed-in person, off only for the personal emergency exit", () => {
+    expect(cleanShellEnabled("agent", false)).toBe(true);
+    expect(cleanShellEnabled("director", false)).toBe(true);
+    expect(cleanShellEnabled("agent", true)).toBe(false);
+    expect(cleanShellEnabled(undefined, false)).toBe(false);
   });
   it("hides property creation for roles that cannot create, retains existing topbar", () => {
     state.create = false;

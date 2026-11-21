@@ -107,7 +107,8 @@ export function daysSince(date: string) {
 
 export function formatPricePerSqm(price: number | string, area: number | string, currency: Currency) {
   const perSqm = Number(price) / Number(area);
-  return `${formatMoney(Math.round(perSqm), currency)} / м²`;
+  // Неразрывные пробелы: «42 636 с. / м²» не рвётся по « / » на узкой карточке (вид split, К10).
+  return `${formatMoney(Math.round(perSqm), currency)} / м²`;
 }
 
 /**
@@ -120,10 +121,11 @@ export function formatPricePerSqm(price: number | string, area: number | string,
  * класса «desktop и mobile ship together», CLAUDE.md).
  */
 export function formatWait(minutes: number): string {
-  if (minutes < 60) return `${minutes} ${pluralizeRu(minutes, ["минуту", "минуты", "минут"])}`;
-  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`;
+  // Число не отрывается от единицы («1 ч 23 / мин» на две строки не рвётся, вид split, К10).
+  if (minutes < 60) return `${minutes} ${pluralizeRu(minutes, ["минуту", "минуты", "минут"])}`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`;
   const days = Math.floor(minutes / (24 * 60));
-  return `${days} ${pluralizeRu(days, ["день", "дня", "дней"])}`;
+  return `${days} ${pluralizeRu(days, ["день", "дня", "дней"])}`;
 }
 
 export const PROPERTY_STATUS_LABELS: Record<PropertyStatus, string> = {
@@ -228,7 +230,8 @@ export function exactDateTime(date: string | Date): string {
   const d = new Date(date);
   if (Number.isNaN(d.getTime())) return "";
   const sameYear = dushanbeYear(d) === dushanbeYear(new Date());
-  return `${dushanbeDate(d, sameYear ? { day: "2-digit", month: "2-digit" } : undefined)} ${dushanbeTime(d)}`;
+  // Неразрывный пробел между датой и временем: «20.11 / 02:20» на две строки не рвётся (вид split, К10).
+  return `${dushanbeDate(d, sameYear ? { day: "2-digit", month: "2-digit" } : undefined)} ${dushanbeTime(d)}`;
 }
 
 /**

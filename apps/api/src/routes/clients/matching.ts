@@ -17,10 +17,10 @@ import {
   deliverToConversation,
   lastClientMessage,
   lastClientMessageAt,
+  messagingWindowStateOfTarget,
   resolveSendTarget,
   type DeliveryTarget,
 } from "../../lib/conversationDelivery.js";
-import { isMessagingWindowOpen } from "../../lib/messagingWindow.js";
 import { asMetaChannel, isMetaChannelEnabled } from "../../messengers/meta.js";
 import { isTelegramEnabled } from "../../telegram/api.js";
 import { smsConfigured, toSmsPhone } from "../../lib/sms/index.js";
@@ -148,8 +148,8 @@ matchingRouter.get("/:id/send-target", requireAuth, async (req, res) => {
   }
   const channel = targetChannel(target);
   const word = CHANNEL_WORD[channel] ?? channel;
-  const [enabled, lastAt] = await Promise.all([channelEnabled(target), lastClientMessageAt(target)]);
-  const windowOpen = isMessagingWindowOpen(channel, lastAt);
+  const [enabled, lastAt, windowState] = await Promise.all([channelEnabled(target), lastClientMessageAt(target), messagingWindowStateOfTarget(target)]);
+  const windowOpen = windowState !== "closed";
   const hint = !SENDABLE_CHANNELS.has(channel)
     ? `Канал ${word} больше не поддерживается.${smsTail}`
     : !enabled

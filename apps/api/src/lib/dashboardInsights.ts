@@ -69,6 +69,11 @@ export interface PlanForecastInsight {
 /** Значение Settings.monthlyCommissionPlan по умолчанию (schema.prisma). */
 export const DEFAULT_COMMISSION_PLAN = 8000;
 
+/** Колонка плана NOT NULL с умолчанием 8000: совпадение с умолчанием — «план не задан». Одна функция для главной и дашборда. */
+export function isDefaultCommissionPlan(plan: number): boolean {
+  return plan === DEFAULT_COMMISSION_PLAN;
+}
+
 /** Экстраполяция текущего темпа продаж на весь месяц — «умная» версия плитки «Цель месяца». */
 export async function computePlanForecast(): Promise<PlanForecastInsight> {
   const [settings, money] = await Promise.all([
@@ -93,7 +98,7 @@ export async function computePlanForecast(): Promise<PlanForecastInsight> {
   const plan = Number(settings?.monthlyCommissionPlan ?? DEFAULT_COMMISSION_PLAN);
   // Колонка NOT NULL с default 8000: «не задан» от «задан 8000» в базе не отличить —
   // честно помечаем совпадение с умолчанием, фронт не выдаёт его за настоящий план.
-  const planIsDefault = plan === DEFAULT_COMMISSION_PLAN;
+  const planIsDefault = isDefaultCommissionPlan(plan);
   const forecastPercent = plan ? Math.round((forecastEndOfMonth / plan) * 100) : 0;
 
   return { commissionMonth, plan, forecastEndOfMonth, forecastPercent, daysElapsed, daysInMonth, planIsDefault };

@@ -86,7 +86,7 @@ export default defineConfig({
       name: "webkit",
       use: { ...devices["iPhone 13"], storageState: "playwright/.auth/webkit.json" },
       dependencies: ["setup-webkit"],
-      testMatch: /(look-chat-sheets|look-overlays-keyboard)\.spec\.ts/,
+      testMatch: /(look-chat-sheets|look-overlays-keyboard|agent-phone-every-screen)\.spec\.ts/,
     },
     {
       // Мобильный проход: половина замечаний владельца была именно про телефон,

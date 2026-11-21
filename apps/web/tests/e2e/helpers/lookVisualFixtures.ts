@@ -1,4 +1,5 @@
 import type { Page, Route } from "@playwright/test";
+import { stubDirectorDashboard } from "./directorFixtures";
 
 /**
  * ДАННЫЕ ДЛЯ СТОРОЖА ГЕОМЕТРИИ «НОВОГО ВИДА» (20.11.2026).
@@ -81,6 +82,8 @@ export async function stubLookVisualData(page: Page, opts: { look?: boolean; tex
     if (opts.textSize) preferences = { ...(preferences && typeof preferences === "object" ? preferences : {}), textSize: opts.textSize };
     return { ...body, preferences };
   }));
+  // Дашборд директора: сервер отдаёт заглушку, данные подменены (длинное имя, нули, деньги).
+  await stubDirectorDashboard(page, { seesMoney: true });
   await page.route("**/api/v1/ui-shell", (route) => route.request().method() === "GET"
     ? route.fulfill({ json: look ? { enabled: true, look: "royal" } : { enabled: true }, headers: { "cache-control": "no-store" } })
     : route.fallback());

@@ -1,0 +1,126 @@
+/* «НОВЫЙ ВИД» — «ДАШБОРД ДИРЕКТОРА» (пачка director, 21.11.2026): /director, один экран для
+ * директора и РОП. Обычный, НЕ генерируемый файл. КАЖДОЕ правило стоит под
+ * :root[data-ui-look="royal"] и меткой [data-ry-section="director"] (RoyalSection name="director"
+ * в pages/DirectorDashboard.tsx; метку берут корень экрана и шторка списка). Только токены
+ * (--rh-fs-*, --rh-r-*, --rh-ui-*): ни одного своего числа шрифта, цвета и тени.
+ * Плитки, строки, секции и кнопки — общие `ry-*` основы; здесь только раскладка блоков дашборда:
+ * плитки с кнопкой-нажатием, полосы воронки и причин, кольцо плана, таблица и карточки менеджеров. */
+
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd { display: grid; gap: 24px; min-width: 0; color: var(--rh-ui-text); font-family: var(--font-sans, "Onest", system-ui, sans-serif); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 16px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-title { min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-title h1 { margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.03em; line-height: 1.1; text-wrap: balance; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-title .sub { margin: 4px 0 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-acts { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+
+/* Фильтры: период — переключатель, поля — подпись над полем. */
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-filters { display: grid; gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-selects,
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-dates { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-filter { display: grid; gap: 4px; min-width: 0; font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-filter > span:first-child { padding-left: 4px; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-sortbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+
+/* Плитки KPI: на телефоне по две, деньги — во всю ширину; плитка со списком — кнопка. */
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-blocks { display: grid; gap: 28px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-tile { min-height: 136px; text-align: start; font: inherit; border: 0; width: 100%; cursor: default; }
+:root[data-ui-look="royal"] [data-ry-section="director"] button.dd-tile { cursor: pointer; }
+:root[data-ui-look="royal"] [data-ry-section="director"] button.dd-tile:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-tile[data-wide="true"] { grid-column: 1 / -1; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-tile .ry-tile-value { font-size: var(--rh-fs-3xl); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-tile .dd-time { font-size: var(--rh-fs-2xl); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-delta { font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.3; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-delta[data-tone="good"] { color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-delta[data-tone="bad"] { color: var(--rh-ui-crit-text); }
+
+/* Карточка блока. */
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-card {
+  display: grid; gap: 12px; min-width: 0; padding: 16px; border-radius: var(--rh-r-lg);
+  background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-quiet { margin: 0; font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-quiet a,
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-agent-name,
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table a { color: var(--rh-ui-primary-ink); font-weight: 600; text-decoration: none; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-muted { font-weight: 500; color: var(--rh-ui-hint); }
+
+/* Полосы: воронка и причины отказа. Полоса растёт от левого края до своей доли `--v`. */
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-funnel,
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-reasons { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-funnel-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-funnel-name,
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-reason-name { font-size: var(--rh-fs-md); font-weight: 600; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-funnel-row .dd-bar { grid-column: 1 / -1; grid-row: 2; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-funnel-conv { grid-column: 1 / -1; grid-row: 3; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-funnel-count { font-size: var(--rh-fs-xl); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-reason { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 12px; align-items: center; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-reason .dd-bar { grid-column: 1 / -1; grid-row: 2; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-reason-share { min-width: 48px; text-align: end; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-bar { display: block; height: 14px; border-radius: var(--rh-r-full); background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-bar > span { display: block; height: 100%; border-radius: var(--rh-r-full); background: var(--rh-ui-primary); transform-origin: 0 50%; transform: scaleX(var(--v, 0)); }
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-bar > span { animation: ry-home-fill-v 720ms cubic-bezier(.23, 1, .32, 1) both !important; }
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring-fill { animation: ry-dd-ring 900ms cubic-bezier(.23, 1, .32, 1) both !important; }
+}
+@keyframes ry-dd-ring { from { stroke-dasharray: 0 100; } }
+
+/* План и факт: кольцо слева, текст справа; на узком — столбцом. */
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-plan { grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 16px; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring { position: relative; width: 132px; height: 132px; flex: none; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring circle { fill: none; stroke-width: 3.4; stroke-linecap: round; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring-track { stroke: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring-fill { stroke: var(--rh-ui-primary); stroke-dasharray: var(--p, 0) 100; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring b { position: absolute; inset: 0; display: grid; place-content: center; font-size: var(--rh-fs-2xl); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring b small { font-size: var(--rh-fs-md); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-plan-text { display: grid; gap: 4px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-plan-fact { margin: 0; font-size: var(--rh-fs-lg); overflow-wrap: anywhere; }
+
+/* Менеджеры: таблица на ПК, карточки на телефоне. */
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table-wrap.hscroll { padding: 0; overflow-x: auto; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table { width: 100%; border-collapse: collapse; font-size: var(--rh-fs-md); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table th,
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table td { padding: 12px; border-bottom: 1px solid var(--rh-ui-sep); text-align: start; vertical-align: middle; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table [data-num="true"] { text-align: end; white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table thead th { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table thead button { min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table thead th[data-sorted="true"] { color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table tbody th { font-weight: 600; min-width: 160px; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table tbody tr:last-child > * { border-bottom: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-agent-cards { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-agent-card { display: grid; gap: 12px; min-width: 0; padding: 16px; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-agent-name { display: block; min-height: 44px; font-size: var(--rh-fs-lg); line-height: 44px; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-agent-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin: 0; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-agent-grid dt { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-agent-grid dd { margin: 0; font-size: var(--rh-fs-lg); font-weight: 600; overflow-wrap: anywhere; }
+
+/* Шторка списка. */
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-drill { display: grid; gap: 12px; min-width: 0; }
+
+@media (min-width: 768px) {
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-selects { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-dates { grid-template-columns: repeat(2, minmax(0, 220px)); }
+}
+@media (min-width: 1100px) {
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-plan { grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-items: stretch; gap: 24px; }
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-funnel-row { grid-template-columns: 200px minmax(0, 1fr) 72px; }
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-funnel-row .dd-bar { grid-column: 2; grid-row: 1; }
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-funnel-conv { grid-column: 2 / -1; grid-row: 2; }
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-funnel-count { text-align: end; }
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-reason { grid-template-columns: 220px minmax(0, 1fr) 56px 56px; }
+  :root[data-ui-look="royal"] [data-ry-section="director"] .dd-reason .dd-bar { grid-column: 2; grid-row: 1; }
+}
+
+/* Имя менеджера в таблице — нажимаемая зона не ниже 44. */
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-table tbody th a { display: inline-flex; align-items: center; min-height: 44px; }
+
+/* Период: шесть пунктов на 320–390 листаются вбок, а не слипаются. */
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-filters .ry-seg.hscroll { display: flex; overflow-x: auto; max-width: 100%; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-filters .ry-seg.hscroll > button { flex: 1 0 auto; white-space: nowrap; }
+/* Поля выбора: рамку и фон даёт общее правило полей нового вида, здесь только высота под палец. */
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-filter select { min-height: 48px; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring b { display: flex; align-items: center; justify-content: center; gap: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-plan-note { grid-column: 1 / -1; }

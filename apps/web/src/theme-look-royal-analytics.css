@@ -70,42 +70,42 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr > * { min-width: 0; margin-top: 0; margin-bottom: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .pg-h { align-items: flex-start; gap: 12px 16px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .pg-h h1 {
-  margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text);
+  margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; letter-spacing: -.03em; line-height: 1.1; color: var(--rh-ui-text);
   font-family: var(--font-sans, "Onest", system-ui, sans-serif); text-wrap: balance;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .pg-h > div:first-child { flex: 1 1 360px; min-width: 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .pg-h .sub { margin-top: 6px; font-size: 16px; line-height: 1.45; color: var(--rh-ui-hint); max-width: 68ch; text-wrap: pretty; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .pg-h .sub { margin-top: 6px; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); max-width: 68ch; text-wrap: pretty; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .pg-h .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .pg-h .acts > details > summary {
-  display: inline-flex; align-items: center; min-height: 48px; padding: 0 20px; border-radius: 999px;
-  background: var(--rh-ui-press); color: var(--rh-ui-text); font-size: 15px; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; min-height: 48px; padding: 0 20px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-press); color: var(--rh-ui-text); font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .pg-h .acts > details > p { color: var(--rh-ui-hint); font-size: 14px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .pg-h .acts > details > p { color: var(--rh-ui-hint); font-size: var(--rh-fs-sm); }
 
 /* Вкладки раздела (Деньги: Финансы · Отчёты · Источники · Инсайты; Маркетинг: … · Подготовка · Воронка). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg-ai { display: flex; flex-wrap: nowrap; gap: 6px; margin: 0; overflow-x: auto; scrollbar-width: none; padding: 2px 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg-ai::-webkit-scrollbar { display: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg-ai > a {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px;
-  background: var(--rh-ui-card); color: var(--rh-ui-hint); font-size: 15px; font-weight: 600; text-decoration: none;
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-hint); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none;
   box-shadow: 0 0 0 1px var(--rh-ui-ring); transition: background-color 160ms, color 160ms;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg-ai > a:hover { color: var(--rh-ui-text); background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg-ai > a[aria-current="page"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg-ai > a .n {
-  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
-  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .clean-section-switcher { margin: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .clean-section-switcher select {
-  min-height: 52px; border-radius: 999px; padding: 0 20px; background-color: var(--rh-ui-card); color: var(--rh-ui-text);
-  box-shadow: 0 0 0 1px var(--rh-ui-ring); font-size: 16px;
+  min-height: 52px; border-radius: var(--rh-r-full); padding: 0 20px; background-color: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: 0 0 0 1px var(--rh-ui-ring); font-size: var(--rh-fs-md);
 }
 /* Быстрые ссылки к разделам отчёта (Воронка · Команда · Источники · Объекты). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .clean-report-section-nav { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .clean-report-section-nav button {
-  min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--rh-ui-primary-soft);
-  color: var(--rh-ui-primary-soft-fg); font-size: 15px; font-weight: 600; box-shadow: none;
+  min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-primary-soft);
+  color: var(--rh-ui-primary-soft-fg); font-size: var(--rh-fs-md); font-weight: 600; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .clean-report-section-nav button:not(:disabled):not([aria-disabled="true"]):hover { background: color-mix(in srgb, var(--rh-ui-primary) 18%, var(--rh-ui-card)); }
 
@@ -115,37 +115,37 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .sec-h { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin: 8px 0 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .sec > .sec-h { margin: 8px 0 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .sec-h h2, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .sec-t h2 {
-  margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text);
+  margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text);
   font-family: var(--font-sans, "Onest", system-ui, sans-serif);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .sec-h h3, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr h3 { font-family: var(--font-sans, "Onest", system-ui, sans-serif); font-size: 17px; font-weight: 600; letter-spacing: -.01em; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .sec-h .note, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .note { font-size: 14px; line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .sec-h h3, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr h3 { font-family: var(--font-sans, "Onest", system-ui, sans-serif); font-size: var(--rh-fs-lg); font-weight: 600; letter-spacing: -.01em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .sec-h .note, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .note { font-size: var(--rh-fs-sm); line-height: 1.45; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .grp-lab {
-  margin: 16px 0 8px; font-family: var(--font-sans, "Onest", sans-serif); font-size: 15px; font-weight: 700; letter-spacing: 0;
+  margin: 16px 0 8px; font-family: var(--font-sans, "Onest", sans-serif); font-size: var(--rh-fs-md); font-weight: 700; letter-spacing: 0;
   text-transform: none; color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .sec-t {
-  margin: 12px 0 4px; font-size: 15px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
+  margin: 12px 0 4px; font-size: var(--rh-fs-md); font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
 }
 
 /* Карточки: одно скругление 24, белая плита, мягкая тень и тонкая грань вместо рамки. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card {
-  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-ui-r-card);
+  margin: 0; padding: 20px; border: 0; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card.tight { padding: 16px 20px; border-radius: var(--rh-ui-r-card); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card.tight { padding: 16px 20px; border-radius: var(--rh-r-lg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card .card { padding: 16px; box-shadow: 0 0 0 1px var(--rh-ui-ring); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .cols2 { gap: 16px; }
 
 /* Подсказка-плашка (DismissibleHint): серая плита 20, текст обычного размера. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card.tight > [role="note"], :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card.tight > .hint { border-radius: 20px; background: var(--rh-ui-bg); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card.tight > [role="note"], :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card.tight > .hint { border-radius: var(--rh-r-lg); background: var(--rh-ui-bg); color: var(--rh-ui-text); }
 
 /* =============================== кнопки ================================ */
 
 /* Форма — у всех (48, таблетка); цвет — по смыслу: главная — синяя, .ghost/.soft — серые,
    .danger — красная; .crit, .warn, .ok, .hot, .gold, .btn-call, .btn-fab — свои цвета старой
    темы (исключены все смысловые варианты — сторож semanticButtonLeaks). */
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .pill { min-height: 48px; height: auto; padding: 0 20px; border-radius: 999px; font-size: 15px; font-weight: 600; box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .pill { min-height: 48px; height: auto; padding: 0 20px; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); font-weight: 600; box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab) {
   border: 0; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
 }
@@ -159,8 +159,8 @@
   background: color-mix(in srgb, var(--rh-ui-hint) 20%, transparent); transform: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .pill.danger { border: 0; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .pill.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-crit) 86%, #000); color: var(--rh-ui-crit-fg); transform: none; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .pill.sm { min-height: 44px; height: auto; padding: 0 16px; font-size: 15px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .pill.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-crit) 86%, var(--rh-ui-mix-dark)); color: var(--rh-ui-crit-fg); transform: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .pill.sm { min-height: 44px; height: auto; padding: 0 16px; font-size: var(--rh-fs-md); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .pill.sm.icon { width: 44px; padding: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .pill:active:not(:disabled) { transform: scale(.97); }
 /* Выключенная кнопка приглушена ВСЕГДА: :not(#ry-dim) добавляет вес id (такого id нет),
@@ -171,7 +171,7 @@
 /* Ссылки-кнопки в строках («Повторить», «Показать ещё», «Открыть журнал»). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr :is(.lnk, button.lk) {
   display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 4px;
-  color: var(--rh-ui-primary-ink); font-size: 15px; font-weight: 600; text-decoration: none;
+  color: var(--rh-ui-primary-ink); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .state.err button.lk, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .state.err .lnk { color: var(--rh-ui-crit-text); text-decoration: underline; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr a.lk { color: var(--rh-ui-primary-ink); font-weight: 600; }
@@ -183,21 +183,21 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg { display: inline-flex; flex-wrap: wrap; gap: 6px; padding: 0; border: 0; background: transparent; box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .hscroll > .seg { flex-wrap: nowrap; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg > button {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
-  background: var(--rh-ui-bg); color: var(--rh-ui-text); font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap; box-shadow: none;
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-bg); color: var(--rh-ui-text); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg > button:not(:disabled):not([aria-disabled="true"]):not([aria-selected="true"]):hover { background: var(--rh-ui-press); border-color: transparent; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg > button:is([aria-selected="true"], [aria-pressed="true"]) { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .seg > button .n {
-  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; opacity: 1;
-  background: color-mix(in srgb, currentColor 14%, transparent); color: inherit; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full); opacity: 1;
+  background: color-mix(in srgb, currentColor 14%, transparent); color: inherit; font-size: var(--rh-fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
 }
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .field .lab, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .lab { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .field .lab, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .lab { display: block; margin-bottom: 6px; font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .inp, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] textarea {
-  min-height: 48px; padding: 0 16px; border: 0; border-radius: 16px; background: var(--rh-ui-raised); color: var(--rh-ui-text);
-  font-size: 16px; box-shadow: none;
+  min-height: 48px; padding: 0 16px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] textarea { padding: 12px 16px; line-height: 1.5; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .inp.sm { min-height: 44px; }
@@ -211,22 +211,22 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile {
   display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-height: 124px; padding: 16px 18px; border: 0;
-  border-radius: 28px; background: var(--rh-ui-card); color: var(--rh-ui-text); text-align: left;
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text); text-align: left;
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); transition: background-color 160ms, transform 120ms;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile:hover { background: color-mix(in srgb, var(--rh-ui-hover) 100%, var(--rh-ui-card)); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile:active { transform: scale(.98); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile .hd { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile .hd { display: flex; align-items: center; gap: 8px; font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile .hd .tile-go { margin-left: auto; width: 20px; height: 20px; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > b {
-  display: block; margin-top: auto; font-family: var(--font-num, "Geist", "Onest", sans-serif); font-size: 32px; font-weight: 650;
+  display: block; margin-top: auto; font-family: var(--font-num, "Geist", "Onest", sans-serif); font-size: var(--rh-fs-3xl); font-weight: 650;
   letter-spacing: -.035em; line-height: 1.05; font-variant-numeric: tabular-nums; color: var(--rh-ui-text); overflow-wrap: break-word;
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > b .cur, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > b small { font-size: .62em; letter-spacing: 0; font-weight: 600; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > b .cur, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > b small { font-size: var(--rh-fs-xl); letter-spacing: 0; font-weight: 600; }
 /* Единица — отдельным куском: «15 510 сомони» переносится перед «сомони», а не посреди слова
    (между числом и единицей в разметке нет пробела). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > b .cur { display: inline-block; white-space: nowrap; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > small { display: block; font-size: 14px; line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > small { display: block; font-size: var(--rh-fs-sm); line-height: 1.35; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > small.crit { color: var(--rh-ui-crit-text); font-weight: 600; }
 
 /* ============================ графики и таблицы ============================ */
@@ -236,15 +236,15 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card > .note, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card > p.state { margin-top: 12px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .bars .b { min-height: 52px; gap: 16px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .bars .b .nm3 {
-  width: min(40%, 260px); font-size: 15px; font-weight: 500; line-height: 1.3; color: var(--rh-ui-text);
+  width: min(40%, 260px); font-size: var(--rh-fs-md); font-weight: 500; line-height: 1.3; color: var(--rh-ui-text);
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .bars .b .tr { height: 12px; background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .bars .b .tr i { background: var(--rh-ui-primary); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .bars .b .vl { font-family: var(--font-num, "Geist", "Onest", sans-serif); font-size: 16px; font-weight: 650; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .bars .b .vl { font-family: var(--font-num, "Geist", "Onest", sans-serif); font-size: var(--rh-fs-md); font-weight: 650; color: var(--rh-ui-text); }
 
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .prog-legend { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: flex-start; font-size: 14px; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .prog-legend b { font-family: var(--font-num, "Geist", "Onest", sans-serif); font-size: 24px; font-weight: 650; letter-spacing: -.03em; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .prog-legend { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: flex-start; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .prog-legend b { font-family: var(--font-num, "Geist", "Onest", sans-serif); font-size: var(--rh-fs-2xl); font-weight: 650; letter-spacing: -.03em; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .prog { background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .prog > i { background: var(--rh-ui-primary); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .prog.split > i.ok, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .prog.ok > i { background: var(--rh-ui-ok); }
@@ -252,34 +252,34 @@
 
 /* Кольцо долей: свои цвета ряда в палитре нового вида (каждая доля ещё и подписана в легенде). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut {
-  --ink: var(--rh-ui-primary); --aqua-ink: #0d7f74; --lav-ink: #6a4bc9; --sky-ink: #0f6fa8; --lime-ink: #5f7d0c; --faint: #8a8f9c;
+  --ink: var(--rh-ui-primary); --aqua-ink: var(--rh-ui-ink-aqua); --lav-ink: var(--rh-ui-ink-lav); --sky-ink: var(--rh-ui-ink-sky); --lime-ink: var(--rh-ui-ink-lime); --faint: var(--rh-ui-ink-faint);
   gap: 24px;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .ring .mid, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .ring .mid b { color: var(--rh-ui-text); font-family: var(--font-num, "Geist", "Onest", sans-serif); font-variant-numeric: tabular-nums; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .ring .mid small { font-family: var(--font-sans, "Onest", sans-serif); font-size: 13px; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .keys button { min-height: 48px; border-color: var(--rh-ui-sep); font-size: 15px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .ring .mid small { font-family: var(--font-sans, "Onest", sans-serif); font-size: var(--rh-fs-xs); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .keys button { min-height: 48px; border-color: var(--rh-ui-sep); font-size: var(--rh-fs-md); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .keys button .nm2 { color: var(--rh-ui-text); white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .keys button .qt { color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .keys button .sw { width: 12px; height: 12px; border-radius: 4px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .donut .keys button .sw { width: 12px; height: 12px; border-radius: var(--rh-r-sm); }
 
 /* Тепловая карта часов: клетки синим по силе (то же число, та же прозрачность), подписи 13. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat { --ink: var(--rh-ui-primary); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat .hh, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat .dd { font-size: 13px; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat .cell { border-radius: 8px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat .hh, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat .dd { font-size: var(--rh-fs-xs); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat .cell { border-radius: var(--rh-r-sm); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat .cell:focus-visible { outline: 2px solid var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat-note { font-size: 14px; line-height: 1.5; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat-note { font-size: var(--rh-fs-sm); line-height: 1.5; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .heat-note b { color: var(--rh-ui-text); }
 
 /* Таблицы: шапка 13/600 серым, строка 56, цифры по правому краю табличными. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl { font-size: 15px; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl th { height: 44px; padding: 0 12px; font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); border-bottom: 1px solid var(--rh-ui-sep); background: transparent; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl { font-size: var(--rh-fs-md); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl th { height: 44px; padding: 0 12px; font-size: var(--rh-fs-xs); font-weight: 600; color: var(--rh-ui-hint); border-bottom: 1px solid var(--rh-ui-sep); background: transparent; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl td { height: 56px; padding: 8px 12px; border-top: 1px solid var(--rh-ui-sep); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl tbody tr:nth-child(even) { background: transparent; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl tbody tr:hover { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl :is(th, td).num { text-align: right; font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl td.num { font-family: var(--font-num, "Geist", "Onest", sans-serif); font-weight: 600; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl .av, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .av {
-  width: 40px; height: 40px; border-radius: 32%; background: var(--rh-ui-a0); color: var(--rh-ui-a0f); font-size: 14px; font-weight: 700;
+  width: 40px; height: 40px; border-radius: var(--rh-r-md); background: var(--rh-ui-a0); color: var(--rh-ui-a0f); font-size: var(--rh-fs-sm); font-weight: 700;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tbl td .wrap { display: inline-flex; align-items: center; gap: 12px; }
 
@@ -290,20 +290,20 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .list > .row:last-child { border-bottom: 0; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .list > .row:hover { background: transparent; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .t b, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .t .n {
-  font-family: var(--font-sans, "Onest", sans-serif); font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text);
+  font-family: var(--font-sans, "Onest", sans-serif); font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.3; color: var(--rh-ui-text);
   white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .t > span, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .t .s {
-  font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+  font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .list > .row { flex-wrap: wrap; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .meta { flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: normal; font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .row .meta { flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: normal; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
 
 /* Плашки: форма у всех, цвет только у смысловых (срочно — сплошная красная, внимание —
    светлая янтарная с обводкой, норма — светлая зелёная, справка — светло-синяя). */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .chip {
   display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 12px;
-  border-radius: 999px; font-size: 14px; font-weight: 600; line-height: 1.2; max-width: 100%; white-space: normal;
+  border-radius: var(--rh-r-full); font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.2; max-width: 100%; white-space: normal;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .chip:is(.crit, .danger) { border: 0; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); font-weight: 700; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .chip:is(.warn, .hot) {
@@ -315,46 +315,46 @@
 
 /* Тихие строки и состояния: срочное — красным текстом и круглой точкой с ореолом,
    внимание — янтарным и ромбом (смысл держится не только оттенком). */
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .quiet { gap: 10px; min-height: 48px; font-size: 15px; line-height: 1.45; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .quiet { gap: 10px; min-height: 48px; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .quiet { flex-wrap: wrap; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .quiet .txt { flex: 1 1 220px; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .quiet.crit .txt { color: var(--rh-ui-crit-text); font-weight: 600; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .quiet.warn .txt { color: var(--rh-ui-warn); font-weight: 600; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .dot.crit { width: 10px; height: 10px; flex: none; background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .dot.warn { width: 10px; height: 10px; flex: none; background: var(--rh-ui-warn); border-radius: 2px; transform: rotate(45deg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .dot.warn { width: 10px; height: 10px; flex: none; background: var(--rh-ui-warn); border-radius: var(--rh-r-sm); transform: rotate(45deg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .dot.ok { width: 10px; height: 10px; flex: none; background: var(--rh-ui-ok); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .state { font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .state { font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .state.err { color: var(--rh-ui-crit-text); font-weight: 600; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .sk { background: var(--rh-ui-raised); }
 
 /* Пусто: круг 48 со значком 24, строка и одна кнопка. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .empty { display: grid; justify-items: center; gap: 12px; padding: 28px 16px; text-align: center; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .empty .ic {
-  display: grid; place-items: center; width: 48px; height: 48px; border-radius: 999px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+  display: grid; place-items: center; width: 48px; height: 48px; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .empty .ic .i { width: 24px; height: 24px; stroke-width: 1.8; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .empty p { margin: 0; font-size: 16px; line-height: 1.45; color: var(--rh-ui-text); max-width: 46ch; text-wrap: pretty; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .empty p { margin: 0; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text); max-width: 46ch; text-wrap: pretty; }
 
 /* ======================= Спрос и предложение (отчёты) ======================= */
 
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .dsm-cell { border-radius: 10px; font-variant-numeric: tabular-nums; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .dsm-legend { font-size: 14px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .dsm-cell { border-radius: var(--rh-r-sm); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .dsm-legend { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
 
 /* ============================ Воронка (кампании) ============================ */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 12px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card {
-  display: grid; gap: 10px; padding: 20px; border: 0; border-radius: var(--rh-ui-r-card);
+  display: grid; gap: 10px; padding: 20px; border: 0; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card h3 { font-size: 20px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; overflow-wrap: break-word; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card h3 { font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.02em; line-height: 1.25; overflow-wrap: break-word; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card .wrap > h3 { flex: 1 1 220px !important; min-width: 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card > p { margin: 0; font-size: 15px !important; line-height: 1.45; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card > p { margin: 0; font-size: var(--rh-fs-md) !important; line-height: 1.45; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card .nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 8px; margin: 2px 0 0; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card .nums > div { padding: 12px 14px; border-radius: 20px; background: var(--rh-ui-bg); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card .nums b { font-family: var(--font-num, "Geist", "Onest", sans-serif); font-size: 28px; font-weight: 650; letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card .nums small { font-size: 14px; line-height: 1.3; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card .nums > div { padding: 12px 14px; border-radius: var(--rh-r-lg); background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card .nums b { font-family: var(--font-num, "Geist", "Onest", sans-serif); font-size: var(--rh-fs-2xl); font-weight: 650; letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card .nums small { font-size: var(--rh-fs-sm); line-height: 1.3; color: var(--rh-ui-hint); }
 
 /* «Удалить» кампанию — красная ссылка (необратимо). Держится на признаке смысла кнопки
    data-variant="danger" (FunnelTab.tsx, MobileFunnel.tsx), а не на порядке ссылок в ряду. */
@@ -362,13 +362,13 @@
 
 /* ============================= Инсайты (кейсы) ============================= */
 
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .acc { border: 0; border-radius: 20px; background: var(--rh-ui-bg); box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .acc { border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-bg); box-shadow: none; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .acc + .acc { margin-top: 10px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .acc-h { min-height: 60px; padding: 12px 16px; font-size: 16px; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .acc-b { padding: 4px 16px 16px; font-size: 15px; line-height: 1.5; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .quote { border-left: 3px solid var(--rh-ui-sep); padding: 4px 0 4px 12px; font-size: 15px; line-height: 1.5; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .quote b { font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .fld { font-size: 15px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .acc-h { min-height: 60px; padding: 12px 16px; font-size: var(--rh-fs-md); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .acc-b { padding: 4px 16px 16px; font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .quote { border-left: 3px solid var(--rh-ui-sep); padding: 4px 0 4px 12px; font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .quote b { font-size: var(--rh-fs-xs); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .fld { font-size: var(--rh-fs-md); }
 
 
 /* Строки-плашки в отдельной карточке (не дошло файлов, ошибки): без лишних отступов старой темы. */
@@ -389,22 +389,22 @@
 /* ============================== шторки и окна ============================== */
 
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .sheet { background: var(--rh-ui-card); color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .sheet .sheet-h h2, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .sheet .sheet-h h3 { font-family: var(--font-sans, "Onest", sans-serif); font-size: 22px; font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .sheet .sheet-b { font-size: 16px; line-height: 1.5; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .sheet .sheet-h h2, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .sheet .sheet-h h3 { font-family: var(--font-sans, "Onest", sans-serif); font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .sheet .sheet-b { font-size: var(--rh-fs-md); line-height: 1.5; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .sheet .sheet-b .state { color: var(--rh-ui-text); }
 
 /* ============================== узкий экран ============================== */
 
-@media (max-width: 1100px) {
+@media (max-width: 1099.98px) {
   :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 640px) {
+@media (max-width: 767.98px) {
   :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr { gap: 12px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card { padding: 16px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .card.tight { padding: 12px 16px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles { gap: 8px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile { min-height: 112px; padding: 14px; border-radius: 24px; }
-  :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > b { font-size: 26px; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile { min-height: 112px; padding: 14px; border-radius: var(--rh-r-lg); }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .tiles > .tile > b { font-size: var(--rh-fs-2xl); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .mag-card .nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .bars { gap: 12px; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .bars .b { flex-wrap: wrap; gap: 6px 12px; min-height: 0; }
@@ -433,10 +433,10 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold { padding: 0; margin: 0 0 16px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold > summary {
   display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 14px 20px; cursor: pointer;
-  font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--rh-ui-text); list-style: none;
+  font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.35; color: var(--rh-ui-text); list-style: none;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold > summary::after {
-  content: "›"; margin-left: auto; font-size: 22px; color: var(--rh-ui-hint); transition: transform 160ms;
+  content: "›"; margin-left: auto; font-size: var(--rh-fs-xl); color: var(--rh-ui-hint); transition: transform 160ms;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold[open] > summary::after { transform: rotate(90deg); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] details.ry-fold > summary:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: inherit; }

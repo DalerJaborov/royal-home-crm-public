@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2506**; вместе с задачами по расписанию и фоновыми заданиями — **4213**. Модулей: **88**.
+Путей: **791**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **4210**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3954,8 +3954,6 @@
 - если !target
   - return res.json(info);
     · ответ 200
-- const windowOpen = isMessagingWindowOpen(channel, lastAt);
-  · зовёт isMessagingWindowOpen()
 - res.json(info);
   · ответ 200
 
@@ -14949,6 +14947,101 @@
 - res.json({ channels, totalWaiting: channels.reduce((sum, c)
   · ответ 200
 
+## /api/v1/reports/director
+
+### GET /api/v1/reports/director/drill
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = directorDrillQuerySchema.safeParse(req.query);
+  · проверяет данные схемой directorDrillQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- const denied = drillPermissionsMissing(req, parsed.data.key);
+  · зовёт drillPermissionsMissing()
+- если denied
+  - return res.status(403).json({ error: denied });
+    · ответ 403
+- const presentName = (client: { fullName: string; source: string })
+  - const shown = withHiddenOrigin({ fullName: client.fullName, source: client.source as string | null }, viewer.…
+    · зовёт withHiddenOrigin()
+  - return { name: clientNamePhoneSafe(shown.fullName, viewer.seesPhone), source, sourceLabel: source ? (CLIENT_S…
+    · зовёт clientNamePhoneSafe()
+- return guarded(res, "список", async ()
+  · ответ 200
+
+### GET /api/v1/reports/director/export.xlsx
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = directorDashboardQuerySchema.safeParse(req.query);
+  · проверяет данные схемой directorDashboardQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- return guarded(res, "выгрузка", async ()
+  · ответ 200
+  · ставит заголовок ответа
+  - const data = await cachedDirectorDashboard(parsed.data, viewerOf(req));
+    · зовёт cachedDirectorDashboard()
+  - const file = writeXlsx(exportSheets(data));
+    · зовёт writeXlsx()
+  - const name = `director-${dushanbeDateString(new Date(data.period.from))}_${dushanbeDateString(new Date(data.p…
+    · зовёт dushanbeDateString()
+  - res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    · ставит заголовок ответа
+  - res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+    · ставит заголовок ответа
+  - res.setHeader("Cache-Control", "no-store");
+    · ставит заголовок ответа
+  - return res.send(file);
+    · ответ 200
+
+### GET /api/v1/reports/director/history
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = historyQuerySchema.safeParse(req.query);
+  · проверяет данные схемой historyQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- если !can(req, "clients.viewAll")
+  - return res.status(403).json({ error: "История доступна тем, кто видит всех клиентов" });
+    · ответ 403 — «История доступна тем, кто видит всех клиентов»
+- return guarded(res, "история", async ()
+  · ответ 200
+  · читает в базе: stageEvent
+  · читает в базе: auditLog
+  · читает в базе: agent
+  - const [events, agentChanges] = await Promise.all([ prisma.stageEvent.findMany({ where: { entityType: "CLIENT"…
+    · читает в базе: stageEvent
+    · читает в базе: auditLog
+  - для каждого: const e of events
+    - if (e.agentId) agentIds.add(e.agentId);
+      · дословно из кода
+  - для каждого: const a of agentChanges
+    - для каждого: const id of [a.agentId, m.fromAgentId, m.toAgentId]
+      - if (id) agentIds.add(id);
+        · дословно из кода
+  - const agents = await prisma.agent.findMany({ where: { id: { in: [...agentIds] } }, select: { id: true, fullNa…
+    · читает в базе: agent
+  - return res.json({ clientId, items });
+    · ответ 200
+
+### GET /api/v1/reports/director
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = directorDashboardQuerySchema.safeParse(req.query);
+  · проверяет данные схемой directorDashboardQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- return guarded(res, "сводка", async ()
+  · ответ 200
+
 ## /api/v1/search-console
 
 ### POST /api/v1/search-console/disconnect
@@ -18059,87 +18152,6 @@
 
 ## /api/v1/ui-shell
 
-### GET /api/v1/ui-shell/config
-
-`apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен, requireShellAdministrator, есть право: settings.manage
-
-- res.setHeader("ETag", `"${version}"`);
-  · ставит заголовок ответа
-- res.json({ ...parseUiShellRollout(raw), version });
-  · ответ 200
-
-### PUT /api/v1/ui-shell/config
-
-`apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен, requireShellAdministrator, есть право: settings.manage, requireElevation
-
-- const parsed = uiShellRolloutSchema.safeParse(req.body);
-  · проверяет данные схемой uiShellRolloutSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректные настройки оболочки", issues: parsed.error.issues });
-    · ответ 400 — «Некорректные настройки оболочки»
-- если !expected
-  - return res.status(428).json({ error: "Обновите настройки перед сохранением.", code: "UI_SHELL_VERSION_REQUIRE…
-    · ответ 428 — «Обновите настройки перед сохранением.»
-- пробует
-  - const version = await prisma.$transaction(async (tx)
-    · ошибка ShellConflict
-    · всё внутри — одной транзакцией
-    · читает в базе: settings
-    · читает в базе: agent
-    · создаёт в базе: settings
-    · меняет в базе: settings
-    · создаёт в базе: auditLog
-    - const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { uiShellRollout: true } …
-      · читает в базе: settings
-    - если expected !== `"${versionOf(raw)}"`
-      - throw new ShellConflict();
-        · ошибка ShellConflict
-    - если keepStoredLook && storedLook.length
-      - config.royalLookAgentIds = storedLook;
-        · дословно из кода
-    - если config.royalLookAgentIds?.length === 0
-      - delete config.royalLookAgentIds;
-        · дословно из кода
-    - если selectedIds.length
-      - const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: tr…
-        · читает в базе: agent
-      - если missing.length
-        - throw new InvalidShellAgents(missing);
-          · ошибка InvalidShellAgents — «missing»
-    - если !settings
-      - пробует
-        - await tx.settings.create({ data: { id: "singleton", uiShellRollout: envelope } });
-          · создаёт в базе: settings
-      - если сорвалось
-        - если error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
-          - throw new ShellConflict();
-            · ошибка ShellConflict
-        - throw error;
-          · пробрасывает ошибку дальше
-    - иначе
-      - const updated = await tx.settings.updateMany({ where: { id: "singleton", uiShellRollout: { equals: raw == nul…
-        · меняет в базе: settings
-      - если updated.count !== 1
-        - throw new ShellConflict();
-          · ошибка ShellConflict
-    - const author = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
-      · читает в базе: agent
-    - await tx.auditLog.create({ data: { action: "SETTINGS_UPDATE", entityType: "Settings", entityId: "singleton", …
-      · создаёт в базе: auditLog
-  - res.setHeader("ETag", `"${version}"`);
-    · ставит заголовок ответа
-  - res.json({ ...config, version });
-    · ответ 200
-- если сорвалось
-  - если error instanceof ShellConflict
-    - return res.status(409).json({ error: "Настройки уже изменены другим администратором. Обновите их и проверьте …
-      · ответ 409 — «Настройки уже изменены другим администратором. Обновите их и…»
-  - если error instanceof InvalidShellAgents
-    - return res.status(400).json({ error: "Некоторые сотрудники не найдены или отключены. Обновите список перед со…
-      · ответ 400 — «Некоторые сотрудники не найдены или отключены. Обновите список перед…»
-  - throw error;
-    · пробрасывает ошибку дальше
-
 ### GET /api/v1/ui-shell
 
 `apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен
@@ -18945,7 +18957,10 @@
       · зовёт markMessageDeliveryStatus()
     - void noteFirstContactDelivery(s.mid, s.status, s.errorCode, s.error);
       · зовёт noteFirstContactDelivery()
-    - если s.status === "failed"
+    - если s.status === "failed" && isWhatsAppWindowFailure(s.errorCode, s.error)
+      - console.info(`[окно] WhatsApp ${s.recipientId}: вне 24 часов — свободный текст не доставлен (код ${s.errorCod…
+        · пишет строку в журнал сервера
+    - иначе если s.status === "failed"
       - void logSystemError( "meta", `WhatsApp не доставил наш ответ на ${s.recipientId}` + (s.error ? `: ${s.error}`…
         · запись в журнал ошибок
   - если waPhoneId
@@ -24850,6 +24865,9 @@
         - если !target
           - continue;
             · переходит к следующему
+        - если isMessagingWindowClosedFor(target.kind === "bot" ? target.channel : "", await lastClientMessageAt(target))
+          - continue;
+            · переходит к следующему
         - const claimed = await prisma.interaction.updateMany({ where: { id: showing.id, confirmAskedAt: null }, data: …
           · меняет в базе: interaction
         - если claimed.count !== 1
@@ -24858,8 +24876,9 @@
         - const result = await deliverToConversation(target, text).catch((err: unknown)
           · зовёт deliverToConversation()
         - если !result.ok
-          - console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);
-            · пишет строку в журнал сервера
+          - если !("code" in result && result.code === "window_closed")
+            - console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);
+              · пишет строку в журнал сервера
           - const current = await prisma.interaction.findUnique({ where: { id: showing.id }, select: { remindersSent: tru…
             · читает в базе: interaction
           - await prisma.interaction.update({ where: { id: showing.id }, data: { confirmAskedAt: null, remindersSent: (cu…

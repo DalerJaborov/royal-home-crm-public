@@ -238,6 +238,18 @@
       "nav": null
     },
     {
+      "path": "/director",
+      "component": "DirectorDashboard",
+      "file": "apps/web/src/pages/DirectorDashboard.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/director",
+        "label": "Дашборд директора",
+        "group": "money",
+        "gate": ""
+      }
+    },
+    {
       "path": "/finance",
       "component": "Finance",
       "file": "apps/web/src/pages/Finance.tsx",
@@ -780,6 +792,12 @@
       "gate": ""
     },
     {
+      "to": "/director",
+      "label": "Дашборд директора",
+      "group": "money",
+      "gate": ""
+    },
+    {
       "to": "/reports",
       "label": "Отчёты",
       "group": "money",
@@ -1119,9 +1137,9 @@
       "mount": "/api/v1/reports",
       "router": "reportsRouter",
       "file": "apps/api/src/routes/reports.ts",
-      "endpoints": 20,
+      "endpoints": 24,
       "label": "Отчёты за период",
-      "usedBy": 4
+      "usedBy": 5
     },
     {
       "mount": "/api/v1/report-pdf",
@@ -1159,9 +1177,9 @@
       "mount": "/api/v1/ui-shell",
       "router": "uiShellRouter",
       "file": "apps/api/src/routes/uiShell.ts",
-      "endpoints": 3,
+      "endpoints": 1,
       "label": null,
-      "usedBy": 2
+      "usedBy": 0
     },
     {
       "mount": "/api/v1/sms",

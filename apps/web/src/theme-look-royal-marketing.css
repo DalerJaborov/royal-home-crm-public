@@ -70,17 +70,17 @@
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pg-h > div:first-child { flex: 1 1 320px; min-width: 0; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pg-h h1 {
-  margin: 0; font-size: 32px; font-weight: 700; line-height: 1.1; letter-spacing: -.028em; color: var(--rh-ui-text);
+  margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; line-height: 1.1; letter-spacing: -.028em; color: var(--rh-ui-text);
   font-family: var(--font-sans, "Onest", system-ui, sans-serif);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pg-h .sub {
-  margin: 8px 0 0; max-width: 72ch; font-size: 16px; line-height: 1.45; color: var(--rh-ui-hint);
+  margin: 8px 0 0; max-width: 72ch; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pg-h .acts {
   display: flex; flex: 0 1 auto; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px;
   min-width: 0; max-width: 100%;
 }
-:root[data-ui-look="royal"][data-mobile-ux] .rh2.screens[data-ry-section="marketing"] .pg-h h1 { font-size: 28px; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2.screens[data-ry-section="marketing"] .pg-h h1 { font-size: var(--rh-fs-2xl); }
 
 /* Вкладки раздела (ScreenTabs: «Реклама | Обзор | Публикации | Подготовка | Воронка»,
    «Обращения» у «Комментариев») — таблетки, ряд листается сам, страница — нет. */
@@ -90,8 +90,8 @@
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg-ai::-webkit-scrollbar { display: none; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg-ai > a {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px;
-  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: 15px; font-weight: 600; text-decoration: none; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none; white-space: nowrap;
   box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg-ai > a:hover { background: var(--rh-ui-press); }
@@ -99,66 +99,66 @@
 /* Счёт на невыбранной вкладке раздела («Сообщения N», «Комментарии N», «Изменения N») — заметный,
    как счётчики бокового меню (ревью #307); счёт внутри экрана (.seg .n) остаётся тихим. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg-ai > a .n {
-  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
-  background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: var(--rh-fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
 }
 /* Счёт на вкладке выбранной — на тёмной таблетке светлым. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg-ai > a[aria-current="page"] .n { background: color-mix(in srgb, var(--rh-ui-side-pill-fg) 22%, transparent); color: var(--rh-ui-side-pill-fg); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .clean-section-switcher { margin: 4px 0 16px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .clean-section-switcher select {
-  min-height: 48px; padding: 0 40px 0 18px; border: 0; border-radius: 999px; background-color: var(--rh-ui-card); color: var(--rh-ui-text);
-  font-size: 16px; font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  min-height: 48px; padding: 0 40px 0 18px; border: 0; border-radius: var(--rh-r-full); background-color: var(--rh-ui-card); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
 
 /* ============================== карточки ============================== */
 
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .scr .card {
-  border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
   box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); backdrop-filter: none;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .scr .card:not(.tight) { padding: 20px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .scr .card.tight { padding: 8px 20px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .scr .card .card {
-  box-shadow: 0 0 0 1px var(--rh-ui-sep); border-radius: 20px;
+  box-shadow: 0 0 0 1px var(--rh-ui-sep); border-radius: var(--rh-r-lg);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .sec-h {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .sec-h :is(h2, h3) {
-  margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; color: var(--rh-ui-text);
+  margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.02em; line-height: 1.25; color: var(--rh-ui-text);
   font-family: var(--font-sans, "Onest", system-ui, sans-serif);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .sec-t {
-  margin: 16px 0 8px; font-size: 15px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
+  margin: 16px 0 8px; font-size: var(--rh-fs-md); font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] :is(h2, h3, h4) { font-family: var(--font-sans, "Onest", system-ui, sans-serif); }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .note { font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .note { font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); }
 
 /* Плитки чисел (KPI рекламы, сводка конвейера): цифра крупно, табличными цифрами. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles { gap: 12px; min-width: 0; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile {
-  min-width: 0; min-height: 120px; padding: 16px 18px; border: 0; border-radius: var(--rh-ui-r-card);
+  min-width: 0; min-height: 120px; padding: 16px 18px; border: 0; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd {
-  display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-hint);
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.3; color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd .ic {
-  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 999px;
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: var(--rh-r-full);
   background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd .ic .i { width: 24px; height: 24px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile b {
-  display: block; margin-top: 8px; font-family: var(--rh-ui-font-num); font-size: 30px; font-weight: 700; line-height: 1.1;
+  display: block; margin-top: 8px; font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-3xl); font-weight: 700; line-height: 1.1;
   letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--rh-ui-text); overflow-wrap: normal;
 }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile small { display: block; margin-top: 4px; font-size: 14px; line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile small { display: block; margin-top: 4px; font-size: var(--rh-fs-sm); line-height: 1.35; color: var(--rh-ui-hint); }
 
 /* ============================== кнопки ============================== */
 
 /* Форма — у всех таблеток; цвет — по смыслу (смысловые варианты исключены целиком). */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pill {
-  min-height: 44px; height: auto; padding: 0 18px; border-radius: 999px; font-size: 15px; font-weight: 600; box-shadow: none;
+  min-height: 44px; height: auto; padding: 0 18px; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); font-weight: 600; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pill:not(.ghost):not(.soft):not(.danger):not(.crit):not(.warn):not(.ok):not(.gold):not(.hot):not(.btn-call):not(.btn-fab) {
   border: 0; background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg);
@@ -183,8 +183,8 @@
   background: color-mix(in srgb, var(--rh-ui-primary) 18%, var(--rh-ui-card));
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pill.danger { border: 0; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pill.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-crit) 86%, #000); color: var(--rh-ui-crit-fg); }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pill.sm { min-height: 44px; padding: 0 16px; font-size: 15px; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pill.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-crit) 86%, var(--rh-ui-mix-dark)); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pill.sm { min-height: 44px; padding: 0 16px; font-size: var(--rh-fs-md); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pill .i { width: 20px; height: 20px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .pill:active:not(:disabled) { transform: scale(.97); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] :is(.lnk, .lk) { color: var(--rh-ui-primary-ink); font-weight: 600; text-decoration: none; }
@@ -200,8 +200,8 @@
    светлая янтарная с обводкой; норма (.ok) — зелёная; справка (.mute/.info) — светло-синяя.
    Прочие тона старой темы (aqua, lav, sky…) остаются своими через переменные. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chip {
-  display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 12px; border-radius: 999px;
-  font-size: 14px; font-weight: 600; line-height: 1.2; white-space: normal; text-decoration: none;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 12px; border-radius: var(--rh-r-full);
+  font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.2; white-space: normal; text-decoration: none;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chip:is(.crit, .danger) { border: 0; background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); font-weight: 700; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chip:is(.warn, .hot) {
@@ -217,19 +217,19 @@
 
 /* Знак площадки в родных цветах (MarketingBrandMark): круг цвета бренда, знак белый. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand {
-  display: inline-grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 999px;
-  background: var(--rh-ui-raised); color: #ffffff; vertical-align: middle;
+  display: inline-grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-on-color); vertical-align: middle;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-size="36"] { width: 36px; height: 36px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chip > .ry-mkt-brand { width: 22px; height: 22px; margin-left: -6px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chip > .ry-mkt-brand svg { width: 13px; height: 13px; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="INSTAGRAM"] { background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285aeb 90%); }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="FACEBOOK"] { background: #1877f2; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="MESSENGER"] { background: #0084ff; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="TELEGRAM"] { background: #2aabee; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="WHATSAPP"] { background: #25d366; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="YOUTUBE"] { background: #ff0000; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand:is([data-channel="TIKTOK"], [data-channel="THREADS"]) { background: #000000; box-shadow: 0 0 0 1px rgba(255, 255, 255, .18); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="INSTAGRAM"] { background: var(--rh-ui-brand-ig); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="FACEBOOK"] { background: var(--rh-ui-brand-fb); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="MESSENGER"] { background: var(--rh-ui-brand-ms); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="TELEGRAM"] { background: var(--rh-ui-brand-tg); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="WHATSAPP"] { background: var(--rh-ui-brand-wa); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand[data-channel="YOUTUBE"] { background: var(--rh-ui-brand-yt); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-brand:is([data-channel="TIKTOK"], [data-channel="THREADS"]) { background: var(--rh-ui-brand-tt); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chn-grid + .chn { margin-top: 16px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chn h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 
@@ -237,36 +237,36 @@
 
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .quiet {
   display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px; min-height: 48px; padding: 6px 0;
-  font-size: 15px; line-height: 1.4; color: var(--rh-ui-text); min-width: 0;
+  font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-text); min-width: 0;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .quiet .txt { flex: 1 1 200px; min-width: 0; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .quiet > .dot {
-  flex: none; margin-top: 4px; width: 12px; height: 12px; border-radius: 999px; background: var(--rh-ui-hint); box-shadow: none;
+  flex: none; margin-top: 4px; width: 12px; height: 12px; border-radius: var(--rh-r-full); background: var(--rh-ui-hint); box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .quiet > .dot.crit { margin-top: 3px; width: 14px; height: 14px; background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .quiet > .dot.warn { background: var(--rh-ui-warn-soft); box-shadow: inset 0 0 0 2px var(--rh-ui-warn); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .quiet > .dot.ok { background: var(--rh-ui-ok); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .quiet.crit .txt { color: var(--rh-ui-crit-text); font-weight: 700; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .quiet :is(.lnk, .lk) {
-  flex: none; align-self: center; display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; font-size: 15px; font-weight: 700;
+  flex: none; align-self: center; display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; font-size: var(--rh-fs-md); font-weight: 700;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .state {
-  display: flex; flex-wrap: nowrap; align-items: center; gap: 10px 12px; min-height: 56px; padding: 8px 0; font-size: 15px; line-height: 1.4; color: var(--rh-ui-hint);
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 10px 12px; min-height: 56px; padding: 8px 0; font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-hint);
 }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .state > .dot { flex: none; width: 12px; height: 12px; border-radius: 999px; background: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .state > .dot { flex: none; width: 12px; height: 12px; border-radius: var(--rh-r-full); background: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .state > .dot.crit { background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .state > .dot.warn { background: var(--rh-ui-warn-soft); box-shadow: inset 0 0 0 2px var(--rh-ui-warn); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .state > .dot.ok { background: var(--rh-ui-ok); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .state.err { color: var(--rh-ui-crit-text); font-weight: 600; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .sk { background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .empty {
-  display: grid; justify-items: center; gap: 12px; padding: 28px 16px; text-align: center; font-size: 16px; color: var(--rh-ui-hint);
+  display: grid; justify-items: center; gap: 12px; padding: 28px 16px; text-align: center; font-size: var(--rh-fs-md); color: var(--rh-ui-hint);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .empty .ic {
-  display: grid; place-items: center; width: 60px; height: 60px; border-radius: 999px; background: var(--rh-ui-a2); color: var(--rh-ui-a2f);
+  display: grid; place-items: center; width: 60px; height: 60px; border-radius: var(--rh-r-full); background: var(--rh-ui-a2); color: var(--rh-ui-a2f);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .empty .ic .i { width: 28px; height: 28px; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .empty p { margin: 0; max-width: 52ch; font-size: 16px; line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .empty p { margin: 0; max-width: 52ch; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); }
 
 /* ============================== списки ============================== */
 
@@ -279,10 +279,10 @@
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .list > .row { border-radius: 0; text-decoration: none; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .list > :is(a, button).row:hover:not(:disabled) { background: var(--rh-ui-hover); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .row .t { flex: 1 1 160px; min-width: 0; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .row .t b { font-size: 16px; font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .row .t span { font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .row .t b { font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .row .t span { font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .row .av {
-  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 999px;
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: var(--rh-r-full);
   background: var(--rh-ui-a0); color: var(--rh-ui-a0f); font-weight: 700;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .num { font-family: var(--rh-ui-font-num); font-variant-numeric: tabular-nums; }
@@ -294,26 +294,26 @@
   display: inline-flex; flex-wrap: nowrap; gap: 6px; padding: 0; border: 0; background: transparent; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg > button {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
-  background: var(--rh-ui-card); color: var(--rh-ui-text); font: inherit; font-size: 15px; font-weight: 600; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap;
   box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg > button:not(:disabled):not([aria-disabled="true"]):hover { background: var(--rh-ui-press); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .seg > button:is([aria-selected="true"], [aria-pressed="true"]) { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] :is(.seg, .stg) > button .n {
-  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
-  background: color-mix(in srgb, currentColor 14%, transparent); color: inherit; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
+  background: color-mix(in srgb, currentColor 14%, transparent); color: inherit; font-size: var(--rh-fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .stg {
   display: inline-flex; flex-wrap: nowrap; gap: 8px; padding: 0; border: 0; background: transparent; box-shadow: none;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .stg > button {
   display: grid; align-content: center; justify-items: start; gap: 2px; flex: none; min-width: 120px; min-height: 64px; padding: 10px 16px;
-  border: 0; border-radius: 20px; background: var(--rh-ui-card); color: var(--rh-ui-text); text-align: left;
-  box-shadow: 0 0 0 1px var(--rh-ui-ring); font-size: 14px; font-weight: 600;
+  border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text); text-align: left;
+  box-shadow: 0 0 0 1px var(--rh-ui-ring); font-size: var(--rh-fs-sm); font-weight: 600;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .stg > button b {
-  font-family: var(--rh-ui-font-num); font-size: 22px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; color: inherit;
+  font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-xl); font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; color: inherit;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .stg > button:not(:disabled):not([aria-disabled="true"]):hover { background: var(--rh-ui-press); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .stg > button:is([aria-selected="true"], [aria-pressed="true"]) { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
@@ -321,56 +321,56 @@
 /* ============================== поля ============================== */
 
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] :is(input.inp, select.inp, .inp:not(textarea)) {
-  min-height: 48px; height: auto; padding: 0 16px; border: 0; border-radius: 999px;
-  background-color: var(--rh-ui-card); color: var(--rh-ui-text); font-size: 16px; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  min-height: 48px; height: auto; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
+  background-color: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-md); box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
 /* Выбор — один вид на весь раздел: «30 дней» в шапке и выбор раздела («Реклама») под ней
    стояли рядом разной ширины, жирности и отступов (кадр владельца 20.11). */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] select.inp { padding: 0 40px 0 18px; font-weight: 600; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] textarea:is(.inp, .ta) {
-  padding: 12px 16px; border: 0; border-radius: 20px; background-color: var(--rh-ui-card); color: var(--rh-ui-text);
-  font-size: 16px; line-height: 1.45; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  padding: 12px 16px; border: 0; border-radius: var(--rh-r-lg); background-color: var(--rh-ui-card); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); line-height: 1.45; box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] :is(.inp, textarea)::placeholder { color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] :is(.inp, textarea):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 1px; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .field > span:not(.vh) { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .field > span:not(.vh) { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] input[type="checkbox"] { accent-color: var(--rh-ui-primary); }
 
 /* ============================== таблицы ============================== */
 
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tbl-wrap { overflow-x: auto; min-width: 0; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tbl { font-size: 15px; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tbl { font-size: var(--rh-fs-md); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tbl :is(th, td) { padding: 12px 10px; border-color: var(--rh-ui-sep); }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tbl th { font-size: 14px; font-weight: 600; color: var(--rh-ui-hint); text-transform: none; letter-spacing: 0; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tbl th { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); text-transform: none; letter-spacing: 0; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tbl :is(td, th).num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ============================== окна ============================== */
 
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .sheet {
-  border: 0; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
-  box-shadow: 0 24px 60px -20px rgba(20, 24, 40, .35), 0 0 0 1px var(--rh-ui-ring); backdrop-filter: none;
+  border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-ring); backdrop-filter: none;
 }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .sheet.bottom { border-radius: var(--rh-ui-r-card) var(--rh-ui-r-card) 0 0; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .sheet-h :is(h2, h3, b) { font-size: 20px; font-weight: 700; letter-spacing: -.02em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .sheet.bottom { border-radius: var(--rh-r-lg) var(--rh-r-lg) 0 0; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .sheet-h :is(h2, h3, b) { font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.02em; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .sheet-back { backdrop-filter: none; }
 
 /* Фильтры-переключатели (Filters: комнаты, тип дома у «Цен рынка») — таблетки, выбранный — тёмный. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .rh-filters { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .rh-filters.rh-filters-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-block: 2px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .rh-filters > button {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px;
-  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: 15px; font-weight: 600; white-space: nowrap; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; box-shadow: 0 0 0 1px var(--rh-ui-ring);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .rh-filters > button:not(:disabled):hover { background: var(--rh-ui-press); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .rh-filters > button[aria-pressed="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
 
 /* Карточка комментария (Rh2CommentCard): шапка слева направо, время — в конце строки. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .scr .cmt .head { flex-direction: row; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 8px; min-width: 0; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .cmt .head > b { font-size: 16px; font-weight: 700; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .cmt .av { width: 48px; height: 48px; border-radius: 999px; font-weight: 700; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .cmt .text { font-size: 16px; line-height: 1.45; color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .cmt .under { font-size: 14px; line-height: 1.45; color: var(--rh-ui-hint); }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .cmt .thumb { border-radius: 16px; background: var(--rh-ui-raised); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .cmt .head > b { font-size: var(--rh-fs-md); font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .cmt .av { width: 48px; height: 48px; border-radius: var(--rh-r-full); font-weight: 700; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .cmt .text { font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .cmt .under { font-size: var(--rh-fs-sm); line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .cmt .thumb { border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .scr .cmt .body { text-align: left; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .scr .cmt .aib-ask form { flex-wrap: wrap; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .scr .cmt .aib-ask .inp { flex: 1 1 220px; }
@@ -386,14 +386,14 @@
 :root[data-ui-look="royal"][data-mobile-ux] .rh2.screens[data-ry-section="marketing"] .pg-h .acts > .field { flex-basis: 100%; }
 /* Плитки чисел: значок над подписью — в узкой плитке подпись не дробится на три строки. */
 :root[data-ui-look="royal"][data-mobile-ux] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd { flex-direction: column; align-items: flex-start; gap: 8px; }
-:root[data-ui-look="royal"][data-mobile-ux] .rh2.screens[data-ry-section="marketing"] .tiles .tile b { font-size: 26px; }
+:root[data-ui-look="royal"][data-mobile-ux] .rh2.screens[data-ry-section="marketing"] .tiles .tile b { font-size: var(--rh-fs-2xl); }
 /* То же на узком окне ПК (без телефонного признака): плитка в две колонки уже 160 px. */
-@media (max-width: 640px) {
+@media (max-width: 767.98px) {
   :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile { padding: 14px; }
   :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd { min-width: 0; overflow-wrap: anywhere; }
   :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile .hd { flex-direction: column; align-items: flex-start; gap: 8px; }
-  :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile b { font-size: 26px; }
+  :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles .tile b { font-size: var(--rh-fs-2xl); }
 }
 /* Карточка комментария: значок «картинка» — украшение (публикация открывается ссылкой ниже),
    на телефоне его место отдано тексту. */
@@ -412,16 +412,16 @@
 /* Что изменилось на сайте (SiteChanges): «поле: было → стало» переносится, а не уходит за край. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .prow .diff { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; margin-top: 6px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .prow .diff > span {
-  display: block; min-width: 0; max-width: 100%; padding: 6px 12px; border-radius: 14px; background: var(--rh-ui-bg);
-  font-size: 14px; line-height: 1.4; color: var(--rh-ui-hint); white-space: normal; overflow-wrap: anywhere;
+  display: block; min-width: 0; max-width: 100%; padding: 6px 12px; border-radius: var(--rh-r-md); background: var(--rh-ui-bg);
+  font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); white-space: normal; overflow-wrap: anywhere;
 }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .prow .diff > span > b { font-size: 15px; font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .prow .diff > span > b { font-size: var(--rh-fs-md); font-weight: 700; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .prow > .ph {
-  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 999px; background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .prow > .act { flex-wrap: wrap; gap: 8px; }
 /* Подпись выбранной счётной вкладки — цветом самой таблетки (ночью таблетка светлая). */
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .stg > button > span { color: var(--rh-ui-hint); font-size: 14px; font-weight: 600; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .stg > button > span { color: var(--rh-ui-hint); font-size: var(--rh-fs-sm); font-weight: 600; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .stg > button:is([aria-selected="true"], [aria-pressed="true"]) > span { color: inherit; opacity: .85; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .prow .diff b { white-space: normal; overflow-wrap: anywhere; }
 /* Деньги строки объявления (AdsBoard .prow .pr): крупная сумма и «за всё время» переносятся
@@ -437,22 +437,22 @@
 /* Плашка «Опубликовать ролик или фото» (MarketingCenter, ветка нового вида): ракета в круге 48,
    текст по верху, «Открыть →» последней строкой текста. */
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish {
-  display: flex; align-items: flex-start; gap: 14px; margin: 12px 0 16px; padding: 18px 20px; border-radius: var(--rh-ui-r-card);
+  display: flex; align-items: flex-start; gap: 14px; margin: 12px 0 16px; padding: 18px 20px; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); text-decoration: none; min-width: 0;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish:hover { background: var(--rh-ui-primary-hover); }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-ic {
-  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 999px;
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: var(--rh-r-full);
   background: color-mix(in srgb, var(--rh-ui-primary-fg) 18%, transparent); color: var(--rh-ui-primary-fg);
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-ic .i { width: 24px; height: 24px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-tx { display: grid; gap: 4px; flex: 1 1 0; min-width: 0; padding-top: 2px; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-tx > b { font-size: 17px; font-weight: 700; line-height: 1.3; }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-tx > span { font-size: 15px; line-height: 1.4; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-tx > b { font-size: var(--rh-fs-lg); font-weight: 700; line-height: 1.3; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-tx > span { font-size: var(--rh-fs-md); line-height: 1.4; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-go { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; min-height: 28px; font-weight: 700; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-publish-go .i { width: 20px; height: 20px; }
 /* Пояснение конвейера под рядом вкладок «Обзора» (MarketingCenter, новый вид). */
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-lead { margin: 8px 0 0; max-width: 72ch; font-size: 15px; line-height: 1.45; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .ry-mkt-lead { margin: 8px 0 0; max-width: 72ch; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-hint); }
 
 /* Строки «Публикаций» и «Изменений на сайте»: значки каналов и кнопки «Откатить»/«Отклонить»
    не режутся многоточием на 320 px (сторож @smoke, 20.11) — строка переносится. */
@@ -470,7 +470,7 @@
 /* Чип объекта под объявлением («№211 · 3-комн… · 100 % · 1 840,50 с. · 4 кл.»): на 320 px
    название сжималось до 100 px и слова рвались по буквам («ремон/та», съёмка 20.11). Теперь
    название берёт строку целиком, а деньги и клиенты переносятся под него. */
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .wrap > a.chip { flex-wrap: wrap; row-gap: 2px; border-radius: 20px; padding-block: 6px; }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .wrap > a.chip { flex-wrap: wrap; row-gap: 2px; border-radius: var(--rh-r-lg); padding-block: 6px; }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .wrap > a.chip > span:first-of-type { flex: 1 1 10em; overflow-wrap: break-word; word-break: normal; }
 :root[data-ui-look="royal"][data-mobile-ux] .rh2.screens[data-ry-section="marketing"] .pg-h .acts > .field > select.inp { display: block; width: 100%; max-width: none; }
 
@@ -481,5 +481,17 @@
   display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .tiles.ry-ads-tiles .tile b.money {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; white-space: normal; overflow-wrap: anywhere; min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; white-space: nowrap; overflow-wrap: normal; min-width: 0;
 }
+
+/* Нажимаемое не меньше 44 и пилюли без переноса (К15, К11 аудита 20.11; сторож smallTap/squeeze на «Рекламе»).
+   Ссылки-подписи в таблицах и списках («Сайт», «Instagram», «№211 · …») были 24 px высотой и 36 шириной;
+   сводка «Расход по дням…» — 24 px. Теперь строка ссылки — 44, ширина — не уже 44; пилюля («лучше всех»,
+   «не все объекты привязаны») по возможности одной строкой (width: max-content), а длинная переносится
+   в плашку со скруглением 16 — не в сжатую «пилюлю» из двух строк. Кнопки-пилюли («Привязать объекты») — одной строкой. */
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] a.lk:not(:is(.quiet, p, .txt) *) {
+  display: inline-flex; align-items: center; min-height: var(--rh-ctl-h); min-width: var(--rh-ctl-h); padding-inline: 4px; box-sizing: border-box;
+}
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] details > summary { display: flex; align-items: center; min-height: var(--rh-ctl-h); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] .chip:not(a) { width: max-content; max-width: 100%; white-space: normal; border-radius: var(--rh-r-md); }
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] button.pill { white-space: nowrap; }
