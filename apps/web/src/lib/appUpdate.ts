@@ -111,28 +111,39 @@ export function startAppVersionPoll(onServerVersion: (version: string) => void):
 }
 
 /**
- * Пока вкладка видима — раз в минуту просим браузер перепроверить sw.js
+ * Пока вкладка видима — просим браузер перепроверить sw.js
  * (`registration.update()`). Сам браузер делает это только при навигации и не
  * чаще раза в сутки по своему таймеру; вкладка, открытая с утра на одном
  * экране, иначе узнаёт о новом воркере последней. Новый воркер при этом лишь
  * встаёт в ожидание (registerType: "prompt", см. vite.config.ts) — подмену
  * по-прежнему делает только applyAppUpdate одним движением.
+ *
+ * ЧАСТОТА (ревью #379): каждый update() — запрос sw.js, на телефоне это трафик.
+ * Раз в минуту — только когда /version.json уже сказал «вышла новая сборка»
+ * (`isStale`), чтобы ждущий воркер встал как можно скорее; иначе раз в десять
+ * минут — новую сборку и так первым находит лёгкий /version.json.
  */
-export const SW_UPDATE_INTERVAL_MS = 60_000;
+export const SW_UPDATE_TICK_MS = 60_000;
+export const SW_UPDATE_IDLE_MS = 10 * 60_000;
 
 export function startServiceWorkerUpdatePoll(
   getRegistration: () => ServiceWorkerRegistration | null | undefined,
-  intervalMs = SW_UPDATE_INTERVAL_MS
+  isStale: () => boolean,
+  options: { tickMs?: number; idleMs?: number; now?: () => number } = {}
 ): () => void {
+  const { tickMs = SW_UPDATE_TICK_MS, idleMs = SW_UPDATE_IDLE_MS, now = Date.now } = options;
+  let lastUpdateAt = now();
   function tick() {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    if (!isStale() && now() - lastUpdateAt < idleMs) return;
     const registration = getRegistration();
     if (!registration || registration.installing) return;
+    lastUpdateAt = now();
     void registration.update().catch(() => {
       // сеть/сертификат/воркер снят — следующий тик попробует снова
     });
   }
-  const interval = setInterval(tick, intervalMs);
+  const interval = setInterval(tick, tickMs);
   return () => clearInterval(interval);
 }

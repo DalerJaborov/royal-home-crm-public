@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_WORK_DEFER_MS, useAppUpdateStore } from "../../store/appUpdate";
-import { checkAppVersionNow, startAppVersionPoll } from "../appUpdate";
+import { checkAppVersionNow, startAppVersionPoll, startServiceWorkerUpdatePoll, SW_UPDATE_IDLE_MS, SW_UPDATE_TICK_MS } from "../appUpdate";
 import { runUpdateStep, RETRY_WHILE_BUSY_MS } from "../appUpdateFlow";
 import { ATTEMPT_WINDOW_MS, MAX_ATTEMPTS, noteUpdateAttempt } from "../appUpdateReload";
 import { noteServerBuild, onServerBuildChange, resetServerBuildState } from "../appVersion";
@@ -215,5 +215,65 @@ describe("проводка в UpdatePrompt.tsx (тест выше повторя
     expect(source).toContain("setServerVersion(version, __APP_VERSION__)");
     expect(source).not.toMatch(/setStaleBuild\s*\(\s*true/);
     expect(source).toContain("runUpdateStep(");
+  });
+});
+
+describe("сдача не сжигает отсрочку занятого человека (ревью #379)", () => {
+  beforeEach(() => {
+    installBrowserStubs();
+    useAppUpdateStore.getState().reset();
+    useAppUpdateStore.getState().setServerVersion("v2", MY_BUILD);
+  });
+  afterEach(() => {
+    useAppUpdateStore.getState().reset();
+    vi.unstubAllGlobals();
+  });
+
+  it("после finishApply повтор через 10 минут не перезагружает посреди набора", () => {
+    // человек печатал, ждали больше пяти минут — подмена началась
+    step({ userTyping: () => true, now: T0 });
+    step({ userTyping: () => true, now: T0 + 6 * 60_000 });
+    expect(useAppUpdateStore.getState().applying).toBe(true);
+    // подмена не состоялась (сдача / страница не ушла)
+    useAppUpdateStore.getState().finishApply();
+    expect(useAppUpdateStore.getState().deferStart).toBeNull();
+    // через десять минут человек снова печатает — ждём, а не рвём набор
+    expect(step({ userTyping: () => true, now: T0 + 16 * 60_000 }).retryInMs).toBe(RETRY_WHILE_BUSY_MS);
+    expect(useAppUpdateStore.getState().applying).toBe(false);
+  });
+});
+
+describe("перепроверка sw.js — экономно на телефоне (ревью #379)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("document", { visibilityState: "visible" });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("новой сборки не видно — раз в десять минут; видно — каждую минуту", () => {
+    const update = vi.fn(async () => undefined);
+    const registration = { update, installing: null } as unknown as ServiceWorkerRegistration;
+    let stale = false;
+    const stop = startServiceWorkerUpdatePoll(() => registration, () => stale, { now: () => Date.now() });
+    vi.advanceTimersByTime(SW_UPDATE_IDLE_MS - SW_UPDATE_TICK_MS);
+    expect(update).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(SW_UPDATE_TICK_MS);
+    expect(update).toHaveBeenCalledTimes(1);
+    stale = true;
+    vi.advanceTimersByTime(3 * SW_UPDATE_TICK_MS);
+    expect(update).toHaveBeenCalledTimes(4);
+    stop();
+  });
+
+  it("вкладка в фоне — не дёргаем вовсе", () => {
+    vi.stubGlobal("document", { visibilityState: "hidden" });
+    const update = vi.fn(async () => undefined);
+    const stop = startServiceWorkerUpdatePoll(() => ({ update, installing: null }) as unknown as ServiceWorkerRegistration, () => true);
+    vi.advanceTimersByTime(5 * SW_UPDATE_TICK_MS);
+    expect(update).not.toHaveBeenCalled();
+    stop();
   });
 });

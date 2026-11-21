@@ -51,9 +51,11 @@
 .rh-update-pill-btn:focus-visible { outline: 2px solid var(--rh-ui-primary-fg, #ffffff); outline-offset: 2px; }
 .rh-update-pill-btn:disabled { opacity: .7; cursor: default; }
 
-/* Телефон: над нижним меню, а не поверх него. */
+/* Телефон: над нижним меню, а не поверх него. Высота меню — общая переменная
+   оболочки --rh-nav-h (theme-look-royal.css, уже с safe-area); плавающие панели
+   встают на 10 px выше неё. Без нового вида переменной нет — запасное значение. */
 :root[data-mobile-ux] .rh-update-pill {
-  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--rh-nav-h, calc(80px + env(safe-area-inset-bottom, 0px))) + 10px);
 }
 
 @media (prefers-reduced-motion: no-preference) {

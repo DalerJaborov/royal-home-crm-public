@@ -99,7 +99,8 @@ interface AppUpdateState {
    * дожидаясь свободного человека.
    */
   noteWorkBusy: (busy: boolean, now?: number) => { decision: "wait" | "proceed"; forced: boolean };
-  /** Подмена не состоялась (сдача по счётчику, страница не ушла) — можно пробовать снова. */
+  /** Подмена не состоялась (сдача по счётчику, страница не ушла) — можно пробовать снова;
+   *  отсчёт ожидания занятого человека — с нуля. */
   finishApply: () => void;
   reset: () => void;
 }
@@ -148,7 +149,10 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
     if (now - since >= MAX_WORK_DEFER_MS) return { decision: "proceed", forced: true };
     return { decision: "wait", forced: false };
   },
-  finishApply: () => set({ applying: false }),
+  // Отсчёт «человек занят» начинается заново: иначе повтор через десять минут
+  // после сдачи видел бы давно истёкшие пять минут ожидания и перезагружал
+  // вкладку посреди набора текста (ревью #379).
+  finishApply: () => set({ applying: false, deferStart: null }),
   reset: () =>
     set({
       needRefresh: false,
