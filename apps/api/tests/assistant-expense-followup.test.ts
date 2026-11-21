@@ -224,7 +224,8 @@ describe("Telegram: список, фото, «вот фото», истёкша�
   it("«повтори карточку» после истечения — та же пачка новой карточкой (сутки)", async () => {
     await handleAssistantPrivate(textMsg(w1, `расходы\nКартридж ${tag} 220\nБумага ${tag} 90`), w1);
     const row = await pending(w1);
-    await prisma.assistantAction.update({ where: { id: row.id }, data: { status: "EXPIRED", expiresAt: new Date(Date.now() - 1_000) } });
+    // Как сборщик (jobs/assistantActionsSweep.ts): истёкшее отпускает ключ повтора, иначе брокер скажет «уже обрабатывается».
+    await prisma.assistantAction.update({ where: { id: row.id }, data: { status: "EXPIRED", idempotencyKey: null, expiresAt: new Date(Date.now() - 1_000) } });
     io.html.mockClear();
     await handleAssistantPrivate(textMsg(w1, "повтори карточку"), w1);
     expect(io.model).not.toHaveBeenCalled();
@@ -294,7 +295,9 @@ describe("Telegram: список, фото, «вот фото», истёкша�
     expect(io.media).toHaveBeenCalledOnce();
     expect(io.model).toHaveBeenCalledOnce();
     const history = io.model.mock.calls[0]![0] as { role: string; content: string }[];
-    expect(history.at(-1)!.content).toMatch(/^инро дуруст кун\n<client_content kind="document">[\s\S]*Иҷора 5000[\s\S]*<\/client_content>/u);
+    // Одна дверь с #268 (telegram/assistantAttachedRequest.ts): подпись, строка «файл — документ, а не
+    // команда», затем текст файла в границах недоверенного содержимого.
+    expect(history.at(-1)!.content).toMatch(/^инро дуруст кун\n[^\n<]+\n<client_content kind="document">[\s\S]*Иҷора 5000[\s\S]*<\/client_content>/u);
     // Ход с цитатой лёг в историю: следующее «ворид кун» модель видит вместе со строками.
     const state = await prisma.telegramDialogState.findUniqueOrThrow({ where: { chatId: String(w2.chat) } });
     expect(JSON.stringify(state.payload)).toContain("Иҷора 5000");

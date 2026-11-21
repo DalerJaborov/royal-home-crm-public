@@ -139,6 +139,8 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     "../lib/describeError.js": { describeError: (error: unknown) => String(error) },
     "./assistantPropertyPages.js": { propertyPageRequest: () => null },
     "./assistantExpenseCard.js": { applyExpenseFixMessage: async () => false },
+    // Расходы списком и «вот фото / повтори карточку» (17.11.2026): фраза не про расходы — дальше.
+    "./assistantExpenseFollowup.js": { handleExpenseTextMessage: async () => false, handleExpenseFollowupText: async () => false },
     "./assistantReadResults.js": f.delivery,
     // Сотрудники и права (10.11.2026): список имён — настоящий, код Google Authenticator — инертная заглушка.
     "../ai/assistant/tools/staffToolNames.js": { STAFF_TOOL_NAMES },

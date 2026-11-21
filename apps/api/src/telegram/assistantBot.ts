@@ -1987,7 +1987,9 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
 
     // «Записать» под пачкой расходов, у которой вышло время: честно «ничего не записала» на языке
     // карточки и «Показать снова» с теми же строками (17.11.2026: 10–11.11 две карточки истекли молча).
+    // Выключенная группа гасит и эту кнопку: «Показать снова» заводит новую карточку (сборка 22.11.2026).
     if (verb === "ok" && chatId && messageId && isExpiredExpenseBatch(actions)) {
+      if (!(await groupRegistrationAllows())) return true;
       await answerCallbackQuery(query.id, await showExpiredExpenseCard(chatId, messageId, actions[0]!, bundleId));
       return true;
     }

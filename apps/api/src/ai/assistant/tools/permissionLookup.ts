@@ -90,6 +90,12 @@ export function resolvePermissionRef(ref: string): PermissionMatch {
   if (exact.length > 1) return { ok: false, candidates: exact.map(({ id, display }) => ({ id, label: display })) };
 
   const query = stems(raw);
+  // Подпись права целиком внутри фразы («Удалять безвозвратно клиентов»), раздел назван словами —
+  // точное попадание, сильнее совпадения по основам: иначе соседняя подпись того же раздела
+  // («Просить об удалении клиента») делит с ней счёт и даёт ложный вопрос (сборка 22.11.2026).
+  const contained = CATALOG.filter((p) => p.normalized.includes(" ") && ` ${text} `.includes(` ${p.normalized} `));
+  const containedInGroup = contained.length > 1 ? contained.filter((p) => overlap(query, p.groupStems) > 0) : contained;
+  if (containedInGroup.length === 1) return { ok: true, id: containedInGroup[0].id };
   if (query.size === 0) return { ok: false, candidates: [] };
   const scored = CATALOG.map((p) => {
     const hits = overlap(query, p.stems);
