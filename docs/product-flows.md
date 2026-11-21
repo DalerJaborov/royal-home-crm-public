@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **787**. Развилок в самих путях: **2494**; вместе с задачами по расписанию и фоновыми заданиями — **4201**. Модулей: **88**.
+Путей: **787**. Развилок в самих путях: **2495**; вместе с задачами по расписанию и фоновыми заданиями — **4204**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3954,8 +3954,6 @@
 - если !target
   - return res.json(info);
     · ответ 200
-- const windowOpen = isMessagingWindowOpen(channel, lastAt);
-  · зовёт isMessagingWindowOpen()
 - res.json(info);
   · ответ 200
 
@@ -18864,7 +18862,10 @@
       · зовёт markMessageDeliveryStatus()
     - void noteFirstContactDelivery(s.mid, s.status, s.errorCode, s.error);
       · зовёт noteFirstContactDelivery()
-    - если s.status === "failed"
+    - если s.status === "failed" && isWhatsAppWindowFailure(s.errorCode, s.error)
+      - console.info(`[окно] WhatsApp ${s.recipientId}: вне 24 часов — свободный текст не доставлен (код ${s.errorCod…
+        · пишет строку в журнал сервера
+    - иначе если s.status === "failed"
       - void logSystemError( "meta", `WhatsApp не доставил наш ответ на ${s.recipientId}` + (s.error ? `: ${s.error}`…
         · запись в журнал ошибок
   - если waPhoneId
@@ -24769,6 +24770,9 @@
         - если !target
           - continue;
             · переходит к следующему
+        - если isMessagingWindowClosedFor(target.kind === "bot" ? target.channel : "", await lastClientMessageAt(target))
+          - continue;
+            · переходит к следующему
         - const claimed = await prisma.interaction.updateMany({ where: { id: showing.id, confirmAskedAt: null }, data: …
           · меняет в базе: interaction
         - если claimed.count !== 1
@@ -24777,8 +24781,9 @@
         - const result = await deliverToConversation(target, text).catch((err: unknown)
           · зовёт deliverToConversation()
         - если !result.ok
-          - console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);
-            · пишет строку в журнал сервера
+          - если !("code" in result && result.code === "window_closed")
+            - console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);
+              · пишет строку в журнал сервера
           - const current = await prisma.interaction.findUnique({ where: { id: showing.id }, select: { remindersSent: tru…
             · читает в базе: interaction
           - await prisma.interaction.update({ where: { id: showing.id }, data: { confirmAskedAt: null, remindersSent: (cu…
