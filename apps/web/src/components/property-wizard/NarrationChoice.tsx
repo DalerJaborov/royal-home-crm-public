@@ -1,8 +1,8 @@
 import { useEffect, useId, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { chooseNarration, narrationFitsType, pickNarrationVoice, type NarrationFacts, type NarrationOptionsView, type NarrationWizardChoice } from "@royal-home/shared";
+import { chooseNarration, narrationCurrencyError, narrationFitsType, pickNarrationVoice, type NarrationFacts, type NarrationOptionsView, type NarrationWizardChoice } from "@royal-home/shared";
 import { api } from "../../lib/api";
-import { NarrationComposer } from "../NarrationComposer";
+import { NarrationComposer, narrationListenFresh, resolveNarrationDraft, type NarrationListened } from "../NarrationComposer";
 
 /**
  * КОНЕЦ МАСТЕРА — ОЗВУЧКА РОЛИКА (схема владельца 10.11.2026). Текст собирается
@@ -15,19 +15,23 @@ import { NarrationComposer } from "../NarrationComposer";
  * шаблону. С 16.11.2026 шаблон и концовка предвыбираются СЛУЧАЙНО (подходят типу объекта, не равны прошлому
  * выбору сотрудника; одно ядро chooseNarration) и уходят в запрос кодами: то, что агент видит, сервер и соберёт.
  */
-/** Что уходит в запрос создания: короткий или пустой текст не шлём — сервер соберёт по шаблону. */
-export function narrationChoiceForCreate(value: NarrationWizardChoice): NarrationWizardChoice | undefined {
+/** Выбор в мастере: то, что уходит в запрос, плюс прослушанный звук (только на экране). */
+export type WizardNarrationValue = NarrationWizardChoice & { listened?: NarrationListened };
+
+/** Что уходит в запрос создания: короткий или пустой текст не шлём — сервер соберёт по шаблону.
+ *  Прослушанный звук — его id (listenId): сервер сам сверит, что текст и голос те же, и возьмёт звук без второй оплаты. */
+export function narrationChoiceForCreate(value: WizardNarrationValue): NarrationWizardChoice | undefined {
   // «Без озвучки» (12.11.2026): ничего не готовится и не тратится, остальной выбор не нужен.
   if (value.none) return { none: true };
   const script = value.script?.trim();
-  const out: NarrationWizardChoice = { ...(value.templateId ? { templateId: value.templateId } : {}), ...(value.endingId ? { endingId: value.endingId } : {}), ...(value.templateId && value.autoPicked ? { autoPicked: true as const } : {}), ...(value.voiceId ? { voiceId: value.voiceId } : {}), ...(script && script.length >= 10 ? { script } : {}) };
+  const out: NarrationWizardChoice = { ...(value.templateId ? { templateId: value.templateId } : {}), ...(value.endingId ? { endingId: value.endingId } : {}), ...(value.templateId && value.autoPicked ? { autoPicked: true as const } : {}), ...(value.voiceId ? { voiceId: value.voiceId } : {}), ...(script && script.length >= 10 ? { script } : {}), ...(value.listened ? { listenId: value.listened.id } : {}) };
   return Object.keys(out).length ? out : undefined;
 }
 
 export function NarrationChoice({ facts, value, onChange }: {
   facts: NarrationFacts;
-  value: NarrationWizardChoice;
-  onChange: (next: NarrationWizardChoice) => void;
+  value: WizardNarrationValue;
+  onChange: (next: WizardNarrationValue) => void;
 }) {
   const ids = useId();
   const { data } = useQuery({ queryKey: ["narration-options"], queryFn: () => api<NarrationOptionsView>("/properties/narration-options"), staleTime: 5 * 60_000, retry: false });
@@ -49,6 +53,15 @@ export function NarrationChoice({ facts, value, onChange }: {
     if (!current || !narrationFitsType(current, type)) onChange({ ...value, templateId: picked.templateId, endingId: picked.endingId ?? "", autoPicked: true });
   }, [picked, templates, type, value, onChange]);
   const defaultVoiceId = data ? pickNarrationVoice({ voices: data.voices, defaultVoiceId: last.voiceId ?? data.defaultVoiceId ?? undefined }) : null;
+  const shownFacts = facts.currency === "USD" && data?.usdToTjs ? { ...facts, usdToTjs: data.usdToTjs } : facts;
+  // Прослушанное устарело (сменили текст, голос, язык или вернулись и поменяли цену) — его id в запрос не уходит.
+  const resolved = data ? resolveNarrationDraft({ templates, endings, facts: shownFacts, value, defaultTemplateId, defaultEndingId, defaultVoiceId }) : null;
+  const listenStale = !!value.listened && !!resolved && !narrationListenFresh(value.listened, resolved);
+  useEffect(() => {
+    if (!listenStale) return;
+    const { listened: _stale, ...rest } = value;
+    onChange(rest);
+  }, [listenStale, value, onChange]);
 
   return (
     <section className="card mt-4 space-y-4 p-4" aria-label="Озвучка ролика">
@@ -65,11 +78,16 @@ export function NarrationChoice({ facts, value, onChange }: {
       {value.none ? (
         <p className="text-sm text-[var(--muted)]">Озвучка не готовится и не тратит деньги, монтажёр получит пометку «без озвучки». Включить можно потом в карточке объекта.</p>
       ) : <>
-        <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data?.voices ?? []} samples={data?.samples} facts={facts.currency === "USD" && data?.usdToTjs ? { ...facts, usdToTjs: data.usdToTjs } : facts}
-          value={value} onChange={(next) => onChange({ ...next })} defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} lastPickedVoiceId={last.voiceId ?? null} />
+        <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data?.voices ?? []} samples={data?.samples} facts={shownFacts}
+          value={value} onChange={(next) => onChange({ ...next })} defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} lastPickedVoiceId={last.voiceId ?? null}
+          canListen={!!data?.autoGenerate} />
+        {/* Свой текст с долларами сервер не примет (#348): сказать сразу, до сохранения, а не после. */}
+        {value.script && narrationCurrencyError(value.script) && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="alert">
+          {narrationCurrencyError(value.script)}. Если сохранить так, озвучка соберётся по шаблону и придёт вам на прослушивание.</p>}
+        {/* Правда о том, что будет (21.11.2026, владелец: «одобрение сразу там же»): «Сохранить» = одобрить, просьб потом нет. */}
         <p className="rounded-lg bg-blue/10 p-3 text-sm">
           {data?.autoGenerate
-            ? "После сохранения объекта озвучка придёт вам на прослушивание в CRM и в Шабнам. Поменяется цена — озвучка обновится сама и снова придёт на одобрение."
+            ? "Озвучка уйдёт монтажёру сразу после сохранения. Послушайте её здесь перед сохранением."
             : "Озвучку можно будет подготовить в карточке объекта."}
         </p>
       </>}
