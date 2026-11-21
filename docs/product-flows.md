@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **793**. Развилок в самих путях: **2516**; вместе с задачами по расписанию и фоновыми заданиями — **4225**. Модулей: **89**.
+Путей: **793**. Развилок в самих путях: **2516**; вместе с задачами по расписанию и фоновыми заданиями — **4227**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20772,6 +20772,32 @@
 - в любом случае
   - isRemindersRunning = false;
     · дословно из кода
+
+### client-notes-plain-sweep — 50 3 * * *
+
+- пробует
+  - await sweepClientNotesPlain();
+    · зовёт sweepClientNotesPlain()
+    - для каждого: seen < maxRows
+      - const rows = await prisma.$queryRaw<Array<{ id: string; notes: string | null; plain: string | null; rev: numb…
+        · обращается к базе своим SQL
+      - если rows.length === 0
+        - break;
+          · прекращает перебор
+      - const stale = rows .map((r)
+        · зовёт clientNotesPlain()
+      - если stale.length === 0
+        - continue;
+          · переходит к следующему
+      - const n = await prisma.$executeRaw(Prisma.sql` UPDATE "Client" AS c SET "requirementsNotesPlain" = v.plain, "…
+        · обращается к базе своим SQL
+- если сорвалось
+  - reportCronTickError("Сверка заметок без ярлыков", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### client-scoring — 0 2 * * *
 

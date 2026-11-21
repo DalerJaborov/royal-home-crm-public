@@ -88,6 +88,13 @@ describe("startCronJobs — расписание встаёт целиком", (
     expect(tasks.length).toBeGreaterThan(50);
   });
 
+  it("ночная сверка «заметок без ярлыков» стоит в расписании (PR #382)", () => {
+    // Копию Client.requirementsNotesPlain, поменянную мимо перехвата записи, чинит только она.
+    const task = tasks.find((t) => t.name === "client-notes-plain-sweep");
+    expect(task?.expr).toBe("50 3 * * *");
+    expect(task?.timezone).toBe("Asia/Dushanbe");
+  });
+
   it("имена задач уникальны", () => {
     // Дубль имени бросает ещё внутри startCronJobs (и роняет worker при старте),
     // поэтому сюда мы доходим только с уникальными. Проверка называет правило

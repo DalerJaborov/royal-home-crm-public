@@ -67,11 +67,6 @@ const EMOJI_LED = /^[←-⯿\u{1F000}-\u{1FAFF}]/u;
 /** Ярлык в стиле бота: значок, затем слова ЗАГЛАВНЫМИ и «—» или «:» («🌍 ВНЕ ДУШАНБЕ —», «💼 НЕ КЛИЕНТ:»). */
 const CAPS_LABEL = /^[←-⯿\u{1F000}-\u{1FAFF}]️?\s+[А-ЯЁ]{2,}(?:[ ,]+[А-ЯЁ]{2,})*\s*(?:—|:|-)/u;
 const isComment = (line: string) => /^\s*(\/\/|\*|\/\*)/.test(line);
-const codeOf = (path: string) =>
-  readFileSync(path, "utf8")
-    .split("\n")
-    .filter((l) => !isComment(l))
-    .join("\n");
 function literals(code: string): string[] {
   return [...code.matchAll(LITERAL)].map((m) => m[1] ?? m[2] ?? m[3]);
 }
@@ -85,7 +80,25 @@ function walk(dir: string, out: string[] = []): string[] {
   }
   return out;
 }
-const ALL_FILES = walk(SRC).map((p) => ({ path: p, file: relative(SRC, p).replace(/\\/g, "/") }));
+/**
+ * Исходники сервера читаются и разбираются ОДИН раз на файл теста: сторожа ниже проходят
+ * по ~1600 файлам, и повторное чтение с разбором литералов в общем прогоне упиралось в
+ * лимит времени (29,6 с при 20 с, ревью #382).
+ */
+type Source = { file: string; raw: string; code: string; lits: () => string[] };
+const ALL_FILES: Source[] = walk(SRC).map((p) => {
+  const raw = readFileSync(p, "utf8");
+  const code = raw
+    .split("\n")
+    .filter((l) => !isComment(l))
+    .join("\n");
+  let cached: string[] | undefined;
+  return { file: relative(SRC, p).replace(/\\/g, "/"), raw, code, lits: () => (cached ??= literals(code)) };
+});
+const SOURCE = new Map(ALL_FILES.map((s) => [s.file, s]));
+const HAS_SYMBOL = /[←-⯿\u{1F000}-\u{1FAFF}]/u;
+/** Сторожа по всем исходникам — с запасом по времени на занятом раннере. */
+const SCAN_TIMEOUT = 60_000;
 
 /**
  * Файлы, где ярлыки заметок собираются в переменные (label, callbackNote, zoneNote,
@@ -155,7 +168,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("Список служебных строк заметок — полный и живой", () => {
+describe("Список служебных строк заметок — полный и живой", { timeout: SCAN_TIMEOUT }, () => {
   it("каждый префикс списка дословно есть в своём файле (список не врёт)", () => {
     for (const label of CLIENT_NOTE_LABELS) {
       if (label.source === "legacy") continue;
@@ -167,8 +180,9 @@ describe("Список служебных строк заметок — полн
 
   it("ярлык в стиле бота («значок ЗАГЛАВНЫЕ —») в ЛЮБОМ файле сервера — из списка", () => {
     const unknown: string[] = [];
-    for (const { path, file } of ALL_FILES) {
-      for (const text of literals(codeOf(path))) {
+    for (const { file, code, lits } of ALL_FILES) {
+      if (!HAS_SYMBOL.test(code)) continue;
+      for (const text of lits()) {
         if (CAPS_LABEL.test(text) && !registered(text) && !registered(text.trimEnd() + " ")) unknown.push(`${file}: «${text.slice(0, 60)}»`);
       }
     }
@@ -179,7 +193,7 @@ describe("Список служебных строк заметок — полн
   it("каждая строка со значка в файлах ярлыков — из списка или названа «не заметкой»", () => {
     const unknown: string[] = [];
     for (const [file, notNotes] of Object.entries(LABEL_FILES)) {
-      for (const text of literals(codeOf(join(SRC, file)))) {
+      for (const text of SOURCE.get(file)!.lits()) {
         if (EMOJI_LED.test(text) && !registered(text) && !notNotes.some((s) => text.startsWith(s))) {
           unknown.push(`${file}: «${text.slice(0, 60)}»`);
         }
@@ -190,8 +204,9 @@ describe("Список служебных строк заметок — полн
 
   it("фразы рядом с записью заметок по всему серверу — из списка или с причиной", () => {
     const unknown: string[] = [];
-    for (const { path, file } of ALL_FILES) {
-      const lines = readFileSync(path, "utf8").split("\n");
+    for (const { file, raw } of ALL_FILES) {
+      if (!raw.includes("requirementsNotes")) continue;
+      const lines = raw.split("\n");
       lines.forEach((line, i) => {
         if (isComment(line) || !/requirementsNotes\s*(:|=[^=])/.test(line)) return;
         const near = lines.slice(i, i + 6).filter((l) => !isComment(l)).join("\n");
@@ -231,7 +246,7 @@ describe("Список служебных строк заметок — полн
   });
 });
 
-describe("Одна дверь записи: requirementsNotesPlain меняется вместе с requirementsNotes", () => {
+describe("Одна дверь записи: requirementsNotesPlain меняется вместе с requirementsNotes", { timeout: SCAN_TIMEOUT }, () => {
   it("create / update / { set } / null / updateMany / upsert / createMany — все через перехват", async () => {
     const notes = `🌍 ВНЕ ДУШАНБЕ — клиент назвал «Вахдат», мы работаем только по городу\nДом 6 соток ${mark}`;
     const created = await prisma.client.create({
@@ -288,8 +303,7 @@ describe("Одна дверь записи: requirementsNotesPlain меняет�
   it("мимо двери не пишут: ни сырого SQL в requirementsNotes, ни чужой записи новой колонки", () => {
     const rawWrites: string[] = [];
     const plainWriters: string[] = [];
-    for (const { path, file } of ALL_FILES) {
-      const code = codeOf(path);
+    for (const { file, code } of ALL_FILES) {
       if (/(UPDATE\s+"Client"[\s\S]{0,300}?"requirementsNotes"\s*=|INSERT\s+INTO\s+"Client"[^;]{0,600}"requirementsNotes")/i.test(code)) {
         rawWrites.push(file);
       }
@@ -309,6 +323,14 @@ describe("Одна дверь записи: requirementsNotesPlain меняет�
     await prisma.$executeRaw`UPDATE "Client" SET "requirementsNotesPlain" = 'старое', "requirementsNotesPlainRev" = ${CLIENT_NOTE_LABELS_REV + 1} WHERE id = ${id}`;
     await sweepClientNotesPlain();
     expect((await plainOf(id)).requirementsNotesPlain).toBe(`Участок у реки ${mark}`);
+    // Копия испорчена мимо двери при ТЕКУЩЕЙ версии (сырой SQL, откат правки) — сверка тоже чинит.
+    await prisma.$executeRaw`UPDATE "Client" SET "requirementsNotesPlain" = 'чужое', "requirementsNotesPlainRev" = ${CLIENT_NOTE_LABELS_REV} WHERE id = ${id}`;
+    expect(await sweepClientNotesPlain()).toBeGreaterThanOrEqual(1);
+    expect((await plainOf(id)).requirementsNotesPlain).toBe(`Участок у реки ${mark}`);
+    // Сверенная строка второй раз не переписывается.
+    await sweepClientNotesPlain();
+    const again = await prisma.$queryRaw<Array<{ n: number }>>`SELECT count(*)::int AS n FROM "Client" WHERE id = ${id} AND "requirementsNotesPlain" = ${`Участок у реки ${mark}`}`;
+    expect(again[0].n).toBe(1);
   });
 
   it("поиск идёт по индексу (оператор %), а не очисткой каждой строки", async () => {

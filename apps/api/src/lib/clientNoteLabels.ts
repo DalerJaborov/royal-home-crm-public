@@ -98,11 +98,13 @@ export const CLIENT_NOTE_LABELS: readonly ClientNoteLabel[] = [
 ];
 
 /**
- * Версия списка: меняется сама при любой правке CLIENT_NOTE_LABELS (FNV-1a по его
- * содержимому, включая cut), поэтому помнить о ручном «поднять версию» не нужно.
+ * Версия очистки: меняется сама при любой правке CLIENT_NOTE_LABELS (включая cut) И при
+ * правке самого разбора — в хеш входит текст функций ниже (объявления функций всплывают,
+ * их исходник доступен уже здесь). FNV-1a; помнить о ручном «поднять версию» не нужно.
  */
 export const CLIENT_NOTE_LABELS_REV: number = (() => {
-  const text = JSON.stringify(CLIENT_NOTE_LABELS, (_k, v) => (v instanceof RegExp ? v.source : v)) + "|parser-v1";
+  const parser = [labelOf, afterParens, takeQuote, clientNotesPlain].map(String).join("|");
+  const text = JSON.stringify(CLIENT_NOTE_LABELS, (_k, v) => (v instanceof RegExp ? v.source : v)) + "|" + parser;
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
