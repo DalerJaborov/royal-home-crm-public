@@ -300,6 +300,9 @@ export type NarrationFacts = {
   price?: string | null; currency?: string | null;
   /** Курс доллара для `{цена}` (21.11.2026). Только для сборки текста: в хэш фактов не входит. */
   usdToTjs?: number | null;
+  /** Участок ДОМА в сотках (строка десятичного числа, 21.11.2026): только у HOUSE, для `{сотки}`. У участка (LAND)
+   *  сотки считаются из `areaSqm`. Сервер кладёт поле в факты только дому, поэтому у квартир хэш фактов прежний. */
+  landSotka?: string | null;
 };
 
 /** Прежний текст по фактам — остаётся, пока владелец не завёл ни одного шаблона. */
@@ -312,8 +315,18 @@ export function suggestedNarration(facts: NarrationFacts): string {
   ].filter(Boolean).join(" ");
 }
 
-/** Слова, которые владелец может ставить в шаблон; квадратные скобки — «если есть». */
-export const NARRATION_PLACEHOLDERS = ["вид", "комнаты", "площадь", "сотки", "этаж", "этаж_пор", "этажей", "район", "цена"] as const;
+/**
+ * Слова, которые владелец может ставить в шаблон; квадратные скобки — «если есть».
+ * 21.11.2026 (владелец: «с первых секунд должно быть ясно, ЧТО продаётся», «хона» размыто, «Комнат: три» — анкета):
+ *  {объект} — что продаётся, как говорят в Душанбе: «хонаи чорҳуҷрагӣ», «ҳавлӣ», «қитъаи замин», «ҷои тиҷоратӣ» /
+ *             «четырёхкомнатная квартира», «частный дом». Только подлежащим («… фурӯхта мешавад», «Продаётся …»):
+ *             изафет к нему не приклеивать (у «ҳавлӣ» он другой), русская форма — именительный падеж.
+ *  {сколько_комнат} — число со словом: «шаш ҳуҷра» / «шесть комнат», «две комнаты».
+ *  {этажность} — этажность одним словом: «шонздаҳошёна» / «шестнадцатиэтажный» (м. р.: «Дом двухэтажный»).
+ *  {этажность_род} — по-русски «шестнадцатиэтажного» («этаж шестнадцатиэтажного дома»); по-таджикски то же, что {этажность}.
+ *  {метраж} — площадь с единицей: «саду бисту панҷ метри мураббаъ» / «сто двадцать один квадратный метр».
+ */
+export const NARRATION_PLACEHOLDERS = ["вид", "объект", "комнаты", "сколько_комнат", "площадь", "метраж", "сотки", "этаж", "этаж_пор", "этажей", "этажность", "этажность_род", "район", "цена"] as const;
 
 /** Русское «доллар / доллара / долларов» по числу. */
 function rubPlural(n: number, one: string, few: string, many: string): string {
@@ -383,26 +396,100 @@ function spokenNumber(value: number | null, lang: NarrationLang, ordinal = false
  * в квадратных скобках выпадает.
  */
 export function narrationLandAreaWords(type: string, areaSqm: number | null, lang: NarrationLang): string {
-  if (type !== "LAND" || areaSqm === null || !Number.isFinite(areaSqm) || areaSqm <= 0) return "";
+  if (type !== "LAND") return "";
+  return narrationSotkaWords(areaSqm, lang);
+}
+
+/**
+ * Площадь земли словами (21.11.2026, общее для участка и двора дома): целые сотки — «панҷ сотиқ» / «пять соток»;
+ * ровно половина — «се ва ним сотиқ», «якуним сотиқ» / «три с половиной сотки», «полторы сотки» (так говорят
+ * в объявлениях); другая дробь — метрами, сотками её без ошибки не сказать. Нет площади — пусто.
+ */
+export function narrationSotkaWords(areaSqm: number | null, lang: NarrationLang): string {
+  if (areaSqm === null || !Number.isFinite(areaSqm) || areaSqm <= 0) return "";
   const whole = Math.round(areaSqm);
+  const sotki = Math.floor(whole / 100);
   if (whole % 100 === 0) {
-    const sotki = whole / 100;
     return lang === "tg" ? `${tajikCardinal(sotki)} сотиқ` : `${numberToWords(sotki, "ru", { feminine: true })} ${rubPlural(sotki, "сотка", "сотки", "соток")}`;
   }
+  if (whole % 100 === 50 && sotki >= 1) {
+    if (lang === "tg") return sotki === 1 ? "якуним сотиқ" : `${tajikCardinal(sotki)} ва ним сотиқ`;
+    return sotki === 1 ? "полторы сотки" : `${numberToWords(sotki, "ru", { feminine: true })} с половиной ${rubPlural(sotki, "сотки", "сотки", "соток")}`;
+  }
+  return narrationAreaWords(whole, lang);
+}
+
+/** {метраж}: «саду бисту панҷ метри мураббаъ» / «сто двадцать один квадратный метр» (русский — с согласованием). */
+export function narrationAreaWords(areaSqm: number | null, lang: NarrationLang): string {
+  if (areaSqm === null || !Number.isFinite(areaSqm) || areaSqm <= 0) return "";
+  const whole = Math.round(areaSqm);
   return lang === "tg" ? `${tajikCardinal(whole)} метри мураббаъ` : `${numberToWords(whole, "ru")} ${rubPlural(whole, "квадратный метр", "квадратных метра", "квадратных метров")}`;
+}
+
+/** Сколько комнат в названии квартиры одним словом бывает (дальше — «бисёрҳуҷрагӣ» / «многокомнатная»). */
+const NAMED_ROOMS_MAX = 10;
+const RU_ROOMS_STEM = ["", "одно", "двух", "трёх", "четырёх", "пяти", "шести", "семи", "восьми", "девяти", "десяти"];
+
+/**
+ * {объект} — ЧТО продаётся, как называют в Душанбе (21.11.2026, разбор владельца по объекту 217: «хона» размыто —
+ * квартира, частный дом или комната). Квартира — форматом: «хонаи чорҳуҷрагӣ» / «четырёхкомнатная квартира»;
+ * частный дом — «ҳавлӣ» / «частный дом»; участок — «қитъаи замин» / «земельный участок»; коммерция — «ҷои
+ * тиҷоратӣ» / «коммерческое помещение». Комнат нет — просто «квартира» (так говорят и по-таджикски).
+ */
+export function narrationObjectWords(type: string, rooms: number | null, lang: NarrationLang): string {
+  const n = rooms !== null && Number.isFinite(rooms) ? Math.round(rooms) : 0;
+  if (type === "APARTMENT") {
+    if (n < 1) return "квартира";
+    if (lang === "tg") return n > NAMED_ROOMS_MAX ? "хонаи бисёрҳуҷрагӣ" : `хонаи ${tajikCardinal(n)}ҳуҷрагӣ`;
+    return n > NAMED_ROOMS_MAX ? "многокомнатная квартира" : `${RU_ROOMS_STEM[n]}комнатная квартира`;
+  }
+  const names: Record<NarrationLang, Record<string, string>> = {
+    tg: { HOUSE: "ҳавлӣ", LAND: "қитъаи замин", COMMERCIAL: "ҷои тиҷоратӣ" },
+    ru: { HOUSE: "частный дом", LAND: "земельный участок", COMMERCIAL: "коммерческое помещение" },
+  };
+  return names[lang][type] ?? "";
+}
+
+/** {сколько_комнат}: «шаш ҳуҷра» / «шесть комнат», «две комнаты», «одна комната». */
+export function narrationRoomsWords(rooms: number | null, lang: NarrationLang): string {
+  if (rooms === null || !Number.isFinite(rooms) || rooms < 1) return "";
+  const n = Math.round(rooms);
+  return lang === "tg" ? `${tajikCardinal(n)} ҳуҷра` : `${numberToWords(n, "ru", { feminine: true })} ${rubPlural(n, "комната", "комнаты", "комнат")}`;
+}
+
+/**
+ * {этажность} и {этажность_род} (21.11.2026): этажность одним словом, слитно, как пишут и говорят — «шонздаҳошёна»,
+ * «нӯҳошёна», «бисту панҷошёна»; по-русски «шестнадцатиэтажный» / «шестнадцатиэтажного», «двадцатиодноэтажный».
+ * По-таджикски падежа нет — обе формы одинаковые. Больше шестидесяти — пусто (фраза в скобках выпадает).
+ */
+export function narrationStoreysWords(totalFloors: number | null, lang: NarrationLang, genitive = false): string {
+  if (totalFloors === null || !Number.isFinite(totalFloors) || totalFloors < 1 || totalFloors > 60) return "";
+  const n = Math.round(totalFloors);
+  if (lang === "tg") return `${tajikCardinal(n)}ошёна`;
+  const stem = russianGenitive(n).replace(/одного$/u, "одно").replace(/\s+/gu, "");
+  return `${stem}этаж${genitive ? "ного" : "ный"}`;
 }
 
 function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<string, string> {
   const area = Number(facts.areaSqm);
+  const landSotka = facts.landSotka === null || facts.landSotka === undefined || facts.landSotka === "" ? NaN : Number(facts.landSotka);
   return {
     вид: TYPE_WORDS[lang][facts.type] ?? (lang === "tg" ? "объект" : "объект"),
+    объект: narrationObjectWords(facts.type, facts.rooms, lang),
     комнаты: spokenNumber(facts.rooms, lang),
+    сколько_комнат: narrationRoomsWords(facts.rooms, lang),
     площадь: spokenNumber(Number.isFinite(area) ? area : null, lang),
-    сотки: narrationLandAreaWords(facts.type, Number.isFinite(area) ? area : null, lang),
+    метраж: narrationAreaWords(Number.isFinite(area) ? area : null, lang),
+    // Участок: из площади объекта; дом: из участка дома (сотки × 100 = м²). У квартиры и коммерции пусто.
+    сотки: facts.type === "HOUSE"
+      ? narrationSotkaWords(Number.isFinite(landSotka) ? Math.round(landSotka * 100) : null, lang)
+      : narrationLandAreaWords(facts.type, Number.isFinite(area) ? area : null, lang),
     этаж: spokenNumber(facts.floor, lang),
     этаж_пор: spokenNumber(facts.floor, lang, true),
     // По-русски этажность стоит после «из»: «пятый этаж из девяти».
     этажей: lang === "ru" && facts.totalFloors && facts.totalFloors > 0 ? russianGenitive(facts.totalFloors) : spokenNumber(facts.totalFloors, lang),
+    этажность: narrationStoreysWords(facts.totalFloors, lang),
+    этажность_род: narrationStoreysWords(facts.totalFloors, lang, true),
     район: facts.district?.trim() ?? "",
     // Нет цены — «договорная»; цену сказать нельзя (доллары без курса, перепутанная валюта) — пусто,
     // и предложение с {цена} выпадает целиком (renderNarrationTemplate).
