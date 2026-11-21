@@ -109,21 +109,24 @@ describe("1. после заявки бот не молчит, но и не пр
 });
 
 describe("2. без «одним сообщением» и без допроса: заявка сразу, детали — мягко после", () => {
-  it("Messenger, продавец (скриншот владельца): условия и номер, без списка из шести пунктов", () => {
+  it("Messenger, продавец (скриншот владельца): условия и один вопрос по делу, без списка из шести пунктов и без номера первым ответом", () => {
     const t = run(FB(), [ru({ role: "seller", question: "fee" })])[0]!;
-    expect(t.text).toBe("Комиссия агентства 2%. Напишите, пожалуйста, ваш номер телефона, агент перезвонит.");
+    // 21.11.2026 (решение к SPEC п. 8): номер — не первым ответом; продавцу — что продаёт и где.
+    expect(t.text).toBe("Комиссия агентства 2%. Напишите, пожалуйста, что продаёте и в каком районе, и расскажем подробнее.");
     expect(t.text).not.toMatch(/одним сообщением|площадь|этаж|ремонт/u);
   });
   it("номер пришёл — заявка в этот же ход и один мягкий вопрос о недостающем; ответ на него — заметка", () => {
     const turns = run(FB(), [tg({ role: "seller" }), tg({ phone: "+992900000001" }), tg({ details: { district: "Сино", rooms: "3" }, hasDetails: true })]);
     expect(turns[1]!.actions.filter(a => a.type === "accept_lead")).toHaveLength(1);
-    expect(turns[1]!.text).toBe("Ташаккур, ба агент расондам, ӯ ба зудӣ занг мезанад, то он вақт метавонед дар бораи хона гӯед: ноҳия, чанд ҳуҷра ва нарх.");
+    // Вопрос о деталях уже прозвучал первым ответом (21.11.2026) — строка заявки его не повторяет.
+    expect(turns[0]!.keys).toEqual(["seller_intro", "role_details_seller"]);
+    expect(turns[1]!.text).toBe("Ташаккур, рақамро гирифтам, агент ба зудӣ занг мезанад.");
     expect(turns[2]!.keys).toEqual(["note_added"]);
   });
 });
 
 describe("3. своими словами: модель пишет, код проверяет, готовая фраза — страховка", () => {
-  const template = "Спасибо, передал агенту, он позвонит вам в ближайшее время, а пока можете рассказать о квартире: район, сколько комнат и цену.";
+  const template = "Спасибо, передаю агенту, он позвонит вам в ближайшее время, а пока можете рассказать о квартире: район, сколько комнат и цену.";
   it("живой ответ модели под тот же шаг проходит проверку", async () => {
     const live = "Спасибо! Ваша заявка уже у агента, он позвонит вам в ближайшее время. Если хотите, расскажите пока о квартире: район, сколько комнат и цену.";
     const result = await composeOperatorReply({ steps: [{ key: "lead_and_details_seller", vars: { when: "в ближайшее время" }, variant: 0 }],
@@ -276,8 +279,8 @@ describe("ревью #333", () => {
     expect(leadOnlyCallbackWhen({ now: "23:30", workHoursStart: "00:00", workHoursEnd: "24:00" })).toEqual({ kind: "soon" });
   });
   it("проверка «своими словами»: сроки, новые действия, имя, «ты», деньги — только из готовой фразы; бот не выдаёт себя за человека", () => {
-    const template = "Спасибо, передал агенту, он позвонит вам завтра с 10:00.";
-    expect(checkComposedReply("Спасибо, передал агенту, он позвонит вам сегодня.", "Спасибо, передал агенту, он позвонит вам завтра.", "ru")).toBe("time");
+    const template = "Спасибо, передаю агенту, он позвонит вам завтра с 10:00.";
+    expect(checkComposedReply("Спасибо, передаю агенту, он позвонит вам сегодня.", "Спасибо, передаю агенту, он позвонит вам завтра.", "ru")).toBe("time");
     expect(checkComposedReply("Спасибо, передал агенту, он приедет и покажет квартиру.", template, "ru")).not.toBeNull();
     expect(checkComposedReply("Спасибо, передал агенту Фарходу, он позвонит вам завтра с 10:00.", template, "ru")).toBe("name");
     expect(checkComposedReply("Передал агенту, он ответит в течение часа.", "Передал агенту.", "ru")).not.toBeNull();
@@ -285,7 +288,7 @@ describe("ревью #333", () => {
     expect(checkComposedReply("Ташаккур, дархостат ба агент расид.", "Ба агент расондам.", "tg")).toBe("informal");
     expect(checkComposedReply("Для вас бесплатно, платит продавец.", "Для покупателя наши услуги бесплатны.", "ru")).toBe("money");
     expect(checkComposedReply("Передал агенту, он всё решит, не переживайте.", "Передал агенту.", "ru")).toBe("promise");
-    expect(checkComposedReply("Спасибо, передал агенту, он позвонит вам завтра с 10:00.", template, "ru")).toBeNull();
+    expect(checkComposedReply("Спасибо, передаю агенту, он позвонит вам завтра с 10:00.", template, "ru")).toBeNull();
   });
 });
 
@@ -337,7 +340,9 @@ describe("ИНВАРИАНТ (ревью #333): нет пути «ни отве�
         // «Уступил сотруднику» засчитывается, только если сотрудник правда писал в пределах срока — флагу решения не верим.
         const excused = turnU.ackOnly || turnU.thanksOnly || (turnU.offTopic && (before.spoken.off_topic ?? 0) > 0) ||
           (d.yielded === true && c.staffThread === true && c.staffActive === true) ||
-          (leadExists && d.state.leadAccepted && cardAgentActive) || episodeSignalled || repeatAnswered;
+          (leadExists && d.state.leadAccepted && cardAgentActive) || episodeSignalled || repeatAnswered ||
+          // Чужой пост без слов — спам: тишина без сигнала (владелец 21.11.2026: «спамерам не отвечать и не тратить ИИ»).
+          (turnU.attachments.foreignPost && !turnU.hasText && !turnU.attachments.ownPost);
         if (!excused) stats.violations.push(`разговор ${n}, ход ${turn}: ${JSON.stringify({ leadExists, cardAgentActive, staffThread, role: turnU.role, q: turnU.question })}`);
       }
     }

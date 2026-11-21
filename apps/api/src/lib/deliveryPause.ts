@@ -50,6 +50,28 @@ export async function staffRelayPauseMs(target: Pick<DeliveryTarget, "kind" | "i
 }
 
 /**
+ * СРОК ПАУЗЫ ПРИ ОТПРАВКЕ — ОДНА ДВЕРЬ для текста, голосового и файла (21.11.2026). После выката #333 на проде встали две
+ * новые вечные паузы: интерфейс шлёт с КАЖДЫМ ответом сотрудника явный срок «Бессрочно» (Messages.tsx, MobileChatView.tsx,
+ * решение 18.08), и явный срок обходил эстафету. В режиме «только заявки» срок сотрудника не длиннее эстафеты: короче —
+ * ставится как выбран (сознательно короткая пауза), длиннее или «Бессрочно» — это эстафета, действующую паузу не
+ * укорачиваем. Долгая пауза — только отдельной кнопкой «Пауза» (POST /conversations/:id/pause, с записью в журнал).
+ * Вне режима — как было: явный срок ставится как есть, без срока — срок по умолчанию для отправителя (`defaultMs`,
+ * conversationDelivery.ts::defaultPauseForSender — передаётся снаружи, чтобы этот модуль не тянул отправку).
+ */
+export async function deliveryPauseFor(target: Pick<DeliveryTarget, "kind" | "id">, override: Date | undefined,
+  sender: { kind: string } | undefined, defaultMs: () => Promise<number>): Promise<{ until: Date; keepLonger: boolean }> {
+  if (override && sender?.kind !== "bot" && sender?.kind !== "system") {
+    const relay = await staffRelayPauseMs(target);
+    if (relay !== null) {
+      const relayUntil = new Date(Date.now() + relay);
+      return override.getTime() < relayUntil.getTime() ? { until: override, keepLonger: false } : { until: relayUntil, keepLonger: true };
+    }
+  }
+  if (override) return { until: override, keepLonger: sender?.kind === "bot" };
+  return { until: new Date(Date.now() + (await defaultMs())), keepLonger: true };
+}
+
+/**
  * Поставить паузу бота после отправки и вернуть срок, который реально стоит.
  *
  * Срок по умолчанию (оператор не выбирал его сам) и любая отправка от имени бота
@@ -71,15 +93,16 @@ export async function applyDeliveryPause(
 ): Promise<Date> {
   const now = new Date();
   const isTelegram = target.kind === "telegram";
+  // Новая пауза — новый отсчёт тревоги «бот на паузе» (pauseAlertSentAt, lib/botPauseWatch.ts; 21.11.2026).
   if (!keepLonger) {
-    if (isTelegram) await database.telegramConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now } });
-    else await database.botConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now } });
+    if (isTelegram) await database.telegramConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now, pauseAlertSentAt: null } });
+    else await database.botConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now, pauseAlertSentAt: null } });
     return pausedUntil;
   }
   // botPausedAt двигается только вместе со сроком: действующую паузу начал не этот
   // вызов, и «пауза протухла» (conversationState.isStalePause) считается от её начала.
   const where = { id: target.id, OR: [{ pausedUntil: null }, { pausedUntil: { lt: pausedUntil } }] };
-  const data = { pausedUntil, botPausedAt: now };
+  const data = { pausedUntil, botPausedAt: now, pauseAlertSentAt: null };
   const { count } = isTelegram
     ? await database.telegramConversation.updateMany({ where, data })
     : await database.botConversation.updateMany({ where, data });

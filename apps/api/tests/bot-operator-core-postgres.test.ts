@@ -225,7 +225,7 @@ describe("оператор приёма заявок на настоящем п�
 
   it("случай 3, WhatsApp: заявка в этот же ход и вопрос о деталях; ответ — заметка; модель ядра не звалась; память v2 переживает приём", async () => {
     const f = await coreFixture("Хочу продать квартиру", "WHATSAPP");
-    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передал агенту, он позвонит вам в ближайшее время, " +
+    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передаю агенту, он позвонит вам в ближайшее время, " +
       "а пока можете рассказать о квартире: район, сколько комнат и цену.");
     const lead = await intakeJob(f.eventKey);
     expect(lead?.payload).toMatchObject({ scenario: "seller", propertyId: null });
@@ -272,7 +272,7 @@ describe("оператор приёма заявок на настоящем п�
     });
     const f = await coreFixture("Хона мехарам", "WHATSAPP");
     const first = await plannedText(f.eventKey);
-    expect(first).toContain("ба агент расондам");
+    expect(first).toContain("ба агент мерасонам");
     expect(first).toContain("чанд ҳуҷра, кадом ноҳия ва то чанд пул");
     expect((await intakeJob(f.eventKey))?.payload).toMatchObject({ scenario: "buyer", propertyId: null });
     await settle(f.eventKey);
@@ -283,7 +283,7 @@ describe("оператор приёма заявок на настоящем п�
     coreModelUntouched(f);
   });
 
-  it("случай 10, Instagram, реклама объекта: объект и цена из базы + номер; номер — заявка агенту-хозяину объекта", async () => {
+  it("случай 10, Instagram, реклама объекта: объект и цена из базы + предложение звонка (без просьбы номера, 21.11.2026); номер — заявка агенту-хозяину объекта", async () => {
     const f = await coreFixture("Сколько стоят ваши услуги?", "INSTAGRAM");
     // Объект рекламы — запасной фокус оператора (BotConversation.adPropertyId), которого прежде у ядра не было. Диалог
     // заводим заранее той же дверью, что ядро (метку рекламы пишет вход вебхука первым касанием).
@@ -292,7 +292,7 @@ describe("оператор приёма заявок на настоящем п�
     nativeExtra.push(conversationId);
     await prisma.botConversation.update({ where: { id: conversationId }, data: { adPropertyId: propertyId, adTopic: "property" } });
     expect(await plannedText(f.eventKey)).toBe(`Это объект №${propertyShortId}, цена 520 000 сомони. ` +
-      "Напишите, пожалуйста, ваш номер телефона, агент перезвонит.");
+      "Если хотите, агент позвонит, всё подробно расскажет и покажет.");
     await settle(f.eventKey);
     const second = await f.receive("918 22 33 47");
     expect(await plannedText(second)).toBe("Спасибо, номер получил, агент позвонит в ближайшее время.");
@@ -340,14 +340,14 @@ describe("ревью 19.11: недостающие тесты подключен
     expect(await intakeJob(f.eventKey)).toBeNull();
   });
 
-  it("Т2: Instagram — условия и просьба номера (без «одним сообщением»), номер следующим ходом, заявка продавца и мягкий вопрос о деталях", async () => {
+  it("Т2: Instagram — условия и один вопрос по делу (номер не первым ответом, SPEC п. 8), номер следующим ходом, заявка продавца", async () => {
     const f = await coreFixture("Хочу продать квартиру", "INSTAGRAM");
-    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, ваш номер телефона, агент перезвонит.");
+    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, что продаёте и в каком районе, и расскажем подробнее.");
     expect(await intakeJob(f.eventKey)).toBeNull();
     await settle(f.eventKey);
     const second = await f.receive("918 22 33 49");
-    expect(await plannedText(second)).toBe("Спасибо, передал агенту, он позвонит вам в ближайшее время, " +
-      "а пока можете рассказать о квартире: район, сколько комнат и цену.");
+    // Вопрос о деталях уже звучал первым ответом — строка заявки его не повторяет.
+    expect(await plannedText(second)).toBe("Спасибо, номер получил, агент позвонит в ближайшее время.");
     expect((await intakeJob(second))?.payload).toMatchObject({ scenario: "seller", propertyId: null });
     coreModelUntouched(f);
   });

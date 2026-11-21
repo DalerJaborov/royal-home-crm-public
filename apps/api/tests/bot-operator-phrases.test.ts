@@ -24,6 +24,10 @@ const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
   job_contact: { phone: "+992 00 000 00 01" }, no_call_ack: {}, rude_calm: {}, off_topic: {}, complaint_ack: {},
   bargain_seller: {}, no_agent_noted: { when: "завтра с 09:30" },
   question_noted: {}, lead_status: {}, lead_reminder: {}, work_hours: { from: "10:00", to: "22:30" }, reviewer_reset: {},
+  media_received: {}, property_place: { id: 164, place: "Сино, Душанбе" },
+  property_place_price: { id: 164, place: "Сино, Душанбе", price: "520 000 сомони" }, place_by_agent: {}, details_by_agent: {},
+  offer_call: {}, got_it: {}, ask_phone_seller: {}, role_details_buyer: {}, role_details_seller: {},
+  role_details_missing: { missing: ["district", "budget"] }, phone_where: {},
 };
 const LANGUAGES: readonly OperatorLanguage[] = ["ru", "tg"];
 /** Вопрос («?») — только у вопроса о роли: тогда в ответе из двух шагов вопрос всегда один. */

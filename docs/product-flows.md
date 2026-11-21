@@ -2786,6 +2786,8 @@
 - если meta.count + telegram.count === 0
   - return res.status(404).json({ error: "У этого клиента нет диалога с ботом" });
     · ответ 404 — «У этого клиента нет диалога с ботом»
+- logAudit(req, pausedUntil ? "BOT_PAUSE_SET" : "BOT_PAUSE_CLEARED", "Client", client.id, pausedUntil ? { pause…
+  · зовёт logAudit()
 - return res.json({ pausedUntil });
   · ответ 200
 
@@ -5007,6 +5009,8 @@
 - если !(await setPausedUntil(req.params.id, pausedUntil))
   - return res.status(404).json({ error: "Диалог не найден" });
     · ответ 404 — «Диалог не найден»
+- logAudit(req, pausedUntil ? "BOT_PAUSE_SET" : "BOT_PAUSE_CLEARED", "BotConversation", req.params.id, pausedUn…
+  · зовёт logAudit()
 - res.json({ ok: true, pausedUntil });
   · ответ 200
 
@@ -5120,6 +5124,8 @@
 - если !(await setPausedUntil(req.params.id, null))
   - return res.status(404).json({ error: "Диалог не найден" });
     · ответ 404 — «Диалог не найден»
+- logAudit(req, "BOT_PAUSE_CLEARED", "BotConversation", req.params.id);
+  · зовёт logAudit()
 - res.json({ ok: true });
   · ответ 200
 

@@ -1748,13 +1748,15 @@ async function setPausedUntil(rawId: string, pausedUntil: Date | null): Promise<
     const id = rawId.slice(TG_PREFIX.length);
     const exists = await prisma.telegramConversation.findUnique({ where: { id }, select: { id: true } });
     if (!exists) return false;
-    await prisma.telegramConversation.update({ where: { id }, data: { pausedUntil, botPausedAt } });
+    // pauseAlertSentAt — отметка тревоги «бот на паузе» (lib/botPauseWatch.ts): снятая или новая пауза — новый отсчёт
+    // (описание поля в схеме; 21.11.2026: «Вернуть боту» её не сбрасывал, и тревога на следующей паузе молчала сутки).
+    await prisma.telegramConversation.update({ where: { id }, data: { pausedUntil, botPausedAt, pauseAlertSentAt: null } });
     void publishConversationUpdated("telegram", id);
     return true;
   }
   const exists = await prisma.botConversation.findUnique({ where: { id: rawId }, select: { id: true } });
   if (!exists) return false;
-  await prisma.botConversation.update({ where: { id: rawId }, data: { pausedUntil, botPausedAt } });
+  await prisma.botConversation.update({ where: { id: rawId }, data: { pausedUntil, botPausedAt, pauseAlertSentAt: null } });
   void publishConversationUpdated("bot", rawId);
   return true;
 }
@@ -1784,6 +1786,9 @@ conversationsRouter.post("/:id/pause", requireAuth, requirePermission("messages.
   if (!(await setPausedUntil(req.params.id, pausedUntil))) {
     return res.status(404).json({ error: "Диалог не найден" });
   }
+  // Кто, когда и на сколько поставил паузу — в журнале действий: ручную паузу иначе не отличить от автоматической (21.11.2026).
+  logAudit(req, pausedUntil ? "BOT_PAUSE_SET" : "BOT_PAUSE_CLEARED", "BotConversation", req.params.id,
+    pausedUntil ? { pausedUntil: pausedUntil.toISOString(), minutes: Math.round((pausedUntil.getTime() - Date.now()) / 60_000) } : undefined);
   res.json({ ok: true, pausedUntil });
 });
 
@@ -1804,6 +1809,7 @@ conversationsRouter.post("/:id/resume", requireAuth, requirePermission("messages
   if (!(await setPausedUntil(req.params.id, null))) {
     return res.status(404).json({ error: "Диалог не найден" });
   }
+  logAudit(req, "BOT_PAUSE_CLEARED", "BotConversation", req.params.id);
   res.json({ ok: true });
 });
 

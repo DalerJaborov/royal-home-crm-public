@@ -176,7 +176,7 @@ describe("understandTurn и одна дверь runOperatorTurn", () => {
     const seller = await runOperatorTurn({ storedState: { ...serializeOperatorState({ ...initialOperatorState(), role: "seller" }) },
       input: { current: "Вы кто? Это не Фаррух?" }, ctx: broken, model });
     expect(seller.actions.map(a => a.type)).toEqual(["accept_lead"]);
-    expect(seller.text).toBe("Спасибо, передал агенту, он позвонит вам на этот номер в ближайшее время.");
+    expect(seller.text).toBe("Спасибо, передаю агенту, он позвонит вам на этот номер в ближайшее время.");
   });
 
   it("случай 3 через одну дверь: память переходит между ходами через jsonb, заявка одна, текст и шаги для compose", async () => {
@@ -191,7 +191,7 @@ describe("understandTurn и одна дверь runOperatorTurn", () => {
     const now = new Date("2026-11-19T10:00:00.000Z");
     const c = ctx({ ad: { topic: "seller", propertyId: null } });
     const first = await runOperatorTurn({ storedState: null, input: { current: "Хочу продать квартиру" }, ctx: c, now, model });
-    expect(first.text).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передал агенту, он позвонит вам в ближайшее время, " +
+    expect(first.text).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передаю агенту, он позвонит вам в ближайшее время, " +
       "а пока можете рассказать о квартире: район, сколько комнат и цену.");
     expect(first.steps.map(step => step.key)).toEqual(["seller_intro", "lead_and_details_seller"]);
     expect(first.facts).toMatchObject({ percent: 2, when: "в ближайшее время" });

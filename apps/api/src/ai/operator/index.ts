@@ -94,6 +94,20 @@ function fallbackTurn(previous: OperatorState, understanding: Understanding, ctx
   return { text, parts: text ? [text] : [], language, steps: [], facts: {}, actions, state, stored, understanding, degraded: true };
 }
 
+/**
+ * СЧЁТЧИК ВОПРОСА О РОЛИ — ПО ТОМУ, ЧТО КЛИЕНТ ПРАВДА ВИДЕЛ (прод ea3fecb5, 20.11.2026: в памяти «спросили дважды», в переписке
+ * один вопрос — решение первого хода записалось, а его ответ вытеснило следующее сообщение серии; вариант отправленной фразы
+ * был вторым). Вопрос о роли — единственная фраза оператора со знаком «?» (phrases.ts), поэтому вопросы бота в недавних
+ * репликах и есть вопросы о роли. Счётчик только уменьшается и только когда разговор виден целиком (короткий): длинная история,
+ * где вопрос ушёл за окно, счётчик не трогает.
+ */
+const RECONCILE_WINDOW = 8;
+export function reconcileAskedRole(state: OperatorState, recent: OperatorTurnRequest["input"]["recent"]): void {
+  if (!recent || recent.length >= RECONCILE_WINDOW || state.asked.role === 0 || state.leadAccepted) return;
+  const seen = recent.filter(turn => turn.role === "assistant" && /[?？]/u.test(turn.text)).length;
+  if (seen < state.asked.role) state.asked.role = seen;
+}
+
 export async function runOperatorTurn(request: OperatorTurnRequest): Promise<OperatorTurnResult> {
   const now = request.now ?? new Date();
   const previous = readOperatorState(request.storedState, now);
@@ -106,6 +120,7 @@ export async function runOperatorTurn(request: OperatorTurnRequest): Promise<Ope
     return { text, parts: [text], language, steps: [step], facts: {}, actions: [], state, stored: serializeOperatorState(state, now),
       understanding: understandFallback(request.input, state, request.ctx) };
   }
+  reconcileAskedRole(previous, request.input.recent);
   const understanding = await understandTurn(request.input, previous, request.ctx, request.model, request.timeoutMs);
   try {
     const decision = decide(previous, understanding, request.ctx);

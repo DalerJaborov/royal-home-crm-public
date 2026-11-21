@@ -12103,6 +12103,14 @@
     },
     {
      "k": "do",
+     "t": "logAudit(req, pausedUntil ? \"BOT_PAUSE_SET\" : \"BOT_PAUSE_CLEARED\", \"Client\", client.id, pausedUntil ? { pause…",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "return res.json({ pausedUntil });",
      "a": [
       "ответ 200"
@@ -21848,6 +21856,14 @@
     },
     {
      "k": "do",
+     "t": "logAudit(req, pausedUntil ? \"BOT_PAUSE_SET\" : \"BOT_PAUSE_CLEARED\", \"BotConversation\", req.params.id, pausedUn…",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "res.json({ ok: true, pausedUntil });",
      "a": [
       "ответ 200"
@@ -22352,6 +22368,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"BOT_PAUSE_CLEARED\", \"BotConversation\", req.params.id);",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
     },
     {
      "k": "do",
