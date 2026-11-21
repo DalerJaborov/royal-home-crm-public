@@ -60,7 +60,7 @@ import { useDismissableMenu } from "../hooks/useDismissableMenu";
 // Метаданные каналов и инициалы вынесены в lib/channelMeta.ts (мобильный
 // редизайн 17.08.2026): их делят десктопный инбокс и мобильный список чатов.
 import { channelMeta, initialsFromName } from "../lib/channelMeta";
-import { isMessagingWindowClosed, lastInboundMessageAt } from "../lib/messagingWindow";
+import { isMessagingWindowClosedForMessages } from "../lib/messagingWindow";
 import { rh2AvatarTone } from "../lib/rh2Avatar";
 import { Rh2DialogRow } from "../components/Rh2DialogRow";
 import { useNarrowScreen } from "../hooks/useNarrowScreen";
@@ -1248,8 +1248,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     [allMessages, isGroupedEntry, replySource],
   );
   const windowClosed = isGroupedEntry
-    ? !!replySource && isMessagingWindowClosed(replySource.channel, lastInboundMessageAt(replySourceMessages))
-    : isMessagingWindowClosed(conversation?.channel, conversation ? lastInboundMessageAt(conversation.messages) : null);
+    ? !!replySource && replySourceMessages.length > 0 && isMessagingWindowClosedForMessages(replySource.channel, replySourceMessages)
+    : !!conversation && conversation.messages.length > 0 && isMessagingWindowClosedForMessages(conversation.channel, conversation.messages);
   // Продавец: полоса под шапкой (21.09.2026) и кнопка «Добавить объект» в
   // просмотрщике фото читают ОДИН и тот же запрос (общий queryKey в
   // useSellerObject) — второго похода на сервер здесь нет.

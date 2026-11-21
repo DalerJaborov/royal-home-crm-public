@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 791,
-  "forks": 4207,
+  "forks": 4210,
   "mounts": 89,
   "cron": 144,
   "jobs": 34,
@@ -17276,14 +17276,6 @@
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "const windowOpen = isMessagingWindowOpen(channel, lastAt);",
-     "a": [
-      "зовёт isMessagingWindowOpen()"
-     ],
-     "c": []
     },
     {
      "k": "do",
@@ -83785,6 +83777,21 @@
         },
         {
          "k": "if",
+         "t": "s.status === \"failed\" && isWhatsAppWindowFailure(s.errorCode, s.error)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.info(`[окно] WhatsApp ${s.recipientId}: вне 24 часов — свободный текст не доставлен (код ${s.errorCod…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "elseif",
          "t": "s.status === \"failed\"",
          "a": [],
          "c": [
@@ -111304,6 +111311,21 @@
              ]
             },
             {
+             "k": "if",
+             "t": "isMessagingWindowClosedFor(target.kind === \"bot\" ? target.channel : \"\", await lastClientMessageAt(target))",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "const claimed = await prisma.interaction.updateMany({ where: { id: showing.id, confirmAskedAt: null }, data: …",
              "a": [
@@ -111340,12 +111362,19 @@
              "a": [],
              "c": [
               {
-               "k": "do",
-               "t": "console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);",
-               "a": [
-                "пишет строку в журнал сервера"
-               ],
-               "c": []
+               "k": "if",
+               "t": "!(\"code\" in result && result.code === \"window_closed\")",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);",
+                 "a": [
+                  "пишет строку в журнал сервера"
+                 ],
+                 "c": []
+                }
+               ]
               },
               {
                "k": "do",

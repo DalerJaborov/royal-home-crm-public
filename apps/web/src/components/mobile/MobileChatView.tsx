@@ -45,7 +45,7 @@ export function messageRenderKey(message: ConversationMessage, index: number): s
   const localKey = message.mid ?? `idx:${message.sourceMessageIndex ?? index}`;
   return message.sourceConversationId ? `${message.sourceConversationId}:${localKey}` : message.mid ?? `msg-${index}`;
 }
-import { isMessagingWindowClosed, lastInboundMessageAt } from "../../lib/messagingWindow";
+import { isMessagingWindowClosedForMessages } from "../../lib/messagingWindow";
 import { ContactProfilePanel } from "../ContactProfilePanel";
 import { ConversationClientLink } from "../ConversationClientLink";
 import { CallClientButton } from "../CallClientButton";
@@ -384,10 +384,7 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
     () => isGrouped && replyTargetId ? allMessages.filter((message) => message.sourceConversationId === replyTargetId) : allMessages,
     [allMessages, isGrouped, replyTargetId],
   );
-  const windowClosed = isMessagingWindowClosed(
-    replyChannel ?? undefined,
-    sourceMessages.length ? lastInboundMessageAt(sourceMessages) : null,
-  );
+  const windowClosed = sourceMessages.length > 0 && isMessagingWindowClosedForMessages(replyChannel ?? undefined, sourceMessages);
   // Продавец: полоса под шапкой (21.09.2026) и «Добавить объект» в просмотрщике
   // фото — тот же приём, что в десктопном ConversationView (Messages.tsx),
   // второго похода на сервер не заводит (общий queryKey useSellerObject).

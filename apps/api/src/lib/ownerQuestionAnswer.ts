@@ -82,7 +82,8 @@ export async function answerOwnerQuestion(
           sender: await agentSender(answeredById),
         });
         delivered = result.ok;
-        if (!result.ok) void logSystemError("meta", `Ответ собственника не доставлен: ${result.error}`);
+        // Закрытое окно 24 часов — правило платформы, не поломка: в журнал ошибок не пишем.
+        if (!result.ok && result.code !== "window_closed") void logSystemError("meta", `Ответ собственника не доставлен: ${result.error}`);
       } catch (err) {
         void logSystemError("meta", `Ответ собственника не доставлен: ${describeError(err)}`);
       }

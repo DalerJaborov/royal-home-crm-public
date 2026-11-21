@@ -40,6 +40,7 @@ import { prisma } from "../db.js";
 import { callGraph, fetchWithRetry, GRAPH_VERSION, isMetaChannelEnabled, loadCredentials } from "../messengers/meta.js";
 import { resolveIncomingAccount } from "../messengers/accounts.js";
 import { appendConversationMessages } from "../messengers/appendMessages.js";
+import { isMessagingWindowClosedFor, lastInboundAt } from "@royal-home/shared";
 import { recordExposures } from "./propertyExposures.js";
 import { ensureCustomerEndpoint, ensureScopedBotConversation, loadCustomerTransportForConversation,
   type CustomerTransportReference } from "./customerConversationScope.js";
@@ -393,24 +394,26 @@ function recipientOf(client: ClientForContact): string | null {
   return toWhatsAppRecipient(client.whatsappPhone) ?? toWhatsAppRecipient(client.phone);
 }
 
-/** Когда клиент последний раз писал нам в WhatsApp сам — по его репликам в переписке. */
+/**
+ * Когда клиент последний раз писал нам в WhatsApp сам — максимум по времени его
+ * реплик (общее правило окна, packages/shared/src/messagingWindow.ts), в пределах
+ * ОДНОГО нашего номера: у каждого номера WhatsApp окно своё. Диалоги без
+ * привязки к номеру — прежние, из времён одного номера, считаются за номер по
+ * умолчанию.
+ */
 async function lastClientWhatsAppMessageAt(clientId: string, recipient: string): Promise<Date | null> {
+  const phoneId = (await transport().config().catch(() => null))?.phoneId ?? null;
   const conversations = await prisma.botConversation.findMany({
-    where: { channel: "WHATSAPP", OR: [{ clientId }, { subscriberId: recipient }] },
+    where: {
+      channel: "WHATSAPP",
+      OR: [{ clientId }, { subscriberId: recipient }],
+      ...(phoneId ? { AND: [{ OR: [{ accountId: null }, { account: { externalId: phoneId } }] }] } : {}),
+    },
     select: { messages: true },
     take: 5,
   });
-  let latest: Date | null = null;
-  for (const c of conversations) {
-    const messages = (c.messages as unknown as { role?: string; at?: string }[]) ?? [];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role !== "user" || !messages[i].at) continue;
-      const at = new Date(messages[i].at!);
-      if (!latest || at > latest) latest = at;
-      break;
-    }
-  }
-  return latest;
+  const all = conversations.flatMap((c) => (Array.isArray(c.messages) ? (c.messages as { role?: string; at?: string }[]) : []));
+  return lastInboundAt(all);
 }
 
 async function agentFirstName(agentId: string): Promise<string> {
@@ -483,7 +486,7 @@ export async function firstContactStatus(client: ClientForContact, agentId: stri
   if (!recipient) return status("no_phone", "У клиента нет номера, похожего на WhatsApp. Проверьте номер в карточке.");
 
   const lastIncoming = await lastClientWhatsAppMessageAt(client.id, recipient);
-  if (lastIncoming && Date.now() - lastIncoming.getTime() < MESSAGING_WINDOW_HOURS * 3600_000) {
+  if (lastIncoming && !isMessagingWindowClosedFor("WHATSAPP", lastIncoming)) {
     return status(
       "window_open",
       "Клиент писал в WhatsApp меньше суток назад — просто ответьте ему в переписке, это бесплатно."
@@ -672,7 +675,7 @@ async function sendFirstContactOnce(input: SendFirstContactInput): Promise<WaFir
  * ПОСЛЕ того, как реплика клиента записана, чтобы в переписке ссылка шла после неё.
  * Идемпотентна: повторная доставка вебхука не отправит ссылку второй раз.
  */
-export async function noteFirstContactReply(senderId: string, replyText?: string): Promise<void> {
+export async function noteFirstContactReply(senderId: string, replyText?: string, receivedAt: Date = new Date()): Promise<void> {
   try {
     const row = await prisma.whatsAppFirstContact.findFirst({
       where: {
@@ -701,7 +704,7 @@ export async function noteFirstContactReply(senderId: string, replyText?: string
     const notifyAgentId = client.assignedAgentId ?? row.agentId;
 
     const sentShortId = row.propertyId && row.conversationId
-      ? await sendPropertyLink(row.conversationId, senderId, client.id, row.propertyId, row.agentId, replyText)
+      ? await sendPropertyLink(row.conversationId, senderId, client.id, row.propertyId, row.agentId, replyText, receivedAt)
       : null;
 
     await sendPushToAgent(notifyAgentId, {
@@ -725,7 +728,9 @@ async function sendPropertyLink(
   clientId: string,
   propertyId: string,
   agentId: string,
-  replyText?: string
+  replyText?: string,
+  /** Когда пришла реплика клиента: она может ещё не лежать в переписке. */
+  receivedAt?: Date
 ): Promise<number | null> {
   const p = await prisma.property.findUnique({
     where: { id: propertyId },
@@ -744,7 +749,7 @@ async function sendPropertyLink(
   const customerTransport = await loadCustomerTransportForConversation(conversationId);
   if (!customerTransport) return null;
   const target: DeliveryTarget = { kind: "bot", id: conversationId, channel: "WHATSAPP", subscriberId: recipient, accountId: customerTransport.accountId, transport: customerTransport };
-  const delivery = await deliverToConversation(target, text, undefined, { sender: await agentSender(agentId) });
+  const delivery = await deliverToConversation(target, text, undefined, { sender: await agentSender(agentId), ...(receivedAt ? { inboundAt: receivedAt } : {}) });
   if (!delivery.ok) {
     console.error("[whatsapp] ссылка на объект после ответа не ушла:", delivery.error);
     return null;
