@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, ArrowDown } from "lucide-react";
 import { useSheetMode } from "./BottomSheet";
+import { isScrollLocked } from "../hooks/useScrollLock";
+import { touchFromOwnDom } from "../lib/touchScrollTrap";
 
 /**
  * Потянуть вниз — обновить.
@@ -73,6 +75,18 @@ export function PullToRefresh({ children }: { children: React.ReactNode }) {
     return false;
   };
 
+  /**
+   * ЖЕСТ ЧУЖОГО ОКНА — НЕ НАШ (21.11.2026, «палец как будто в другое окно идёт и его вниз-вверх двигает»).
+   *
+   * Шторки рисуются порталом в <body>, но события касания React всплывают по дереву JSX — то есть сюда,
+   * через обёртку страницы. Пока окно открыто, страница заблокирована (`position: fixed`), её прокрутка
+   * читается как 0 — «страница вверху», и жест внутри шторки (листание, смахивание вниз) растягивал
+   * индикатор и сдвигал страницу ПОД шторкой вслед за пальцем, а на отпускании перезапрашивал все данные.
+   * Поэтому жест берём только когда страница не заблокирована окном и касание пришло из нашего же DOM.
+   */
+  const pageGesture = (event: React.TouchEvent<HTMLDivElement>): boolean =>
+    !isScrollLocked() && touchFromOwnDom(event);
+
   async function run() {
     setRefreshing(true);
     if (typeof navigator.vibrate === "function") navigator.vibrate(12);
@@ -92,7 +106,7 @@ export function PullToRefresh({ children }: { children: React.ReactNode }) {
         if (!enabled) return;
         drag.current = {
           y: e.touches[0].clientY,
-          active: atTop() && !refreshing && !insideScrolledArea(e.target),
+          active: pageGesture(e) && atTop() && !refreshing && !insideScrolledArea(e.target),
         };
       }}
       onTouchMove={(e) => {

@@ -51,7 +51,7 @@ let ownerId: string, propertyId: string, propertyShortId: number;
 // Ядро держит ровно один номер WhatsApp компании: все сценарии WhatsApp идут через один аккаунт.
 let waAccount: { id: string; externalId: string; secret: string; token: string } | null = null;
 
-async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP") {
+async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP", igAttachments?: unknown[]) {
   let id = randomUUID(), externalId = `synthetic-lead-only-${id}`, secret = `synthetic-lead-only-secret-${id}`, token = `synthetic-lead-only-token-${id}`;
   if (channel === "WHATSAPP" && waAccount) ({ id, externalId, secret, token } = waAccount);
   else {
@@ -67,7 +67,9 @@ async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP") {
     candidateRevisionId: revisionId, percentBasisPoints: 10_000, allowed })}::jsonb WHERE "id"='singleton'`;
   const eventId = randomUUID();
   const body = channel === "INSTAGRAM" ? { object: "instagram", entry: [{ id: externalId, messaging: [{
-    sender: { id: peer }, recipient: { id: externalId }, timestamp: Date.now(), message: { mid: eventId, text } }] }] }
+    sender: { id: peer }, recipient: { id: externalId }, timestamp: Date.now(),
+    // Пересланный пост Instagram приходит без поля text, только вложением (прод 21.11.2026, 6a122f7a).
+    message: { mid: eventId, ...(igAttachments ? { attachments: igAttachments } : { text }) } }] }] }
     : { object: "whatsapp_business_account", entry: [{ id: externalId, changes: [{ field: "messages", value: {
       metadata: { phone_number_id: externalId, display_phone_number: "+992 918 999 999" }, contacts: [{ wa_id: peer, profile: { name: "Synthetic customer" } }],
       messages: [{ from: peer, id: eventId, timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: text } }] } }] }] };
@@ -108,9 +110,9 @@ async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP") {
   return { eventKey, peer, endpoint, io, bodies, setReplies(value: unknown[][]) { replies = value; generated = 0; },
     onGenerate(hook: (round: number) => Promise<void>) { beforeGenerate = hook; },
     /** Следующее подписанное сообщение того же собеседника (Instagram или WhatsApp). */
-    async receive(nextText: string): Promise<string> {
+    async receive(nextText: string, nextAttachments?: unknown[]): Promise<string> {
       const nextBody = channel === "INSTAGRAM" ? { object: "instagram", entry: [{ id: externalId, messaging: [{ sender: { id: peer }, recipient: { id: externalId },
-        timestamp: Date.now(), message: { mid: randomUUID(), text: nextText } }] }] }
+        timestamp: Date.now(), message: { mid: randomUUID(), ...(nextAttachments ? { attachments: nextAttachments } : { text: nextText }) } }] }] }
         : { object: "whatsapp_business_account", entry: [{ id: externalId, changes: [{ field: "messages", value: {
           metadata: { phone_number_id: externalId, display_phone_number: "+992 918 999 999" }, contacts: [{ wa_id: peer, profile: { name: "Synthetic customer" } }],
           messages: [{ from: peer, id: randomUUID(), timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: nextText } }] } }] }] };
@@ -138,7 +140,8 @@ beforeAll(async () => {
   settingsBefore = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botEnabled: true, metaEnabled: true,
     botInstagramEnabled: true, botWhatsappEnabled: true, geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
     botLeadOnlyMode: true, botUseWhatsappNumber: true, botMaxPhoneAsks: true, botHotIntentHandover: true,
-    workHoursStart: true, workHoursEnd: true, botCanRequestCallback: true, botCanAskOwner: true, botCanBookShowings: true } });
+    workHoursStart: true, workHoursEnd: true, botCanRequestCallback: true, botCanAskOwner: true, botCanBookShowings: true,
+    botSpamFilterEnabled: true } });
   policyBefore = await prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" } });
   const [row] = await prisma.$queryRaw<Array<{ rolloutConfig: unknown }>>`SELECT "rolloutConfig" FROM "CustomerRuntimePolicy" WHERE "id"='singleton'`;
   savedRollout = row.rolloutConfig;
@@ -162,7 +165,7 @@ beforeEach(async () => {
   // Фоновые разборы карточки после заявки прошлого сценария (card-fill и т. п.) не должны попасть в подмену этого.
   await drainBackgroundTasks(5000);
   await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: true, botUseWhatsappNumber: true, botMaxPhoneAsks: 2,
-    botHotIntentHandover: true } });
+    botHotIntentHandover: true, botSpamFilterEnabled: true } });
 });
 afterAll(async () => {
   dnsLookup?.mockRestore(); vi.unstubAllGlobals(); vi.unstubAllEnvs();
@@ -316,6 +319,30 @@ describe("оператор приёма заявок на настоящем п�
     // 20.11.2026: после заявки не тишина — «Ваша заявка у агента…» (язык разговора — по последним словам клиента).
     expect(await plannedText(second)).toMatch(/^(?:Ваша заявка у агента, он с вами свяжется\.|Дархостатон назди агент аст, ӯ бо шумо тамос мегирад\.)$/u);
     expect(await operatorStateOf(await conversationOf(f.eventKey))).toMatchObject({ version: 2, role: "seller", leadAccepted: true });
+    coreModelUntouched(f);
+  });
+
+  it("прод 21.11, 6a122f7a: новый клиент первым сообщением переслал пост без слов (сервер чужим шумом не признал) — вопрос «купить или продать?»", async () => {
+    const share = (id: string) => [{ type: "ig_post", payload: { url: `https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=${id}&signature=synthetic`,
+      ig_post_media_id: id, title: "Продаётся 2-комнатная квартира, цена 500 000 сомони" } }];
+    const f = await coreFixture("", "INSTAGRAM", share("18000000000000001"));
+    // Язык разговора неизвестен, вложение — пересланный пост: таджикский (SPEC, случай 20). Без «Спасибо, получил», без номера.
+    expect(await plannedText(f.eventKey)).toBe("Шумо хона мехаред ё мефурӯшед?");
+    expect(await operatorStateOf(await conversationOf(f.eventKey))).toMatchObject({ role: "unknown", step: "role", asked: { role: 1, phone: 0 } });
+    // ГОНКА (слепое ревью #371): второй пост через секунду, вопрос на первый ещё в очереди отправки (READY, не доставлен — память
+    // ядра его не видит). Счётчик вопроса о роли учитывает и очередь: второй раз вопрос не звучит — тишина, как у повтора.
+    const queued = await prisma.customerOutboxPart.findMany({ where: { ticketEventKey: f.eventKey }, select: { status: true } });
+    expect(queued.map(part => part.status)).toEqual(["READY"]);
+    await silent(await f.receive("", share("18000000000000002")));
+    expect(await operatorStateOf(await conversationOf(f.eventKey))).toMatchObject({ asked: { role: 1 } });
+    coreModelUntouched(f);
+  });
+
+  it("чужой шум (сервер доказал: поиск «такого нет», CDN Meta, подпись не о жилье) при выключенном фильтре спама — тишина и на первый пост", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botSpamFilterEnabled: false } });
+    const f = await coreFixture("", "INSTAGRAM", [{ type: "ig_post", payload: {
+      url: "https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=18000000000000003&signature=synthetic", ig_post_media_id: "18000000000000003" } }]);
+    await silent(f.eventKey);
     coreModelUntouched(f);
   });
 

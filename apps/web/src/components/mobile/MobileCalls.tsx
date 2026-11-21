@@ -263,8 +263,10 @@ function MhJournalRow({ call, showAgent, royal = false }: { call: CallRow; showA
 /** Строка входящего: то же тело, но без автора и разбора — у входящего своей
  *  записи в CRM нет. Действия («Перезвонить», «больше не звонить») остаются те же. */
 function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?: boolean }) {
-  const needsQualifying = call.answered && !!call.client && !call.qualifiedAt;
-  const name = call.client?.fullName ?? call.phone;
+  // Метки «без разбора» в строке нет (владелец 21.11.2026): это внутренний учёт, а не факт о звонке;
+  // неразобранные входящие — отдельным срезом «Без разбора» над списком.
+  const staff = call.staff ?? null;
+  const name = call.client?.fullName ?? (staff ? `Сотрудник · ${staff.fullName}` : call.phone);
   // «Новый вид»: те же пометки и действия, что у прежней строки ниже.
   if (royal) {
     return (
@@ -277,21 +279,23 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
           dushanbeTime(call.startedAt),
           call.answered ? formatCallDuration(call.talkSeconds) : "до оператора не дозвонился",
           call.answered ? (call.answeredByName ?? (call.answeredBy ? `оператор ${call.answeredBy}` : null)) : null,
-          call.client ? null : "в базе нет",
+          call.client || staff ? null : "в базе нет",
           call.qualifiedBy ? `разобрал ${call.qualifiedBy.fullName}` : null,
         ]}
         flags={<>
           <CallSourceMark source={call.source} look="royal" />
           {call.irrelevant && <RoyalCallFlag tone={pillTone("info")}>не по делу</RoyalCallFlag>}
-          {needsQualifying && <RoyalCallFlag tone={pillTone("info")}>без разбора</RoyalCallFlag>}
-          {!call.answered && (call.callbackAgent
+          {staff && <RoyalCallFlag tone={pillTone("info")}>свой номер, не клиент</RoyalCallFlag>}
+          {!call.answered && !staff && (call.callbackAgent
             ? <RoyalCallFlag tone={pillTone("info")}>перезвонит {call.callbackAgent.fullName}</RoyalCallFlag>
-            : <RoyalCallFlag tone={pillTone("today")}>никто не перезвонил</RoyalCallFlag>)}
+            : <RoyalCallFlag tone={pillTone("info")}>никто не перезвонил</RoyalCallFlag>)}
           {call.missingCallback && <RoyalCallFlag tone={pillTone("overdue")}>без перезвона {call.missedCallbackHours}ч+</RoyalCallFlag>}
-          <BlockCallerButton callId={call.id} known={!!call.client} />
+          {!staff && <BlockCallerButton callId={call.id} known={!!call.client} />}
         </>}
-        action={!call.answered && (
-          <CallClientButton clientId={call.client?.id} phone={call.phone} variant="icon" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-round" />
+        // Кнопка звонка одного вида (владелец 21.11.2026): у незнакомого номера карточки нет,
+        // CRM ему не позвонит — бледной неработающей трубки не рисуем, «в базе нет» уже сказано.
+        action={!call.answered && call.client && (
+          <CallClientButton clientId={call.client.id} phone={call.phone} variant="icon" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-round" />
         )}
       />
     );
@@ -301,7 +305,7 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
       ? `Входящий · ${dushanbeTime(call.startedAt)} · ${formatCallDuration(call.talkSeconds)}`
       : `Пропущенный · ${dushanbeTime(call.startedAt)} · до оператора не дозвонился`,
     call.answered ? (call.answeredByName ?? (call.answeredBy ? `оператор ${call.answeredBy}` : null)) : null,
-    call.client ? null : "в базе нет",
+    call.client || staff ? null : "в базе нет",
     call.qualifiedBy ? `разобрал ${call.qualifiedBy.fullName}` : null,
   ].filter(Boolean) as string[];
 
@@ -324,8 +328,8 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
           </span>
           <CallSourceMark source={call.source} look="chip-xs" />
           {call.irrelevant && <span className="chip lav xs">не по делу</span>}
-          {needsQualifying && <span className="chip warn xs">без разбора</span>}
-          {!call.answered &&
+          {staff && <span className="chip lav xs">свой номер, не клиент</span>}
+          {!call.answered && !staff &&
             (call.callbackAgent ? (
               <span className="chip warn xs">перезвонит {call.callbackAgent.fullName}</span>
             ) : (
@@ -353,7 +357,7 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
           className="btn pill sm"
         />
       )}
-      <BlockCallerButton callId={call.id} known={!!call.client} />
+      {!staff && <BlockCallerButton callId={call.id} known={!!call.client} />}
     </div>
   );
 }
@@ -531,7 +535,7 @@ export function MobileCallsSupervisor() {
   );
   const forwardPhone = settings?.incomingForwardPhone?.trim() || null;
   const withExtension = (agents ?? []).filter((a) => a.sipExtension);
-  const missedNobody = incoming?.items.filter((c) => !c.answered && !c.callbackAgent).length ?? 0;
+  const missedNobody = incoming?.items.filter((c) => !c.answered && !c.callbackAgent && !c.staff).length ?? 0;
 
   const pickTab = (t: SupervisorTab) => {
     setTab(t);
@@ -1151,7 +1155,7 @@ function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }
   const attemptLabel = outNoAnswer ? (CALL_ATTEMPT_LABELS[call.callAttempt!] ?? "Не дозвонились") : null;
   const missedLook = kind.dir === "missed" || outNoAnswer;
   const expandable = call.kind === "OUT" && !outNoAnswer && (call.hasRecording || !!call.transcript || !!call.analysis);
-  const name = call.client?.fullName ?? call.phone ?? "Номера нет";
+  const name = call.client?.fullName ?? (call.staff ? `Сотрудник · ${call.staff.fullName}` : (call.phone ?? "Номера нет"));
   const analysis = call.analysis ?? null;
   const detailsId = `mfeed-${call.id}`;
 
@@ -1172,7 +1176,7 @@ function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }
           exactDateTime(call.at),
           !outNoAnswer && call.durationSec ? formatCallDuration(call.durationSec) : null,
           call.agentName,
-          !call.client && call.kind !== "OUT" ? "в базе нет" : null,
+          !call.client && !call.staff && call.kind !== "OUT" ? "в базе нет" : null,
         ]}
         flags={(analysis || isWhatsappCallSource(call.source)) && <>
           <CallSourceMark source={call.source} look="royal" />
@@ -1227,7 +1231,7 @@ function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }
             {attemptLabel ?? kind.label} · {exactDateTime(call.at)}
             {!outNoAnswer && call.durationSec ? ` · ${formatCallDuration(call.durationSec)}` : ""}
             {call.agentName ? ` · ${call.agentName}` : ""}
-            {!call.client && call.kind !== "OUT" ? " · в базе нет" : ""}
+            {!call.client && !call.staff && call.kind !== "OUT" ? " · в базе нет" : ""}
             {isWhatsappCallSource(call.source) ? " · WhatsApp" : ""}
             {analysis ? ` · балл ${analysis.score}` : ""}
           </span>

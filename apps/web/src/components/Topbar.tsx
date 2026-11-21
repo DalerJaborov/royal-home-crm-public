@@ -19,6 +19,7 @@ import { ProfileAvatar } from "./ProfileAvatar";
 import { MoreSheet } from "./MoreSheet";
 import { useShellStore } from "../store/shell";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { useGoBack } from "../hooks/useGoBack";
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import {
   useNotifications,
@@ -86,6 +87,10 @@ export function Topbar({ clean = false }: { clean?: boolean }) {
   const shellTitle = useShellStore((s) => s.title);
   const shellBack = useShellStore((s) => s.back);
   const shellOnBack = useShellStore((s) => s.onBack);
+  // «Назад» в шапке — ШАГ НАЗАД по истории приложения, а раздел-родитель — только запасной путь
+  // (lib/goBack.ts, 21.11.2026). Раньше стрелка делала переход на родителя: объект, открытый из переписки,
+  // «Назад» уводил в «Объекты» вместо переписки.
+  const goBackToShellParent = useGoBack(shellBack ?? "/");
   const shellActions = useShellStore((s) => s.actions);
   const ownHeader = useShellStore((s) => s.ownHeader);
   // «Сообщения» (MobileChats*) рисуют свою шапку всегда; Главная её рисует, пока
@@ -107,7 +112,7 @@ export function Topbar({ clean = false }: { clean?: boolean }) {
       <TopbarRow
         pageTitle={pageTitle}
         back={shellBack}
-        onBack={shellOnBack}
+        onBack={shellOnBack ?? (shellBack ? goBackToShellParent : null)}
         actions={shellActions}
         showNotifications={showNotifications}
         setShowNotifications={setShowNotifications}
@@ -292,7 +297,7 @@ function TopbarRow({
     return <LegacyAgentTopbar
       title={pageTitle}
       back={back}
-      onNavigate={navigate}
+      onNavigate={(path) => (onBack ? onBack() : navigate(path))}
       actions={phoneActions}
       onSearch={() => setShowSearch(true)}
       bellRef={bellRef}

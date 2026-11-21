@@ -17,6 +17,26 @@ import { liveOutgoingCalls } from "../lib/telephony/callTracker.js";
 import { incomingOperatorIds, loadIncomingSettings } from "../lib/telephony/incomingSettings.js";
 import { elapsedWorkingMinutes, findCallbackContacts, missedWithoutCallbackIds } from "../lib/telephony/missedCallEscalation.js";
 import { loadDisciplineRules } from "../lib/disciplineRules.js";
+import { loadStaffPhoneChecker } from "../lib/staffPhoneGuard.js";
+
+/** Звонивший — действующий сотрудник (номер из его карточки), а не клиент. */
+type StaffRef = { id: string; fullName: string };
+
+/**
+ * НОМЕР СОТРУДНИКА В ЖУРНАЛЕ ЗВОНКОВ (21.11.2026). Агент перезвонил в офис со
+ * своего мобильного — строка читалась «пропущенный · в базе нет · никто не
+ * перезвонил» с кнопкой «Больше не звонить», будто потеряли клиента. Один
+ * запрос сотрудников на страницу, сравнение тем же правилом по хвосту, что и
+ * везде (lib/staffPhoneGuard.ts). Номер сверяется ДО маски.
+ */
+async function staffLookup(phones: string[]): Promise<(phone: string) => StaffRef | null> {
+  if (phones.length === 0) return () => null;
+  const check = await loadStaffPhoneChecker();
+  return (phone) => {
+    const m = check([phone]);
+    return m ? { id: m.agentId, fullName: m.fullName } : null;
+  };
+}
 
 /** Кто «принял» входящий, на который ответил консультант на телефоне (ИИ). */
 const CONSULTANT_ANSWERED_NAME = "консультант (ИИ)";
@@ -355,6 +375,7 @@ callsRouter.get("/feed", async (req, res) => {
       })
     : [];
   const nameByExtension = new Map(operators.map((a) => [a.sipExtension!, a.fullName]));
+  const staffOf = await staffLookup(incoming.map((c) => c.phone));
 
   /**
    * У исходящего отдаём и содержимое разговора — запись, расшифровку, разбор.
@@ -375,6 +396,7 @@ callsRouter.get("/feed", async (req, res) => {
       // Телефона у исходящего в списке нет намеренно: он и так живёт на карточке
       // клиента, а звонок из строки идёт по clientId — как и раньше.
       phone: null as string | null,
+      staff: null as StaffRef | null,
       // Исходящий через CRM всегда идёт по линии станции.
       source: "phone" as string,
       durationSec: i.recordingDurationSec,
@@ -400,6 +422,7 @@ callsRouter.get("/feed", async (req, res) => {
       // Номер закрывается тем же правилом, что и везде (см. lib/clientPhone.ts):
       // раздел открыт правом на разговоры, а видеть номера — право отдельное.
       phone: clientPhoneFor(c.phone, canSeePhone) as string | null,
+      staff: staffOf(c.phone),
       source: c.source,
       durationSec: c.talkSeconds,
       // У входящего callAttempt не бывает — это поле станции для звонков через
@@ -610,14 +633,17 @@ callsRouter.get("/incoming", supervisorOnly, async (req, res) => {
   const calledBackIds = await findCallbackContacts(
     overdue.flatMap((c) => (c.client?.id ? [{ id: c.id, clientId: c.client.id, since: c.startedAt }] : [])),
   );
+  const staffOf = await staffLookup(items.map((c) => c.phone));
   const missingCallbackById = new Map<string, boolean>();
   for (const call of overdue) {
+    if (staffOf(call.phone)) continue; // свой сотрудник — клиенту перезванивать некому
     if (!calledBackIds.has(call.id)) missingCallbackById.set(call.id, true);
   }
 
   const safeItems = items.map((call) => ({
     ...call,
     phone: clientPhoneFor(call.phone, canSeePhone),
+    staff: staffOf(call.phone),
     // Имя карточки закрывается тем же правом, что и номер (22.09.2026): раздел
     // открыт правом calls.transcripts, которое есть у маркетинга и службы
     // безопасности, а clients.viewPhone у них нет — и «Входящий +992910001003»
