@@ -154,10 +154,48 @@ export interface SimilarNotesCandidate {
  * человека). Вырезаем строки-ярлыки ДО сравнения — remainder это уже
  * собственные слова клиента, ради которых подсказка и задумана.
  */
-const LABEL_LINE_PATTERN = "(^|\\n)(🏷|💼|🔑|❓|📞)[^\\n]*";
+/*
+ * СИСТЕМНАЯ СТРОКА = СТРОКА СО ЗНАЧКА — правило класса, а не список значков
+ * (21.11.2026, снимок владельца: «Прочее обращение» показывало три «Похоже на…
+ * 82-84%» с тремя разными людьми). Прежний список из пяти значков (🏷💼🔑❓📞)
+ * отставал от кода: ярлык «🌍 ВНЕ ДУШАНБЕ — клиент назвал «Гиссар», мы работаем
+ * только по городу» (ai/leadKind.ts) и «🚫 НЕ НАШ ПРОФИЛЬ…» в него не попали, а у
+ * карточки из одного такого ярлыка отличается лишь название города. Замер прода
+ * 21.11: ВСЕ 162 подсказки у 20 карточек давали именно 🌍/🚫, ни одной настоящей.
+ * Каждый новый ярлык бота начинается со значка (📍 вне зоны, ⚠️, ✅…), поэтому
+ * вырезается любая строка, первым знаком которой стоит значок: стрелки, символы
+ * и дингбаты U+2190–U+2BFF (❓ ⚠ ✅) и эмодзи U+1F000–U+1FAFF (🏷 💼 📞 🌍 🚫 📍).
+ * Буквы (кириллица, таджикские Ҳ/Ҷ, латиница), цифры, кавычки и тире в эти
+ * диапазоны не входят — слова клиента и пересказ модели остаются.
+ *
+ * Одно правило в двух видах: для JS (текст открытой карточки) и для регулярки
+ * Postgres (текст кандидатов в самой таблице). Их равенство сверяет тест
+ * client-similar-notes-system-lines.test.ts на живой базе — разойдись они, одна
+ * сторона сравнивала бы «чистый» текст с «грязным».
+ */
+const SYSTEM_LINE_JS = /^[ \t]*[\u2190-\u2BFF\u{1F000}-\u{1FAFF}]/u;
+const SYSTEM_LINE_SQL = "(^|\\n)[ \\t]*[\\u2190-\\u2BFF\\U0001F000-\\U0001FAFF][^\\n]*";
 
-function stripLabelLines(text: string): string {
-  return text.replace(/(^|\n)(🏷|💼|🔑|❓|📞)[^\n]*/g, "").trim();
+/**
+ * Короче этого остаток заметок — не «уникальное содержание», а общая фраза
+ * пересказа («Клиент ищет дом», «Клиент хочет продать квартиру»): у двух разных
+ * людей она совпадает дословно, и similarity даёт 100%. Живой случай, ради
+ * которого подсказка задумана, — подробное описание объекта (сто знаков и больше).
+ */
+export const SIMILAR_NOTES_MIN_LENGTH = 40;
+
+/** Заметки без системных строк — то, что сравнивается. Экспорт — для теста равенства с SQL. */
+export function stripSystemNoteLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !SYSTEM_LINE_JS.test(line))
+    .join("\n")
+    .trim();
+}
+
+/** Тот же остаток, посчитанный Postgres-ом, — для сверки с stripSystemNoteLines в тесте. */
+export function stripSystemNoteLinesSql(column: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`btrim(regexp_replace(${column}, ${SYSTEM_LINE_SQL}, '', 'g'), E' \\n\\t\\r')`;
 }
 
 export async function fuzzySimilarClientNotes(
@@ -168,19 +206,30 @@ export async function fuzzySimilarClientNotes(
   // него стал бы слишком мягким): предложение слить карточки — это заведомо
   // редкое и уверенное совпадение, а не «может быть, похоже».
   threshold = 0.65,
-  limit = 3
+  limit = 3,
+  // Пары «это разные люди» (Client.dismissedSimilarClientIds) отсекаются ДО
+  // LIMIT: иначе три отклонённые пары занимали бы все места и закрывали
+  // четвёртую, настоящую.
+  excludeIds: string[] = []
 ): Promise<SimilarNotesCandidate[]> {
-  const trimmed = stripLabelLines(notes);
-  if (!trimmed) return [];
+  const trimmed = stripSystemNoteLines(notes);
+  if (trimmed.length < SIMILAR_NOTES_MIN_LENGTH) return [];
+  const stripped = stripSystemNoteLinesSql(Prisma.sql`"requirementsNotes"`);
   return prisma.$queryRaw<SimilarNotesCandidate[]>(Prisma.sql`
-    SELECT id, similarity(trim(regexp_replace("requirementsNotes", ${LABEL_LINE_PATTERN}, '', 'g')), ${trimmed}) AS similarity
-    FROM "Client"
-    WHERE "deletedAt" IS NULL
-      AND id != ${clientId}
-      AND "requirementsNotes" IS NOT NULL
-      AND "requirementsNotes" != ''
-      AND similarity(trim(regexp_replace("requirementsNotes", ${LABEL_LINE_PATTERN}, '', 'g')), ${trimmed}) > ${threshold}
-    ORDER BY similarity DESC
+    SELECT id, similarity
+    FROM (
+      SELECT id, ${stripped} AS rest
+      FROM "Client"
+      WHERE "deletedAt" IS NULL
+        AND id != ${clientId}
+        AND id <> ALL(${excludeIds}::text[])
+        AND "requirementsNotes" IS NOT NULL
+        AND "requirementsNotes" != ''
+    ) c
+    CROSS JOIN LATERAL (SELECT similarity(c.rest, ${trimmed}) AS similarity) s
+    WHERE length(c.rest) >= ${SIMILAR_NOTES_MIN_LENGTH}
+      AND s.similarity > ${threshold}
+    ORDER BY s.similarity DESC
     LIMIT ${limit}
   `);
 }

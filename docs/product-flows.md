@@ -3987,7 +3987,7 @@
 - если !client.requirementsNotes?.trim()
   - return res.json([]);
     · ответ 200
-- const candidates = await fuzzySimilarClientNotes(client.id, client.requirementsNotes);
+- const candidates = await fuzzySimilarClientNotes( client.id, client.requirementsNotes, undefined, undefined, …
   · зовёт fuzzySimilarClientNotes()
 - если candidates.length === 0
   - return res.json([]);

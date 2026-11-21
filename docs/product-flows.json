@@ -17418,7 +17418,7 @@
     },
     {
      "k": "do",
-     "t": "const candidates = await fuzzySimilarClientNotes(client.id, client.requirementsNotes);",
+     "t": "const candidates = await fuzzySimilarClientNotes( client.id, client.requirementsNotes, undefined, undefined, …",
      "a": [
       "зовёт fuzzySimilarClientNotes()"
      ],
