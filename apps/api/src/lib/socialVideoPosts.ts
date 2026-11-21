@@ -59,6 +59,7 @@ import { findSlotCollision, loadOccupiedPublishSlotsDetailed, OCCUPIED_SLOT_KIND
 import { dushanbeDateString, dushanbeTimeString } from "./dushanbeTime.js";
 import { describeError } from "./describeError.js";
 import { sendPushToAgent } from "../push.js";
+import { tellStaffSocialPostResult } from "../telegram/staffSocialPostResult.js";
 import { sharpFromUpload } from "./heicInput.js";
 import { publicUploadUrl } from "./crmPublicUrl.js";
 import { publishInstagramCarousel, publishFacebookPhotoPost, publishTelegramPhotoPost, type PhotoPostPublishResult } from "./photoPosts.js";
@@ -978,6 +979,27 @@ export async function deleteSocialVideo(id: string): Promise<void> {
   await removeCoverFiles([row.coverPath, row.coverSquarePath]);
 }
 
+/**
+ * Удалить ЧЕРНОВИК, только если его никто не трогал после `unchangedSince` (Шабнам, 21.11.2026):
+ * одним условным запросом — всё ещё DRAFT, не удалён и updatedAt не позже отметки. Черновик, который
+ * поправили, поставили в расписание или опубликовали в «Роликах» CRM, не удаляется никогда. true — удалён.
+ */
+export async function deleteSocialVideoDraftIfUntouched(id: string, unchangedSince: Date): Promise<boolean> {
+  const row = await prisma.socialVideoPost.findUnique({ where: { id } });
+  if (!row) return false;
+  const deleted = await prisma.socialVideoPost.updateMany({
+    where: { id, deletedAt: null, status: "DRAFT", updatedAt: { lte: unchangedSince } },
+    data: { deletedAt: new Date() },
+  });
+  if (deleted.count !== 1) return false;
+  if (row.mediaKind === "PHOTO") for (const p of row.imagePaths) await removeVideoFile(p);
+  else {
+    await removeVideoFile(row.videoPath);
+    await removeCoverFiles([row.coverPath, row.coverSquarePath]);
+  }
+  return true;
+}
+
 // ───────────────────────────── исполнение (фон) ─────────────────────────────
 
 /** Запись одного адреса в channelResults: читаем свежее, меняем одно место, пишем. Публикация идёт последовательно — гонок нет. */
@@ -1092,6 +1114,13 @@ async function notifyCreator(
     await sendPushToAgent(agentId, { kind: "task", ...payload, url: "/social-videos", tag: `social-video:${id}` });
   } catch (err) {
     void logSystemError("api", `Свободный ролик ${id}: не удалось уведомить автора об итоге — ${describeError(err)}`, { dedupKey: "social-video-notify" });
+  }
+  // Пост от Шабнам (21.11.2026): итог ещё и в личку Telegram того, кто нажал «Опубликовать», со ссылками.
+  try {
+    const links = keys.map((k) => results[k]?.url).filter((u): u is string => !!u);
+    await tellStaffSocialPostResult(id, [`${status === "DONE" ? "✅" : "⚠️"} ${payload.title}. ${payload.body}`, ...links].join("\n"));
+  } catch (err) {
+    void logSystemError("telegram", `Свободный ролик ${id}: итог в Telegram не ушёл — ${describeError(err)}`, { dedupKey: "social-video-notify-telegram" });
   }
 }
 

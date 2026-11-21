@@ -141,6 +141,7 @@ import { autoResolveDuplicateErrors } from "./lib/autoResolveDuplicateErrors.js"
 import { autoRefreshCustomerAgentRevision } from "./lib/customerAgentAutoRefresh.js";
 import { backfillInstagramUrls } from "./lib/backfillInstagramUrls.js";
 import { sellerSwitchOn } from "./lib/sellerSwitches.js";
+import { sweepStaffSocialPosts } from "./lib/staffSocialPostSweep.js";
 const MAX_REMINDER_HISTORY = 12;
 
 /**
@@ -2437,6 +2438,17 @@ export function startCronJobs() {
       if (alerted > 0) console.log(`[cron] Аларм «продавец без объекта после съёмки»: ${alerted}`);
     } catch (err) {
       reportCronTickError("Ошибка аларма «продавец без объекта после съёмки»", err);
+    }
+  });
+
+  // Брошенные посты без объекта от Шабнам и зависшие ролики «к какому объекту» (21.11.2026,
+  // lib/staffSocialPostSweep.ts): черновики, файлы, захваты. Молча, без сообщений людям.
+  scheduleTracked("staff-social-post-sweep", "*/15 * * * *", async () => {
+    try {
+      const r = await sweepStaffSocialPosts();
+      if (r.expired + r.dropped + r.restored + r.released + r.files > 0) console.log(`[cron] Уборка постов Шабнам: ${JSON.stringify(r)}`);
+    } catch (err) {
+      reportCronTickError("Ошибка уборки постов Шабнам", err);
     }
   });
 
