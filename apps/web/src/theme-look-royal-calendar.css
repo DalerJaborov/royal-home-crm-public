@@ -31,7 +31,7 @@
   display: inline-flex; gap: 2px; padding: 4px; border: 0; border-radius: var(--rh-r-full); background: var(--rh-seg-track); box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .seg > button {
-  min-height: 40px; min-width: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full); background: transparent; color: var(--rh-ui-hint);
+  min-height: var(--rh-ctl-h); min-width: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full); background: transparent; color: var(--rh-ui-hint);
   font: inherit; font-size: var(--rh-fs-md); font-weight: 600; box-shadow: none;
 }
 :root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .seg > button[aria-selected="true"] { background: var(--rh-seg-on); color: var(--rh-seg-on-fg); box-shadow: var(--rh-seg-on-shadow); }

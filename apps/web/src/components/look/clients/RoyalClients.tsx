@@ -59,7 +59,7 @@ export function RoyalClientRow({ id, name, href, avatar, identity, request, sour
   const overdue = !!deadline && new Date(nextActionDate!).getTime() < Date.now();
   const agent = agentName || (agentAssigned ? "Агент назначен" : "Не назначен");
   const who = <>
-    <span className="ry-crow-name">{name}</span>
+    <span className="ry-crow-name" title={name}>{name}</span>
     {identity && <span className={`ry-crow-id ${ROYAL_ROW_PC_ONLY}`}>{identity}</span>}
   </>;
   return (
@@ -95,7 +95,8 @@ export function RoyalClientRow({ id, name, href, avatar, identity, request, sour
           <span className="ry-crow-text">{agent}</span>
         </div>
       )}
-      {actions ? <div className="ry-crow-acts">{actions}</div> : null}
+      {/* Пустая клетка «действия» держит колонку таблицы на ПК; на телефоне скрыта (theme-look-royal-clients.css). */}
+      {actions ? <div className="ry-crow-acts">{actions}</div> : <div className="ry-crow-acts" aria-hidden="true" />}
     </div>
   );
 }

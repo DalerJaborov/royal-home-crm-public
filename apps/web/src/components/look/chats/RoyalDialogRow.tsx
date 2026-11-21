@@ -102,7 +102,7 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
         <RoyalChannelBadge channel={c.channel} />
       </span>
       <span className="ry-chat-tx">
-        <span className="ry-chat-name">{c.name ?? "Без имени"}</span>
+        <span className="ry-chat-name" title={c.name ?? undefined}>{c.name ?? "Без имени"}</span>
         <span className="ry-chat-last">
           {attention && <b className="ry-chat-flag"><Flame aria-hidden="true" />Просит агента · </b>}
           {accountLabel && <span className="ry-chat-acc">{accountLabel} · </span>}

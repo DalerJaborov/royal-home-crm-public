@@ -2,6 +2,7 @@ import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
 import { RoyalAmount } from "./RoyalAmount";
 import { pillTone, type PillTone } from "../tileTone";
+import { lenBucket } from "../../EmptyValue";
 
 /**
  * «НОВЫЙ ВИД» раздела «Деньги» (пачка money, 18.11.2026): итоги месяца плитками
@@ -30,7 +31,7 @@ export function RoyalMoneyTiles({ commission, companyRevenue, operatingExpenses,
     <div className="ry-money-tiles">
       <div className="ry-money-hero">
         <span className="ry-money-hero-label"><RoyalIcon name="banknote" size={24} />Валовая комиссия</span>
-        <strong className="ry-money-hero-value ry-num"><RoyalAmount text={commission} /></strong>
+        <strong className="ry-money-hero-value ry-num" data-len={lenBucket(commission)}><RoyalAmount text={commission} /></strong>
       </div>
       <Tile icon="building-2" tone="ok" label="Доход компании" value={companyRevenue} />
       <Tile icon="stack" tone={pillTone("today")} label="Операционные расходы" value={operatingExpenses} />
@@ -45,7 +46,7 @@ function Tile({ icon, tone, label, value }: { icon: RoyalIconName; tone: PillTon
       <span className="ry-circle" data-tone={tone === "neutral" ? "a0" : tone}><RoyalIcon name={icon} size={24} /></span>
       <span className="ry-money-tile-text">
         <span className="ry-money-tile-label">{label}</span>
-        <strong className="ry-money-tile-value ry-num"><RoyalAmount text={value} /></strong>
+        <strong className="ry-money-tile-value ry-num" data-len={lenBucket(value)}><RoyalAmount text={value} /></strong>
       </span>
     </div>
   );

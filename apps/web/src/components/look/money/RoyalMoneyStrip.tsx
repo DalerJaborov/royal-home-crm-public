@@ -1,4 +1,5 @@
 import type { FinanceMonth } from "../../../hooks/useFinance";
+import { lenBucket } from "../../EmptyValue";
 
 /**
  * ДОХОД, РАСХОДЫ И ПРИБЫЛЬ ОДНОЙ СТРОКОЙ (разделы директора, 20.11.2026).
@@ -13,18 +14,23 @@ const MONTHS_PREP = ["январе", "феврале", "марте", "апрел
 const nums = (v: number) => Math.round(v).toLocaleString("ru-RU");
 
 export function RoyalMoneyStrip({ current, previous }: { current: FinanceMonth; previous?: FinanceMonth }) {
+  // Один кегль на всю полосу — по самой длинной сумме (ревью #351).
+  const rank = { s: 0, m: 1, l: 2 } as const;
+  const len = ([current.companyRevenue, current.operatingExpenses, Math.abs(current.profit)].map((v) => lenBucket(`${nums(v)} с.`)).sort((a, b) => rank[b] - rank[a])[0]);
   const prevLabel = previous ? `в ${MONTHS_PREP[Number(previous.month.slice(5, 7)) - 1]}` : "";
   return (
     <section className="ry-money-strip" aria-label="Итог месяца: доход, расходы, прибыль">
       <Cell
+        len={len}
         label="Доход компании"
         value={current.companyRevenue}
         previous={previous?.companyRevenue}
         prevLabel={prevLabel}
         hint={`комиссия ${nums(current.revenue)}\u00a0с. минус доли агентов`}
       />
-      <Cell label="Расходы" value={current.operatingExpenses} previous={previous?.operatingExpenses} prevLabel={prevLabel} growthIsBad hint="реклама, зарплаты, офис" />
+      <Cell len={len} label="Расходы" value={current.operatingExpenses} previous={previous?.operatingExpenses} prevLabel={prevLabel} growthIsBad hint="реклама, зарплаты, офис" />
       <Cell
+        len={len}
         label={current.profit < 0 ? "Убыток" : "Прибыль"}
         value={current.profit}
         previous={previous?.profit}
@@ -59,7 +65,8 @@ export function profitDelta(value: number, previous: number, prevLabel: string):
   return { text: `${d > 0 ? "▲" : "▼"} на ${nums(Math.abs(d))} с. ${d > 0 ? "больше" : "меньше"}, чем ${prevLabel}`, good: d > 0 };
 }
 
-function Cell({ label, value, previous, prevLabel, hint, tone, growthIsBad = false, unsigned = false, delta }: {
+function Cell({ label, value, previous, prevLabel, hint, tone, growthIsBad = false, unsigned = false, delta, len }: {
+  len: "s" | "m" | "l";
   label: string; value: number; previous?: number; prevLabel: string; hint: string; tone?: "ok" | "crit"; growthIsBad?: boolean;
   /** Знак уже сказан словом («Убыток») — число без минуса. */
   unsigned?: boolean;
@@ -73,9 +80,9 @@ function Cell({ label, value, previous, prevLabel, hint, tone, growthIsBad = fal
   };
   const shownDelta = delta !== undefined ? delta : simple;
   return (
-    <div className="ry-money-strip-cell" data-tone={tone}>
+    <div className="ry-money-strip-cell rh-fit-host" data-tone={tone}>
       <span className="ry-money-strip-label">{label}</span>
-      <strong className="ry-money-strip-value ry-num">{nums(unsigned ? Math.abs(value) : value)}{"\u00a0"}с.</strong>
+      <strong className="ry-money-strip-value ry-num rh-fit" data-len={len}>{nums(unsigned ? Math.abs(value) : value)}{" "}с.</strong>
       {shownDelta && (
         <span className="ry-money-strip-delta" data-good={shownDelta.good === null ? undefined : String(shownDelta.good)}>
           {shownDelta.text}
