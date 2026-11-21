@@ -67,22 +67,3 @@ export function pillToneOf(severity: "crit" | "warn" | "ok" | "muted" | "mute" |
   if (severity === "ok") return pillTone("good", count);
   return pillTone("info", count);
 }
-
-/** Шаг клиента просрочен на сутки и больше — красный; свежая просрочка — жёлтая (то же, что «сегодня»). */
-export const CALL_NOW_CRIT_AFTER_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Чип действия в строке клиента (К13, 13.1; ревью #346). «Позвонить сейчас» — шаг просрочен, и пилюля не может быть
- * спокойнее «ответить»: цвет идёт по сроку, как дата рядом («просрочено · …»): свежая просрочка жёлтая, от суток
- * и больше красная. Остальные: «принять заявку», «ответить», «первый звонок» ждут сегодня (жёлтые), красные — только
- * когда заявку никто не принял вовремя.
- */
-/** Тон просроченного шага по сроку: жёлтый до суток, красный от суток. Один на дату и на чип («позвонить сейчас»). */
-export function overdueStepTone(overdueMs: number | undefined): PillTone {
-  return pillTone((overdueMs ?? 0) >= CALL_NOW_CRIT_AFTER_MS ? "overdue" : "today");
-}
-
-export function clientActionPillTone(action: { id: string; tone: "warn" | "crit"; overdueMs?: number }): PillTone {
-  if (action.id === "call-now") return overdueStepTone(action.overdueMs);
-  return pillTone(action.tone === "crit" ? "overdue" : "today");
-}
