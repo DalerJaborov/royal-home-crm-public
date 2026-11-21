@@ -24,7 +24,9 @@ vi.mock("../src/lib/botLessons.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { isWhatsAppWindowFailure, windowClosedStaffText } = await import("../src/lib/messagingWindow.js");
+const { isWhatsAppWindowFailure, windowClosedStaffText, isMessagingWindowOpen } = await import("../src/lib/messagingWindow.js");
+const { lastInboundAt, messagingWindowState } = await import("@royal-home/shared");
+const { lastInboundMessageAt, isMessagingWindowClosed } = await import("../../web/src/lib/messagingWindow.js");
 let fixture: CustomerMessengerFixture;
 let botId: string;
 const target = () => ({ kind: "bot" as const, id: botId, channel: "WHATSAPP", subscriberId: "992900000001", accountId: fixture.id, transport: fixture.transport });
@@ -74,6 +76,50 @@ describe("WhatsApp: вне окна 24 часов", () => {
     await setLastClient(null);
     const r = await deliverToConversation(target(), "Добрый день", undefined, { sender: { kind: "agent", agentId: "a1", agentName: "Умед" } });
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("гонка: клиент ответил на шаблон, реплика ещё не легла в переписку", () => {
+  it("в переписке старая реплика (9 дней), но входящий пришёл сейчас — ссылка уходит", async () => {
+    const { deliverToConversation } = await import("../src/lib/conversationDelivery.js");
+    await setLastClient(hoursAgo(9 * 24));
+    const r = await deliverToConversation(target(), "Ссылка на объект", undefined, {
+      sender: { kind: "agent", agentId: "a1", agentName: "Умед" }, inboundAt: new Date(),
+    });
+    expect(r.ok).toBe(true);
+    expect(sendMetaMessage).toHaveBeenCalledTimes(1);
+  });
+  it("без времени входящего та же переписка блокируется", async () => {
+    const { deliverToConversation } = await import("../src/lib/conversationDelivery.js");
+    await setLastClient(hoursAgo(9 * 24));
+    const r = await deliverToConversation(target(), "Ссылка на объект", undefined, { sender: { kind: "agent", agentId: "a1", agentName: "Умед" } });
+    expect(r).toMatchObject({ ok: false, code: "window_closed" });
+  });
+});
+
+describe("одно правило окна: сервер, экран и кнопка согласны", () => {
+  const cases: { name: string; messages: { role: string; at?: string }[] }[] = [
+    { name: "свежая реплика", messages: [{ role: "user", at: hoursAgo(1) }] },
+    { name: "старая реплика", messages: [{ role: "user", at: hoursAgo(50) }] },
+    { name: "порядок записей не совпадает со временем: позднее стоит раньше", messages: [{ role: "user", at: hoursAgo(1) }, { role: "assistant" }, { role: "user", at: hoursAgo(80) }] },
+    { name: "реплики без времени", messages: [{ role: "user" }, { role: "assistant", at: hoursAgo(1) }] },
+    { name: "клиент не писал", messages: [{ role: "assistant", at: hoursAgo(1) }] },
+  ];
+  for (const c of cases) {
+    it(c.name, () => {
+      const last = lastInboundAt(c.messages);
+      const state = messagingWindowState("WHATSAPP", last);
+      // сервер (проверка отправки и подсказка в карточке) и экран дают один ответ
+      expect(isMessagingWindowOpen("WHATSAPP", last)).toBe(state !== "closed");
+      expect(isMessagingWindowClosed("WHATSAPP", lastInboundMessageAt(c.messages as never))).toBe(state === "closed");
+    });
+  }
+  it("максимум по времени, неизвестно не блокирует, Telegram без окна", () => {
+    expect(lastInboundAt(cases[2].messages)?.getTime()).toBeGreaterThan(Date.now() - 2 * 3600_000);
+    expect(messagingWindowState("WHATSAPP", null)).toBe("unknown");
+    expect(messagingWindowState("TELEGRAM", hoursAgo(500))).toBe("open");
+    expect(lastInboundAt([{ role: "user", at: hoursAgo(100) }], new Date())).not.toBeNull();
+    expect(messagingWindowState("WHATSAPP", lastInboundAt([{ role: "user", at: hoursAgo(100) }], new Date()))).toBe("open");
   });
 });
 

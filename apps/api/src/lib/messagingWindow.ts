@@ -1,4 +1,8 @@
 import { prisma } from "../db.js";
+import { META_MESSAGING_WINDOW_MS, WINDOWED_CHANNELS, messagingWindowState } from "@royal-home/shared";
+
+// Одно правило окна на сервер и экран — packages/shared/src/messagingWindow.ts.
+export { META_MESSAGING_WINDOW_MS };
 
 /**
  * ЗАКРЫТОЕ ОКНО ПЕРЕПИСКИ У META — ОДНО ОПРЕДЕЛЕНИЕ НА ПРОЕКТ.
@@ -59,19 +63,14 @@ export function isMessagingWindowClosedError(message: string): boolean {
   return false;
 }
 
-/** Сутки Meta: столько после сообщения клиента ему можно писать свободным текстом. */
-export const META_MESSAGING_WINDOW_MS = 24 * 60 * 60 * 1000;
-
 /**
- * Открыто ли окно ДО отправки (28.09.2026) — чтобы агент видел «не дойдёт» на
- * кнопке, а не в отказе после. Правило только у каналов Meta; Telegram и чат
- * на сайте окна не знают. Клиент не писал вовсе — окно закрыто: так бывает у
- * диалога, заведённого первым сообщением из CRM.
+ * Окно НЕ закрыто — ДО отправки (28.09.2026, правило сведено 21.11.2026).
+ * Считает packages/shared: «неизвестно» (клиент не писал или отметок времени нет)
+ * НЕ блокирует — решит сама платформа; блокируем только достоверно закрытое.
+ * Правило только у каналов Meta; Telegram и чат на сайте окна не знают.
  */
 export function isMessagingWindowOpen(channel: string, lastClientMessageAt: Date | null, now = Date.now()): boolean {
-  if (channel !== "WHATSAPP" && channel !== "INSTAGRAM" && channel !== "FACEBOOK") return true;
-  if (!lastClientMessageAt) return false;
-  return now - lastClientMessageAt.getTime() < META_MESSAGING_WINDOW_MS;
+  return messagingWindowState(channel, lastClientMessageAt, now) !== "closed";
 }
 
 /**
@@ -90,8 +89,6 @@ export function isMessagingWindowOpen(channel: string, lastClientMessageAt: Date
  * однажды получивший сообщение, пишет туда когда угодно, поэтому наличие ЛЮБОГО
  * телеграм-диалога у клиента уже само по себе делает «написать» возможным.
  */
-const WINDOW_MS = META_MESSAGING_WINDOW_MS;
-const WINDOWED_CHANNELS = ["WHATSAPP", "INSTAGRAM", "FACEBOOK"] as const;
 
 export async function hasOpenMessagingChannel(clientId: string, now: Date = new Date()): Promise<boolean> {
   const [metaConversations, telegram, telegramDirect] = await Promise.all([
@@ -103,7 +100,7 @@ export async function hasOpenMessagingChannel(clientId: string, now: Date = new 
     prisma.telegramDirectConversation.findFirst({ where: { clientId }, select: { id: true } }),
   ]);
   if (telegram || telegramDirect) return true;
-  return metaConversations.some((c) => c.lastMessageAt && now.getTime() - c.lastMessageAt.getTime() < WINDOW_MS);
+  return metaConversations.some((c) => c.lastMessageAt && now.getTime() - c.lastMessageAt.getTime() < META_MESSAGING_WINDOW_MS);
 }
 
 /**

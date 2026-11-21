@@ -29,7 +29,8 @@ import {
 } from "../messengers/meta.js";
 // Из отдельного модуля, а не из meta.js: чистая проверка, которую тест доставки
 // теперь берёт настоящую вместо копии (см. lib/messagingWindow.ts).
-import { isMessagingWindowClosedError, isMessagingWindowOpen, windowClosedStaffText } from "./messagingWindow.js";
+import { isMessagingWindowClosedError, windowClosedStaffText } from "./messagingWindow.js";
+import { isMessagingWindowClosedFor, lastInboundAt } from "@royal-home/shared";
 import { isMetaSendBlockError, metaSendBlockStaffText } from "./metaSendBlock.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
@@ -315,13 +316,14 @@ export type DeliveryResult =
  */
 async function windowClosedBeforeSend(
   target: DeliveryTarget,
-  sender: MessageSender | undefined
+  sender: MessageSender | undefined,
+  /** Реплика клиента, пришедшая только что и ещё не записанная в переписку. */
+  justReceivedAt?: Date | null
 ): Promise<{ ok: false; status: number; error: string; code: "window_closed" } | null> {
   if (target.kind !== "bot") return null;
   const channel = target.channel;
-  if (channel !== "WHATSAPP" && channel !== "INSTAGRAM" && channel !== "FACEBOOK") return null;
-  const lastAt = await lastClientMessageAt(target);
-  if (!lastAt || isMessagingWindowOpen(channel, lastAt)) return null;
+  const lastAt = await lastClientMessageAt(target, justReceivedAt);
+  if (!isMessagingWindowClosedFor(channel, lastAt)) return null;
   if (!sender || sender.kind === "system" || sender.kind === "bot") {
     console.log(`[окно] ${channel}: клиент ${target.subscriberId} не писал больше суток — сообщение не отправлено`);
   }
@@ -360,6 +362,9 @@ export async function deliverToConversation(
      *  показ, напоминание) без человека за штурвалом, и «system» честнее, чем
      *  молча приписывать их боту или безымянному «кому-то». */
     sender?: MessageSender;
+    /** Время реплики клиента, пришедшей прямо сейчас и ещё не легшей в переписку:
+     *  ответ на неё всегда внутри окна (вебхук → ссылка на объект и т. п.). */
+    inboundAt?: Date;
   }
 ): Promise<DeliveryResult> {
   const isTelegram = target.kind === "telegram";
@@ -391,7 +396,7 @@ export async function deliverToConversation(
     };
   }
 
-  const windowClosed = await windowClosedBeforeSend(target, options?.sender);
+  const windowClosed = await windowClosedBeforeSend(target, options?.sender, options?.inboundAt);
   if (windowClosed) return windowClosed;
 
   // Снимок последней реплики бота — ДО того, как допишем ответ оператора: после
@@ -1271,21 +1276,17 @@ async function rememberAgentStyleExample(
  * Нужна правилу окна Meta (lib/messagingWindow.ts::isMessagingWindowOpen):
  * агент видит «уйдёт / не уйдёт» до нажатия. Отказ базы — null, как у соседей.
  */
-export async function lastClientMessageAt(target: DeliveryTarget): Promise<Date | null> {
+export async function lastClientMessageAt(target: DeliveryTarget, justReceivedAt?: Date | null): Promise<Date | null> {
   try {
     const row =
       target.kind === "telegram"
         ? await prisma.telegramConversation.findUnique({ where: { id: target.id }, select: { messages: true } })
         : await prisma.botConversation.findUnique({ where: { id: target.id }, select: { messages: true } });
     const messages = (Array.isArray(row?.messages) ? row.messages : []) as { role?: string; at?: string }[];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role !== "user") continue;
-      const at = messages[i]?.at ? new Date(messages[i].at!) : null;
-      return at && !Number.isNaN(at.getTime()) ? at : null;
-    }
-    return null;
+    // Максимум по времени (не последняя запись списка) — общее правило окна Meta.
+    return lastInboundAt(messages, justReceivedAt);
   } catch {
-    return null;
+    return justReceivedAt ?? null;
   }
 }
 
